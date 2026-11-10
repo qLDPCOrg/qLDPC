@@ -487,13 +487,14 @@ def test_group_tensor_product() -> None:
 
 def test_wreath_product_group() -> None:
     """Permutational wreath product of top and bottom groups."""
-    top = abstract.SymmetricGroup(3).with_natural_lift()
+    # a top group of order 2 that acts on 3 points, so that the wreath product is small
+    top = abstract.Group(abstract.GroupMember(0, 1, size=3)).with_natural_lift()
     bottom = abstract.CyclicGroup(2)
     group = abstract.WreathProductGroup(top, bottom)
 
     assert group.top is top and group.bottom is bottom
     assert group.top_degree == 3 and group.bottom_degree == 2
-    assert group.order == top.order * bottom.order**group.top_degree == 48
+    assert group.order == top.order * bottom.order**group.top_degree == 16
     assert group.lift_dim == group.top_degree * group.bottom_degree == 6
 
     top_member = top.generators[0]

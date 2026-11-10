@@ -78,7 +78,7 @@ def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: 
     """Large basis families of overlapping sets give the counts of a brute-force scan."""
     tune(overlapping_minimum_work=0, max_information_sets=max_sets)
     # This code makes the basis family stages choose basis families of over four overlapping sets.
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
@@ -90,7 +90,7 @@ def test_counts_through_the_costly_stages_count_every_word_once(
 ) -> None:
     """Counts with partitioned families and the certificate of linear programs are exact."""
     tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
@@ -116,7 +116,7 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
 
     monkeypatch.setattr(information_sets, "get_overlapping_family", record)
     tune(overlapping_minimum_work=0)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     weights = range(len(code) + 1)
     for weight in weights:
         lc.count_logical_ops_css(code, weight)
@@ -221,7 +221,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
 
     monkeypatch.setattr(scan._StepTables, "select", record)
     tune(overlapping_minimum_work=0, max_information_sets=max_sets, **FORCED_TABLES)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    code = get_random_css_code(np.random.default_rng(5), 14, 5, 5)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]

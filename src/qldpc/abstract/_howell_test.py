@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from qldpc import abstract, math
+from qldpc.abstract._howell import _get_block_howell_form
 
 
 def test_howell_form_standardization_and_errors(ring_dihedral3_gf5: abstract.GroupRing) -> None:
@@ -100,29 +101,28 @@ def assert_same_module(
     assert rank_a == rank_b == np.linalg.matrix_rank(both)
 
 
+def test_block_howell_form_pads_block_rows() -> None:
+    """Block-Howell forms start a new block row at each pivot in a later block column.
+
+    With blocks of size 3, the padding that completes a block row can have one or two zero rows.
+    """
+    field = galois.GF(5)
+    zero, identity = field.Zeros((3, 3)), field.Identity(3)
+    for rank in [1, 2]:
+        # this block matrix is already in block-Howell form
+        partial_identity = field(np.diag([1] * rank + [0] * (3 - rank)))
+        blocks = field([[partial_identity, zero], [zero, identity]])
+        assert np.array_equal(_get_block_howell_form(blocks), blocks)
+
+        # a block row with fewer pivots than the size of its blocks is padded with zero rows
+        assert np.array_equal(_get_block_howell_form(blocks[:1, :1]), blocks[:1, :1])
+
+
 @pytest.mark.parametrize("right", [False, True])
 def test_howell_form_semisimple_is_howell(
-    ring_dihedral3_gf5: abstract.GroupRing, ring_alternating4_gf5: abstract.GroupRing, right: bool
+    ring_dihedral3_gf5: abstract.GroupRing, right: bool
 ) -> None:
     """The semisimple Howell normal form spans the same module, and has the Howell property."""
-    # a pivot in a later block column of a matrix component starts a new block row, here in a
-    # component of size 3
-    component_transformer = next(
-        ct for ct in ring_alternating4_gf5.get_transformer().transformers if ct.size == 3
-    )
-    unit = component_transformer.extended_field.Zeros((3, 3))
-    unit[0, 0] = 1
-    e3_11 = component_transformer.embed(unit)
-    matrix = abstract.RingArray.build([[e3_11, 0], [0, 1]])
-    howell = matrix.howell_normal_form_semisimple(right=right)
-    assert np.array_equal(howell, matrix)
-    assert_howell_form(howell, right=right)
-
-    # a block row with one pivot in a matrix component is padded to the size of the component
-    howell = abstract.RingArray.build([[e3_11]]).howell_normal_form_semisimple(right=right)
-    assert np.array_equal(howell, abstract.RingArray.build([[e3_11]]))
-
-    # random matrices
     rng = np.random.default_rng(0)
     ring = ring_dihedral3_gf5
     for _ in range(4):

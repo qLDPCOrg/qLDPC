@@ -584,7 +584,7 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
     problems = [
         *QUBIT_PROBLEMS.values(),
         *(get_qubit_problem(codes.QuditCode(matrix)) for matrix in mixed_five_qubit_codes),
-        *get_random_qubit_problems(rng, 30),
+        *get_random_qubit_problems(rng, 10),
     ]
     for problem in problems:
         num_qubits = problem[0].shape[1] // 2

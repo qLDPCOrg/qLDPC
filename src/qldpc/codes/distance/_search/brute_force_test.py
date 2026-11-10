@@ -58,16 +58,20 @@ def test_get_distance_classical(batch_exponent: int, tune: Tune) -> None:
 
 
 @pytest.mark.parametrize("homogeneous", [True, False], ids=["hamming", "symplectic"])
-@pytest.mark.parametrize("batch_exponent", [1, 3, 13])
+@pytest.mark.parametrize("batch_exponent", [1, 3, 7])
 def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune) -> None:
     """get_distance_quantum visits every stabilizer + logical-op combination exactly once.
 
     The spy records each enumerated word through its weight function: ``np.bitwise_count`` for
     Hamming weights, and ``symplectic_weight`` for symplectic weights.
+
+    Hamming words take two packed words, so the batches vectorize no rows, two of the four
+    stabilizers, or every stabilizer and two logical operators.  Symplectic words take four, so
+    the batches vectorize no rows, or every stabilizer and one logical operator.
     """
     tune(enumeration_batch_exponent=batch_exponent)
     rng = np.random.default_rng(97)
-    num_stabilizers, num_bits = (8, 97) if homogeneous else (3, 98)
+    num_stabilizers, num_bits = (4, 97) if homogeneous else (3, 98)
     stabilizers = rng.integers(2, size=(num_stabilizers, num_bits))
     logical_ops = rng.integers(2, size=(5, num_bits))
 

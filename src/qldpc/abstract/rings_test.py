@@ -411,9 +411,8 @@ def assert_primitive_central_idempotents(
 @pytest.mark.parametrize(
     "group, field",
     [
-        (abstract.DihedralGroup(3), galois.GF(7)),
-        (abstract.CyclicGroup(5), galois.GF(4)),
-        (abstract.CyclicGroup(5), galois.GF(9, irreducible_poly="x^2 + 1")),
+        (abstract.DihedralGroup(4), galois.GF(5)),
+        (abstract.CyclicGroup(4), galois.GF(9, irreducible_poly="x^2 + 1")),
     ],
 )
 def test_computed_primitive_central_idempotents(
@@ -421,9 +420,10 @@ def test_computed_primitive_central_idempotents(
 ) -> None:
     """Computed idempotents are the primitive central idempotents, sorted by their coefficients.
 
-    D3 is not abelian, so conjugation by every generator matters.  Over GF(4), the F_4-conjugacy
-    classes of C5 differ from its F_2-conjugacy classes.  Over GF(9) with a non-default irreducible
-    polynomial, the idempotents of C5 have coefficients outside the prime field.
+    D4 is not abelian, and over GF(5) the 5th power of each of its members is the member itself, so
+    conjugation by every generator matters.  Over GF(9), the F_9-conjugacy classes of C4 differ from
+    its F_3-conjugacy classes, and with a non-default irreducible polynomial, the idempotents of C4
+    have coefficients outside the prime field.
     """
     ring = abstract.GroupRing(group, field)
     idempotents = rings._get_primitive_central_idempotents(ring)
