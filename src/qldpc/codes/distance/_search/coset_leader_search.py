@@ -116,9 +116,9 @@ class CosetLeaderSearch:
     for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are sparse.
     Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its checks with
     sparser ones that span the same space, which can fall short of the sparsest generators.  Which
-    checks it finds depends on the tuning, and changes which error a query returns, but not its
-    answer or its lower bound.  The CSS weight is not a sum over qubits, so it weighs errors by
-    CSS weight only on CSS states, whose X and Z parts it searches separately.  Like the BZ
+    checks it finds depends on the tuning, and can change which error a query returns, but not its
+    answer or its lower bound.  The CSS weight is not a sum over qubits, so it weighs errors by CSS
+    weight only on CSS states, whose X and Z parts it searches separately.  Like the BZ
     searches, it first looks up errors of weight at most one, so a syndrome with such an error gets
     the weight of its lightest errors as a lower bound.  For any other syndrome, a query with an
     error within ``max_weight`` gives two, and a query with none gives the larger of two and
@@ -826,14 +826,14 @@ def _get_sparser_rows(
     once ``rounds_without_improvement`` rounds in a row have left the total weight unchanged, and a
     last pass of ``_sparsify`` adds rows to each other where that helps.  The rows need not be the
     sparsest.  Rows with the same span give a search the same answers and bounds, though perhaps
-    other representatives, so the rounds may be random, and a fixed seed makes them reproducible.
+    other representatives.  So the rounds may be random, and a fixed seed makes them reproducible.
 
     Args:
         matrix: Independent rows.
         homogeneous: False if the rows are symplectic, and True otherwise.
         max_rounds: The most rounds, or zero for the rows of ``_sparsify``.
-        rounds_without_improvement: The number of rounds in a row without a lower total weight
-            after which the rounds stop.
+        rounds_without_improvement: The number of rounds in a row without a lower total weight after
+            which the rounds stop.
 
     Returns:
         The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.  The
@@ -844,9 +844,9 @@ def _get_sparser_rows(
         return rows, transform
 
     # Each round adds the rows of a reduction that are lighter than the heaviest current row.  The
-    # rows come first among candidates of equal weight, so a round that finds nothing lighter keeps
-    # them.  Row-reducing the transposed candidates, sorted by weight, takes as pivots the first
-    # candidates that are independent of those before them.
+    # rows come first among candidates of equal weight, so a round that does not lower the total
+    # weight leaves the rows as they are.  Row-reducing the transposed candidates, sorted by weight,
+    # takes as pivots the first candidates that are independent of those before them.
     rng = np.random.default_rng(_SPARSIFYING_SEED)
     weights = _get_row_weights(rows, homogeneous=homogeneous)
     rounds_unchanged = 0

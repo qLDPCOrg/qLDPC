@@ -90,7 +90,7 @@ Routes and the names that control them
      - :attr:`SearchTuning.automorphism_minimum_states`
      -
      - `Section 3.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#35-symmetries>`__
-   * - Making the checks of connected-support searches of the lightest Pauli errors sparser
+   * - Making the checks of the connected-support coset searches of ``CosetLeaderSearch`` sparser
      - :attr:`SearchTuning.max_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -
      - `Section 3.8 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#38-vectors-with-a-given-syndrome>`__

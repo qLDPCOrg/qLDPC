@@ -1174,21 +1174,23 @@ def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
 
 
 def test_rounds_of_random_reductions_make_rows_sparser() -> None:
-    """Rounds reach the lightest basis of rows that adding rows to each other leaves heavier.
+    """Rounds reach a lightest basis, which adding rows to each other misses.
 
-    The seven nonzero words of the span of these Paulis on five qubits act on 2, 5, 4, 5, 5, 5, and
-    4 qubits, so their lightest basis weighs 2 + 4 + 4 = 10 in total.  No sum of two rows is lighter
-    than a row, so zero rounds keep the given rows, of total weight 11.
+    Three independent words of the span of these Paulis on five qubits act on three qubits each, so
+    they form a lightest basis, of total weight 9.  Adding rows to each other replaces the first row
+    with its sum with the second, which is one of them, and then no sum of two rows is lighter than
+    a row, so zero rounds give total weight 10.  Another of the three words has two Ys, so it counts
+    five bits, and rows weighed by bits would miss it.
     """
     matrix = np.array(
         [
-            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 0, 1, 1, 0, 1, 1, 1, 1, 1],
-            [1, 1, 0, 0, 1, 0, 1, 0, 1, 0],
+            [0, 1, 1, 0, 1, 1, 0, 0, 0, 1],
+            [0, 0, 0, 1, 1, 1, 0, 0, 0, 1],
+            [1, 0, 1, 0, 1, 0, 1, 0, 0, 0],
         ],
         dtype=np.uint8,
     )
-    for max_rounds, total_weight in [(0, 11), (20, 10)]:
+    for max_rounds, total_weight in [(0, 10), (20, 9)]:
         rows, transform = coset_leader_search._get_sparser_rows(
             matrix, homogeneous=False, max_rounds=max_rounds, rounds_without_improvement=20
         )

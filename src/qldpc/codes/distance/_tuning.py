@@ -25,8 +25,8 @@ What tuning can and cannot change:
   nontrivial word that it finds at or below ``cutoff``, and which word comes first depends on
   tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
-- A query of ``CosetLeaderSearch`` gives the same answer and lower bound under every tuning, but the
-  error that it returns can depend on tuning.
+- A query of ``CosetLeaderSearch`` gives the same answer under every tuning, and with the
+  connected-support method the same lower bound, but the error that it returns can depend on tuning.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
   process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
   ``LOCAL_CLIFFORD_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``), so a later search with another
@@ -295,22 +295,22 @@ class SearchTuning:
     automorphism_minimum_states: int = 100_000
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
-    #: this many rounds, each of which row-reduces them in a random order of the columns and keeps
-    #: the light rows (Section 3.8 of ``connected_support.md``).  Raising it can make the queries
-    #: faster, at the cost of building the oracle; zero only adds checks to each other while that
-    #: makes them lighter, and ``MAX_VALUE`` leaves the rounds to
-    #: ``sparsifying_rounds_without_improvement``.  Defaults to 1000, chosen by hand: the mean
-    #: weight of the checks of the state ``|0⟩`` of the [[232, 62, 12]] pair-partition code stops
-    #: falling near there.  To retune it, time a certification's queries and the building of its
-    #: oracle.
+    #: this many rounds, each a row reduction in a random order of the columns (Section 3.8 of
+    #: ``connected_support.md``).  Raising it can make the queries faster, at the cost of a slower
+    #: build of the oracle; zero only adds checks to each other while that makes them lighter, and
+    #: ``MAX_VALUE`` leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to
+    #: 1000, chosen by hand: the mean weight of the checks of the state ``|0⟩`` of the
+    #: [[232, 62, 12]] pair-partition code stops falling near there.  To retune it, time building
+    #: the oracle and its queries.
     max_sparsifying_rounds: int = 1000
 
     #: Making checks sparser stops early after this many rounds in a row that leave the total
     #: weight of the checks unchanged (see ``max_sparsifying_rounds``).  Raising it spends more
     #: rounds on checks that rarely get lighter; zero stops after the first round, and ``MAX_VALUE``
-    #: never stops early.  Defaults to 200, chosen by hand from the rounds between improvements on
-    #: the pair-partition codes of ``experiments/connected_support_distance/benchmark.py``.  To
-    #: retune it, record the rounds between improvements.
+    #: never stops early, so that with both fields at ``MAX_VALUE`` the rounds never end.  Defaults
+    #: to 200, chosen by hand from the rounds between improvements on the pair-partition codes of
+    #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record the rounds
+    #: between improvements.
     sparsifying_rounds_without_improvement: int = 200
 
     # Fields of completion tables.

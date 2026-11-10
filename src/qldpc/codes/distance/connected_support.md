@@ -285,21 +285,22 @@ The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS sta
 The search is fast only if its checks are sparse.
 But the stabilizers that certification passes are row-reduced, and so are the X and Z parts that `CosetLeaderSearch` searches for the CSS weight.
 So a search first replaces its checks with sparser ones that span the same space, and maps the syndrome of each query to them.
-The sparsest such checks are a lightest basis, which the greedy algorithm for matroids would find by taking, again and again, the lightest word of the span outside the span of those taken so far.
+The sparsest such checks are a lightest basis.
+The greedy algorithm for matroids would find one by taking, again and again, the lightest word of the span outside the span of those taken so far.
 But each step would be an exact search for a light word of the span, whose cost grows quickly with its weight, so a search takes its candidates from row reductions instead.
 It first adds its checks to each other while that makes them lighter.
 Then each round row-reduces the given checks with pivots in a random order of the columns, which gives the words of the span that have exactly one pivot column in their support.
 Those that are lighter than the heaviest check join the checks as candidates.
-After each round, the greedy algorithm for matroids keeps the lightest independent candidates, so the total weight of the checks never rises.
+Each round then keeps, by the greedy algorithm for matroids, the lightest independent candidates, so the total weight of the checks never rises.
 The rounds stop after `max_sparsifying_rounds`, or once `sparsifying_rounds_without_improvement` rounds in a row have left the total weight unchanged.
 Both limits are fields of `SearchTuning`.
 A last pass adds the checks to each other again where that helps.
-Checks with the same span give the same answers and bounds, though a query can return another error, so the random orders change mostly the speed of the queries.
+Checks with the same span give the same answers and bounds, so the random orders change only the speed of the queries and which errors they return.
 A fixed seed makes the checks reproducible.
-For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, this lowers the mean weight of the stabilizers from 26 to 6.5, the least possible.
+For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, this lowers the mean weight of the 144 generators of its stabilizer group from 26 to 6.5, the least possible.
 No stabilizer of the code weighs less than 6, the weight of its checks, and only 132 of the generators can lie in its stabilizer group.
 The other 12 are logical operators, so they weigh at least the distance, 12.
-On the [[232, 62, 12]] pair-partition code, it lowers the mean weight from 54 to 9.1, while the checks of the code weigh 8.
+On the state `|0⟩` of the [[232, 62, 12]] pair-partition code, this lowers the mean weight from 54 to 9.1, while the checks of the code weigh 8.
 On longer codes of higher rate, a round rarely makes a light word one of its rows, and the checks stay much heavier than those of the code.
 On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 60.
 
@@ -326,7 +327,8 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, and the root `-1` of `_search_supports` |
-| Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_get_sparser_rows`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py`, and `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
+| Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_get_sparser_rows`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
+| How many rounds make the checks of a coset search sparser | `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
 | Table of light vectors, and increasing limits for batches | `_ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`), and `CosetLeaderSearch._get_batch_support_bound`, in `_search/coset_leader_search.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
