@@ -29,21 +29,28 @@ def iter_monomial_terms(polynomial: sympy.Basic | int | np.int_) -> tuple[sympy.
 def get_coefficient_and_exponents(
     monomial: sympy.Integer | sympy.Symbol | sympy.Pow | sympy.Mul | int | np.int_,
 ) -> tuple[int, list[tuple[sympy.Symbol, int]]]:
-    """Extract the coefficients and exponents in a SymPy monomial expression.
+    """Extract the coefficient and exponents in a SymPy monomial expression.
 
-    For example, this method takes 5 * x**3 * y**2 to (5, [(x, 3), (y, 2)]).
+    For example, this method takes 5 * x**3 * y**-2 to (5, [(x, 3), (y, -2)]).  The factors are
+    listed in the order of the monomial, which matters for non-commutative symbols.  Integer-valued
+    floats are read as integers.  Raise a ValueError unless the monomial is an integer times a
+    product of integer powers of symbols.
     """
-    if isinstance(monomial, (sympy.Integer, int, np.int_)):
-        return int(monomial), []
-    coeff, monomial = monomial.as_coeff_Mul()
+    coeff, content = sympy.sympify(monomial).as_coeff_Mul()
+    if not _is_integer(coeff):
+        raise ValueError(f"The coefficient of {monomial} is not an integer")
     exponents = []
-    if isinstance(monomial, sympy.Symbol):
-        exponents.append((monomial, 1))
-    elif isinstance(monomial, sympy.Pow):
-        base, exponent = monomial.as_base_exp()
-        exponents.append((base, exponent))
-    elif isinstance(monomial, sympy.Mul):
-        for factor in monomial.args:
-            base, exponent = factor.as_base_exp()
-            exponents.append((base, exponent))
+    for factor in sympy.Mul.make_args(content):
+        if factor == 1:
+            continue
+        base, exponent = factor.as_base_exp()
+        if not (isinstance(base, sympy.Symbol) and _is_integer(exponent)):
+            raise ValueError(f"{monomial} is not a product of integer powers of symbols")
+        exponents.append((base, int(exponent)))
     return int(coeff), exponents
+
+
+def _is_integer(value: object) -> bool:
+    """Is a number, such as a SymPy exponent, an integer or an integer-valued float?"""
+    number = sympy.sympify(value)
+    return bool(number.is_Integer or (number.is_Float and float(number).is_integer()))
