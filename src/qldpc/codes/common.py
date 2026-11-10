@@ -530,7 +530,7 @@ class ClassicalCode(AbstractCode):
                 ``"brute_force"`` enumerates code words.  ``"connected_support"`` searches supports
                 that are connected in the Tanner graph of the parity checks, which is fast for
                 sparse parity checks.  Its guide, ``connected_support.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, says when to use it.
+                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.
                 Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_support"``.
 
@@ -1971,7 +1971,7 @@ class QuditCode(AbstractCode):
                 operator.  ``"connected_support"`` searches supports that are connected in the
                 Tanner graph of the stabilizers, branching on the Paulis of each qubit, which is
                 fast for sparse stabilizers.  Its guide, ``connected_support.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, says when to use it.
+                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.
                 Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_support"``.
 
@@ -3564,9 +3564,9 @@ class CSSCode(QuditCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the stabilizers, which is fast for sparse stabilizers, and
-                especially at a high rate.  Its guide, ``connected_support.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, says when to use it.
+                Tanner graph of the stabilizers, which is fast for sparse stabilizers.  Its
+                guide, ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC
+                repository, explains it.
                 Closed forms that search classical codes, such as those of hypergraph product
                 codes, search them with the same method.  Nonbinary calculations use exhaustive
                 enumeration, and reject ``"connected_support"``.

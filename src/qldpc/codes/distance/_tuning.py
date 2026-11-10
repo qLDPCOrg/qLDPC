@@ -288,8 +288,7 @@ class SearchTuning:
     #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost
     #: of finding them on cheaper searches; raising it searches more limits from every variable.
     #: Zero asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by
-    #: hand as about 0.05 s of searching at the rate of that section.  To retune it, time searches
-    #: with and without automorphisms.
+    #: hand.  To retune it, time searches with and without automorphisms.
     automorphism_minimum_states: int = 100_000
 
     # Fields of completion tables.
