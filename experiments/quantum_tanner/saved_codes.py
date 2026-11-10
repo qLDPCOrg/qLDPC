@@ -90,7 +90,7 @@ class CodeSpec:
         """
         return self.code_b_id == get_dual_id(self.code_a_id)
 
-    def get_seed(self, sample: int, attempt: int) -> int:
+    def get_seed(self, sample_index: int, attempt: int) -> int:
         """Get the random seed of an attempt to draw a sample with this specification.
 
         The seed of attempt 0 is a deterministic hash of the group, the bytes of the parity check
@@ -123,21 +123,22 @@ class CodeSpec:
             inputs.append(get_local_code(self.code_b_id).matrix.tobytes())
         if self.bipartite:
             inputs.append("bipartite")
-        seed = get_deterministic_hash(*inputs, sample)
+        seed = get_deterministic_hash(*inputs, sample_index)
         return get_deterministic_hash(seed, attempt) if attempt else seed
 
     def build(self, sample_id: str) -> codes.QTCode:
         """Construct the quantum Tanner code with this specification and a sample identifier.
 
-        Raises a ValueError if the sample identifier is invalid, or if the complex is bipartite and
-        the subsets drawn for a random seed violate the Total No Conjugacy condition.
+        Raises a ValueError if the kind of the sample identifier is not recognized, if an enumerated
+        index is out of range, or if the complex is bipartite and the subsets drawn for a random
+        seed violate the Total No Conjugacy condition.
         """
         code_a = get_local_code(self.code_a_id)
         code_b = get_local_code(self.code_b_id)
         kind, number = sample_id[:1], int(sample_id[1:])
         if kind == "e":
             subset_pairs = get_subset_pairs(self)
-            if number >= len(subset_pairs):
+            if not 0 <= number < len(subset_pairs):
                 raise ValueError(f"Enumerated sample out of range: {sample_id}")
             subset_a, subset_b = subset_pairs[number]
             return codes.QTCode(subset_a, subset_b, code_a, code_b, bipartite=self.bipartite)
@@ -194,8 +195,10 @@ def get_subset_pairs(
 
     For a bipartite complex, the list excludes pairs that violate the Total No Conjugacy condition.
     The pairs are ordered by their first subsets, and then by their second subsets, in the order of
-    get_symmetric_subsets.  The index of a pair in this list identifies an enumerated sample, so
-    changing this order changes which codes saved files identify.
+    get_symmetric_subsets.  The index of a pair in this list identifies an enumerated sample.  If
+    this order changes, for example with the permutation representation of a group, then saved files
+    of enumerated samples identify different subsets.  Their verification then fails, and a resumed
+    search skips the pairs whose indices already have files.
     """
     subset_pairs = itertools.product(
         get_symmetric_subsets(spec.group_id, get_local_code(spec.code_a_id).num_bits),
@@ -269,10 +272,8 @@ def get_symmetric_subsets(group_id: str, size: int) -> list[frozenset[abstract.G
     its inverse.  Subsets are listed by their numbers of inverse pairs, from fewest to most, then by
     their members that are their own inverses, and then by their inverse pairs.  The last two orders
     are those of itertools.combinations over group members sorted by GroupMember.__lt__, where each
-    inverse pair is represented by its smaller member.  This order determines which codes the
-    identifiers of enumerated samples identify (see get_subset_pairs), so changing it, or changing
-    the permutation representation of a group, stops searches from verifying or resuming from codes
-    saved before the change.
+    inverse pair is represented by its smaller member.  The identifiers of enumerated samples depend
+    on this order; see get_subset_pairs.
     """
     members = sorted(get_group(group_id).generate())
     self_inverse_members = [member for member in members if member == ~member]

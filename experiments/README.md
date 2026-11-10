@@ -83,6 +83,7 @@ The options of `run_search.py` choose the groups, the local codes, and the compl
 - `--groups` chooses between all groups of order at most `--max-order` in the SmallGroups library (the default), and the dihedral groups of orders 6 to `--max-order`, which are the symmetry groups of regular polygons.
   [arXiv:2508.05095](https://arxiv.org/abs/2508.05095) uses dihedral groups for the expansion of their Cayley graphs.
 - `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro–Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
+  Base codes need at least 2 bits.
   Identifiers such as `Random-5-3-0` name random codes, here with 5 bits and 3 parity checks; `saved_codes.py` lists all identifiers.
 - `--pairs` chooses the pairs of local codes.
   By default, each base code is paired with its dual.
@@ -113,13 +114,14 @@ For each group, pair of local codes, and complex, the search enumerates all pair
 On the bipartite complex, it keeps only the pairs that satisfy the Total No Conjugacy condition.
 Otherwise, the search draws `--num-samples` random pairs.
 Enumeration thereby never constructs more codes than random sampling would, and its results are complete and free of repeated subsets.
-For a group and local codes whose pairs are enumerated, the frequencies of code parameters among their saved files are therefore fractions of all such pairs.
+The sample identifier of a saved code, described below, tells whether its subsets were enumerated or drawn at random.
+For a group and local codes whose pairs are enumerated, once the search has finished, the frequencies of code parameters among their enumerated files are fractions of all enumerated pairs.
+On the bipartite complex, these are the pairs that satisfy the Total No Conjugacy condition.
 The pairs are not reduced by automorphisms of the group, so equivalent codes are counted separately.
-The sample identifier of a saved code, described below, tells whether its pairs were enumerated or randomly sampled.
 
 Random sampling has two limitations.
 First, `abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
-The frequencies of code parameters among random samples therefore reflect this sampler, rather than the fractions of all symmetric subsets that give these parameters.
+The frequencies of code parameters among random samples therefore reflect this sampler, rather than the fractions of all pairs of symmetric subsets that give these parameters.
 Second, different seeds can draw the same subsets, and thereby the same code.
 
 The generating data of a saved code are its subsets, its local codes, and its complex, and saved codes count as distinct if their generating data differ.
@@ -148,7 +150,8 @@ It draws 100 random samples for each of the other 33 choices, and saves 5,523 co
    Its columns are `group, group_order, code_a, code_b, complex, sample, num_copies, n, k, d, d_kind, num_trials, stabilizer_weight`.
    Here `sample` is the sample identifier of the first copy (see the `collect_results.py` docstring for the order of copies), `num_copies` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
    The distance `d` is exact if `d_kind` is `exact`, and otherwise it is the smallest upper bound among the saved copies of the code.
-   A row attributes a code to its first copy, which can belong to another group or other local codes, so frequencies of parameters for a given group and local codes come from the saved files rather than from rows of `codes.csv`.
+   A row attributes a code to its first copy, which can belong to another group or other local codes.
+   Frequencies of parameters for a given group and local codes therefore come from the saved files rather than from rows of `codes.csv`.
 4. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its file name reproduces it.
 
 ```bash

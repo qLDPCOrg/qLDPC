@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 
-"""Search for quantum Tanner codes, enumerating them where cheap and sampling them otherwise.
+"""Search for quantum Tanner codes, enumerating subsets where cheap and sampling them otherwise.
 
 This script constructs quantum Tanner codes (arXiv:2202.13641) from finite groups and pairs of
 classical local codes.  Each code is defined by two symmetric subsets (closed under inverses) of a
@@ -35,8 +35,9 @@ deterministic seeds.  On a bipartite complex, it tries up to MAX_TNC_ATTEMPTS se
 sample to find subsets that satisfy the Total No Conjugacy condition, and skips the sample if none
 of them does.  Random sampling has two limitations.  First, the subsets are not uniformly random
 (see qldpc.abstract.Group.random_symmetric_subset), so the frequencies of code parameters among
-random samples reflect this sampler, rather than the fractions of all symmetric subsets that give
-these parameters.  Second, different seeds can draw the same subsets, and thereby the same code.
+random samples reflect this sampler, rather than the fractions of all pairs of symmetric subsets
+that give these parameters.  Second, different seeds can draw the same subsets, and thereby the
+same code.
 
 The script upper-bounds the code distances by minimizing over --num-trials randomized trials, and
 saves each code with its parameters to a text file in the "codes" subdirectory of --results-dir (by
@@ -76,7 +77,7 @@ else:
 
 # default search settings
 MAX_ORDER = 10  # largest order of the groups to consider
-NUM_SAMPLES = 100  # random samples per group and local codes, unless fewer pairs are enumerated
+NUM_SAMPLES = 100  # random samples per group and local codes, or the most pairs to enumerate
 NUM_TRIALS = 1000  # for code distance calculations
 NUM_WORKERS = max(1, (os.cpu_count() or 1) - 2)  # number of parallel jobs
 MAX_TNC_ATTEMPTS = 100  # seeds to try per random sample for a bipartite complex
@@ -149,7 +150,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=list(BASE_CODE_IDS),
         metavar="CODE_ID",
-        help="identifiers of classical base codes (default: %(default)s)",
+        help="identifiers of classical base codes with at least 2 bits (default: %(default)s)",
     )
     parser.add_argument(
         "--pairs",
@@ -168,7 +169,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=NUM_SAMPLES,
         help="number of random codes per choice of group and local codes, unless there are at most"
-        " this many pairs of subsets, which are then all enumerated (default: %(default)s)",
+        " this many pairs of subsets, which are then enumerated (default: %(default)s)",
     )
     parser.add_argument(
         "--num-trials",
@@ -197,6 +198,7 @@ def parse_args() -> argparse.Namespace:
             num_bits = saved_codes.get_local_code(code_id).num_bits
         except ValueError as error:
             parser.error(str(error))
+        # local codes with 1 bit would need subsets of the trivial group, which cannot be sorted
         if num_bits < 2:
             parser.error(f"Base codes need at least 2 bits: {code_id}")
     return args
@@ -248,7 +250,7 @@ def get_search_space(
             if bipartite and order % 2 == num_bits_a % 2 == num_bits_b % 2 == 1:
                 continue
 
-            # enumerate all pairs of subsets if there are few, and sample random pairs otherwise
+            # enumerate pairs of subsets if there are few, and sample random pairs otherwise
             spec = saved_codes.CodeSpec(group_id, code_a_id, code_b_id, bipartite)
             enumerated = saved_codes.count_subset_pairs(spec) <= num_samples
             num_spec_samples = (
@@ -311,7 +313,7 @@ def run_and_save(
         spec: The specification of the code.
         sample_index: The index of this code among the samples with the same specification.
         num_spec_samples: The number of samples with this specification, used to report progress.
-        enumerated: Whether the samples enumerate all pairs of subsets, rather than drawing random
+        enumerated: Whether the samples enumerate pairs of subsets, rather than drawing random
             pairs.
         num_trials: The number of randomized trials for upper-bounding the code distance.
         codes_dir: The directory in which to save the code.
