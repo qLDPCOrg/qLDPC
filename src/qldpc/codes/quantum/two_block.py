@@ -837,7 +837,7 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
     offsets = block_size * np.arange(num_blocks)[:, None]
     return np.array(
         [
-            (np.argmax(group.lift(generator), axis=0) + offsets).ravel()
+            (np.argmax(group.lift(generator).view(np.ndarray), axis=0) + offsets).ravel()
             for generator in group.generators
         ],
         dtype=int,
@@ -866,7 +866,8 @@ def _get_abelian_block_translations(
     if not group.is_abelian:
         return None
     for generator in group.generators:
-        lift = group.lift(generator)
+        # read the entries of a lift as integers, since sums over a finite field would be modular
+        lift = group.lift(generator).view(np.ndarray)
         is_permutation = (
             np.isin(lift, (0, 1)).all()
             and (lift.sum(axis=0) == 1).all()

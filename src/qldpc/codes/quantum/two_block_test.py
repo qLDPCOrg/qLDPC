@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -409,6 +410,29 @@ def test_gala_translations_preserve_checks() -> None:
 def test_nonabelian_groups_give_no_block_translations() -> None:
     """Translations by the generators of a nonabelian group need not preserve a code."""
     assert _get_abelian_block_translations(abstract.DihedralGroup(3), 2) is None
+
+
+def test_abelian_block_translations_of_field_lifts() -> None:
+    """Lifts given as arrays over a finite field are read by their integer entries."""
+    field = galois.GF(2)
+
+    def get_group(generator_lift: galois.FieldArray) -> abstract.Group:
+        """The cyclic group of order 2, whose generator has the given lift."""
+        identity_lift = field.Identity(len(generator_lift))
+        return abstract.Group.from_sympy(
+            abstract.CyclicGroup(2).to_sympy(),
+            lift=lambda member: identity_lift if member.is_Identity else generator_lift,
+        )
+
+    # a permutation matrix over GF(2) gives the translations of its integer entries
+    group = get_group(field([[0, 1], [1, 0]]))
+    translations = _get_abelian_block_translations(group, 2)
+    assert translations is not None and np.array_equal(translations, [[1, 0, 3, 2]])
+
+    # every row and column of J - I sums to 1 over GF(2), but it is not a permutation matrix
+    generator_lift = field(np.ones((4, 4), dtype=int) - np.eye(4, dtype=int))
+    assert np.array_equal(generator_lift @ generator_lift, field.Identity(4))
+    assert _get_abelian_block_translations(get_group(generator_lift), 2) is None
 
 
 @pytest.mark.parametrize(

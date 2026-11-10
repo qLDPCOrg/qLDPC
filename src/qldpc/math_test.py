@@ -75,6 +75,22 @@ def test_symplectic_conjugate_identity() -> None:
         assert np.array_equal(actual, expected)
 
 
+def test_symplectic_shapes() -> None:
+    """Symplectic maps keep the shape of a vector, a stack of vectors, or no vectors."""
+    vector = np.array([1, 2, 3, 0], dtype=int)
+    conjugate = np.array([3, 0, -1, -2], dtype=int)
+    assert np.array_equal(qldpc.math.symplectic_conjugate(vector), conjugate)
+    weight = qldpc.math.symplectic_weight(vector)
+    assert isinstance(weight, np.ndarray) and weight.shape == () and weight == 2
+    stack = np.stack([[vector], [vector]])
+    assert np.array_equal(qldpc.math.symplectic_conjugate(stack), [[conjugate], [conjugate]])
+    assert np.array_equal(qldpc.math.symplectic_weight(stack), [[2], [2]])
+    for shape in [(0,), (0, 0), (3, 0), (0, 4)]:
+        vectors = galois.GF(3).Zeros(shape)
+        assert qldpc.math.symplectic_conjugate(vectors).shape == shape
+        assert qldpc.math.symplectic_weight(vectors).shape == shape[:-1]
+
+
 def test_nonzero_cols() -> None:
     """Edge cases in finding the pivot columns."""
     # a matrix with no columns: every row is all-zero, so its pivot is the column count (0)

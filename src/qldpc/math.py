@@ -90,8 +90,9 @@ def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayTyp
     ``⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q)``.
     """
     _require_symplectic_length(vectors)
-    conjugated_vectors = vectors.copy().reshape(-1, 2, vectors.shape[-1] // 2)[:, ::-1, :]
-    conjugated_vectors[:, 1, :] *= -1
+    xz_shape = (*vectors.shape[:-1], 2, vectors.shape[-1] // 2)
+    conjugated_vectors = vectors.copy().reshape(xz_shape)[..., ::-1, :]
+    conjugated_vectors[..., 1, :] *= -1
     return conjugated_vectors.reshape(vectors.shape).view(type(vectors))
 
 
@@ -102,10 +103,10 @@ def symplectic_weight(vectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
     Returns one weight per input vector (a 0-dimensional array for a single vector).
     """
     _require_symplectic_length(vectors)
-    vectors_xz = vectors.reshape(-1, 2, vectors.shape[-1] // 2)
-    vectors_x = np.asarray(vectors_xz[:, 0, :], dtype=int)
-    vectors_z = np.asarray(vectors_xz[:, 1, :], dtype=int)
-    return np.count_nonzero(vectors_x | vectors_z, axis=-1).reshape(vectors.shape[:-1])
+    vectors_xz = vectors.reshape(*vectors.shape[:-1], 2, vectors.shape[-1] // 2)
+    vectors_x = np.asarray(vectors_xz[..., 0, :], dtype=int)
+    vectors_z = np.asarray(vectors_xz[..., 1, :], dtype=int)
+    return np.asarray(np.count_nonzero(vectors_x | vectors_z, axis=-1))
 
 
 def _require_symplectic_length(vectors: npt.NDArray[np.int_]) -> None:
