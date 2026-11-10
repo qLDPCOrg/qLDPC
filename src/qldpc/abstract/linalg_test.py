@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import itertools
+import unittest.mock
 
 import numpy as np
 import pytest
@@ -12,32 +13,34 @@ import pytest
 from qldpc import abstract
 
 
-def test_basics(rows: int = 2, cols: int = 3) -> None:
+def test_basics(pytestconfig: pytest.Config, rows: int = 2, cols: int = 3) -> None:
     """Basic linear algebra over commutative rings."""
+    seed = pytestconfig.getoption("randomly_seed")
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    values_a = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    values_b = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix_a = abstract.RingArray.build(values_a, ring)
-    matrix_b = abstract.RingArray.build(values_b, ring)
-
-    # matrix multiplication and the Kronecker product work as expected
-    assert np.array_equal(
-        abstract.matmul(matrix_a, matrix_b.T),
-        matrix_a @ matrix_b.T,
+    matrix_a = abstract.RingArray.from_field_array(
+        ring.field.Random((rows, cols, ring.dim), seed=seed), ring
     )
-    assert np.array_equal(
-        abstract.kron(matrix_a, matrix_b),
-        np.kron(matrix_a, matrix_b).view(abstract.RingArray),
+    matrix_b = abstract.RingArray.from_field_array(
+        ring.field.Random((rows, cols, ring.dim), seed=seed + 1), ring
     )
 
-    # block_diag works as expected
+    # matrix multiplication and the Kronecker product agree with lifted matrices and entries
+    assert np.array_equal(
+        abstract.matmul(matrix_a, matrix_b.T).lift(),
+        matrix_a.lift() @ matrix_b.T.lift(),
+    )
+    product = abstract.kron(matrix_a, matrix_b)
+    for (ii, jj), (kk, ll) in itertools.product(np.ndindex(rows, cols), repeat=2):
+        assert product[ii * rows + kk, jj * cols + ll] == matrix_a[ii, jj] * matrix_b[kk, ll]
+
+    # block_diag places its matrices on the diagonal
     matrix_ab = abstract.block_diag(matrix_a, matrix_b)
     assert np.array_equal(matrix_ab[: matrix_a.shape[0], : matrix_a.shape[1]], matrix_a)
     assert np.array_equal(matrix_ab[matrix_a.shape[0] :, matrix_a.shape[1] :], matrix_b)
     assert not np.any(matrix_ab[: matrix_a.shape[0], matrix_a.shape[1] :])
     assert not np.any(matrix_ab[matrix_a.shape[0] :, : matrix_a.shape[1]])
 
-    # we can still use these methods if only one of them is a RingArray
+    # these functions also work if only one matrix is a RingArray
     assert np.array_equal(abstract.matmul(np.eye(matrix_a.shape[0], dtype=int), matrix_a), matrix_a)
     assert np.array_equal(abstract.matmul(matrix_a, np.eye(matrix_a.shape[1], dtype=int)), matrix_a)
 
@@ -48,6 +51,10 @@ def test_basics(rows: int = 2, cols: int = 3) -> None:
     # matrix dimensions must be compatible for matrix multiplication
     with pytest.raises(ValueError, match="Incompatible matrix shapes"):
         abstract.matmul(matrix_a, matrix_b)
+    with pytest.raises(ValueError, match="Incompatible matrix shapes"):
+        abstract.matmul(matrix_a, matrix_a[0])
+    with pytest.raises(ValueError, match="Incompatible matrix shapes"):
+        abstract.matmul(matrix_a[0], matrix_a.T)
 
     # we can't multiply matrices over different rings
     other_ring = abstract.GroupRing(ring.group, field=ring.field.order + 1)
@@ -56,16 +63,27 @@ def test_basics(rows: int = 2, cols: int = 3) -> None:
         abstract.matmul(other_matrix, matrix_a)
 
 
-def test_matmul_and_kron_interplay(ring: abstract.GroupRing, rows: int = 2, cols: int = 3) -> None:
+def random_monomial_matrix(
+    ring: abstract.GroupRing, rows: int, cols: int, seed: int
+) -> abstract.RingArray:
+    """A matrix of random group members."""
+    values = [
+        [ring.group.random(seed=seed + cols * row + col) for col in range(cols)]
+        for row in range(rows)
+    ]
+    return abstract.RingArray.build(values, ring)
+
+
+def test_matmul_and_kron_interplay(
+    ring: abstract.GroupRing, pytestconfig: pytest.Config, rows: int = 2, cols: int = 3
+) -> None:
     """Matrix multiplication and the Kronecker product work together as expected."""
-    values_a = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    values_b = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    values_c = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    values_d = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    matrix_a = abstract.RingArray.build(values_a, ring)
-    matrix_b = abstract.RingArray.build(values_b, ring)
-    matrix_c = abstract.RingArray.build(values_c, ring).transpose()
-    matrix_d = abstract.RingArray.build(values_d, ring).transpose()
+    seed = pytestconfig.getoption("randomly_seed")
+    matrix_a, matrix_b, matrix_c, matrix_d = [
+        random_monomial_matrix(ring, rows, cols, seed + index * rows * cols) for index in range(4)
+    ]
+    matrix_c = matrix_c.transpose()
+    matrix_d = matrix_d.transpose()
 
     # (A ⨂ B) @ (C ⨂ D)
     matrix_ab = abstract.kron(matrix_a, matrix_b)
@@ -83,7 +101,9 @@ def test_matmul_and_kron_interplay(ring: abstract.GroupRing, rows: int = 2, cols
         val_a = matrix_a[0, 0]
         val_b = matrix_b[0, 0]
         val_ab = matrix_ab[0, 0]
-        random_val = abstract.RingMember.from_vector(ring.field.Random(ring.group.order), ring)
+        random_val = abstract.RingMember.from_vector(
+            ring.field.Random(ring.group.order, seed=seed), ring
+        )
         random_vec = random_val.to_vector()
         assert np.array_equal(
             val_ab.lift() @ random_vec,
@@ -103,6 +123,16 @@ def test_matmul_right() -> None:
         for row, col in np.ndindex(expected.shape):
             expected[row, col] = sum(matrix_b[kk, col] * matrix_a[row, kk] for kk in range(4))
         assert np.array_equal(abstract.matmul(matrix_a, matrix_b, right=True), expected)
+
+    # stacks of matrices broadcast, as in numpy
+    stack = abstract.RingArray.from_field_array(
+        ring.field.Random((3, 2, 2, ring.dim), seed=1), ring
+    )
+    block = abstract.RingArray(dense[:2, :2])
+    product = abstract.matmul(block, stack, right=True)
+    assert product.shape == (3, 2, 2)
+    for index, matrix in enumerate(stack):
+        assert np.array_equal(product[index], abstract.matmul(block, matrix, right=True))
 
 
 def assert_howell_pseudoinverse(
@@ -124,46 +154,42 @@ def assert_howell_pseudoinverse(
 
 
 @pytest.mark.parametrize("right", [False, True])
-def test_howell_dual(ring: abstract.GroupRing, right: bool, rows: int = 2, cols: int = 3) -> None:
+def test_howell_dual(
+    ring: abstract.GroupRing, right: bool, pytestconfig: pytest.Config, rows: int = 2, cols: int = 3
+) -> None:
     """Matrices in Howell normal form have a "dual" that acts like a pseudoinverse."""
-    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
-    assert_howell_pseudoinverse(
-        abstract.RingArray.build(values, ring), ring.get_transformer(), right
-    )
+    matrix = random_monomial_matrix(ring, rows, cols, pytestconfig.getoption("randomly_seed"))
+    assert_howell_pseudoinverse(matrix, ring.get_transformer(), right)
 
 
 @pytest.mark.parametrize("right", [False, True])
 def test_howell_dual_with_non_self_transpose_pivots(right: bool) -> None:
     """A non-self-transpose idempotent pivot distinguishes pivot.T from pivot in get_howell_dual.
 
-    Multi-term entries make the null-space Howell pivots rich idempotents.  GF(4)[C3] is the natural
-    home for this check: its degree-1 components form a conjugate pair of characters, so their
-    idempotents E satisfy ``E.T != E``.  A group over a field lacking the relevant roots of unity
-    (e.g. GF(2)[C5]) has only self-transpose idempotents, so it cannot distinguish the two and is
-    not a substitute here.
+    Multi-term entries make the null-space Howell pivots idempotents with several terms.  The
+    degree-1 components of GF(4)[C3] form a conjugate pair of characters, so their idempotents E
+    satisfy ``E.T != E``.
     """
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
-    rich = abstract.RingArray.build(
+    multi_term = abstract.RingArray.build(
         [
             [abstract.RingMember.from_vector(ring.field(coeffs), ring) for coeffs in row]
             for row in ([[0, 2, 1], [2, 1, 0], [1, 0, 1]], [[0, 0, 1], [1, 1, 0], [1, 0, 0]])
         ],
         ring,
     )
-    assert_howell_pseudoinverse(rich, ring.get_transformer(seed=0), right)
+    assert_howell_pseudoinverse(multi_term, ring.get_transformer(seed=0), right)
 
 
 def build_alternating4_gf5_howell_generator(
     ring: abstract.GroupRing,
 ) -> tuple[abstract.WedderburnArtinTransformer, abstract.RingArray]:
-    """Build a right-oriented null-space Howell generator over A₄[GF(5)], and its transformer.
+    """Build a right-oriented null-space Howell generator over GF(5)[A₄], and its transformer.
 
     A₄ over GF(5) has a size-3 component, so the generator's pivots are blocks bigger than a single
-    number.  The transformer seed and coefficient RNG are fixed on purpose: they pin a matrix for
-    which the *wrong*-orientation dual has no symmetric idempotent projector -- the case
-    test_get_howell_dual_edge_cases exercises -- which only a minority of random matrices produce,
-    so a random seed would make that test flake.  The explicit seeds also make it independent of the
-    pytest-randomly run seed.
+    number.  The transformer seed and coefficient RNG are fixed, to pin a matrix for which the dual
+    with the wrong orientation has no symmetric idempotent projector.  Only a minority of random
+    matrices have this property, which test_get_howell_dual_edge_cases needs.
     """
     transformer = ring.get_transformer(seed=0)
     coeffs = np.random.default_rng(2).integers(0, ring.field.order, size=(2, 5, ring.group.order))
@@ -199,10 +225,13 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
     assert np.array_equal(abstract.matmul(diag.T, dual, right=True), dual)
     assert np.array_equal(diag, transformer.transpose_array(diag))
 
-    # omitting `right` infers it from the orientation the Howell form recorded; here the dual
-    # genuinely depends on the orientation, so a wrong inference would give a different dual (or be
-    # rejected as a mismatch)
+    # omitting `right` infers it from the orientation the Howell form recorded; a wrong inference
+    # would raise, since this generator has no dual for right=False
     assert np.array_equal(abstract.get_howell_dual(generator, transformer=transformer), dual)
+
+    # a copy has no provenance, so it is validated, with the given orientation
+    copy = generator.copy()
+    assert np.array_equal(abstract.get_howell_dual(copy, transformer=transformer, right=True), dual)
 
     # skip_validation=False re-checks the constructed dual; it passes for the correct orientation
     rechecked = abstract.get_howell_dual(
@@ -213,6 +242,122 @@ def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.Gro
     # the generator records right=True, so building the dual with right=False is rejected
     with pytest.raises(ValueError, match="does not match the orientation"):
         abstract.get_howell_dual(generator, transformer=transformer, right=False)
+
+    # an edited Howell form keeps its recorded orientation as its default, and is validated with any
+    # explicit orientation
+    generator[0, 0] = generator[0, 0].copy()
+    assert np.array_equal(abstract.get_howell_dual(generator, transformer=transformer), dual)
+    with pytest.raises(ValueError, match="Cannot build a Howell dual"):
+        abstract.get_howell_dual(generator, transformer=transformer, right=False)
+
+
+@pytest.mark.parametrize("right", [False, True])
+def test_howell_dual_uses_the_recorded_transformer(right: bool) -> None:
+    """By default, get_howell_dual builds a dual in the basis that built the Howell form."""
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    default = ring.get_transformer(seed=0)
+    transformer = ring.get_transformer(seed=1)
+
+    # for this matrix, a dual in the basis of the default transformer cannot be built
+    coeffs = np.random.default_rng(4).integers(0, ring.field.order, size=(1, 2, ring.dim))
+    matrix = abstract.RingArray.from_field_array(coeffs, ring)
+    generator = matrix.null_space(right=right).howell_normal_form_semisimple(
+        transformer, right=right
+    )
+    with pytest.raises(ValueError, match="Cannot build a Howell dual"):
+        abstract.get_howell_dual(generator, transformer=default)
+
+    dual = abstract.get_howell_dual(generator)
+    diag = abstract.matmul(generator, dual.T, right=right)
+    assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
+    assert np.array_equal(abstract.matmul(diag, generator, right=right), generator)
+    assert np.array_equal(abstract.matmul(diag.T, dual, right=right), dual)
+    assert np.array_equal(diag, transformer.transpose_array(diag))
+
+    # an edited Howell form keeps its recorded transformer as its default
+    generator[0, 0] = generator[0, 0].copy()
+    assert np.array_equal(abstract.get_howell_dual(generator), dual)
+
+
+def test_howell_dual_trusts_unchanged_howell_forms(monkeypatch: pytest.MonkeyPatch) -> None:
+    """By default, get_howell_dual validates all duals but those of unchanged Howell forms.
+
+    A Howell form is trusted only while its entries are unchanged, and only in the basis that built
+    it.
+    """
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
+    transformer, other_transformer = ring.get_transformer(seed=0), ring.get_transformer(seed=1)
+    coeffs = np.random.default_rng(0).integers(0, ring.field.order, size=(2, 3, ring.dim))
+    howell = abstract.RingArray.from_field_array(coeffs, ring).howell_normal_form_semisimple(
+        transformer
+    )
+    edited = abstract.RingArray.from_field_array(coeffs, ring).howell_normal_form_semisimple(
+        transformer
+    )
+    edited[0, 0] = edited[0, 0].copy()
+
+    # watch the validation of duals
+    validate = unittest.mock.Mock(wraps=abstract.linalg._validate_howell_dual)
+    monkeypatch.setattr(abstract.linalg, "_validate_howell_dual", validate)
+    cases: list[tuple[abstract.RingArray, abstract.WedderburnArtinTransformer | None, bool]] = [
+        (howell, None, False),
+        (howell, transformer, False),
+        (howell, other_transformer, True),
+        (howell.copy(), None, True),
+        (edited, None, True),
+    ]
+    for matrix, given_transformer, validated in cases:
+        validate.reset_mock()
+        abstract.get_howell_dual(matrix, transformer=given_transformer)
+        assert validate.called == validated
+
+
+def test_howell_dual_provenance(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+    """get_howell_dual trusts only the unmodified output of howell_normal_form_semisimple."""
+    ring = ring_cyclic3_gf2
+    idempotent_a, idempotent_b = ring.get_primitive_central_idempotents()
+
+    def get_howell_form() -> abstract.RingArray:
+        return abstract.RingArray.build([[idempotent_a, idempotent_b]]).howell_normal_form()
+
+    howell = get_howell_form()
+    abstract.get_howell_dual(howell)
+
+    # the orientation of a Howell form over a commutative ring does not matter
+    abstract.get_howell_dual(howell, right=True)
+
+    # derived arrays, and arrays edited in place, are validated
+    unit = abstract.RingArray.build([[0, 1], [0, 0]], ring)
+    with pytest.raises(ValueError, match="could not validate"):
+        abstract.get_howell_dual(howell + unit)
+    howell = get_howell_form()
+    howell[0][1] = ring.one
+    with pytest.raises(ValueError, match="could not validate"):
+        abstract.get_howell_dual(howell)
+
+    # so are polynomial Howell forms, whose pivots need not be idempotent
+    x = ring.generators[0]
+    howell = abstract.RingArray.build([[1 + x, x]], ring).howell_normal_form_poly()
+    with pytest.raises(ValueError, match="could not validate"):
+        abstract.get_howell_dual(howell)
+
+    # a zero row has no pivot, so the diagonal of its dual product is zero
+    with pytest.raises(ValueError, match="could not validate"):
+        abstract.get_howell_dual(abstract.RingArray.build([[idempotent_a], [0]], ring))
+
+    with pytest.raises(ValueError, match="2-dimensional"):
+        abstract.get_howell_dual(abstract.RingArray.build([idempotent_a], ring))
+
+
+def test_commutative_howell_dual_needs_no_decomposition() -> None:
+    """Over a commutative ring, get_howell_dual needs no Wedderburn-Artin decomposition.
+
+    GF(2)[C2] is not semisimple, so it has no Wedderburn-Artin decomposition.
+    """
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    x = ring.generators[0]
+    dual = abstract.get_howell_dual(abstract.RingArray.build([[1, x]], ring))
+    assert np.array_equal(dual, abstract.RingArray.build([[1, 0]], ring))
 
 
 def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -> None:

@@ -36,7 +36,6 @@ def coefficient_matmul(
     matrix_b: npt.NDArray[np.generic],
     *,
     ring: Ring,
-    right: bool = False,
 ) -> RingArray | RingMember | None:
     """Multiply matrices over a ring by way of arrays of their coefficients.
 
@@ -45,8 +44,6 @@ def coefficient_matmul(
     group members are group members.  It is also the case if an operand has no coefficient
     representation, the operand shapes are incompatible (so that numpy raises its usual error), or
     the product is too small or too large to benefit from coefficients.
-
-    If ``right is True``, reverse the order of multiplication in the ring (see abstract.matmul).
     """
     if not isinstance(ring, GroupRing):
         return None
@@ -69,9 +66,9 @@ def coefficient_matmul(
     coefficients_b = np.broadcast_to(coefficients_b, (*batch, inner, cols, order)).view(ring.field)
 
     # Writing A = sum_g A_g g and B = sum_h B_h h, where A_g and B_h are matrices over the base
-    # field, the product A @ B = sum_{g,h} (A_g @ B_h) (g h), or sum_{g,h} (A_g @ B_h) (h g) if
-    # right is True.  Loop over whichever of {g} or {h} has fewer members that appear in A or B,
-    # computing all products with a fixed A_g (or B_h) in one matrix multiplication.
+    # field, the product A @ B = sum_{g,h} (A_g @ B_h) (g h).  Loop over whichever has fewer
+    # members, the g in A or the h in B, computing all products with a fixed A_g (or B_h) in one
+    # matrix multiplication.
     entry_axes = tuple(range(coefficients_a.ndim - 1))
     indices_a = np.flatnonzero(np.any(coefficients_a, axis=entry_axes)).tolist()
     indices_b = np.flatnonzero(np.any(coefficients_b, axis=entry_axes)).tolist()
@@ -80,11 +77,9 @@ def coefficient_matmul(
         # all B_h side by side, with shape (*batch, inner, cols * |G|)
         stacked_b = coefficients_b.reshape(*batch, inner, cols * order)
         for index_g in indices_a:
-            # products[..., h] = A_g @ B_h, which contributes to the coefficient of g h (or h g)
+            # products[..., h] = A_g @ B_h, which contributes to the coefficient of g h
             products = (coefficients_a[..., index_g] @ stacked_b).reshape(*batch, rows, cols, order)
-            coefficients_ab[..., _get_group_action(ring.group, index_g, on_left=not right)] += (
-                products
-            )
+            coefficients_ab[..., _get_group_action(ring.group, index_g, on_left=True)] += products
     else:
         # all A_g stacked vertically, with shape (*batch, |G| * rows, inner)
         batch_axes = tuple(range(len(batch)))
@@ -92,10 +87,10 @@ def coefficient_matmul(
             *batch, order * rows, inner
         )
         for index_h in indices_b:
-            # products[..., g] = A_g @ B_h, which contributes to the coefficient of g h (or h g)
+            # products[..., g] = A_g @ B_h, which contributes to the coefficient of g h
             products = (stacked_a @ coefficients_b[..., index_h]).reshape(*batch, order, rows, cols)
             products = np.moveaxis(products, -3, -1).view(ring.field)
-            coefficients_ab[..., _get_group_action(ring.group, index_h, on_left=right)] += products
+            coefficients_ab[..., _get_group_action(ring.group, index_h, on_left=False)] += products
 
     if shape.vector_a:
         coefficients_ab = coefficients_ab[..., 0, :, :]
