@@ -456,8 +456,8 @@ class _CosetSearch:
 
         # Search the coset, and keep the lightest word that the search visits in ``best``.
         best = np.empty(self.tables.inverse.shape[1], dtype=np.uint64)
-        syndrome_words = _int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
-        lower_bound = _search_coset(syndrome_words, max_weight, best, *self.tables, self.scale)
+        packed_syndrome = _int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
+        lower_bound = _search_coset(packed_syndrome, max_weight, best, *self.tables, self.scale)
         # A search that finds a light enough word returns zero, but every word of the coset weighs
         # at least two, since the coset has no word of weight at most one.
         return MinWeightBound(lower_bound <= max_weight, self.unembed(best), max(2, lower_bound))
@@ -914,7 +914,7 @@ def _find_first_not_within_max_weight(
 
 @always_compiled(inline=True)
 def _search_coset(
-    syndrome: npt.NDArray[np.uint64],
+    packed_syndrome: npt.NDArray[np.uint64],
     max_weight: int,
     best: npt.NDArray[np.uint64],
     inverse: npt.NDArray[np.uint64],
@@ -926,19 +926,20 @@ def _search_coset(
 ) -> int:
     """Search the coset of a syndrome for a word of weight at most ``max_weight``.
 
-    The syndrome is split into 64-bit machine words, with machine word ``j`` holding bits ``64 j``
-    and up.  The search runs on embedded words.  In the Pauli search, the words are Pauli errors,
-    and the embedded word of an error is its packed Pauli when errors are weighed by CSS weight, and
-    its packed Pauli followed by ``x xor z`` when they are weighed by physical weight, so that its
-    Hamming weight is twice the physical weight (see ``symplectic_to_hamming``).  In a classical
-    search, the words are X or Z parts, each is its own embedded word, and its weight is its Hamming
-    weight.  The weight of an embedded word is that of its word: its CSS weight if ``scale`` is
-    zero, with its X part selected by ``x_mask``, and otherwise its Hamming weight divided by
-    ``scale``, which is two for the physical weight and one for X or Z parts.  The tables are those
-    of ``_CosetSearchTables``.  Row ``j`` of ``inverse`` is the embedded word of a word whose
-    syndrome has only bit ``j`` set.  ``generators`` and ``pivots`` are the disjoint information
-    sets of the embedded generators of the code, with pivots padded with -1.  ``planning`` is the
-    planning buffer of the search, whose cached stopping steps a query may update.
+    ``packed_syndrome`` is the syndrome split into 64-bit machine words, with machine word ``j``
+    holding bits ``64 j`` and up.  The search runs on embedded words.  In the Pauli search, the
+    words are Pauli errors, and the embedded word of an error is its packed Pauli when errors are
+    weighed by CSS weight, and its packed Pauli followed by ``x xor z`` when they are weighed by
+    physical weight, so that its Hamming weight is twice the physical weight (see
+    ``symplectic_to_hamming``).  In a classical search, the words are X or Z parts, each is its own
+    embedded word, and its weight is its Hamming weight.  The weight of an embedded word is that of
+    its word: its CSS weight if ``scale`` is zero, with its X part selected by ``x_mask``, and
+    otherwise its Hamming weight divided by ``scale``, which is two for the physical weight and one
+    for X or Z parts.  The tables are those of ``_CosetSearchTables``.  Row ``j`` of ``inverse`` is
+    the embedded word of a word whose syndrome has only bit ``j`` set.  ``generators`` and
+    ``pivots`` are the disjoint information sets of the embedded generators of the code, with pivots
+    padded with -1.  ``planning`` is the planning buffer of the search, whose cached stopping steps
+    a query may update.
 
     The embedded words of the coset form a coset of the embedded code.  The search starts from the
     sum of the rows of ``inverse`` for the set bits of the syndrome, a word with that syndrome.  The
@@ -964,7 +965,7 @@ def _search_coset(
         ``max_weight``, if ``best`` has weight at most ``max_weight``, and otherwise a bound that
         exceeds ``max_weight``.
     """
-    best_weight, parity = _get_syndrome_word(syndrome, best, inverse, x_mask, scale)
+    best_weight, parity = _get_syndrome_word(packed_syndrome, best, inverse, x_mask, scale)
     if best_weight <= max_weight:
         return 0
     table = _get_planning_table(planning, parity)
@@ -1129,22 +1130,22 @@ def _search_from_syndrome_word(
 
 @always_compiled(inline=True)
 def _get_syndrome_word(
-    syndrome: npt.NDArray[np.uint64],
+    packed_syndrome: npt.NDArray[np.uint64],
     word: npt.NDArray[np.uint64],
     inverse: npt.NDArray[np.uint64],
     x_mask: npt.NDArray[np.uint64],
     scale: int,
 ) -> tuple[int, int]:
-    """Write the sum of the rows of ``inverse`` for the set bits of a syndrome into ``word``.
+    """Write the sum of the rows of ``inverse`` for the set bits of a packed syndrome into ``word``.
 
     The sum is an embedded word with that syndrome.  Return its weight (see ``_search_coset``), and
     the parity of its Hamming weight.
     """
     word[:] = 0
-    for syndrome_word in range(len(syndrome)):
-        bits = syndrome[syndrome_word]
+    for machine_word in range(len(packed_syndrome)):
+        bits = packed_syndrome[machine_word]
         while bits:
-            bit = 64 * syndrome_word + trailing_zeros_word(bits)
+            bit = 64 * machine_word + trailing_zeros_word(bits)
             for index in range(len(word)):
                 word[index] ^= inverse[bit, index]
             bits &= bits - np.uint64(1)
@@ -1197,10 +1198,10 @@ def _map_syndromes(
     width = map_columns.shape[1]
     mapped = np.zeros((len(syndromes), width), dtype=np.uint64)
     for row in range(len(syndromes)):
-        for syndrome_word in range(syndromes.shape[1]):
-            bits = syndromes[row, syndrome_word]
+        for machine_word in range(syndromes.shape[1]):
+            bits = syndromes[row, machine_word]
             while bits:
-                bit = 64 * syndrome_word + trailing_zeros_word(bits)
+                bit = 64 * machine_word + trailing_zeros_word(bits)
                 for index in range(width):
                     mapped[row, index] ^= map_columns[bit, index]
                 bits &= bits - np.uint64(1)

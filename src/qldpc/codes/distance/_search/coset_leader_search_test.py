@@ -83,7 +83,7 @@ def _classical_syndrome(checks: npt.NDArray[np.uint8], words: npt.NDArray[np.int
     return (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
 
 
-def _syndrome_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
+def _pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
     """Split packed syndromes into rows of 64-bit words, with word ``j`` in bits ``64 j`` and up."""
     width = (num_qubits + 63) // 64
     words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
@@ -296,7 +296,7 @@ def test_batches_find_each_class_above_max_weight(
         syndromes = rng.permutation(1 << num_qubits).tolist()
         minima = np.array([_class_weights(matrix, ss, css_weight).min() for ss in syndromes])
         for max_weight in range(num_qubits + 2):
-            words = _syndrome_words(syndromes, num_qubits)
+            words = _pack_syndromes(syndromes, num_qubits)
             found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
             assert found == np.flatnonzero(minima > max_weight).tolist()
 
@@ -310,7 +310,7 @@ def test_batches_return_bounds_above_max_weight_plus_one() -> None:
     """
     matrix = np.hstack([np.zeros((4, 4), dtype=np.uint8), np.eye(4, dtype=np.uint8)])
     oracle = CosetLeaderSearch(matrix, css_weight=True)
-    words = _syndrome_words([0b0011, 0b1111], 4)
+    words = _pack_syndromes([0b0011, 0b1111], 4)
     assert _find_each_not_within_max_weight(oracle, matrix, words, 2) == [1]
     assert oracle.get_min_weight_bound(0b1111, 2).lower_bound == 4
 
@@ -339,7 +339,7 @@ def test_batches_read_syndromes_of_several_words(
         local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
         minima.append(_block_minimum(block, [ss for ss in local if any(ss)], css_weight))
     for max_weight in range(4):
-        words = _syndrome_words(syndromes, 68)
+        words = _pack_syndromes(syndromes, 68)
         found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
@@ -402,7 +402,7 @@ def test_x_and_z_syndromes_span_several_words(pytestconfig: pytest.Config) -> No
             bound = oracle.get_min_weight_bound(syndrome, max_weight)
             assert bound.within_max_weight == (minimum <= max_weight)
             assert _get_syndrome(matrix, bound.representative) == syndrome
-        words = _syndrome_words(syndromes, num_qubits)
+        words = _pack_syndromes(syndromes, num_qubits)
         found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
@@ -573,7 +573,7 @@ def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
             <= _pauli_weight(bound.representative, num_qubits, css_weight)
         )
 
-        words = _syndrome_words(
+        words = _pack_syndromes(
             [_get_syndrome(matrix, 1), _get_syndrome(matrix, 1 << num_qubits), syndrome], num_qubits
         )
         index, batch_bound = oracle.find_first_not_within_max_weight(words, max_weight)
@@ -609,7 +609,7 @@ def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None
                     else:
                         assert bound.lower_bound > max_weight
             syndromes = rng.permutation(1 << num_qubits).tolist()
-            words = _syndrome_words(syndromes, num_qubits)
+            words = _pack_syndromes(syndromes, num_qubits)
             for max_weight in range(num_qubits + 1):
                 found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
                 assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
@@ -660,7 +660,7 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     num_sooner = 0
     for syndrome in range(1 << num_qubits):
         _, parity = coset_leader_search._get_syndrome_word(
-            _syndrome_words([syndrome], num_qubits)[0], best, tables.inverse, tables.x_mask, 0
+            _pack_syndromes([syndrome], num_qubits)[0], best, tables.inverse, tables.x_mask, 0
         )
         table = coset_leader_search._get_planning_table(tables.planning, parity)
         bounds = instance.get_weight_bounds(class_parities[syndrome])
@@ -906,7 +906,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
         return max_weight + 1 + int(even and (max_weight + 1 - minima[syndrome]) % 2)
 
     syndromes = list(range(1 << len(checks)))
-    syndrome_words = _syndrome_words(syndromes, len(checks))
+    packed_syndromes = _pack_syndromes(syndromes, len(checks))
     for max_weight in range(-1, num_columns + 2):
         bounds = {}
         for syndrome in syndromes:
@@ -930,7 +930,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
         best = np.empty(search.tables.inverse.shape[1], dtype=np.uint64)
         while True:
             index, lower_bound = coset_leader_search._find_first_not_within_max_weight(
-                syndrome_words[start:], max_weight, best, *search.tables, search.scale
+                packed_syndromes[start:], max_weight, best, *search.tables, search.scale
             )
             if start + index == len(syndromes):
                 break
@@ -1019,7 +1019,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
         ):
             best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
             best_weight, parity = coset_leader_search._get_syndrome_word(
-                _syndrome_words([syndrome], len(checks))[0], best, tables.inverse, tables.x_mask, 1
+                _pack_syndromes([syndrome], len(checks))[0], best, tables.inverse, tables.x_mask, 1
             )
             if best_weight <= max_weight:
                 continue
@@ -1132,7 +1132,7 @@ def test_connected_support_batches_read_syndromes_of_several_words(
         bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
         local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
         minima.append(_block_minimum(_PHASED_GHZ_BLOCK, [ss for ss in local if any(ss)], False))
-    words = _syndrome_words(syndromes, 68)
+    words = _pack_syndromes(syndromes, 68)
     for max_weight in range(4):
         found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
