@@ -287,7 +287,13 @@ But the stabilizers that certification passes are row-reduced, and so are the X 
 So a search first adds its checks to each other while that makes them lighter, and maps the syndrome of each query to the result.
 For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, it lowers the mean weight of the stabilizers from 26 to 11, while the checks of the code weigh 6.
 On the [[232, 62, 12]] pair-partition code, it lowers it from 54 to 33, while the checks weigh 8, so a sparser choice of generators remains to be found.
-The bounds of these queries are weaker than those of BZ: a query with no vector within a nonnegative `W` gives the lower bound `W + 1`.
+
+A search first looks up the syndrome in a table of the vectors of weight at most one, and searches only syndromes that the table lacks, which have no vector of weight below 2.
+A query of such a syndrome with limit `W` thus has the lower bound `max(2, W + 1)` if the search does not meet the limit, and 2 if it does, which is weaker than the bounds of BZ.
+A search with limit `W` can wander through many heavy supports before it reaches a much lighter vector.
+So for the batches of certification, where most syndromes have a vector within `W`, a search tries the limits 2, 3, …, `W` in turn, and stops at the first that it meets, so that it finds a lightest vector.
+A syndrome without a vector within `W` repeats the work of the lower limits.
+Single queries search at `W` directly, so that a caller that raises `W` one step at a time repeats no work.
 
 ## 4. Guide to the source code
 
@@ -347,6 +353,9 @@ Changes to the search can use other bounds and orders, while keeping these requi
   It must block no variable by rank, and use no symmetry, divisor, or logical test, as [Section 3.8](#38-vectors-with-a-given-syndrome) explains.
   The syndrome of the given checks must be mapped onto the distinct nonzero checks.
   A syndrome with a nonzero entry for a zero check, or with different entries for two equal checks, has no vector.
+- **Give coset queries only proven lower bounds.**
+  A lower bound of 2 needs a table of every vector of weight at most one, and a lower bound above a limit needs an exhaustive search at that limit.
+  A consumer that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Return the exact minimum unless a cutoff permits an early exit.**
   The weights of the limits rise one divisor at a time, so that the first witness is the lightest.
   An early exit returns the weight of a known witness, which is an upper bound.
