@@ -5,7 +5,7 @@
 
 This script regenerates every code saved by run_search.py from the group, base code, and seed in its
 file name, and checks that the regenerated code equals the saved code.  It reports every code that
-fails this check, and exits with an error if there are any.
+fails this check or cannot be loaded, and exits with an error if there are any.
 
 Example:
     python experiments/quantum_tanner/verify_codes.py
@@ -29,17 +29,15 @@ def main() -> None:
     args = parse_args()
     paths = search.get_saved_code_paths(args.results_dir / search.CODES_NAME)
 
-    mismatched_paths = []
+    failed_paths = []
     for index, path in enumerate(paths, start=1):
         print(f"{index}/{len(paths)}")
-        if not is_reproducible(path):
-            print(f"  Saved code does not match its regenerated version: {path}")
-            mismatched_paths.append(path)
+        if (problem := get_verification_problem(path)) is not None:
+            print(f"  {problem}: {path}")
+            failed_paths.append(path)
 
-    if mismatched_paths:
-        raise RuntimeError(
-            f"{len(mismatched_paths)} of {len(paths)} saved codes are not reproducible"
-        )
+    if failed_paths:
+        raise RuntimeError(f"{len(failed_paths)} of {len(paths)} saved codes fail verification")
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,13 +53,24 @@ def parse_args() -> argparse.Namespace:
 # verification
 
 
-def is_reproducible(path: pathlib.Path) -> bool:
-    """Does regenerating a saved quantum Tanner code from its seed reproduce the saved code?"""
+def get_verification_problem(path: pathlib.Path) -> str | None:
+    """Say why a saved quantum Tanner code fails verification, or return None if it passes.
+
+    A saved code passes if it can be loaded, and if regenerating it from its seed reproduces it.
+    """
+    # load the saved code, which fails if its file is truncated or malformed
+    try:
+        saved_code = codes.QTCode.load(str(path))
+    except (IndexError, SyntaxError, ValueError) as error:
+        return f"Saved code cannot be loaded ({error!r})"
+
+    # regenerate the code from its seed, and compare
     group_order, group_index, base_code_id, seed = search.parse_code_path(path)
     group = abstract.SmallGroup(group_order, group_index)
     base_code = search.get_base_code(base_code_id)
-    new_code = codes.QTCode.random(group, base_code, seed=seed)
-    return codes.QTCode.load(str(path)) == new_code
+    if codes.QTCode.random(group, base_code, seed=seed) != saved_code:
+        return "Saved code does not match its regenerated version"
+    return None
 
 
 if __name__ == "__main__":

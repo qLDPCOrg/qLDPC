@@ -5,22 +5,27 @@
 
 This script samples random quantum Tanner codes (arXiv:2202.13641) built from every finite group of
 order at most --max-order, as indexed by the GAP SmallGroups library, and every classical base code
-in BASE_CODE_IDS.  Each code is constructed by qldpc.codes.QTCode.random, which uses the base code
-for one generating subset of the group and its dual code for the other, and draws both subsets as
-random symmetric subsets whose size is the block length of the base code.  These subsets are not
-uniformly random (see qldpc.abstract.Group.random_symmetric_subset), so the search samples codes
-from a non-uniform distribution.
+in BASE_CODE_IDS.  It constructs each code with qldpc.codes.QTCode.random, which draws two random
+symmetric subsets (closed under inverses) of the group, whose size is the block length of the base
+code.  The base code is the local code on one subset, and its dual code is the local code on the
+other.  The code lives on the quadripartite Cayley complex of arXiv:2206.07571, which is built on
+four copies of the group (G x Z_2 x Z_2) so that the subsets need not satisfy the conditions of the
+bipartite complex of arXiv:2202.13641; see qldpc.objects.CayleyComplex.
 
-For each group and base code, the script draws --num-samples codes with deterministic seeds (or one
-code, if the base code has as many bits as the group has elements), upper-bounds their code
+The subsets are not uniformly random (see qldpc.abstract.Group.random_symmetric_subset).  The
+frequencies of code parameters among saved codes therefore reflect this sampler, rather than the
+fractions of all symmetric subsets that give these parameters.
+
+For each group and base code, the script draws --num-samples codes with deterministic seeds, or one
+code if the base code has as many bits as the group has elements.  It upper-bounds their code
 distances by minimizing over --num-trials randomized trials, and saves each code with its parameters
 to a text file in the "codes" subdirectory of --results-dir (by default, results/codes in this
-directory).  Codes that already have a saved file are skipped (even if that file used a different
---num-trials) unless --overwrite is passed, so an interrupted search resumes where it left off.
+directory).  Codes that already have a saved file are skipped unless --overwrite is passed, even if
+that file used a different --num-trials, so an interrupted search resumes where it left off.
 
 Afterwards, collect_results.py summarizes the parameters of saved codes in a CSV file in the same
 results directory, and verify_codes.py checks that every saved code can be reproduced from its
-seed.  Both scripts rely on the file-naming and file-header helpers in this module.
+seed.  Both scripts rely on helpers in this module.
 
 Example:
     python experiments/quantum_tanner/run_search.py --max-order 6 --workers 8
@@ -37,7 +42,7 @@ import os
 import pathlib
 import re
 import traceback
-from collections.abc import Callable, Hashable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 
 from qldpc import abstract, codes
 
@@ -75,15 +80,14 @@ def main() -> None:
             run_and_save,
             group_order,
             group_index,
-            base_code,
             base_code_id,
             sample,
-            num_samples,
-            args.num_trials,
-            args.results_dir / CODES_NAME,
+            num_code_samples=num_code_samples,
+            num_trials=args.num_trials,
+            codes_dir=args.results_dir / CODES_NAME,
             overwrite=args.overwrite,
         )
-        for group_order, group_index, base_code, base_code_id, sample, num_samples in (
+        for group_order, group_index, base_code_id, sample, num_code_samples in (
             get_search_space(args.max_order, args.num_samples)
         )
     )
@@ -148,68 +152,72 @@ def add_results_dir_argument(parser: argparse.ArgumentParser) -> None:
 # code search
 
 
-def get_search_space(
-    max_order: int, num_samples: int
-) -> Iterator[tuple[int, int, codes.ClassicalCode, str, int, int]]:
+def get_search_space(max_order: int, num_samples: int) -> Iterator[tuple[int, int, str, int, int]]:
     """Iterate over the random quantum Tanner codes to sample.
 
-    Yields tuples (group_order, group_index, base_code, base_code_id, sample, num_samples), where
-    num_samples is the number of samples for this group and base code.
+    Yields tuples (group_order, group_index, base_code_id, sample, num_code_samples), where
+    num_code_samples is the number of samples for this group and base code.  Skips groups with fewer
+    elements than the base code has bits, which define no quantum Tanner code with that base code.
     """
-    base_codes = list(get_base_codes())
     for group_order, group_index in get_small_groups(max_order):
-        for base_code, base_code_id in base_codes:
-            # a group with fewer elements than the base code has bits has no subset as large as the
-            # block length of the base code, and thereby defines no quantum Tanner code with it
-            if group_order < base_code.num_bits:
+        for base_code_id in BASE_CODE_IDS:
+            # A group with fewer elements than the base code has bits has no subset as large as the
+            # block length of the base code, and thereby defines no quantum Tanner code with it.
+            num_bits = get_base_code(base_code_id).num_bits
+            if group_order < num_bits:
                 continue
 
             # If the base code has as many bits as the group has elements, there is only one random
             # quantum Tanner code, namely the one with subset_a = subset_b = group.
-            num_code_samples = 1 if base_code.num_bits == group_order else num_samples
+            num_code_samples = 1 if num_bits == group_order else num_samples
             for sample in range(num_code_samples):
-                yield group_order, group_index, base_code, base_code_id, sample, num_code_samples
+                yield group_order, group_index, base_code_id, sample, num_code_samples
 
 
 def run_and_save(
     group_order: int,
     group_index: int,
-    base_code: codes.ClassicalCode,
     base_code_id: str,
     sample: int,
-    num_samples: int,
+    *,
+    num_code_samples: int,
     num_trials: int,
     codes_dir: pathlib.Path,
-    *,
     overwrite: bool = False,
 ) -> None:
     """Generate a random quantum Tanner code, compute its parameters, and save it to a text file.
 
-    The random seed for the code is a deterministic hash of the group, the parity check matrix of
-    the base code, and the sample index, so rerunning this function with the same inputs reproduces
-    the same code.
+    The random seed for the code is a deterministic hash of the group, the bytes of the parity check
+    matrix of the base code, and the sample index, so rerunning this function with the same inputs
+    reproduces the same code.  These bytes depend on the rows and data type of the matrix, so a
+    change to how a base code is constructed changes the seeds of its codes.
 
     SymPy PermutationGroup objects do not survive pickling, which a process pool uses to pass
-    arguments to its workers, so this function constructs the group from its order and index.
+    arguments to its workers.  This function therefore constructs the group from its order and
+    index.
 
     Args:
         group_order: The order of the group that defines the code.
         group_index: The index of the group among those of the same order in the SmallGroups
             library.
-        base_code: The classical code that defines local constraints of the code.
-        base_code_id: An identifier of the base code; see get_base_code.
+        base_code_id: An identifier of the classical base code that defines local constraints of
+            the code; see get_base_code.
         sample: The index of this code among random samples with the same group and base code.
-        num_samples: The total number of samples per group and base code, used to report progress.
+        num_code_samples: The number of samples for this group and base code, used to report
+            progress.
         num_trials: The number of randomized trials for upper-bounding the code distance.
         codes_dir: The directory in which to save the code.
         overwrite: If True, regenerate and save a code that already has a saved file.
     """
+    # skip codes that already have a saved file, unless overwriting them
+    base_code = get_base_code(base_code_id)
     seed = get_deterministic_hash(group_order, group_index, base_code.matrix.tobytes(), sample)
     path = get_code_path(codes_dir, group_order, group_index, base_code_id, seed)
     if path.is_file() and not overwrite:
         return
 
-    job_id = f"{get_group_id(group_order, group_index)} {base_code_id} {sample}/{num_samples}"
+    group_id = get_group_id(group_order, group_index)
+    job_id = f"{group_id} {base_code_id} {sample + 1}/{num_code_samples}"
     print(job_id)
 
     # construct a random code and compute its parameters
@@ -238,18 +246,16 @@ def get_small_groups(max_order: int) -> Iterator[tuple[int, int]]:
 # base codes
 
 
-def get_base_codes() -> Iterator[tuple[codes.ClassicalCode, str]]:
-    """Iterate over the classical base codes in BASE_CODE_IDS, and their identifiers."""
-    for base_code_id in BASE_CODE_IDS:
-        yield get_base_code(base_code_id), base_code_id
-
-
 @functools.cache
 def get_base_code(base_code_id: str) -> codes.ClassicalCode:
     """Construct a classical base code from an identifier of the form "{family}-{parameter}".
 
-    The family is "Hamming", with the rank of the code as its parameter, or "CordaroWagner" or
-    "Mittal", with the block length of the code as its parameter.
+    The family is "Hamming", with the number r of parity checks as its parameter and block length
+    2^r - 1, or "CordaroWagner" or "Mittal", with the block length of the code as its parameter.
+    The base codes in BASE_CODE_IDS have parameters [n, k, d]:
+    - Hamming-2: [3, 1, 3], and Hamming-3: [7, 4, 3],
+    - CordaroWagner-3 to CordaroWagner-6: [3, 2, 2], [4, 2, 2], [5, 2, 3], and [6, 2, 4], and
+    - Mittal-4 to Mittal-6: [4, 2, 2], [5, 2, 3], and [6, 3, 3].
     """
     family, parameter = base_code_id.split("-")
     if family == "Hamming":
@@ -262,7 +268,11 @@ def get_base_code(base_code_id: str) -> codes.ClassicalCode:
 
 
 def get_cordaro_wagner_code(length: int) -> codes.ClassicalCode:
-    """Get the Cordaro-Wagner code with a given block length, as constructed by GUAVA."""
+    """Get the Cordaro-Wagner code with a given block length, as constructed by GUAVA.
+
+    Cordaro-Wagner codes are binary codes of dimension 2 with the largest minimum distance possible
+    for their block length.
+    """
     return codes.ClassicalCode.from_name(f"CordaroWagnerCode({length})")
 
 
@@ -361,11 +371,12 @@ def read_code_header(path: pathlib.Path) -> tuple[int, tuple[int, int, int | flo
 # helper functions
 
 
-def get_deterministic_hash(*inputs: Hashable) -> int:
+def get_deterministic_hash(*inputs: object) -> int:
     """Hash inputs by their repr, consistently across Python sessions (unlike the built-in hash).
 
-    Seeds of saved codes are such hashes, so changing this function changes which codes a search
-    samples, and stops a search from resuming from codes saved before the change.
+    Each input needs a repr that is the same in every Python session.  Seeds of saved codes are such
+    hashes, so changing this function changes which codes a search samples, and stops a search from
+    resuming from codes saved before the change.
     """
     input_bytes = repr(inputs).encode("utf-8")
     hash_bytes = hashlib.sha256(input_bytes).digest()
