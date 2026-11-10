@@ -7,11 +7,16 @@ each pytest-xdist worker.  It starts coverage before any ``conftest.py`` file im
 test, and labels every line that runs with a coverage context:
 
 * the empty context while pytest starts, which loads the ``conftest.py`` files of the directory
-  that contains every selected test file and of its parents,
+  that contains every selected test file and of its parents, and imports every measured module
+  other than a test file,
 * ``<collector node ID>|collect`` while a test file or a directory, with its ``conftest.py``, is
   collected,
 * ``<test node ID>|setup``, ``|run``, or ``|teardown`` while a test runs, and
 * ``unattributed`` at other times, such as between tests and after the last one.
+
+Importing the measured modules at startup labels the lines that run on import with the empty
+context, as for the modules that the ``conftest.py`` files import.  Otherwise, a module that is
+imported lazily would have these lines labeled with whichever test file first imports it.
 
 To make a test file run as it would in a fresh process, the plugin also undoes the state that a
 test file leaves behind for the next one on the same worker: after the last test of a test file, it
@@ -25,6 +30,8 @@ Lines that only a subprocess of a test runs are not measured.
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import os
 import pathlib
 import sys
@@ -62,6 +69,20 @@ def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) 
         prefix = path + os.sep
         return None if any(file.startswith(prefix) for file in _selected_test_files) else True
     return None if path in _selected_test_files else True
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection(session: pytest.Session) -> None:
+    """Import the measured modules other than test files, before collecting tests."""
+    if _coverage is None:
+        return
+    for path in os.environ[INCLUDE_VARIABLE].split(os.pathsep):
+        module_name = _get_module_name(path)
+        if module_name is None or _normalize(path) in (_selected_test_files or ()):
+            continue
+        # A module that fails to import is left to its test file, which reports the error.
+        with contextlib.suppress(Exception):
+            importlib.import_module(module_name)
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -182,6 +203,17 @@ def _clear_package_caches() -> None:
                 cache_clear = getattr(candidate, "cache_clear", None)
                 if callable(cache_clear):
                     cache_clear()
+
+
+def _get_module_name(path: str) -> str | None:
+    """The name of the module in a file, or None if the file is not in a package."""
+    file = pathlib.Path(path)
+    parts = [file.stem]
+    directory = file.parent
+    while (directory / "__init__.py").is_file():
+        parts.insert(0, directory.name)
+        directory = directory.parent
+    return ".".join(parts) if len(parts) > 1 else None
 
 
 def _normalize(path: str) -> str:
