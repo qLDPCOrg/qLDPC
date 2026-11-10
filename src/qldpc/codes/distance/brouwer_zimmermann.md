@@ -661,9 +661,9 @@ The certificate `L` of a search bounds only such words: no eligible word weighs 
 `L` alone can exceed the weights of skipped words, just as it can exceed the weights of words whose images an automorphism family has examined ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), so a bound on the distance is `min(L, U)`.
 No skipped word is lighter than `U` at any later time, so a scan with tables finds the same witnesses in the same order as a scan without them, and an early exit at a cutoff returns the same weight.
 A search stops exactly when it would without skipping, because it stops once its certificate reaches `U`.
-Words that weigh exactly `U` can be skipped, but counting the words of a given weight `w` must visit them all ([Section 5](#5-correctness-requirements)).
-So a count skips the completions of a prefix only if all of them weigh more than `w`, that is, with the limit of a best weight of `w + 1`.
-Its skipped words are then neither counted nor lighter than `w`, and the certificate of its last step still bounds every word of weight `w` that it neither visits nor skips.
+Words that weigh exactly `U` can be skipped, but counting the words of a given target weight `t` must visit them all ([Section 5](#5-correctness-requirements)).
+So a count skips the completions of a prefix only if all of them weigh more than `t`, that is, with the limit of a best weight of `t + 1`.
+Its skipped words are then neither counted nor lighter than `t`, and the certificate of its last step still bounds every word of weight `t` that it neither visits nor skips.
 
 #### When a search uses the tables
 
@@ -678,8 +678,10 @@ The search uses tables if the predicted cost is at most `completion_bound_max_co
 By default, tables use blocks of sixteen columns, or of eight columns if the tables would otherwise exceed `completion_bound_max_table_bytes`; the fields `completion_bound_block_bits` and `completion_bound_fallback_block_bits` set these widths.
 A search keeps its tables for later layers, and drops them when its basis changes, as when it switches to an automorphism family.
 It frees them when it finishes, but the search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
-A count chooses tables in the same way for each step of two or more rows of an information set, which scans one layer of one set, in `_StepTables` of [_counting/scan.py](_counting/scan.py), and keeps the tables of the sets that it has used, within `completion_bound_max_table_bytes` in all.
-Its steps scan the sets of a layer in turn, so with large tables it rebuilds each set's tables in each layer, which the prediction counts.
+A step of a count scans one layer of one set.
+`_StepTables` of [_counting/scan.py](_counting/scan.py) chooses tables in the same way for each step of two or more rows of an information set.
+A count keeps the tables of the sets that it has used, within `completion_bound_max_table_bytes` in all between steps, and also holds the tables that it is building.
+Its steps scan the sets of a layer in turn, so when the tables of all sets do not fit, it rebuilds them in each layer, which the prediction counts.
 
 Measurements on one Apple M3 Max processor, single-threaded, illustrate these trade-offs.
 The cost ratio of a layer is its time with tables, including their construction, divided by its time without them, with `completion_bound_max_table_bytes` set to zero.

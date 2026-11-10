@@ -17,6 +17,7 @@ and Section 5 states the counting requirement.
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Callable
 
 import numpy as np
@@ -109,9 +110,11 @@ def count_words(
     step_tables = _StepTables(
         None if brute_force else basis_family, rows_and_labels, weight + 1, tuning
     )
+    steps = _Steps(len(rows_and_labels), last_layer, last_num_completed)
 
-    # Scan in bounded calls, since compiled code cannot be interrupted within a call.  Each call
-    # ends at the end of a step, so that the tables of the next step can be chosen.
+    # Scan in bounded calls, since compiled code cannot be interrupted within a call.  A call that
+    # starts a step that may use completion tables ends with that step, and any other call ends
+    # before the next such step, so that the tables of each step can be chosen.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
@@ -119,7 +122,13 @@ def count_words(
     prefixes = np.zeros((len(basis), 1, step_tables.max_row_width), dtype=np.uint64)
     status = _SCAN_UNFINISHED
     while status == _SCAN_UNFINISHED:
-        tables, step_rows = step_tables.select(int(cursor[_CURSOR_LAYER]), int(cursor[_CURSOR_SET]))
+        step = int(cursor[_CURSOR_LAYER]), int(cursor[_CURSOR_SET])
+        if step_tables.may_use_tables(*step):
+            tables, step_rows = step_tables.select(*step)
+            stop = steps.get_next(*step)
+        else:
+            tables, step_rows = completion_bounds.NO_TABLES, rows_and_labels[:1]
+            stop = steps.find(step, step_tables.may_use_tables) if step_tables.layers else (0, 0)
         status = _scan_coefficient_layers(
             rows_and_labels,
             rows.shape[2],
@@ -137,6 +146,8 @@ def count_words(
             histogram,
             tuning.scan_chunk_size,
             tuning.scan_chunks_per_call,
+            stop[0],
+            stop[1],
             step_rows,
             tables.tables,
             tables.offsets,
@@ -232,6 +243,34 @@ def _get_last_step(certificate: information_sets.Certificate, weight: int) -> tu
     return next(step for step in steps if certificate.certifies(*step, weight + 1))
 
 
+class _Steps:
+    """The steps of a scan, the pairs of a layer and a set, in the order in which it visits them.
+
+    Each of ``num_sets`` sets has a step in each layer from one to ``last_layer``, except that only
+    the first ``last_num_completed`` sets have one in the last layer.  The step ``(0, 0)``, which
+    no scan visits, stands for the end of the scan.
+    """
+
+    def __init__(self, num_sets: int, last_layer: int, last_num_completed: int) -> None:
+        self._num_sets = num_sets
+        self._last_layer = last_layer
+        self._last_num_completed = last_num_completed
+
+    def get_next(self, layer: int, set_index: int) -> tuple[int, int]:
+        """The step after a step, or ``(0, 0)`` after the last step."""
+        num_sets = self._last_num_completed if layer == self._last_layer else self._num_sets
+        if set_index + 1 < num_sets:
+            return layer, set_index + 1
+        return (layer + 1, 0) if layer < self._last_layer else (0, 0)
+
+    def find(self, step: tuple[int, int], accept: Callable[[int, int], bool]) -> tuple[int, int]:
+        """The first step after ``step`` that ``accept`` accepts, or ``(0, 0)`` if none does."""
+        step = self.get_next(*step)
+        while step != (0, 0) and not accept(*step):
+            step = self.get_next(*step)
+        return step
+
+
 class _StepTables:
     """The completion tables, if any, with which each step of a count skips completions.
 
@@ -240,9 +279,10 @@ class _StepTables:
     set whose block is an information set may skip the supports whose words, by the bound of
     ``completion_bounds``, all weigh at least ``upper_bound``: the target weight plus one, so that
     no word of the target weight, and no lighter word, is skipped.  ``tuning`` chooses its tables as
-    for a layer of a distance search (see ``completion_bounds.select_completion_tables``), and the
-    tables of the sets that a count has used are kept within
-    ``tuning.completion_bound_max_table_bytes`` in all, for later steps of the same sets.
+    for a layer of a distance search (see ``completion_bounds.select_completion_tables``).  The
+    tables of the sets that a count has used are kept for their later steps, within
+    ``tuning.completion_bound_max_table_bytes`` in all, between steps; while it builds the tables of
+    another set, a count also holds that set's tables.
     """
 
     def __init__(
@@ -258,40 +298,71 @@ class _StepTables:
         self._tuning = tuning
         self._tails: dict[int, _PackedMatrix] = {}
         self._kept: dict[int, completion_bounds.CompletionTables] = {}
-        no_tables = completion_bounds.NO_TABLES
+        # The step whose tables select chose last, and its choice, which a resumed step reuses.
         self._step: tuple[int, int] | None = None
-        self._selected = (no_tables, rows_and_labels[:1])
+        self._selected: tuple[completion_bounds.CompletionTables, _PackedMatrix] | None = None
 
-        # The tails of every set whose block is an information set have the same number of words.
-        self.max_row_width = rows_and_labels.shape[2]
-        if basis_family is not None and np.any(
-            basis_family.ranks == basis_family.generators.shape[1]
+        # The layers whose steps the tuning considers for tables: those of at least two rows that
+        # scan at least completion_bound_minimum_layer_work supports, saturating like the gate's,
+        # which form a range since binomials rise and then fall.
+        self.layers = range(0)
+        num_rows = 0 if basis_family is None else basis_family.generators.shape[1]
+        if (
+            tuning.completion_bound_max_cost_percent
+            and tuning.completion_bound_max_table_bytes
+            and min(math.comb(num_rows, num_rows // 2), information_sets._WORK_CAP)
+            >= tuning.completion_bound_minimum_layer_work
         ):
-            num_tail_columns = basis_family.generators.shape[2] - basis_family.generators.shape[1]
+            considered = [
+                layer
+                for layer in range(2, num_rows + 1)
+                if min(math.comb(num_rows, layer), information_sets._WORK_CAP)
+                >= tuning.completion_bound_minimum_layer_work
+            ]
+            if considered:
+                self.layers = range(considered[0], considered[-1] + 1)
+
+        # Rows of steps with tables carry their tails, which have the same number of words in every
+        # set whose block is an information set.
+        self.max_row_width = rows_and_labels.shape[2]
+        if self.layers:
+            assert basis_family is not None
+            num_tail_columns = basis_family.generators.shape[2] - num_rows
             self.max_row_width += (num_tail_columns + 63) // 64
+
+    def may_use_tables(self, layer: int, set_index: int) -> bool:
+        """Whether a step might use tables: whether the tuning considers them for it.
+
+        Such a step is in one of ``layers``, and its set's block is an information set.
+        """
+        family = self._basis_family
+        return (
+            layer in self.layers
+            and family is not None
+            and bool(family.ranks[set_index] == family.generators.shape[1])
+        )
 
     def select(
         self, layer: int, set_index: int
     ) -> tuple[completion_bounds.CompletionTables, _PackedMatrix]:
-        """The tables of a step, and the rows and labels of its set followed by their tails.
+        """The tables of a step that ``may_use_tables``, and the rows, labels and tails of its set.
 
-        A step without tables gets ``completion_bounds.NO_TABLES``, and rows that its scan ignores.
+        A step whose tables the gate declines gets ``completion_bounds.NO_TABLES``, and rows that
+        its scan ignores.  Selecting the same step again, as when the scan resumes it, returns the
+        same choice.
         """
-        if self._step == (layer, set_index):
+        if self._step == (layer, set_index) and self._selected is not None:
             return self._selected
         self._step = (layer, set_index)
-        family = self._basis_family
-        tables = None
-        if (
-            family is not None
-            and layer >= 2
-            and set_index < len(family.ranks)
-            and family.ranks[set_index] == family.generators.shape[1]
-        ):
-            tails = self._get_tails(set_index)
-            tables = completion_bounds.select_completion_tables(
-                tails, layer, self._upper_bound, self._kept.get(set_index), self._tuning
-            )
+        # Release the tables of the previous step before building more.
+        self._selected = None
+        tables = completion_bounds.select_completion_tables(
+            self._get_tails(set_index),
+            layer,
+            self._upper_bound,
+            self._kept.get(set_index),
+            self._tuning,
+        )
         if tables is None:
             self._selected = (completion_bounds.NO_TABLES, self._rows_and_labels[:1])
             return self._selected
@@ -373,12 +444,14 @@ def _scan_coefficient_layers(
     histogram: npt.NDArray[np.int64],
     chunk_size: int,
     max_chunks: int,
+    stop_layer: int,
+    stop_set: int,
     step_rows: _PackedMatrix,
     tables: npt.NDArray[np.uint8],
     offsets: npt.NDArray[np.int64],
     block_bits: int,
 ) -> int:
-    """Visit the supports of the step at ``cursor``, for at most ``max_chunks`` chunks.
+    """Visit the supports of the steps from ``cursor`` on, for at most ``max_chunks`` chunks.
 
     A step visits all supports of one layer of one set (see ``_count_chunk``).  The layers run from
     one to ``last_layer``, each set has a step in each layer, except that only the first
@@ -389,82 +462,88 @@ def _scan_coefficient_layers(
     weight after its last step.  This loop is a function of its own so that it can be compiled,
     which saves a call from Python for every chunk.
 
-    With ``tables`` of ``completion_bounds.CompletionTables``, the step skips the completions that
-    cannot be lighter than ``target + 1`` (see ``_count_chunk_skipping``), and ``step_rows`` holds
-    the rows and labels of its set followed by their tails.  With ``completion_bounds.NO_TABLES``,
-    it visits every support, and ignores ``step_rows``.  Skipped words weigh more than ``target``,
-    so they are neither counted nor lighter than ``target``, and the certificate still rules out
-    the words of the target weight that the scan neither visits nor skips.
+    The call stops before the step ``(stop_layer, stop_set)``, or runs to the end of the scan if
+    that step is ``(0, 0)``.  With ``tables`` of ``completion_bounds.CompletionTables``, its steps
+    skip the completions that cannot be lighter than ``target + 1`` (see ``_count_chunk_skipping``),
+    and ``step_rows`` holds the rows and labels of their set followed by their tails, so a call
+    with tables covers one step.  With ``completion_bounds.NO_TABLES``, its steps visit every
+    support, and it ignores ``step_rows``.  Skipped words weigh more than ``target``, so they are
+    neither counted nor lighter than ``target``, and the certificate still rules out the words of
+    the target weight that the scan neither visits nor skips.
 
     The scan is resumable, since compiled code cannot be interrupted.  ``cursor`` holds the layer,
     the set, and the depth at which to resume, and ``support`` and ``prefixes`` hold the current
     support and its prefix XORs, so that a later call continues the scan.  The first call passes a
-    cursor at layer one, set zero and depth zero, and zero prefixes, and every call passes on the
-    same ``cursor``, ``support``, ``prefixes`` and ``histogram``, and the same tables for every
-    call of a step.  ``support[:layer]`` is the support of the current layer, which is how the
-    chunks know its length.  A call ends at the end of its step, so that the caller can choose the
-    tables of the next step.
+    cursor at layer one, set zero, and depth zero, and zero prefixes.  Every call passes on the
+    same ``cursor``, ``support``, ``prefixes``, and ``histogram``, and every call of a step the same
+    tables.  ``support[:layer]`` is the support of the current layer, which is how the chunks know
+    its length.
 
-    The caller calls it only while a step remains.  Returns ``_SCAN_FINISHED`` once the last step
-    is complete, ``_SCAN_UNFINISHED`` if steps or chunks remain, or ``_SCAN_FOUND_LIGHTER_WORD``.
+    Returns ``_SCAN_FINISHED`` once the last step is complete, ``_SCAN_UNFINISHED`` if steps or
+    chunks remain, or ``_SCAN_FOUND_LIGHTER_WORD``.
     """
-    layer = cursor[_CURSOR_LAYER]
-    set_index = cursor[_CURSOR_SET]
-    while cursor[_CURSOR_DEPTH] >= 0:
-        if max_chunks == 0:
-            return _SCAN_UNFINISHED
-        max_chunks -= 1
-        if len(tables):
-            depth, lighter = _count_chunk_skipping(
-                step_rows,
-                width,
-                rows_and_labels.shape[2],
-                extractors,
-                set_index,
-                support[:layer],
-                prefixes,
-                cursor[_CURSOR_DEPTH],
-                target,
-                rank_rows,
-                complement,
-                max_exponent,
-                histogram,
-                reject_lighter,
-                chunk_size,
-                tables,
-                offsets,
-                block_bits,
-            )
-        else:
-            depth, lighter = _count_chunk(
-                rows_and_labels[set_index : set_index + 1],
-                width,
-                extractors,
-                set_index,
-                support[:layer],
-                prefixes,
-                cursor[_CURSOR_DEPTH],
-                target,
-                rank_rows,
-                complement,
-                max_exponent,
-                histogram,
-                reject_lighter,
-                chunk_size,
-            )
-        cursor[_CURSOR_DEPTH] = depth
-        if lighter:
-            return _SCAN_FOUND_LIGHTER_WORD
+    while True:
+        # Visit the chunks of the step at the cursor.
+        layer = cursor[_CURSOR_LAYER]
+        set_index = cursor[_CURSOR_SET]
+        while cursor[_CURSOR_DEPTH] >= 0:
+            if max_chunks == 0:
+                return _SCAN_UNFINISHED
+            max_chunks -= 1
+            if len(tables):
+                depth, lighter = _count_chunk_skipping(
+                    step_rows,
+                    width,
+                    rows_and_labels.shape[2],
+                    extractors,
+                    set_index,
+                    support[:layer],
+                    prefixes,
+                    cursor[_CURSOR_DEPTH],
+                    target,
+                    rank_rows,
+                    complement,
+                    max_exponent,
+                    histogram,
+                    reject_lighter,
+                    chunk_size,
+                    tables,
+                    offsets,
+                    block_bits,
+                )
+            else:
+                depth, lighter = _count_chunk(
+                    rows_and_labels[set_index : set_index + 1],
+                    width,
+                    extractors,
+                    set_index,
+                    support[:layer],
+                    prefixes,
+                    cursor[_CURSOR_DEPTH],
+                    target,
+                    rank_rows,
+                    complement,
+                    max_exponent,
+                    histogram,
+                    reject_lighter,
+                    chunk_size,
+                )
+            cursor[_CURSOR_DEPTH] = depth
+            if lighter:
+                return _SCAN_FOUND_LIGHTER_WORD
 
-    # Move to the next step.
-    num_sets = last_num_completed if layer == last_layer else len(rows_and_labels)
-    cursor[_CURSOR_SET] += 1
-    cursor[_CURSOR_DEPTH] = 0
-    support[:] = 0
-    if cursor[_CURSOR_SET] >= num_sets:
-        cursor[_CURSOR_LAYER] += 1
-        cursor[_CURSOR_SET] = 0
-    return _SCAN_FINISHED if cursor[_CURSOR_LAYER] > last_layer else _SCAN_UNFINISHED
+        # Move to the next step, and stop at the end of the scan or before the stopping step.
+        num_sets = last_num_completed if layer == last_layer else len(rows_and_labels)
+        cursor[_CURSOR_SET] += 1
+        cursor[_CURSOR_DEPTH] = 0
+        support[:] = 0
+        if cursor[_CURSOR_SET] >= num_sets:
+            cursor[_CURSOR_LAYER] += 1
+            cursor[_CURSOR_SET] = 0
+        if cursor[_CURSOR_LAYER] > last_layer:
+            return _SCAN_FINISHED
+        if cursor[_CURSOR_LAYER] == stop_layer and cursor[_CURSOR_SET] == stop_set:
+            return _SCAN_UNFINISHED
 
 
 @compiled_on_request
@@ -592,7 +671,7 @@ def _count_chunk_skipping(
 
     The arguments are those of ``_count_chunk``, for a set whose block is an information set, with
     ``label_end`` words of word and label in each row of ``step_rows``, followed by the row's tail:
-    the row without its pivot columns, which ``tables``, ``offsets`` and ``block_bits`` of
+    the row without its pivot columns, which ``tables``, ``offsets``, and ``block_bits`` of
     ``completion_bounds.CompletionTables`` index.  Each word weighs the number of its rows plus the
     weight of its tail.  Before the scan tries row ``s`` as the first of the last two rows of a
     support, it bounds the weights of the words that complete the first ``len(support) - 2`` rows
@@ -610,16 +689,18 @@ def _count_chunk_skipping(
     layer = len(support)
     word = np.empty(width, dtype=np.uint64)
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
-    # The search steps through the supports of the first layer - 1 rows, whose last row is the
-    # first of the last two rows of a support, and visits the last row of each in its own loop.
-    # Skipping completes a word only if it weighs more than the target, so its limit is that of a
-    # best weight of target + 1.
+    # The count steps through the supports of the first layer - 1 rows, whose last row is the first
+    # of the last two rows of a support, and visits the last row of each in its own loop.  It skips
+    # completions only if every one of their words weighs more than the target, so its limit is
+    # that of a best weight of target + 1.
     head = support[: layer - 1]
     head_rows = step_rows[:, : num_rows - 1]
     pair_depth = layer - 2
     limit = target + 1 - layer
     visited = 0
     while visited < chunk_size:
+        # Choose the next first row of the last two, and skip it and every later one if the bound
+        # rules out the target weight.  Each lookup counts toward the chunk.
         if depth < layer - 1:
             depth = advance_support(head_rows, widths, head, prefixes, depth)
             if depth < 0:
@@ -634,8 +715,9 @@ def _count_chunk_skipping(
                 support[pair_depth] = num_rows
                 continue
 
-            # Otherwise add row first to the prefix, and try every later row as the last row.
-            for index in range(total_width):
+            # Otherwise add row first to the prefix, and try every later row as the last row.  The
+            # last rows read only the words and labels of the prefix.
+            for index in range(label_end):
                 prefixes[layer - 1, 0, index] = prefix[index] ^ rows[first, index]
             depth = layer - 1
             support[depth] = first + 1
@@ -663,6 +745,8 @@ def _count_chunk_skipping(
             pivots,
         ):
             return depth, True
+
+        # Record the visited rows, and after the last row, return to the next first row.
         visited += stop - support[depth]
         support[depth] = stop
         if stop == num_rows:

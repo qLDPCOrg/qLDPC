@@ -4,11 +4,12 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import pytest
-from sympy.abc import x, y
 
 from qldpc import codes
 from qldpc._binary import pack_bits
@@ -197,60 +198,127 @@ def test_counts_with_completion_tables_match_enumeration(
     assert selected
 
 
-def test_counts_of_a_larger_code_with_completion_tables(tune: Tune) -> None:
-    """Counts with completion tables equal those without, for a code with overlapping families."""
-    code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    tune(completion_bound_max_table_bytes=0)
-    expected = [lc.CSSLogicalCounter(code).count_logical_ops(weight) for weight in (6, 7, 8)]
-    assert expected[0] == Counts(6, 84, 84, None)
+@pytest.mark.parametrize("max_sets", [4, 16])
+def test_overlapping_families_with_completion_tables_count_every_word_once(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, max_sets: int
+) -> None:
+    """Every set of an overlapping family skips completions with its own tables and tails."""
+    sets_with_tables: set[int] = set()
+    select = scan._StepTables.select
+
+    def record(
+        step_tables: scan._StepTables, layer: int, set_index: int
+    ) -> tuple[completion_bounds.CompletionTables, npt.NDArray[np.uint64]]:
+        tables, rows = select(step_tables, layer, set_index)
+        if len(tables.tables):
+            sets_with_tables.add(set_index)
+        return tables, rows
+
+    monkeypatch.setattr(scan._StepTables, "select", record)
+    tune(overlapping_minimum_work=0, max_information_sets=max_sets, **FORCED_TABLES)
+    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    counter = lc.CSSLogicalCounter(code)
+    weights = range(len(code) + 1)
+    expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
+    assert [counter.count_logical_ops(weight) for weight in weights] == expected
+    assert len(sets_with_tables) > 1
+
+
+def test_counts_return_to_python_only_around_steps_that_may_use_tables(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune
+) -> None:
+    """A count whose steps are too small for tables scans them all in one call."""
+    calls: list[int] = []
+    scan_layers = scan._scan_coefficient_layers
+
+    def record(*args: Any) -> int:
+        calls.append(1)
+        return scan_layers(*args)
+
+    monkeypatch.setattr(scan, "_scan_coefficient_layers", record)
+    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    lc.CSSLogicalCounter(code).count_logical_ops(6)
+    assert len(calls) == 2
+
+    # With tables considered for every step, a count calls once for each step that may use them.
+    calls.clear()
     tune(**FORCED_TABLES)
-    assert [
-        lc.CSSLogicalCounter(code).count_logical_ops(weight) for weight in (6, 7, 8)
-    ] == expected
-    assert lc.CSSLogicalCounter(code).count_logical_ops(count_pauli=True) == Counts(6, 84, 84, 180)
+    lc.CSSLogicalCounter(code).count_logical_ops(6)
+    assert len(calls) > 2
+
+
+def test_steps_run_in_order() -> None:
+    """Steps run through the sets of each layer, and only the completed sets of the last layer."""
+    steps = scan._Steps(num_sets=2, last_layer=3, last_num_completed=1)
+    visited = [(1, 0)]
+    while (step := steps.get_next(*visited[-1])) != (0, 0):
+        visited.append(step)
+    assert visited == [(1, 0), (1, 1), (2, 0), (2, 1), (3, 0)]
+    assert steps.find((1, 0), lambda layer, set_index: set_index == 1) == (1, 1)
+    assert steps.find((1, 1), lambda layer, set_index: set_index == 1) == (2, 1)
+    assert steps.find((2, 1), lambda layer, set_index: set_index == 1) == (0, 0)
 
 
 def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     """Steps get tables only for layers of two or more rows of full sets, within a memory limit."""
     code = get_random_css_code(np.random.default_rng(1), 24, 8, 8)
     basis, labels = get_sector_problem(code, Pauli.X)
-    family = information_sets.get_disjoint_family(basis, labels, random_column_orders=0)
-    deficient = len(family.ranks) - 1
-    assert family.ranks[0] == len(basis) and family.ranks[deficient] < len(basis)
+    disjoint = information_sets.get_disjoint_family(basis, labels, random_column_orders=0)
+    deficient = len(disjoint.ranks) - 1
+    assert disjoint.ranks[0] == len(basis) and disjoint.ranks[deficient] < len(basis)
+
+    # A family of two full sets: the first set, and the same set with its rows in reverse order.
+    order = np.arange(len(basis))[::-1]
+    family = disjoint._replace(
+        generators=np.stack([disjoint.generators[0], disjoint.generators[0][order]]),
+        labels=np.stack([disjoint.labels[0], disjoint.labels[0][order]]),
+        pivots=np.stack([disjoint.pivots[0], disjoint.pivots[0][order]]),
+        ranks=disjoint.ranks[[0, 0]],
+    )
     rows = scan._pack_basis_family(family, basis.shape[1], labels.shape[1])[0]
-    rows_and_labels = np.zeros((len(family.ranks), len(basis), rows.shape[2] + 1), dtype=np.uint64)
+    rows_and_labels = np.zeros((2, len(basis), rows.shape[2] + 1), dtype=np.uint64)
     rows_and_labels[:, :, : rows.shape[2]] = rows
     tuning = tune(**FORCED_TABLES)
 
-    # No step of a brute-force scan, of layer one, or of a set without a full block has tables.
-    for basis_family, layer, set_index in ((None, 2, 0), (family, 1, 0), (family, 2, deficient)):
-        step_tables = scan._StepTables(basis_family, rows_and_labels, 4, tuning)
-        tables, _ = step_tables.select(layer, set_index)
-        assert tables is completion_bounds.NO_TABLES
+    # No step of a brute-force scan, of layer one, of a set without a full block, or below the
+    # minimum work, may use tables.
+    rows_of_disjoint = scan._pack_basis_family(disjoint, basis.shape[1], labels.shape[1])[0]
+    assert not scan._StepTables(None, rows_and_labels, 4, tuning).may_use_tables(2, 0)
+    assert not scan._StepTables(family, rows_and_labels, 4, tuning).may_use_tables(1, 0)
+    assert not scan._StepTables(disjoint, rows_of_disjoint, 4, tuning).may_use_tables(2, deficient)
+    small = tune(completion_bound_minimum_layer_work=math.comb(len(basis), 3) + 1)
+    assert not scan._StepTables(family, rows_and_labels, 4, small).may_use_tables(3, 0)
+    assert scan._StepTables(family, rows_and_labels, 4, small).may_use_tables(4, 0)
 
-    # A full set's step gets tables, and its rows carry the set's tails after the labels.
+    # Each full set's step gets tables, and its rows carry that set's own tails after the labels.
     step_tables = scan._StepTables(family, rows_and_labels, 4, tuning)
-    tables, step_rows = step_tables.select(2, 0)
-    tails = step_tables._get_tails(0)
-    assert len(tables.tables)
-    assert step_rows.shape == (1, len(basis), rows_and_labels.shape[2] + tails.shape[1])
-    assert step_rows.shape[2] == step_tables.max_row_width
-    np.testing.assert_array_equal(step_rows[0, :, rows_and_labels.shape[2] :], tails)
-    assert step_tables.select(2, 0)[0] is tables
-    assert step_tables.select(3, 0)[0] is tables
+    assert step_tables.may_use_tables(2, 0) and step_tables.may_use_tables(2, 1)
+    for set_index in range(2):
+        tables, step_rows = step_tables.select(2, set_index)
+        tails = pack_bits(np.delete(family.generators[set_index], family.pivots[set_index], axis=1))
+        assert len(tables.tables)
+        assert step_rows.shape == (1, len(basis), rows_and_labels.shape[2] + tails.shape[1])
+        assert step_rows.shape[2] == step_tables.max_row_width
+        np.testing.assert_array_equal(
+            step_rows[0, :, : rows_and_labels.shape[2]], rows_and_labels[set_index]
+        )
+        np.testing.assert_array_equal(step_rows[0, :, rows_and_labels.shape[2] :], tails)
+        assert step_tables.select(2, set_index)[0] is tables
+        assert step_tables.select(3, set_index)[0] is tables
 
-    # Tables of another set replace kept ones that the limit cannot hold too.
-    two_full_sets = family._replace(
-        generators=family.generators[[0, 0]],
-        labels=family.labels[[0, 0]],
-        pivots=family.pivots[[0, 0]],
-        ranks=family.ranks[[0, 0]],
-    )
+    # A limit that holds one set's tables keeps the latest set's tables, and rebuilds the others.
     tuning = tune(completion_bound_max_table_bytes=len(tables.tables), **FORCED_TABLES)
-    step_tables = scan._StepTables(two_full_sets, rows_and_labels[[0, 0]], 4, tuning)
-    step_tables.select(2, 0)
-    step_tables.select(2, 1)
-    assert list(step_tables._kept) == [1]
+    step_tables = scan._StepTables(family, rows_and_labels, 4, tuning)
+    first = step_tables.select(2, 0)[0]
+    second = step_tables.select(2, 1)[0]
+    assert step_tables.select(3, 1)[0] is second
+    assert step_tables.select(3, 0)[0] is not first
+
+    # A step whose tables the gate declines scans without them.
+    declining = tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=1)
+    step_tables = scan._StepTables(family, rows_and_labels, 4, declining)
+    assert step_tables.may_use_tables(2, 0)
+    assert step_tables.select(2, 0)[0] is completion_bounds.NO_TABLES
 
 
 @pytest.mark.parametrize("compiled", [False, True])
