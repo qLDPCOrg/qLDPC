@@ -37,6 +37,10 @@ from . import affine_instance, affine_search, connected_support, information_set
 # The method of a coset-leader search.
 CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
 
+# The seed of the random orders of columns in which connected-support coset searches row-reduce
+# their checks to make them sparser (see ``_get_sparser_rows``).  It makes the checks reproducible.
+_SPARSIFYING_SEED = 0
+
 # The planning buffer of a coset search: its tables of the bounds of its steps, each with one more
 # row that caches a stopping step (see ``_get_planning``).
 _PlanningBuffer = npt.NDArray[np.int64]
@@ -110,17 +114,18 @@ class CosetLeaderSearch:
     ``connected_support.SupportSearch`` from the syndrome of a query, through the unsatisfied
     stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers
     for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are sparse.
-    Given stabilizers, such as row-reduced ones, can be dense, so it first makes its checks sparser
-    by adding them to each other, which can fall short of the sparsest generators.  It uses no
-    tuning field.  The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only
-    on CSS states, whose X and Z parts it searches separately.  Like the BZ searches, it first looks
-    up errors of weight at most one, so a syndrome with such an error gets the weight of its
-    lightest errors as a lower bound.  For any other syndrome, a query with an error within
-    ``max_weight`` gives two, and a query with none gives the larger of two and ``max_weight + 1``.
-    ``find_first_not_within_max_weight`` searches each syndrome that the table lacks with increasing
-    weight limits, which can find light errors sooner than one search at ``max_weight``.  The BZ
-    searches often give higher bounds, which spare queries to consumers that raise a threshold to
-    each bound.
+    Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its checks with
+    sparser ones that span the same space, which can fall short of the sparsest generators.  Which
+    checks it finds depends on the tuning, and can change which error a query returns, but not its
+    answer or its lower bound.  The CSS weight is not a sum over qubits, so it weighs errors by CSS
+    weight only on CSS states, whose X and Z parts it searches separately.  Like the BZ
+    searches, it first looks up errors of weight at most one, so a syndrome with such an error gets
+    the weight of its lightest errors as a lower bound.  For any other syndrome, a query with an
+    error within ``max_weight`` gives two, and a query with none gives the larger of two and
+    ``max_weight + 1``.  ``find_first_not_within_max_weight`` searches each syndrome that the table
+    lacks with increasing weight limits, which can find light errors sooner than one search at
+    ``max_weight``.  The BZ searches often give higher bounds, which spare queries to consumers that
+    raise a threshold to each bound.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -133,7 +138,8 @@ class CosetLeaderSearch:
     The oracle reads the active tuning (see ``_tuning``) when it is built.  Its field
     ``disjoint_random_column_orders`` configures every BZ search of the oracle, and
     ``max_css_single_pairs`` the BZ searches by CSS weight that are not split into two classical
-    searches.
+    searches.  Its fields ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement``
+    configure how the connected-support searches make their checks sparser.
 
     Raises:
         ValueError: If the stabilizers are not ``n`` independent commuting stabilizers, if the
@@ -154,6 +160,12 @@ class CosetLeaderSearch:
                 " or 'connected_support'"
             )
         tuning = get_tuning()
+        # The connected-support searches make their checks sparser in rounds that the tuning bounds.
+        support_search = functools.partial(
+            _ConnectedSupportCosetSearch,
+            max_rounds=tuning.max_sparsifying_rounds,
+            rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
+        )
         # Exactly one of the BZ searches and the connected-support searches is nonempty.
         self._searches: tuple[_CosetSearch, ...] = ()
         self._support_searches: tuple[_ConnectedSupportCosetSearch, ...] = ()
@@ -190,7 +202,7 @@ class CosetLeaderSearch:
                     " use css_weight=False or the default method"
                 )
             else:
-                self._support_searches = (_ConnectedSupportCosetSearch(matrix, homogeneous=False),)
+                self._support_searches = (support_search(matrix, homogeneous=False),)
             return
 
         # Combine the stabilizers into pure-X and pure-Z stabilizers, and row-reduce the X parts of
@@ -208,8 +220,8 @@ class CosetLeaderSearch:
             # The Z parts of the pure-Z stabilizers check the X parts, and the X parts of the pure-X
             # stabilizers check the Z parts.
             self._support_searches = (
-                _ConnectedSupportCosetSearch(z_rows, homogeneous=True),
-                _ConnectedSupportCosetSearch(x_rows, homogeneous=True),
+                support_search(z_rows, homogeneous=True),
+                support_search(x_rows, homogeneous=True),
             )
         else:
             self._searches = _get_css_searches(
@@ -586,17 +598,26 @@ class _ConnectedSupportCosetSearch:
     ``_CosetSearch``.
 
     The search is fast only if its checks are sparse, but the given checks, such as row-reduced
-    stabilizers, can be dense.  So it searches the sparser checks of ``_sparsify``, which span the
-    same space, and maps the syndrome of a query to them.
+    stabilizers, can be dense.  So it searches the sparser checks of ``_get_sparser_rows``, which
+    span the same space, and maps the syndrome of a query to them.
 
     Args:
         matrix: The checks, whose kernel is the code: the stabilizers, in ``[X|Z]`` order, for
             Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a word
             is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
         homogeneous: False for Paulis, and True for X or Z parts.
+        max_rounds: The ``max_sparsifying_rounds`` of the tuning (see ``_get_sparser_rows``).
+        rounds_without_improvement: The ``sparsifying_rounds_without_improvement`` of the tuning.
     """
 
-    def __init__(self, matrix: npt.NDArray[np.uint8], *, homogeneous: bool) -> None:
+    def __init__(
+        self,
+        matrix: npt.NDArray[np.uint8],
+        *,
+        homogeneous: bool,
+        max_rounds: int,
+        rounds_without_improvement: int,
+    ) -> None:
         # Map each syndrome of a word of weight zero or one to such a word.  The syndrome of a word
         # with one nonzero bit, which is an X or a Z on one qubit or one bit of a part, is a column
         # of the checks, once the halves of symplectic checks are swapped.  The syndrome of the
@@ -614,7 +635,12 @@ class _ConnectedSupportCosetSearch:
                 self._singles.setdefault(z_syndrome, z_word)
                 self._singles.setdefault(low_syndrome ^ z_syndrome, low_word | z_word)
 
-        rows, transform = _sparsify(matrix, homogeneous=homogeneous)
+        rows, transform = _get_sparser_rows(
+            matrix,
+            homogeneous=homogeneous,
+            max_rounds=max_rounds,
+            rounds_without_improvement=rounds_without_improvement,
+        )
         self._num_checks = len(rows)
         # Row ``i`` of the sparse rows sums the given rows that row ``i`` of the transform selects,
         # so bit ``i`` of a syndrome for them is the parity of those bits of the given syndrome.
@@ -781,6 +807,74 @@ def _get_inverse(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     return inverse
 
 
+def _get_sparser_rows(
+    matrix: npt.NDArray[np.uint8],
+    *,
+    homogeneous: bool,
+    max_rounds: int,
+    rounds_without_improvement: int,
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Rows with the span of independent rows, made sparser by row reductions in random orders.
+
+    The rows start as those of ``_sparsify``, and are weighed as it weighs them.  Each round
+    row-reduces the given rows with pivots in a random order of the columns, which gives the words
+    of the span that have exactly one pivot column in their support.  Those that are lighter than
+    the heaviest current row join the rows as candidates, and the greedy algorithm for matroids
+    keeps the lightest independent candidates: it takes them by increasing weight, and keeps each
+    that is independent of those that it kept.  So the rows are always a lightest basis drawn from
+    the candidates, and their total weight never rises.  The rounds stop after ``max_rounds``, or
+    once ``rounds_without_improvement`` rounds in a row have left the total weight unchanged, and a
+    last pass of ``_sparsify`` adds rows to each other where that helps.  The rows need not be the
+    sparsest.  Rows with the same span give a search the same answers and bounds, though perhaps
+    other representatives.  So the rounds may be random, and a fixed seed makes them reproducible.
+
+    Args:
+        matrix: Independent rows.
+        homogeneous: False if the rows are symplectic, and True otherwise.
+        max_rounds: The most rounds, or zero for the rows of ``_sparsify``.
+        rounds_without_improvement: The number of rounds in a row without a lower total weight after
+            which the rounds stop.
+
+    Returns:
+        The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.  The
+        total weight of the rows is at most that of the rows of ``_sparsify``.
+    """
+    rows, transform = _sparsify(matrix, homogeneous=homogeneous)
+    if not len(rows):
+        return rows, transform
+
+    # Each round adds the rows of a reduction that are lighter than the heaviest current row.  The
+    # rows come first among candidates of equal weight, so a round that does not lower the total
+    # weight leaves the rows as they are.  Row-reducing the transposed candidates, sorted by weight,
+    # takes as pivots the first candidates that are independent of those before them.
+    rng = np.random.default_rng(_SPARSIFYING_SEED)
+    weights = _get_row_weights(rows, homogeneous=homogeneous)
+    rounds_unchanged = 0
+    for _ in range(max_rounds):
+        reduced, _, _ = row_reduce_binary(matrix, columns=rng.permutation(matrix.shape[1]))
+        reduced_weights = _get_row_weights(reduced, homogeneous=homogeneous)
+        light = reduced_weights < weights.max()
+        previous_total = weights.sum()
+        if np.any(light):
+            candidates = np.vstack([rows, reduced[light]])
+            candidate_weights = np.concatenate([weights, reduced_weights[light]])
+            order = np.argsort(candidate_weights, kind="stable")
+            _, _, pivots = row_reduce_binary(np.ascontiguousarray(candidates[order].T))
+            rows, weights = candidates[order[pivots]], candidate_weights[order[pivots]]
+        rounds_unchanged = rounds_unchanged + 1 if weights.sum() == previous_total else 0
+        if rounds_unchanged >= rounds_without_improvement:
+            break
+
+    # Add rows to each other where that helps, and find the transform from the given rows.  The
+    # rows are in the span of ``matrix``, whose product with the transposed inverse is the identity,
+    # so their product with it is the transform.  Products of binary matrices in float32 are exact
+    # while their inner dimension is below ``2**24``, and faster than in integers.
+    rows, _ = _sparsify(rows, homogeneous=homogeneous)
+    inverse = _get_inverse(matrix)
+    product = rows.astype(np.float32) @ inverse.T.astype(np.float32)
+    return rows, (product % 2).astype(np.uint8)
+
+
 def _sparsify(
     matrix: npt.NDArray[np.uint8], *, homogeneous: bool
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
@@ -830,6 +924,14 @@ def _sparsify(
     if not homogeneous:
         parts.append(unpack_bits(part_z, num_variables))
     return np.hstack(parts), transform
+
+
+def _get_row_weights(rows: npt.NDArray[np.uint8], *, homogeneous: bool) -> npt.NDArray[np.int64]:
+    """The weights of rows, as ``_sparsify`` counts them: of nonzero entries, or of qubits."""
+    if homogeneous:
+        return rows.sum(axis=1, dtype=np.int64)
+    half = rows.shape[1] // 2
+    return (rows[:, :half] | rows[:, half:]).sum(axis=1, dtype=np.int64)
 
 
 def _get_search_tables(
