@@ -14,24 +14,22 @@ The method is named after what it searches, as `"brute_force"` is, rather than a
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
 
-- [Section 2](#2-what-the-search-costs) says what the cost of the search depends on.
+- [Section 2](#2-what-the-cost-of-the-search-depends-on) says what the cost of the search depends on.
 - [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper.
   [Section 3.7](#37-qubit-codes-that-are-not-css) extends the algorithm to qubit codes that are not CSS, and [Section 3.8](#38-vectors-with-a-given-syndrome) to vectors with a given syndrome.
 - [Section 4](#4-guide-to-the-source-code) maps the algorithm to the source code.
 - [Section 5](#5-correctness-requirements) lists the requirements that every change to the search must keep.
 
-## 2. What the search costs
+## 2. What the cost of the search depends on
 
-A **sector** of a CSS code is its X-type or its Z-type logical operators, which a search treats as separate problems ([Section 3.1](#31-the-problem)).
-A classical code is searched like a sector with nothing excluded, and a vector distance like a sector that excludes the code words ([Section 3.1](#31-the-problem)).
-A qubit code that is not CSS has no sectors, and its search branches on the Paulis `X`, `Z`, and `Y` of each qubit ([Section 3.7](#37-qubit-codes-that-are-not-css)).
-
-The search enumerates supports that grow through unsatisfied checks, so its cost depends on the sparsity of the checks and on the distance, but not on the rate of the code.
-Its cost grows by a roughly constant factor for each additional unit of weight.
-It grows quickly if the checks are dense, because every unsatisfied check offers many variables to branch on.
-A subsystem code searches the Tanner graph of its stabilizers, which can be dense.
-If the stabilizers weigh much less than the distance, as those of surface codes do, many supports grow without being pruned.
-A search of a code that is not CSS costs more than that of the sectors of a CSS code, since a `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning).
+The search enumerates supports, the sets of variables on which a word is nonzero, that grow through unsatisfied checks ([Section 3.1](#31-the-problem) defines these terms).
+So its cost depends on the sparsity of the checks, on the weight limit, and on the number of variables from which it starts, which symmetries reduce ([Section 3.5](#35-symmetries)).
+For a given code, its cost grows by a roughly constant factor with each step of the weight limit.
+That factor is large if the checks are dense, because every unsatisfied check offers many variables to branch on.
+The search of a subsystem code uses the Tanner graph of its stabilizers, which can be dense even if its gauge generators are sparse.
+If the checks weigh much less than the distance, as those of surface codes do, many supports grow without being pruned ([Section 3.4](#34-pruning)), so the search visits many states below the distance.
+The search of a qubit code that is not CSS costs more than the searches of the sectors of an equivalent CSS code, such as the same code without Hadamards on some of its qubits.
+A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning), and each qubit of a check offers two symbols that flip it, the two Paulis that anticommute with the check there ([Section 3.7](#37-qubit-codes-that-are-not-css)).
 
 The script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
 
@@ -51,6 +49,7 @@ Coordinates are called **variables**.
 The **support** of `x` is the set of its nonzero variables, and its **syndrome** is the set of the rows of `H`, the **checks**, that have an odd number of variables in the support.
 A check is **unsatisfied** if it is in the syndrome.
 
+A **sector** of a CSS code is its X-type or its Z-type logical operators, which a search treats as separate problems.
 For a CSS code, the distance of the X-type logical operators is `d(H_Z, H_X)`, and the distance of the Z-type logical operators is `d(H_X, H_Z)`.
 The distance of the code is the smaller of the two.
 For a subsystem code, `H` holds the stabilizers of the opposite type, so that its kernel holds the X-type or Z-type operators that commute with every stabilizer, and `G` holds the gauge generators of the same type.
@@ -90,7 +89,7 @@ It reports `S` if it is a witness, and otherwise leaves the state.
 At any other state, it chooses an unsatisfied check `c` with the fewest **available** variables, those of `c` that are neither in `S` nor in `F`.
 It visits the states `S ∪ {v}` for each available variable `v` of `c`, and adds `v` to `F` for its later siblings once its state is done.
 Its children come in the order of their repairs ([Section 3.4](#34-pruning)), most repairing first.
-On the [[276, 98, 14]] code, this order visits a quarter as many states as the order of the variables, up to the weight limit at which the search finds a witness.
+On the [[276, 98, 14]] pair-partition code of Okada and Kasai, this order visits a quarter as many states as the order of the variables, up to the weight limit at which the search finds a witness.
 Every state grows only through unsatisfied checks, so every support that it visits is connected.
 
 **Completeness.**
@@ -166,7 +165,7 @@ qLDPC takes the orbits of any group of automorphisms that it verifies.
 
 The `_found_qudit_automorphisms` of a quantum code provide generators of `Γ`.
 Classical codes are searched without symmetries, from every variable.
-Finding them can take as long as a large search.
+Finding the automorphisms of a large code can take as long as a search of many states.
 So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
 It expects the number of states of each weight limit to grow by the ratio between those of the last two.
 A first limit above the divisor, which `cutoff` can set, has no such estimate, so the search asks for them before it, unless `automorphism_minimum_states` is `MAX_VALUE`.
@@ -208,7 +207,7 @@ A search that needs more has a bug, and raises a `RuntimeError` rather than loop
 **Interrupts.**
 Each weight limit of a problem runs in one compiled call, which a keyboard interrupt cannot stop, so an interrupt takes effect only once that weight limit ends.
 Python then raises a `KeyboardInterrupt`, or a `SystemError` that the interrupt caused.
-The last weight limits of large searches can be long.
+In a large search, the last weight limits, and so the wait for an interrupt, can take a long time.
 
 ### 3.7 Qubit codes that are not CSS
 
@@ -246,7 +245,7 @@ Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses va
   A completion `T` has one symbol on each new variable, so its size is the number of variables that it adds.
   The dual weights `y_c` must make the weights of the unsatisfied checks that each available symbol flips total at most one, and the overlap and repair of [Section 3.4](#34-pruning) are those of symbols.
   A `Y` flips the checks that act on its qubit as `X` or as `Z`, while an `X` flips those that act as `Z` or `Y`, and a `Z` those that act as `X` or `Y`.
-  So a `Y` can flip more checks than either: in a CSS code with Hadamards, no check acts as `Y`, and a `Y` flips every check on its qubit, which raises overlaps and lowers the weights.
+  So a `Y` can flip more checks than either: in a CSS code with Hadamards applied to some of its qubits, no check acts as `Y`, and a `Y` flips every check on its qubit, which raises overlaps and lowers the weights.
 - **Symmetries.**
   A permutation of the qubits moves both halves of each word, and qLDPC verifies it on the `2n` columns.
   The roots and ranks are those of variables, and the search from a root blocks every value of the variables of lower rank.
