@@ -91,18 +91,15 @@ The coordinator runs each round as follows:
    Report every such fix explicitly, under its own heading, so that the person the coordinator works for sees each change that they did not ask for.
    What to do about any other pre-existing problem is a decision.
    Recommend fixing it in the change, in a follow-up pull request, or in a small pull request that precedes the change.
-5. Start another round with fresh reviewers, unless four rounds have run:
-
-   * after the first round, if it had a significant finding;
-   * after a later round, if fixing a significant finding took more than a local, evidently correct edit.
-
+5. Start another round with fresh reviewers if the round had a significant finding, unless four rounds have run.
+   If every fix of a significant finding was a local, evidently correct edit, the next round may review only those fixes, with one reviewer covering up to two angles.
    Edits that change logic, an interface, or how parts of the code interact are not local.
    The coordinator judges each fix.
    Minor findings and pre-existing problems do not start another round.
-   From the third round on, neither do significant problems outside the revisions.
-   If such a problem needs more than a local fix, report it and recommend how to proceed instead of starting another round.
+   From the third round on, neither does a significant problem outside the revisions that needs more than a local fix; report it and recommend how to proceed instead.
    If significant problems remain as open decisions, report them and ask how to proceed before starting another round.
 
-After the last round, report what each round found and changed, list the pre-existing problems that the review fixed, and list the decisions that remain open.
+A standard review passes when a round has no significant finding.
+After the last round, report whether the review passed, what each round found and changed, the pre-existing problems that the review fixed, and the decisions that remain open.
 A standard review does not run the finishing checks of the :ref:`validation commands <validation-commands>`, which belong to finishing a pull request.
-If the four-round limit ended the review, ask whether to start another round.
+If the review ends without passing, such as at the four-round limit, say so, and ask how to proceed, such as with another round or by splitting the change.
