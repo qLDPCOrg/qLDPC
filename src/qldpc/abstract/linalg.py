@@ -154,8 +154,8 @@ def get_howell_dual(
     so their duals generally fail properties 1-4.
 
     ``skip_validation`` controls whether the returned dual is checked.  Validation checks properties
-    1 and 2, which depend on ``matrix_hnf``.  The constructed dual satisfies properties 3 and 4
-    whenever it satisfies properties 1 and 2.
+    1 and 2.  The constructed dual satisfies properties 3 and 4 whenever it satisfies properties 1
+    and 2.
 
     - ``False``: always check, raising a ValueError if the dual is not valid.
     - ``True``: never check.  A wrong ``transformer`` or ``right`` may then give a wrong dual.
@@ -258,13 +258,19 @@ def _validate_howell_dual(matrix_hnf: RingArray, dual: RingArray, right: bool) -
     """Raise a ValueError if ``dual`` is not a valid dual of matrix_hnf.
 
     This function checks properties 1 and 2 in the docstring of get_howell_dual.  For the dual that
-    get_howell_dual builds, they imply properties 3 and 4.  In a Wedderburn-Artin component, the
-    diagonal block of D for a row is ``B·E``, where B is the leading block of the row and E is the
-    symmetric projector onto the span S of the row.  Properties 1 and 2 make ``B·E`` fix S, and
-    ``B·E`` vanishes on the orthogonal complement of S, which E vanishes on, so ``B·E = E``.  Then D
-    is a diagonal of symmetric idempotents, which gives properties 3 and 4.  Over a commutative
-    ring, the diagonal entry of D for a row with pivot p is ``p·p``, property 2 gives ``p·p·p = p``,
-    and property 3 follows.
+    get_howell_dual builds, they imply properties 3 and 4.  Let ``D = matrix_hnf @ dual.T``.  In a
+    Wedderburn-Artin component, let B be the first nonzero block of a row, S the span of the columns
+    of the blocks of the row, and E the projector onto S from _get_fixing_projector, which is a
+    symmetric matrix.  The diagonal block of D for the row is ``B·E``.  Properties 1 and 2 make
+    ``B·E`` fix S.  E vanishes on the orthogonal complement of S, so ``B·E`` does too.  S and its
+    complement span the space, since the Gram matrix in _get_fixing_projector is invertible, so
+    ``B·E = E``.  So D is a diagonal of symmetric idempotents, which gives properties 3 and 4.  If
+    ``right=True``, the same argument applies with rows instead of columns, and with ``E·B`` instead
+    of ``B·E``.
+
+    Over a commutative ring, the diagonal entry of D for a row with pivot p is ``p·p``.  Property 2
+    gives ``p·p·p = p``, which gives property 3.  Property 4 follows from property 1, since
+    transpose_array then only transposes the array.
     """
     diag = matmul(matrix_hnf, dual.T, right=right)
     valid = (
