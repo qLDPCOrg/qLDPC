@@ -322,7 +322,7 @@ class SearchTuning:
 
     # Fields of completion tables.
 
-    #: The number of supports, choices of rows of an information set, from which a scan of one
+    #: The number of supports, choices of rows of an information set, from which a layer of one
     #: information set considers completion tables, which skip supports that cannot complete a word
     #: lighter than its best one, or, in a count, no heavier than the counted weight (Section 3.9 of
     #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling.  Lowering it
@@ -455,13 +455,13 @@ class SearchTuning:
     #: an interrupt, and keep the smallest value whose overhead is negligible.
     scan_chunk_size: int = dataclasses.field(default=1 << 16, metadata={"minimum": 1})
 
-    #: The most calls of ``scan_chunk_size`` that the scan of a count makes before it returns to
+    #: The most chunks of ``scan_chunk_size`` that the scan of a count visits before it returns to
     #: Python, once :func:`~qldpc.codes.distance.logical_counts.compile_search_setup` has compiled
-    #: its loop over layers; until then, it returns after every call.  It also returns before and
-    #: after each layer that may use completion tables.  Lowering it makes interrupts prompter;
-    #: ``MAX_VALUE`` lets a compiled scan run to its end, or to such a layer.  At least 1.
-    #: Defaults to 64; how it was chosen is not recorded.  To retune it, proceed as for
-    #: ``scan_chunk_size``.
+    #: its loop over layers; until then, it returns after every chunk.  It also returns before and
+    #: after each coefficient layer of an information set that may use completion tables.  Lowering
+    #: it makes interrupts prompter; ``MAX_VALUE`` lets a compiled scan run to its end, or to such a
+    #: layer.  At least 1.  Defaults to 64; how it was chosen is not recorded.  To retune it,
+    #: proceed as for ``scan_chunk_size``.
     scan_chunks_per_call: int = dataclasses.field(default=64, metadata={"minimum": 1})
 
     #: The most Gray-code steps that the walk of a check space by the MacWilliams method takes in

@@ -348,3 +348,19 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word(compiled: bool) -> No
     support[:] = 0
     depth, lighter = count_chunk(*arguments, prefixes, 0, 10, *options, False, *table_arguments)
     assert not lighter and depth == -1
+
+    # The words of two rows weigh 4, 5, and 5.  At target 3, the first lookup rules out every pair
+    # from row 0 on, so a chunk of one lookup ends having skipped every first row.
+    support[:] = 0
+    small_chunk = (1, *table_arguments[1:])
+    depth, lighter = count_chunk(*arguments, prefixes, 0, 3, *options, False, *small_chunk)
+    assert (depth, lighter) == (0, False)
+    assert support[0] == 3
+    assert histogram.sum() == 0
+
+    # At target 4, the bound from row 0 on is below the limit, so the step weighs those pairs and
+    # counts the word of weight 4; from row 1 on, the only pair weighs 5, which it skips.
+    support[:] = 0
+    depth, lighter = count_chunk(*arguments, prefixes, 0, 4, *options, False, *table_arguments)
+    assert (depth, lighter) == (-1, False)
+    assert histogram.sum() == 1

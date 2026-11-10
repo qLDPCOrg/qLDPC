@@ -307,12 +307,7 @@ class _StepTables:
         # which form a range since binomials rise and then fall.
         self.layers = range(0)
         num_rows = 0 if basis_family is None else basis_family.generators.shape[1]
-        if (
-            tuning.completion_bound_max_cost_percent
-            and tuning.completion_bound_max_table_bytes
-            and min(math.comb(num_rows, num_rows // 2), information_sets._WORK_CAP)
-            >= tuning.completion_bound_minimum_layer_work
-        ):
+        if tuning.completion_bound_max_cost_percent and tuning.completion_bound_max_table_bytes:
             considered = [
                 layer
                 for layer in range(2, num_rows + 1)
@@ -345,7 +340,7 @@ class _StepTables:
     def select(
         self, layer: int, set_index: int
     ) -> tuple[completion_bounds.CompletionTables, _PackedMatrix]:
-        """The tables of a step that ``may_use_tables``, and the rows, labels and tails of its set.
+        """The tables of a step that ``may_use_tables``, and the rows, labels, and tails of its set.
 
         A step whose tables the gate declines gets ``completion_bounds.NO_TABLES``, and rows that
         its scan ignores.  Selecting the same step again, as when the scan resumes it, returns the
@@ -354,8 +349,6 @@ class _StepTables:
         if self._step == (layer, set_index) and self._selected is not None:
             return self._selected
         self._step = (layer, set_index)
-        # Release the tables of the previous step before building more.
-        self._selected = None
         tables = completion_bounds.select_completion_tables(
             self._get_tails(set_index),
             layer,
@@ -454,9 +447,9 @@ def _scan_coefficient_layers(
     """Visit the supports of the steps from ``cursor`` on, for at most ``max_chunks`` chunks.
 
     A step visits all supports of one layer of one set (see ``_count_chunk``).  The layers run from
-    one to ``last_layer``, each set has a step in each layer, except that only the first
-    ``last_num_completed`` sets visit the last layer, and the steps run in lexicographic order of
-    their layer and set, so the steps that the scan visits are a prefix of that order.  Each word
+    one to ``last_layer``.  Each set has a step in each layer, except that only the first
+    ``last_num_completed`` sets visit the last layer.  The steps run in lexicographic order of their
+    layer and set, so the steps that the scan visits are a prefix of that order.  Each word
     of the target weight is owned by the first step that visits it (see ``_is_owned``), which
     therefore lies in the prefix, since the certificate rules out unvisited words of the target
     weight after its last step.  This loop is a function of its own so that it can be compiled,
@@ -677,7 +670,7 @@ def _count_chunk_skipping(
     support, it bounds the weights of the words that complete the first ``len(support) - 2`` rows
     with two rows from row ``s`` on, and skips them all if none weighs at most ``target``.  Words of
     the target weight, and lighter ones, are therefore visited exactly as ``_count_chunk`` visits
-    them, though the order of a chunk's lookups and weighed supports differs.
+    them, though chunks end at other supports, since lookups count toward ``chunk_size``.
 
     ``depth`` is below ``len(support) - 1`` while the scan chooses the rows before the last one, and
     ``len(support) - 1`` while it visits last rows.  A chunk ends once the supports that it weighed
@@ -691,8 +684,8 @@ def _count_chunk_skipping(
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
     # The count steps through the supports of the first layer - 1 rows, whose last row is the first
     # of the last two rows of a support, and visits the last row of each in its own loop.  It skips
-    # completions only if every one of their words weighs more than the target, so its limit is
-    # that of a best weight of target + 1.
+    # completions only if every one of their words weighs more than the target, so its limit is that
+    # of a best weight of target + 1.
     head = support[: layer - 1]
     head_rows = step_rows[:, : num_rows - 1]
     pair_depth = layer - 2
