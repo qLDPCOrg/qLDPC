@@ -13,7 +13,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -34,12 +34,12 @@ from .._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
 from .._tuning import get_tuning
 from . import affine_instance, affine_search, connected_support, information_sets
 
+# The method of a coset-leader search.
+CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
+
 # The planning buffer of a coset search: the bounds of its steps, and one more row that caches a
 # stopping step (see ``_get_planning``).
 _PlanningBuffer = npt.NDArray[np.int64]
-
-# The method of a coset-leader search.
-CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
 
 ####################################################################################################
 # coset-leader minimum-weight bounds
@@ -145,7 +145,7 @@ class CosetLeaderSearch:
         css_weight: bool = False,
         method: CosetSearchMethod = "brouwer_zimmermann",
     ) -> None:
-        if method not in ("brouwer_zimmermann", "connected_support"):
+        if method not in get_args(CosetSearchMethod):
             raise ValueError(
                 f"Unknown coset-leader search method {method!r}; choose from 'brouwer_zimmermann'"
                 " or 'connected_support'"

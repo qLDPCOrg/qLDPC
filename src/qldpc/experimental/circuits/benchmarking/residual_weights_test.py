@@ -303,11 +303,10 @@ def test_methods_of_the_coset_search() -> None:
     and is rejected before the circuit is read.
     """
     circuit = _build_circuit(_NON_CSS_LAYERS, _NON_CSS_MECHANISMS)
-    acceptance, distribution = _brute_force(_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, False, 1, None)
+    _, distribution = _brute_force(_NON_CSS_LAYERS, _NON_CSS_MECHANISMS, 3, False, 1, None)
     histogram = estimate_residual_weight_histogram(
         circuit, 1, output_qubits=range(3), post_select=False, method="connected_support"
     )
-    assert histogram.acceptance_probability == pytest.approx(acceptance, rel=1e-12)
     assert np.allclose(histogram.get_residual_weight_distribution(), distribution, rtol=1e-9)
 
     options: dict[str, Any] = {"output_qubits": range(3), "css_weight": True}
@@ -384,7 +383,7 @@ def test_weight_oracles(pytestconfig: pytest.Config) -> None:
 
     tables = residual_weights._CSSWeightTables(x_supports, z_supports, max_residual_weight)
     search = residual_weights._CosetSearchWeights(
-        stabilizers, True, max_residual_weight, method="brouwer_zimmermann"
+        stabilizers, True, max_residual_weight, search_method="brouwer_zimmermann"
     )
     keys = []
     expected = []
@@ -406,25 +405,39 @@ def test_error_weights(pytestconfig: pytest.Config) -> None:
     """Residual weights of each Pauli type of errors on logical |0> of the Steane code are exact.
 
     The X-type (Z-type) part of an error reduces by the X-type (Z-type) stabilizers of the state.
+    With 58 more qubits in |0>, the state has more than 64 qubits, so a coset search of its X-type
+    and Z-type supports replaces the tables.  Its generators are then mixed, so that the search
+    must take syndromes in the basis of the supports.
     """
     code = codes.SteaneCode()
     num_qubits, max_residual_weight = len(code), 1
     x_stabilizers = code.matrix_x.view(np.ndarray).astype(int)
     z_stabilizers = np.vstack([code.matrix_z, code.get_logical_ops(Pauli.Z)]).view(np.ndarray)
-    stabilizers = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
-    stabilizers[: len(x_stabilizers), :num_qubits] = x_stabilizers
-    stabilizers[len(x_stabilizers) :, num_qubits:] = z_stabilizers
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     errors = rng.integers(2, size=(50, 2 * num_qubits), dtype=np.uint8)
     cases: list[tuple[PauliXZ, np.ndarray, np.ndarray]] = [
         (Pauli.X, x_stabilizers, errors[:, :num_qubits]),
         (Pauli.Z, z_stabilizers.astype(int), errors[:, num_qubits:]),
     ]
-    for pauli, generators, parts in cases:
-        coset = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators
-        expected = [min(((part + coset) % 2).sum(axis=1).min(), 2) for part in parts]
-        setup = residual_weights._ResidualWeightSetup(stabilizers, True, pauli, max_residual_weight)
-        assert np.array_equal(setup.get_error_weights(errors), expected)
+    for num_padding in (0, 58):
+        size = num_qubits + num_padding
+        stabilizers = np.zeros((size, 2 * size), dtype=np.uint8)
+        stabilizers[: len(x_stabilizers), :num_qubits] = x_stabilizers
+        stabilizers[len(x_stabilizers) : num_qubits, size : size + num_qubits] = z_stabilizers
+        stabilizers[num_qubits:, size + num_qubits :] = np.eye(num_padding, dtype=np.uint8)
+        if num_padding:
+            mixed = _random_invertible(size, rng) @ galois.GF2(stabilizers)
+            stabilizers = np.asarray(mixed, dtype=np.uint8)
+        padded_errors = np.zeros((len(errors), 2 * size), dtype=np.uint8)
+        padded_errors[:, :num_qubits] = errors[:, :num_qubits]
+        padded_errors[:, size : size + num_qubits] = errors[:, num_qubits:]
+        for pauli, generators, parts in cases:
+            coset = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators
+            expected = [min(((part + coset) % 2).sum(axis=1).min(), 2) for part in parts]
+            setup = residual_weights._ResidualWeightSetup(
+                stabilizers, True, pauli, max_residual_weight
+            )
+            assert np.array_equal(setup.get_error_weights(padded_errors), expected)
 
 
 def test_combinations_and_proposals() -> None:

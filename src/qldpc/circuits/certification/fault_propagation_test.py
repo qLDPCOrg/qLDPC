@@ -601,11 +601,6 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
     )
 
-    # The brute-force method has no search of residual weights.  The method is checked before the
-    # circuit is read, so the circuit's lack of an unmeasured qubit raises no error first.
-    with pytest.raises(ValueError, match="no search of residual weights"):
-        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
-
     # The +1 eigenstate of Y is not CSS, so the connected-support search cannot weigh its errors by
     # CSS weight, but the default search, also under its alias, can.
     y_state = stim.Circuit("H 0\nS 0")
@@ -618,10 +613,12 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
     ).certified
 
 
-def test_every_distance_method_but_brute_force_has_a_coset_search() -> None:
+def test_coset_search_method_of_each_distance_method() -> None:
     """Each exact-distance method except brute force selects a coset-leader search.
 
     The alias ``"information_sets"`` selects the default search, and unknown methods are rejected.
+    Certification checks its method before it reads the circuit, so the lack of an unmeasured qubit
+    of this circuit raises no error first.
     """
     for method in typing.get_args(DistanceMethod):
         if method == "brute_force":
@@ -633,6 +630,8 @@ def test_every_distance_method_but_brute_force_has_a_coset_search() -> None:
     unknown: Any = "gap"
     with pytest.raises(ValueError, match="Unknown distance method"):
         fault_propagation._get_coset_search_method(unknown)
+    with pytest.raises(ValueError, match="no search of residual weights"):
+        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
 
 
 def test_added_flags_match_explicit_flag_detectors() -> None:

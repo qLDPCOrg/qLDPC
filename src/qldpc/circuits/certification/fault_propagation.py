@@ -439,7 +439,7 @@ def _get_coset_search_method(method: DistanceMethod) -> CosetSearchMethod:
     if method == "brute_force":
         raise ValueError(
             "The 'brute_force' distance method has no search of residual weights: use"
-            " 'brouwer_zimmermann' or 'connected_support'"
+            " 'brouwer_zimmermann' or 'connected_support'."
         )
     if method == "connected_support":
         return "connected_support"
