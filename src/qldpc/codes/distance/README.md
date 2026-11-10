@@ -43,7 +43,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | Tables that let a BZ distance search skip supports whose last two rows cannot complete a word lighter than the best one found, and the choice of whether to build them | `_search/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_search/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method | `_search/brute_force.py` |
-| Minimum weights of syndrome classes of Pauli errors (coset-leader weights), by BZ or by connected-support searches, with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` | `_search/coset_leader_search.py` |
+| Minimum weights of syndrome classes of Pauli errors (coset-leader weights), by BZ or by connected-support searches, with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_search/coset_leader_search.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
