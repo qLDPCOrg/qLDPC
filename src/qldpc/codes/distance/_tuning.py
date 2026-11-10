@@ -296,12 +296,11 @@ class SearchTuning:
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
     #: this many rounds, each a row reduction in a random order of the columns (Section 3.8 of
-    #: ``connected_support.md``).  Raising it can make the queries faster, at the cost of a slower
-    #: build of the oracle; zero only adds checks to each other while that makes them lighter, and
-    #: ``MAX_VALUE`` leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to
-    #: 1000, chosen by hand: the mean weight of the checks of the state ``|0⟩`` of the
-    #: [[232, 62, 12]] pair-partition code stops falling near there.  To retune it, time building
-    #: the oracle and its queries.
+    #: ``connected_support.md``).  Raising it can speed up the queries but slows the build of the
+    #: oracle; zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE``
+    #: leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 1000, chosen by
+    #: hand: there the mean weight of the checks of ``|0⟩`` of the [[232, 62, 12]] pair-partition
+    #: code stops falling.  To retune it, time building the oracle and its queries.
     max_sparsifying_rounds: int = 1000
 
     #: Making checks sparser stops early after this many rounds in a row that leave the total
@@ -568,32 +567,29 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 ####################################################################################################
 # constants of caches
 
-#: The number of arrays of binomial coefficients, one for each number of rows of a basis, that the
-#: estimates of the work of searches of information sets keep.  It takes effect when qLDPC is
-#: imported.  Chosen by hand: each array of a basis of ``k`` rows takes ``8 * (k + 1)`` bytes, and
-#: few workloads search bases of more than a thousand different numbers of rows.  A larger cache
-#: uses more memory, and a smaller one recomputes arrays that a workload reuses.  Only speed and
-#: memory depend on it.  To retune it, record the hit rate of the cache on representative workloads,
-#: and keep the smallest size beyond which it stops growing.
+#: The number of arrays of binomial coefficients, one per number of rows of a basis, that the work
+#: estimates of searches of information sets keep.  It takes effect when qLDPC is imported.  Chosen
+#: by hand: the array of a basis of ``k`` rows takes ``8 * (k + 1)`` bytes, and few workloads search
+#: bases of more than a thousand different numbers of rows.  A larger cache uses more memory, and a
+#: smaller one recomputes arrays that a workload reuses.  To retune it, record the hit rate on
+#: typical workloads, and keep the smallest size past which it stops rising.
 BINOMIAL_CACHE_SIZE = 1024
 
 #: The number of entries that ``coset_leader_search._get_css_searches`` keeps, one for each CSS
 #: state and value of ``disjoint_random_column_orders``, each a pair of classical searches, of the X
 #: parts and of the Z parts of errors.  It takes effect when qLDPC is imported.  Chosen by hand.  A
 #: larger cache uses more memory, and a smaller one repeats the setup of searches that a workload
-#: reuses.  Only speed and memory depend on it.  To retune it, record the hit rate of the cache, the
-#: time to set up a missed pair of searches, and the memory of each pair on representative
-#: workloads, such as the certification of fault propagation, and keep the smallest size beyond
-#: which the hit rate stops growing.
+#: reuses.  To retune it, record the hit rate, the setup time of a missed pair, and the memory of
+#: each pair on workloads such as certification, and keep the smallest size beyond which the hit
+#: rate stops growing.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The number of results that each of two caches of the MacWilliams method keeps, one of single
 #: Krawtchouk rows, of one weight, and one of arrays of the rows of light weights.  It takes effect
 #: when qLDPC is imported.  Chosen by hand.  A larger cache uses more memory, and a smaller one
-#: recomputes rows that a workload reuses.  Only speed and memory depend on it.  To retune it,
-#: record the hit rates of both caches, the time to recompute a missed row, and the memory of the
-#: rows on counts of codes of the lengths of interest, and keep the smallest size beyond which the
-#: hit rates stop growing.
+#: recomputes rows that a workload reuses.  To retune it, record the hit rates of both caches, the
+#: time to recompute a missed row, and the memory of the rows on counts of codes of interest, and
+#: keep the smallest size beyond which the hit rates stop growing.
 KRAWTCHOUK_CACHE_SIZE = 1024
 
 #: The number of results that the cache of the local Clifford matrices of deformed counters keeps,
