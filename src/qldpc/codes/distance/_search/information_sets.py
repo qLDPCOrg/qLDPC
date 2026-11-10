@@ -607,6 +607,55 @@ def get_partitioned_family(
     return best
 
 
+def get_maximum_disjoint_family(
+    basis: npt.NDArray[np.uint8], basis_family: BasisFamily
+) -> BasisFamily:
+    """A disjoint family with the most information sets, and then the largest partial set.
+
+    ``basis_family`` is a disjoint family of the independent binary ``basis``, such as that of
+    ``get_disjoint_family``, whose greedy packing can miss an information set, or leave a smaller
+    partial set than another packing would.  Matroid partitioning with coverage one finds the most
+    disjoint information sets, and the largest partial set on the columns that they leave (see
+    ``matroid_partition``).  The sets of the family have no labels.  Like a greedy packing, each
+    family holds information sets and then at most one partial set.  For such families, if the
+    pivots of ``basis_family`` use every nonzero column, no other family has larger ranks, so this
+    skips partitioning.
+
+    Returns:
+        That family, if its tuple of ranks is lexicographically larger than that of
+        ``basis_family``, and otherwise a family with no sets.
+    """
+    dimension = len(basis)
+    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    no_labels = np.empty((dimension, 0), dtype=np.uint8)
+    if int(basis_family.ranks.sum()) == num_columns:
+        return _get_no_replacement(basis_family, basis, no_labels)
+
+    # A disjoint family has at most num_columns // dimension information sets, and a partial set.
+    column_sets = matroid_partition.get_information_sets_with_coverage(
+        basis, 1, num_columns // dimension + 1, keep_partial=True
+    )
+    ranks = np.array([len(columns) for columns in column_sets], dtype=np.int64)
+    if tuple(ranks.tolist()) <= tuple(basis_family.ranks.tolist()):
+        return _get_no_replacement(basis_family, basis, no_labels)
+
+    # Reduce the basis on each set, whose columns are independent.
+    num_sets = len(column_sets)
+    generators = np.empty((num_sets, dimension, basis.shape[1]), dtype=np.uint8)
+    pivots = np.full((num_sets, dimension), -1, dtype=np.int64)
+    for index, columns in enumerate(column_sets):
+        reduced, _, found = row_reduce_binary(basis, None, columns=np.array(columns, dtype=int))
+        generators[index], pivots[index, : len(found)] = reduced, found
+    return BasisFamily(
+        generators,
+        np.empty((num_sets, dimension, 0), dtype=np.uint8),
+        pivots,
+        ranks,
+        basis_family.weight_divisor,
+        1,
+    )
+
+
 def infer_weight_divisor(basis: npt.NDArray[np.uint8], weight_divisor: int = 1) -> int:
     """Combine a caller's proven Hamming-weight divisor with ambient even parity, if present."""
     # XOR preserves even parity, so an all-even basis spans only even Hamming weights.
@@ -627,7 +676,10 @@ def _copy_with_capacity(array: npt.NDArray[_Scalar], capacity: int) -> npt.NDArr
 def _get_no_replacement(
     basis_family: BasisFamily, basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8]
 ) -> BasisFamily:
-    """The result of ``get_overlapping_family`` when no replacement does less work: no sets."""
+    """A family of no sets, for when no better family is found.
+
+    Stages three and four return it, and so does ``get_maximum_disjoint_family``.
+    """
     dimension = basis.shape[0]
     return BasisFamily(
         np.empty((0, dimension, basis.shape[1]), dtype=np.uint8),

@@ -24,18 +24,24 @@ import numpy.typing as npt
 
 
 def get_information_sets_with_coverage(
-    basis: npt.NDArray[np.uint8], max_coverage: int, max_sets: int
+    basis: npt.NDArray[np.uint8], max_coverage: int, max_sets: int, *, keep_partial: bool = False
 ) -> list[list[int]]:
     """Find the most information sets, up to ``max_sets``, in which no column appears too often.
+
+    With ``keep_partial``, the sets may end with a partial set: independent columns that are fewer
+    than the rows.  Edmonds' algorithm makes the union of the sets as large as possible, and every
+    set but the last is an information set.  So no other choice of as many information sets within
+    the coverage leaves room for a larger partial set.
 
     Args:
         basis: A binary matrix with independent rows.
         max_coverage: The largest number of the sets that may contain any one column.
-        max_sets: The largest number of sets to find.
+        max_sets: The largest number of sets to find, including a partial set.
+        keep_partial: Whether to keep the last set that could not be filled, unless it is empty.
 
     Returns:
-        The column indices of each information set, at most ``max_sets`` of them, as many as the
-        coverage allows.
+        The column indices of each set, at most ``max_sets`` of them: as many information sets as
+        the coverage allows, and then, with ``keep_partial``, any partial set.
     """
     dimension = len(basis)
     columns = [column for column in range(basis.shape[1]) if np.any(basis[:, column])]
@@ -46,7 +52,8 @@ def get_information_sets_with_coverage(
     while len(partition.sets) < max_sets:
         partition.add_set()
         if not partition.fill(dimension, max_coverage):
-            partition.remove_last_set()
+            if not (keep_partial and partition.sets[-1].elements):
+                partition.remove_last_set()
             break
     return [
         sorted(columns[element // max_coverage] for element in independent.elements)

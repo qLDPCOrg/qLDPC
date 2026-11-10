@@ -15,11 +15,12 @@ The offsets and stopping step of a coset search depend on the query, so the inst
 
 A distance instance packs the rows of each set with its pivot columns deleted, since a scan of a
 space restores their weight arithmetically.  Its certificate is the one that the distance search
-selects, with the proven divisor of eligible weights.  A coset instance packs the full rows, which
-the coset search weighs whole.  Its certificate takes no divisor, since the words of a coset need
-not share the divisibility of the code.  If every word of the code has even Hamming weight, the
-Hamming weights of the words of each coset all have one parity instead, and the bounds of a coset
-may be rounded up to its parity.
+selects, with the proven divisor of eligible weights.  A coset instance packs the full rows of the
+sets of a family of information sets of its code, disjoint or overlapping, which the coset search
+weighs whole.  Its certificate takes the maximum coverage of the family, and no divisor, since the
+words of a coset need not share the divisibility of the code.  If every word of the code has even
+Hamming weight, the Hamming weights of the words of each coset all have one parity instead, and the
+bounds of a coset may be rounded up to its parity.
 """
 
 from __future__ import annotations
@@ -163,17 +164,35 @@ def get_coset_instance(
     family = information_sets.get_disjoint_family(
         generators, None, random_column_orders=random_column_orders
     )
-    num_sets = len(family.ranks)
-    packed_generators = pack_bits(family.generators.reshape(-1, num_columns)).reshape(
+    return get_coset_family_instance(family, weight_factor=weight_factor)
+
+
+def get_coset_family_instance(
+    basis_family: information_sets.BasisFamily, *, weight_factor: int
+) -> AffineInstance:
+    """Pack the sets of any basis family of a code for the coset search, with every column.
+
+    The family may hold disjoint sets, as in ``get_coset_instance``, or overlapping ones, such as
+    those of ``information_sets.get_overlapping_family``.  The certificate takes the ranks and the
+    maximum coverage of the family, and no weight divisor.  Its coverage bound holds for the words
+    of every coset as it does for the words of the code: a word of a coset adds a unique sum of the
+    rows of each set to the offset of the set, which is zero on the pivots of the set, so a word in
+    layer ``w`` or above of a set has at least as many ones on its pivots as a word of the code
+    does.  ``weight_factor`` is the weight factor of the instance (see ``get_coset_instance``).
+    """
+    num_sets, num_generators, num_columns = basis_family.generators.shape
+    packed_generators = pack_bits(basis_family.generators.reshape(-1, num_columns)).reshape(
         num_sets, num_generators, -1
     )
     return AffineInstance(
         generators=packed_generators,
         labels=np.zeros((num_sets, num_generators, 0), dtype=np.uint64),
         widths=np.full(num_sets, packed_generators.shape[2], dtype=np.int64),
-        pivots=family.pivots,
+        pivots=basis_family.pivots,
         certificate=information_sets.Certificate(
-            num_generators, tuple(int(rank) for rank in family.ranks)
+            num_generators,
+            tuple(int(rank) for rank in basis_family.ranks),
+            max_coverage=basis_family.max_coverage,
         ),
         weight_factor=weight_factor,
     )

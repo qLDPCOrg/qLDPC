@@ -469,6 +469,37 @@ def test_partitioned_families_replace_costlier_ones() -> None:
     _assert_certificate_bounds_unvisited_words(basis, family)
 
 
+def test_maximum_disjoint_families_replace_smaller_packings() -> None:
+    """A maximum disjoint family has the most information sets, and then the largest partial set.
+
+    In natural column order, a greedy packing of the columns ``e1, e2, e3, e1 + e2, e1 + e2`` takes
+    the first three, and leaves a partial set of rank one, but ``e1 + e2, e2, e3`` leave ``e1`` and
+    ``e1 + e2``, of rank two.  Likewise, ``e1, e2, e1 + e2, e1 + e2`` hold two disjoint information
+    sets, but a greedy packing finds one.  The maximum families are disjoint sets, reduced on their
+    pivots, with valid certificates.  No family replaces a packing whose sets use every nonzero
+    column, or one of a basis whose packings all have the same ranks.
+    """
+    for columns, ranks in (([1, 2, 4, 3, 3], [3, 2]), ([1, 2, 3, 3], [2, 2])):
+        dimension = max(columns).bit_length()
+        basis = ((np.array(columns) >> np.arange(dimension)[:, None]) & 1).astype(np.uint8)
+        disjoint = information_sets.get_disjoint_family(basis, None, random_column_orders=0)
+        assert disjoint.ranks.tolist() == [dimension, 1]
+        family = information_sets.get_maximum_disjoint_family(basis, disjoint)
+        assert family.ranks.tolist() == ranks
+        pivots = family.pivots[family.pivots >= 0]
+        assert len(set(pivots.tolist())) == len(pivots)
+        for generators, set_pivots, rank in zip(family.generators, family.pivots, family.ranks):
+            np.testing.assert_array_equal(
+                generators[:, set_pivots[:rank]], np.eye(dimension)[:, :rank]
+            )
+        _assert_certificate_bounds_unvisited_words(basis, family)
+
+    one_full_set = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
+    for basis in (PARTIAL_BASIS, one_full_set):
+        disjoint = information_sets.get_disjoint_family(basis, None, random_column_orders=0)
+        assert not len(information_sets.get_maximum_disjoint_family(basis, disjoint).ranks)
+
+
 def test_linear_programming_can_beat_the_coverage_bound() -> None:
     """Five information sets of a [7, 3] code, where linear programming certifies five, not four.
 
