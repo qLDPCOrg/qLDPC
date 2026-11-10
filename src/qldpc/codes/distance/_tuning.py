@@ -304,12 +304,14 @@ class SearchTuning:
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
     #: this many rounds, each a row reduction in a random order of the columns (Section 3.8 of
-    #: ``connected_support.md``).  Raising it can speed up the queries but slows the build of the
-    #: oracle; zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE``
-    #: leaves the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 1000, chosen by
-    #: hand: there the mean weight of the checks of ``|0⟩`` of the [[232, 62, 12]] pair-partition
-    #: code stops falling.  To retune it, time building the oracle and its queries.
-    max_sparsifying_rounds: int = 1000
+    #: ``connected_support.md``).  Raising it can speed up queries but slows building the search;
+    #: zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE`` leaves
+    #: the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 400, chosen by hand:
+    #: on states ``|0⟩`` of the pair-partition codes of
+    #: ``experiments/connected_support_distance/benchmark.py``, 1000 rounds make the checks less
+    #: than 10% lighter on average than 400 do.  To retune it, time building the search and its
+    #: queries.
+    max_sparsifying_rounds: int = 400
 
     #: Making checks sparser stops early after this many rounds in a row that leave the total
     #: weight of the checks unchanged (see ``max_sparsifying_rounds``).  Raising it spends more

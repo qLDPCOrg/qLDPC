@@ -363,9 +363,8 @@ class SupportSearch:
         assert_binary(syndrome, "syndrome")
         syndrome = np.asarray(syndrome, dtype=np.uint8)
         if syndrome.shape != self._kept_index_of_check.shape:
-            raise ValueError(
-                f"The syndrome must have one entry for each of {len(self._kept_index_of_check)} checks"
-            )
+            num_checks = len(self._kept_index_of_check)
+            raise ValueError(f"The syndrome must have one entry for each of {num_checks} checks")
         if max_weight < 0:
             raise ValueError(f"The weight limit must be at least zero, not {max_weight}")
 
@@ -380,6 +379,28 @@ class SupportSearch:
             return None
         if not np.any(kept_syndrome):
             return np.empty(0, dtype=np.int64)
+        return self._find_vector_with_packed_syndrome(pack_bits(kept_syndrome[None])[0], max_weight)
+
+    def _find_vector_with_packed_syndrome(
+        self, packed_syndrome: npt.NDArray[np.uint64], max_weight: int
+    ) -> npt.NDArray[np.int64] | None:
+        """Search as ``find_vector_with_syndrome`` does, from a packed syndrome of the kept checks.
+
+        A caller that asks many queries, such as a coset search, can skip the validation, mapping,
+        and packing of the syndrome that ``find_vector_with_syndrome`` does on every call.
+
+        Args:
+            packed_syndrome: A syndrome with one bit for each kept check, packed as ``pack_bits``
+                packs a row.  The kept checks are the given checks without zero and duplicate
+                rows, in order, so they are the given checks if those are independent.  The
+                syndrome must not be zero; ``find_vector_with_syndrome`` answers a zero syndrome
+                itself.
+            max_weight: The weight limit, which is at least zero.
+
+        Returns:
+            The sorted symbols of a vector with the syndrome, or None, as
+            ``find_vector_with_syndrome`` returns them.
+        """
         support, _ = _search_supports(
             self._check_starts,
             self._check_symbols,
@@ -389,7 +410,7 @@ class SupportSearch:
             self._ranks,
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
-            pack_bits(kept_syndrome[None])[0],
+            packed_syndrome,
         )
         return np.sort(support) if len(support) else None
 
