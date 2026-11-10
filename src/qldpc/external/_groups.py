@@ -2,8 +2,8 @@
 
 """Loading groups and their properties from GroupNames, GAP, or MAGMA.
 
-This module also stores precomputed primitive central idempotents of some group algebras.  See
-https://groupnames.org and https://www.gap-system.org.
+See https://groupnames.org and https://www.gap-system.org.  This module also stores precomputed
+primitive central idempotents of some group algebras.
 """
 
 from __future__ import annotations
@@ -12,11 +12,13 @@ import re
 import urllib.error
 import urllib.request
 import warnings
+from typing import TYPE_CHECKING
 
 import pyperclip
 
 import qldpc.cache
 import qldpc.external.gap
+from qldpc import _deprecations
 from qldpc._utils import get_external_caller_stacklevel
 
 _GeneratorsList = list[list[tuple[int, ...]]]
@@ -348,11 +350,11 @@ def _maybe_get_webpage(order: int) -> str | None:
 
 
 # Primitive central idempotents of some group algebras, keyed by a GAP group expression and the
-# order q of a field.  They are computed by the group-algebra section of abstract/rings.py, and
-# stored here so that common algebras skip that computation.  A test in abstract/rings_test.py
-# checks that they equal the computed ones.  Each idempotent is a tuple of terms (coefficient,
-# permutation), where the coefficient is an element of galois.GF(q) cast to an integer, and the
-# permutation is in cyclic form with 0-indexed points.
+# order q of a field.  They are computed by qldpc.abstract.rings._get_primitive_central_idempotents,
+# and stored here so that common algebras skip that computation.
+# test_precomputed_primitive_central_idempotents checks that they equal the computed ones.  Each
+# idempotent is a tuple of terms (coefficient, permutation), where the coefficient is an element of
+# galois.GF(q) cast to an integer, and the permutation is in cyclic form with 0-indexed points.
 KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS: dict[tuple[str, int], _Idempotents] = {
     # F2[C3]
     ("Group((1,2,3))", 2): (
@@ -729,3 +731,9 @@ _KNOWN_GROUPS: dict[str, _GeneratorsList] = {
         [(8, 9)],
     ],
 }
+
+
+if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
+
+    def __getattr__(name: str) -> object:
+        return _deprecations.get_deprecated_attribute(__name__, name)

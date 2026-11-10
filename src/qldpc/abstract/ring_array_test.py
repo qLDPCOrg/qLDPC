@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import galois
 import numpy as np
 import pytest
 
@@ -37,7 +38,7 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
     )
     assert isinstance(np.kron(matrix, matrix), abstract.RingArray)
 
-    # infer base ring automagically
+    # infer the base ring from the entries
     ring = abstract.GroupRing(abstract.TrivialGroup())
     assert np.array_equal(
         abstract.RingArray.build([1, ring.one]),
@@ -151,7 +152,7 @@ def test_regular_rep(ring: abstract.GroupRing, pytestconfig: pytest.Config) -> N
 
 
 def test_from_field_array() -> None:
-    """Any array of integer values is a valid array of coefficients."""
+    """Integer-valued arrays and arrays over the field of the ring are valid coefficients."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3))
     identity = np.eye(3, dtype=int)
     for coefficients in [identity.astype(bool), identity.astype(float)]:
@@ -160,6 +161,71 @@ def test_from_field_array() -> None:
 
     with pytest.raises(ValueError, match="last axis"):
         abstract.RingArray.from_field_array(np.eye(4, dtype=int), ring)
+
+    # coefficients are read as in RingMember.from_vector
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.RingArray.from_field_array(galois.GF(4)([2] * ring.dim), ring)
+
+    # a coefficient vector is 1-D, with a multiple of ring.dim entries
+    with pytest.raises(ValueError, match="must be a multiple of"):
+        abstract.RingArray.from_field_vector(np.zeros(ring.dim + 1, dtype=int), ring)
+    with pytest.raises(ValueError, match="must be 1-D"):
+        abstract.RingArray.from_field_vector(np.zeros((2, ring.dim), dtype=int), ring)
+
+
+def test_build_edge_cases() -> None:
+    """Integers are read as in ring arithmetic, and floats and field elements as coefficients."""
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), field=3)
+    data_list: list[abstract.groups.NestedSequence] = [
+        [[-1, 4]],
+        np.array([[2.0, 1.0]]).tolist(),
+        [list(ring.field([2, 1]))],
+    ]
+    for data in data_list:
+        assert np.array_equal(
+            abstract.RingArray.build(data, ring), abstract.RingArray.build([[2, 1]], ring)
+        )
+    assert np.array_equal(
+        abstract.RingArray.build(np.array([[True, False]]), ring),
+        abstract.RingArray.build([[1, 0]], ring),
+    )
+
+    # floats are read as coefficients, so they are not reduced
+    with pytest.raises(ValueError, match=r"must be in \[0, 3\)"):
+        abstract.RingArray.build([[4.0]], ring)
+
+    # without a ring, an array over a finite field gives the algebra of the trivial group over that
+    # field, and arrays over other fields are read only if their integers denote the same elements
+    field = galois.GF(9, irreducible_poly="x^2 + 1")
+    array = abstract.RingArray.build(field([[3, 5]]))
+    assert array.field is field
+    assert abstract.RingArray.build(galois.GF(9).Zeros((0,))).field is galois.GF(9)
+    assert array[0, 0] * array[0, 1] == array.ring.one * (field(3) * field(5))
+    assert np.array_equal(
+        abstract.RingArray.build(galois.GF(3)([[1, 2]]), array.ring),
+        abstract.RingArray.build([[1, 2]], array.ring),
+    )
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.RingArray.build(galois.GF(9)([[3]]), array.ring)
+
+    # field elements given one by one keep their field
+    elements = list(galois.GF(3)([2, 1]))
+    assert abstract.RingArray.build(elements).field is galois.GF(3)
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.RingArray.build(elements, abstract.GroupRing(abstract.CyclicGroup(2), field=4))
+    with pytest.raises(ValueError, match="Inconsistent fields"):
+        abstract.RingArray.build([galois.GF(3)(1), galois.GF(5)(1)])
+
+    # so do field arrays in a list, for each way to build a RingArray
+    ring_16 = abstract.GroupRing(abstract.CyclicGroup(2), field=16)
+    rows = [galois.GF(4)([2, 3])]
+    assert abstract.RingArray.build([galois.GF(3)([1, 2])]).field is galois.GF(3)
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.RingArray.build(rows, ring_16)
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.RingArray.from_field_array(rows, ring_16)
+    with pytest.raises(ValueError, match="cannot be read in"):
+        abstract.RingArray.from_field_vector(list(rows[0]), ring_16)
 
 
 def test_matmul_fallbacks() -> None:
@@ -236,13 +302,13 @@ def test_deprecated_argument_order() -> None:
     """Deprecated argument orders emit DeprecationWarning."""
     ring = abstract.GroupRing(abstract.TrivialGroup())
 
-    vector = ring.field.Random(2 * ring.group.order)
+    vector = ring.field.Random(2 * ring.group.order, seed=0)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         # the deprecated argument order does not match the typed signature
         ring_array = abstract.RingArray.from_field_vector(ring, vector)  # type:ignore[arg-type]
     assert np.array_equal(ring_array.to_field_vector(), vector)
 
-    matrix = ring.field.Random((1, 2, ring.group.order))
+    matrix = ring.field.Random((1, 2, ring.group.order), seed=1)
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         # the deprecated argument order does not match the typed signature
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]

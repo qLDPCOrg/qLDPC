@@ -25,7 +25,7 @@ from ._coefficients import (
 )
 from ._howell import get_howell_normal_form_poly, get_howell_normal_form_semisimple
 from .groups import Group, GroupMember, NestedSequence, TrivialGroup
-from .rings import GroupRing, Ring, RingMember
+from .rings import GroupRing, Ring, RingMember, _as_object_array
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -56,7 +56,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         array = np.asarray(data, dtype=object).view(cls)
         base_ring = GroupRing(ring) if isinstance(ring, Group) else ring
 
-        # a RingArray given as data keeps its ring, which its entries cannot identify if it has none
+        # a RingArray given as data keeps its ring, which matters when it has no entries
         if base_ring is None and isinstance(data, RingArray):
             base_ring = data._ring
 
@@ -225,34 +225,58 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
             (a) ring members,
             (b) group members (for a group algebra), or
-            (c) integers.
+            (c) integers, floats with integer values, or field elements.
 
         2. A ring (or group, inducing a group algebra over GF(2)).
 
-        Integers and members of the group of a group algebra are cast into members of the ring.  A
-        group member that acts on fewer points than the group is padded with fixed points.  Members
-        of a group algebra may be embedded into a different group algebra with the same field if the
-        group of that algebra contains their group members.  Members of any other ring must already
-        belong to the target ring.
+        Without a ring, the ring is that of the ring members in the array.  A RingArray given as
+        data with no entries keeps its ring.  Otherwise, the ring is the algebra of the trivial
+        group over a field.  If the data is a field array, that is its field.  Otherwise, it is the
+        field of the field elements in the data, or GF(2) if the data has no field elements.  Field
+        elements over different fields raise a ValueError.
+
+        Integers, floats, field elements, and members of the group of a group algebra are cast into
+        members of the ring.  Integers are read as in ring arithmetic (see ``RingMember``), and
+        floats and field elements as coefficients (see ``RingMember.from_vector``).  A group member
+        that acts on fewer points than the group is padded with fixed points.  Members of a group
+        algebra may be embedded into a different group algebra with the same field if the group of
+        that algebra contains their group members.  Members of any other ring must already belong to
+        the target ring.
         """
-        array = np.asanyarray(data)
+        # read nested sequences as objects, which keeps the field of field elements
+        array = data if isinstance(data, np.ndarray) else _as_object_array(data)
 
         # identify the base ring
         if ring is None:
             rings = {value.ring for value in array.ravel() if isinstance(value, RingMember)}
-            if not len(set(rings)) <= 1:
+            if len(rings) > 1:
                 raise ValueError("Inconsistent rings provided to RingArray.build")
             if rings:
                 ring = next(iter(rings))
             elif isinstance(array, RingArray) and array._ring is not None:
                 ring = array._ring  # a RingArray with no entries keeps its ring
             else:
-                field = type(array).order if isinstance(array, galois.FieldArray) else None
-                ring = GroupRing(TrivialGroup(), field)
+                fields = (
+                    {type(array)}
+                    if isinstance(array, galois.FieldArray)
+                    else {
+                        type(value)
+                        for value in array.ravel()
+                        if isinstance(value, galois.FieldArray)
+                    }
+                )
+                if len(fields) > 1:
+                    raise ValueError("Inconsistent fields provided to RingArray.build")
+                ring = GroupRing(TrivialGroup(), next(iter(fields), None))
         ring = ring if isinstance(ring, Ring) else GroupRing(ring)
         one = ring.one
+        if isinstance(array, galois.FieldArray):
+            # check all field elements at once, after which they are in the field of the ring
+            array = ring._read_coefficients(array)
 
-        def as_ring_member(value: RingMember | GroupMember | int) -> RingMember:
+        def as_ring_member(
+            value: RingMember | GroupMember | float | np.integer | np.bool_ | galois.FieldArray,
+        ) -> RingMember:
             """Elevate a value to an element of the ring."""
             if isinstance(value, RingMember):
                 # validate the field of the member
@@ -275,8 +299,10 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             if isinstance(value, GroupMember):
                 return one * value
 
-            # an integer is a multiple of the identity
-            return one * ring.field(value)
+            # an integer, float, or field scalar is a multiple of the identity
+            if isinstance(value, (int, np.integer, np.bool_)):
+                return one * int(value)
+            return one * ring._read_coefficients(value)
 
         vals = [as_ring_member(value) for value in array.ravel()]
         result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)
@@ -287,30 +313,30 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Convert a RingArray into an array of coefficients (in a finite field) for each entry.
 
         This method expands every entry of a ``RingArray`` into a vector whose length is the
-        dimension of its ring (``Ring.dim``).  If ``ring_array`` is two-dimensional, for example,
-        then ``ring_array.to_field_array()[a, b, :]`` is the vector of coefficients for the
+        dimension of its ring (``Ring.dim``).  For a two-dimensional ``RingArray`` ``ring_array``,
+        for example, ``ring_array.to_field_array()[a, b, :]`` is the vector of coefficients for the
         ``RingMember`` at ``ring_array[a, b]``.
         """
         return ring_array_to_field_array(self, self.ring)
 
     @classmethod
-    def from_field_array(cls, array: npt.NDArray[np.int_], ring: Ring | Group) -> RingArray:
+    def from_field_array(cls, array: npt.ArrayLike, ring: Ring | Group) -> RingArray:
         """Construct a RingArray from an array of coefficients (in a finite field) for each entry.
 
-        This method is the inverse of ``RingArray.to_field_array``.
+        This method is the inverse of ``RingArray.to_field_array``.  The coefficients are read as in
+        ``RingMember.from_vector``.
         """
         if isinstance(array, (Ring, Group)):  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "Check argument order: it should be RingArray.from_field_array(array, ring)."
-                "  The order (ring, array) is DEPRECATED and will throw an error in the future!",
+                "  The order (ring, array) is DEPRECATED and will raise an error in a future"
+                " release!",
                 stacklevel=2,
             )
             array, ring = ring, array
         ring = ring if isinstance(ring, Ring) else GroupRing(ring)
 
-        # read values as integers first (like RingMember.from_vector) to accept any integer-valued
-        # array, such as a boolean or floating-point array
-        coefficients = ring.field(np.asarray(array).astype(int))
+        coefficients = ring._read_coefficients(array)
         if coefficients.ndim == 0 or coefficients.shape[-1] != ring.dim:
             raise ValueError(
                 f"The last axis of a RingArray coefficient array must have length {ring.dim}"
@@ -322,20 +348,32 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         return self.to_field_array().ravel().view(self.field)
 
     @classmethod
-    def from_field_vector(cls, vector: npt.NDArray[np.int_], ring: Ring | Group) -> RingArray:
+    def from_field_vector(cls, vector: npt.ArrayLike, ring: Ring | Group) -> RingArray:
         """Construct a 1-D RingArray from a vector of coefficients.
 
-        This method is the inverse of ``RingArray.to_field_vector``.
+        This method is the inverse of ``RingArray.to_field_vector``.  The coefficients are read as
+        in ``RingMember.from_vector``.  Raise a ValueError unless the vector is 1-D and its length
+        is a multiple of the dimension of the ring.
         """
         if isinstance(vector, (Ring, Group)):  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "Check argument order: it should be RingArray.from_field_vector(vector, ring)."
-                "  The order (ring, vector) is DEPRECATED and will throw an error in the future!",
+                "  The order (ring, vector) is DEPRECATED and will raise an error in a future"
+                " release!",
                 stacklevel=2,
             )
             vector, ring = ring, vector
-        vector = np.asanyarray(vector)
         ring = ring if isinstance(ring, Ring) else GroupRing(ring)
+        vector = ring._read_coefficients(vector)
+        if vector.ndim != 1:
+            raise ValueError(
+                "A RingArray coefficient vector must be 1-D, but the vector has shape"
+                f" {vector.shape}"
+            )
+        if vector.size % ring.dim:
+            raise ValueError(
+                f"The length of a RingArray coefficient vector must be a multiple of {ring.dim}"
+            )
         entries_as_vecs = vector.reshape(vector.size // ring.dim, ring.dim)
         return RingArray.from_field_array(entries_as_vecs, ring)
 

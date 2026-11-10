@@ -32,8 +32,9 @@ class MatrixRing(Ring):
     nonempty square matrices of the same size.
 
     The ``field`` argument sets the base field.  If it is omitted, the base field is that of the
-    first generator if it is a galois field array, and ``GF(2)`` otherwise.  Generators that are
-    field arrays over another field raise a ValueError.
+    first generator if it is a galois field array, and ``GF(2)`` otherwise.  The entries of the
+    generators are read as coefficients (see ``RingMember.from_vector``), so entries that cannot be
+    read in the base field raise a ValueError.
 
     A ring member lifts to the matrix that it represents, so ``lift_dim`` is the size of the
     matrices.  The dimension of the ring as a vector space over its field is ``dim``.  The member
@@ -83,7 +84,7 @@ class MatrixRing(Ring):
         super().__init__(field)
 
         # validate and store the generators
-        matrices = [self._to_field(generator) for generator in generators]
+        matrices = [self._read_coefficients(generator) for generator in generators]
         shape = matrices[0].shape
         if (
             len(shape) != 2
@@ -155,7 +156,7 @@ class MatrixRing(Ring):
     @property
     def one(self) -> RingMember:
         """One (multiplicative identity) element."""
-        return RingMember(self, (1, 0))
+        return RingMember._from_trusted_terms(self, [(1, 0)])
 
     @property
     def generators(self) -> list[RingMember]:
@@ -165,10 +166,11 @@ class MatrixRing(Ring):
     def member_from_matrix(self, matrix: npt.ArrayLike) -> RingMember:
         """The member of this ring that lifts to a given matrix.
 
-        Raise a ValueError if the matrix is not in this ring, has the wrong size, or is over another
-        field.
+        The entries of the matrix are read as coefficients (see ``RingMember.from_vector``).  Raise
+        a ValueError if the matrix is not in this ring, has the wrong size, or has entries that
+        cannot be read in the base field.
         """
-        matrices = self._to_field(matrix)[np.newaxis]
+        matrices = self._read_coefficients(matrix)[np.newaxis]
         if matrices.shape[1:] != self._basis_lifts.shape[1:]:
             raise ValueError(
                 f"A member of {self} lifts to a {self.lift_dim}x{self.lift_dim} matrix, but the"
@@ -177,7 +179,7 @@ class MatrixRing(Ring):
         coefficients = self._get_coefficients_in_ring(matrices)
         if coefficients is None:
             raise ValueError("The matrix is not in the ring")
-        return RingMember.from_vector(coefficients[0], self)
+        return RingMember._from_trusted_vector(self, coefficients[0])
 
     def lift(self, label: Any, /, *, right: bool = False) -> galois.FieldArray:
         """Lift the basis element with a given label to the matrix that it represents.
@@ -214,14 +216,15 @@ class MatrixRing(Ring):
 
     def _multiply(self, left: RingMember, right: RingMember) -> RingMember:
         # row b of left_times_basis holds the coefficients of left * e_b, which are the sum over a
-        # of left_a * _structure_constants[a, b, :].  This product equals left.regular_lift() @
-        # right.to_vector(), but one contraction is faster than a sum of regular lifts of terms.
+        # of left_a * _structure_constants[a, b, :].  The coefficients of left * right equal
+        # left.regular_lift() @ right.to_vector(), but one contraction is faster than a sum of
+        # regular lifts of terms.
         flat_constants = self._structure_constants.reshape(self.dim, -1)
         left_times_basis = (
             (left.to_vector() @ flat_constants).view(self.field).reshape(self.dim, -1)
         )
         product = right.to_vector() @ left_times_basis
-        return RingMember.from_vector(product.view(self.field), self)
+        return RingMember._from_trusted_vector(self, product.view(self.field))
 
     def _apply_involution(self, member: RingMember) -> RingMember:
         if self._transpose_coefficient_map is None:
@@ -230,7 +233,7 @@ class MatrixRing(Ring):
                 " RingMember.T"
             )
         transposed = member.to_vector() @ self._transpose_coefficient_map
-        return RingMember.from_vector(transposed.view(self.field), self)
+        return RingMember._from_trusted_vector(self, transposed.view(self.field))
 
     @functools.cached_property
     def _transpose_coefficient_map(self) -> galois.FieldArray | None:
@@ -270,15 +273,6 @@ class MatrixRing(Ring):
         for index, matrix in enumerate(self._basis_lifts):
             constants[index] = self._get_coefficients((matrix @ self._basis_lifts).view(self.field))
         return constants
-
-    def _to_field(self, matrix: npt.ArrayLike) -> galois.FieldArray:
-        """Convert a matrix to an array over the field of this ring.
-
-        Raise a ValueError for a field array over another field.
-        """
-        if isinstance(matrix, galois.FieldArray) and type(matrix) is not self.field:
-            raise ValueError(f"The matrices of a MatrixRing must be over GF({self.field.order})")
-        return self.field(np.asarray(matrix))
 
 
 def _get_basis_of_products(
