@@ -149,9 +149,7 @@ def get_random_ring_member(ring: abstract.GroupRing, seed: int) -> abstract.Ring
     return abstract.RingMember(ring, *terms)
 
 
-def test_wedderburn_artin_errors(
-    ring_cyclic3_gf2: abstract.GroupRing, pytestconfig: pytest.Config
-) -> None:
+def test_wedderburn_artin_errors(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """The Wedderburn-Artin decomposition has limitations."""
     ring = ring_cyclic3_gf2
     transformer = ring.get_transformer()
@@ -167,8 +165,20 @@ def test_wedderburn_artin_errors(
     with pytest.raises(ValueError, match=r"Provided .* components for a ring that should have"):
         transformer.recompose_array([])
 
+    fields = [component.extended_field for component in transformer.transformers]
     with pytest.raises(ValueError, match="inconsistent shapes"):
-        transformer.recompose_array([ring.field.Zeros((1, 1, 1)), ring.field.Zeros((1, 1))])
+        transformer.recompose_array([fields[0].Zeros((1, 1, 1)), fields[1].Zeros((1, 1))])
+    with pytest.raises(ValueError, match="inconsistent shapes"):
+        transformer.recompose_array(
+            [fields[0].Zeros((1, 1)), fields[1].Zeros((1, 2))], from_blocks=True
+        )
+
+    # merging blocks needs matrices of blocks
+    component = transformer.transformers[0]
+    with pytest.raises(ValueError, match="at least two dimensions"):
+        component.project_array(abstract.RingArray([ring.one]), merge_blocks=True)
+    with pytest.raises(ValueError, match="at least two dimensions"):
+        component.embed_array(component.extended_field.Zeros(2), from_blocks=True)
 
     with pytest.raises(ValueError, match=re.escape("does not live in GF(q^d)^{n × n}")):
         transformer.recompose(galois.GF(3).Ones(2))
@@ -180,6 +190,28 @@ def test_wedderburn_artin_errors(
         ring.get_transformer()
     with pytest.raises(ValueError, match="only exists for semisimple rings"):
         abstract.WedderburnArtinComponentTransformer(ring.one)
+
+
+def test_blocks_of_matrix_components(ring_dihedral3_gf5: abstract.GroupRing) -> None:
+    """Arrays of blocks must have shapes that are multiples of the size of their component."""
+    transformer = ring_dihedral3_gf5.get_transformer()
+    component = next(cc for cc in transformer.transformers if cc.size == 2)
+    for shape in [(3, 2), (2, 3)]:
+        with pytest.raises(ValueError, match="multiples of the size 2"):
+            component.embed_array(component.extended_field.Zeros(shape), from_blocks=True)
+
+
+def test_zero_dimensional_arrays(ring_dihedral3_gf5: abstract.GroupRing) -> None:
+    """0-dimensional arrays recompose and transpose into 0-dimensional RingArrays."""
+    transformer = ring_dihedral3_gf5.get_transformer()
+    generator = ring_dihedral3_gf5.generators[0]
+    member = abstract.RingArray(np.array(generator, dtype=object))
+    recomposed = transformer.recompose_array(transformer.decompose_array(member))
+    assert isinstance(recomposed, abstract.RingArray) and recomposed.ndim == 0
+    assert recomposed[()] == generator
+    transposed = transformer.transpose_array(member)
+    assert isinstance(transposed, abstract.RingArray)
+    assert transposed[()] == transformer.transpose(generator)
 
 
 def test_primitive_central_idempotent_validation(
@@ -216,11 +248,22 @@ def test_primitive_central_idempotent_validation(
     with pytest.raises(ValueError, match=re.escape("(size**2 * degree)")):
         transformer(matrix_ring.one)
 
-    # skip_validation bypasses the checks, e.g. for an idempotent from a trusted source, and it
-    # threads through the whole-ring transformer to each component transformer
+    # these identities pass the checks, but the centers of their components are not fields
+    for identity in [ring.one, abstract.GroupRing(abstract.AbelianGroup(2, 2), field=3).one]:
+        with pytest.raises(ValueError, match="not a field"):
+            transformer(identity, seed=0)
+
+    # skip_validation bypasses the checks, e.g. for an idempotent from a trusted source
     trusted_pci = ring.get_primitive_central_idempotents()[0]
-    transformer(trusted_pci, skip_validation=True)
-    abstract.WedderburnArtinTransformer(ring, skip_validation=True)
+    transformer(trusted_pci, seed=0, skip_validation=True)
+    abstract.WedderburnArtinTransformer(ring, seed=0, skip_validation=True)
+
+
+def test_fields_stored_as_objects() -> None:
+    """Components over extension fields that galois stores as Python objects are not supported."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(67), field=2)  # a component over GF(2^66)
+    with pytest.raises(ValueError, match="stores its elements as Python objects"):
+        ring.get_transformer()
 
 
 def test_wedderburn_artin_requires_group_algebra() -> None:
@@ -230,3 +273,18 @@ def test_wedderburn_artin_requires_group_algebra() -> None:
         abstract.WedderburnArtinTransformer(ring)
     with pytest.raises(NotImplementedError, match="only for group algebras"):
         abstract.WedderburnArtinComponentTransformer(ring.one)
+
+
+def test_galois_modes_are_kept(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+    """Building a transformer keeps the ufunc mode of the extension field, unless told otherwise."""
+    field = galois.GF(4)
+    original_mode = field.ufunc_mode
+    pci = next(cc.pci for cc in ring_cyclic3_gf2.get_transformer().transformers if cc.degree == 2)
+    try:
+        field.compile("jit-calculate")
+        assert abstract.WedderburnArtinComponentTransformer(pci, seed=0).extended_field is field
+        assert field.ufunc_mode == "jit-calculate"
+        abstract.WedderburnArtinComponentTransformer(pci, seed=0, galois_compile="python-calculate")
+        assert field.ufunc_mode == "python-calculate"
+    finally:
+        field.compile(original_mode)
