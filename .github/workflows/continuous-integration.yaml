@@ -130,7 +130,9 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        run: uv sync --extra bliss --extra decoders --extra gap --group ci-test
+        # Compile the installed packages to bytecode once, in parallel, rather than in each test
+        # process that first imports them.
+        run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
       - name: Run coverage
         # Use every CPU of the dedicated runner (the check defaults to half of them).
         run: >-
