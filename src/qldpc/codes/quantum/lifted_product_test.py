@@ -78,12 +78,15 @@ def test_lift(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     assert code_HP.sector_size.sum() == code_HP.num_qudits + code_HP.num_checks
     assert code_LP.sector_size.sum() == code_LP.num_qudits + code_LP.num_checks
 
-    # line operators for the LPCode have lower weight than Gottesman-canonical logicals
+    # line operators for the LPCode are lighter than Gottesman-canonical logicals.  Sorted by
+    # weight, each line operator is at most as heavy as the canonical logical of the same rank, and
+    # the line operators weigh less in total.
     logical_line_ops = code_LP.get_logical_ops()
     logical_ops = code_LP.get_logical_ops(recompute=True)
     line_weights = np.count_nonzero(logical_line_ops.view(np.ndarray), axis=1)
     weights = np.count_nonzero(logical_ops.view(np.ndarray), axis=1)
-    assert np.all(line_weights <= weights)
+    assert np.all(np.sort(line_weights) <= np.sort(weights))
+    assert line_weights.sum() < weights.sum()
 
     # this seed also splits at trailing pivot blocks, but the split route declines it, since the
     # semisimple route takes precedence
@@ -243,12 +246,24 @@ def test_lifted_products_require_same_ring() -> None:
 
 
 def test_lifted_products_of_empty_matrices() -> None:
-    """Lifted products accept matrices with no rows, which give codes with no checks."""
+    """Lifted products accept empty matrices.
+
+    Matrices with no rows give codes with no checks, and matrices with no rows or columns give codes
+    with no qudits.
+    """
     ring = abstract.GroupRing(abstract.CyclicGroup(3))
     empty = abstract.RingArray.build(np.zeros((0, 2), dtype=int), ring)
     for code_type in [codes.LPCode, codes.SLPCode]:
         code = code_type(empty)
         assert len(code) == code.dimension == 2 * 2 * ring.group.lift_dim
+
+    # a matrix with no rows or columns gives codes with no qudits, whose canonical logical line
+    # operators are empty
+    empty = abstract.RingArray.build(np.zeros((0, 0), dtype=int), ring)
+    for code_type in [codes.LPCode, codes.SLPCode]:
+        code = code_type(empty, set_logicals=True)
+        assert len(code) == code.dimension == 0
+        assert code.get_logical_ops().shape == (0, 0)
 
 
 def test_lifted_product_line_logicals_noncommutative(
@@ -288,8 +303,8 @@ def test_lifted_product_valid_over_group_algebras() -> None:
             ),
         ),
     ]
-    for group, characteristic, rows in cases:
-        ring = abstract.GroupRing(group, field=characteristic)
+    for group, field_order, rows in cases:
+        ring = abstract.GroupRing(group, field=field_order)
         assert ring.is_commutative
         matrix = abstract.RingArray.build(
             [
@@ -308,8 +323,9 @@ def test_lifted_product_valid_over_group_algebras() -> None:
                 code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
                 np.eye(code.dimension),
             )
-            # an ordinary CSS code's stabilizers commute; a subsystem code's need not
-            if not code.is_subsystem_code:
+            # an LPCode assumes that its checks commute if the involution of its ring transposes
+            # lifts, so check that they do.  The checks of an SLPCode need not commute.
+            if isinstance(code, codes.LPCode):
                 assert not np.any(code.matrix_x @ code.matrix_z.T)
 
 
