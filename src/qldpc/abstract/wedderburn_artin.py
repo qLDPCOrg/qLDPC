@@ -197,7 +197,8 @@ class WedderburnArtinComponentTransformer:
         seed: Random number generator seed.
         galois_compile: The ufunc calculation mode for the galois field extension ``GF(q^d)``.
             Default: 'python-calculate', which is empirically faster for small field arrays.
-            See help(galois.GF), and the 'compile' argument in particular.
+            See help(galois.GF), and the 'compile' argument in particular.  Not used for components
+            of degree 1, which work in the field of the ring.
         skip_validation: If False (the default), check the necessary conditions above and raise
             a ``ValueError`` when the provided RingMember fails them; pass True to skip the
             check (e.g. when the idempotent comes from a trusted source).
@@ -217,7 +218,7 @@ class WedderburnArtinComponentTransformer:
     power_basis: galois.FieldArray  # power basis B = (e, b, b^2, ..., b^{d-1}) for GF(q^d)
     power_basis_dual: galois.FieldArray  # dual A of the power basis, for which A @ B.T = 1_d
 
-    extended_field: type[galois.FieldArray]  # field extension GF(p^(kd)) ≅ GF(q^d)
+    extended_field: type[galois.FieldArray]  # GF(p^(kd)) ≅ GF(q^d), or the ring's field if d = 1
     embedded_scalars: galois.FieldArray  # embedding of GF(q) into GF(p^(kd))
     embedded_scalars_inverse: galois.FieldArray  # inverse of the embedding of GF(q) into GF(p^(kd))
     embedded_power_basis: galois.FieldArray  # embedding of B into GF(p^(kd))
@@ -258,7 +259,11 @@ class WedderburnArtinComponentTransformer:
         self.power_basis = self._get_power_basis(seed)
         self.power_basis_dual = qldpc.math.get_dual_basis(self.power_basis, validate=False)
 
-        self.extended_field = galois.GF(self.field.order**self.degree, compile=galois_compile)
+        self.extended_field = (
+            self.field
+            if self.degree == 1
+            else galois.GF(self.field.order**self.degree, compile=galois_compile)
+        )
         self.embedded_scalars, self.embedded_power_basis = self._get_center_embeddings()
         self.embedded_power_basis_dual = self._get_embedded_power_basis_dual()
 
@@ -517,16 +522,16 @@ class WedderburnArtinComponentTransformer:
             return self.field.elements, self.field.Ones([1])
 
         # PART 1: embed GF(q) scalars into GF(p^{kd}).
-        #   1. Identify the generator α of GF(q) = GF(p^k).
-        #   2. Find the minimal polynomial m(x) of α, which has α as a root in GF(p^k).
-        #   3. Interpret the coefficients of m(x) as elements of GF(p^{kd}).
-        #   4. Identify a root σ ∈ GF(p^{kd}) of m(x).
-        # A scalar in GF(q) = GF(p^k) = GF(p)[x] / m(x) is then embedded into GF(p^{kd}) by
-        # expanding it as a polynomial in α with coefficients in GF(p), reinterpreting those
-        # coefficients as elements of GF(p^{kd}), and replacing α by σ.  See:
+        #   1. Identify the irreducible polynomial m(x) ∈ GF(p)[x] that defines
+        #      GF(q) = GF(p^k) = GF(p)[x] / m(x).
+        #   2. Interpret the coefficients of m(x) as elements of GF(p^{kd}).
+        #   3. Identify a root σ ∈ GF(p^{kd}) of m(x).
+        # A scalar in GF(q) is then embedded into GF(p^{kd}) by expanding it as a polynomial in x
+        # with coefficients in GF(p), reinterpreting those coefficients as elements of GF(p^{kd}),
+        # and replacing x by σ.  The polynomial m(x) need not be primitive, so x need not generate
+        # the multiplicative group of GF(q).  See:
         #   - https://mhostetter.github.io/galois/latest/api/galois.GF/
-        #   - https://mhostetter.github.io/galois/latest/api/galois.FieldArray.minimal_poly/
-        minimal_poly = self.field.primitive_element.minimal_poly()  # this is m(x) ∈ GF(q)[x]
+        minimal_poly = self.field.irreducible_poly  # this is m(x) ∈ GF(p)[x]
         extended_minimal_poly = galois.Poly(minimal_poly.coeffs, field=self.extended_field)
         embedded_root = extended_minimal_poly.roots()[0]  # this is σ ∈ GF(p^{kd})
         # each scalar expands over the prime field in field.degree coefficients (scalar.vector()
