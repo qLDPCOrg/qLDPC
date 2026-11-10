@@ -851,7 +851,8 @@ class RingMember:
     its group.  Combining a RingMember with a member of a different ring raises a ValueError.  So
     does combining a member of a group algebra with a group member outside its group, or
     constructing a RingMember from a label that does not denote a basis element of its ring.
-    Combining a member of any other ring with a group member raises a TypeError.
+    Combining a member of any other ring with a group member raises a TypeError.  So does combining
+    a RingMember with a field array, whereas a RingMember combines with a ``RingArray`` entrywise.
 
     An integer operand in ``[0, q)`` is the field element with that integer representation in
     galois.  Over ``GF(4)``, for example, the integer ``2`` is a primitive element, whereas
@@ -934,6 +935,12 @@ class RingMember:
             other = self.ring._eval_int(other)
 
         if isinstance(other, self.field):
+            if other.ndim:
+                raise TypeError(
+                    "A RingMember combines with field scalars, not with a field array of shape"
+                    f" {other.shape}\nTry combining ring_member with RingArray.build(array, ring)"
+                )
+
             # multiply coefficients by 'other'
             new_element = self.ring.zero
             for val, label in self:

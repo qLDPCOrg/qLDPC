@@ -283,13 +283,29 @@ def test_generate_after_sympy_changes_order() -> None:
 
 
 def test_lifts_return_independent_arrays() -> None:
-    """Mutating a returned regular or adjoint lift does not corrupt cached lifts."""
+    """Writing into a lift, or into the matrices that a group was built from, does not change it."""
     group = abstract.CyclicGroup(3)
     member = group.identity
     expected = np.identity(group.order, dtype=int)
     for lift in [group.regular_lift, group.adjoint_lift]:
         lift(member)[:] = 0
         assert np.array_equal(lift(member), expected)
+
+    # a group from matrices copies them, and lifts members to new arrays
+    matrices: list[npt.NDArray[np.int_]] = [
+        galois.GF(3)([[1, 1], [0, 1]]),
+        np.array([[0, 1], [1, 0]]),
+    ]
+    for matrix in matrices:
+        matrix_group = abstract.Group.from_generating_mats(matrix)
+        ring = abstract.GroupRing(matrix_group, field=3)
+        (generator,) = matrix_group.generators
+        expected_lift = matrix.T.copy()
+        matrix[:] = 0
+        matrix_group.lift(generator)[:] = 0
+        ring.lift(generator)[:] = 0
+        assert np.array_equal(matrix_group.lift(generator), expected_lift)
+        assert np.array_equal(ring.lift(generator), expected_lift)
 
 
 def assert_valid_lifts(group: abstract.Group) -> None:

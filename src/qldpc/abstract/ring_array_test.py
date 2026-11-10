@@ -227,6 +227,13 @@ def test_build_edge_cases() -> None:
     with pytest.raises(ValueError, match="cannot be read in"):
         abstract.RingArray.from_field_vector(list(rows[0]), ring_16)
 
+    # each entry of an array is one ring member
+    entries = np.empty(1, dtype=object)
+    for entry in [[1], ring.field([1])]:
+        entries[0] = entry
+        with pytest.raises(ValueError, match="must be scalars, group members, or ring members"):
+            abstract.RingArray.build(entries, ring)
+
 
 def test_matmul_fallbacks() -> None:
     """Numpy multiplies RingArrays given keyword arguments, or with an unknown ring."""

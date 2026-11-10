@@ -255,6 +255,17 @@ def test_field_scalars() -> None:
     assert np.array_equal((x - scalar).to_vector(), x.to_vector() - scalar * one)
     assert np.array_equal((x * scalar).to_vector(), scalar * x.to_vector())
 
+    # field arrays do not combine with ring members, but RingArrays of them do
+    for combine in [operator.mul, operator.add, operator.sub]:
+        with pytest.raises(TypeError, match="not with a field array"):
+            combine(x, ring.field([2]))
+        with pytest.raises(TypeError):
+            combine(ring.field([2]), x)
+    array = ring.field([1, 2])
+    assert np.array_equal(
+        x * abstract.RingArray.build(array, ring), abstract.RingArray.build([x, x * ring.field(2)])
+    )
+
 
 def test_arithmetic_across_rings() -> None:
     """Members of a group algebra combine only with members of equal group algebras."""

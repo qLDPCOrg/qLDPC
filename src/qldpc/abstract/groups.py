@@ -463,10 +463,10 @@ class Group:
         key_to_index: dict[bytes, int] = {}
         generator_indices = []
         for matrix in matrices:
-            # keep each matrix with its own type, such as a FieldArray, which the lift keeps
+            # copy each matrix with its own type, such as a FieldArray, which the lift keeps
             gen = cast(
                 npt.NDArray[np.int_],
-                matrix if isinstance(matrix, np.ndarray) else np.asarray(matrix, dtype=int),
+                matrix.copy() if isinstance(matrix, np.ndarray) else np.asarray(matrix, dtype=int),
             )
             if (key := _array_key(gen)) not in key_to_index:
                 key_to_index[key] = len(key_to_index)
@@ -516,7 +516,7 @@ class Group:
 
             These matrices are generally not orthogonal (see the module docstring).
             """
-            return index_to_member[permutation_to_index[tuple(member.array_form)]].T
+            return index_to_member[permutation_to_index[tuple(member.array_form)]].T.copy()
 
         # identify generating permutations and build the group itself
         generators = [GroupMember(table[row]) for row in generator_indices]

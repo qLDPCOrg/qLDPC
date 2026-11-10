@@ -241,7 +241,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         that acts on fewer points than the group is padded with fixed points.  Members of a group
         algebra may be embedded into a different group algebra with the same field if the group of
         that algebra contains their group members.  Members of any other ring must already belong to
-        the target ring.
+        the target ring.  An entry that is itself an array, such as a list or field array in an
+        object array, raises a ValueError.
         """
         # read nested sequences as objects, which keeps the field of field elements
         array = data if isinstance(data, np.ndarray) else _as_object_array(data)
@@ -302,7 +303,13 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             # an integer, float, or field scalar is a multiple of the identity
             if isinstance(value, (int, np.integer, np.bool_)):
                 return one * int(value)
-            return one * ring._read_coefficients(value)
+            coefficient = ring._read_coefficients(value)
+            if coefficient.ndim:
+                raise ValueError(
+                    "The entries of a RingArray must be scalars, group members, or ring members,"
+                    f" not {value!r}"
+                )
+            return one * coefficient
 
         vals = [as_ring_member(value) for value in array.ravel()]
         result = np.array(vals, dtype=object).reshape(array.shape).view(RingArray)
