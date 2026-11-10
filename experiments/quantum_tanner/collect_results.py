@@ -13,7 +13,7 @@ saved code that has at least one logical qubit.  The columns of the CSV file are
 - n, k, d: the number of physical qubits, the number of logical qubits, and an upper bound on the
   code distance,
 - num_trials: the number of randomized trials used to bound the code distance, and
-- stabilizer_weight: the maximum weight of a stabilizer of the code.
+- stabilizer_weight: the maximum weight of a parity check (stabilizer generator) of the code.
 
 Example:
     python experiments/quantum_tanner/collect_results.py

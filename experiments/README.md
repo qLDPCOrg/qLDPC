@@ -71,14 +71,18 @@ python experiments/bivariate_bicycle/collect_results.py --num-trials 10 --result
 
 ## Quantum Tanner codes
 
-[`quantum_tanner/`](quantum_tanner/) performs a randomized search over quantum Tanner codes built from small finite groups and small classical base codes.
+[`quantum_tanner/`](quantum_tanner/) performs a randomized search over quantum Tanner codes of [arXiv:2202.13641](https://arxiv.org/abs/2202.13641) built from small finite groups and small classical base codes.
+Each code comes from `codes.QTCode.random`, which uses the base code for one generating subset of the group and its dual code for the other.
+It draws both subsets as random symmetric subsets whose size is the block length of the base code.
+These subsets are not uniformly random, so the search samples codes from a non-uniform distribution.
+See the docstrings of `codes.QTCode` and `objects.CayleyComplex` for the construction.
 
 1. `run_search.py` samples codes for every group of order at most `--max-order` and every base code in `BASE_CODE_IDS`, and saves each code to a text file in `results/codes/`.
    Groups with fewer elements than a base code has bits are skipped for that base code, because they cannot define a quantum Tanner code with it.
    File names identify the group, base code, and random seed of each code.
    Codes that already have a file are skipped, even if that file used a different `--num-trials`, unless `--overwrite` is passed.
 2. `collect_results.py` summarizes the parameters of saved codes in `results/codes.csv`, with one row `group_order, group_index, base_code, seed, n, k, d, num_trials, stabilizer_weight` per saved code that has `k > 0`.
-   Here `group_order` and `group_index` identify a group in the SmallGroups library, and `stabilizer_weight` is the maximum weight of a stabilizer of the code.
+   Here `group_order` and `group_index` identify a group in the SmallGroups library, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
 3. `verify_codes.py` checks that regenerating every saved code from its seed reproduces that code.
 
 ```bash
@@ -99,6 +103,7 @@ python experiments/quantum_tanner/verify_codes.py --results-dir "$RESULTS"
 With default settings, the search covers the 18 groups of order at most 10, with up to 100 random codes per group and base code (only one if the base code has as many bits as the group has elements), which amounts to roughly 11,000 saved codes.
 Each code requires a randomized distance estimate with `--num-trials` trials, so a full search can take many CPU-hours.
 Distances `d` are upper bounds.
+These bounds are randomized without a seed, so they can differ between runs for the same code, and `verify_codes.py` does not check them.
 Saved code files record `d` as `nan` for codes with no logical qubits, and `collect_results.py` omits such codes.
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, so codes saved with a different version of `qldpc` may fail verification.
 

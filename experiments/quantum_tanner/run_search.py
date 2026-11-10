@@ -3,15 +3,20 @@
 
 """Randomized search for quantum Tanner codes.
 
-This script samples random quantum Tanner codes (qldpc.codes.QTCode.random) built from every finite
-group of order at most --max-order, as indexed by the GAP SmallGroups library, and every classical
-base code in BASE_CODE_IDS.  For each group and base code, it draws --num-samples codes with
-deterministic seeds (or one code, if the base code has as many bits as the group has elements),
-upper-bounds their code distances by minimizing over --num-trials randomized trials, and saves each
-code with its parameters to a text file in the "codes" subdirectory of --results-dir (by default,
-results/codes in this directory).  Codes that already have a saved file are skipped (even if that
-file used a different --num-trials) unless --overwrite is passed, so an interrupted search resumes
-where it left off.
+This script samples random quantum Tanner codes (arXiv:2202.13641) built from every finite group of
+order at most --max-order, as indexed by the GAP SmallGroups library, and every classical base code
+in BASE_CODE_IDS.  Each code is constructed by qldpc.codes.QTCode.random, which uses the base code
+for one generating subset of the group and its dual code for the other, and draws both subsets as
+random symmetric subsets whose size is the block length of the base code.  These subsets are not
+uniformly random (see qldpc.abstract.Group.random_symmetric_subset), so the search samples codes
+from a non-uniform distribution.
+
+For each group and base code, the script draws --num-samples codes with deterministic seeds (or one
+code, if the base code has as many bits as the group has elements), upper-bounds their code
+distances by minimizing over --num-trials randomized trials, and saves each code with its parameters
+to a text file in the "codes" subdirectory of --results-dir (by default, results/codes in this
+directory).  Codes that already have a saved file are skipped (even if that file used a different
+--num-trials) unless --overwrite is passed, so an interrupted search resumes where it left off.
 
 Afterwards, collect_results.py summarizes the parameters of saved codes in a CSV file in the same
 results directory, and verify_codes.py checks that every saved code can be reproduced from its
@@ -75,9 +80,8 @@ def main() -> None:
             sample,
             num_samples,
             args.num_trials,
-            codes_dir=args.results_dir / CODES_NAME,
-            identify_completion_text=args.workers > 1,
-            override_existing_data=args.overwrite,
+            args.results_dir / CODES_NAME,
+            overwrite=args.overwrite,
         )
         for group_order, group_index, base_code, base_code_id, sample, num_samples in (
             get_search_space(args.max_order, args.num_samples)
@@ -155,6 +159,11 @@ def get_search_space(
     base_codes = list(get_base_codes())
     for group_order, group_index in get_small_groups(max_order):
         for base_code, base_code_id in base_codes:
+            # a group with fewer elements than the base code has bits has no subset as large as the
+            # block length of the base code, and thereby defines no quantum Tanner code with it
+            if group_order < base_code.num_bits:
+                continue
+
             # If the base code has as many bits as the group has elements, there is only one random
             # quantum Tanner code, namely the one with subset_a = subset_b = group.
             num_code_samples = 1 if base_code.num_bits == group_order else num_samples
@@ -168,22 +177,20 @@ def run_and_save(
     base_code: codes.ClassicalCode,
     base_code_id: str,
     sample: int,
-    num_samples: int = NUM_SAMPLES,
-    num_trials: int = NUM_TRIALS,
+    num_samples: int,
+    num_trials: int,
+    codes_dir: pathlib.Path,
     *,
-    codes_dir: pathlib.Path = RESULTS_DIR / CODES_NAME,
-    identify_completion_text: bool = False,
-    override_existing_data: bool = False,
-    silent: bool = False,
+    overwrite: bool = False,
 ) -> None:
     """Generate a random quantum Tanner code, compute its parameters, and save it to a text file.
 
-    The random seed for the code is a deterministic hash of the group, base code, and sample index,
-    so rerunning this function with the same inputs reproduces the same code.
+    The random seed for the code is a deterministic hash of the group, the parity check matrix of
+    the base code, and the sample index, so rerunning this function with the same inputs reproduces
+    the same code.
 
-    The multiprocessing module (which calls this method) is unable to properly handle SymPy
-    PermutationGroup objects, so we have to construct groups here from their order and index.
-    Passing ClassicalCode objects seems to be fine, though.
+    SymPy PermutationGroup objects do not survive pickling, which a process pool uses to pass
+    arguments to its workers, so this function constructs the group from its order and index.
 
     Args:
         group_order: The order of the group that defines the code.
@@ -195,26 +202,15 @@ def run_and_save(
         num_samples: The total number of samples per group and base code, used to report progress.
         num_trials: The number of randomized trials for upper-bounding the code distance.
         codes_dir: The directory in which to save the code.
-        identify_completion_text: If True, identify this job when printing its results, which helps
-            to attribute results when many jobs run in parallel.
-        override_existing_data: If True, regenerate and save codes that already have a saved file.
-        silent: If True, do not print progress.
+        overwrite: If True, regenerate and save a code that already has a saved file.
     """
-    if group_order < base_code.num_bits:
-        # No subset of this group can be large enough to have as many elements as there are bits in
-        # the base code, so random quantum Tanner codes with the given input data do not exist.
-        return
-
     seed = get_deterministic_hash(group_order, group_index, base_code.matrix.tobytes(), sample)
     path = get_code_path(codes_dir, group_order, group_index, base_code_id, seed)
-
-    if path.is_file() and not override_existing_data:
-        # we already have the data for this code, so there is nothing to do
+    if path.is_file() and not overwrite:
         return
 
     job_id = f"{get_group_id(group_order, group_index)} {base_code_id} {sample}/{num_samples}"
-    if not silent:
-        print(job_id)
+    print(job_id)
 
     # construct a random code and compute its parameters
     group = abstract.SmallGroup(group_order, group_index)
@@ -222,18 +218,16 @@ def run_and_save(
     code_params = code.get_code_params(bound=num_trials)
     weight = code.get_weight()
 
-    # save code and computed parameters
-    code.save(str(path), *get_code_header(num_trials, code_params, weight))
+    # Save the code to a temporary file first, and then move it into place, so that an interrupted
+    # job leaves no partial file that a resumed search would mistake for a finished code.
+    temp_path = path.with_name(path.name + ".tmp")
+    code.save(str(temp_path), *get_code_header(num_trials, code_params, weight))
+    temp_path.replace(path)
 
-    if not silent:
-        completion_text = " "
-        if identify_completion_text:
-            completion_text += f"({job_id}) "
-        completion_text += "code parameters: " + str(code_params + (weight,))
-        print(completion_text)
+    print(f" ({job_id}) (n, k, d) = {code_params}, stabilizer weight = {weight}")
 
 
-def get_small_groups(max_order: int = MAX_ORDER) -> Iterator[tuple[int, int]]:
+def get_small_groups(max_order: int) -> Iterator[tuple[int, int]]:
     """Iterate over (order, index) for all groups in the SmallGroups library up to a given order."""
     for order in range(1, max_order + 1):
         for index in range(1, abstract.SmallGroup.count_groups(order) + 1):
@@ -343,8 +337,8 @@ def get_code_header(
 def read_code_header(path: pathlib.Path) -> tuple[int, tuple[int, int, int | float], int]:
     """Read the header of a saved quantum Tanner code file; see get_code_header.
 
-    Returns the number of distance trials, the code parameters (n, k, d), and the stabilizer weight.
-    The distance d is nan if the code has no logical qubits.
+    Returns the number of distance trials, the code parameters (n, k, d), and the maximum weight of
+    a parity check of the code.  The distance d is nan if the code has no logical qubits.
     """
     with open(path) as file:
         num_trials = int(file.readline().split(":")[-1])
@@ -367,11 +361,15 @@ def read_code_header(path: pathlib.Path) -> tuple[int, tuple[int, int, int | flo
 # helper functions
 
 
-def get_deterministic_hash(*inputs: Hashable, num_bytes: int = 4) -> int:
-    """Hash inputs by their repr, consistently across Python sessions (unlike the built-in hash)."""
+def get_deterministic_hash(*inputs: Hashable) -> int:
+    """Hash inputs by their repr, consistently across Python sessions (unlike the built-in hash).
+
+    Seeds of saved codes are such hashes, so changing this function changes which codes a search
+    samples, and stops a search from resuming from codes saved before the change.
+    """
     input_bytes = repr(inputs).encode("utf-8")
     hash_bytes = hashlib.sha256(input_bytes).digest()
-    return int.from_bytes(hash_bytes[:num_bytes], byteorder="big", signed=False)
+    return int.from_bytes(hash_bytes[:4], byteorder="big", signed=False)
 
 
 def run_jobs(jobs: Iterable[Callable[[], None]], num_workers: int) -> None:
