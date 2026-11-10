@@ -240,9 +240,29 @@ def test_matmul_fallbacks() -> None:
         unknown_ring.ring  # noqa: B018
 
 
-def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
+def test_howell_form_provenance(ring_cyclic3_gf2: abstract.GroupRing) -> None:
+    """A semisimple Howell form records how it was built, until its entries change."""
+    transformer = ring_cyclic3_gf2.get_transformer()
+    matrix = abstract.RingArray.build([[1, 0]], ring_cyclic3_gf2)
+    howell = matrix.howell_normal_form_semisimple(transformer, right=True)
+    assert howell._get_hnf_provenance() == (transformer, True, True)
+    assert matrix._get_hnf_provenance() is None
+    column = howell[:, :1]
+    assert isinstance(column, abstract.RingArray) and column._get_hnf_provenance() is None
+    howell[0, 1] = 1
+    assert howell._get_hnf_provenance() == (transformer, True, False)
+
+    # writes through views, and reshaping in place, also invalidate the provenance
+    howell = matrix.howell_normal_form_semisimple(transformer, right=True)
+    howell[0][1] = 1
+    assert howell._get_hnf_provenance() == (transformer, True, False)
+    howell = matrix.howell_normal_form_semisimple(transformer, right=True)
+    howell.resize((2, 1), refcheck=False)
+    assert howell._get_hnf_provenance() == (transformer, True, False)
+
+
+def test_ring_row_reduction() -> None:
     """RingArrays can be row reduced in various ways."""
-    np.random.seed(pytestconfig.getoption("randomly_seed"))
     matrix: list[list[int | abstract.RingMember]] | abstract.RingArray
 
     # we can row-reduce a RingArray over a cyclic group algebra
@@ -272,7 +292,7 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
 
     # computing a reduced Groebner basis is the final boss
     ring = abstract.GroupRing(abstract.DihedralGroup(2), field=2)
-    with pytest.raises(NotImplementedError, match="Here be dragons"):
+    with pytest.raises(NotImplementedError, match="Groebner"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).reduced_groebner_basis()
 
 

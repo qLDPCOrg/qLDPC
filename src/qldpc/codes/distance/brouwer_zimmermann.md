@@ -336,6 +336,16 @@ Because each linear program takes milliseconds, only searches whose estimated wo
 To decide how many bases of a layer to search, a search solves a linear program only when the coverage-divided certificate falls short of `U` and a feasible point of the linear program shows that its optimum could reach `U`.
 It also solves one at the end of each layer, to update its lower certificate.
 
+#### Families for coset searches
+
+The coset searches of [Section 4.1](#41-module-map-and-layering) search a coset `u + V` rather than `V`.
+In each search basis `G_i`, a word of the coset is an offset, which is zero on the pivot columns of `B_i`, plus a unique sum of rows of `G_i`, as in [Section 2.3](#23-systematic-bases-and-information-sets).
+So a word of the coset that the search has not examined after `G_i` has completed layer `t` has at least `b_i(t)` ones on `B_i`, as a word of `V` does.
+Every certificate of this section uses only these bounds on the blocks, so each holds for the words of a coset as for those of `V`, and a family of search bases of `V` serves every coset of `V`.
+A coset search can therefore answer costly queries with overlapping families.
+It can also answer them with a disjoint family that matroid partitioning finds with coverage one, which can have more information sets, or a larger partial set, than the greedy packing of [Section 2.4](#24-search-bases-and-rank-deficient-blocks).
+[Section 4.4](#44-heuristics-and-cost-models) says when a coset search builds these families.
+
 ### 3.2 Rounding the certificate to a proven weight multiple
 
 Suppose that every eligible word has a weight that is a multiple of an integer `D`.
@@ -474,9 +484,13 @@ $$
 W = m\sum_{w=1}^{t_* - 1} \binom{r}{w} + j_* \binom{r}{t_*}.
 $$
 
+qLDPC computes this estimate with `plan_steps`, the function that also finds where a search stops ([Section 4.1](#41-module-map-and-layering)).
 The estimate is pessimistic, because it assumes that no lighter witness is found before the certificate reaches `U`.
 The sum starts at `w = 1`, so it includes the systematic rows.
 When the comparison with exhaustive enumeration is made, layer one has already been checked, so `W` slightly overestimates the remaining BZ work.
+A coset search of [Section 4.1](#41-module-map-and-layering) estimates the work of a query at a maximum weight `ω` in the same way, from layer zero, which holds the offset, to the first step whose bound exceeds `ω`.
+The estimate leaves out the search bases that the query skips.
+If no word of the coset weighs at most `ω`, the query examines exactly that many words besides the word of its syndrome, and otherwise at most that many.
 Actual runtime also depends on basis construction, the width of packed words, and early improvements of the witness, so `W` is not a runtime guarantee.
 
 Exhaustive enumeration is chosen at three points, which [Section 4.2](#42-flow-and-exit-points) lists.
@@ -695,7 +709,7 @@ It builds its families and certificates with the same stages of [_search/informa
 It runs the stages in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
-`get_overlapping_family_policy` in [_search/information_sets.py](_search/information_sets.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to both consumers.
+`get_overlapping_family_policy` in [_search/information_sets.py](_search/information_sets.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to the distance search, the counts, and the coset routes of [_search/coset_routes.py](_search/coset_routes.py).
 [core.py](core.py) calls [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/brute_force.py](_search/brute_force.py), and [_search/connected_support.py](_search/connected_support.py), which [connected_support.md](connected_support.md) describes, and [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py) calls [_search/brute_force.py](_search/brute_force.py) for its exhaustive routes.
 All four modules use [_binary.py](_binary.py), and they and [_search/information_sets.py](_search/information_sets.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
@@ -715,30 +729,37 @@ The weight divisor of the certificate rounds its Hamming bounds up to multiples 
 `get_distance_instance` packs a basis family with its pivot columns deleted ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and takes the certificate that the distance search selects.
 The distance search builds another instance when it switches to an automorphism family, whose certificate covers every image of the one set that it scans.
 
-`CosetLeaderSearch` in [_search/coset_leader_search.py](_search/coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `e + V` instead of `V`, unless it is built with `method="connected_support"` ([connected_support.md](connected_support.md)).
+`CosetLeaderSearch` in [_search/coset_leader_search.py](_search/coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `u + V` instead of `V`, unless it is built with `method="connected_support"` ([connected_support.md](connected_support.md)).
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
 A **query** of `CosetLeaderSearch` asks whether the coset of a syndrome has a word of weight at most a given maximum weight.
 `CosetLeaderSearch` answers each query with one or two **coset searches**: a search of Pauli errors, or, for the CSS weight on a CSS state, searches of their X and Z parts, as described at the end of this section.
-Each coset search is built from a **coset instance**, which `get_coset_instance` packs from the full rows of the disjoint sets of its code.
+Each family of search bases with which a coset search answers queries has a **coset instance**.
+`get_coset_instance` packs the full rows of the disjoint sets of the code, and `get_coset_family_instance` packs those of any other family of search bases of the code, with the certificate of its ranks and maximum coverage ([Section 3.1](#31-overlapping-search-bases)).
 The certificate of a coset instance applies unchanged, except that it takes no weight divisor ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)), because the words of a coset need not share the divisibility of `V`.
 This holds even when `get_disjoint_family` infers a divisor for `V`.
 If every word of `V` has even weight, the bounds of each coset may instead be rounded up to its parity, which `AffineInstance.get_weight_bounds` does when it is given the parity.
 `_get_search_tables` rounds them when some coset of the search is odd, which holds exactly when some row of the right inverse of its checks, as a binary word of the search, is odd.
 In a search of Pauli errors, an error weighs at least half the Hamming weight of the binary word that represents it.
-So the instance of such a search has a **weight factor** of two: `AffineInstance.get_weight_bounds` divides the bounds of its certificate by two, rounding up, after any rounding to parity.
+So the instance of such a search has a **weight factor** `η` of two: `AffineInstance.get_weight_bounds` divides the bounds of its certificate by two, rounding up, after any rounding to parity.
+The instance of a search of X or Z parts has the weight factor `η = 1`.
 A query of a coset search asks the same of a coset of its code, whose words have syndromes for the checks of that code.
 It starts from the **word of its syndrome**, a word of the coset that sums the rows of a right inverse of the checks for the set bits of the syndrome.
 It stops at its **stopping step**, the first step whose bound exceeds the maximum weight, unless it finds a light enough word sooner.
 It skips each rank-deficient search basis whose deficiency keeps it out of the bound of that step.
-`find_stopping_step` of [_search/information_sets.py](_search/information_sets.py) finds the stopping step by a binary search of steps whose bounds never decrease.
-Each coset search keeps the bounds of its steps in a **planning buffer**, with a table for each parity of its cosets if it rounds to parity, and one table otherwise.
+`plan_steps` of [_search/information_sets.py](_search/information_sets.py) plans the steps of the coset searches and of the distance search.
+It finds the stopping step by a binary search of steps whose bounds never decrease, and it adds up the work of the steps up to the stopping step ([Section 3.6](#36-exhaustive-enumeration-as-a-fallback)).
+Each family of a coset search keeps the bounds of its steps in a **planning buffer**, with a table for each parity of the cosets if the search rounds to parity, and one table otherwise.
 A query takes the table of the parity of the word of its syndrome.
 Each table has one more row that caches a stopping step.
 For a nonnegative maximum weight, `_get_stopping_step` reuses the cached step of a table exactly while it stays the stopping step of that weight, and replaces it otherwise.
 `get_min_weight_bound` first looks up the words of weight at most one.
 If there is none and its maximum weight is below two, it gives the lower bound two without a search, or three for an odd coset in a search of X or Z parts that rounds to parity.
-The distance search also uses `find_stopping_step`, through `Certificate.get_num_sets_to_certify`, when its certificate solves no linear programs.
-A distance certificate with linear programs instead checks its steps in order with `certifies`, which solves each program only when the coverage bound falls short.
+Otherwise, a query takes the tables of the **route** of its maximum weight, which `CosetRoutes` of [_search/coset_routes.py](_search/coset_routes.py) chooses once for each maximum weight ([Section 4.4](#44-heuristics-and-cost-models)).
+A route is a family of search bases of the code, with its coset instance and planning buffer: the disjoint sets, or a family that the routes build for costly queries.
+`find_first_not_within_max_weight` answers a batch with the route of its maximum weight, which it takes once, and the batch of the X parts and that of the Z parts each take their own.
+The distance search finds the stopping step of each layer with `Certificate.plan`, through `Certificate.get_num_sets_to_certify`.
+`Certificate.plan` calls `plan_steps` when its certificate solves no linear programs.
+A certificate with linear programs instead checks the steps of the layer but the last in order with `certifies`, which solves each program only when the coverage bound falls short.
 For the CSS weight `max(|x|, |z|)` on a CSS state, whose stabilizer group is generated by stabilizers with no Z part and stabilizers with no X part, `CosetLeaderSearch` instead runs this search on two classical codes, spanned by the X parts of the first kind and by the Z parts of the second, with words weighed by their Hamming weight.
 
 ### 4.2 Flow and exit points
@@ -786,9 +807,9 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | --- | --- |
 | Upper bound `U` | `best`, or `upper_bound` as a parameter |
 | Lower certificate `L` | `lower_bound` of a search, computed by `Certificate.lower_bound(completed_weight)` from the certificate's `dimension`, `ranks`, `weight_divisor`, and `max_coverage`; it bounds the eligible words lighter than `U`, so a bound on the distance is `min(L, U)` |
-| Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`. `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound. `find_stopping_step` gives the first step whose bound exceeds a limit. `Certificate.get_weight_bounds` divides the table by a weight factor, rounding up, after rounding it up to a parity if it is given one. A coset search keeps the results in its planning buffer, `planning` of `_CosetSearchTables`: a table for each parity of its cosets if it rounds to parity, and one table otherwise, each with a cached stopping step. |
+| Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`. `Certificate.get_num_sets_to_certify` gives the smallest `j` that certifies a bound. `plan_steps` gives the first step whose bound exceeds a limit, the stopping step, and the work of the steps up to it. `Certificate.plan` gives the stopping step of one layer, with linear programs if the certificate solves them. `Certificate.get_weight_bounds` divides the table by a weight factor, rounding up, after rounding it up to a parity if it is given one. A coset search keeps the results in its planning buffer, `planning` of `_CosetSearchTables`: a table for each parity of its cosets if it rounds to parity, and one table otherwise, each with a cached stopping step. |
 | Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families |
-| Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`. A distance search keeps the `AffineInstance` of [_search/affine_instance.py](_search/affine_instance.py) that packs them, with the certificate. A coset search keeps its generators, pivots, and planning buffer in `_CosetSearchTables`. |
+| Family of search bases | `BasisFamily`, which stacks the search bases into arrays and gives their `Certificate`. A distance search keeps the `AffineInstance` of [_search/affine_instance.py](_search/affine_instance.py) that packs them, with the certificate. A coset search keeps the generators, pivots, and planning buffer of each family of its routes in `_CosetSearchTables`. |
 | Automorphisms, generators of `G` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `QuditCode` |
 | Automorphism family | `get_automorphism_family` of [_search/automorphism_families.py](_search/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and sets `uses_automorphism_family` of the search |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
@@ -804,7 +825,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
 | Chunk | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
-| Candidate/set evaluation | The unit counted by `Certificate.work` |
+| Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
 | Completion tables ([Section 3.9](#39-skipping-completions-that-cannot-lower-u)) | `CompletionTables` of [_search/completion_bounds.py](_search/completion_bounds.py), chosen for each layer by `select_completion_tables` from the completion fields of the search's `SearchTuning` and kept in `completion_tables` of a search; the scan is `scan_information_set` of [_search/affine_search.py](_search/affine_search.py), which returns the numbers of supports that it weighs and skips and of bounds that it looks up |
 
 For the rank-deficient remainder of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), the implementation records only the independent pivot columns, in the first `rank` entries of the set's row of `BasisFamily.pivots`, and pads the rest with -1.
@@ -840,11 +861,22 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
   A search asks for automorphisms before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family.
+- **`CosetRoutes`** chooses the family with which a coset search answers each maximum weight `ω`, as the module docstring of [_search/coset_routes.py](_search/coset_routes.py) explains.
+  The work of a table of a search at `ω` is the work of `plan_steps` from layer zero, without the search bases that a query skips.
+  Besides the word of its syndrome, a query at `ω` with no light enough word examines as many words as the work of the table of its parity, so its predicted examinations are one more than the largest work of a table.
+  The gate compares the predicted examinations of the disjoint family with its threshold, `overlapping_minimum_work`.
+  Below the threshold, the query keeps the disjoint family.
+  Otherwise, the routes try to build two families once, at the smallest `ω_T ≥ 2` at which the predicted examinations reach the threshold, so that the families do not depend on the order of queries.
+  The first holds the most disjoint information sets and then the largest partial set, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, and the routes keep it only if it has more information sets or a larger partial set than the greedy packing.
+  The second is an overlapping family of `get_overlapping_family`, aimed at the Hamming weight `η ω_T + 1` for the weight factor `η` of [Section 4.1](#41-module-map-and-layering), and the routes keep it only if the stage finds one that does less work than the family that it starts from.
+  The route of `ω` is the family with the least work at `ω`, summed over its tables, and among families of equal work, the disjoint family, then the maximum disjoint one.
+  Building the families takes milliseconds, which the queries that reach the default threshold repay.
 - **`select_completion_tables`** decides whether a layer of one information set uses completion tables, as [Section 3.9](#39-skipping-completions-that-cannot-lower-u) explains.
   It considers layers of at least `completion_bound_minimum_layer_work` supports, uses tables if it predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.
   Random supports only estimate the value of tables; a search skips supports only when `w` plus their computed bound reaches `U`.
 - **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
+  `Certificate.work` and `estimate_automorphism_family_work` are the work of plans of `plan_steps`, the function that also finds where searches stop ([Section 4.1](#41-module-map-and-layering)).
   `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, with the fields `enumeration_max_dimension` and `enumeration_setup_cost_factor`.
 
 ### 4.5 Behavior spanning files
@@ -912,6 +944,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   It need not hold for heavier words, such as skipped ones, so a bound that a search reports on the distance is `min(L, U)`, not `L`.
   The current formula relies on block ranks, overlap coverage, and completed layers (Sections [2.4](#24-search-bases-and-rank-deficient-blocks), [2.5](#25-the-stopping-certificate), and [3.1](#31-overlapping-search-bases)).
   Coverage may be conservatively overestimated; underestimating it can make the formula unsound.
+  A coset search may take any family of search bases of its code, with the certificate of the ranks and coverage of the family ([Section 3.1](#31-overlapping-search-bases)).
   Optional rounding requires a congruence that every eligible weight satisfies: divisibility by a common divisor, or the parity of a coset of an even code ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
   Parity applies only in a coset search, where every word of the coset is eligible.
   A certificate from another CSS sector needs justification for the sector where it is applied, just as any other certificate does.
@@ -925,6 +958,10 @@ Changes to the BZ algorithm can use different representations, certificates, and
   For the same reason, counting does not skip supports, which may hold words of the target weight `w`.
   A word of weight `w` belongs to the first step that visits it, and the steps that the scan visits are the first ones in order, so stopping within a layer still counts every such word once.
   Its bound must use the ranks and actual maximum coverage of the family it scans; it passes `upper_bound=w+1` to the family stages only to aim them at that stopping point.
+- **Keep the answers of coset queries reproducible.**
+  The family that answers a coset query, and so its representative and lower bound, depends only on the code, the maximum weight, and the tuning, not on earlier queries.
+  This matters because the counterexamples of the fault-propagation certifier report the representative and the bound.
+  `test_answers_do_not_depend_on_earlier_queries` in [_search/coset_leader_search_test.py](_search/coset_leader_search_test.py) checks this.
 - **Preserve the return contract.**
   Return the exact minimum unless taking an early exit permitted by `cutoff`.
   Such an early exit returns the weight of a known eligible witness, an upper bound between the distance and `cutoff` ([Section 4.5](#45-behavior-spanning-files)).
@@ -949,5 +986,5 @@ Those tests can evolve with the implementation; they do not make a particular in
 - M. Grassl, "Searching for linear codes with large minimum distance," in *Discovering Mathematics with Magma*, Springer, 2006, pp. 287-313 ([doi:10.1007/978-3-540-37634-7_13](https://doi.org/10.1007/978-3-540-37634-7_13)): Algorithm 2.5 gives the certificate for overlapping information sets, footnote 2 on page 295 the certificate within a layer, page 299 the rounding to a weight divisor, and Algorithm 2.11 the choice between BZ and the weight distribution.
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 a coverage-divided certificate for any blocks, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
-- [core.py](core.py), [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/coset_leader_search.py](_search/coset_leader_search.py), [_search/affine_search.py](_search/affine_search.py), [_search/affine_instance.py](_search/affine_instance.py), [_search/information_sets.py](_search/information_sets.py), [_search/automorphism_families.py](_search/automorphism_families.py), [_search/completion_bounds.py](_search/completion_bounds.py), [_search/matroid_partition.py](_search/matroid_partition.py), [_search/brute_force.py](_search/brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
-- [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py), [_search/coset_leader_search_test.py](_search/coset_leader_search_test.py), [_search/affine_search_test.py](_search/affine_search_test.py), [_search/affine_instance_test.py](_search/affine_instance_test.py), [_search/information_sets_test.py](_search/information_sets_test.py), [_search/automorphism_families_test.py](_search/automorphism_families_test.py), [_search/completion_bounds_test.py](_search/completion_bounds_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.
+- [core.py](core.py), [_search/brouwer_zimmermann.py](_search/brouwer_zimmermann.py), [_search/coset_leader_search.py](_search/coset_leader_search.py), [_search/coset_routes.py](_search/coset_routes.py), [_search/affine_search.py](_search/affine_search.py), [_search/affine_instance.py](_search/affine_instance.py), [_search/information_sets.py](_search/information_sets.py), [_search/automorphism_families.py](_search/automorphism_families.py), [_search/completion_bounds.py](_search/completion_bounds.py), [_search/matroid_partition.py](_search/matroid_partition.py), [_search/brute_force.py](_search/brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
+- [_search/brouwer_zimmermann_test.py](_search/brouwer_zimmermann_test.py), [_search/coset_leader_search_test.py](_search/coset_leader_search_test.py), [_search/coset_routes_test.py](_search/coset_routes_test.py), [_search/affine_search_test.py](_search/affine_search_test.py), [_search/affine_instance_test.py](_search/affine_instance_test.py), [_search/information_sets_test.py](_search/information_sets_test.py), [_search/automorphism_families_test.py](_search/automorphism_families_test.py), [_search/completion_bounds_test.py](_search/completion_bounds_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.

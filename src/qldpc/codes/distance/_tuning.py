@@ -25,8 +25,10 @@ What tuning can and cannot change:
   nontrivial word that it finds at or below ``cutoff``, and which word comes first depends on
   tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
-- A query of ``CosetLeaderSearch`` gives the same answer under every tuning, and with the
-  connected-support method the same lower bound, but the error that it returns can depend on tuning.
+- Under every tuning, a query of ``CosetLeaderSearch`` decides the same way whether a coset has a
+  word of weight at most the query's maximum weight, and with the connected-support method it gives
+  the same lower bound.  The word that it returns, and with the Brouwer-Zimmermann method its lower
+  bound, can depend on tuning, within the contract of ``MinWeightBound``.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
   process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
   ``LOCAL_CLIFFORD_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``), so a later search with another
@@ -206,10 +208,12 @@ class SearchTuning:
     # Fields of information-set families.
 
     #: The most information sets in a family of overlapping sets, or in a family found by matroid
-    #: partitioning.  More sets can skip costly layers of hard searches, but setup grows roughly
-    #: with the square of this limit and dominates cheap searches; zero disables both kinds of
-    #: family.  Defaults to 16; how it was chosen is not recorded.  To retune it, compare the total
-    #: times of hard searches.
+    #: partitioning with a coverage of two or more.  Distance searches and counts build both, and
+    #: coset searches build overlapping ones for costly queries.  More sets can skip costly layers,
+    #: but setup grows roughly with the square of this limit and dominates cheap searches.  Zero
+    #: disables both, but not the maximum disjoint family that a coset search finds by matroid
+    #: partitioning with coverage one.  Defaults to 16; how it was chosen is not recorded.  To
+    #: retune it, compare the total times of hard searches.
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
@@ -220,18 +224,22 @@ class SearchTuning:
     #: time against the search time saved.
     disjoint_random_column_orders: int = 8
 
-    #: The estimated work of a search, in candidate/set evaluations, below which it does not try to
-    #: replace its disjoint information sets by overlapping ones.  Lowering it tries this on cheaper
-    #: searches, which may not recover the setup; zero always tries, and ``MAX_VALUE`` never does.
-    #: Defaults to 100,000; how it was chosen is not recorded.  To retune it, time searches near the
-    #: threshold with and without the replacement.
+    #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
+    #: does not try to replace its disjoint information sets by overlapping ones.  It is also the
+    #: threshold of the gate of a coset search of ``CosetLeaderSearch``: a query with fewer
+    #: predicted examinations keeps the disjoint sets.  Lowering it tries other families for cheaper
+    #: work, which may not repay their setup; zero always tries, and ``MAX_VALUE`` never does.
+    #: Defaults to 100,000, chosen for distances by unrecorded means, and kept for cosets after
+    #: replays of residual-weight estimates.  To retune it, time searches near it with and without
+    #: other families.
     overlapping_minimum_work: int = 100_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
-    #: that it may add; an order that repeats an existing set still counts.  More attempts can reach
-    #: a cheaper family, but lengthen setup; zero builds no family.  Defaults to 2, chosen by hand.
-    #: To retune it, record how the estimated work of the family falls with more attempts, and weigh
-    #: setup time against the search time saved.
+    #: that it may add; an order that repeats an existing set still counts.  Distance searches and
+    #: counts build such families, and coset searches of ``CosetLeaderSearch`` build them for costly
+    #: queries.  More attempts can reach a cheaper family, but lengthen setup; zero builds no
+    #: family.  Defaults to 2, chosen by hand.  To retune it, record how the estimated work of the
+    #: family falls with more attempts, and weigh setup time against the search time saved.
     overlapping_attempts_per_set: int = 2
 
     #: A search builds families by matroid partitioning only if its estimated work is at least this
@@ -576,12 +584,11 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 BINOMIAL_CACHE_SIZE = 1024
 
 #: The number of entries that ``coset_leader_search._get_css_searches`` keeps, one for each CSS
-#: state and value of ``disjoint_random_column_orders``, each a pair of classical searches, of the X
-#: parts and of the Z parts of errors.  It takes effect when qLDPC is imported.  Chosen by hand.  A
-#: larger cache uses more memory, and a smaller one repeats the setup of searches that a workload
-#: reuses.  To retune it, record the hit rate, the setup time of a missed pair, and the memory of
-#: each pair on workloads such as certification, and keep the smallest size beyond which the hit
-#: rate stops growing.
+#: state and tuning of the setup of the searches, each a pair of classical searches, for the X and Z
+#: parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses more memory, and a
+#: smaller one repeats the setup of searches that a workload reuses.  Chosen by hand.  To retune it,
+#: record the hit rate, the setup time of a missed pair, and the memory of each pair on workloads
+#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The number of results that each of two caches of the MacWilliams method keeps, one of single
@@ -600,11 +607,10 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
 
-#: The number of searches of Pauli errors that ``coset_leader_search._get_pauli_search`` keeps,
-#: one for each stabilizer matrix, measure of weight, and tuning of their setup.  It takes effect
-#: when qLDPC is imported.  A larger cache uses more memory, a smaller one repeats setups that a
-#: workload reuses, and zero disables the cache.  Only speed and memory depend on it.  Chosen by
-#: hand, as for ``CSS_SEARCH_CACHE_SIZE``.  To retune it, record the hit rate, the setup time of a
-#: missed search, and the memory per search on workloads such as certification, and keep the
-#: smallest size beyond which the hit rate stops growing.
+#: The number of searches of Pauli errors that ``coset_leader_search._get_pauli_search`` keeps, one
+#: for each stabilizer matrix, measure of weight, and tuning of the setup of the search.  It takes
+#: effect when qLDPC is imported.  A larger cache uses more memory, a smaller one repeats setups,
+#: and zero disables the cache.  Only speed and memory depend on it.  Chosen by hand.  To retune it,
+#: record the hit rate, the setup time of a missed search, and the memory per search on workloads
+#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
 PAULI_SEARCH_CACHE_SIZE = 8

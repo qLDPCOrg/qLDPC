@@ -10,7 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from qldpc._binary import unpack_bits
+from qldpc._binary import row_reduce_binary, unpack_bits
 
 from ..conftest import get_random_full_rank_matrix
 from . import affine_instance, information_sets
@@ -20,10 +20,12 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
     """Every word of a coset that a step leaves unvisited weighs at least the bound of that step.
 
     The codes are random, so some of their disjoint information sets are rank deficient, and the
-    words of each coset are enumerated through every set (see ``_get_unvisited_minima``).  A word
-    weighs at least its Hamming weight divided by the weight factor, which is one or two.  About
-    half of the codes get a last column with the parity of each row, which makes them even, and the
-    bounds of the cosets of even codes are rounded to the parity of each coset.
+    words of each coset are enumerated through every set (see ``_get_unvisited_minima``).  The
+    instances hold the disjoint information sets, or random information sets, which may overlap, and
+    whose certificate divides by their coverage.  A word weighs at least its Hamming weight divided
+    by the weight factor, which is one or two.  About half of the codes get a last column with the
+    parity of each row, which makes them even, and the bounds of the cosets of even codes are
+    rounded to the parity of each coset.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(40):
@@ -32,14 +34,32 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
         if rng.integers(2):
             generators = np.hstack([generators, generators.sum(axis=1, keepdims=True) % 2])
         factor = int(rng.integers(1, 3))
-        instance = affine_instance.get_coset_instance(
-            generators, random_column_orders=0, weight_factor=factor
+        num_sets = int(rng.integers(2, 5))
+        sets = [
+            row_reduce_binary(generators, None, columns=rng.permutation(generators.shape[1]))
+            for _ in range(num_sets)
+        ]
+        pivots = np.array([found for *_, found in sets], dtype=np.int64)
+        overlapping = information_sets.BasisFamily(
+            np.array([rows for rows, *_ in sets]),
+            np.zeros((num_sets, num_rows, 0), dtype=np.uint8),
+            pivots,
+            np.full(num_sets, num_rows, dtype=np.int64),
+            1,
+            int(np.bincount(pivots.ravel()).max()),
         )
+        instances = [
+            affine_instance.get_coset_instance(
+                generators, random_column_orders=0, weight_factor=factor
+            ),
+            affine_instance.get_coset_family_instance(overlapping, weight_factor=factor),
+        ]
         offset = np.asarray(rng.integers(2, size=generators.shape[1]), dtype=np.uint8)
         even = not np.any(generators.sum(axis=1) % 2)
-        bounds = instance.get_weight_bounds(int(offset.sum()) % 2 if even else None)
-        for step, minimum in _get_unvisited_minima(instance, generators, offset).items():
-            assert -(-minimum // factor) >= bounds[step]
+        for instance in instances:
+            bounds = instance.get_weight_bounds(int(offset.sum()) % 2 if even else None)
+            for step, minimum in _get_unvisited_minima(instance, generators, offset).items():
+                assert -(-minimum // factor) >= bounds[step]
 
 
 def test_coset_bounds_round_up_to_the_parity_of_each_coset() -> None:
@@ -90,7 +110,7 @@ def test_distance_instances_delete_pivot_columns(pytestconfig: pytest.Config) ->
 
 
 def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
-    """A coset instance packs the full rows of the disjoint sets, and the empty code has one set."""
+    """A coset instance packs the full rows of its sets, and the empty code has one set."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     generators = get_random_full_rank_matrix(rng, 5, 70)
     family = information_sets.get_disjoint_family(generators, None, random_column_orders=0)
@@ -106,6 +126,24 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
         assert np.array_equal(unpack_bits(packed, 70), rows)
     assert instance.labels.shape == (len(family.ranks), 5, 0)
     assert not instance.label_widths.any()
+
+    # An instance of two information sets that share a pivot column keeps their coverage of two.
+    first = family.pivots[0]
+    order = np.concatenate([first[:1], np.setdiff1d(np.arange(70), first)])
+    reduced, _, second = row_reduce_binary(generators, None, columns=order)
+    overlapping = information_sets.BasisFamily(
+        np.stack([family.generators[0], reduced]),
+        np.zeros((2, 5, 0), dtype=np.uint8),
+        np.stack([first, second]),
+        np.full(2, 5, dtype=np.int64),
+        1,
+        2,
+    )
+    instance = affine_instance.get_coset_family_instance(overlapping, weight_factor=1)
+    assert np.array_equal(instance.pivots, overlapping.pivots)
+    assert instance.certificate == information_sets.Certificate(5, (5, 5), max_coverage=2)
+    for rows, packed in zip(overlapping.generators, instance.generators, strict=True):
+        assert np.array_equal(unpack_bits(packed, 70), rows)
 
     empty = affine_instance.get_coset_instance(
         np.zeros((0, 70), dtype=np.uint8), random_column_orders=0, weight_factor=2

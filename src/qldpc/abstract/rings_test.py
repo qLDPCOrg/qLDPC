@@ -65,8 +65,8 @@ def test_ring() -> None:
     ring = abstract.GroupRing(group, field=3)
     g_i, g_j = group.generators
     r_i, r_j = ring.generators
-    x_i = sympy.Symbol("x_i")
-    x_j = sympy.Symbol("x_j")
+    x_i = sympy.Symbol("x_i", commutative=False)
+    x_j = sympy.Symbol("x_j", commutative=False)
     symbols = {x_i: g_i, x_j: g_j}
     poly_r = 4 * r_i**2 - 2 * r_i * r_j + r_j
     poly_x = 4 * x_i**2 - 2 * x_i * x_j + x_j
@@ -90,11 +90,44 @@ def test_ring() -> None:
     with pytest.raises(ValueError, match="must be GroupMember-valued"):
         ring.eval(1, wrong_symbols)  # type:ignore[arg-type]
 
+    # terms must be integers times words in the given symbols
+    assert ring.eval(1.0 * x_i, symbols) == ring.eval(x_i, symbols)
+    assert ring.eval(x_i**2.0, symbols) == ring.eval(x_i**2, symbols)
+    for expression in [x_i / 2, sympy.sin(x_i)]:
+        with pytest.raises(ValueError, match="the given symbols"):
+            ring.eval(expression, symbols)
+
+    # words can be nested, and products and powers of sums are expanded
+    a, b = sympy.symbols("a b", commutative=False)
+    g, h = abstract.SymmetricGroup(3).generators
+    word_ring = abstract.GroupRing(abstract.SymmetricGroup(3))
+    word_symbols = {a: g, b: h}
+    assert word_ring.eval(3 * (a * b) ** -1, word_symbols) == 3 * abstract.RingMember(
+        word_ring, h**-1 * g**-1
+    )
+    ring_g, ring_h = abstract.RingMember(word_ring, g), abstract.RingMember(word_ring, h)
+    assert word_ring.eval((a + b) ** 2, word_symbols) == (ring_g + ring_h) ** 2
+    assert word_ring.eval((a + b) ** 2.0, word_symbols) == (ring_g + ring_h) ** 2
+    with pytest.raises(ValueError, match="the given symbols"):
+        word_ring.eval((a + b) ** -1, word_symbols)
+
+    # products and powers in the unexpanded expression are checked, because expanding can cancel
+    # reordered terms; sums are not checked
+    x, y, z = sympy.symbols("x y z")
+    assert word_ring.eval(x + y, {x: g, y: h}) == ring_g + ring_h
+    assert word_ring.eval(x * (y + z), {x: g**0, y: g, z: h}) == ring_g + ring_h
+    assert word_ring.eval((x + y) ** 1.0, {x: g, y: h}) == ring_g + ring_h
+    for expression in [1 + z * (x + y) * (x - y), (x + y) ** 2 + (x - y) ** 2]:
+        with pytest.raises(ValueError, match="does not commute"):
+            word_ring.eval(expression, {x: g, y: h, z: g**0})
+    with pytest.raises(ValueError, match="does not commute"):
+        word_ring.eval(a * (x + b) + a * (b - x), {a: g, b: h, x: h})
+
     # edge cases with non-prime number fields
-    ring = abstract.GroupRing(group, field=4)
-    assert ring.eval(-3, symbols) == -ring.eval(3, symbols)
+    ring = abstract.GroupRing(group, field=9)
+    assert ring.eval(-3, symbols) == -ring.eval(3, symbols) != ring.eval(3, symbols)
     with pytest.raises(ValueError, match=r"The value .* is ambiguous"):
-        ring.eval(5, symbols)
+        ring.eval(10, symbols)
 
 
 def test_ring_equality() -> None:
@@ -178,6 +211,25 @@ def test_printing() -> None:
     ring = abstract.GroupRing(abstract.AbelianGroup(2, 2, 2, 2))
     assert [str(gg) for gg in ring.generators] == ["w", "x", "y", "z"]
 
+    # factors of order 1 get no symbols
+    ring = abstract.GroupRing(abstract.AbelianGroup(2, 1, 2))
+    assert [str(gg) for gg in ring.generators] == ["x", "y"]
+    assert str(ring.one + sum(ring.generators, ring.zero)) == "x + y + 1"
+    assert str(abstract.GroupRing(abstract.AbelianGroup()).one) == "1"
+
+    # with more than 26 generators, members print as words in indexed symbols
+    members = [gg for gg in abstract.SymmetricGroup(5).generate() if not gg.is_Identity]
+    group = abstract.Group(*members[:27])
+    assert len(group.generators) == 27
+    ring = abstract.GroupRing(group)
+    symbols = [sympy.Symbol(f"x_{index:02}", commutative=False) for index in range(27)]
+    assert str(ring.generators[0]) == "x_00"
+    local_dict = {str(symbol): symbol for symbol in symbols}
+    member = ring.generators[0] * ring.generators[26]
+    text = str(member).replace("^", "**").replace(" ", "*")
+    word = sympy.parse_expr(text, local_dict=local_dict)
+    assert ring.eval(word, dict(zip(symbols, group.generators))) == member
+
     # every member of a noncommutative group prints as a word that evaluates to that member, even
     # though the SymPy group of QuaternionGroup has more generators than the group
     group = abstract.QuaternionGroup()
@@ -250,12 +302,18 @@ def test_group_members_of_ring_members() -> None:
     assert np.array_equal((1 - abstract.RingMember(ring, generator)).to_vector(), expected)
     assert np.array_equal((generator - ring.one).to_vector(), -expected)
 
-    # a permutation that acts on fewer points than the group is padded with fixed points
+    # a permutation on fewer or more points than the group is read on the points of the group
     ring = abstract.GroupRing(abstract.SymmetricGroup(4))
     short, full = abstract.GroupMember(0, 1), abstract.GroupMember([1, 0, 2, 3])
-    assert short.size < full.size
-    assert abstract.RingMember(ring, short) == abstract.RingMember(ring, full)
-    assert ring.zero + short == abstract.RingMember(ring, full)
+    long = abstract.GroupMember([1, 0, 2, 3, 4])
+    assert short.size < full.size < long.size
+    for member in [short, long]:
+        assert abstract.RingMember(ring, member) == abstract.RingMember(ring, full)
+        assert ring.zero + member == abstract.RingMember(ring, full)
+
+    # GroupRing.eval reads the members that symbols stand for in the same way
+    x_sym = sympy.Symbol("x")
+    assert ring.eval(1 + x_sym, {x_sym: long}) == ring.eval(1 + x_sym, {x_sym: full})
 
     # a SymPy permutation becomes a group member, and a label that is not a permutation is rejected
     permutation = sympy.combinatorics.Permutation([1, 0, 2, 3])
@@ -612,3 +670,10 @@ def test_group_member_arithmetic() -> None:
     assert group_member * member == as_ring_member * member
     assert member * group_member == member * as_ring_member
     assert member + group_member == group_member + member == member + as_ring_member
+
+
+def test_regular_lift_returns_independent_arrays() -> None:
+    """Mutating a returned regular lift does not corrupt the cached lifts of the group."""
+    ring = abstract.GroupRing(abstract.CyclicGroup(3))
+    ring.regular_lift(ring.group.identity)[:] = 0
+    assert np.array_equal(ring.regular_lift(ring.group.identity), np.identity(3, dtype=int))

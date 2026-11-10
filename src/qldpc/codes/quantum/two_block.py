@@ -734,9 +734,15 @@ class BBCode(MBCode):
         return toric_layout_generating_data
 
     def as_exponent_vector(self, monomial: sympy.Mul) -> tuple[int, int]:
-        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``."""
+        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``.
+
+        Raise a ValueError unless the monomial is an integer times a product of integer powers of
+        the symbols of this code.  The integer is ignored.
+        """
         _, _exponents = abstract.get_coefficient_and_exponents(monomial)
         exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
+        if not exponents.keys() <= set(self.symbols):
+            raise ValueError(f"{monomial} is not a monomial in the symbols {self.symbols}")
         return (exponents.get(self.symbols[0], 0), exponents.get(self.symbols[1], 0))
 
     def change_poly_basis(

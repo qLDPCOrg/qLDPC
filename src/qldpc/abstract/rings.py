@@ -23,7 +23,7 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import scipy.sparse.csgraph
-import sympy.abc
+import sympy
 import sympy.combinatorics
 import sympy.core
 
@@ -31,7 +31,7 @@ from qldpc import _deprecations
 from qldpc.math import resolve_field
 
 from .groups import AbelianGroup, Group, GroupMember
-from .monomials import iter_monomial_terms
+from .monomials import _is_integer, _read_polynomial, iter_monomial_terms
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -506,30 +506,62 @@ class GroupRing(Ring):
         return self._idempotents
 
     def eval(
-        self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
+        self,
+        expression: sympy.Expr | sympy.Poly | int | np.integer,
+        symbols: dict[sympy.Symbol, GroupMember],
     ) -> RingMember:
-        """Convert a SymPy expression (such as a polynomial) into a member of this ring."""
+        """Evaluate a polynomial in words of the given symbols as a member of this ring.
+
+        This method expands products and nonnegative integer powers of sums into terms.
+        Integer-valued floats are read as integers.  It evaluates each term, an integer times a word
+        in the given symbols (see ``Group.eval``), as its coefficient times the member of the group
+        that its word evaluates to.  Raise a ValueError for any other term, and for any word that
+        ``Group.eval`` rejects.  Raise a TypeError if SymPy reads the expression as something other
+        than an expression or a polynomial, such as an equation.
+
+        Use noncommutative symbols for members that do not commute.  SymPy sorts commutative symbols
+        when it builds an expression, so terms can cancel, as in ``x * y - y * x == 0``.  Expanding
+        a product can cancel terms in the same way, as in ``(x + y) * (x - y)``.  Raise a ValueError
+        if, in the expression that this method receives, a commutative symbol stands for a member
+        that does not commute with the member of a symbol in another factor of the same product, or
+        in the base of the same power.
+        """
         # helpful error message for invalid symbols
         if any(not isinstance(value, GroupMember) for value in symbols.values()):
             raise ValueError("The symbols passed to GroupRing.eval must be GroupMember-valued")
 
-        # sum the ring members obtained by evaluating each monomial term of the polynomial
-        terms = (self._eval_monomial(term, symbols) for term in iter_monomial_terms(expression))
-        return functools.reduce(operator.add, terms, self.zero)
+        # sum the ring members obtained by evaluating each term
+        expression = _read_polynomial(expression)
+        terms = (self._eval_term(term, symbols) for term in iter_monomial_terms(expression))
+        result = functools.reduce(operator.add, terms, self.zero)
+
+        # check the products and powers that expanding the expression may have cancelled
+        for node in sympy.preorder_traversal(expression):
+            if isinstance(node, sympy.Mul):
+                factors = [factor.free_symbols for factor in node.args]
+                for left, right in itertools.combinations(factors, 2):
+                    self.group._check_commutative_symbols(left, right, symbols)
+            elif isinstance(node, sympy.Pow):
+                base = node.base.free_symbols
+                self.group._check_commutative_symbols(base, base, symbols)
+        return result
+
+    def _eval_term(self, term: sympy.Expr, symbols: dict[sympy.Symbol, GroupMember]) -> RingMember:
+        """Evaluate an integer times a word in the given symbols as a member of this ring."""
+        # split the term into its integer coefficient and its word, which Group.eval checks
+        sympy_coeff, word = term.as_coeff_Mul()
+        if not _is_integer(sympy_coeff):
+            raise ValueError(
+                "GroupRing.eval requires terms that are integers times words in the given symbols,"
+                f" not {term}"
+            )
+        coeff = self._eval_int(int(sympy_coeff))
+        group_member = self.group.eval(word, symbols)
+        return RingMember(self, (coeff, group_member))
 
     def _lift_in_field(self, matrix: npt.NDArray[np.int_]) -> galois.FieldArray:
         """View an integer matrix as a matrix over the field of this ring, converting if needed."""
         return matrix.view(self.field) if matrix.dtype in self.field.dtypes else self.field(matrix)
-
-    def _eval_monomial(
-        self, monomial: sympy.Expr, symbols: dict[sympy.Symbol, GroupMember]
-    ) -> RingMember:
-        """Convert a single SymPy monomial into a member of this ring."""
-        # split the monomial into its integer coefficient and its group-element content
-        _coeff, group_content = monomial.as_coeff_Mul()
-        coeff = self._eval_int(int(_coeff))
-        group_member = self.group.eval(group_content, symbols)
-        return RingMember(self, (coeff, group_member))
 
     @functools.cached_property
     def _labels(self) -> list[Hashable]:
@@ -552,21 +584,13 @@ class GroupRing(Ring):
         return transpose
 
     def _as_label(self, label: Any) -> GroupMember:
-        """A member of the group of this ring, at the degree of the group.
+        """A member of the group of this ring, on as many points as the group acts on.
 
-        A permutation can act on fewer points than the group, such as ``GroupMember(0, 1)`` in a
-        group of degree 4.  This method pads such a permutation with fixed points, and raises a
-        ValueError if the result is not in the group.  Every identity permutation, of any size,
-        becomes the identity of the group, since SymPy rejects permutations with more points than
-        the group, and does not identify the identity as a member of a trivial group.
+        A permutation can act on fewer or more points than the group (see ``Group``).  Raise a
+        ValueError if it is not in the group.
         """
-        if isinstance(label, sympy.combinatorics.Permutation):
-            if label.is_Identity:
-                return self.group.identity
-            if label.size < self.group.degree:
-                label = GroupMember(label.array_form, size=self.group.degree)
-            if label in self.group:
-                return GroupMember.from_sympy(label)
+        if isinstance(label, sympy.combinatorics.Permutation) and label in self.group:
+            return self.group._at_degree(label)
         raise ValueError(f"{label} is not a member of {self.group} (degree {self.group.degree})")
 
     def _has_same_lifts(self, other_group: Group) -> bool:
@@ -607,7 +631,7 @@ class GroupRing(Ring):
             symbols = sympy.symbols("x:z", commutative=self.group.is_commutative)[:num_gens]
         elif num_gens <= 26:
             symbols = sympy.symbols("a:z", commutative=self.group.is_commutative)[-num_gens:]
-        else:  # pragma: no cover
+        else:
             index_length = int(np.ceil(np.log10(num_gens + 1)))
             symbols = [
                 sympy.Symbol(f"x_{index:0{index_length}}", commutative=self.group.is_commutative)
@@ -615,11 +639,17 @@ class GroupRing(Ring):
             ]
 
         if isinstance(self.group, AbelianGroup):
-            # abelian groups are an easy special case for building the polynomial
+            # abelian groups are an easy special case: each cyclic factor of order greater than 1
+            # gets a symbol, and the other factors get 1
+            nontrivial_symbols = iter(symbols)
+            factor_symbols = [
+                next(nontrivial_symbols) if order > 1 else sympy.Integer(1)
+                for order in self.group.orders
+            ]
             monomials = []
             for powers in itertools.product(*[range(order) for order in self.group.orders]):
-                factors = [symbol**power for symbol, power in zip(symbols, powers)]
-                monomials.append(functools.reduce(operator.mul, factors))
+                factors = [symbol**power for symbol, power in zip(factor_symbols, powers)]
+                monomials.append(functools.reduce(operator.mul, factors, sympy.Integer(1)))
             terms = [
                 int(coeff) * monomial
                 for coeff, monomial in zip(member.to_vector(), monomials)
@@ -802,8 +832,8 @@ class RingMember:
     group ``G``, so each of its elements is a sum of group members, ``x = sum_{g in G} x_g g``.
 
     Terms are specified as ``(coefficient, label)`` pairs, where the ring defines the labels of its
-    basis elements.  A group member as a term has coefficient one, and a group member that acts on
-    fewer points than its group is padded with fixed points.
+    basis elements.  A group member as a term has coefficient one, and is read on as many points as
+    the group of the ring acts on (see ``Group``).
 
     A RingMember combines on either side with integers and members of an equal ring, and with field
     scalars on its right.  A member of a group algebra also combines on either side with members of

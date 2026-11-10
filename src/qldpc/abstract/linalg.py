@@ -19,7 +19,6 @@ import scipy.linalg
 
 from qldpc import math
 
-from ._coefficients import coefficient_matmul
 from .groups import Group, GroupMember
 from .ring_array import RingArray
 from .rings import GroupRing, Ring, RingMember
@@ -40,37 +39,22 @@ def matmul(
 ) -> RingArray:
     """Multiply two matrices over a ring.
 
-    This method exists to handle two different cases:
-
-    1. 'right is False' (default): Ordinary matrix multiplication, or simply 'matrix_a @ matrix_b'.
-    2. 'right is True': matrix multiplication with a reversed order of multiplication in the ring.
+    By default, this function computes ``matrix_a @ matrix_b``.  If ``right=True``, it reverses the
+    order of multiplication in the ring, so that entry ``[i, k]`` of the product is the sum over j
+    of ``matrix_b[j, k] * matrix_a[i, j]``.  As in numpy, leading axes index stacks of matrices.
     """
-    ring = _get_ring(matrix_a, matrix_b)
-    if (
-        matrix_a.ndim != matrix_b.ndim
-        or matrix_a.ndim < 2
-        or (inner_dim := matrix_a.shape[-1]) != matrix_b.shape[-2]
-    ):
+    _get_ring(matrix_a, matrix_b)  # check that the matrices are over one ring
+    if matrix_a.ndim < 2 or matrix_b.ndim < 2 or matrix_a.shape[-1] != matrix_b.shape[-2]:
         raise ValueError(
             f"Incompatible matrix shapes for abstract.matmul: {matrix_a.shape}, {matrix_b.shape}"
         )
 
-    if ring.is_commutative or not right:
+    if not right:
         return (matrix_a @ matrix_b).view(RingArray)
 
-    if (matrix := coefficient_matmul(matrix_a, matrix_b, ring=ring, right=True)) is not None:
-        assert isinstance(matrix, RingArray)
-        return matrix
-
-    # fall back to expanding manually, reversing operand order within each matrix-product term
-    final_shape = (*matrix_a.shape[:-1], matrix_b.shape[-1])
-    matrix = RingArray.build(np.zeros(final_shape, dtype=int), ring)
-    for idx in np.ndindex(final_shape):
-        head, ii, jj = idx[:-2], idx[-2], idx[-1]
-        matrix[idx] = sum(
-            matrix_b[(*head, kk, jj)] * matrix_a[(*head, ii, kk)] for kk in range(inner_dim)
-        )
-    return matrix
+    # transposing the matrices (but not their entries) reverses the order of products of entries
+    product = np.swapaxes(matrix_b, -1, -2) @ np.swapaxes(matrix_a, -1, -2)
+    return np.swapaxes(product, -1, -2).view(RingArray)
 
 
 def kron(
@@ -91,13 +75,12 @@ def kron(
 
     if not ring.is_commutative:
         if not isinstance(ring, GroupRing):
-            # An entry a ⨂ b of the product acts on t ∈ R as a·t·b, so lifting it needs commuting
-            # left and right actions of R, such as its left and right regular representations, which
-            # a group algebra provides with its default lift.  Supporting another noncommutative
-            # ring would need such actions, since a lift of a MatrixRing and a lift with right=True
-            # need not commute.  For the checks of a lifted product to commute, its involution would
-            # also need to transpose these lifts, which regular representations in the basis of a
-            # MatrixRing need not do.
+            # An entry a ⨂ b of the product acts on t ∈ R as a·t·b.  Lifting it needs commuting left
+            # and right actions of R, such as its left and right regular representations, which a
+            # group algebra has with its default lift.  A MatrixRing's lift and its lift with
+            # right=True need not commute.  For the checks of a lifted product to commute, its
+            # involution would also need to transpose these lifts, which regular representations in
+            # the basis of a MatrixRing need not do.
             raise NotImplementedError(
                 "The Kronecker product over a noncommutative ring is implemented only for group"
                 f" algebras, not {ring}"
@@ -129,14 +112,13 @@ def get_howell_dual(
     """Build the "dual" of a matrix in Howell normal form.
 
     The dual matrix provides a pseudoinverse of matrix_hnf in the following sense.  Below, ``@``
-    denotes the orientation-aware product ``abstract.matmul(..., right=right)`` (ordinary matrix
-    multiplication when ``right=False``).  If
+    denotes the product ``abstract.matmul(..., right=right)``.  If
 
         ``D = matrix_hnf @ dual_matrix.T``,
 
     then
 
-    1. D is diagonal,
+    1. D is diagonal, with nonzero diagonal entries,
     2. ``D @ matrix_hnf = matrix_hnf``,
     3. ``D.T @ dual_matrix = dual_matrix``, and
     4. ``D = transformer.transpose_array(D)``.
@@ -157,77 +139,66 @@ def get_howell_dual(
     Howell duals are implemented only for group algebras, so this function raises a
     NotImplementedError for any other ring.
 
-    The ``transformer`` must be the one used to build ``matrix_hnf``, since the dual is built in
-    that transformer's basis.  By default it is read from ``matrix_hnf`` (the transformer recorded
-    when the Howell form was built).  If neither provides one, this function uses the ring's
-    transformer (see GroupRing.get_transformer).
+    Over a commutative ring, the dual needs no transformer.  Over a noncommutative ring, the dual is
+    built in the basis of a Wedderburn-Artin ``transformer``, which must be the one used to build
+    ``matrix_hnf``.  Likewise, ``right`` must match the orientation used to build ``matrix_hnf``,
+    since the dual for the other orientation need not satisfy properties 1-4.  By default, both are
+    read from the provenance that ``howell_normal_form_semisimple`` records on its output.  Copies,
+    slices, transposes, and arithmetic results have no provenance.  Without provenance, the default
+    orientation is ``right=False``, and the default transformer is that of the ring (see
+    GroupRing.get_transformer).
 
-    Likewise, the ``right`` flag must match the orientation used to build ``matrix_hnf`` (the
-    ``right`` passed to ``null_space``/``howell_normal_form_semisimple``).  For a non-commutative
-    ring the dual is orientation-specific: the dual built for the wrong orientation does not satisfy
-    it.  By default (``right=None``) it is read from ``matrix_hnf``, like ``transformer``; an
-    explicit value is cross-checked against what ``matrix_hnf`` was built with.
+    ``matrix_hnf`` should be a Howell normal form with idempotent pivots, such as the output of
+    ``howell_normal_form_semisimple``.  Over a commutative ring that is not semisimple, its pivots
+    are 1.  The pivots of other matrices, such as polynomial Howell forms, need not be idempotent,
+    so their duals generally fail properties 1-4.
 
-    ``skip_validation`` controls whether the returned dual is checked against properties 1-4:
+    ``skip_validation`` controls whether the returned dual is checked.  Validation checks properties
+    1 and 2.  The constructed dual satisfies properties 3 and 4 whenever it satisfies properties 1
+    and 2.
 
-    - ``False``: always check, raising an error if the dual is not valid.
-    - ``True``: never check (fastest; trusts that ``matrix_hnf`` is a Howell form and that ``right``
-      matches its orientation).
-    - ``None`` (default): if ``matrix_hnf`` carries Howell-form provenance (attached by
-      ``howell_normal_form_semisimple``/``howell_normal_form_poly``), trust it -- but raise an error
-      if its recorded orientation disagrees with ``right``.  Otherwise, check as for ``False``.
-
-    .. warning::
-        Any ``transformer`` passed in must be the one used to build ``matrix_hnf``; otherwise the
-        dual is built in the wrong basis and may be wrong.  By default the transformer recorded on
-        ``matrix_hnf`` is used.  Separately, with ``skip_validation=True`` this method verifies
-        nothing else: it trusts that ``matrix_hnf`` is in Howell normal form and that ``right``
-        matches the orientation used to build it, so a wrong ``right`` may raise an error but may
-        also silently return a wrong dual.
+    - ``False``: always check, raising a ValueError if the dual is not valid.
+    - ``True``: never check.  A wrong ``transformer`` or ``right`` may then give a wrong dual.
+    - ``None`` (default): trust the output of ``howell_normal_form_semisimple`` until its entries
+      or shape change, if it is used with its recorded transformer.  For such an output over a
+      noncommutative ring, raise a ValueError if ``right`` disagrees with its recorded orientation,
+      whatever the transformer.  Check any other ``matrix_hnf``, as for ``False``.
     """
+    matrix_hnf._require_ndim(2)
     ring = matrix_hnf.ring
     if not isinstance(ring, GroupRing):
         raise NotImplementedError(
             f"Howell duals are implemented only for group algebras, not {ring}"
         )
 
-    # prefer the transformer matrix_hnf was built with, so we build (and validate) in the same basis
-    transformer = transformer or matrix_hnf._hnf_transformer or ring.get_transformer()
-
+    recorded_transformer, recorded_right, unchanged = matrix_hnf._get_hnf_provenance() or (
+        None,
+        False,
+        False,
+    )
     if skip_validation is None:
-        # trust Howell-form provenance when present, but reject an explicit orientation that
-        # disagrees with it
-        if matrix_hnf._in_hnf:
-            if right is not None and not ring.is_commutative and right != matrix_hnf._hnf_right:
-                raise ValueError(
-                    "get_howell_dual: `right` does not match the orientation used to build"
-                    f" matrix_hnf (built with right={matrix_hnf._hnf_right}, called with"
-                    f" right={right})."
-                )
-            skip_validation = True
-        else:
-            skip_validation = False
-
-    # infer the orientation from the tag when not given (False for an untagged matrix)
+        if unchanged and right is not None and not ring.is_commutative and right != recorded_right:
+            raise ValueError(
+                "get_howell_dual: `right` does not match the orientation used to build"
+                f" matrix_hnf (built with right={recorded_right}, called with right={right})."
+            )
+        skip_validation = unchanged and (transformer is None or transformer is recorded_transformer)
     if right is None:
-        right = matrix_hnf._hnf_right
+        right = recorded_right
 
+    dual = RingArray.build(np.zeros(matrix_hnf.shape, dtype=int), ring)
     if ring.is_commutative:
-        # Every simple component of a commutative ring is 1x1, so the construction below reduces to
-        # the pivot's group transpose g -> g**-1.
-        dual_matrix = np.zeros(matrix_hnf.shape, dtype=object)
+        # Every simple component of a commutative ring is 1x1, and each idempotent pivot is the
+        # projector onto the components where its row is nonzero.  So the construction for
+        # noncommutative rings reduces to the transpose g -> g**-1 of each pivot.
         for row, col in enumerate(math.first_nonzero_cols(matrix_hnf)):
-            dual_matrix[row, col] = matrix_hnf[row, col].copy().T
-        dual = RingArray.build(dual_matrix, ring)
+            if col < matrix_hnf.shape[1]:
+                dual[row, col] = matrix_hnf[row, col].T
     else:
-        # For a non-commutative ring, the dual entry that "fixes" a row within a Wedderburn
-        # component belongs at that component's own leading column, which on an augmented Howell
-        # form can lie to the right of (and differ from) the ring-level pivot column.  In each
-        # component we place a symmetric idempotent projecting onto the row's span (see
-        # _get_fixing_projector).
-        dual_matrix = np.empty(matrix_hnf.shape, dtype=object)
-        for index in np.ndindex(matrix_hnf.shape):
-            dual_matrix[index] = ring.zero
+        # In each Wedderburn-Artin component, place a symmetric idempotent that projects onto the
+        # span of each row (see _get_fixing_projector).  Place it at the leading column of that row
+        # in that component.
+        transformer = transformer or recorded_transformer or ring.get_transformer()
         for component_transformer in transformer.transformers:
             blocks = component_transformer.project_array(matrix_hnf)
             for row in range(matrix_hnf.shape[0]):
@@ -236,16 +207,15 @@ def get_howell_dual(
                     continue
                 projector = _get_fixing_projector(blocks[row], component_transformer, right=right)
                 col = int(nonzero_cols[0])
-                embedded = component_transformer.embed(projector).T
-                dual_matrix[row, col] = dual_matrix[row, col] + embedded
-        dual = RingArray.build(dual_matrix, ring)
+                dual[row, col] += component_transformer.embed(projector).T
 
     if not skip_validation:
-        _validate_howell_dual(matrix_hnf, dual, transformer, right)
+        _validate_howell_dual(matrix_hnf, dual, right)
     return dual
 
 
-@functools.cache
+# cached, because kron builds the bimodule of the same ring repeatedly, and building it is costly
+@functools.lru_cache(maxsize=16)
 def _get_bimodule(ring: GroupRing) -> GroupRing:
     """Map a group algebra ``F[G]`` to its induced bimodule ``F[G × G]``.
 
@@ -284,24 +254,34 @@ def _swap_sectors(matrix: RingArray) -> RingArray:
     return RingArray(swapped, matrix.ring)
 
 
-def _validate_howell_dual(
-    matrix_hnf: RingArray,
-    dual: RingArray,
-    transformer: WedderburnArtinTransformer,
-    right: bool,
-) -> None:
-    """Raise an error if ``dual`` is not a valid dual of matrix_hnf (properties 1-4 above)."""
+def _validate_howell_dual(matrix_hnf: RingArray, dual: RingArray, right: bool) -> None:
+    """Raise a ValueError if ``dual`` is not a valid dual of matrix_hnf.
+
+    This function checks properties 1 and 2 in the docstring of get_howell_dual.  For the dual that
+    get_howell_dual builds, they imply properties 3 and 4.  Let ``D = matrix_hnf @ dual.T``.  In a
+    Wedderburn-Artin component, let B be the first nonzero block of a row, S the span of the columns
+    of the blocks of the row, and E the projector onto S from _get_fixing_projector, which is a
+    symmetric matrix.  The diagonal block of D for the row is ``B·E``.  Properties 1 and 2 make
+    ``B·E`` fix S.  E vanishes on the orthogonal complement of S, so ``B·E`` does too.  S and its
+    complement span the space, since the Gram matrix in _get_fixing_projector is invertible, so
+    ``B·E = E``.  So D is a diagonal of symmetric idempotents, which gives properties 3 and 4.  If
+    ``right=True``, the same argument applies with rows instead of columns, and with ``E·B`` instead
+    of ``B·E``.
+
+    Over a commutative ring, the diagonal entry of D for a row with pivot p is ``p·p``.  Property 2
+    gives ``p·p·p = p``, which gives property 3.  Property 4 follows from property 1, since
+    transpose_array then only transposes the array.
+    """
     diag = matmul(matrix_hnf, dual.T, right=right)
     valid = (
-        np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))  # 1: diagonal
+        np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))  # 1
         and np.array_equal(matmul(diag, matrix_hnf, right=right), matrix_hnf)  # 2
-        and np.array_equal(matmul(diag.T, dual, right=right), dual)  # 3
-        and np.array_equal(diag, transformer.transpose_array(diag))  # 4
     )
     if not valid:
         raise ValueError(
-            "get_howell_dual could not validate the constructed dual: matrix_hnf may not be in"
-            " Howell normal form, or `transformer`/`right` may not match those used to build it."
+            "get_howell_dual could not validate the constructed dual: matrix_hnf may not be a"
+            " Howell normal form with idempotent pivots, or `transformer`/`right` may not match those"
+            " used to build it."
         )
 
 
@@ -324,11 +304,9 @@ def _get_fixing_projector(
     size = component_transformer.size
     vectors = row_blocks if right else row_blocks.transpose(0, 2, 1)
     # `basis` holds independent vectors spanning that space.  It is never empty: the caller only
-    # gets here when the row is nonzero in this component.  When `right` matches the orientation
-    # used to build matrix_hnf, these are just standard basis vectors, so `gram` is the identity and
-    # inverting it does nothing.  A wrong `right` is a caller mistake: it may land on a `gram` that
-    # cannot be inverted (raising below) or, worse, one that can (returning a wrong dual) -- so
-    # callers must pass the same `right` used to build matrix_hnf.
+    # gets here when the row is nonzero in this component.  When `transformer` and `right` match
+    # those used to build matrix_hnf, these are standard basis vectors, so `gram` is the identity
+    # and inverting it does nothing.
     basis = vectors.reshape(-1, size).view(field).row_space().view(field)
     gram = (basis @ basis.T).view(field)
     try:
@@ -337,7 +315,7 @@ def _get_fixing_projector(
         raise ValueError(
             "Cannot build a Howell dual: a row's projected blocks span a space with no projector"
             " (basis @ basis.T is not invertible).  This is not expected for a valid Howell normal"
-            " form built with a matching `right`."
+            " form built with a matching `transformer` and `right`."
         ) from error
     return (basis.T @ gram_inv @ basis).view(field)
 

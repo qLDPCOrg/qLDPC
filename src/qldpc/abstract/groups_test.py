@@ -11,12 +11,13 @@ import math
 import operator
 import random
 import unittest.mock
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Sequence
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
+import scipy.linalg
 import sympy
 import sympy.combinatorics
 import sympy.core.random
@@ -56,8 +57,20 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
         operator.mul, [gen**exponent for gen, exponent in zip(gens, exponents)]
     )
     assert member == group.eval(monomial, symbols)
-    with pytest.raises(ValueError, match="Only monomials with a coefficient of 1"):
-        group.eval(5 * monomial, symbols)
+    symbol = next(iter(symbols))
+    assert group.eval(1.0 * symbol, symbols) == group.eval(symbol, symbols)
+    assert group.eval(symbol**2.0, symbols) == group.eval(symbol**2, symbols)
+    for expression in [
+        sympy.sin(symbol),
+        sympy.Symbol("z") * symbol,
+        symbol + symbol**2,
+        symbol ** sympy.Rational(1, 2),
+    ]:
+        with pytest.raises(ValueError, match="as a word in the given symbols"):
+            group.eval(expression, symbols)
+    for expression in [1.5 * symbol, sympy.Rational(3, 2) * symbol, 5 * monomial]:
+        with pytest.raises(ValueError, match="coefficient is not 1"):
+            group.eval(expression, symbols)
 
     assert abstract.Group.from_generating_mats([[1]]).equiv(abstract.CyclicGroup(1))
 
@@ -65,7 +78,66 @@ def test_permutation_group(pytestconfig: pytest.Config) -> None:
         abstract.CyclicGroup(1).index(abstract.GroupMember(2, 1))
 
     assert isinstance(hash(group.hashable_generators()), int)
-    assert isinstance(hash(group), int)
+    assert hash(group) == hash(copy.copy(group))
+
+    # group members combine with permutations, and defer other operands
+    with pytest.raises(TypeError):
+        gens[0] * 1
+    with pytest.raises(TypeError):
+        2 * gens[0]
+    with pytest.raises(TypeError):
+        gens[0] + 1
+
+    # plain permutations on the left compose, with (p * q)(i) = q(p(i))
+    product = sympy.combinatorics.Permutation([1, 0]) * abstract.GroupMember([0, 2, 1])
+    assert isinstance(product, abstract.GroupMember) and product == abstract.GroupMember([2, 0, 1])
+
+    # the identity is written in GAP as "()"
+    assert abstract.GroupMember().to_gap_cycles() == "()"
+
+
+def test_eval_words() -> None:
+    """Group.eval maps words in symbols to products and powers of their members."""
+    group = abstract.SymmetricGroup(3)
+    g, h = group.generators
+    a, b = sympy.symbols("a b", commutative=False)
+    symbols = {a: g, b: h}
+    words_and_members = [
+        ((a * b) ** 3, g * h * g * h * g * h),
+        ((a * b) ** -1, h**-1 * g**-1),
+        (((a * b**-1) ** 2 * b) ** -2, ((g * h**-1) ** 2 * h) ** -2),
+        (sympy.Integer(1), group.identity),
+    ]
+    for word, member in words_and_members:
+        assert group.eval(word, symbols) == member
+    with pytest.raises(TypeError, match="not a SymPy expression"):
+        group.eval(True, symbols)
+    with pytest.raises(ValueError, match="as a word in the given symbols"):
+        group.eval(sympy.Mul(a, 2, evaluate=False), symbols)
+
+    # symbols must stand for members of the group
+    with pytest.raises(ValueError, match="not a member of"):
+        group.eval(a * b, {a: g, b: abstract.GroupMember(0, 3)})
+    with pytest.raises(ValueError, match="not a member of"):
+        abstract.CyclicGroup(3).eval(b, symbols)
+    assert abstract.CyclicGroup(3).eval(a, symbols) == g
+
+    # SymPy reorders commutative symbols, so they must stand for members that commute with the
+    # members of the other symbols
+    x, y = sympy.symbols("x y")
+    with pytest.raises(ValueError, match="does not commute"):
+        group.eval(y * x, {x: g, y: h})
+    with pytest.raises(ValueError, match="does not commute"):
+        group.eval(a * x, {a: g, x: h})
+    z = sympy.Symbol("z")
+    with pytest.raises(ValueError, match="does not commute"):
+        group.eval(x * y * z, {x: group.identity, y: g, z: h})
+    assert group.eval(y * x, {x: g, y: g**2}) == group.identity
+    assert group.eval(x, {x: g, y: h}) == g
+
+    # malformed expressions get the word error, before commutation is checked
+    with pytest.raises(ValueError, match="as a word in the given symbols"):
+        group.eval(x * sympy.sin(y), {x: g, y: h})
 
 
 def test_trivial_group() -> None:
@@ -80,6 +152,29 @@ def test_trivial_group() -> None:
     assert group.equiv(abstract.Group.from_generating_mats())
     assert str(group) == "TrivialGroup"
 
+    # every identity permutation is the identity of every group
+    groups_to_check: list[abstract.Group] = [
+        group,
+        abstract.CyclicGroup(1),
+        abstract.CyclicGroup(3),
+        abstract.SymmetricGroup(3),
+    ]
+    for some_group in groups_to_check:
+        identity_lifts = [
+            some_group.lift(some_group.identity),
+            some_group.regular_lift(some_group.identity),
+            some_group.adjoint_lift(some_group.identity),
+        ]
+        for identity in [abstract.GroupMember(), abstract.GroupMember(list(range(6)))]:
+            assert identity in some_group
+            assert some_group.index(identity) == some_group.index(some_group.identity)
+            lifts = [
+                some_group.lift(identity),
+                some_group.regular_lift(identity),
+                some_group.adjoint_lift(identity),
+            ]
+            assert all(np.array_equal(aa, bb) for aa, bb in zip(lifts, identity_lifts))
+
 
 def test_group_equality_and_equivalence() -> None:
     """``==`` requires a matching representation; ``equiv`` compares underlying groups only."""
@@ -93,6 +188,10 @@ def test_group_equality_and_equivalence() -> None:
     assert group != "not a group"
     assert group.equiv(other) and other.equiv(group)
     assert not group.equiv(abstract.CyclicGroup(4))
+
+    # equiv compares SymPy groups, which compare their generators
+    generator = abstract.GroupMember([1, 2, 0])
+    assert not abstract.Group(generator).equiv(abstract.Group(~generator))
     assert not group.equiv("not a group")
 
 
@@ -119,12 +218,29 @@ def test_lifts() -> None:
     assert_valid_lifts(abstract.TrivialGroup())
     assert_valid_lifts(abstract.CyclicGroup(3))
     assert_valid_lifts(abstract.AbelianGroup(2, 3))
+    assert_valid_lifts(abstract.AbelianGroup(1, 3))
+    assert_valid_lifts(abstract.AbelianGroup(2, 1, 2))
     assert_valid_lifts(abstract.AbelianGroup(2, 3, direct_sum=True))
     assert_valid_lifts(abstract.DihedralGroup(3))
     assert_valid_lifts(abstract.AlternatingGroup(3))
     assert_valid_lifts(abstract.QuaternionGroup())
 
-    # anti-representations for a non-commutative groups with a custom lift are not supported
+    # the lift of a cyclic group shifts standard basis vectors, as in L(g) |i> = |i + 1 mod R>
+    cycles = [abstract.CyclicGroup(2), abstract.CyclicGroup(3)]
+    shifts = [cycle.lift(cycle.generators[0]) for cycle in cycles]
+    for cycle, shift in zip(cycles, shifts):
+        assert np.array_equal(
+            shift, np.eye(cycle.order, dtype=int)[:, np.roll(range(cycle.order), -1)]
+        )
+        assert np.array_equal(cycle.lift(cycle.generators[0], right=True), shift)
+
+    # with direct_sum=True, an abelian group lifts to block-diagonal matrices
+    abelian = abstract.AbelianGroup(2, 3, direct_sum=True)
+    generator_2, generator_3 = abelian.generators
+    assert abelian.lift_dim == 5
+    assert np.array_equal(abelian.lift(generator_2 * generator_3), scipy.linalg.block_diag(*shifts))
+
+    # anti-representations for a non-commutative group with a custom lift are not supported
     group = abstract.QuaternionGroup()
     member = next(iter(group.generate()))
     with pytest.raises(ValueError, match=r"Anti-representations.*not supported"):
@@ -132,10 +248,18 @@ def test_lifts() -> None:
 
 
 def test_generate_is_lazy() -> None:
-    """Stopping after one member does not materialize the group's member index."""
-    group = abstract.SymmetricGroup(8)
-    next(group.generate())
-    assert "_members" not in group.__dict__
+    """Group.generate yields members without generating the rest of the group."""
+
+    generated = []
+
+    def generate_func() -> Iterator[abstract.GroupMember]:
+        for member in abstract.SymmetricGroup(3).generate():
+            generated.append(member)
+            yield member
+
+    group = abstract.Group(*abstract.SymmetricGroup(3).generators, generate_func=generate_func)
+    assert next(group.generate()) == group.identity
+    assert len(generated) == 1
 
 
 def test_generate_after_sympy_changes_order() -> None:
@@ -158,27 +282,21 @@ def test_generate_after_sympy_changes_order() -> None:
         assert np.array_equal(group.lift(aa * bb), group.lift(aa) @ group.lift(bb))
 
 
-def test_regular_lift_returns_independent_arrays() -> None:
-    """Mutating a returned regular lift does not corrupt the group's cached representation."""
+def test_lifts_return_independent_arrays() -> None:
+    """Mutating a returned regular or adjoint lift does not corrupt cached lifts."""
     group = abstract.CyclicGroup(3)
     member = group.identity
     expected = np.identity(group.order, dtype=int)
-
-    group_lift = group.regular_lift(member)
-    group_lift[:] = 0
-    assert np.array_equal(group.regular_lift(member), expected)
-
-    ring = abstract.GroupRing(group)
-    ring_lift = ring.regular_lift(member)
-    ring_lift[:] = 0
-    assert np.array_equal(ring.regular_lift(member), expected)
+    for lift in [group.regular_lift, group.adjoint_lift]:
+        lift(member)[:] = 0
+        assert np.array_equal(lift(member), expected)
 
 
 def assert_valid_lifts(group: abstract.Group) -> None:
-    """Assert the faithfulness of various representations of group members."""
+    """Assert that lifts are faithful homomorphisms, and check regular and adjoint lifts."""
     group_members = list(group.generate())
 
-    # permutation and regular representations
+    # the permutation matrices and the selected lift
     lifts: list[Callable[[abstract.GroupMember], npt.NDArray[np.int_]]] = [
         abstract.GroupMember.to_matrix,
         group.lift,
@@ -235,15 +353,15 @@ def assert_valid_lifts(group: abstract.Group) -> None:
         )
 
 
-def test_lift_truncated_member() -> None:
-    """Custom lifts accept members whose array_form omits trailing fixed points.
+def test_members_on_other_numbers_of_points() -> None:
+    """Lifts, membership, and indices accept members on fewer or more points than the group.
 
     SymPy truncates trailing fixed points, so a directly-constructed member (e.g. from cycle
-    notation) can have a shorter array_form than the group's degree.  Group.lift pads such members
-    up to the group degree before dispatching to a custom lift.
+    notation) can have a shorter array_form than the group's degree, and a member can also be built
+    on more points.  Groups read members on as many points as they act on.
     """
-    # a from_table group with an integer_lift exercises the identity-keyed custom lift, alongside
-    # the to_matrix-based natural and wreath lifts and the Kronecker-product tensor lift
+    # these groups cover a custom lift keyed by table index (from_table with an integer_lift), the
+    # to_matrix-based natural and wreath lifts, and the Kronecker-product tensor lift
     table = [[0, 1, 2], [1, 2, 0], [2, 0, 1]]
     table_group = abstract.Group.from_table(
         table, integer_lift=lambda index: np.roll(np.eye(3, dtype=int), index, axis=0)
@@ -264,8 +382,27 @@ def test_lift_truncated_member() -> None:
             truncated = abstract.GroupMember(member.cyclic_form)
             truncated_members += truncated.size < degree
             assert np.array_equal(group.lift(truncated), group.lift(member))
+            assert truncated in group and group.index(truncated) == group.index(member)
+
+            # a member with extra fixed points has the same lift, membership, and index
+            extended = abstract.GroupMember(member, size=degree + 2)
+            assert np.array_equal(group.lift(extended), group.lift(member))
+            assert extended in group and group.index(extended) == group.index(member)
         # the group actually has members whose array_form is shorter than its degree
         assert truncated_members
+
+    # products of members are read on the points of the group, too
+    group = abstract.SymmetricGroup(3)
+    symbol = sympy.Symbol("x")
+    swap = abstract.GroupMember([1, 0, 2])
+    assert group.eval(symbol, {symbol: abstract.GroupMember(swap, size=5)}) == swap
+
+    # a member that moves a point beyond the degree of a group is not in the group
+    member = abstract.GroupMember([1, 0, 3, 2])
+    assert member not in abstract.SymmetricGroup(3)
+
+    # plain SymPy permutations on fewer points are members too
+    assert sympy.combinatorics.Permutation(0, 1) in abstract.SymmetricGroup(3)
 
 
 def test_group_product() -> None:
@@ -283,8 +420,25 @@ def test_group_product() -> None:
     assert group.generators == [shift @ identity, identity @ shift]
     assert np.array_equal(table, group.table)
     assert np.array_equal(table, abstract.Group.from_table(table).table)
+    assert abstract.Group.product(cycle, repeat=2).equiv(group)
+    assert (cycle**2).equiv(group)
     with pytest.raises(ValueError, match="positive power"):
         cycle**0
+    with pytest.raises(ValueError, match="at least one factor"):
+        abstract.Group.product()
+    with pytest.raises(ValueError, match="at least one factor"):
+        abstract.Group.product(cycle, repeat=0)
+
+    # repeat repeats the entire sequence of factors
+    other = abstract.CyclicGroup(3)
+    assert abstract.Group.product(cycle, other, repeat=2).equiv(cycle * other * cycle * other)
+
+    # an AbelianGroup without factors is trivial
+    group = abstract.AbelianGroup()
+    assert group.order == group.lift_dim == 1
+    assert np.array_equal(group.lift(group.identity), [[1]])
+    assert list(group.generate()) == [group.identity]
+    assert group.equiv(abstract.TrivialGroup())
 
 
 def test_group_tensor_product() -> None:
@@ -305,9 +459,14 @@ def test_group_tensor_product() -> None:
     )
     assert_valid_lifts(group)
 
-    cycle = abstract.CyclicGroup(2)
-    repeated_group = abstract.Group.tensor_product(cycle, repeat=2)
-    assert repeated_group.lift_dim == 4
+    # repeat repeats the entire sequence of factors
+    repeated_group = abstract.Group.tensor_product(top, bottom, repeat=2)
+    top_member, bottom_member = top.generators[0], bottom.generators[0]
+    member = top_member @ bottom_member @ top.identity @ bottom_member
+    lifts = [top.lift(top_member), bottom.lift(bottom_member), np.eye(3, dtype=int)]
+    assert np.array_equal(
+        repeated_group.lift(member), functools.reduce(np.kron, [*lifts, lifts[1]])
+    )
 
 
 def test_wreath_product_group() -> None:
@@ -325,6 +484,18 @@ def test_wreath_product_group() -> None:
     bottom_identity, bottom_shift = bottom.generate()
     bottom_members = [bottom_shift, bottom_identity, bottom_shift]
     member = group.element(top_member, bottom_members)
+
+    # members that act on fewer points than their groups are padded with fixed points
+    short_member = abstract.GroupMember(0, 1)
+    assert short_member.size < top.degree
+    padded_member = abstract.GroupMember(short_member, size=top.degree)
+    assert group.element(short_member, bottom_members) == group.element(
+        padded_member, bottom_members
+    )
+    other_group = abstract.WreathProductGroup(abstract.CyclicGroup(2), abstract.SymmetricGroup(3))
+    assert other_group.element(other_group.top.identity, [short_member] * 2) == other_group.element(
+        other_group.top.identity, [padded_member] * 2
+    )
     assert member in group
     assert all(
         member.apply(row * group.bottom_degree + col)
@@ -374,16 +545,25 @@ def test_random_symmetric_subset() -> None:
     subset = group.random_symmetric_subset(size=1, exclude_identity=False, seed=0)
     assert subset == {group.identity}
 
-    with pytest.raises(ValueError, match="must have a size between"):
-        group.random_symmetric_subset(size=0)
+    # with this seed, the first sampled member is the identity, which is excluded
+    subset = group.random_symmetric_subset(size=3, exclude_identity=True, seed=2)
+    assert len(subset) == 3 and group.identity not in subset
+
+    for size in [0, group.order + 1]:
+        with pytest.raises(ValueError, match="must have a size between"):
+            group.random_symmetric_subset(size=size)
+
+    # groups of order 1 have random members
+    for group in [abstract.CyclicGroup(1), abstract.Group.from_generating_mats([[1]])]:
+        assert group.random() == group.identity
+        assert group.random_symmetric_subset(1) == {group.identity}
 
 
 def test_seeded_random_leaves_global_rng_intact() -> None:
     """Passing a seed does not disturb SymPy's global RNG for other consumers.
 
-    Seeding is still deterministic, but the reseed is confined to the seeded call: sampling the
-    global SymPy RNG before and after a seeded call yields the same sequence as sampling it twice in
-    a row.
+    A seeded call draws from its own random number generator, so sampling the global SymPy RNG
+    before and after a seeded call yields the same sequence as sampling it twice in a row.
     """
     group = abstract.CyclicGroup(2) * abstract.CyclicGroup(3)
 
@@ -448,7 +628,7 @@ def assert_lift_is_homomorphism(group: abstract.Group) -> None:
 
 @pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False), (3, 2, True)])
 def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
-    """Special linear group; its lift is a homomorphism (though not orthogonal)."""
+    """Special linear group; its lift is a homomorphism."""
     group = abstract.SL(dimension, field=field, linear_rep=linear_rep)
     assert group.dimension == dimension and group.field.order == field
     order = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
@@ -456,6 +636,23 @@ def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
     assert group.order == len(mats) == order
     assert all(mat.shape == (dimension, dimension) for mat in mats)
     assert_lift_is_homomorphism(group)
+    assert_lifts_generating_mats(group, abstract.SL.get_generating_mats(dimension, field))
+
+
+def test_matrix_groups_require_dimension_2() -> None:
+    """Matrix groups are built from generating matrices of SL, so they need dimension 2 or more."""
+    for group_type in [abstract.SL, abstract.PSL, abstract.GL, abstract.PGL]:
+        with pytest.raises(ValueError, match="dimension of at least 2"):
+            group_type(1, 2)
+
+
+def assert_lifts_generating_mats(
+    group: abstract.Group, generating_mats: Sequence[galois.FieldArray]
+) -> None:
+    """Assert that a matrix group's generators lift to transposes of its generating matrices."""
+    assert len(group.generators) == len(generating_mats)
+    for generator, matrix in zip(group.generators, generating_mats):
+        assert np.array_equal(group.lift(generator), matrix.T)
 
 
 @pytest.mark.parametrize(
@@ -463,11 +660,11 @@ def test_SL(dimension: int, field: int, linear_rep: bool) -> None:
     [(2, 2, True), (2, 2, False), (2, 4, None), (2, 3, None), (3, 2, None)],
 )
 def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
-    """Projective special linear group; its lift is a homomorphism (though not orthogonal).
+    """Projective special linear group; its lift is a homomorphism.
 
     ``linear_rep=None`` (the default) uses the linear representation where it exists (``gcd = 1``,
-    as in ``PSL(2, 4)`` and ``PSL(3, 2)``) and otherwise falls back to the permutation
-    representation (``gcd > 1``, as in ``PSL(2, 3)``).
+    as in ``PSL(2, 4)`` and ``PSL(3, 2)``), and otherwise the representation by conjugation
+    (``gcd > 1``, as in ``PSL(2, 3)``).
     """
     group = abstract.PSL(dimension, field, linear_rep=linear_rep)
     order_SL = np.prod([field**dimension - field**jj for jj in range(dimension)]) // (field - 1)
@@ -476,6 +673,40 @@ def test_PSL(dimension: int, field: int, linear_rep: bool | None) -> None:
     assert group.order == len(mats) == order
     assert all(mat.shape == (dimension, dimension) for mat in mats)
     assert_lift_is_homomorphism(group)
+
+    assert_lift_dim(
+        group, dimension, linear_rep, has_linear_rep=math.gcd(dimension, field - 1) == 1
+    )
+
+    # each matrix is the first of its orbit under roots of unity, and the matrices are sorted, both
+    # by bytes
+    roots = [root for root in group.field.elements if root and root**dimension == 1]
+    assert_orbit_representatives(mats, roots)
+
+
+def assert_lift_dim(
+    group: abstract.Group, dimension: int, linear_rep: bool | None, *, has_linear_rep: bool
+) -> None:
+    """Assert that a projective matrix group lifts to d×d matrices, or to d²×d² by conjugation.
+
+    The conjugation representation is replaced by the d×d one over GF(2).
+    """
+    uses_linear_rep = has_linear_rep if linear_rep is None else linear_rep
+    assert isinstance(group, (abstract.PSL, abstract.PGL))
+    if uses_linear_rep or group.field.order == 2:
+        assert group.lift_dim == dimension
+    else:
+        assert group.lift_dim == dimension**2
+
+
+def assert_orbit_representatives(
+    mats: tuple[galois.FieldArray, ...], scalars: list[galois.FieldArray]
+) -> None:
+    """Assert that matrices are sorted by bytes, and are each the first of their orbits by bytes."""
+    keys = [mat.tobytes() for mat in mats]
+    assert keys == sorted(keys)
+    assert all(mat.tobytes() == min((scalar * mat).tobytes() for scalar in scalars) for mat in mats)
+    assert all(mat.flags.writeable for mat in mats)
 
 
 def test_matrix_group_names() -> None:
@@ -488,8 +719,7 @@ def test_psl_requires_trivial_center() -> None:
     """Asking for the linear representation raises an error when it does not exist.
 
     The linear representation of PSL(d, q) only exists when gcd(d, q - 1) == 1.  PSL(2, 5) has
-    gcd(2, 4) == 2, so requesting the linear representation there raises an error.  (The fallback to
-    a permutation representation is covered by test_PSL.)
+    gcd(2, 4) == 2, so requesting the linear representation there raises an error.
     """
     with pytest.raises(ValueError, match="does not descend to PSL"):
         abstract.PSL(2, 5, linear_rep=True)
@@ -497,13 +727,14 @@ def test_psl_requires_trivial_center() -> None:
 
 @pytest.mark.parametrize("dimension,field,linear_rep", [(2, 4, True), (2, 2, False), (3, 2, True)])
 def test_GL(dimension: int, field: int, linear_rep: bool) -> None:
-    """General linear group; its lift is a homomorphism (though not orthogonal)."""
+    """General linear group; its lift is a homomorphism."""
     group = abstract.GL(dimension, field=field, linear_rep=linear_rep)
     order = np.prod([field**dimension - field**jj for jj in range(dimension)])
     mats = tuple(abstract.GL.iter_mats(dimension, field))
     assert group.order == len(mats) == order
     assert all(mat.shape == (dimension, dimension) for mat in mats)
     assert_lift_is_homomorphism(group)
+    assert_lifts_generating_mats(group, abstract.GL.get_generating_mats(dimension, field))
 
 
 @pytest.mark.parametrize(
@@ -511,11 +742,11 @@ def test_GL(dimension: int, field: int, linear_rep: bool) -> None:
     [(2, 2, True), (2, 2, False), (2, 3, None), (3, 2, None)],
 )
 def test_PGL(dimension: int, field: int, linear_rep: bool | None) -> None:
-    """Projective general linear group; its lift is a homomorphism (though not orthogonal).
+    """Projective general linear group; its lift is a homomorphism.
 
     ``linear_rep=None`` (the default) uses the linear representation where it exists (the center of
-    ``GL`` is trivial only for ``q == 2``, as in ``PGL(2, 2)`` and ``PGL(3, 2)``) and otherwise
-    falls back to the permutation representation (as in ``PGL(2, 3)``).
+    ``GL`` is trivial only for ``q == 2``, as in ``PGL(2, 2)`` and ``PGL(3, 2)``), and otherwise the
+    representation by conjugation (as in ``PGL(2, 3)``).
     """
     group = abstract.PGL(dimension, field, linear_rep=linear_rep)
     order_GL = np.prod([field**dimension - field**jj for jj in range(dimension)])
@@ -524,6 +755,48 @@ def test_PGL(dimension: int, field: int, linear_rep: bool | None) -> None:
     assert group.order == len(mats) == order
     assert all(mat.shape == (dimension, dimension) for mat in mats)
     assert_lift_is_homomorphism(group)
+    assert_lift_dim(group, dimension, linear_rep, has_linear_rep=field == 2)
+    assert_orbit_representatives(mats, [scalar for scalar in group.field.elements if scalar])
+
+
+def test_matrix_groups_over_wide_fields() -> None:
+    """Matrix groups work over fields whose elements are stored in more than 8 bits."""
+    field = galois.GF(257)
+    assert field.dtypes[0] != np.uint8
+    generators, lift = abstract.groups._get_linear_rep(field, 1, [field([[3]])])
+    group = abstract.Group(*generators, lift=lift)
+    assert group.order == 256
+    assert np.array_equal(group.lift(group.generators[0]), field([[3]]))
+
+    scalars = [field(1), field(256)]
+    # the first representative found, diag(3, 1), is not the first in sorted order
+    mats = [field(np.diag(values)) for values in [(3, 1), (256, 255), (1, 2)]]
+    representatives = list(abstract.groups._iter_scalar_orbits(scalars, mats))
+    assert len(representatives) == 2
+    assert_orbit_representatives(tuple(representatives), scalars)
+
+    # generating matrices of one field may be stored with different integer types
+    gen_x, gen_w = abstract.SL.get_generating_mats(2, 3)
+    group = abstract.Group.from_generating_mats(gen_x, gen_w.astype(np.int64).view(type(gen_w)))
+    assert group.order == 24
+
+    # integer matrices may also be stored with different integer types, and may repeat
+    swap = np.array([[0, 1], [1, 0]], dtype=np.int32)
+    flip = np.array([[1, 0], [0, -1]], dtype=np.int64)
+    group = abstract.Group.from_generating_mats(swap, flip, flip.astype(np.int32), swap)
+    assert group.order == 8 and len(group.generators) == 2
+
+    # matrices over fields whose elements are stored as Python objects are compared by value
+    field = galois.GF(2**70)
+    element = field(2**65)
+    assert abstract.groups._array_key(field([[2**65]])) == abstract.groups._array_key(
+        field([[2**64]]) * field(2)
+    )
+    assert abstract.groups._array_key(
+        np.array([[np.int64(1)]], dtype=object)
+    ) == abstract.groups._array_key(np.array([[1]], dtype=object))
+    inverse = int(element**-1)
+    assert abstract.Group.from_generating_mats(field([[0, 2**65], [inverse, 0]])).order == 2
 
 
 def test_pgl_requires_trivial_center() -> None:
@@ -531,7 +804,7 @@ def test_pgl_requires_trivial_center() -> None:
 
     The linear representation of ``PGL(d, q)`` only exists when ``q == 2`` (a trivial center).
     ``PGL(2, 3)`` has a center of order 2, so requesting the linear representation there raises an
-    error.  (The fallback to a permutation representation is covered by ``test_PGL``.)
+    error.
     """
     with pytest.raises(ValueError, match="does not descend to PGL"):
         abstract.PGL(2, 3, linear_rep=True)
@@ -544,9 +817,9 @@ def test_matrix_groups_keep_their_field() -> None:
     field = galois.GF(5, primitive_element=3)
     groups = [
         abstract.SL(2, field),
-        abstract.PSL(2, field),  # a permutation representation, since gcd(2, 5 - 1) > 1
+        abstract.PSL(2, field),  # the representation by conjugation, since gcd(2, 5 - 1) > 1
         abstract.GL(2, field),
-        abstract.PGL(2, field),  # a permutation representation, since 5 > 2
+        abstract.PGL(2, field),  # the representation by conjugation, since 5 > 2
     ]
     for group in groups:
         assert group.field is field
@@ -566,20 +839,10 @@ def test_quotient_generating_mats_are_homomorphic(
     dimension: int,
     field: int,
 ) -> None:
-    """PSL/PGL represent generators by the conjugation action, which is a genuine homomorphism.
+    """The generating matrices of PSL and PGL represent those of SL and GL by conjugation.
 
-    ``get_generating_mats`` on ``ProjectiveSpecialLinearGroup``/``ProjectiveGeneralLinearGroup``
-    lifts each generator ``g`` to ``kron(inv(g).T, g)``: the vectorized action of conjugation
-    ``X -> g X g^-1``.  Conjugation composes correctly regardless of whether ``g`` and ``h``
-    commute, so this map satisfies ``rep(g) @ rep(h) == rep(g @ h)`` for *all* ``g``, ``h`` --
-    unlike the naive ``kron(inv(g), g)``, which only satisfies that identity when ``g`` and ``h``
-    commute.  The dimension-3 generators below do not commute, so this test directly catches a
-    non-homomorphic representation.  For ``PGL(d>=3, q>2)``, the bad map was confirmed to build a
-    vastly oversized group when ``linear_rep=False`` is used; for other cases (e.g. ``PSL``) a
-    non-homomorphic map is still a latent correctness bug even where it happens not to inflate the
-    closure's order.  Checking a handful of noncommuting words is enough to catch the defect without
-    exhaustively enumerating ``SL(d, q)/GL(d, q)``, which is impractically slow at these dimensions
-    (e.g. ``|SL(3, 3)| = 5616``).
+    Each generator ``g`` maps to ``kron(inv(g).T, g)``, the vectorized action of ``X -> g X g^-1``,
+    which is a homomorphism.  This test checks the homomorphism on words in noncommuting generators.
     """
     field_type = galois.GF(field)
     gen_a, gen_b, *_ = base_cls.get_generating_mats(dimension, field_type)
@@ -629,7 +892,7 @@ def test_small_group() -> None:
         ):
             assert group.structure == structure
 
-    # cover a special case
+    # the trivial group, whose members SymPy cannot unrank
     with unittest.mock.patch("qldpc.external._groups.get_small_group_number", return_value=1):
         group = abstract.SmallGroup(1, 1)
     assert group.equiv(abstract.TrivialGroup())

@@ -303,6 +303,13 @@ The other 12 are logical operators, so they weigh at least the distance, 12.
 On the state `|0⟩` of the [[232, 62, 12]] pair-partition code, this lowers the mean weight from 54 to 9.1, while the checks of the code weigh 8.
 On longer codes of higher rate, a round rarely makes a light word one of its rows, and the checks stay much heavier than those of the code.
 On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 60.
+An exact second stage, which qLDPC does not implement, could lower it further.
+The greedy algorithm for matroids would take, again and again, the lightest word of the span outside the span of the words taken so far.
+The connected-support search finds such a word as a witness, with the words taken so far as its excluded rows ([Section 3.1](#31-the-problem)), and it is fast only if its checks are sparse, as the rounds make them.
+For Pauli errors, the words of the span are the Paulis that commute with every sparse check, since the state is pure.
+For X or Z parts, they are the vectors that satisfy the sparse checks of the other part.
+But the cost of a search grows quickly with the weight of the word that it finds, and the words outside the stabilizer group of the code, such as the logical operators among the generators of `|0⟩`, weigh at least its distance.
+So such a stage would pay only where the queries far outnumber its searches.
 
 A search first looks up the syndrome in a table of the syndromes of the vectors of weight at most 1, and searches only syndromes that the table lacks, which have no vector of weight below 2.
 A syndrome in the table gets the weight of its vector as the lower bound.

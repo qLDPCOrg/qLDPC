@@ -41,14 +41,12 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     # None only for a view of a plain array that has not yet been assigned a ring
     _ring: Ring | None
 
-    # Howell-form provenance, attached by howell_normal_form_* to their direct output only (via
-    # _mark_as_hnf).  These deliberately do NOT propagate through numpy operations:
-    # __array_finalize__ copies only _ring, so any slice, transpose, or arithmetic result falls back
-    # to the class defaults below.  A True _in_hnf therefore reliably means "this exact object is a
-    # fresh Howell normal form", which is what get_howell_dual relies on.
-    _in_hnf: bool = False
-    _hnf_transformer: WedderburnArtinTransformer | None = None
-    _hnf_right: bool = False
+    # Howell-form provenance, which howell_normal_form_semisimple records on its output (see
+    # _mark_as_hnf): the transformer, the orientation, and a snapshot of the entry objects.
+    # get_howell_dual trusts the output only while the array holds the same entry objects in the
+    # same shape.  __array_finalize__ copies only _ring, so copies, slices, transposes, and
+    # arithmetic results have no provenance.
+    _hnf_provenance: tuple[WedderburnArtinTransformer, bool, npt.NDArray[np.object_]] | None = None
 
     def __new__(
         cls,
@@ -84,7 +82,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Propagate metadata to newly constructed arrays."""
         # A view of a plain array (obj without _ring) has no ring until its creator assigns one,
         # which every .view(RingArray) in this module does immediately.  Howell-form provenance is
-        # intentionally NOT propagated here (see the class attributes).
+        # not copied (see the class attributes).
         self._ring = getattr(obj, "_ring", None)
 
     def __array_function__(
@@ -379,9 +377,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         The conjugate transpose (``.T``) of the null-space matrix is annihilated by this
         ``RingArray``, such that ``np.any(self @ self.null_space().T)`` is ``np.False_``.
 
-        If ``right is True``, this method constructs a null space over the opposite ring, in which
-        the order of multiplication is reversed.  Then ``abstract.matmul(self,
-        self.null_space(right=True).T, right=True)`` is zero.
+        If ``right=True``, this method constructs a null space over the opposite ring, in which the
+        order of multiplication is reversed.  Then
+        ``abstract.matmul(self, self.null_space(right=True).T, right=True)`` is zero.
 
         This method returns the conjugate transpose of ``RingArray.kernel``, so it requires a ring
         with an involution (see ``Ring.has_involution``), and raises a ValueError for any other
@@ -399,9 +397,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         """Construct a matrix of null-space column vectors for this RingArray.
 
         This ``RingArray`` annihilates the null-space matrix, such that ``self @ self.kernel()`` is
-        zero.  If ``right is True``, this method constructs a null space over the opposite ring, in
-        which the order of multiplication is reversed.  Then ``abstract.matmul(self,
-        self.kernel(right=True), right=True)`` is zero.
+        zero.  If ``right=True``, this method constructs a null space over the opposite ring, in
+        which the order of multiplication is reversed.  Then
+        ``abstract.matmul(self, self.kernel(right=True), right=True)`` is zero.
 
         The columns of the returned matrix form a basis of the null space of this ``RingArray`` over
         the base field, so they span it over the ring.  As generators over the ring, they are
@@ -426,15 +424,15 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         This method relies on the Wedderburn-Artin decomposition:
 
         1. Decompose the matrix over a ring into matrices over simple components.
-        2. Put the matrices over simple components into RREF.
+        2. Put the matrices over simple components into reduced row echelon form (RREF).
         3. Re-combine the simple components into a matrix over the original ring.
 
-        The RREF of a RingArray over a commutative ring is unique.  For non-commutative rings, the
+        The RREF of a RingArray over a commutative ring is unique.  For noncommutative rings, the
         RREF is only unique up to a choice of matrix basis for simple components of the ring.
 
         This method is implemented only for group algebras, and raises a NotImplementedError for any
-        other ring.  Without a ``transformer``, it uses the ring's transformer (see
-        GroupRing.get_transformer).
+        other ring, and a ValueError for a group algebra that is not semisimple.  Without a
+        ``transformer``, it uses the ring's transformer (see GroupRing.get_transformer).
         """
         self._require_ndim(2)
         if not isinstance(self.ring, GroupRing):
@@ -455,8 +453,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         Alias for:
 
-        - ``RingArray.howell_normal_form_semisimple`` (if ``poly is False``, the default), or
-        - ``RingArray.howell_normal_form_poly`` (if ``poly is True``).
+        - ``RingArray.howell_normal_form_semisimple`` (if ``poly=False``, the default), or
+        - ``RingArray.howell_normal_form_poly`` (if ``poly=True``).
 
         See the documentation of those methods for additional information.
         """
@@ -471,12 +469,8 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
 
         This method first puts a ``RingArray`` into a generalized reduced row echelon form (see
         ``RingArray.row_reduce``), then further post-processes the rows to satisfy the Howell
-        property, whereby an element ``v`` that is...
-
-            - in the row span of the matrix, and
-            - has j leading zeros, meaning ``= (0_1, 0_2, ..., 0_j, v_{j+1}, ...)``,
-
-        can be written as a linear combination of rows whose pivots are at position ``k >= j``.
+        property: every element of the row span whose first ``j`` entries are zero is a linear
+        combination of rows whose first ``j`` entries are zero.
 
         The Howell property is enforced as follows: if a row ``r`` has a pivot ``p`` with a
         nontrivial left annihilator ``α``, meaning::
@@ -485,26 +479,25 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             α·p  = 0,
             α·r != 0,
 
-        then the row ``r`` is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
-        matrix.
+        then the row ``r`` is replaced by ``(1-α)·r``, and the row ``α·r`` is added to the matrix.
 
-        If ``right is True``, the Howell property is instead enforced for nontrivial right
+        If ``right=True``, the Howell property is instead enforced for nontrivial right
         annihilators::
 
               α != 0,
             p·α  = 0,
             r·α != 0,
 
-        for which the row ``r`` is replaced by ``(1-α)·r``, and the row ``α·r`` is appended to the
+        for which the row ``r`` is replaced by ``r·(1-α)``, and the row ``r·α`` is added to the
         matrix.  The ordinary HNF and right-HNF are equal for a ``RingArray`` over a commutative
         ring.
 
-        The HNF of a ``RingArray`` over a commutative ring is unique.  For non-commutative rings,
-        the HNF is only unique up to a choice of matrix basis for simple components of the ring.
+        The HNF of a ``RingArray`` over a commutative ring is unique.  For noncommutative rings, the
+        HNF is only unique up to a choice of matrix basis for simple components of the ring.
 
         This method is implemented only for group algebras, and raises a NotImplementedError for any
-        other ring.  Without a ``transformer``, it uses the ring's transformer (see
-        GroupRing.get_transformer).
+        other ring, and a ValueError for a group algebra that is not semisimple.  Without a
+        ``transformer``, it uses the ring's transformer (see GroupRing.get_transformer).
 
         References:
 
@@ -516,9 +509,9 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
     def howell_normal_form_poly(self) -> RingArray:
         """Compute a Howell normal form of a RingArray using polynomial division.
 
-        If the base ring of a RingArray is a cyclic group algebra, then it can be interpreted as a
-        univariate polynomial ring, allowing us to compute greatest common divisors and perform row
-        reduction with polynomial division.
+        If the base ring of a RingArray is the algebra of a ``CyclicGroup`` of order n, then it is
+        the polynomial ring ``F[x]/(x^n - 1)``, so row reduction can use greatest common divisors
+        and polynomial division.  This method raises a TypeError for any other ring.
 
         References:
 
@@ -543,12 +536,24 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             expected = " or ".join(map(str, ndims))
             raise ValueError(f"This method requires a {expected}-dimensional RingArray")
 
-    def _mark_as_hnf(self, *, transformer: WedderburnArtinTransformer | None, right: bool) -> Self:
+    def _mark_as_hnf(self, *, transformer: WedderburnArtinTransformer, right: bool) -> Self:
         """Record that this array is a Howell normal form, as provenance for get_howell_dual."""
-        self._in_hnf = True
-        self._hnf_transformer = transformer
-        self._hnf_right = right
+        self._hnf_provenance = (transformer, right, np.array(self, dtype=object))
         return self
+
+    def _get_hnf_provenance(self) -> tuple[WedderburnArtinTransformer, bool, bool] | None:
+        """The transformer and orientation that built this Howell normal form, if any.
+
+        Return None if howell_normal_form_semisimple did not build this array.  Otherwise, return
+        the transformer, the orientation, and whether every entry is the object that it recorded.
+        """
+        if self._hnf_provenance is None:
+            return None
+        transformer, right, entries = self._hnf_provenance
+        unchanged = entries.shape == self.shape and all(
+            aa is bb for aa, bb in zip(entries.flat, self.view(np.ndarray).flat)
+        )
+        return transformer, right, unchanged
 
 
 def _iter_ring_arrays(obj: object) -> Iterator[RingArray]:
