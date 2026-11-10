@@ -22,7 +22,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Collection, Iterable, Sequence
-from typing import Protocol
+from typing import Literal, Protocol
 
 import galois
 import numpy as np
@@ -314,6 +314,9 @@ def estimate_residual_weight_histogram(
     max_fault_weight: int | None = None,
     max_exact_faults: int = 10**6,
     seed: int | None = None,
+    method: Literal["brouwer_zimmermann", "information_sets", "connected_support"] = (
+        "brouwer_zimmermann"
+    ),
 ) -> ResidualWeightHistogram:
     """Estimate the residual weights of the faults of a noisy Clifford state-preparation circuit.
 
@@ -347,7 +350,7 @@ def estimate_residual_weight_histogram(
     For the CSS weight, or the residual weight of one Pauli type, of a CSS state on at most 64
     qubits, two tables of the syndromes of light X-type and Z-type Pauli errors give it by a
     meet-in-the-middle lookup.  Otherwise, the slower exact search of
-    ``certify_bounded_fault_propagation`` gives it.
+    ``certify_bounded_fault_propagation``, by ``method``, gives it.
 
     Args:
         circuit: A noisy Stim Clifford circuit starting in Stim's all-zero state.
@@ -385,6 +388,11 @@ def estimate_residual_weight_histogram(
         max_exact_faults: Fault weights with at most this many faults (and every smaller fault
             weight) are computed exactly rather than sampled.  Default: ``10**6``.
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
+        method: The exact search of residual weights where the tables do not apply, as for
+            ``certify_bounded_fault_propagation``: ``"brouwer_zimmermann"``, with alias
+            ``"information_sets"``, or ``"connected_support"``.  Both give the same histogram.
+            ``"connected_support"`` weighs errors by CSS weight only on CSS states.  Default:
+            ``"brouwer_zimmermann"``.
 
     Returns:
         A ``ResidualWeightHistogram``.
@@ -396,9 +404,19 @@ def estimate_residual_weight_histogram(
         ValueError: If an integer argument is out of range, if ``output_qubits`` or ``post_select``
             is invalid, if ``pauli`` does not identify X or Z, if the output qubits do not end in
             a definite stabilizer state, if component scoring is requested for a non-CSS state, if
-            the circuit has an error instruction with probability one, or if Stim cannot convert the
-            circuit to a detector error model.
+            the circuit has an error instruction with probability one, if Stim cannot convert the
+            circuit to a detector error model, if ``method`` is unknown, or if ``method`` is
+            ``"connected_support"`` and errors on a state that is not CSS are weighed by their CSS
+            weight.
     """
+    if method not in ("brouwer_zimmermann", "information_sets", "connected_support"):
+        raise ValueError(
+            "method must be 'brouwer_zimmermann', 'information_sets', or 'connected_support', not"
+            f" {method!r}"
+        )
+    engine: Literal["brouwer_zimmermann", "connected_support"] = (
+        "connected_support" if method == "connected_support" else "brouwer_zimmermann"
+    )
     max_residual_weight = _check_integer(max_residual_weight, "max_residual_weight", 0)
     num_samples = _check_integer(num_samples, "num_samples", 0)
     max_exact_faults = _check_integer(max_exact_faults, "max_exact_faults", 0)
@@ -415,6 +433,7 @@ def estimate_residual_weight_histogram(
         css_weight=css_weight,
         pauli=pauli,
         max_residual_weight=max_residual_weight,
+        method=engine,
     )
 
     probabilities_by_fault_weight, truncated_probability = _get_fault_weight_probabilities(
@@ -504,6 +523,7 @@ def _get_mechanisms(
     css_weight: bool | None,
     pauli: PauliXZ | None,
     max_residual_weight: int,
+    method: Literal["brouwer_zimmermann", "connected_support"],
 ) -> tuple[_Mechanisms, _ResidualWeightOracle, bool]:
     """Get the error mechanisms of a circuit, and an oracle for the residual weights of syndromes.
 
@@ -516,7 +536,7 @@ def _get_mechanisms(
         raise ValueError("The output qubits must end in a definite pure stabilizer state")
     matrix = np.array([qldpc_math.string_to_op(op) for op in stabilizers], dtype=np.uint8)
     css_weight = _is_css_state(matrix) if css_weight is None else css_weight
-    setup = _ResidualWeightSetup(matrix, css_weight, pauli, max_residual_weight)
+    setup = _ResidualWeightSetup(matrix, css_weight, pauli, max_residual_weight, method=method)
 
     _, dem, flags, syndromes = _get_primitive_fault_signatures(
         full_circuit, setup.stabilizers, qubits, selected
@@ -897,9 +917,12 @@ class _ResidualWeightSetup:
         css_weight: Whether whole errors are weighed by their CSS weight or physical weight.
         pauli: The Pauli component to score, or None for whole errors.
         max_residual_weight: The largest residual weight to resolve.
+        method: The engine of the coset search, where the tables do not apply.
 
     Raises:
-        ValueError: If ``pauli`` is given and the state is not a CSS state.
+        ValueError: If ``pauli`` is given and the state is not a CSS state, or if the method is
+            ``"connected_support"`` and errors on a state that is not CSS are weighed by their CSS
+            weight.
     """
 
     def __init__(
@@ -908,6 +931,8 @@ class _ResidualWeightSetup:
         css_weight: bool,
         pauli: PauliXZ | None,
         max_residual_weight: int,
+        *,
+        method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
     ) -> None:
         """Choose the stabilizer generators and the residual-weight oracle."""
         num_qubits = stabilizers.shape[1] // 2
@@ -922,7 +947,9 @@ class _ResidualWeightSetup:
         self._cache: dict[bytes, int] = {}
         if not is_css or (pauli is None and not (css_weight and num_qubits <= _MAX_TABLE_QUBITS)):
             self.matrix = stabilizers
-            self.oracle = _CosetSearchWeights(stabilizers, css_weight, max_residual_weight)
+            self.oracle = _CosetSearchWeights(
+                stabilizers, css_weight, max_residual_weight, method=method
+            )
             return
 
         x_supports, z_supports = _get_css_supports(stabilizers)
@@ -936,7 +963,7 @@ class _ResidualWeightSetup:
         if num_qubits <= _MAX_TABLE_QUBITS:
             self.oracle = _CSSWeightTables(x_supports, z_supports, max_residual_weight)
         else:
-            self.oracle = _CosetSearchWeights(self.matrix, True, max_residual_weight)
+            self.oracle = _CosetSearchWeights(self.matrix, True, max_residual_weight, method=method)
 
     @property
     def stabilizers(self) -> list[stim.PauliString]:
@@ -1009,17 +1036,23 @@ class _CSSWeightTables:
 class _CosetSearchWeights:
     """Exact residual weights of the syndromes of any stabilizer state, by a coset search.
 
-    This uses the exact minimum-weight search of ``certify_bounded_fault_propagation``, which is
-    slower than ``_CSSWeightTables`` but works for any stabilizer state and either Pauli weight.
+    This uses the exact minimum-weight search of ``certify_bounded_fault_propagation``, by either of
+    its methods, which is slower than ``_CSSWeightTables`` but works for any stabilizer state and
+    either Pauli weight.
     """
 
     def __init__(
-        self, stabilizers: npt.NDArray[np.uint8], css_weight: bool, max_residual_weight: int
+        self,
+        stabilizers: npt.NDArray[np.uint8],
+        css_weight: bool,
+        max_residual_weight: int,
+        *,
+        method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
     ) -> None:
         """Prepare the search for the given stabilizer generators, one row per generator."""
         self.max_residual_weight = max_residual_weight
         self.num_key_words = (len(stabilizers) + 63) // 64
-        self._search = CosetLeaderSearch(stabilizers, css_weight=css_weight)
+        self._search = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
 
     def get_key_words(self, syndrome: int) -> list[int]:
         """Split a syndrome into machine words, least significant first."""
