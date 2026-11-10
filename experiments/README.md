@@ -108,19 +108,29 @@ The search differs from that work in four ways:
   Few small matrices have no zero rows or columns, so small random codes often coincide.
   For example, every code `Random-3-1-{i}` is the same, since `[[1, 1, 1]]` is the only parity check matrix with 1 row, 3 columns, and no zero rows or columns.
 
-`abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
-The frequencies of code parameters in the results therefore reflect this sampler, rather than the fractions of all symmetric subsets that give these parameters.
-Small groups have few symmetric subsets of a given size, so different seeds often draw the same subsets, and thereby the same code.
+For each group, pair of local codes, and complex, the search enumerates all pairs of symmetric subsets of the required sizes if there are at most `--num-samples` of them.
+On the bipartite complex, it keeps only the pairs that satisfy the Total No Conjugacy condition.
+Otherwise, the search draws `--num-samples` random pairs.
+Enumeration thereby never constructs more codes than random sampling would, and its results are complete and free of repeated subsets.
+
+Random sampling has two limitations.
+First, `abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
+The frequencies of code parameters among random samples therefore reflect this sampler, rather than the fractions of all symmetric subsets that give these parameters.
+Second, different seeds can draw the same subsets, and thereby the same code.
+
 The generating data of a saved code are its subsets, its local codes, and its complex, and saved codes count as distinct if their generating data differ.
 Different generating data can still give the same code, which then has several rows in the summary below.
 They can also give codes that are equivalent up to a permutation of qubits.
-With default settings, the search saves 10,913 codes, of which 4,504 are distinct.
+With default settings, the search enumerates the pairs of subsets for 89 of its 122 choices of group and local codes, which gives 2,223 codes.
+It draws 100 random samples for each of the other 33 choices, and saves 5,523 codes in total, of which 4,986 are distinct.
 
-1. `run_search.py` samples codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
+1. `run_search.py` constructs codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
    Groups that are too small to have subsets of the required sizes are skipped.
    On the bipartite complex, the search also skips groups whose subsets cannot satisfy the Total No Conjugacy condition.
    These are groups with fewer elements than the two local codes have bits together, and groups of odd order when both local codes have odd block lengths.
-   File names identify the group, local codes, complex, and random seed of each code.
+   File names identify the group, local codes, and complex of each code, and end with a sample identifier.
+   This identifier is `s{seed}` for subsets drawn with a random seed, and `e{index}` for the subsets at an index in the enumeration of all pairs of subsets.
+   A results directory can hold both kinds of samples of the same group and local codes, such as after a change of `--num-samples`.
    Codes that already have a file are skipped, even if that file used a different `--num-trials`, unless `--overwrite` is passed.
    Each code is written to a temporary `*.tmp` file and then renamed, so an interrupted search leaves no partial code file.
    Leftover `*.tmp` files are ignored by the other scripts, and overwritten when the search resumes.
@@ -131,8 +141,8 @@ With default settings, the search saves 10,913 codes, of which 4,504 are distinc
    This step is optional.
 3. `collect_results.py` summarizes the saved codes in `results/codes.csv`, with one row per distinct code that has `k > 0`.
    Each row summarizes the copies of one code, which are the saved files with the same generating data.
-   Its columns are `group, group_order, code_a, code_b, complex, seed, num_seeds, n, k, d, d_kind, num_trials, stabilizer_weight`.
-   Here `num_seeds` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
+   Its columns are `group, group_order, code_a, code_b, complex, sample, num_copies, n, k, d, d_kind, num_trials, stabilizer_weight`.
+   Here `sample` is the sample identifier of the first copy, `num_copies` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
    The distance `d` is exact if `d_kind` is `exact`, and otherwise it is the smallest upper bound among the saved copies of the code.
 4. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its file name reproduces it.
 
@@ -162,7 +172,6 @@ python experiments/quantum_tanner/run_search.py --groups dihedral --max-order 20
 ```
 
 With default settings, the search covers the 18 groups of order at most 10.
-It samples up to 100 random codes per group and pair of local codes, or only one if both local codes have as many bits as the group has elements.
 Each code requires a randomized distance bound with `--num-trials` trials, so a full search can take many CPU-hours.
 These bounds are randomized without a seed, so they can differ between runs for the same code.
 `verify_codes.py` does not check them.
@@ -171,7 +180,7 @@ Saved code files record `d` as `nan` for codes with no logical qubits, and `comp
 The cost of an exact distance grows rapidly with the distance and the weights of parity checks, and is hard to predict from the number of qubits.
 Among codes of the default search, with up to 490 qubits, many exact distances take seconds, whereas some take minutes or more.
 Randomized bounds can be far from exact distances, especially with few trials.
-For example, the code of sample 0 for `SmallGroup-7-1` and `Mittal-6` in the default search has 252 qubits and distance 16, whereas single runs with `--num-trials 100` bounded its distance by values up to 29.
+For example, the only code for `SmallGroup-7-1` and `Mittal-6` in the default search, whose sample identifier is `e0`, has 252 qubits and distance 16, whereas single runs with `--num-trials 100` bounded its distance by values up to 29.
 
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
 

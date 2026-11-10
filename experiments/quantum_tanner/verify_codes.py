@@ -3,7 +3,7 @@
 
 """Verify the reproducibility of saved quantum Tanner codes.
 
-This script regenerates every code saved by run_search.py from the specification and seed in its
+This script regenerates every code saved by run_search.py from the specification and sample in its
 file name, and checks that the regenerated code equals the saved code.  It reports every code that
 fails this check, or cannot be loaded or regenerated, and exits with an error if there are any.
 
@@ -31,7 +31,7 @@ else:
 
 
 def main() -> None:
-    """Check that all saved quantum Tanner codes can be regenerated from their seeds."""
+    """Check that all saved quantum Tanner codes can be regenerated from their file names."""
     args = parse_args()
     paths = saved_codes.get_saved_code_paths(args.results_dir / saved_codes.CODES_NAME)
 
@@ -62,8 +62,8 @@ def parse_args() -> argparse.Namespace:
 def get_verification_problem(path: pathlib.Path) -> str | None:
     """Say why a saved quantum Tanner code fails verification, or return None if it passes.
 
-    A saved code passes if it can be loaded, and if regenerating it from its specification and seed
-    reproduces it.
+    A saved code passes if it can be loaded, and if regenerating it from its specification and
+    sample reproduces it.
     """
     # load the saved code, which fails if its file is truncated or malformed
     try:
@@ -71,10 +71,10 @@ def get_verification_problem(path: pathlib.Path) -> str | None:
     except (IndexError, SyntaxError, ValueError) as error:
         return f"Saved code cannot be loaded ({error!r})"
 
-    # regenerate the code from its seed, and compare
+    # regenerate the code from its file name, and compare
     try:
-        spec, seed = saved_codes.parse_code_path(path)
-        regenerated_code = spec.build(seed)
+        spec, sample_id = saved_codes.parse_code_path(path)
+        regenerated_code = spec.build(sample_id)
     except ValueError as error:
         return f"Saved code cannot be regenerated ({error!r})"
     if regenerated_code != saved_code:
