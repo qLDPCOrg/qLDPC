@@ -15,10 +15,16 @@ from __future__ import annotations
 
 import argparse
 import pathlib
-
-import saved_codes
+from typing import TYPE_CHECKING
 
 from qldpc import codes
+
+# Scripts in this directory import each other as top-level modules, which mypy finds only by their
+# paths in the repository.
+if TYPE_CHECKING:
+    from experiments.quantum_tanner import saved_codes
+else:
+    import saved_codes
 
 ####################################################################################################
 # command-line interface
@@ -66,8 +72,8 @@ def get_verification_problem(path: pathlib.Path) -> str | None:
         return f"Saved code cannot be loaded ({error!r})"
 
     # regenerate the code from its seed, and compare
-    spec, seed = saved_codes.parse_code_path(path)
     try:
+        spec, seed = saved_codes.parse_code_path(path)
         regenerated_code = spec.build(seed)
     except ValueError as error:
         return f"Saved code cannot be regenerated ({error!r})"

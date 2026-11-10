@@ -11,9 +11,11 @@ saved_codes.get_code_key), and each distinct code is computed once.
 
 The cost of an exact distance grows rapidly with the distance and the weights of parity checks, so
 it is hard to predict from the number of qubits.  Each computation therefore runs in its own Python
-process, which is stopped if it takes longer than --time-limit seconds, including about a second to
-start.  Codes whose computation is stopped keep only the upper bound on their distance from
-run_search.py.  Codes are processed in order of increasing size.
+process, which is stopped if it takes longer than --time-limit seconds, including a second or more
+to start.  Codes whose computation is stopped keep only the upper bound on their distance from
+run_search.py.  Codes are processed in order of increasing size.  Interrupting this script with
+Ctrl-C also stops its child processes, whereas killing only the process of this script leaves them
+running until they finish.
 
 Results are appended to exact_distances.csv in --results-dir (by default,
 results/exact_distances.csv in this directory), with one row per finished or stopped computation.
@@ -39,16 +41,22 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
-import json
+import math
 import os
 import pathlib
 import subprocess
 import sys
 import time
-
-import saved_codes
+from typing import TYPE_CHECKING
 
 from qldpc import codes
+
+# Scripts in this directory import each other as top-level modules, which mypy finds only by their
+# paths in the repository.
+if TYPE_CHECKING:
+    from experiments.quantum_tanner import saved_codes
+else:
+    import saved_codes
 
 # default settings
 TIME_LIMIT = 60  # seconds per exact distance computation
@@ -65,15 +73,17 @@ def main() -> None:
         print_exact_distance(args.code_file)
         return
 
+    # find the codes to compute, and open the file of results, writing its header if it is new
     codes_to_compute = get_codes_to_compute(args.results_dir, args.time_limit)
     print(f"Computing exact distances of {len(codes_to_compute)} codes")
     num_failures = 0
-    output = args.results_dir / saved_codes.EXACT_DISTANCES_NAME
-    is_new_output = not output.is_file()
-    with output.open("a", newline="") as file:
+    output_path = args.results_dir / saved_codes.EXACT_DISTANCES_NAME
+    is_new_output = not output_path.is_file() or output_path.stat().st_size == 0
+    with output_path.open("a", newline="") as file:
         writer = csv.writer(file)
         if is_new_output:
             writer.writerow(saved_codes.EXACT_DISTANCE_FIELDS)
+            file.flush()
 
         # compute distances in child processes, and record each result as soon as it is known; on
         # an interruption, cancel the computations that have not yet started
@@ -86,16 +96,17 @@ def main() -> None:
             for index, future in enumerate(concurrent.futures.as_completed(futures), start=1):
                 key, path = futures[future]
                 try:
-                    status, distance, seconds = future.result()
+                    distance, seconds = future.result()
                 except RuntimeError as error:
                     print(f"{index}/{len(futures)} {path.name}: failed\n{error}")
                     num_failures += 1
                     continue
+                status = "timeout" if distance is None else "exact"
                 writer.writerow(
                     [key, path.name, status, distance, args.time_limit, f"{seconds:.2f}"]
                 )
                 file.flush()
-                result = f"d = {distance}" if status == "exact" else "timeout"
+                result = "timeout" if distance is None else f"d = {distance}"
                 print(f"{index}/{len(futures)} {path.name}: {result} ({seconds:.1f} s)")
         finally:
             executor.shutdown(cancel_futures=True)
@@ -146,27 +157,19 @@ def get_codes_to_compute(
     computation was stopped under a time limit at least as long as the given one.  Returns the codes
     in order of increasing size, each with the first of its saved files.
     """
-    # identify codes with a known exact distance, and the longest time limit that stopped others
-    exact_keys = set()
+    # identify the longest time limit under which each code was computed or stopped, treating the
+    # time limit of a finished computation as infinite
     longest_time_limits: dict[str, float] = {}
     for record in saved_codes.read_exact_distance_records(results_dir):
         key = record["code_key"]
-        if record["status"] == "exact":
-            exact_keys.add(key)
-        else:
-            longest_time_limits[key] = max(
-                float(record["time_limit"]), longest_time_limits.get(key, 0)
-            )
+        time_limit_used = math.inf if record["status"] == "exact" else float(record["time_limit"])
+        longest_time_limits[key] = max(time_limit_used, longest_time_limits.get(key, 0))
 
     # collect the first saved file of each distinct code that needs an exact distance
     codes_to_compute: dict[str, tuple[int, pathlib.Path]] = {}
     for path in saved_codes.get_saved_code_paths(results_dir / saved_codes.CODES_NAME):
         key = saved_codes.get_code_key(path)
-        if (
-            key in codes_to_compute
-            or key in exact_keys
-            or longest_time_limits.get(key, 0) >= time_limit
-        ):
+        if key in codes_to_compute or longest_time_limits.get(key, 0) >= time_limit:
             continue
         _, (num_qudits, dimension, _), _ = saved_codes.read_code_header(path)
         if dimension > 0:
@@ -177,12 +180,12 @@ def get_codes_to_compute(
     ]
 
 
-def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[str, int | str, float]:
+def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[int | None, float]:
     """Compute the exact distance of a saved code in a child process, within a time limit.
 
-    Returns a status ("exact" or "timeout"), the exact distance (or an empty string after a
-    timeout), and the duration of the computation in seconds.  Raises a RuntimeError with the error
-    output of the child process if it fails.
+    Returns the exact distance, or None if the computation was stopped at the time limit, and the
+    duration of the computation in seconds.  Raises a RuntimeError with the error output of the
+    child process if it fails.
     """
     start = time.perf_counter()
     command = [sys.executable, __file__, "--code-file", str(path)]
@@ -191,18 +194,21 @@ def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[str, 
             command, capture_output=True, text=True, timeout=time_limit, check=False
         )
     except subprocess.TimeoutExpired:
-        return "timeout", "", time.perf_counter() - start
+        return None, time.perf_counter() - start
+    message = f"Child process exited with code {process.returncode}:\n{process.stderr}"
     if process.returncode != 0:
-        raise RuntimeError(process.stderr)
-    distance = json.loads(process.stdout.splitlines()[-1])["distance"]
-    return "exact", distance, time.perf_counter() - start
+        raise RuntimeError(message)
+    try:
+        distance = int(process.stdout.splitlines()[-1])
+    except (IndexError, ValueError):
+        raise RuntimeError(message) from None
+    return distance, time.perf_counter() - start
 
 
 def print_exact_distance(path: pathlib.Path) -> None:
-    """Print the exact distance of a saved code as JSON on the last line of output."""
+    """Print the exact distance of a saved code on the last line of output."""
     code = codes.QTCode.load(str(path))
-    distance = code.get_distance_exact(method="connected_support")
-    print(json.dumps({"distance": int(distance)}))
+    print(int(code.get_distance_exact(method="connected_support")))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Specifications, file names, and file contents of saved quantum Tanner codes.
+"""Specifications of quantum Tanner codes, and the files that save them in a results directory.
 
 The scripts in this directory share the helpers in this module.  A quantum Tanner code of the search
 is specified by a CodeSpec, which identifies a group, a pair of classical local codes, and a choice
@@ -33,6 +33,8 @@ import hashlib
 import math
 import pathlib
 import re
+
+import galois
 
 from qldpc import abstract, codes
 
@@ -70,28 +72,42 @@ class CodeSpec:
     group_id: str
     code_a_id: str
     code_b_id: str
-    bipartite: bool = False
+    bipartite: bool
 
     @property
     def has_dual_codes(self) -> bool:
-        """Is the second local code the dual of the first?"""
+        """Is the second local code identified as the dual of the first?
+
+        Local codes that are dual but have unrelated identifiers, such as "Hamming-2" and
+        "CordaroWagner-3", do not count as dual here.
+        """
         return self.code_b_id == get_dual_id(self.code_a_id)
 
-    def get_seed(self, sample: int, attempt: int = 0) -> int:
-        """Get the random seed of a sample with this specification.
+    def get_seed(self, sample: int, attempt: int) -> int:
+        """Get the random seed of an attempt to draw a sample with this specification.
 
-        The seed is a deterministic hash of the group, the bytes of the parity check matrices of the
-        local codes, the choice of complex, and the sample index.  The second local code and the
-        choice of complex enter only if they differ from the defaults (dual local codes and the
-        quadripartite complex), so that specifications with default choices keep the seeds of
-        earlier versions of this module.  The bytes of a parity check matrix depend on its rows and
-        data type, so a change to how a local code is constructed changes the seeds of its codes.
+        The seed of attempt 0 is a deterministic hash of the group, the bytes of the parity check
+        matrices of the local codes, the choice of complex, and the sample index.  The second local
+        code and the choice of complex enter only if they differ from the defaults (dual local codes
+        and the quadripartite complex).  Specifications with default choices thereby have the seeds
+        of codes saved by earlier versions of run_search.py, which had no other choices.  The bytes
+        of a parity check matrix depend on its rows and data type, so a change to how a local code
+        is constructed changes the seeds of its codes.
 
-        A bipartite complex exists only if the subsets drawn for a seed satisfy the Total No
-        Conjugacy condition (see qldpc.objects.CayleyComplex), so run_search.py tries the seeds of
-        successive attempts until one does.
+        The seed of a later attempt is a hash of the seed of attempt 0 and the attempt index.  A
+        bipartite complex exists only if the subsets drawn for a seed satisfy the Total No
+        Conjugacy condition (see qldpc.objects.CayleyComplex), so run_search.py tries up to
+        MAX_TNC_ATTEMPTS attempts per sample.
         """
-        inputs: list[object] = [*get_group_hash_inputs(self.group_id)]
+        # identify groups in the SmallGroups library by their order and index, as before other
+        # families of groups were supported, and other groups by their identifiers
+        family, *group_parameters = self.group_id.split("-")
+        if family == "SmallGroup":
+            inputs: list[object] = [int(parameter) for parameter in group_parameters]
+        else:
+            inputs = [self.group_id]
+
+        # add the local codes, the choice of complex, and the sample index
         inputs.append(get_local_code(self.code_a_id).matrix.tobytes())
         if not self.has_dual_codes:
             inputs.append(get_local_code(self.code_b_id).matrix.tobytes())
@@ -178,14 +194,6 @@ def get_group_order(group_id: str) -> int:
     return int(parameters[0]) * (2 if family == "Dihedral" else 1)
 
 
-def get_group_hash_inputs(group_id: str) -> tuple[int | str, ...]:
-    """Get the inputs that identify a group in the hash of a seed; see CodeSpec.get_seed."""
-    family, *parameters = group_id.split("-")
-    if family == "SmallGroup":
-        return tuple(map(int, parameters))
-    return (family, *map(int, parameters))
-
-
 ####################################################################################################
 # local codes
 
@@ -202,17 +210,19 @@ def get_local_code(code_id: str) -> codes.ClassicalCode:
     if code_id.startswith("Dual"):
         return ~get_local_code(code_id.removeprefix("Dual"))
     family, *parameters = code_id.split("-")
-    values = [int(parameter) for parameter in parameters]
-    if family == "Hamming" and len(values) == 1:
-        return codes.HammingCode(values[0])
-    if family == "CordaroWagner" and len(values) == 1:
-        return codes.ClassicalCode.from_name(f"CordaroWagnerCode({values[0]})")
-    if family == "Mittal" and len(values) == 1:
-        return get_mittal_code(values[0])
-    if family == "Random" and len(values) == 3:
-        bits, checks, _ = values
-        seed = get_deterministic_hash("Random", *values)
-        return codes.ClassicalCode.random(bits, checks, seed=seed)
+    int_parameters = [int(parameter) for parameter in parameters]
+    if family == "Hamming" and len(int_parameters) == 1:
+        return codes.HammingCode(int_parameters[0])
+    if family == "CordaroWagner" and len(int_parameters) == 1:
+        return codes.ClassicalCode.from_name(f"CordaroWagnerCode({int_parameters[0]})")
+    if family == "Mittal" and len(int_parameters) == 1:
+        return get_mittal_code(int_parameters[0])
+    if family == "Random" and len(int_parameters) == 3:
+        num_bits, num_checks, _ = int_parameters
+        if num_bits < 1 or num_checks < 1:
+            raise ValueError(f"Random local codes need bits and parity checks: {code_id}")
+        seed = get_deterministic_hash("Random", *int_parameters)
+        return codes.ClassicalCode.random(num_bits, num_checks, seed=seed)
     raise ValueError(f"Local code not recognized: {code_id}")
 
 
@@ -238,7 +248,7 @@ def get_mittal_code(length: int) -> codes.ClassicalCode:
 
 
 ####################################################################################################
-# saved code files
+# results directories and saved code files
 
 
 def add_results_dir_argument(parser: argparse.ArgumentParser) -> None:
@@ -302,24 +312,41 @@ def get_code_key(path: pathlib.Path) -> str:
     """Get a key that identifies the quantum Tanner code in a saved file.
 
     Two files have the same key if and only if they save the same subsets, local codes, field, and
-    choice of complex, and thereby the same code.  The key ignores the header of the file and the
-    order in which the members of each subset are listed, which can differ between Python sessions.
+    choice of complex, and thereby the same code.  The key ignores the header of the file, the order
+    in which the members of each subset are listed, which can differ between Python sessions, and
+    the choice of parity checks of each local code, which can differ between equal codes with
+    different identifiers.
     """
-    # split the generating data of the code into blocks, each starting with a comment line
-    blocks: list[list[str]] = []
-    with open(path) as file:
-        for line in file.read().splitlines():
-            if line == "# subset_a:" or (blocks and line.startswith("#")):
-                blocks.append([line])
-            elif blocks:
-                blocks[-1].append(line)
+    lines = path.read_text().splitlines()
+    start_a, start_b, start_code_a, start_code_b = (
+        lines.index(f"# {name}:")
+        for name in ("subset_a", "subset_b", "code_a.matrix", "code_b.matrix")
+    )
+    start_field = next(
+        index for index, line in enumerate(lines) if line.startswith("# base field:")
+    )
+    field = galois.GF(int(lines[start_field].split(":")[-1]))
 
-    # sort the members of each subset, and hash the result
-    for block in blocks:
-        if block[0] in ("# subset_a:", "# subset_b:"):
-            block[1:] = sorted(block[1:])
-    text = "\n".join("\n".join(block) for block in blocks)
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    def get_canonical_checks(rows: list[str]) -> list[str]:
+        """Get the nonzero rows of the reduced row echelon form of a parity check matrix."""
+        if not rows:
+            return []
+        matrix = field([[int(value) for value in row.split()] for row in rows]).row_reduce()
+        return [" ".join(map(str, row)) for row in matrix.tolist() if any(row)]
+
+    # sort the members of each subset, and reduce the parity check matrix of each local code
+    generating_data = [
+        lines[start_a],
+        *sorted(lines[start_a + 1 : start_b]),
+        lines[start_b],
+        *sorted(lines[start_b + 1 : start_code_a]),
+        lines[start_code_a],
+        *get_canonical_checks(lines[start_code_a + 1 : start_code_b]),
+        lines[start_code_b],
+        *get_canonical_checks(lines[start_code_b + 1 : start_field]),
+        *lines[start_field:],
+    ]
+    return hashlib.sha256("\n".join(generating_data).encode("utf-8")).hexdigest()[:16]
 
 
 def read_exact_distance_records(results_dir: pathlib.Path) -> list[dict[str, str]]:

@@ -74,32 +74,44 @@ python experiments/bivariate_bicycle/collect_results.py --num-trials 10 --result
 [`quantum_tanner/`](quantum_tanner/) performs a randomized search over small quantum Tanner codes, which [arXiv:2202.13641](https://arxiv.org/abs/2202.13641) introduced.
 The search builds codes from finite groups and pairs of classical local codes.
 It constructs each code with `codes.QTCode.random`, which draws two random symmetric subsets of a group, that is, subsets closed under inverses.
-The sizes of the subsets are the block lengths of the two local codes, and each local code constrains the qubits around one subset.
+The sizes of the subsets are the block lengths of the two local codes, whose bits are labeled by the members of the subsets.
 See the docstrings of `codes.QTCode` and `objects.CayleyComplex` for the construction.
 
 The options of `run_search.py` choose the groups, the local codes, and the complex on which the codes live:
 
-- `--groups` chooses between all groups of order at most `--max-order` in the SmallGroups library (the default), and the dihedral groups of order at most `--max-order`.
+- `--groups` chooses between all groups of order at most `--max-order` in the SmallGroups library (the default), and the dihedral groups of orders 6 to `--max-order`, which are the symmetry groups of regular polygons.
   [arXiv:2508.05095](https://arxiv.org/abs/2508.05095) uses dihedral groups for the expansion of their Cayley graphs.
-- `--base-codes` lists the classical base codes, by default the Hamming, Cordaro–Wagner, and "Mittal" codes in `BASE_CODE_IDS`.
+- `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro–Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
   Identifiers such as `Random-5-3-0` name random codes, here with 5 bits and 3 parity checks; `saved_codes.py` lists all identifiers.
 - `--pairs` chooses the pairs of local codes.
   By default, each base code is paired with its dual.
-  With `--pairs all`, the pairs are every ordered pair of codes with equal block lengths among the base codes and their duals, as in arXiv:2508.05095.
+  With `--pairs all`, the pairs are every ordered pair of codes with equal block lengths among the base codes and their duals, so that local codes need not be dual, as in arXiv:2508.05095.
 - By default, the codes live on the quadripartite Cayley complex of [arXiv:2206.07571](https://arxiv.org/abs/2206.07571).
-  This complex is built on four copies of the group, so the subsets need not satisfy the conditions of the bipartite complex of arXiv:2202.13641.
-  With `--bipartite`, the codes live on the bipartite complex instead, which halves their numbers of qubits.
-  This complex requires the subsets to satisfy the Total No Conjugacy condition, so the search tries up to `MAX_TNC_ATTEMPTS` seeds per sample, and skips a sample if none of them satisfies it.
+  This complex is built on four copies of the group, so the subsets need not satisfy the Total No Conjugacy condition, which the bipartite complex of arXiv:2202.13641 requires.
+  With `--bipartite`, the codes live on the bipartite complex instead.
+  A code on the bipartite complex has at most as many qubits as the code with the same subsets on the quadripartite complex, and often half as many.
+  The search tries up to `MAX_TNC_ATTEMPTS` seeds per sample to find subsets that satisfy the Total No Conjugacy condition, and skips a sample if none of them does.
 
-These choices make it possible to search codes like those of arXiv:2508.05095, with one difference.
-The subsets that `codes.QTCode.random` draws may contain the identity element, which arXiv:2508.05095 excludes.
+With these choices, the search covers codes like those of arXiv:2508.05095, together with others.
+The search differs from that work in four ways:
+
+- The subsets that `codes.QTCode.random` draws may contain the identity element, which arXiv:2508.05095 excludes.
+- The two subsets need not generate the group.
+  The complex then keeps only the component that contains the identity element.
+- The dimensions of paired local codes need not add up to their block length, whereas they do in arXiv:2508.05095.
+- Random local codes come from `codes.ClassicalCode.random`, which draws parity check matrices without zero rows or columns, possibly of less than full rank.
+  In contrast, arXiv:2508.05095 draws codes with generator matrices in systematic form.
+  For example, every code `Random-3-1-{i}` is the same, since `[[1, 1, 1]]` is the only such matrix with 1 row and 3 columns.
+
 For example, a symmetric subset with an odd number of elements contains an element that is its own inverse.
 In a dihedral group of order 2m with odd m, that element can be the identity here, whereas it is a reflection in arXiv:2508.05095.
-Hence the search finds bipartite codes on such groups, which Lemma 3 of arXiv:2508.05095 rules out for subsets without the identity.
+Hence the search finds bipartite codes on such groups, which Lemma 3 of arXiv:2508.05095 rules out for subsets without the identity element.
 
 `abstract.Group.random_symmetric_subset` does not draw subsets uniformly.
 The frequencies of code parameters in the results therefore reflect this sampler, rather than the fractions of all symmetric subsets that give these parameters.
 Small groups have few symmetric subsets of a given size, so different seeds often draw the same subsets, and thereby the same code.
+Saved codes are distinct if they differ in their subsets, their local codes, or their complex.
+Different generating data can still give the same code, or codes that are equivalent up to a permutation of qubits.
 With default settings, the search saves 10,913 codes, of which 4,515 are distinct.
 
 1. `run_search.py` samples codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
@@ -116,6 +128,7 @@ With default settings, the search saves 10,913 codes, of which 4,515 are distinc
 3. `collect_results.py` summarizes the saved codes in `results/codes.csv`, with one row per distinct code that has `k > 0`.
    Its columns are `group, group_order, code_a, code_b, complex, seed, num_seeds, n, k, d, d_kind, num_trials, stabilizer_weight`.
    Here `num_seeds` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
+   This weight depends on the parity checks of the local codes, so it is minimized over the saved copies of the code.
    The distance `d` is exact if `d_kind` is `exact`, and otherwise it is the smallest upper bound among the saved copies of the code.
 4. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its file name reproduces it.
 
@@ -136,11 +149,11 @@ python experiments/quantum_tanner/collect_results.py --results-dir "$RESULTS"
 python experiments/quantum_tanner/verify_codes.py --results-dir "$RESULTS"
 ```
 
-A search like that of arXiv:2508.05095 uses dihedral groups, the bipartite complex, and all pairs of random local codes:
+A search like that of arXiv:2508.05095 uses dihedral groups, the bipartite complex, and all pairs of local codes, which here are the Hamming code with block length 3 and random codes with block length 5:
 
 ```bash
 python experiments/quantum_tanner/run_search.py --groups dihedral --max-order 20 --bipartite --pairs all \
-    --base-codes Random-3-1-0 Random-3-1-1 Random-5-2-0 Random-5-2-1 --workers 8
+    --base-codes Hamming-2 Random-5-2-0 Random-5-2-1 Random-5-2-2 --workers 8
 ```
 
 With default settings, the search covers the 18 groups of order at most 10.
@@ -148,11 +161,11 @@ It samples up to 100 random codes per group and pair of local codes, or only one
 Each code requires a randomized distance bound with `--num-trials` trials, so a full search can take many CPU-hours.
 These bounds are randomized without a seed, so they can differ between runs for the same code.
 `verify_codes.py` does not check them.
-Saved code files record `d` as `nan` for codes with no logical qubits, and the other scripts skip such codes.
+Saved code files record `d` as `nan` for codes with no logical qubits, and `compute_distances.py` and `collect_results.py` skip such codes.
 
 The cost of an exact distance grows rapidly with the distance and the weights of parity checks, and is hard to predict from the number of qubits.
-In a trial on 14 codes from the default search, with up to 490 qubits, the connected-support search found 13 exact distances within 16 seconds each, and ran for more than two minutes on the last.
-Exact distances also showed that randomized bounds can be far from exact, such as a bound of 26 for a code with distance 16.
+Among codes of the default search, with up to 490 qubits, many exact distances take seconds, whereas some take minutes or more.
+Randomized bounds can be far from exact distances: in one case, 100 randomized trials gave a bound of 26 for a code with distance 16.
 
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
 
