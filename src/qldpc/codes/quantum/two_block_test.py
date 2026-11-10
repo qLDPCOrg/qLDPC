@@ -222,6 +222,14 @@ def test_bivariate_bicycle_codes() -> None:
     assert str(poly_a.as_expr()) in code_string
     assert str(poly_b.as_expr()) in code_string
 
+    # exponent vectors are read only from integer powers of the symbols of the code
+    assert code.as_exponent_vector(x**3 / y**2) == (3, -2)
+    with pytest.raises(ValueError, match="not a product of integer powers of symbols"):
+        code.as_exponent_vector(sympy.sin(x))
+    for monomial in [z, x * z]:
+        with pytest.raises(ValueError, match="not a monomial in the symbols"):
+            code.as_exponent_vector(monomial)
+
     # [[144, 12, 12]] code in Table 3 and Figure 2 of arXiv:2308.07915
     orders = (12, 6)
     poly_a = x**3 + y + y**2
