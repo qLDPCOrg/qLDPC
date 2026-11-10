@@ -12,7 +12,7 @@ The ``coverage_contexts`` plugin labels each line that runs with the test file r
 and resets shared state between test files (see that module).  This check credits a module only
 with the lines that its own test file ran: in its tests, or while it and the ``conftest.py`` files
 of its directories were collected.  It also credits every test file with the lines that ran while
-pytest started, which loads the ``conftest.py`` files and imports the measured modules.
+pytest started, or while a module of the repository first ran, which every test file needs.
 
 ``--isolated`` instead runs each test file in its own process, as an audit of this check.
 """
