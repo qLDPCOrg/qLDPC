@@ -53,10 +53,11 @@ EXACT_DISTANCES_NAME = "exact_distances.csv"  # file of exact distances in the r
 EXACT_DISTANCE_FIELDS = ("code_key", "code_file", "status", "distance", "time_limit", "seconds")
 
 # patterns of identifiers of groups and local codes, and of names of saved code files
-_GROUP_ID = r"SmallGroup-\d+-\d+|Dihedral-\d+"
-_LOCAL_CODE_ID = r"[A-Za-z]+(?:-\d+)+"
+_NUMBER = r"(?:0|[1-9]\d*)"  # without leading zeros, so that each number has one spelling
+_GROUP_ID = rf"SmallGroup-{_NUMBER}-{_NUMBER}|Dihedral-{_NUMBER}"
+_LOCAL_CODE_ID = rf"[A-Za-z]+(?:-{_NUMBER})+"
 _CODE_FILE_NAME = re.compile(
-    rf"qtcode_({_GROUP_ID})_({_LOCAL_CODE_ID})(?:\+({_LOCAL_CODE_ID}))?(_bipartite)?_([se]\d+)\.txt"
+    rf"qtcode_({_GROUP_ID})_({_LOCAL_CODE_ID})(?:\+({_LOCAL_CODE_ID}))?(_bipartite)?_([se]{_NUMBER})\.txt"
 )
 
 ####################################################################################################
