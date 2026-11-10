@@ -99,56 +99,69 @@ def block_clipboard(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pyperclip.copy", lambda text: None)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def vary_default_transformer_seed(pytestconfig: pytest.Config) -> Iterator[None]:
+    """Build seedless Wedderburn-Artin decompositions from the seed of the test run.
+
+    GroupRing.get_transformer uses a fixed seed by default, so without this fixture, tests would
+    exercise only one decomposition of each ring.
+    """
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        seed = pytestconfig.getoption("randomly_seed", default=0)
+        monkeypatch.setattr(abstract.rings, "_DEFAULT_TRANSFORMER_SEED", seed)
+        yield
+
+
 @pytest.fixture(scope="session")
-def ring_cyclic3_gf2(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_cyclic3_gf2() -> abstract.GroupRing:
     """Construct a small ring with a pre-built Wedderburn-Artin transformer."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_cyclic3_gf4(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_cyclic3_gf4() -> abstract.GroupRing:
     """Construct a ring over a non-prime field with a pre-built Wedderburn-Artin transformer."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_dihedral3_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_dihedral3_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a pre-built Wedderburn-Artin transformer."""
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_cyclic5_gf2(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_cyclic5_gf2() -> abstract.GroupRing:
     """Construct a ring with a degree-4 field-extension component (over a prime field)."""
     ring = abstract.GroupRing(abstract.CyclicGroup(5), field=2)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_alternating4_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_alternating4_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a size-3 matrix component."""
     ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_dihedral5_gf3(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_dihedral5_gf3() -> abstract.GroupRing:
     """Construct a ring with a matrix component over a field extension (size 2, degree 2)."""
     ring = abstract.GroupRing(abstract.DihedralGroup(5), field=3)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_dihedral7_gf9(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_dihedral7_gf9() -> abstract.GroupRing:
     """Construct a ring over a field whose irreducible polynomial is not the default one.
 
     In GF(9) with the irreducible polynomial x^2 + 1, the element x is not primitive.  This ring has
@@ -156,7 +169,7 @@ def ring_dihedral7_gf9(pytestconfig: pytest.Config) -> abstract.GroupRing:
     """
     field = galois.GF(9, irreducible_poly="x^2 + 1")
     ring = abstract.GroupRing(abstract.DihedralGroup(7), field=field)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
