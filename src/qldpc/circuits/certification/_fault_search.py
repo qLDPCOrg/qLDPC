@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Collection, Iterator, Sequence
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -82,6 +82,7 @@ def find_smallest_violation(
     max_weight: int | None,
     css_weight: bool,
     memory_limit: int = 2**30,  # 1 GiB
+    method: Literal["brouwer_zimmermann", "connected_support"] = "brouwer_zimmermann",
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.
 
@@ -89,7 +90,7 @@ def find_smallest_violation(
     weight to ``max_weight`` and to what an irreducible accepted fault can have.  Then it runs
     ``_search_irreducible_faults`` with an exact oracle for the Pauli weight, ``CosetLeaderSearch``,
     which runs two classical searches for the CSS weight on a CSS state, and otherwise one search of
-    Pauli errors.
+    Pauli errors, each by the given method.
     """
     # A primitive fault with zero flags and zero syndrome does nothing, and two primitive faults
     # with equal (flags, syndrome) signatures cancel.  Keeping one primitive fault for each distinct
@@ -105,7 +106,7 @@ def find_smallest_violation(
     flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
-    oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight)
+    oracle = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
     return _search_irreducible_faults(signatures, max_fault_weight, oracle, memory_limit)
 
 
