@@ -6,16 +6,18 @@
 This script reads the files of codes saved by run_search.py, and the exact distances computed by
 compute_distances.py, if any.  It writes the parameters of the codes to codes.csv in --results-dir
 (by default, results/codes.csv in this directory), with one row per distinct code that has at least
-one logical qubit.  Codes saved under different seeds can be identical (see
-saved_codes.get_code_key), and each row summarizes all saved copies of one code.  The group, local
-codes, complex, and seed of a row are those of its first copy, ordered by group order, group, local
+one logical qubit.  Saved codes count as distinct if their generating data (subsets, local codes,
+and complex; see saved_codes.get_code_key) differ, and the saved files with the same generating
+data are copies of one code.  Each row summarizes the copies of one code.  Different generating data
+can still give the same code, which then has several rows.  The group, local codes, complex, and
+seed of a row are those of its first copy, where copies are ordered by group (order first), local
 codes, complex, and seed.  The columns of the CSV file are CSV_FIELDS:
 - group, group_order: the identifier and order of the group that defines the code (see
   saved_codes.get_group),
 - code_a, code_b: the identifiers of the local codes on the two subsets of the group (see
   saved_codes.get_local_code),
 - complex: "quadripartite" or "bipartite", the Cayley complex on which the code lives,
-- seed: the random seed of the code,
+- seed: the random seed of the first copy,
 - num_seeds: the number of saved copies of the code, which may have different groups, local codes,
   or seeds,
 - n, k: the number of physical qubits and the number of logical qubits,
@@ -23,8 +25,7 @@ codes, complex, and seed.  The columns of the CSV file are CSV_FIELDS:
   distance among saved copies of the code, in which case d_kind is "upper_bound",
 - num_trials: the total number of randomized trials used to bound the code distance, over all
   saved copies of the code, and
-- stabilizer_weight: the maximum weight of a parity check (stabilizer generator) of the code, which
-  depends on the parity checks of its local codes, minimized over saved copies of the code.
+- stabilizer_weight: the maximum weight of a parity check (stabilizer generator) of the code.
 
 Example:
     python experiments/quantum_tanner/collect_results.py
@@ -38,8 +39,8 @@ import csv
 import pathlib
 from typing import TYPE_CHECKING
 
-# Scripts in this directory import each other as top-level modules, which mypy finds only by their
-# paths in the repository.
+# Scripts in this directory import each other as top-level modules.  mypy knows these files only as
+# experiments.quantum_tanner.*, and would silently treat a bare "import saved_codes" as untyped.
 if TYPE_CHECKING:
     from experiments.quantum_tanner import saved_codes
 else:
@@ -98,8 +99,8 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
 
     Returns one row with the fields in CSV_FIELDS per distinct code, sorted by group, local codes,
     complex, and seed.  Raises a ValueError if saved results contradict each other: if copies of a
-    code have different parameters (n, k), if computations disagree on its exact distance, or if its
-    exact distance exceeds an upper bound.
+    code have different parameters (n, k) or stabilizer weights, if computations disagree on its
+    exact distance, or if its exact distance exceeds an upper bound.
     """
     # group the saved files by the code that they save
     paths_by_key = collections.defaultdict(list)
@@ -107,15 +108,14 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
         paths_by_key[saved_codes.get_code_key(path)].append(path)
     exact_distances = get_exact_distances(results_dir)
 
-    rows: list[tuple[tuple[int | str | bool, ...], tuple[int | str, ...]]] = []
+    keyed_rows: list[tuple[tuple[int | str | bool, ...], tuple[int | str, ...]]] = []
     for key, paths in paths_by_key.items():
         # read the header of every copy of this code, and check that their parameters agree
         headers = [saved_codes.read_code_header(path) for path in paths]
-        params = {(num_qudits, dimension) for _, (num_qudits, dimension, _), _ in headers}
-        if len(params) > 1:
+        params_and_weights = {(nn, kk, weight) for _, (nn, kk, _), weight in headers}
+        if len(params_and_weights) > 1:
             raise ValueError(f"Copies of a code have different parameters: {paths}")
-        num_qudits, dimension = params.pop()
-        weight = min(weight for _, _, weight in headers)
+        num_qudits, dimension, weight = params_and_weights.pop()
 
         # this code has no logical qubits, so we can ignore it
         if dimension == 0:
@@ -152,8 +152,8 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
             num_trials,
             weight,
         )
-        rows.append((get_spec_sort_key((spec, seed)), row))
-    return [row for _, row in sorted(rows)]
+        keyed_rows.append((get_spec_sort_key((spec, seed)), row))
+    return [row for _, row in sorted(keyed_rows)]
 
 
 def get_exact_distances(results_dir: pathlib.Path) -> dict[str, int]:
@@ -176,11 +176,12 @@ def get_exact_distances(results_dir: pathlib.Path) -> dict[str, int]:
 def get_spec_sort_key(
     spec_and_seed: tuple[saved_codes.CodeSpec, int],
 ) -> tuple[int | str | bool, ...]:
-    """Get a key that sorts specifications and seeds by group, local codes, complex, and seed."""
+    """Get a key that sorts specifications and seeds by group, local codes, complex, and seed.
+
+    Groups are sorted by their orders first; see saved_codes.get_group_sort_key.
+    """
     spec, seed = spec_and_seed
-    family, *group_parameters = spec.group_id.split("-")
-    group_order = saved_codes.get_group_order(spec.group_id)
-    group_key: tuple[int | str, ...] = (group_order, family, *map(int, group_parameters))
+    group_key = saved_codes.get_group_sort_key(spec.group_id)
     return (*group_key, spec.code_a_id, spec.code_b_id, spec.bipartite, seed)
 
 

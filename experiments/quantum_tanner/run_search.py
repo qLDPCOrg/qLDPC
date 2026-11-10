@@ -23,7 +23,8 @@ qldpc.objects.CayleyComplex.  With --bipartite, the codes instead live on the bi
 code on this complex has at most as many qubits as the code with the same subsets on the
 quadripartite complex, and often half as many.  The search tries up to MAX_TNC_ATTEMPTS seeds per
 sample to find subsets that satisfy the Total No Conjugacy condition, and skips a sample if none of
-them does.
+them does.  It skips groups and local codes whose subsets cannot satisfy this condition at all; see
+get_search_space.
 
 The subsets are not uniformly random (see qldpc.abstract.Group.random_symmetric_subset).  The
 frequencies of code parameters among saved codes therefore reflect this sampler, rather than the
@@ -60,8 +61,8 @@ from typing import TYPE_CHECKING
 
 from qldpc import codes
 
-# Scripts in this directory import each other as top-level modules, which mypy finds only by their
-# paths in the repository.
+# Scripts in this directory import each other as top-level modules.  mypy knows these files only as
+# experiments.quantum_tanner.*, and would silently treat a bare "import saved_codes" as untyped.
 if TYPE_CHECKING:
     from experiments.quantum_tanner import saved_codes
 else:
@@ -211,11 +212,12 @@ def get_search_space(
     block length of that code.
 
     For a bipartite complex, also skips groups whose subsets cannot satisfy the Total No Conjugacy
-    condition, which a common member s of both subsets violates with s * e == e * s.  The subsets
-    must therefore be disjoint, so the group needs at least as many elements as the two local codes
-    have bits together.  Moreover, a symmetric subset with an odd number of members contains a
-    member that is its own inverse, which is the identity element in a group of odd order.  A group
-    of odd order thereby has no disjoint symmetric subsets of odd sizes.
+    condition.  A member s of both subsets violates this condition, since s * e == e * s for the
+    identity element e.  The subsets must therefore be disjoint, so the group needs at least as many
+    elements as the two local codes have bits together.  Moreover, a symmetric subset with an odd
+    number of members contains a member that is its own inverse, which is the identity element in a
+    group of odd order.  A group of odd order thereby has no disjoint symmetric subsets of odd
+    sizes.
     """
     local_code_pairs = list(local_code_pairs)
     for group_id in group_ids:
@@ -280,8 +282,8 @@ def run_and_save(
     Skips a code that already has a saved file, unless overwrite is True.  The random seed for the
     code is deterministic (see saved_codes.CodeSpec.get_seed), so rerunning this function with the
     same inputs reproduces the same code.  For a bipartite complex, this function tries up to
-    MAX_TNC_ATTEMPTS seeds, and skips the code if none of them satisfies the Total No Conjugacy
-    condition.
+    MAX_TNC_ATTEMPTS seeds, and skips the code if none of them draws subsets that satisfy the Total
+    No Conjugacy condition.
 
     SymPy PermutationGroup objects do not survive pickling, which a process pool uses to pass
     arguments to its workers.  The specification of a code therefore identifies its group, which
@@ -290,8 +292,7 @@ def run_and_save(
     Args:
         spec: The specification of the code.
         sample: The index of this code among random samples with the same specification.
-        num_spec_samples: The number of samples with this specification, used to report
-            progress.
+        num_spec_samples: The number of samples with this specification, used to report progress.
         num_trials: The number of randomized trials for upper-bounding the code distance.
         codes_dir: The directory in which to save the code.
         overwrite: If True, regenerate and save a code that already has a saved file.
@@ -349,8 +350,8 @@ def build_first_valid_code(
         try:
             return spec.build(seed), seed
         except ValueError:
-            # The group, local codes, and subset sizes are valid, so the only error expected here is
-            # a violation of the Total No Conjugacy condition by the subsets of a bipartite complex.
+            # The group and local codes are valid, and get_search_space checked the subset sizes, so
+            # the only error expected here is a violation of the Total No Conjugacy condition.
             if not spec.bipartite:
                 raise
     return None

@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING
 
 from qldpc import codes
 
-# Scripts in this directory import each other as top-level modules, which mypy finds only by their
-# paths in the repository.
+# Scripts in this directory import each other as top-level modules.  mypy knows these files only as
+# experiments.quantum_tanner.*, and would silently treat a bare "import saved_codes" as untyped.
 if TYPE_CHECKING:
     from experiments.quantum_tanner import saved_codes
 else:

@@ -6,8 +6,9 @@
 The distances that run_search.py saves are randomized upper bounds, which can be far from exact.
 This script computes the exact distance of every distinct code saved by run_search.py that has at
 least one logical qubit, with the connected-support search of qLDPC (method "connected_support" of
-qldpc.codes.CSSCode.get_distance_exact).  Codes saved under different seeds can be identical (see
-saved_codes.get_code_key), and each distinct code is computed once.
+qldpc.codes.CSSCode.get_distance_exact).  Saved codes count as distinct if their generating data
+(subsets, local codes, and complex; see saved_codes.get_code_key) differ.  The exact distance of
+each distinct code is computed once.
 
 The cost of an exact distance grows rapidly with the distance and the weights of parity checks, so
 it is hard to predict from the number of qubits.  Each computation therefore runs in its own Python
@@ -15,7 +16,8 @@ process, which is stopped if it takes longer than --time-limit seconds, includin
 to start.  Codes whose computation is stopped keep only the upper bound on their distance from
 run_search.py.  Codes are processed in order of increasing size.  Interrupting this script with
 Ctrl-C also stops its child processes, whereas killing only the process of this script leaves them
-running until they finish.
+running, without a time limit, until they finish.  To stop them too, kill the process group of this
+script.
 
 Results are appended to exact_distances.csv in --results-dir (by default,
 results/exact_distances.csv in this directory), with one row per finished or stopped computation.
@@ -51,8 +53,8 @@ from typing import TYPE_CHECKING
 
 from qldpc import codes
 
-# Scripts in this directory import each other as top-level modules, which mypy finds only by their
-# paths in the repository.
+# Scripts in this directory import each other as top-level modules.  mypy knows these files only as
+# experiments.quantum_tanner.*, and would silently treat a bare "import saved_codes" as untyped.
 if TYPE_CHECKING:
     from experiments.quantum_tanner import saved_codes
 else:
@@ -183,9 +185,11 @@ def get_codes_to_compute(
 def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[int | None, float]:
     """Compute the exact distance of a saved code in a child process, within a time limit.
 
-    Returns the exact distance, or None if the computation was stopped at the time limit, and the
-    duration of the computation in seconds.  Raises a RuntimeError with the error output of the
-    child process if it fails.
+    Returns a pair: the exact distance (or None if the computation was stopped at the time limit)
+    and the duration of the computation in seconds.
+
+    Raises:
+        RuntimeError: If the child process fails or prints no distance, with its output.
     """
     start = time.perf_counter()
     command = [sys.executable, __file__, "--code-file", str(path)]
@@ -195,13 +199,15 @@ def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[int |
         )
     except subprocess.TimeoutExpired:
         return None, time.perf_counter() - start
-    message = f"Child process exited with code {process.returncode}:\n{process.stderr}"
     if process.returncode != 0:
-        raise RuntimeError(message)
+        raise RuntimeError(
+            f"Child process exited with code {process.returncode}:\n{process.stderr}"
+        )
     try:
         distance = int(process.stdout.splitlines()[-1])
     except (IndexError, ValueError):
-        raise RuntimeError(message) from None
+        output = process.stdout + process.stderr
+        raise RuntimeError(f"Child process printed no distance:\n{output}") from None
     return distance, time.perf_counter() - start
 
 

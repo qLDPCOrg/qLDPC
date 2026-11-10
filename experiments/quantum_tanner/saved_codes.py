@@ -87,20 +87,21 @@ class CodeSpec:
         """Get the random seed of an attempt to draw a sample with this specification.
 
         The seed of attempt 0 is a deterministic hash of the group, the bytes of the parity check
-        matrices of the local codes, the choice of complex, and the sample index.  The second local
-        code and the choice of complex enter only if they differ from the defaults (dual local codes
-        and the quadripartite complex).  Specifications with default choices thereby have the seeds
-        of codes saved by earlier versions of run_search.py, which had no other choices.  The bytes
-        of a parity check matrix depend on its rows and data type, so a change to how a local code
-        is constructed changes the seeds of its codes.
+        matrices of the local codes, the choice of complex, and the sample index.  Groups in the
+        SmallGroups library enter by their order and index, and the second local code and the choice
+        of complex enter only if they differ from the defaults (dual local codes and the
+        quadripartite complex).  These inputs keep the seeds of codes that searches with default
+        choices have saved, so that such searches resume from them.  The bytes of a parity check
+        matrix depend on its rows and data type, so a change to how a local code is constructed
+        changes the seeds of its codes.
 
         The seed of a later attempt is a hash of the seed of attempt 0 and the attempt index.  A
-        bipartite complex exists only if the subsets drawn for a seed satisfy the Total No
-        Conjugacy condition (see qldpc.objects.CayleyComplex), so run_search.py tries up to
-        MAX_TNC_ATTEMPTS attempts per sample.
+        bipartite complex exists only if the subsets drawn for a seed satisfy the Total No Conjugacy
+        condition (see qldpc.objects.CayleyComplex), so run_search.py makes up to MAX_TNC_ATTEMPTS
+        attempts per sample.
         """
-        # identify groups in the SmallGroups library by their order and index, as before other
-        # families of groups were supported, and other groups by their identifiers
+        # identify groups in the SmallGroups library by their order and index, and other groups by
+        # their identifiers
         family, *group_parameters = self.group_id.split("-")
         if family == "SmallGroup":
             inputs: list[object] = [int(parameter) for parameter in group_parameters]
@@ -192,6 +193,16 @@ def get_group_order(group_id: str) -> int:
     """Get the order of a group from its identifier, without constructing the group."""
     family, *parameters = group_id.split("-")
     return int(parameters[0]) * (2 if family == "Dihedral" else 1)
+
+
+def get_group_sort_key(group_id: str) -> tuple[int | str, ...]:
+    """Get a key that sorts groups by their orders, and then by their identifiers.
+
+    Numbers in identifiers are compared as numbers, so that "SmallGroup-16-2" comes before
+    "SmallGroup-16-10".
+    """
+    family, *parameters = group_id.split("-")
+    return (get_group_order(group_id), family, *map(int, parameters))
 
 
 ####################################################################################################
@@ -309,13 +320,13 @@ def read_code_header(path: pathlib.Path) -> tuple[int, tuple[int, int, int | flo
 
 
 def get_code_key(path: pathlib.Path) -> str:
-    """Get a key that identifies the quantum Tanner code in a saved file.
+    """Get a key that identifies the generating data of the quantum Tanner code in a saved file.
 
     Two files have the same key if and only if they save the same subsets, local codes, field, and
-    choice of complex, and thereby the same code.  The key ignores the header of the file, the order
-    in which the members of each subset are listed, which can differ between Python sessions, and
-    the choice of parity checks of each local code, which can differ between equal codes with
-    different identifiers.
+    choice of complex, and thereby the same code.  Different generating data can still give the
+    same code.  The key ignores the header of the file, the order in which the members of each
+    subset are listed, which can differ between Python sessions, and the choice of parity checks of
+    each local code, which can differ between equal codes with different identifiers.
     """
     lines = path.read_text().splitlines()
     start_a, start_b, start_code_a, start_code_b = (
@@ -331,8 +342,8 @@ def get_code_key(path: pathlib.Path) -> str:
         """Get the nonzero rows of the reduced row echelon form of a parity check matrix."""
         if not rows:
             return []
-        matrix = field([[int(value) for value in row.split()] for row in rows]).row_reduce()
-        return [" ".join(map(str, row)) for row in matrix.tolist() if any(row)]
+        matrix = field([[int(value) for value in row.split()] for row in rows]).row_space()
+        return [" ".join(map(str, row)) for row in matrix.tolist()]
 
     # sort the members of each subset, and reduce the parity check matrix of each local code
     generating_data = [
