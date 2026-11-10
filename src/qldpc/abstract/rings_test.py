@@ -14,6 +14,7 @@ import sympy.combinatorics
 
 from qldpc import abstract
 from qldpc.abstract import rings
+from qldpc.external import _groups
 
 
 def test_ring() -> None:
@@ -269,10 +270,6 @@ def test_group_members_of_ring_members() -> None:
 
 def test_primitive_central_idempotents(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """Get primitive central idempotents, sorted by their vectors of coefficients."""
-    # Import inside the test, so that collecting this file does not run the module-level lines of
-    # _groups.py, which the coverage check requires _groups_test.py to cover.
-    from qldpc.external import _groups
-
     ring = ring_cyclic3_gf2
     x = ring.generators[0]
     assert ring.get_primitive_central_idempotents() == (x**2 + x, x**2 + x + 1)
@@ -339,9 +336,6 @@ def test_precomputed_primitive_central_idempotents_need_default_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Only a field with the default irreducible polynomial uses the precomputed idempotents."""
-    # see test_primitive_central_idempotents for why this import is here
-    from qldpc.external import _groups
-
     # pretend that the table holds the identity as the only idempotent of GF(9)[C2]
     group = abstract.CyclicGroup(2)
     table = {(group.to_gap_group(), 9): (((1, ()),),)}
@@ -356,9 +350,6 @@ def test_precomputed_primitive_central_idempotents_need_default_field(
 
 def test_precomputed_primitive_central_idempotents() -> None:
     """The precomputed primitive central idempotents equal the computed ones."""
-    # see test_primitive_central_idempotents for why this import is here
-    from qldpc.external import _groups
-
     frobenius_group = abstract.Group(  # SmallGroup(21, 1)
         abstract.GroupMember([[1, 2, 4], [3, 6, 5]]), abstract.GroupMember([list(range(7))])
     )
