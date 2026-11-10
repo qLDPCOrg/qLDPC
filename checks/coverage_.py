@@ -4,8 +4,8 @@
 """Check that every module is fully covered by its own test file, in one parallel pytest run.
 
 Each module ``x.py`` with a test file ``x_test.py`` must be fully covered by ``x_test.py`` alone,
-and each test file must be fully covered itself.  A module without a test file of its own fails the
-check, unless it is a ``conftest.py`` file or matches ``EXCLUDE``.
+and each test file must be fully covered itself.  A module under ``src/`` without a test file of its
+own fails the check, unless it is a ``conftest.py`` file or matches ``EXCLUDE``.
 
 Rather than run every test file in its own process, which repeats the imports and other setup of
 every process for each test file, this check runs the test files together in one pytest-xdist run,
@@ -17,7 +17,8 @@ credits every test file with the lines that ran while pytest started, or while a
 repository first ran, which every test file needs.
 
 ``--isolated`` instead runs each test file in its own process, as an audit of the coverage that this
-check credits.
+check credits.  It runs only from the root directory of the repository.  If a selected module needs
+a test file and has none, it fails without running the audit.
 
 ``--shard K/N`` checks only the K-th of N shards of the test files, so that N machines can share the
 check.  Every shard reports every selected module without a test file, since such modules are in no
@@ -73,7 +74,8 @@ def run(*args: str) -> int:
         "--isolated",
         action="store_true",
         help="Run each test file in its own process instead (slower),"
-        " as an audit of the coverage that this check credits.",
+        " as an audit of the coverage that this check credits."
+        "  Runs only from the root directory of the repository.",
     )
     parser.add_argument(
         "--shard",
@@ -87,16 +89,22 @@ def run(*args: str) -> int:
     if "coverage" in parsed_args.skip:
         return 0
     if any("::" in file for file in parsed_args.files):
-        parser.error("the check runs whole test files, not test node IDs")
-    if parsed_args.isolated and parsed_args.shard is not None:
-        parser.error("--shard does not apply to --isolated")
+        parser.error(
+            "the check takes paths, not test node IDs; to pass a pytest option whose value is"
+            " a node ID, write it as --option=value"
+        )
     if parsed_args.isolated:
+        if parsed_args.shard is not None:
+            parser.error("--shard does not apply to --isolated")
         # checks_superstaq looks for test files relative to the current directory, so from any other
         # directory it would find none, and pass.
         if not os.path.samefile(os.getcwd(), check_utils.root_dir):
             parser.error("--isolated runs only from the root directory of the repository")
-        # checks_superstaq skips modules without a test file, so they fail before the audit runs.
-        if untested := get_untested_files(check_utils.extract_files(parsed_args, "*.py", EXCLUDE)):
+        # checks_superstaq skips modules without a test file, so fail those that need one here,
+        # without running the audit.
+        if untested := get_untested_files(
+            check_utils.extract_files(parsed_args, "*.py", EXCLUDE, silent=True)
+        ):
             return report_results(0, [], untested)
         modular_args = [arg for arg in args if arg != "--isolated"]
         return checks_superstaq.coverage_.run(
@@ -123,7 +131,7 @@ def run(*args: str) -> int:
 
 
 def get_untested_files(files: Sequence[str]) -> list[str]:
-    """The selected modules, other than ``conftest.py`` files, that have no test file of their own.
+    """The selected modules under ``src/``, other than ``conftest.py`` files, without a test file.
 
     Files that match ``EXCLUDE``, which are selected only when they are given explicitly, need no
     test file.
@@ -131,13 +139,17 @@ def get_untested_files(files: Sequence[str]) -> list[str]:
     return [
         file
         for file in check_utils.exclude_files(files, EXCLUDE)
-        if os.path.basename(file) != "conftest.py"
+        if pathlib.PurePath(file).parts[0] == "src"
+        and os.path.basename(file) != "conftest.py"
         and not check_utils.get_test_files([file], exclude=EXCLUDE, silent=True)
     ]
 
 
 def get_covered_files(files: Sequence[str]) -> dict[str, list[str]]:
-    """Map each test file to the selected files that it must cover: its module and itself."""
+    """Map each test file to the selected files that it must cover.
+
+    These are its module, if any, and itself.
+    """
     covered_files: dict[str, list[str]] = {}
     for file in files:
         test_files = check_utils.get_test_files([file], exclude=EXCLUDE, silent=True)
@@ -163,14 +175,12 @@ def get_shard(files: Sequence[str], shard_number: int, num_shards: int) -> list[
     check what the unsharded check does.  Files without a test file are in no shard.  The size of a
     test file stands in for the time that it takes: each test file, from largest to smallest, joins
     the shard with the smallest total size so far.  The shards depend only on the names and sizes of
-    the test files of the selected files, so every machine of a sharded check computes the same
-    ones.
+    the test files of the selected files, so every machine with the same checkout computes the same
+    shards.  Call it from the root directory of the repository, to which the paths of the files are
+    relative.
     """
     covered_files = get_covered_files(files)
-    file_sizes = {
-        test_file: os.path.getsize(os.path.join(check_utils.root_dir, test_file))
-        for test_file in covered_files
-    }
+    file_sizes = {test_file: os.path.getsize(test_file) for test_file in covered_files}
     shard_sizes = [0] * num_shards
     shards: list[list[str]] = [[] for _ in range(num_shards)]
     for test_file in sorted(
@@ -183,8 +193,10 @@ def get_shard(files: Sequence[str], shard_number: int, num_shards: int) -> list[
         covered_files
     ):
         raise RuntimeError("The shards do not hold every test file exactly once.")
-    selected = {file for test_file in shards[shard_number - 1] for file in covered_files[test_file]}
-    return [file for file in files if file in selected]
+    shard_files = {
+        file for test_file in shards[shard_number - 1] for file in covered_files[test_file]
+    }
+    return [file for file in files if file in shard_files]
 
 
 def check_test_files(

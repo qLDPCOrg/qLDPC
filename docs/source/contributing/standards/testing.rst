@@ -3,8 +3,9 @@ Testing standard
 
 This standard covers what tests should guard and the conditions under which they run.
 
-* Every module needs its own co-located ``*_test.py``: the coverage gate requires each module to be fully covered by its own test file, and fails a module under ``src/`` without one, other than an ``__init__.py`` or ``conftest.py`` file.
-  The gate runs the selected test files in one parallel pytest run, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
+* Every module under ``src/``, other than an ``__init__.py`` or ``conftest.py`` file, needs its own co-located ``*_test.py``.
+  The coverage gate fails a module without one, and requires each module to be fully covered by its own test file.
+  The gate runs the selected test files together on parallel pytest workers, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
   Between test files on one worker, it resets the repository's shared fixtures and qLDPC's ``functools`` caches, but not other module-level state.
   Reach a hard-to-reach branch with a focused test rather than a broad scenario.
 * Tests run with network sockets disabled.

@@ -34,11 +34,12 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           python-version: 3.14
-          # setup-uv's cache key hashes pyproject.toml, so runs that change that file cannot reuse it
+          # Install from scratch, as a new user would.
           enable-cache: false
-      # Install everything that a development installation does, which no other job installs at once.
+      # Install what a development installation (pip install -e '.[dev]') does, which no other job
+      # installs together.
       - name: Install package and dependencies
-        run: uv sync --extra dev --extra gap
+        run: uv sync --extra dev
 
   ubuntu:
     name: Ubuntu check of minimum dependency versions (Python 3.11)

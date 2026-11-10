@@ -1,5 +1,7 @@
-# The main checks of qLDPC: formatting, lint, and types; the documentation build; the fast example
-# notebooks; and the tests, with the coverage of each module by its own test file.
+# This workflow checks every push to main and every pull request that is ready for review.  Its
+# jobs lint the code and check its formatting and types, build the documentation, run the fast
+# example notebooks, and run the tests with the per-module coverage check.  build-changes.yaml runs
+# further checks, such as the installation check, only when pyproject.toml changes.
 
 name: Continuous integration
 
@@ -109,14 +111,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      # The number of shards.  The matrix must list the shards 1 to SHARDS once each, with no other
-      # dimension, and its first step checks that it does.
+      # The number of shards.  The matrix lists the shards 1 to SHARDS in order, once each, and
+      # nothing else.  The job's first step checks this.
       SHARDS: 3
     strategy:
       # Let every shard finish when one fails, so that each reports its own failures.
       fail-fast: false
       matrix:
-        # Each shard checks a share of the test files on its own runner (see coverage_.py --shard).
+        # Each shard checks a share of the test files on its own runner (see checks/coverage_.py
+        # --shard).
         shard: [1, 2, 3]
     steps:
       - name: Check that the matrix runs each shard once
@@ -130,8 +133,8 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        # Compile the installed packages to bytecode once, in parallel, rather than in each test
-        # process that first imports them.
+        # Compile the dependencies to bytecode while installing them, in parallel, rather than in
+        # the test workers, which start together and would each compile what they import.
         run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
       - name: Run coverage
         # Use every CPU of the dedicated runner (the check defaults to half of them).
@@ -140,9 +143,9 @@ jobs:
           --jobs "$(nproc)" --shard "${{ matrix.shard }}/$SHARDS"
 
   coverage-result:
-    # Combine the results of the shards into one check, whose name, unlike theirs, does not depend
-    # on the number of shards, for branch protection to require.  It runs even when a shard fails or
-    # the run is cancelled, since GitHub counts a skipped required check as passing.
+    # Combine the results of the shards into one check for branch protection to require.  Unlike
+    # the names of the shards, its name does not depend on their number.  It runs even when a shard
+    # fails or the run is cancelled, since GitHub counts a skipped required check as passing.
     name: Pytest and coverage check
     if: always() && github.event.pull_request.draft == false
     needs: coverage
