@@ -33,7 +33,8 @@ Start from a symptom
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
    * - Queries of ``CosetLeaderSearch`` by the Brouwer--Zimmermann method at moderate maximum weights are slow, as in residual-weight estimates
      - Lower :attr:`~SearchTuning.overlapping_minimum_work`, so that cheaper queries try a family of overlapping information sets, or a disjoint family with more information sets or a larger partial set.
-       The oracle builds these families once for each cached search (see :data:`CSS_SEARCH_CACHE_SIZE` and :data:`PAULI_SEARCH_CACHE_SIZE`).
+       In the BZ searches by physical weight, and in the searches of the X and Z parts of errors for the CSS weight on CSS states, a query also weighs words without the pivot columns of each set if its predicted examinations with the family that it takes reach the threshold too.
+       The oracle builds these families and their tails once for each cached search (see :data:`CSS_SEARCH_CACHE_SIZE` and :data:`PAULI_SEARCH_CACHE_SIZE`).
        For larger overlapping families, raise :attr:`~SearchTuning.max_information_sets` or :attr:`~SearchTuning.overlapping_attempts_per_set`.
    * - A search or count uses too much memory
      - For distance searches and counts, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code, and to the scan of each sector of a count.

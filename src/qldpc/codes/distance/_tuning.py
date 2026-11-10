@@ -225,13 +225,13 @@ class SearchTuning:
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
-    #: does not try to replace its disjoint information sets by overlapping ones.  It is also the
-    #: threshold of the gate of a coset search of ``CosetLeaderSearch``: a query with fewer
-    #: predicted examinations keeps the disjoint sets.  Lowering it tries other families for cheaper
-    #: work, which may not repay their setup; zero always tries, and ``MAX_VALUE`` never does.
-    #: Defaults to 100,000, chosen for distances by unrecorded means, and kept for cosets after
-    #: replays of residual-weight estimates.  To retune it, time searches near it with and without
-    #: other families.
+    #: keeps its disjoint information sets.  It also gates the coset searches of
+    #: ``CosetLeaderSearch``: a query with fewer predicted examinations keeps the disjoint sets and
+    #: weighs whole words.  Lowering it tries other families sooner, and words without their pivot
+    #: columns in searches by Hamming weight, which may not repay their setup; zero always tries,
+    #: and ``MAX_VALUE`` never does.  Defaults to 100,000, chosen for distances by unrecorded means,
+    #: and kept for cosets after replaying residual-weight estimates.  To retune it, time searches
+    #: near it with and without other families.
     overlapping_minimum_work: int = 100_000
 
     #: The column orders that building a family of overlapping information sets tries for each set

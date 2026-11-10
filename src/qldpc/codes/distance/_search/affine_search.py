@@ -6,8 +6,9 @@ A BZ search scans the words of an affine space ``u + V`` layer by layer: layer `
 basis holds the sums of its offset and ``w`` of its rows (see ``brouwer_zimmermann.md``).  The
 distance search scans ``V`` itself, with zero offsets and quotient labels that tell eligible words
 from excluded ones, and keeps only the best weight.  The coset search of ``CosetLeaderSearch`` scans
-a coset, with the offset of each basis, and keeps the lightest word.  It can also scan the tails of
-its rows and offsets, without the pivot columns of each basis, and keep the support of the lightest
+a coset, with the offset of each basis, and keeps the lightest word.  On its routes by tails (see
+``coset_routes``), a coset search that weighs Hamming weights scans the tails of the rows and
+offsets instead, without the pivot columns of each basis, and keeps the support of the lightest
 word, from which it rebuilds the word.
 
 Every scan of this module runs one body, ``_scan``, which its compiled entry points call with

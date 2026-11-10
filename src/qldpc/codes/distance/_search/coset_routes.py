@@ -41,6 +41,19 @@ answers exactly.  Routes can return different words and lower bounds, within the
 answers do not depend on which queries came before.  The routes keep a copy of the generators of
 the code, which they read when they build the other families, so later changes to the array of the
 caller do not reach them.
+
+The gate tests the predicted examinations with the disjoint family against its threshold, to decide
+whether a query may take another family.  A route is a route by tails if those with the route's own
+family, which can do less work, also reach the threshold.  The queries of a route by tails weigh the
+words of its family by their tails, which hold the columns other than the pivot columns of each set
+(see ``coset_leader_search._CosetTails``).  So the routes also give the record of the tails of the
+family of each route by tails, which they build once for each family, with a builder that the
+search gives them.  A search that gives none, such as the search of Pauli errors by CSS weight, has
+no routes by tails.  The tails change how a query weighs words, but not which words it visits, so
+they change no answer.  A query by tails took about 50 ns more than a query of whole words in a
+prototype, for the tails of its offsets and the rebuild of its lightest word, which made batches of
+queries of under 100 examinations each up to about twice as slow.  So only queries that are costly
+even with the family of their route weigh words by their tails.
 """
 
 from __future__ import annotations
@@ -72,21 +85,27 @@ class _SearchTables(Protocol):
 
 _Tables = TypeVar("_Tables", bound=_SearchTables)
 
+# The record of the tails of a family of a coset search (see ``CosetRoutes``).
+_Tails = TypeVar("_Tails")
+
 ####################################################################################################
 # routes
 
 
-class CosetRoutes(Generic[_Tables]):
-    """The tables with which one BZ coset search answers queries of each maximum weight.
+class CosetRoutes(Generic[_Tables, _Tails]):
+    """The tables, and records of tails, with which a BZ coset search answers each maximum weight.
 
     Args:
         basis: The independent embedded generators of the code of the search, which the routes
             copy.
         disjoint: The coset instance of the disjoint information sets of ``basis``.
         build_tables: Builds the tables of the search from a coset instance of ``basis``.
-        minimum_work: The threshold of the gate, the field ``overlapping_minimum_work`` of the
-            tuning.  A query whose predicted examinations with the disjoint family are below it
-            keeps that family.
+        build_tails: Builds the record of the tails of the family of a route by tails from its coset
+            instance, or None for a search without routes by tails.
+        minimum_work: The threshold of the gate and of the routes by tails, the field
+            ``overlapping_minimum_work`` of the tuning.  A query whose predicted examinations with
+            the disjoint family are below it keeps that family.  A route is a route by tails if the
+            predicted examinations with its own family reach it.
         max_sets: The most sets of a family of overlapping information sets, the field
             ``max_information_sets`` of the tuning.
         attempts_per_set: The field ``overlapping_attempts_per_set`` of the tuning.
@@ -100,6 +119,7 @@ class CosetRoutes(Generic[_Tables]):
         basis: npt.NDArray[np.uint8],
         disjoint: affine_instance.AffineInstance,
         build_tables: Callable[[affine_instance.AffineInstance], _Tables],
+        build_tails: Callable[[affine_instance.AffineInstance], _Tails] | None,
         *,
         minimum_work: int,
         max_sets: int,
@@ -108,6 +128,7 @@ class CosetRoutes(Generic[_Tables]):
         self._basis = basis.copy()
         self._disjoint = disjoint
         self._build_tables = build_tables
+        self._build_tails = build_tails
         self._minimum_work = minimum_work
         # The tuning of the overlapping family, with the fixed seed of the distance searches.
         # ``get_overlapping_family_policy`` reads only these three fields, and the gate replaces the
@@ -120,17 +141,23 @@ class CosetRoutes(Generic[_Tables]):
         )
         self._binomials = information_sets.get_capped_binomials(len(basis))
         self.disjoint_tables = build_tables(disjoint)
-        self._tables_by_weight: dict[int, _Tables] = {}
+        self._routes_by_weight: dict[int, tuple[_Tables, _Tails | None]] = {}
         # The other families, with their tables, once a maximum weight reaches the threshold.
         self._candidates: list[tuple[affine_instance.AffineInstance, _Tables]] | None = None
+        # The record of the tails of the family of each route by tails, by the position of the
+        # family among the disjoint family and the others.
+        self._tails: dict[int, _Tails] = {}
 
-    def get_tables(self, max_weight: int) -> _Tables:
-        """The tables of the route of a maximum weight, which the routes keep for later queries."""
-        tables = self._tables_by_weight.get(max_weight)
-        if tables is None:
-            tables = self._choose(max_weight)
-            self._tables_by_weight[max_weight] = tables
-        return tables
+    def get_route(self, max_weight: int) -> tuple[_Tables, _Tails | None]:
+        """The tables of the route of a maximum weight, and its record of tails if it is by tails.
+
+        The routes keep both for later queries.
+        """
+        route = self._routes_by_weight.get(max_weight)
+        if route is None:
+            route = self._choose(max_weight)
+            self._routes_by_weight[max_weight] = route
+        return route
 
     def _get_works(
         self, instance: affine_instance.AffineInstance, tables: _Tables, max_weight: int
@@ -153,10 +180,11 @@ class CosetRoutes(Generic[_Tables]):
             for table in tables.planning
         ]
 
-    def _choose(self, max_weight: int) -> _Tables:
-        """Choose the tables of the route of a maximum weight."""
-        if self._get_disjoint_work(max_weight) < self._minimum_work:
-            return self.disjoint_tables
+    def _choose(self, max_weight: int) -> tuple[_Tables, _Tails | None]:
+        """Choose the tables of the route of a maximum weight, and its record of tails, if any."""
+        disjoint = (self._disjoint, self.disjoint_tables)
+        if self._get_examinations(*disjoint, max_weight) < self._minimum_work:
+            return self.disjoint_tables, None
 
         # Build the other families at the smallest weight from two at which the predicted
         # examinations reach the threshold.  The examinations never decrease with the weight, so
@@ -165,22 +193,35 @@ class CosetRoutes(Generic[_Tables]):
             target_weight = next(
                 weight
                 for weight in itertools.count(2)
-                if self._get_disjoint_work(weight) >= self._minimum_work
+                if self._get_examinations(*disjoint, weight) >= self._minimum_work
             )
             self._candidates = self._get_candidates(target_weight)
 
         # Take the family with the least work, and the earliest one of equal work.
-        candidates = [(self._disjoint, self.disjoint_tables), *self._candidates]
+        candidates = [disjoint, *self._candidates]
         works = [sum(self._get_works(*candidate, max_weight)) for candidate in candidates]
-        return candidates[works.index(min(works))][1]
+        index = works.index(min(works))
+        instance, tables = candidates[index]
 
-    def _get_disjoint_work(self, max_weight: int) -> int:
-        """The predicted examinations of a query with the disjoint family that finds no word.
+        # The route is by tails if its own predicted examinations reach the threshold.
+        if (
+            self._build_tails is None
+            or self._get_examinations(instance, tables, max_weight) < self._minimum_work
+        ):
+            return tables, None
+        if index not in self._tails:
+            self._tails[index] = self._build_tails(instance)
+        return tables, self._tails[index]
+
+    def _get_examinations(
+        self, instance: affine_instance.AffineInstance, tables: _Tables, max_weight: int
+    ) -> int:
+        """The predicted examinations of a query with a family that finds no word.
 
         They are the largest work of the family over its tables, plus one for the word of the
         syndrome.
         """
-        return 1 + max(self._get_works(self._disjoint, self.disjoint_tables, max_weight))
+        return 1 + max(self._get_works(instance, tables, max_weight))
 
     def _get_candidates(
         self, target_weight: int
