@@ -3,9 +3,7 @@
 """Howell normal forms of RingArrays, by Wedderburn-Artin decomposition or by polynomial division.
 
 The RingArray methods howell_normal_form_semisimple and howell_normal_form_poly document these
-forms.  This module does not import ring_array, which builds on it, at run time: the semisimple
-form is recomposed by a Wedderburn-Artin transformer, and the polynomial form is built through the
-class of its input.
+forms.
 """
 
 from __future__ import annotations
@@ -18,6 +16,7 @@ import numpy as np
 
 from qldpc.math import first_nonzero_cols
 
+from ._coefficients import ring_array_from_field_array
 from .groups import CyclicGroup
 from .rings import GroupRing
 
@@ -47,9 +46,8 @@ def get_howell_normal_form_semisimple(
             f"Semisimple Howell normal forms are implemented only for group algebras, not {ring}"
         )
     if not ring.is_semisimple:
-        raise ValueError("The ordinary Howell normal form requires the base ring to be semisimple")
+        raise ValueError("The semisimple Howell normal form requires a semisimple base ring")
     transformer = transformer or ring.get_transformer()
-    num_components = len(transformer.transformers)
 
     # identify and row-reduce the components of this RingArray
     matrices = [
@@ -65,37 +63,38 @@ def get_howell_normal_form_semisimple(
             stack = [matrix, field.Zeros((pad, *matrix.shape[1:]))]
             matrices[mm] = np.concatenate(stack).view(field)
 
+    # split rows whose pivots hide later pivots in some components (see below).  A pivot in the last
+    # column hides none.
     pivot_row = 0
     pivot_col = 0
-    num_rows, num_cols = matrices[0].shape[:2]
+    num_cols = matrices[0].shape[1]
     while pivot_row < num_rows and pivot_col < num_cols - 1:
         # Identify:
         # 1. The column of the first nonzero value in the pivot_row of each component.
         # 2. The column that will contain the pivot when we recombine the components.
-        pivot_rows_as_bools = [
-            np.any(matrix[pivot_row].view(np.ndarray).astype(bool), axis=(1, 2))
-            for matrix in matrices
-        ]
-        pivot_cols = first_nonzero_cols(pivot_rows_as_bools)
+        pivot_cols = first_nonzero_cols(
+            [np.any(matrix[pivot_row], axis=(1, 2)) for matrix in matrices]
+        )
         pivot_col = min(pivot_cols)
 
-        # Let π be a projector onto the components in which the pivot is nonzero.  If π != 1,
-        # then (1-π) is a nontrivial annihilator of the pivot.  If, moreover, (1-π)·r is
-        # nonzero, then (1-π)·r contains a "hidden" pivot in a later column.  In this case, we
-        # in principle need to replace r -> π·r and add (1-π)·r as a new row to the matrix.  In
-        # practice, this procedure messes up the reduced row echelon form of the matrix, so we
-        # instead...
-        # 1. In the (1-π) sector, insert a zero row at the pivot_row and shift down rows below.
-        # 2. In the π sector, append a zero row to the matrix.
+        # Let r be the pivot row, and π the projector onto the components in which its pivot is
+        # nonzero.  If π != 1, then (1-π) is a nontrivial annihilator of the pivot.  If, moreover,
+        # (1-π)·r is nonzero, then (1-π)·r contains a "hidden" pivot in a later column.  Keep π·r in
+        # the pivot_row, and move (1-π)·r down a row, where it joins the next row of the other
+        # components:
+        # 1. In each component where r has a hidden pivot, insert a zero row at the pivot_row,
+        #    shifting r and later rows down.
+        # 2. In every other component, append a zero row, so that all components keep the same
+        #    number of rows.
+        # The components of a matrix are independent, so the rows span the same module, and each
+        # component stays in echelon form.
         components_with_hidden_pivots = [
             cc for cc in range(len(matrices)) if pivot_col < pivot_cols[cc] < num_cols
         ]
         if components_with_hidden_pivots:
-            for cc in range(num_components):
-                matrix = matrices[cc]
-                size = transformer.transformers[cc].size
+            for cc, matrix in enumerate(matrices):
                 field = type(matrix)
-                zero_row = field.Zeros((1, num_cols, size, size))
+                zero_row = field.Zeros((1, *matrix.shape[1:]))
                 if cc in components_with_hidden_pivots:
                     stack = [matrix[:pivot_row], zero_row, matrix[pivot_row:]]
                 else:
@@ -130,7 +129,7 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
     # convert into 3-D, where the third dimension stores coefficients for group members
     field_array = ring_matrix.to_field_array()
 
-    # The "modulus" of underlying polynomial ring for this RingArray: x^n - 1.  Analogous to N
+    # The "modulus" of the underlying polynomial ring for this RingArray: x^n - 1.  Analogous to N
     # in the ring of integers modulo N.
     modulus_poly = galois.Poly([1] + [0] * (ring_matrix.group.order - 1) + [-1], ring_matrix.field)
 
@@ -168,8 +167,8 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
             if not np.any(bb_vec):
                 continue
             # Let:
-            #     aa = aa_vec[pivot_row]
-            #     bb = bb_vec[other_row]
+            #     aa = aa_vec[pivot_col]
+            #     bb = bb_vec[pivot_col]
             # We will transform rows as
             #     [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
             # where
@@ -181,12 +180,8 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
             aa_poly = galois.Poly(aa_vec[pivot_col, ::-1], field=ring_matrix.field)
             bb_poly = galois.Poly(bb_vec[pivot_col, ::-1], field=ring_matrix.field)
 
-            # find gg, ss, tt, uu, vv; mypy sees only the integer signature of galois.egcd,
-            # which also handles polynomials
-            gg_poly: galois.Poly
-            ss_poly: galois.Poly
-            tt_poly: galois.Poly
-            gg_poly, ss_poly, tt_poly = galois.egcd(aa_poly, bb_poly)  # type:ignore[assignment,arg-type]
+            # find gg, ss, tt, uu, vv
+            gg_poly, ss_poly, tt_poly = _egcd_poly(aa_poly, bb_poly)
             uu_poly = -bb_poly // gg_poly
             vv_poly = aa_poly // gg_poly
 
@@ -195,20 +190,16 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
             field_array[pivot_row] = new_aa_vec
             field_array[other_row] = new_bb_vec
 
-        # "Reduce" the pivot to gcd(pivot, modulus):
-        #     (1) Find ff for which ff * pivot = gcd(pivot, modulus) = gg.
-        #     (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gg.
-        # Multiplying the whole row by the non-unit ff would shrink the row-module span (it
-        # scales every column, not just the pivot), so preserve the span by keeping the
-        # residual: the original row minus its reconstruction quotient * (reduced row), where
-        # quotient = pivot / gg (exact, and quotient * gg = pivot with no reduction modulo
-        # x^n - 1 since deg(pivot) < n).  That residual is therefore zero in the pivot column
-        # and, being a ring-multiple of the pivot row, adds no span; it is resolved later.
+        # "Reduce" the pivot to gcd(pivot, modulus) = gcd:
+        #     (1) Find ff for which ff * pivot = gcd.
+        #     (2) Replace the pivot row with ff * (pivot row), reducing the pivot to gcd.
+        #     (3) Append the residual row (pivot row) - quotient * (reduced row), where
+        #         quotient = pivot / gcd.
+        # Step (2) alone could shrink the span of the rows, since ff need not be a unit.  The
+        # residual is zero in the pivot column, and the reduced and residual rows together span the
+        # original pivot row.  Later columns reduce the residual row.
         pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=ring_matrix.field)
-        gcd_poly: galois.Poly
-        ff_poly: galois.Poly
-        # mypy sees only the integer signature of galois.egcd, which also handles polynomials
-        gcd_poly, ff_poly, _ = galois.egcd(pivot_poly, modulus_poly)  # type:ignore[assignment,arg-type]
+        gcd_poly, ff_poly, _ = _egcd_poly(pivot_poly, modulus_poly)
         if pivot_poly != gcd_poly:
             quotient_poly = pivot_poly // gcd_poly
             reduced_row = _multiply(ff_poly, field_array[pivot_row])
@@ -217,10 +208,8 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
             field_array = np.append(field_array, [residual_row], axis=0).view(ring_matrix.field)
             pivot_poly = gcd_poly
 
-        # Reduce all rows above the pivot_row at the pivot_column.  If some value in the
-        # pivot_col above the pivot_row can be written as a multiple of the pivot plus a
-        # remainder, use row operations to subtract off that multiple of the pivot, leaving only
-        # the remainder.
+        # reduce each entry above the pivot modulo the pivot, by subtracting the pivot row times the
+        # quotient of the entry by the pivot
         for other_row in range(pivot_row):
             other_poly = galois.Poly(
                 field_array[other_row, pivot_col, ::-1], field=ring_matrix.field
@@ -229,10 +218,10 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
             if div_poly != 0:
                 field_array[other_row] -= _multiply(div_poly, field_array[pivot_row])
 
-        # Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
-        # If a nontrivial annihilator is found, append a new row with the pivot annihilated.
-        annihilator_poly = modulus_poly // pivot_poly
-        if annihilator_poly != 0:
+        # The pivot divides the modulus, so a pivot that is not a unit has the nontrivial
+        # annihilator modulus / pivot.  Append the pivot row times this annihilator.
+        if pivot_poly.degree > 0:
+            annihilator_poly = modulus_poly // pivot_poly
             new_row = _multiply(annihilator_poly, field_array[pivot_row])
             field_array = np.append(field_array, [new_row], axis=0).view(ring_matrix.field)
 
@@ -241,20 +230,25 @@ def get_howell_normal_form_poly(ring_matrix: RingArray) -> RingArray:
 
     # remove all-zero rows and return
     field_array = field_array[np.any(field_array, axis=(1, 2))]
-    return (
-        type(ring_matrix)
-        .from_field_array(field_array, ring_matrix.ring)
-        ._mark_as_hnf(transformer=None, right=False)
-    )
+    return ring_array_from_field_array(field_array, ring_matrix.ring)
+
+
+def _egcd_poly(
+    poly_a: galois.Poly, poly_b: galois.Poly
+) -> tuple[galois.Poly, galois.Poly, galois.Poly]:
+    """Return ``(gcd, s, t)`` with ``s·poly_a + t·poly_b = gcd`` (extended Euclidean algorithm)."""
+    # mypy sees only the integer signature of galois.egcd, which also handles polynomials
+    return galois.egcd(poly_a, poly_b)  # type:ignore[arg-type,return-value]
 
 
 def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) -> galois.FieldArray:
     """Compute a block-Howell normal form of the provided block matrix.
 
-    The provided matrix should be 4-dimensional, with matrix[i, j] storing a square block at (i, j).
-    The block-Howell form is essentially the same as the row-reduced echelon form when the matrix is
-    expanded into a 2-dimensional array, except zero rows are inserted to shift pivots down so that
-    they always lie on the diagonal of a block.
+    The matrix must be 4-dimensional, with ``matrix[i, j]`` the square block at ``(i, j)``.  The
+    block-Howell form is the reduced row echelon form of the expanded 2-dimensional matrix, with
+    zero rows inserted so that every pivot lies on the diagonal of a block, and all pivots in a
+    block row lie in one block column.  If ``right=True``, the blocks are transposed before and
+    after the reduction.
     """
     shape: tuple[int, ...]
 
@@ -262,7 +256,7 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     field = type(matrix)
     num_block_rows, num_block_cols, size, _ = matrix.shape
 
-    if right and size > 1:
+    if right:
         # transpose each block to turn right-side reduction into the existing left-side case
         matrix = matrix.transpose(0, 1, 3, 2)
 
@@ -271,21 +265,34 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_space()
 
     if size > 1:
-        # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
-        pivot_row, pivot_col = 0, 0
+        # Insert zero rows to shift pivots down so that they always lie on the diagonal of a block.
+        # All pivots in a block row lie in one block column, so a pivot in a later block column
+        # starts a new block row.
+        pivot_block_col = 0
         num_cols = matrix.shape[1]
+        pivot_row = 0
         while pivot_row < matrix.shape[0]:
             pivot_col = first_nonzero_cols(matrix[pivot_row])[0]
-            if pivot_row % size == 0:
+
+            # move a pivot in a later block column to the next block row
+            pad = 0
+            if pivot_row % size and pivot_col // size != pivot_block_col:
+                pad = size - pivot_row % size
+
+            # record the block column of the pivots in a new block row
+            if (pivot_row + pad) % size == 0:
                 pivot_block_col = pivot_col // size
-            if pad := pivot_col - pivot_block_col * size - pivot_row % size:
+
+            # shift the pivot onto the diagonal of its block
+            pad += pivot_col % size - (pivot_row + pad) % size
+            if pad:
                 zero_rows = np.zeros((pad, num_cols), dtype=int)
                 matrix = np.vstack([matrix[:pivot_row], zero_rows, matrix[pivot_row:]]).view(field)
                 pivot_row += pad
             pivot_row += 1
 
         # pad with zero rows on the bottom to ensure that all blocks have the correct size
-        if tail := matrix.shape[0] % size:  # pragma: no cover
+        if tail := matrix.shape[0] % size:
             zero_rows = np.zeros((size - tail, num_cols), dtype=int)
             matrix = np.vstack([matrix, zero_rows]).view(field)
 
@@ -293,7 +300,7 @@ def _get_block_howell_form(matrix: galois.FieldArray, *, right: bool = False) ->
     shape = (matrix.shape[0] // size, size, num_block_cols, size)
     matrix = matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
 
-    if right and size > 1:
+    if right:
         matrix = matrix.transpose(0, 1, 3, 2)
 
     return matrix
