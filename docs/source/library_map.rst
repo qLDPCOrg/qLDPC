@@ -118,7 +118,9 @@ A ``Ring`` is a finite-dimensional algebra over a finite field, such as a :class
 Each entry lifts to a block matrix over that field, and ``RingArray.lift()`` returns the resulting ``galois.FieldArray``.
 Every ``RingArray`` has one base ring, and arithmetic between arrays or ring members over different rings raises an error.
 Lifted products accept matrices over commutative rings and over group algebras, and the ``LPCode`` docstring lists the requirements on their rings.
-Their canonical logical operators are implemented only for group algebras, and need a field characteristic that does not divide the group order (see :meth:`LPCode.get_canonical_logical_line_ops <qldpc.codes.quantum.lifted_product.LPCode.get_canonical_logical_line_ops>`).
+Their canonical logical operators come from one of two routes (see :meth:`LPCode.get_canonical_logical_line_ops <qldpc.codes.quantum.lifted_product.LPCode.get_canonical_logical_line_ops>`).
+The semisimple route is implemented only for group algebras whose group order the field characteristic does not divide, and takes precedence wherever it applies.
+The split route covers other rings whose involution transposes lifts, for seed matrices that meet the square invertibility condition of `arXiv:2607.28795 <https://arxiv.org/abs/2607.28795v2>`_ with their pivot columns last, and follows Appendix B of that paper.
 :class:`~qldpc.codes.quantum.pair_partition.PairPartitionCode` takes integer arrays of exponents and a lift size :math:`P`, and builds its ``RingArray`` matrices over the group algebra :math:`\mathbb{F}_2[\mathbb{Z}_P]` as ``code.ring_array_x`` and ``code.ring_array_z``.
 :class:`~qldpc.codes.quantum.quantum_tanner.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.surface.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
 :class:`~qldpc.codes.quantum.balanced_product.BPCode` takes symmetries of two classical codes, as permutations or as members of :meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and builds its chain complex with :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>`.
@@ -129,7 +131,7 @@ Distances across packages
 
 ``get_distance()`` computes an exact distance, and ``get_distance_bound`` computes a randomized upper bound; CSS codes also have separate X and Z distances.
 Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
-Binary codes with sparse parity checks, especially quantum codes at a high rate, can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_, whose guide compares it with Brouwer--Zimmermann.
+Binary codes with sparse parity checks can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_.
 All exact methods can take exponential time.
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.

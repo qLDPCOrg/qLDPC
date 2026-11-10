@@ -89,6 +89,7 @@ class LPCode(CSSCode):
     - https://arxiv.org/abs/2012.04068
     - https://arxiv.org/abs/2306.16400
     - https://arxiv.org/abs/2401.02911
+    - https://arxiv.org/abs/2607.28795
     """
 
     matrix_a: abstract.RingArray
@@ -108,11 +109,12 @@ class LPCode(CSSCode):
 
         If ``set_logicals`` is True, set the canonical logical line operators of the code.  These
         operators need a group algebra whose group order is not divisible by the field
-        characteristic (see ``get_canonical_logical_line_ops``).  Lifted products of binary codes
-        over groups of even order are common but fail this condition, so ``set_logicals`` defaults
-        to False.  If it is True for a ring that fails this condition, a ValueError is raised.  A
-        ValueError is also raised if these operators are invalid, which can happen if the involution
-        of the ring does not transpose lifts.
+        characteristic, or seed matrices that split at trailing pivot blocks over a ring whose
+        involution transposes lifts.  See ``get_canonical_logical_line_ops`` for these conditions.
+        Lifted products of binary codes over groups of even order are common but often fail both
+        conditions, so ``set_logicals`` defaults to False.  If it is True for matrices that fail
+        both conditions, a ValueError is raised.  A ValueError is also raised if these operators are
+        invalid, which can happen for a group algebra whose involution does not transpose lifts.
         """
         if matrix_b is None:
             matrix_b = matrix_a
@@ -154,14 +156,57 @@ class LPCode(CSSCode):
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical line operators for a lifted product code.
 
-        These operators use semisimple Howell normal forms, which are implemented only for group
-        algebras, and need a field characteristic that does not divide the group order.  This method
-        raises a NotImplementedError if either ring is not a group algebra, and otherwise a
-        ValueError for matrices over different rings or for a group algebra that fails this
-        condition.  These operators also assume that the involution of the ring transposes lifts.
+        These operators come from one of two routes.
+
+        1. Semisimple route, for group algebras whose group order the field characteristic does
+           not divide.  This route lifts the operators of ``get_canonical_ring_logical_line_ops``,
+           which use semisimple Howell normal forms.  These operators assume that the involution of
+           the ring transposes lifts.  This route takes precedence wherever it applies, even for
+           seed matrices that also fit the split route.
+        2. Split route, for seed matrices ``matrix_a`` and ``matrix_b`` that split at trailing
+           pivot blocks (defined below), following Appendix B of https://arxiv.org/abs/2607.28795v2.
+           This route is for any other ring that meets the requirements on the ring of an
+           ``LPCode``, and whose involution transposes lifts.
+
+        Let ``matrix_a`` and ``matrix_b`` have shapes ``(ma, na)`` and ``(mb, nb)``, and let ``d``
+        be the size of lifted blocks.  The first block of qudits, which is sector (0, 0), is a grid
+        of cells ``(i, j, g)``, where ``i`` indexes the columns of ``matrix_a``, ``j`` indexes the
+        columns of ``matrix_b``, and ``g`` indexes the coordinates of a lifted block.  A line of
+        qudits is a row (fixed ``i``) or a column (fixed ``j``) of this grid.  Write
+        ``matrix_a = [A_free | A_pivot]`` and ``matrix_b = [B_free | B_pivot]``, where the square
+        pivot blocks are the last ``ma`` and ``mb`` columns.  A cell is free if its ``i`` and ``j``
+        index free columns, and a pivot cell otherwise.  The seed matrices split at these pivot
+        blocks if the lifts of the pivot blocks are invertible in the actions that the code uses on
+        lines of qudits, where ``I`` is an identity matrix: ``A_pivot`` as in ``kron(matrix_a, I)``,
+        and ``B_pivot`` as in ``kron(I, matrix_b)``.  This condition generalizes the square
+        invertibility condition of Definition 16 in arXiv:2607.28795v2 to other rings, lifts, and
+        square seed matrices, with the pivot columns last.  Over a noncommutative group algebra,
+        these actions multiply from the left and from the right, and a ring matrix can be
+        invertible in one action but not the other.
+
+        The split route builds one pair of operators for each free column ``i`` of ``matrix_a``,
+        free column ``j`` of ``matrix_b``, and coordinate ``g`` of a lifted block.  The X operator
+        lies on row ``i`` of the grid, and the Z operator lies on column ``j``.  On the free cells
+        of its line, each operator is the unit vector at ``(i, j, g)``, and its values on pivot
+        cells solve the checks.  For these ``(na - ma) * (nb - mb) * d`` pairs,
+        ``logical_ops_x @ logical_ops_z.T`` is the identity.  These pairs span all logical
+        operators because the involution of the ring transposes lifts.  Without this property, a
+        subsystem lifted product can encode more logical qudits, so the split route declines such
+        rings.  This route recognizes only trailing pivot blocks, so seed matrices with invertible
+        pivot blocks elsewhere need their columns reordered first.
+
+        For matrices that fit neither route, this method raises a NotImplementedError if either
+        ring is not a group algebra, and otherwise a ValueError, such as for matrices over
+        different rings or for a group algebra whose group order the field characteristic divides.
         """
-        logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
-        return LPCode.to_lifted_logical_ops(*logical_ops_xz)
+        # the split route declines semisimple group algebras, so the semisimple route takes
+        # precedence
+        logical_ops_xz = _get_split_logical_line_ops(matrix_a, matrix_b, with_second_block=True)
+        if logical_ops_xz is not None:
+            return logical_ops_xz
+        _check_semisimple_route(matrix_a, matrix_b, mention_split_route=True)
+        ring_logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return LPCode.to_lifted_logical_ops(*ring_logical_ops_xz)
 
     @staticmethod
     def get_canonical_ring_logical_line_ops(
@@ -169,12 +214,13 @@ class LPCode(CSSCode):
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
         """Canonical ring-logical line operators for a lifted product code.
 
-        Generalizes HGPCode.get_canonical_logical_line_ops.  See
-        ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs.  Matrices
-        over different group algebras raise a ValueError.
+        Generalizes HGPCode.get_canonical_logical_line_ops.  These are the ring-valued operators of
+        the semisimple route of ``LPCode.get_canonical_logical_line_ops``, which describes the rings
+        that this route needs.  This method raises a NotImplementedError if either ring is not a
+        group algebra, and a ValueError for a group algebra whose group order the field
+        characteristic divides or for matrices over different group algebras.
         """
-        _require_group_algebras(matrix_a, matrix_b)
-        _check_same_ring(matrix_a, matrix_b)
+        _check_semisimple_route(matrix_a, matrix_b)
 
         # put each ring null space in a standard form before choosing paired logical operators
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
@@ -274,6 +320,7 @@ class SLPCode(CSSCode):
 
     - https://errorcorrectionzoo.org/c/subsystem_lifted_product
     - https://arxiv.org/abs/2404.18302
+    - https://arxiv.org/abs/2607.28795
     """
 
     def __init__(
@@ -311,11 +358,19 @@ class SLPCode(CSSCode):
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical line operators for a subsystem lifted product code.
 
-        See ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs.  These
-        operators assume that the involution of the ring transposes lifts.
+        These operators are built by the routes of ``LPCode.get_canonical_logical_line_ops``,
+        which describes the matrices that each route needs, and the errors of each route.  The
+        operators of the split route are those of ``LPCode(matrix_a, matrix_b)``, restricted to its
+        first block of qudits.
         """
-        logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
-        return SLPCode.to_lifted_logical_ops(*logical_ops_xz)
+        # the split route declines semisimple group algebras, so the semisimple route takes
+        # precedence
+        logical_ops_xz = _get_split_logical_line_ops(matrix_a, matrix_b, with_second_block=False)
+        if logical_ops_xz is not None:
+            return logical_ops_xz
+        _check_semisimple_route(matrix_a, matrix_b, mention_split_route=True)
+        ring_logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return SLPCode.to_lifted_logical_ops(*ring_logical_ops_xz)
 
     @staticmethod
     def get_canonical_ring_logical_line_ops(
@@ -323,12 +378,12 @@ class SLPCode(CSSCode):
     ) -> tuple[abstract.RingArray, abstract.RingArray]:
         """Canonical ring-logical line operators for a subsystem lifted product code.
 
-        Generalizes SHPCode.get_canonical_logical_line_ops.  See
-        ``LPCode.get_canonical_logical_line_ops`` for the rings that this method needs.  Matrices
-        over different group algebras raise a ValueError.
+        Generalizes SHPCode.get_canonical_logical_line_ops.  These are the ring-valued operators of
+        the semisimple route of ``LPCode.get_canonical_logical_line_ops``, which describes the rings
+        that this route needs.  This method raises the errors of
+        ``LPCode.get_canonical_ring_logical_line_ops``.
         """
-        _require_group_algebras(matrix_a, matrix_b)
-        _check_same_ring(matrix_a, matrix_b)
+        _check_semisimple_route(matrix_a, matrix_b)
         generator_a = matrix_a.null_space().howell_normal_form_semisimple()
         generator_b = matrix_b.null_space(right=True).howell_normal_form_semisimple(right=True)
 
@@ -381,44 +436,156 @@ def _involution_transposes_lifts(ring: abstract.Ring) -> bool:
     )
 
 
-def _require_group_algebras(*matrices: abstract.RingArray) -> None:
-    """Raise a NotImplementedError unless all matrices are over group algebras.
+def _check_semisimple_route(
+    matrix_a: abstract.RingArray,
+    matrix_b: abstract.RingArray,
+    *,
+    mention_split_route: bool = False,
+) -> None:
+    """Raise an error unless two matrices fit the semisimple route of canonical logical operators.
 
-    Canonical logical operators of lifted products use semisimple Howell normal forms, which are
-    implemented only for group algebras.  This check comes before computing null spaces, which raise
-    a ValueError for a ring without an involution.
+    The semisimple route of ``LPCode.get_canonical_logical_line_ops`` uses semisimple Howell normal
+    forms, which are implemented only for group algebras, and need a field characteristic that does
+    not divide the group order.  This function raises a NotImplementedError if either matrix is not
+    over a group algebra, and then a ValueError for matrices over different group algebras, or over
+    a group algebra that is not semisimple.  Callers run it before computing null spaces, so a ring
+    that is not a group algebra raises a NotImplementedError rather than the ValueError of a null
+    space over a ring without an involution.  If ``mention_split_route`` is True, the errors for a
+    ring that is not a group algebra or not semisimple also say that the matrices do not fit the
+    split route, for callers that tried it first.
     """
-    for matrix in matrices:
-        if not isinstance(matrix.ring, abstract.GroupRing):
-            raise NotImplementedError(
-                "Canonical logical operators of lifted products are implemented only for group"
-                f" algebras, not {matrix.ring}"
-            )
+    split_route_hint = (
+        ", and the seed matrices do not fit the split route (see"
+        " LPCode.get_canonical_logical_line_ops)"
+        if mention_split_route
+        else ""
+    )
+    ring_a, ring_b = matrix_a.ring, matrix_b.ring
+    if not isinstance(ring_a, abstract.GroupRing) or not isinstance(ring_b, abstract.GroupRing):
+        ring = ring_b if isinstance(ring_a, abstract.GroupRing) else ring_a
+        raise NotImplementedError(
+            "The semisimple route of canonical logical operators of lifted products is implemented"
+            f" only for group algebras, not {ring}{split_route_hint}"
+        )
+    _check_same_ring(matrix_a, matrix_b)
+    if not ring_a.is_semisimple:
+        raise ValueError(
+            "The semisimple route of canonical logical operators of lifted products needs a field"
+            f" characteristic that does not divide the group order, unlike that of {ring_a}"
+            f"{split_route_hint}"
+        )
 
 
 def _set_canonical_logical_line_ops(code: LPCode | SLPCode) -> None:
     """Set the canonical logical line operators of a lifted product code."""
+    ring = code.matrix_a.ring
     try:
-        ring_logical_ops_xz = code.get_canonical_ring_logical_line_ops(code.matrix_a, code.matrix_b)
+        logical_ops_xz = code.get_canonical_logical_line_ops(code.matrix_a, code.matrix_b)
     except (ValueError, NotImplementedError) as exception:
         raise ValueError(
-            "Cannot set canonical logical operators for this code, likely due to a choice of ring"
-            " for which some features are not yet supported"
+            f"Cannot set canonical logical operators for this code: {exception}"
         ) from exception
 
-    # lift these operators to the base field
-    logical_ops_xz = code.to_lifted_logical_ops(*ring_logical_ops_xz)
-
-    # if the involution of the ring transposes lifts, invalid operators are a bug
-    if _involution_transposes_lifts(code.matrix_a.ring):
-        code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+    # the split route requires an involution that transposes lifts, and the semisimple route
+    # assumes one, so invalid operators are a bug if the involution transposes lifts, and otherwise
+    # they can come from the semisimple route
+    if _involution_transposes_lifts(ring):
+        code.set_logical_ops_xz(*logical_ops_xz)
         return
-
-    # these operators assume that the involution transposes lifts, so otherwise they can be invalid
     try:
-        code.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+        code.set_logical_ops_xz(*logical_ops_xz)
     except ValueError as exception:
         raise ValueError(
             "Cannot set canonical logical operators for this code, since the involution of its ring"
             " does not transpose lifts"
         ) from exception
+
+
+def _get_split_logical_line_ops(
+    matrix_a: abstract.RingArray, matrix_b: abstract.RingArray, *, with_second_block: bool
+) -> tuple[galois.FieldArray, galois.FieldArray] | None:
+    """Canonical logical line operators of the split route, or None for matrices outside it.
+
+    See ``LPCode.get_canonical_logical_line_ops`` for the split route.  This function returns None
+    for matrices over semisimple group algebras, which the semisimple route takes, and for other
+    matrices that the split route does not support.  If ``with_second_block`` is True, the operators
+    also cover the second block of qudits of an LPCode, on which they vanish.
+    """
+    ring = matrix_a.ring
+    if (
+        matrix_b.ring != ring
+        or (isinstance(ring, abstract.GroupRing) and ring.is_semisimple)
+        or not (ring.is_commutative or isinstance(ring, abstract.GroupRing))
+        or not ring.has_involution
+        or not _involution_transposes_lifts(ring)
+    ):
+        return None
+
+    # lift the checks on one column and on one row of the first block of qudits, using the actions
+    # of the lifted product
+    one = np.ones((1, 1), dtype=int)
+    checks_a = abstract.kron(matrix_a, one).lift()
+    checks_b = abstract.kron(one, matrix_b).lift()
+    logical_ops_xz = _get_paired_grid_line_ops(checks_a, checks_b, ring.lift_dim)
+    if logical_ops_xz is None or not with_second_block:
+        return logical_ops_xz
+
+    # the operators vanish on the second block of qudits of an LPCode
+    second_block_size = len(matrix_a) * len(matrix_b) * ring.lift_dim
+    zeros = ring.field.Zeros((len(logical_ops_xz[0]), second_block_size))
+    logical_ops_x, logical_ops_z = (np.hstack([ops, zeros]) for ops in logical_ops_xz)
+    return logical_ops_x.view(ring.field), logical_ops_z.view(ring.field)  # views for type checks
+
+
+def _get_paired_grid_line_ops(
+    checks_a: galois.FieldArray, checks_b: galois.FieldArray, block_size: int
+) -> tuple[galois.FieldArray, galois.FieldArray] | None:
+    """Paired X and Z line operators on a grid of blocks, or None if a pivot block is singular.
+
+    Let ``checks_a`` and ``checks_b`` have shapes ``(ma * block_size, na * block_size)`` and
+    ``(mb * block_size, nb * block_size)``.  The grid has shape ``(na, nb, block_size)``, flattened
+    in row-major order.  Z operators are supported on one column of the grid, where they must
+    satisfy ``checks_a``.  X operators are supported on one row, where they must satisfy
+    ``checks_b``.  The pivot block of each check matrix is its last square block of columns.
+
+    If both pivot blocks are invertible, then for each free cell ``(i, j, g)``, with
+    ``i < na - ma`` and ``j < nb - mb``, this function returns the X operator on row ``i`` and the
+    Z operator on column ``j`` that equal the unit vector at ``(i, j, g)`` on free cells of that
+    line.  Their values on pivot cells solve the checks.  An X operator on row ``i`` and a Z
+    operator on column ``j'`` meet only at the free cells ``(i, j', g')``, so the X operator for
+    ``(i, j, g)`` and the Z operator for ``(i', j', g')`` overlap only if they are the same cell,
+    and ``logical_ops_x @ logical_ops_z.T`` is the identity.
+
+    Returns:
+        The X operators and Z operators, both ordered by ``(i, j, g)``, or None if a check matrix
+        has more rows than columns or its pivot block is not invertible.
+    """
+    # on one line, a pivot block is invertible if and only if the reduced null space of the checks
+    # is the identity on free coordinates, followed by the values that solve the checks
+    line_ops = []
+    for checks in (checks_a, checks_b):
+        num_free = checks.shape[1] - len(checks)
+        if num_free < 0:
+            return None
+        null_space = checks.null_space().row_reduce()
+        if not np.array_equal(null_space[:, :num_free], np.eye(num_free, dtype=int)):
+            return None
+        line_ops.append(null_space)
+    line_ops_z, line_ops_x = line_ops
+
+    # place each X line operator on a free row of the grid
+    field = type(checks_a)
+    num_rows, num_cols = checks_a.shape[1] // block_size, checks_b.shape[1] // block_size
+    num_free_rows = len(line_ops_z) // block_size
+    num_free_cols = len(line_ops_x) // block_size
+    logical_ops_x = np.kron(field.Identity(num_rows)[:num_free_rows], line_ops_x).view(field)
+
+    # place each Z line operator on a free column of the grid
+    logical_ops_z = field.Zeros(
+        (num_free_rows, num_free_cols, block_size, num_rows, num_cols, block_size)
+    )
+    line_ops_z_grid = line_ops_z.reshape(num_free_rows, block_size, num_rows, block_size)
+    for col in range(num_free_cols):
+        logical_ops_z[:, col, :, :, col, :] = line_ops_z_grid
+    grid_size = num_rows * num_cols * block_size
+    return logical_ops_x, logical_ops_z.reshape(len(logical_ops_x), grid_size)

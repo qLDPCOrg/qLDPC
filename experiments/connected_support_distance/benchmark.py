@@ -3,8 +3,7 @@
 
 """Time the exact distance searches of qLDPC on pair-partition codes.
 
-The benchmark compares the connected-support method with Brouwer-Zimmermann (BZ), as the
-connected-support guide, src/qldpc/codes/distance/connected_support.md, describes.  The embedded
+The benchmark times the connected-support method and Brouwer-Zimmermann (BZ).  The embedded
 instances are ``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes with sparse parity
 checks, mostly of high rate (arXiv:2607.14091 and arXiv:2609.30069).  They come from
 https://github.com/ultra-high-rate-qec/design-principles-data (``codes/css/cpm_pp/instances``), and
@@ -37,9 +36,6 @@ Examples:
     python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
     python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
     python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
-
-Section 2 of the guide lists the times of the instances with both methods, some of which take hours
-or more.
 """
 
 from __future__ import annotations
