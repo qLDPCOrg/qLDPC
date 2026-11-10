@@ -87,11 +87,11 @@ def select_completion_tables(
     ``rows`` holds the packed tails of a systematic basis whose layer ``weight`` a search is about
     to scan, with the best weight ``upper_bound``, and ``tuning`` is the tuning of the search.  A
     count of the words of weight ``t`` passes ``t + 1``, the lightest weight that it may skip.  For
-    a layer of at least ``tuning.completion_bound_minimum_layer_work`` supports, the function
-    estimates, from random supports of the layer, a conservative lower bound on the share that
-    tables would skip.  It predicts the cost of scanning the layer with tables, counting the cost of
-    building them unless the search passes its tables of ``rows`` as ``current``.  Tables use blocks
-    of ``tuning.completion_bound_block_bits`` columns, or of
+    a layer whose tables the tuning considers (see ``considers_tables``), the function estimates,
+    from random supports of the layer, a conservative lower bound on the share that tables would
+    skip.  It predicts the cost of scanning the layer with tables, counting the cost of building
+    them unless the search passes its tables of ``rows`` as ``current``.  Tables use blocks of
+    ``tuning.completion_bound_block_bits`` columns, or of
     ``tuning.completion_bound_fallback_block_bits`` if those would need more than
     ``tuning.completion_bound_max_table_bytes`` bytes.
 
@@ -100,17 +100,9 @@ def select_completion_tables(
         ``tuning.completion_bound_max_cost_percent`` percent of the cost of a scan without them, or
         None.
     """
-    # Consider only the layers and tables that the tuning allows.  Like the work estimates of
-    # certificates, the work of a layer saturates at their cap, so that the largest threshold of a
-    # tuning considers no layer.
+    # Consider only the layers and tables that the tuning allows.
     num_rows = len(rows)
-    num_supports = math.comb(num_rows, weight)
-    work = min(num_supports, information_sets._WORK_CAP)
-    if (
-        not 2 <= weight <= num_rows
-        or work < tuning.completion_bound_minimum_layer_work
-        or not tuning.completion_bound_max_cost_percent
-    ):
+    if not considers_tables(num_rows, weight, tuning):
         return None
     num_bits = _get_num_tail_bits(rows)
     block_bits = _get_block_bits(num_rows, num_bits, tuning)
@@ -134,6 +126,7 @@ def select_completion_tables(
     # with the cost of building them unless they are reused, and use them if that is within the
     # limit.  Dividing the integer binomials first keeps their ratios small, even for layers whose
     # binomials are too large for floating point.
+    num_supports = math.comb(num_rows, weight)
     kept_ratio = math.comb(num_rows, weight - 1) / num_supports
     prefix_ratio = math.comb(num_rows, weight - 2) / num_supports
     lookups = tuning.completion_bound_kept_first_row_ratio * (1 - share) * kept_ratio + prefix_ratio
@@ -144,10 +137,29 @@ def select_completion_tables(
     )
     cost = 1 - share + lookup_cost * lookups
     if current is None:
-        cost += _estimate_build_cost(num_rows, offsets, block_bits, tuning) / work
+        cost += _estimate_build_cost(num_rows, offsets, block_bits, tuning) / _get_layer_work(
+            num_rows, weight
+        )
     if 100 * cost > tuning.completion_bound_max_cost_percent:
         return None
     return CompletionTables.build(rows, block_bits) if current is None else current
+
+
+def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
+    """Whether a tuning considers completion tables for layer ``weight`` of a basis of ``num_rows``.
+
+    Tables bound the completions of a prefix by two more rows, so the layer must have at least two
+    rows, and no more than the basis.  It must have at least
+    ``tuning.completion_bound_minimum_layer_work`` supports.  Like the work estimates of
+    certificates, this number saturates at their cap, so that the largest threshold of a tuning
+    considers no layer.  A tuning that allows no cost or no bytes of tables considers none.
+    """
+    return (
+        2 <= weight <= num_rows
+        and _get_layer_work(num_rows, weight) >= tuning.completion_bound_minimum_layer_work
+        and tuning.completion_bound_max_cost_percent > 0
+        and tuning.completion_bound_max_table_bytes > 0
+    )
 
 
 @always_compiled(inline=True)
@@ -177,6 +189,11 @@ def get_completion_bound(
         if bound >= limit:
             break
     return bound
+
+
+def _get_layer_work(num_rows: int, weight: int) -> int:
+    """The number of supports of a layer, saturated at the cap of work estimates."""
+    return min(math.comb(num_rows, weight), information_sets._WORK_CAP)
 
 
 def _get_num_tail_bits(rows: npt.NDArray[np.uint64]) -> int:

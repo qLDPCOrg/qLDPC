@@ -17,7 +17,6 @@ and Section 5 states the counting requirement.
 from __future__ import annotations
 
 import itertools
-import math
 from collections.abc import Callable
 
 import numpy as np
@@ -302,20 +301,17 @@ class _StepTables:
         self._step: tuple[int, int] | None = None
         self._selected: tuple[completion_bounds.CompletionTables, _PackedMatrix] | None = None
 
-        # The layers whose steps the tuning considers for tables: those of at least two rows that
-        # scan at least completion_bound_minimum_layer_work supports, saturating like the gate's,
-        # which form a range since binomials rise and then fall.
+        # The layers whose steps the tuning considers for tables, which form a range since binomials
+        # rise and then fall.
         self.layers = range(0)
         num_rows = 0 if basis_family is None else basis_family.generators.shape[1]
-        if tuning.completion_bound_max_cost_percent and tuning.completion_bound_max_table_bytes:
-            considered = [
-                layer
-                for layer in range(2, num_rows + 1)
-                if min(math.comb(num_rows, layer), information_sets._WORK_CAP)
-                >= tuning.completion_bound_minimum_layer_work
-            ]
-            if considered:
-                self.layers = range(considered[0], considered[-1] + 1)
+        considered = [
+            layer
+            for layer in range(num_rows + 1)
+            if completion_bounds.considers_tables(num_rows, layer, tuning)
+        ]
+        if considered:
+            self.layers = range(considered[0], considered[-1] + 1)
 
         # Rows of steps with tables carry their tails, which have the same number of words in every
         # set whose block is an information set.
