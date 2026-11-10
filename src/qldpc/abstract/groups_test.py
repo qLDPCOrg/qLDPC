@@ -283,13 +283,29 @@ def test_generate_after_sympy_changes_order() -> None:
 
 
 def test_lifts_return_independent_arrays() -> None:
-    """Mutating a returned regular or adjoint lift does not corrupt cached lifts."""
+    """Writing into a lift, or into the matrices that a group was built from, does not change it."""
     group = abstract.CyclicGroup(3)
     member = group.identity
     expected = np.identity(group.order, dtype=int)
     for lift in [group.regular_lift, group.adjoint_lift]:
         lift(member)[:] = 0
         assert np.array_equal(lift(member), expected)
+
+    # a group from matrices copies them, and lifts members to new arrays
+    matrices: list[npt.NDArray[np.int_]] = [
+        galois.GF(3)([[1, 1], [0, 1]]),
+        np.array([[0, 1], [1, 0]]),
+    ]
+    for matrix in matrices:
+        matrix_group = abstract.Group.from_generating_mats(matrix)
+        ring = abstract.GroupRing(matrix_group, field=3)
+        (generator,) = matrix_group.generators
+        expected_lift = matrix.T.copy()
+        matrix[:] = 0
+        matrix_group.lift(generator)[:] = 0
+        ring.lift(generator)[:] = 0
+        assert np.array_equal(matrix_group.lift(generator), expected_lift)
+        assert np.array_equal(ring.lift(generator), expected_lift)
 
 
 def assert_valid_lifts(group: abstract.Group) -> None:
@@ -786,6 +802,10 @@ def test_matrix_groups_over_wide_fields() -> None:
     group = abstract.Group.from_generating_mats(swap, flip, flip.astype(np.int32), swap)
     assert group.order == 8 and len(group.generators) == 2
 
+    # an array of Python integers as objects multiplies them exactly
+    big = np.array([[2**40, 1 - 2**80], [1, -(2**40)]], dtype=object)
+    assert abstract.Group.from_generating_mats(big).order == 2
+
     # matrices over fields whose elements are stored as Python objects are compared by value
     field = galois.GF(2**70)
     element = field(2**65)
@@ -797,6 +817,10 @@ def test_matrix_groups_over_wide_fields() -> None:
     ) == abstract.groups._array_key(np.array([[1]], dtype=object))
     inverse = int(element**-1)
     assert abstract.Group.from_generating_mats(field([[0, 2**65], [inverse, 0]])).order == 2
+
+    # a list of rows over such a field is a matrix over it
+    rows = list(field([[0, 2**65], [inverse, 0]]))
+    assert abstract.Group.from_generating_mats(rows).order == 2
 
 
 def test_pgl_requires_trivial_center() -> None:
@@ -824,6 +848,23 @@ def test_matrix_groups_keep_their_field() -> None:
     for group in groups:
         assert group.field is field
         assert all(type(group.lift(member)) is field for member in group.generators)
+
+    # nested sequences of field elements give matrices over their field
+    swap = field([[0, 1], [1, 0]])
+    matrices: list[npt.NDArray[np.int_] | list[npt.NDArray[np.int_]] | list[list[int]]] = [
+        list(swap),
+        [list(row) for row in swap],
+        np.array([list(row) for row in swap], dtype=object),
+    ]
+    for matrix in matrices:
+        swap_group = abstract.Group.from_generating_mats(matrix)
+        assert swap_group.order == 2 and type(swap_group.lift(swap_group.generators[0])) is field
+
+    # matrices over different fields raise an error, even with equal entries
+    with pytest.raises(ValueError, match="Inconsistent fields"):
+        abstract.Group.from_generating_mats([swap[0], galois.GF(3)([1, 0])])
+    with pytest.raises(ValueError, match="Inconsistent fields"):
+        abstract.Group.from_generating_mats(swap, galois.GF(3)([[0, 1], [1, 0]]))
 
 
 @pytest.mark.parametrize(

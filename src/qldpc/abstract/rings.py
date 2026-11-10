@@ -847,11 +847,13 @@ class RingMember:
     (see ``Group``).
 
     A RingMember combines on either side with integers and members of an equal ring, and with field
-    scalars on its right.  A member of a group algebra also combines on either side with members of
-    its group.  Combining a RingMember with a member of a different ring raises a ValueError.  So
-    does combining a member of a group algebra with a group member outside its group, or
-    constructing a RingMember from a label that does not denote a basis element of its ring.
-    Combining a member of any other ring with a group member raises a TypeError.
+    scalars on its right, which are read as coefficients (see ``RingMember.from_vector``).  A member
+    of a group algebra also combines on either side with members of its group.  Combining a
+    RingMember with a member of a different ring raises a ValueError.  So does combining a member of
+    a group algebra with a group member outside its group, or constructing a RingMember from a label
+    that does not denote a basis element of its ring.  Combining a member of any other ring with a
+    group member raises a TypeError.  So does combining a RingMember with a field array, whereas a
+    RingMember combines with a ``RingArray`` entrywise.
 
     An integer operand in ``[0, q)`` is the field element with that integer representation in
     galois.  Over ``GF(4)``, for example, the integer ``2`` is a primitive element, whereas
@@ -903,7 +905,7 @@ class RingMember:
             yield coefficient, label
 
     def __add__(self, other: int | galois.FieldArray | GroupMember | RingMember) -> RingMember:
-        if isinstance(other, (int, self.field, GroupMember)):
+        if isinstance(other, (int, galois.FieldArray, GroupMember)):
             # convert a scalar or group member into a ring member, with the scalar or group member
             # on the right, since galois raises an error for a field scalar on the left
             return self + self.ring.one * other
@@ -933,8 +935,16 @@ class RingMember:
         if isinstance(other, int):
             other = self.ring._eval_int(other)
 
-        if isinstance(other, self.field):
-            # multiply coefficients by 'other'
+        if isinstance(other, galois.FieldArray):
+            if other.ndim:
+                raise TypeError(
+                    "A RingMember combines with field scalars, not with a field array of shape"
+                    f" {other.shape}\nTry combining ring_member with RingArray.build(array, ring)"
+                )
+
+            # multiply coefficients by 'other', read in the field of this ring
+            if type(other) is not self.field:
+                other = self.ring._read_coefficients(other)
             new_element = self.ring.zero
             for val, label in self:
                 new_element._vec[label] = val * other
@@ -950,7 +960,7 @@ class RingMember:
         return NotImplemented
 
     def __rmul__(self, other: int | galois.FieldArray | GroupMember) -> RingMember:
-        if isinstance(other, (int, self.field)):
+        if isinstance(other, (int, galois.FieldArray)):
             return self * other
 
         if isinstance(other, GroupMember):

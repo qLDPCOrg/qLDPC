@@ -448,26 +448,29 @@ class Group:
         return Group(*members, generate_func=generate_func, lift=lift)
 
     @staticmethod
-    def from_generating_mats(*matrices: npt.NDArray[np.integer] | Sequence[Sequence[int]]) -> Group:
+    def from_generating_mats(
+        *matrices: npt.NDArray[np.integer]
+        | Sequence[Sequence[int | galois.FieldArray] | npt.NDArray[np.integer]],
+    ) -> Group:
         """Construct a Group from a set of generating matrices.
 
         The matrices should be over a finite field (e.g. a ``galois.FieldArray``), so that the group
-        that they generate is finite.  Integer matrices must generate a finite group, and multiply
-        as NumPy's fixed-width integers, which overflow silently.
+        that they generate is finite.  A nested sequence or object array of field elements, such as
+        a list of rows over a finite field, is a matrix over their field.  Matrices over different
+        fields raise a ValueError.  Integer matrices must generate a finite group, and multiply as
+        NumPy's fixed-width integers, which overflow silently.
         """
         if not matrices:
             return TrivialGroup()
+        gens = [_read_generating_matrix(matrix) for matrix in matrices]
+        if len({type(gen) for gen in gens if isinstance(gen, galois.FieldArray)}) > 1:
+            raise ValueError("Inconsistent fields provided to Group.from_generating_mats")
 
         # keep track of distinct group members and a multiplication table
         index_to_member: dict[int, npt.NDArray[np.int_]] = {}
         key_to_index: dict[bytes, int] = {}
         generator_indices = []
-        for matrix in matrices:
-            # keep each matrix with its own type, such as a FieldArray, which the lift keeps
-            gen = cast(
-                npt.NDArray[np.int_],
-                matrix if isinstance(matrix, np.ndarray) else np.asarray(matrix, dtype=int),
-            )
+        for gen in gens:
             if (key := _array_key(gen)) not in key_to_index:
                 key_to_index[key] = len(key_to_index)
                 index_to_member[key_to_index[key]] = gen
@@ -516,7 +519,7 @@ class Group:
 
             These matrices are generally not orthogonal (see the module docstring).
             """
-            return index_to_member[permutation_to_index[tuple(member.array_form)]].T
+            return index_to_member[permutation_to_index[tuple(member.array_form)]].T.copy()
 
         # identify generating permutations and build the group itself
         generators = [GroupMember(table[row]) for row in generator_indices]
@@ -1397,6 +1400,34 @@ def _iter_scalar_orbits(
         representatives[_array_key(representative)] = representative
     for key in sorted(representatives):
         yield representatives[key]
+
+
+def _read_generating_matrix(
+    matrix: npt.NDArray[np.integer]
+    | Sequence[Sequence[int | galois.FieldArray] | npt.NDArray[np.integer]],
+) -> npt.NDArray[np.int_]:
+    """Read a matrix into a new array, keeping its type, or the field of its field elements.
+
+    A nested sequence or an array of objects that holds field elements is a matrix over their field.
+    Any other array is copied, and any other nested sequence is read as integers.
+    """
+    if isinstance(matrix, galois.FieldArray) or (
+        isinstance(matrix, np.ndarray) and matrix.dtype != object
+    ):
+        return cast(npt.NDArray[np.int_], matrix.copy())
+    fields = {
+        type(value) for row in matrix for value in row if isinstance(value, galois.FieldArray)
+    }
+    if len(fields) > 1:
+        raise ValueError("Inconsistent fields provided to Group.from_generating_mats")
+
+    # read Python integers, which the elements of large fields can need
+    integers = [[int(value) for value in row] for row in matrix]
+    if fields:
+        return cast(npt.NDArray[np.int_], fields.pop()(integers))
+    if isinstance(matrix, np.ndarray):
+        return cast(npt.NDArray[np.int_], matrix.copy())
+    return np.array(integers, dtype=int)
 
 
 def _array_key(matrix: npt.NDArray[np.integer]) -> bytes:
