@@ -1743,12 +1743,7 @@ def _search_from_syndrome_word(
         search by tails weighs as many words.
     """
     num_sets, num_rows, width = generators.shape
-
-    # Reduce the word on each information set to its offset, which is zero on its pivot columns.
-    offsets = np.empty((num_sets, width), dtype=np.uint64)
-    for set_index in range(num_sets):
-        offsets[set_index] = best
-        _reduce_to_offset(offsets[set_index], generators[set_index], pivots[set_index])
+    offsets = _get_offsets(best, generators, pivots)
 
     # Visit each layer one information set at a time, up to the stopping step.  The scans of layers
     # take work space for one set, and weigh Hamming weights, which are ``scale`` times the weights,
@@ -1842,32 +1837,11 @@ def _search_by_tails_from_syndrome_word(
     """
     num_sets, num_rows, _ = generators.shape
     tail_width = tails.shape[2]
+    ranks, offset_tails = _get_offset_tails(packed_syndrome, best, pivots, tails, inverse_tails)
 
-    # Find the rank of each information set and the tail of its offset.  The rows of a set with
-    # pivots on which the word of the syndrome has ones reduce the word to the offset, since every
-    # row is zero on the pivots of the other rows.  The tail of the word sums the tails of the rows
-    # of the inverse for the set bits of the syndrome.
-    ranks = np.zeros(num_sets, dtype=np.int64)
-    offset_tails = np.zeros((num_sets, tail_width), dtype=np.uint64)
-    for set_index in range(num_sets):
-        _xor_selected_rows(packed_syndrome, inverse_tails[set_index], offset_tails[set_index])
-        rank = 0
-        while rank < num_rows and pivots[set_index, rank] >= 0:
-            pivot = pivots[set_index, rank]
-            if best[pivot // 64] >> np.uint64(pivot % 64) & np.uint64(1):
-                for index in range(tail_width):
-                    offset_tails[set_index, index] ^= tails[set_index, rank, index]
-            rank += 1
-        ranks[set_index] = rank
-
-    # The scans of layers weigh Hamming weights, which are ``scale`` times the weights.  The skip
-    # bound is one more than the greatest Hamming weight at most the cutoff that a word of the coset
-    # can have: ``cutoff + 1``, or the cutoff itself if the search rounds to parity and the words of
-    # the coset have the parity of ``cutoff + 1``.
+    # The scans of layers weigh Hamming weights, which are ``scale`` times the weights.
     best_ones, cutoff = scale * best_weight, scale * max_weight
-    skip_bound = cutoff + 1
-    if parity >= 0 and (cutoff - parity) % 2:
-        skip_bound = cutoff
+    skip_bound = _get_skip_bound(cutoff, parity)
 
     # Visit each layer one information set at a time, up to the stopping step, and skip the sets
     # that ``_search_from_syndrome_word`` skips.
@@ -2293,12 +2267,6 @@ def _search_coset_for_min_weight_by_tails(
                 upper_bound = new_upper_bound
                 stop_layer, stop_num_completed = _get_first_step_reaching(bounds, upper_bound)
         layer += 1
-
-
-# The next four helpers serve the searches for minimum weights.  ``_get_stopping_step``,
-# ``_search_from_syndrome_word``, and ``_search_by_tails_from_syndrome_word``, which serve the
-# threshold queries, keep the same code inline, since calling these helpers would change the code
-# that numba compiles for them.
 
 
 @always_compiled(inline=True)
