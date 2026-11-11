@@ -27,10 +27,10 @@ Read the [orientation](docs/source/contributing/index.rst#orientation) before re
 
 ## Reviews
 
-When asked to run a **standard review**, coordinate it as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
-Run a standard review only when asked; you may suggest one.
-As a reviewer within a standard review, follow the coordinator's instructions, and end your report without a review status.
-Otherwise, end every report on a change with its review status, as in "standard review: not run", "independent review: passed after 1 round; open decisions: none", "standard review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "standard review: not passed after 4 rounds; open decisions: none".
+When asked to run a **full review** or a **quick review**, coordinate it as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
+Run a full review only when asked; you may suggest one.
+As a reviewer within a review, follow the coordinator's instructions, and end your report without a review status.
+Otherwise, end every report on a change with its review status, as in "full review: not run", "quick review: passed after 1 round; open decisions: none", "full review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "full review: not passed after 4 rounds; open decisions: none".
 Count every pre-existing problem that the review fixed, and list each one in the report, so that the maintainer sees each change they did not ask for.
 When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
@@ -49,10 +49,9 @@ Leave repository-wide test runs, notebook runs, and the GAP integration tests to
 
 ## Handing off a change
 
-Hand a change to the maintainer to push only once it has passed the review that suits it: the review the maintainer asked for, or otherwise at least one independent review.
-An independent reviewer, such as a subagent with its own context, did not write the change.
+Hand a change to the maintainer to push only once it has passed the review that suits it: the review the maintainer asked for, or otherwise at least a [quick review](docs/source/contributing/reviewing.rst#quick-review).
 A review passes when its last round has no significant finding.
-If the maintainer did not ask for a review and a standard review would suit the change, suggest one rather than handing the change off.
+If the maintainer did not ask for a review and a full review would suit the change, suggest one rather than handing the change off.
 When handing off a change, give the following for each of its pull requests:
 
 1. Its review status, as [reviews](#reviews) describes, followed by each pre-existing problem that the review fixed, and each open decision as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
