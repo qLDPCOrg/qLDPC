@@ -28,6 +28,8 @@ import checks_superstaq
 import pytest_
 from _superstaq_coverage import coverage_
 
+from qldpc.conftest import CLEAR_CACHES_VARIABLE
+
 check_utils = checks_superstaq.check_utils
 
 # The pytest plugin of the copies, which the pytest processes import by this name.
@@ -35,10 +37,6 @@ coverage_._PLUGIN = "_superstaq_coverage._coverage_contexts"
 
 # Globs of the files that are neither checked nor run as tests.
 EXCLUDE = pytest_.EXCLUDE
-
-# The environment variable that makes qLDPC's conftest.py empty qLDPC's functools caches after each
-# test file, as a fresh process would start with them empty.
-CLEAR_CACHES_VARIABLE = "QLDPC_CLEAR_CACHES"
 
 # Options of the check, which come before the caller's arguments, so that the caller's own options
 # replace them.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
