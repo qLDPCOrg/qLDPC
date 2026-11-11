@@ -10,12 +10,12 @@ own fails the check, unless it is a ``conftest.py`` file or matches ``EXCLUDE``.
 Rather than run every test file in its own process, which repeats the imports and other setup of
 every process for each test file, this check runs the test files together in one pytest-xdist run,
 keeping the tests of each test file on one worker.  The ``coverage_contexts`` plugin labels each
-line that runs with the test file responsible for it, and resets shared state between test files
-(see that module).  This check credits a module only with the lines that its own test file ran: in
-its tests, or while it and the ``conftest.py`` files of its directories were collected.  It also
-credits every test file with the lines that ran while pytest started, or while a module of the
-repository first ran, which every test file needs.  The check skips the tests marked ``compiled``,
-which run compiled code that coverage cannot trace.
+line that runs with the test file responsible for it.  Between test files, the plugin and qLDPC's
+``conftest.py`` reset shared state (see ``coverage_contexts``).  This check credits a module only
+with the lines that its own test file ran: in its tests, or while it and the ``conftest.py`` files
+of its directories were collected.  It also credits every test file with the lines that ran while
+pytest started, or while a module of the repository first ran, which every test file needs.  The
+check skips the tests marked ``compiled``, which run compiled code that coverage cannot trace.
 
 ``--isolated`` instead runs each test file in its own process, as an audit of the coverage that this
 check credits.  It runs only from the root directory of the repository.  If a selected module needs
@@ -63,6 +63,10 @@ DURATIONS_FILE = ".test_durations"
 # containing a space as a file.  A caller's own -m option replaces it, if written without a space;
 # -mcompiled selects only the tests marked compiled, which skips the tests that coverage needs.
 PYTEST_OPTIONS = ("-pno:nbmake", "-mnot(compiled)")
+
+# The environment variable that makes qLDPC's conftest.py empty qLDPC's functools caches after each
+# test file, as a fresh process would start with them empty.
+CLEAR_CACHES_VARIABLE = "QLDPC_CLEAR_CACHES"
 
 check_utils = checks_superstaq.check_utils
 
@@ -290,6 +294,7 @@ def check_test_files(
             os.path.join(check_utils.root_dir, file) for file in test_files
         ),
         coverage_contexts.BRANCH_VARIABLE: "1" if branch else "",
+        CLEAR_CACHES_VARIABLE: "1",
     }
     # Pytest loads the conftest.py files of the paths that it is given before it collects tests, so
     # it is given only the directory that contains every test file, whose conftest.py files every
