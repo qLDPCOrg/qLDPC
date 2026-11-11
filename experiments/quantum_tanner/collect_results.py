@@ -18,11 +18,11 @@ CSV file are CSV_FIELDS:
 - code_a, code_b: the identifiers of the local codes on the two subsets of the group (see
   saved_codes.get_local_code),
 - complex: "quadripartite" or "bipartite", the Cayley complex on which the code lives,
-- exclude_identity: whether the subsets of the group exclude its identity element,
-- sample: the sample identifier of the first copy, which is "s{seed}" for subsets drawn with a
-  random seed, or "e{index}" for subsets at an index in an enumeration (see saved_codes),
+- contains_identity: whether a subset of the code contains the identity element of the group,
+- sample: the sample identifier of the first copy, which is "r{index}" for a random sample, or
+  "e{index}" for an enumerated sample (see saved_codes),
 - num_copies: the number of saved copies of the code, which may have different groups, local
-  codes, or samples,
+  codes, identity settings, or samples,
 - n, k: the number of physical qubits and the number of logical qubits,
 - d, d_kind: the code distance if d_kind is "exact", or else the smallest upper bound on the code
   distance among saved copies of the code, in which case d_kind is "upper_bound",
@@ -58,7 +58,7 @@ CSV_FIELDS = (
     "code_a",
     "code_b",
     "complex",
-    "exclude_identity",
+    "contains_identity",
     "sample",
     "num_copies",
     "n",
@@ -140,16 +140,17 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
             distance, distance_kind = upper_bound, "upper_bound"
 
         # identify this code by its first copy
-        spec, sample_id = min(
-            (saved_codes.parse_code_path(path) for path in paths), key=get_spec_sort_key
+        first_path = min(
+            paths, key=lambda path: get_spec_sort_key(saved_codes.parse_code_path(path))
         )
+        spec, sample_id = saved_codes.parse_code_path(first_path)
         row = (
             spec.group_id,
             saved_codes.get_group_order(spec.group_id),
             spec.code_a_id,
             spec.code_b_id,
             "bipartite" if spec.bipartite else "quadripartite",
-            spec.exclude_identity,
+            saved_codes.contains_identity(first_path),
             sample_id,
             len(paths),
             num_qudits,

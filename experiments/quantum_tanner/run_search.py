@@ -21,11 +21,12 @@ is built on four copies of the group (G x Z_2 x Z_2), so that the subsets need n
 No Conjugacy condition, which the bipartite complex of arXiv:2202.13641 requires; see
 qldpc.objects.CayleyComplex.  With --bipartite, the codes instead live on the bipartite complex.  A
 code on this complex has at most as many qubits as the code with the same subsets on the
-quadripartite complex, and often half as many.  The search skips groups and local codes whose
-subsets cannot satisfy the Total No Conjugacy condition at all; see get_search_space.
+quadripartite complex, and often half as many.  The search skips some groups and local codes
+whose subsets cannot satisfy the Total No Conjugacy condition at all; see get_search_space.
 
 By default, the subsets may contain the identity element of the group.  With --exclude-identity,
-they exclude it, as in arXiv:2508.05095.
+they exclude it, as in arXiv:2508.05095, whose subsets generate Cayley graphs.  Such generating
+sets usually exclude the identity, which would add a loop at every vertex.
 
 For each group and pair of local codes, the script enumerates the pairs of symmetric subsets of the
 required sizes if there are at most --num-samples of them, keeping only pairs that satisfy the Total
@@ -34,13 +35,13 @@ covers each such pair exactly once, and never constructs more codes than random 
 Different pairs can still give the same code.
 
 Otherwise, the script draws --num-samples random pairs with qldpc.codes.QTCode.random, using
-deterministic seeds.  On a bipartite complex, it tries up to MAX_TNC_ATTEMPTS seeds per random
-sample to find subsets that satisfy the Total No Conjugacy condition, and skips the sample if none
-of them does.  Random sampling has two limitations.  First, the subsets are not uniformly random
-(see qldpc.abstract.Group.random_symmetric_subset), so the frequencies of code parameters among
-random samples reflect this sampler, rather than the fractions of pairs of symmetric subsets that
-give these parameters.  Second, different seeds can draw the same subsets, and thereby the same
-code.
+deterministic seeds (see saved_codes.CodeSpec.build).  On a bipartite complex, it tries up to
+saved_codes.MAX_TNC_ATTEMPTS seeds per random sample to find subsets that satisfy the Total No
+Conjugacy condition, and skips the sample if none of them does.  Random sampling has two
+limitations.  First, the subsets are not uniformly random (see
+qldpc.abstract.Group.random_symmetric_subset), so the frequencies of code parameters among random
+samples reflect this sampler, rather than the fractions of pairs of symmetric subsets that give
+these parameters.  Second, different seeds can draw the same subsets, and thereby the same code.
 
 The script upper-bounds the code distances by minimizing over --num-trials randomized trials, and
 saves each code with its parameters to a text file in the "codes" subdirectory of --results-dir (by
@@ -55,7 +56,7 @@ directory, and verify_codes.py checks that every saved code can be reproduced fr
 Examples:
     python experiments/quantum_tanner/run_search.py --max-order 6 --workers 8
     python experiments/quantum_tanner/run_search.py --groups dihedral --max-order 20 --bipartite \
-        --pairs all --base-codes Hamming-2 Random-5-2-0 Random-5-2-1 Random-5-2-2
+        --exclude-identity --pairs all --base-codes Hamming-2 Random-5-2-0 Random-5-2-1 Random-5-2-2
 """
 
 from __future__ import annotations
@@ -69,8 +70,6 @@ import traceback
 from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING
 
-from qldpc import codes
-
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.quantum_tanner.*, and would silently treat a bare "import saved_codes" as untyped.
 if TYPE_CHECKING:
@@ -83,7 +82,6 @@ MAX_ORDER = 10  # largest order of the groups to consider
 NUM_SAMPLES = 100  # random samples per group and local codes, and the most pairs to enumerate
 NUM_TRIALS = 1000  # for code distance calculations
 NUM_WORKERS = max(1, (os.cpu_count() or 1) - 2)  # number of parallel jobs
-MAX_TNC_ATTEMPTS = 100  # seeds to try per random sample for a bipartite complex
 
 # identifiers of the classical base codes to search over; see saved_codes.get_local_code
 BASE_CODE_IDS = (
@@ -119,14 +117,13 @@ def main() -> None:
         functools.partial(
             run_and_save,
             spec,
-            sample_index,
-            num_spec_samples=num_spec_samples,
-            enumerated=enumerated,
+            sample_id,
+            progress=progress,
             num_trials=args.num_trials,
             codes_dir=args.results_dir / saved_codes.CODES_NAME,
             overwrite=args.overwrite,
         )
-        for spec, sample_index, num_spec_samples, enumerated in search_space
+        for spec, sample_id, progress in search_space
     )
     run_jobs(jobs, args.workers)
 
@@ -221,25 +218,27 @@ def get_search_space(
     bipartite: bool,
     exclude_identity: bool,
     num_samples: int,
-) -> Iterator[tuple[saved_codes.CodeSpec, int, int, bool]]:
+) -> Iterator[tuple[saved_codes.CodeSpec, str, str]]:
     """Iterate over the quantum Tanner codes to construct.
 
-    Yields tuples (spec, sample_index, num_spec_samples, enumerated), where num_spec_samples is the
-    number of samples with the specification spec.  If spec has at most num_samples pairs of
-    symmetric subsets of the required sizes, the samples enumerate these pairs, keeping only those
-    that satisfy the Total No Conjugacy condition on a bipartite complex (see
-    saved_codes.get_subset_pairs), and enumerated is True.  Otherwise, the samples are num_samples
-    random samples, and enumerated is False.  A specification without pairs of subsets of the
-    required sizes, such as one whose group has fewer elements than a local code has bits, has no
-    samples.
+    Yields tuples (spec, sample_id, progress), where progress labels a sample among the samples of
+    its specification spec, such as "3/100".  If spec has at most num_samples pairs of symmetric
+    subsets of the required sizes, the samples are the enumerated pairs "e{index}", keeping only the
+    pairs that satisfy the Total No Conjugacy condition on a bipartite complex (see
+    saved_codes.get_subset_pairs).  Otherwise, the samples are num_samples random samples
+    "r{index}".  A specification without pairs of subsets of the required sizes, such as one whose
+    group has fewer elements than a local code has bits, has no samples.
 
-    For a bipartite complex, also skips groups whose subsets cannot satisfy the Total No Conjugacy
-    condition.  A member s of both subsets violates this condition, since s * e == e * s for the
-    identity element e.  The subsets must therefore be disjoint, so the group needs at least as many
-    elements as the two local codes have bits together.  Moreover, a symmetric subset with an odd
-    number of members contains a member that is its own inverse, which in a group of odd order is
-    the identity element.  A group of odd order thereby has no disjoint symmetric subsets of odd
-    sizes.
+    For a bipartite complex, also skips some groups whose subsets cannot satisfy the Total No
+    Conjugacy condition.  A member s of both subsets violates this condition, since s * e == e * s
+    for the identity element e.  The subsets must therefore be disjoint, so the group needs at least
+    as many elements as the two local codes have bits together, plus one if the subsets exclude the
+    identity element.  Moreover, a symmetric subset with an odd number of members contains a member
+    that is its own inverse, which in a group of odd order is the identity element.  A group of odd
+    order thereby has no disjoint symmetric subsets of odd sizes.  Other groups can still have no
+    valid subsets, such as dihedral groups of order 2m with odd m for subsets of odd sizes without
+    the identity (Lemma 3 of arXiv:2508.05095).  Their enumerations are empty, and their random
+    samples are skipped after saved_codes.MAX_TNC_ATTEMPTS attempts each.
     """
     local_code_pairs = list(local_code_pairs)
     for group_id in group_ids:
@@ -249,19 +248,21 @@ def get_search_space(
             num_bits_a = saved_codes.get_local_code(code_a_id).num_bits
             num_bits_b = saved_codes.get_local_code(code_b_id).num_bits
             if bipartite and (
-                order < num_bits_a + num_bits_b
+                order < num_bits_a + num_bits_b + exclude_identity
                 or order % 2 == num_bits_a % 2 == num_bits_b % 2 == 1
             ):
                 continue
 
             # enumerate pairs of subsets if there are few, and sample random pairs otherwise
             spec = saved_codes.CodeSpec(group_id, code_a_id, code_b_id, bipartite, exclude_identity)
-            enumerated = saved_codes.count_subset_pairs(spec) <= num_samples
-            num_spec_samples = (
-                len(saved_codes.get_subset_pairs(spec)) if enumerated else num_samples
-            )
-            for sample_index in range(num_spec_samples):
-                yield spec, sample_index, num_spec_samples, enumerated
+            if saved_codes.count_subset_pairs(spec) <= num_samples:
+                sample_ids = [
+                    f"e{index}" for index in range(len(saved_codes.get_subset_pairs(spec)))
+                ]
+            else:
+                sample_ids = [f"r{index}" for index in range(num_samples)]
+            for index, sample_id in enumerate(sample_ids):
+                yield spec, sample_id, f"{index + 1}/{len(sample_ids)}"
 
 
 def get_local_code_pairs(base_code_ids: Iterable[str], pairing: str) -> list[tuple[str, str]]:
@@ -292,10 +293,9 @@ def get_local_code_pairs(base_code_ids: Iterable[str], pairing: str) -> list[tup
 
 def run_and_save(
     spec: saved_codes.CodeSpec,
-    sample_index: int,
+    sample_id: str,
     *,
-    num_spec_samples: int,
-    enumerated: bool,
+    progress: str,
     num_trials: int,
     codes_dir: pathlib.Path,
     overwrite: bool,
@@ -303,11 +303,9 @@ def run_and_save(
     """Construct a quantum Tanner code, compute its parameters, and save it to a text file.
 
     Skips a code that already has a saved file, unless overwrite is True.  The subsets of the code
-    are deterministic: they are either a pair in an enumeration, or the subsets drawn with a
-    deterministic random seed (see saved_codes.CodeSpec.get_seed).  Rerunning this function with the
-    same inputs therefore reproduces the same code.  For a random sample on a bipartite complex,
-    this function tries up to MAX_TNC_ATTEMPTS seeds, and skips the code if none of them draws
-    subsets that satisfy the Total No Conjugacy condition.
+    are deterministic (see saved_codes.CodeSpec.build), so rerunning this function with the same
+    inputs reproduces the same code.  For a random sample on a bipartite complex, this function
+    skips the code if no attempt draws subsets that satisfy the Total No Conjugacy condition.
 
     SymPy PermutationGroup objects do not survive pickling, which a process pool uses to pass
     arguments to its workers.  The specification of a code therefore identifies its group, which
@@ -315,40 +313,29 @@ def run_and_save(
 
     Args:
         spec: The specification of the code.
-        sample_index: The index of this code among the samples with the same specification.
-        num_spec_samples: The number of samples with this specification, used to report progress.
-        enumerated: Whether the samples enumerate pairs of subsets, rather than drawing random
-            pairs.
+        sample_id: The sample identifier of the code; see saved_codes.
+        progress: A label of this sample among the samples of its specification, such as "3/100".
         num_trials: The number of randomized trials for upper-bounding the code distance.
         codes_dir: The directory in which to save the code.
         overwrite: If True, regenerate and save a code that already has a saved file.
     """
     # skip codes that already have a saved file, unless overwriting them
-    if enumerated:
-        sample_ids = [f"e{sample_index}"]
-    else:
-        num_attempts = MAX_TNC_ATTEMPTS if spec.bipartite else 1
-        seeds = [spec.get_seed(sample_index, attempt) for attempt in range(num_attempts)]
-        sample_ids = [f"s{seed}" for seed in seeds]
-    paths = [spec.get_path(codes_dir, sample_id) for sample_id in sample_ids]
-    if not overwrite and any(path.is_file() for path in paths):
+    path = spec.get_path(codes_dir, sample_id)
+    if path.is_file() and not overwrite:
         return
 
-    complex_text = (" bipartite" if spec.bipartite else "") + (
+    options_text = (" bipartite" if spec.bipartite else "") + (
         " without identity" if spec.exclude_identity else ""
     )
-    job_id = (
-        f"{spec.group_id} {spec.code_a_id}+{spec.code_b_id}{complex_text}"
-        f" {sample_index + 1}/{num_spec_samples}"
-    )
+    job_id = f"{spec.group_id} {spec.code_a_id}+{spec.code_b_id}{options_text} {progress}"
     print(job_id)
 
     # construct the code
-    code_and_sample_id = build_first_valid_code(spec, sample_ids)
-    if code_and_sample_id is None:
-        print(f" ({job_id}) no subsets satisfying Total No Conjugacy in {len(sample_ids)} attempts")
+    try:
+        code = spec.build(sample_id)
+    except saved_codes.NoValidSubsetsError as error:
+        print(f" ({job_id}) {error}")
         return
-    code, sample_id = code_and_sample_id
 
     # compute the parameters of the code
     code_params = code.get_code_params(bound=num_trials)
@@ -356,40 +343,11 @@ def run_and_save(
 
     # Save the code to a temporary file first, and then move it into place, so that an interrupted
     # job leaves no partial file that a resumed search would mistake for a finished code.
-    path = spec.get_path(codes_dir, sample_id)
     temp_path = path.with_name(path.name + ".tmp")
     code.save(str(temp_path), *saved_codes.get_code_header(num_trials, code_params, weight))
     temp_path.replace(path)
 
     print(f" ({job_id}) (n, k, d) = {code_params}, stabilizer weight = {weight}")
-
-
-def build_first_valid_code(
-    spec: saved_codes.CodeSpec, sample_ids: Iterable[str]
-) -> tuple[codes.QTCode, str] | None:
-    """Construct a code from the first of the given sample identifiers that defines a valid code.
-
-    Returns the code and its sample identifier, or None if no sample identifier defines a valid
-    code.  Every sample defines a valid code on a quadripartite complex, and so does every
-    enumerated sample on a bipartite complex.  A random seed defines a valid code on a bipartite
-    complex only if its subsets satisfy the Total No Conjugacy condition.
-    """
-    # construct the group and local codes first, so that their errors are not mistaken below for
-    # violations of the Total No Conjugacy condition
-    saved_codes.get_group(spec.group_id)
-    saved_codes.get_local_code(spec.code_a_id)
-    saved_codes.get_local_code(spec.code_b_id)
-
-    for sample_id in sample_ids:
-        try:
-            return spec.build(sample_id), sample_id
-        except ValueError:
-            # The group and local codes are valid, and get_search_space checked the subset sizes, so
-            # the only error expected here is a violation of the Total No Conjugacy condition by the
-            # subsets drawn for a random seed.
-            if not spec.bipartite or sample_id.startswith("e"):
-                raise
-    return None
 
 
 ####################################################################################################

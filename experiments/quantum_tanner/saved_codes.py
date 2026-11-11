@@ -6,10 +6,10 @@ The scripts in this directory share the helpers in this module.  A quantum Tanne
 is specified by a CodeSpec and a sample identifier.  The CodeSpec identifies a group, a pair of
 classical local codes, a choice of Cayley complex, and whether subsets may contain the identity
 element.  The sample identifier identifies the subsets of the group:
-- "s{seed}": the subsets that qldpc.codes.QTCode.random draws with a random seed, or
-- "e{index}": the subsets at an index in the enumeration of pairs of subsets of the required sizes,
-  which on a bipartite complex includes only the pairs that satisfy the Total No Conjugacy
-  condition (see get_subset_pairs).
+- "r{index}": the subsets of the random sample with an index, which qldpc.codes.QTCode.random draws
+  with seeds determined by the specification and the index (see CodeSpec.get_seed), or
+- "e{index}": the subsets at an index in the enumeration of pairs of subsets of the required sizes
+  (see get_subset_pairs).
 
 Each saved code is a text file, written by qldpc.codes.QTCode.save, whose name identifies its
 specification and sample, and whose header records the parameters computed by run_search.py.
@@ -52,13 +52,15 @@ EXACT_DISTANCES_NAME = "exact_distances.csv"  # file of exact distances in the r
 # columns of the file of exact distances; see compute_distances.py
 EXACT_DISTANCE_FIELDS = ("code_key", "code_file", "status", "distance", "time_limit", "seconds")
 
+MAX_TNC_ATTEMPTS = 100  # seeds to try per random sample for a bipartite complex
+
 # patterns of identifiers of groups and local codes, and of names of saved code files
 _NUMBER = r"(?:0|[1-9][0-9]*)"  # without leading zeros, so that each number has one spelling
 _GROUP_ID = rf"SmallGroup-{_NUMBER}-{_NUMBER}|Dihedral-{_NUMBER}"
 _LOCAL_CODE_ID = rf"[A-Za-z]+(?:-{_NUMBER})+"
 _CODE_FILE_NAME = re.compile(
     rf"qtcode_({_GROUP_ID})_({_LOCAL_CODE_ID})_({_LOCAL_CODE_ID})_(quadripartite|bipartite)"
-    rf"_(identity|noidentity)_([se]{_NUMBER})\.txt"
+    rf"_(withidentity|noidentity)_([er]{_NUMBER})\.txt"
 )
 
 ####################################################################################################
@@ -76,7 +78,7 @@ class CodeSpec:
         code_b_id: An identifier of the local code on the second subset; see get_local_code.
         bipartite: Whether the code lives on the bipartite Cayley complex of arXiv:2202.13641,
             rather than on the quadripartite complex of arXiv:2206.07571.
-        exclude_identity: Whether the subsets exclude the identity element of the group.
+        exclude_identity: Whether the subsets must exclude the identity element of the group.
     """
 
     group_id: str
@@ -86,58 +88,79 @@ class CodeSpec:
     exclude_identity: bool
 
     def get_seed(self, sample_index: int, attempt: int) -> int:
-        """Get the random seed of an attempt to draw a sample with this specification.
+        """Get the random seed of an attempt to draw a random sample with this specification.
 
         The seed is a deterministic hash of this specification, the sample index, and the attempt
         index.  A bipartite complex exists only if the subsets drawn for a seed satisfy the Total No
-        Conjugacy condition (see qldpc.objects.CayleyComplex), so run_search.py makes up to
-        MAX_TNC_ATTEMPTS attempts per sample.
+        Conjugacy condition (see qldpc.objects.CayleyComplex), so build makes up to
+        MAX_TNC_ATTEMPTS attempts per random sample on a bipartite complex.
         """
         return get_deterministic_hash(*dataclasses.astuple(self), sample_index, attempt)
 
     def build(self, sample_id: str) -> codes.QTCode:
         """Construct the quantum Tanner code with this specification and a sample identifier.
 
-        Raises a ValueError if, for example, the sample identifier is malformed, an enumerated index
-        is out of range, or the complex is bipartite and the subsets drawn for a random seed violate
-        the Total No Conjugacy condition.
+        Raises a NoValidSubsetsError if the complex is bipartite and no attempt draws random
+        subsets that satisfy the Total No Conjugacy condition, and a ValueError if, for example,
+        the sample identifier is malformed or an enumerated index is out of range.
         """
+        # construct the group and local codes first, so that their errors are not mistaken below for
+        # violations of the Total No Conjugacy condition
+        group = get_group(self.group_id)
         code_a = get_local_code(self.code_a_id)
         code_b = get_local_code(self.code_b_id)
-        kind, number = sample_id[:1], int(sample_id[1:])
+
+        kind, index = sample_id[:1], int(sample_id[1:])
         if kind == "e":
             subset_pairs = get_subset_pairs(self)
-            if not 0 <= number < len(subset_pairs):
+            if not 0 <= index < len(subset_pairs):
                 raise ValueError(f"Enumerated sample out of range: {sample_id}")
-            subset_a, subset_b = subset_pairs[number]
+            subset_a, subset_b = subset_pairs[index]
             return codes.QTCode(subset_a, subset_b, code_a, code_b, bipartite=self.bipartite)
-        if kind == "s":
-            return codes.QTCode.random(
-                get_group(self.group_id),
-                code_a,
-                code_b,
-                bipartite=self.bipartite,
-                exclude_identity=self.exclude_identity,
-                seed=number,
-            )
-        raise ValueError(f"Sample identifier not recognized: {sample_id}")
+        if kind != "r":
+            raise ValueError(f"Sample identifier not recognized: {sample_id}")
+
+        # draw random subsets, trying further seeds if they violate Total No Conjugacy
+        num_attempts = MAX_TNC_ATTEMPTS if self.bipartite else 1
+        for attempt in range(num_attempts):
+            try:
+                return codes.QTCode.random(
+                    group,
+                    code_a,
+                    code_b,
+                    bipartite=self.bipartite,
+                    exclude_identity=self.exclude_identity,
+                    seed=self.get_seed(index, attempt),
+                )
+            except ValueError:
+                # The group and local codes are valid, and the search checked the subset sizes, so
+                # the only error expected here is a violation of the Total No Conjugacy condition.
+                if not self.bipartite:
+                    raise
+        raise NoValidSubsetsError(
+            f"No subsets satisfying Total No Conjugacy in {num_attempts} attempts: {sample_id}"
+        )
 
     def get_path(self, codes_dir: pathlib.Path, sample_id: str) -> pathlib.Path:
         """Get the path of the file that saves the code with this specification and sample.
 
         The name of the file has the form
         "qtcode_{group}_{code_a}_{code_b}_{complex}_{identity}_{sample}.txt", where {complex} is
-        "quadripartite" or "bipartite", {identity} is "identity" if subsets may contain the identity
-        element and "noidentity" otherwise, and {sample} is the sample identifier.  See
+        "quadripartite" or "bipartite", {identity} is "withidentity" if subsets may contain the
+        identity element and "noidentity" otherwise, and {sample} is the sample identifier.  See
         parse_code_path.
         """
         complex_id = "bipartite" if self.bipartite else "quadripartite"
-        identity_id = "noidentity" if self.exclude_identity else "identity"
+        identity_id = "noidentity" if self.exclude_identity else "withidentity"
         name = (
             f"qtcode_{self.group_id}_{self.code_a_id}_{self.code_b_id}_{complex_id}_{identity_id}"
             f"_{sample_id}.txt"
         )
         return codes_dir / name
+
+
+class NoValidSubsetsError(ValueError):
+    """No attempt drew random subsets that define a valid code; see CodeSpec.build."""
 
 
 def parse_code_path(path: pathlib.Path) -> tuple[CodeSpec, str]:
@@ -162,8 +185,9 @@ def parse_code_path(path: pathlib.Path) -> tuple[CodeSpec, str]:
 def count_subset_pairs(spec: CodeSpec) -> int:
     """Count the ordered pairs of symmetric subsets of the sizes that the local codes require.
 
-    For a bipartite complex, this count includes pairs that violate the Total No Conjugacy
-    condition, which get_subset_pairs excludes.
+    The subsets exclude the identity element if spec.exclude_identity is True.  For a bipartite
+    complex, this count includes pairs that violate the Total No Conjugacy condition, which
+    get_subset_pairs excludes.
     """
     num_bits_a = get_local_code(spec.code_a_id).num_bits
     num_bits_b = get_local_code(spec.code_b_id).num_bits
@@ -177,7 +201,8 @@ def get_subset_pairs(
 ) -> list[tuple[frozenset[abstract.GroupMember], frozenset[abstract.GroupMember]]]:
     """List the ordered pairs of symmetric subsets of the sizes that the local codes require.
 
-    For a bipartite complex, the list excludes pairs that violate the Total No Conjugacy condition.
+    The subsets exclude the identity element if spec.exclude_identity is True.  For a bipartite
+    complex, the list excludes pairs that violate the Total No Conjugacy condition.
     The pairs are ordered by their first subsets, and then by their second subsets, in the order of
     get_symmetric_subsets.  The index of a pair in this list identifies an enumerated sample.  If
     this order changes, for example when the permutation representation of a group changes, then
@@ -268,12 +293,12 @@ def get_symmetric_subsets(
     on this order; see get_subset_pairs.
     """
     group = get_group(group_id)
-    members = sorted(group.generate())
-    self_inverse_members = [
+    members = [
         member
-        for member in members
-        if member == ~member and not (exclude_identity and member == group.identity)
+        for member in sorted(group.generate())
+        if not (exclude_identity and member.is_Identity)
     ]
+    self_inverse_members = [member for member in members if member == ~member]
     inverse_pairs = [(member, ~member) for member in members if member < ~member]
     return [
         frozenset(itertools.chain(singles, *pairs))
@@ -290,7 +315,8 @@ def count_symmetric_subsets(group_id: str, size: int, exclude_identity: bool) ->
     """
     num_self_inverse = get_num_self_inverse_members(group_id)
     num_inverse_pairs = (get_group_order(group_id) - num_self_inverse) // 2
-    num_self_inverse -= exclude_identity
+    if exclude_identity:
+        num_self_inverse -= 1  # the identity element is its own inverse
     return sum(
         math.comb(num_self_inverse, size - 2 * num_pairs) * math.comb(num_inverse_pairs, num_pairs)
         for num_pairs in range(size // 2 + 1)
@@ -316,7 +342,7 @@ def get_local_code(code_id: str) -> codes.ClassicalCode:
     - CordaroWagner-3 to CordaroWagner-6: [3, 2, 2], [4, 2, 2], [5, 2, 3], and [6, 2, 4], and
     - Mittal-4 to Mittal-6: [4, 2, 2], [5, 2, 3], and [6, 3, 3].
     """
-    if not re.fullmatch(_LOCAL_CODE_ID, code_id):
+    if not re.fullmatch(_LOCAL_CODE_ID, code_id) or code_id.startswith("DualDual"):
         raise ValueError(f"Local code not recognized: {code_id}")
     if code_id.startswith("Dual"):
         return ~get_local_code(code_id.removeprefix("Dual"))
@@ -424,40 +450,53 @@ def get_code_key(path: pathlib.Path) -> str:
 
     Two files have the same key if and only if they save the same subsets, local codes, field, and
     choice of complex, and thereby the same code.  Different generating data can still give the
-    same code.  The key ignores the header of the file, the order in which the members of each
-    subset are listed, which can differ between Python sessions, and the choice of parity checks of
-    each local code, which can differ between equal codes with different identifiers.
+    same code.  The key ignores the header of the file, and the choice of parity checks of each
+    local code, which can differ between equal codes with different identifiers.
     """
-    lines = path.read_text().splitlines()
-    start_a, start_b, start_code_a, start_code_b = (
-        lines.index(f"# {name}:")
-        for name in ("subset_a", "subset_b", "code_a.matrix", "code_b.matrix")
-    )
-    start_field = next(
-        index for index, line in enumerate(lines) if line.startswith("# base field:")
-    )
-    field = galois.GF(int(lines[start_field].split(":")[-1]))
+    sections = read_sections(path)
+    field = galois.GF(int(sections["base field"][0]))
 
     def get_canonical_checks(rows: list[str]) -> list[str]:
-        """Get the nonzero rows of the reduced row echelon form of a parity check matrix."""
+        """Get the rows of the reduced row echelon form of a parity check matrix, without zeros."""
         if not rows:
             return []
         matrix = field([[int(value) for value in row.split()] for row in rows]).row_space()
         return [" ".join(map(str, row)) for row in matrix.tolist()]
 
-    # sort the members of each subset, and reduce the parity check matrix of each local code
-    generating_data = [
-        lines[start_a],
-        *sorted(lines[start_a + 1 : start_b]),
-        lines[start_b],
-        *sorted(lines[start_b + 1 : start_code_a]),
-        lines[start_code_a],
-        *get_canonical_checks(lines[start_code_a + 1 : start_code_b]),
-        lines[start_code_b],
-        *get_canonical_checks(lines[start_code_b + 1 : start_field]),
-        *lines[start_field:],
-    ]
-    return hashlib.sha256("\n".join(generating_data).encode("utf-8")).hexdigest()[:16]
+    # reduce the parity check matrix of each local code
+    sections["code_a.matrix"] = get_canonical_checks(sections["code_a.matrix"])
+    sections["code_b.matrix"] = get_canonical_checks(sections["code_b.matrix"])
+    text = repr(sorted(sections.items()))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def contains_identity(path: pathlib.Path) -> bool:
+    """Does a subset of the quantum Tanner code in a saved file contain the identity element?"""
+    sections = read_sections(path)
+    return any(
+        [int(value) for value in row.split()] == list(range(len(row.split())))
+        for row in sections["subset_a"] + sections["subset_b"]
+    )
+
+
+def read_sections(path: pathlib.Path) -> dict[str, list[str]]:
+    """Read the sections of generating data in a file written by qldpc.codes.QTCode.save.
+
+    Returns the lines of each section, keyed by the name in the comment line that starts it.  The
+    sections "base field" and "bipartite" hold their values on their comment lines.
+    """
+    names = ["subset_a", "subset_b", "code_a.matrix", "code_b.matrix", "base field", "bipartite"]
+    sections: dict[str, list[str]] = {}
+    name = None
+    for line in path.read_text().splitlines():
+        if line.startswith("# ") and (comment_name := line[2:].split(":")[0]) in names:
+            name = comment_name
+            sections[name] = [line.split(":", 1)[1].strip()] if name in names[-2:] else []
+        elif name is not None:
+            sections[name].append(line)
+    if missing := [name for name in names if name not in sections]:
+        raise ValueError(f"Saved code has no sections {missing}: {path}")
+    return sections
 
 
 def read_exact_distance_records(results_dir: pathlib.Path) -> list[dict[str, str]]:
