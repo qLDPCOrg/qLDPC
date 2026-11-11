@@ -91,7 +91,8 @@ class GroupMember(comb.Permutation):
         """Compare array forms lexicographically, padding the shorter one with fixed points.
 
         Permutations that differ only in trailing fixed points are therefore neither smaller nor
-        larger than each other.  They are not equal (==), and sorting keeps their input order.  On
+        larger than each other.  Sorting therefore keeps them in their input order, although they
+        are not equal (==).  On
         permutations of the same size, this is the order of SymPy ranks.  It also covers the
         identity of the trivial group, which acts on no points.
         """
@@ -565,10 +566,10 @@ class Group:
         .. note::
             This is not a uniformly random subset, only a "sufficiently random" one.
 
-        If exclude_identity is True, the subset excludes the identity element.  Such a subset exists
-        exactly if its size is at most the order of the group minus one, and the size or the order
-        is even.  Only a group of even order has members other than the identity that are their own
-        inverses.
+        If exclude_identity is True, the subset excludes the identity element.  Such a subset of a
+        given size exists exactly if the size is at most the order of the group minus one, and the
+        size or the order is even.  A symmetric subset of odd size needs a member other than the
+        identity that is its own inverse, and only groups of even order have one.
 
         Raises:
             ValueError: If size is not positive, or no symmetric subset of that size exists.
