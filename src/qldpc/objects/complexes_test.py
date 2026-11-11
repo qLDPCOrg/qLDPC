@@ -84,6 +84,12 @@ def test_cayley_complex_reads_members_on_one_number_of_points() -> None:
         padded_cayplex = objects.CayleyComplex(*padded_subsets)
         assert cayplex.graph.number_of_nodes() == padded_cayplex.graph.number_of_nodes()
 
+    # so are members of Cayley graphs that are built without a complex
+    graph = objects.CayleyComplex.build_cayley_graph([swap, padded_swap], [reflection])
+    padded_graph = objects.CayleyComplex.build_cayley_graph([padded_swap], [reflection])
+    assert list(graph.nodes) == list(padded_graph.nodes)
+    assert list(graph.edges(data=True)) == list(padded_graph.edges(data=True))
+
 
 def test_cayley_graph_is_independent_of_hash_seed() -> None:
     """Cayley graphs list their nodes and edges in an order that does not depend on the hash seed.

@@ -245,16 +245,52 @@ def test_tanner_code_sorts_nodes_by_sort_attributes() -> None:
             np.testing.assert_array_equal(get_matrix(bit_order, label_edges), expected)
 
 
-def test_tanner_code_on_undirected_graph_orders_bits_as_edges() -> None:
-    """A Tanner code on an undirected graph orders its bits as the graph lists its edges."""
-    # The graph lists its edges as (0,1), (0,0), (0,2), (1,1), (1,2), (2,2), so node 1 has edges 0,
-    # 3, and 4, of which the subcode checks the first two.  Self-loops make this order differ from
-    # that of the edges' own (partial) order, in which the self-loop {0} precedes {0,1}.
+def test_tanner_code_on_undirected_graph_with_self_loops() -> None:
+    """A Tanner code on an undirected graph orders its bits as the graph lists its edges.
+
+    A self-loop adds 2 to the degree of its node, so its bit appears at two positions of the word
+    that its node checks, where the parity checks of the subcode add.
+    """
+    # The graph lists its edges as (0,1), (0,0), (0,2), (1,1), (1,2), (2,2), so, for example, node 0
+    # checks the word on bits (0, 1, 1, 2).  This order differs from the edges' own (partial)
+    # order, in which the self-loop {0} precedes {0,1}.
     subgraph = nx.Graph([(0, 1), (0, 0), (0, 2), (1, 1), (1, 2), (2, 2)])
     assert list(subgraph.edges) == [(0, 1), (0, 0), (0, 2), (1, 1), (1, 2), (2, 2)]
-    code = codes.TannerCode(subgraph, codes.ClassicalCode([[1, 1, 0]]))
+    subcode = codes.ClassicalCode([[1, 2, 0, 1], [0, 1, 1, 0]], field=3)
+    code = codes.TannerCode(subgraph, subcode)
+    expected = [
+        [1, 2, 1, 0, 0, 0],
+        [0, 2, 0, 0, 0, 0],
+        [1, 0, 0, 2, 1, 0],
+        [0, 0, 0, 2, 0, 0],
+        [0, 0, 1, 0, 2, 1],
+        [0, 0, 0, 0, 1, 1],
+    ]
+    np.testing.assert_array_equal(code.matrix.view(np.ndarray), expected)
+
+
+def test_tanner_code_on_graphs_with_parallel_edges() -> None:
+    """Parallel edges are distinct bits of a Tanner code, or repeated positions of a word."""
+    # each node of this undirected multigraph has two edges to each of the other nodes
+    subgraph = nx.MultiGraph([(0, 1), (0, 1), (0, 2), (0, 2), (1, 2), (1, 2)])
+    code = codes.TannerCode(subgraph, codes.ClassicalCode([[1, 0, 1, 0], [0, 1, 0, 1]]))
     supports = [tuple(np.flatnonzero(row)) for row in code.matrix.view(np.ndarray)]
-    assert supports == [(0, 1), (0, 3), (2, 4)]
+    assert supports == [(0, 2), (1, 3), (0, 4), (1, 5), (2, 4), (3, 5)]
+
+    # a directed multigraph whose check sees one of its bits twice
+    directed_subgraph = nx.MultiDiGraph(
+        [("check", "bit_0"), ("check", "bit_0"), ("check", "bit_1")]
+    )
+    code = codes.TannerCode(directed_subgraph, codes.ClassicalCode([[1, 1, 1]], field=3))
+    np.testing.assert_array_equal(code.matrix.view(np.ndarray), [[2, 1]])
+
+
+def test_tanner_code_on_undirected_graph_with_isolated_node() -> None:
+    """An isolated node of an undirected graph has degree 0, which must equal the block length."""
+    subgraph = nx.cycle_graph(3)
+    subgraph.add_node(3)
+    with pytest.raises(ValueError, match="Node 3 has degree 0"):
+        codes.TannerCode(subgraph, codes.RepetitionCode(2))
 
 
 def test_tanner_code() -> None:
