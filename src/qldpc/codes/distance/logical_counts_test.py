@@ -424,7 +424,8 @@ def test_dense_eighty_qubits_against_physical_enumeration() -> None:
                     break
                 word ^= pivots[pivot]
         columns = [sum(int(bit) << jj for jj, bit in enumerate(col)) for col in checks.T]
-        # A support has no syndrome exactly if its last qubit has the syndrome of the others.
+        # A support has no syndrome exactly if the column of its last (largest) qubit equals the
+        # syndrome of the others, and taking that qubit after the others visits each support once.
         qubits_by_column: dict[int, list[int]] = {}
         for jj, column in enumerate(columns):
             qubits_by_column.setdefault(column, []).append(jj)

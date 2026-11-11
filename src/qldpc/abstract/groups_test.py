@@ -510,21 +510,24 @@ def test_wreath_product_group() -> None:
         padded_member, bottom_members
     )
     other_group = abstract.WreathProductGroup(abstract.CyclicGroup(2), abstract.SymmetricGroup(3))
+    assert other_group.order == 2 * 6**2  # the bottom group has two generators
     assert other_group.element(other_group.top.identity, [short_member] * 2) == other_group.element(
         other_group.top.identity, [padded_member] * 2
     )
     assert member in group
     assert np.array_equal(group.lift(member), member.to_matrix())
 
-    # members act on each block by their top and bottom components, here also in a wreath product
-    # whose members of order 3 differ from their inverses
-    cyclic_group = abstract.WreathProductGroup(abstract.CyclicGroup(3), abstract.CyclicGroup(3))
-    cyclic_top_member = cyclic_group.top.generators[0]
-    cyclic_shift = cyclic_group.bottom.generators[0]
-    cyclic_bottom_members = [cyclic_shift, cyclic_group.bottom.identity, ~cyclic_shift]
+    # Members act on the points of each block of bottom_degree points by their top and bottom
+    # components.  The top generator above is its own inverse, so a wreath product of C3 by C3,
+    # whose members of order 3 differ from their inverses, also checks that no component acts by
+    # its inverse.
+    cyclic_wreath = abstract.WreathProductGroup(abstract.CyclicGroup(3), abstract.CyclicGroup(3))
+    cyclic_top_member = cyclic_wreath.top.generators[0]
+    cyclic_shift = cyclic_wreath.bottom.generators[0]
+    cyclic_bottom_members = [cyclic_shift, cyclic_wreath.bottom.identity, ~cyclic_shift]
     for wreath, top_component, bottom_components in [
         (group, top_member, bottom_members),
-        (cyclic_group, cyclic_top_member, cyclic_bottom_members),
+        (cyclic_wreath, cyclic_top_member, cyclic_bottom_members),
     ]:
         wreath_member = wreath.element(top_component, bottom_components)
         assert all(
@@ -546,6 +549,7 @@ def test_wreath_product_group_errors() -> None:
     top = abstract.SymmetricGroup(3)
     bottom = abstract.CyclicGroup(2)
     group = abstract.WreathProductGroup(top, bottom)
+    assert group.order == 6 * 2**3  # the top group has two generators
 
     with pytest.raises(ValueError, match="top member"):
         group.element(abstract.CyclicGroup(4).generators[0], [bottom.identity] * 3)

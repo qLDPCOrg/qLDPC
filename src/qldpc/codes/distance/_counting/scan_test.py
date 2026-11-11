@@ -77,7 +77,8 @@ def test_scans_resume_after_every_chunk(
 def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: int) -> None:
     """Large basis families of overlapping sets give the counts of a brute-force scan."""
     tune(overlapping_minimum_work=0, max_information_sets=max_sets)
-    # This code makes the basis family stages choose basis families of over four overlapping sets.
+    # This code makes the basis family stages choose basis families of over four overlapping sets,
+    # as test_the_information_set_limit_bounds_the_basis_families_of_a_count checks.
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)

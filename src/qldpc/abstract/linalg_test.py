@@ -185,13 +185,18 @@ def test_howell_dual_with_non_self_transpose_pivots(right: bool) -> None:
 def build_right_howell_generator_without_left_dual(
     ring: abstract.GroupRing,
 ) -> tuple[abstract.WedderburnArtinTransformer, abstract.RingArray]:
-    """Build a right-oriented Howell form over GF(5)[D₃] with no dual for right=False.
+    """Build a right-oriented Howell form over GF(5)[D₃] with no dual for right=False (a left dual).
 
     The Howell form is a single entry, which lies in the size-2 component of the ring.  Its block
     there, [[1, 0], [2, 0]], is a right-oriented pivot whose columns span the line through (1, 2).
     This line is orthogonal to itself, since 1² + 2² = 0 in GF(5), so it has no symmetric idempotent
-    projector, which the dual for right=False needs.  Return the transformer that built the Howell
-    form, and the Howell form.
+    projector, which the dual for right=False needs.
+
+    Args:
+        ring: The ring GF(5)[D₃], as the ring_dihedral3_gf5 fixture builds it.
+
+    Returns:
+        The transformer that built the Howell form, and the Howell form.
     """
     transformer = ring.get_transformer()
     component_transformer = next(ct for ct in transformer.transformers if ct.size == 2)

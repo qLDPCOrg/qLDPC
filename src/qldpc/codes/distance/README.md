@@ -132,6 +132,6 @@ Set `NUMBA_DISABLE_JIT=1` to run all of this code as plain Python while debuggin
   `python checks/coverage_.py src/qldpc/codes/distance/<module>.py` checks one module's coverage.
   The validation commands in `docs/source/contributing/index.rst` list the other checks.
 - Coverage cannot see compiled code, so tests also run compiled functions as plain Python.
-  The variants of tests that run compiled code carry the `compiled` marker (see `docs/source/contributing/standards/testing.rst`).
   `conftest.py` holds the fixtures for this, and the helpers that several test files share, such as a check of counts against brute-force enumeration.
+  The variants of tests that run compiled code carry the `compiled` marker (see `docs/source/contributing/standards/testing.rst`).
 - `readme_test.py` fails if this page omits a module, or names a file that does not exist.

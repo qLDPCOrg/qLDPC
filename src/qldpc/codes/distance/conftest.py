@@ -78,8 +78,8 @@ def compilation_mode(
     always-compiled functions that the scans of layers, the basis family stages, the automorphism
     families, the connected-support search, and the coset-leader search define or import from this
     package, such as ``completion_bounds.get_completion_bound`` in the scans of layers.  Coverage
-    can trace them.  The compiled mode, which is marked compiled, compiles the compiled-on-request
-    functions once per session, and restores plain Python afterwards.
+    can trace them.  The compiled mode carries the ``compiled`` marker.  It compiles the
+    compiled-on-request functions once per session, and restores plain Python afterwards.
     """
     if request.param == "python":
         package = __name__.rpartition(".")[0]
