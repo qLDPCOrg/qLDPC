@@ -86,7 +86,8 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/mypy_.py``
      - mypy with the repository's typing settings, over source and tests
    * - ``python checks/coverage_.py``
-     - Per-module tests and coverage, as in CI: each module under ``src/`` needs its own test file, which must pass and alone cover 100% of the module's statements
+     - Per-module tests and coverage, as in CI: each module under ``src/`` needs its own test file, which must pass and alone cover 100% of the module's statements.
+       It skips the tests marked ``compiled``.
    * - ``python checks/build_docs.py``
      - Strict Sphinx and notebook documentation build
    * - ``python checks/all_.py``
@@ -116,11 +117,12 @@ The third tier is the finishing checks.
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 
 CI runs on pull requests that are ready for review, not on drafts.
-It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, and the tests marked ``compiled``, which ``coverage_.py`` skips, so these need not run locally.
+It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
+It also runs the tests marked ``compiled``, which ``coverage_.py`` skips, so these need not run locally either.
 
 ``all_.py`` runs most checks in one command.
 It skips the per-module coverage gate and ``pyproject.toml`` formatting.
-Running it alongside ``coverage_.py`` runs the tests twice.
+Running it alongside ``coverage_.py`` runs most tests twice.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed modules only, which is much faster than a full run.

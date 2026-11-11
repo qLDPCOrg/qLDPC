@@ -46,10 +46,10 @@ import pytest_
 EXCLUDE = pytest_.EXCLUDE
 
 # Options for pytest.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
-# It skips the tests marked ``compiled``, which run compiled code that coverage cannot trace (see
-# the testing standard).  The marker expression has no space, since --isolated passes these options
-# through an argument parser that reads an argument containing a space as a file.  An option such as
-# -mcompiled, written without a space, passed to the check overrides it.
+# It skips the tests marked ``compiled`` (see the module docstring).  The marker expression has no
+# space, since --isolated passes these options through an argument parser that reads an argument
+# containing a space as a file.  A caller's own -m option replaces it, if written without a space;
+# -mcompiled selects only the tests marked compiled, which skips the tests that coverage needs.
 PYTEST_OPTIONS = ("-pno:nbmake", "-mnot(compiled)")
 
 check_utils = checks_superstaq.check_utils
@@ -61,7 +61,9 @@ def run(*args: str) -> int:
     parser.description = textwrap.dedent(
         """
         Check that every module is fully covered by its own test file, in one parallel pytest run.
-        Unrecognized arguments are passed to pytest.
+        Unrecognized arguments are passed to pytest.  Tests marked compiled are skipped.  To replace
+        this selection, pass a marker expression in one argument without spaces, as in
+        -mcompiled, which also skips the tests that coverage needs.
         """
     )
     parser.add_argument(
