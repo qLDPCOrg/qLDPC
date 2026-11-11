@@ -91,7 +91,9 @@ def test_bounds_are_exact_relaxations(
     for num_rows, num_columns in [(2, 1), (3, 5), (6, 21), (7, 70)]:
         tails = get_random_tails(rng, num_rows, num_columns)
         rows = pack_bits(tails)
-        all_tables = {bits: cb.CompletionTables.build(rows, bits) for bits in (4, 8)}
+        # compiled tables also check the default width of 16 columns, which is slow in Python
+        widths = (4, 8) if interpreted else (4, 8, 16)
+        all_tables = {bits: cb.CompletionTables.build(rows, bits) for bits in widths}
         for first, _ in itertools.product(range(num_rows - 1), range(6)):
             selection = rng.integers(0, 2, num_rows).astype(bool)
             prefix = np.bitwise_xor.reduce(tails[selection], axis=0, initial=0).astype(np.uint8)
@@ -107,7 +109,9 @@ def test_bounds_are_exact_relaxations(
                 for limit in range(bound + 2):
                     stopped = get_bound(tables.tables, tables.offsets, bits, first, packed, limit)
                     assert (stopped >= limit) == (bound >= limit)
-            assert bounds[4] <= bounds[8]
+            assert all(
+                bounds[narrow] <= bounds[wide] for narrow, wide in itertools.pairwise(widths)
+            )
 
 
 def test_bounds_ignore_ones_past_the_tails() -> None:

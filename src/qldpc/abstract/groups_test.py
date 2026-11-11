@@ -514,13 +514,25 @@ def test_wreath_product_group() -> None:
         other_group.top.identity, [padded_member] * 2
     )
     assert member in group
-    assert all(
-        member.apply(row * group.bottom_degree + col)
-        == top_member.apply(row) * group.bottom_degree + bottom_members[row].apply(col)
-        for row in range(group.top_degree)
-        for col in range(group.bottom_degree)
-    )
     assert np.array_equal(group.lift(member), member.to_matrix())
+
+    # members act on each block by their top and bottom components, here also in a wreath product
+    # whose members of order 3 differ from their inverses
+    cyclic_group = abstract.WreathProductGroup(abstract.CyclicGroup(3), abstract.CyclicGroup(3))
+    cyclic_top_member = cyclic_group.top.generators[0]
+    cyclic_shift = cyclic_group.bottom.generators[0]
+    cyclic_bottom_members = [cyclic_shift, cyclic_group.bottom.identity, ~cyclic_shift]
+    for wreath, top_component, bottom_components in [
+        (group, top_member, bottom_members),
+        (cyclic_group, cyclic_top_member, cyclic_bottom_members),
+    ]:
+        wreath_member = wreath.element(top_component, bottom_components)
+        assert all(
+            wreath_member.apply(row * wreath.bottom_degree + col)
+            == top_component.apply(row) * wreath.bottom_degree + bottom_components[row].apply(col)
+            for row in range(wreath.top_degree)
+            for col in range(wreath.bottom_degree)
+        )
     assert_valid_lifts(group)
 
     direct_product = abstract.Group.tensor_product(top, bottom)
