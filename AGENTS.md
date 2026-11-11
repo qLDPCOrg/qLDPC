@@ -30,7 +30,7 @@ Read the [orientation](docs/source/contributing/index.rst#orientation) before re
 When asked to run a **standard review**, coordinate it as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
 Run a standard review only when asked; you may suggest one.
 As a reviewer within a standard review, follow the coordinator's instructions, and end your report without a review status.
-Otherwise, end every report on a change with its review status, as in "standard review: not run", "standard review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "standard review: not passed after 4 rounds; open decisions: none".
+Otherwise, end every report on a change with its review status, as in "standard review: not run", "independent review: passed after 1 round; open decisions: none", "standard review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "standard review: not passed after 4 rounds; open decisions: none".
 Count every pre-existing problem that the review fixed, and list each one in the report, so that the maintainer sees each change they did not ask for.
 When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
@@ -42,9 +42,32 @@ Run anytime checks freely, and as-needed checks when writing, reviewing, or veri
 Run the finishing checks only when a maintainer asks you to finish a change, as in "finish this PR", or to run them.
 Such a request includes leaving you to finish a change on your own, such as while the maintainer is away, since then no one will read CI's results before you report.
 Otherwise, the maintainer usually starts CI and reads its results, which make the finishing checks unnecessary.
-So report a change ready to push once its anytime and as-needed checks pass and any review that ran is done.
+So report a change ready to push once its anytime and as-needed checks pass.
+Hand it off only as [handing off a change](#handing-off-a-change) describes.
 Run checks individually, never through `checks/all_.py`.
 Leave repository-wide test runs, notebook runs, and the GAP integration tests to CI.
+
+## Handing off a change
+
+Hand a change to the maintainer to push only once it has passed the review that suits it: the review the maintainer asked for, or otherwise at least one independent review.
+An independent reviewer, such as a subagent with its own context, did not write the change.
+A review passes when its last round has no significant finding.
+If the maintainer did not ask for a review and a standard review would suit the change, suggest one rather than handing the change off.
+When handing off a change, give the following for each of its pull requests:
+
+1. Its review status, as [reviews](#reviews) describes, followed by each pre-existing problem that the review fixed, and each open decision as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
+2. One shell block that pushes the branch and then opens GitHub's page for a new pull request, as in:
+
+   ```bash
+   cd <worktree> && git push -u origin <branch> && \
+     open "https://github.com/qLDPCOrg/qLDPC/compare/main...<branch>?expand=1"
+   ```
+
+3. The title, alone in a code block.
+4. The description, in a `markdown` code block, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
+   If the description contains code blocks, use a longer fence for it, such as four backticks.
+
+If the change has more than one pull request, say whether they depend on each other and in which order they should merge.
 
 ## Protected files
 
