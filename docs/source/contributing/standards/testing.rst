@@ -8,6 +8,9 @@ This standard covers what tests should guard and the conditions under which they
   The gate runs the selected test files together on parallel pytest workers, and credits a module only with the lines that its own test file runs in the test process, not in subprocesses (see ``checks/coverage_contexts.py``).
   Between test files on one worker, it resets the repository's shared fixtures and qLDPC's ``functools`` caches, but not other module-level state.
   Reach a hard-to-reach branch with a focused test rather than a broad scenario.
+* Coverage cannot trace Numba-compiled code, so a test of a module's compiled functions needs a variant that runs their Python versions (for an always-compiled function, its ``py_func``).
+  Mark the variant that runs the compiled code with ``pytest.mark.compiled``, as the ``binary_kernels`` fixture in ``src/qldpc/_binary_test.py`` does, and not a whole test whose own lines the gate needs to cover.
+  The coverage gate skips the tests so marked, and a separate CI job runs them.
 * Tests run with network sockets disabled.
   Mock only external boundaries such as web, subprocess, clipboard, prompt, and optional-package paths, or a module's own thin wrappers around them, never the logic under test, and do not add a live-service test.
 * Disk caches are bypassed while pytest is imported, so tests must not depend on cache persistence.

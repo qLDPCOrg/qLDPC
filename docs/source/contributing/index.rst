@@ -101,7 +101,7 @@ The third tier is the finishing checks.
   Whatever files it is given, ``format_.py`` also checks ``pyproject.toml``, and without ``--check`` it rewrites that file.
 * **As needed:** when writing, reviewing, or verifying a change, run targeted tests that cover it.
   Select tests by function, or run the test file of a changed module, as in ``python -m pytest src/qldpc/codes/common_test.py::test_name``.
-  Run ``pytest_.py`` only on selected paths, since over the whole repository it repeats the test run of ``coverage_.py``.
+  Run ``pytest_.py`` only on selected paths, since over the whole repository it largely repeats the test run of ``coverage_.py``.
   When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module.
   For example, ``python checks/coverage_.py src/qldpc/codes/common.py`` checks one module, and ``python checks/coverage_.py -i`` checks every changed module.
 * **Finishing:** local checks that catch, before CI runs, the failures that a change most likely causes.
@@ -116,7 +116,7 @@ The third tier is the finishing checks.
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 
 CI runs on pull requests that are ready for review, not on drafts.
-It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
+It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, and the tests marked ``compiled``, which ``coverage_.py`` skips, so these need not run locally.
 
 ``all_.py`` runs most checks in one command.
 It skips the per-module coverage gate and ``pyproject.toml`` formatting.

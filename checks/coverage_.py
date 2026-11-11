@@ -14,7 +14,8 @@ line that runs with the test file responsible for it, and resets shared state be
 (see that module).  This check credits a module only with the lines that its own test file ran: in
 its tests, or while it and the ``conftest.py`` files of its directories were collected.  It also
 credits every test file with the lines that ran while pytest started, or while a module of the
-repository first ran, which every test file needs.
+repository first ran, which every test file needs.  The check skips the tests marked ``compiled``,
+which run compiled code that coverage cannot trace.
 
 ``--isolated`` instead runs each test file in its own process, as an audit of the coverage that this
 check credits.  It runs only from the root directory of the repository.  If a selected module needs
@@ -45,7 +46,11 @@ import pytest_
 EXCLUDE = pytest_.EXCLUDE
 
 # Options for pytest.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
-PYTEST_OPTIONS = ("-pno:nbmake",)
+# It skips the tests marked ``compiled``, which run compiled code that coverage cannot trace (see
+# the testing standard).  The marker expression has no space, since --isolated passes these options
+# through an argument parser that reads an argument containing a space as a file.  An option such as
+# -mcompiled, written without a space, passed to the check overrides it.
+PYTEST_OPTIONS = ("-pno:nbmake", "-mnot(compiled)")
 
 check_utils = checks_superstaq.check_utils
 
@@ -108,7 +113,7 @@ def run(*args: str) -> int:
             return report_results(0, [], untested)
         modular_args = [arg for arg in args if arg != "--isolated"]
         return checks_superstaq.coverage_.run(
-            *modular_args, "--modular", "--sysmon", *PYTEST_OPTIONS, exclude=EXCLUDE
+            *PYTEST_OPTIONS, *modular_args, "--modular", "--sysmon", exclude=EXCLUDE
         )
 
     files = check_utils.extract_files(parsed_args, "*.py", EXCLUDE)
