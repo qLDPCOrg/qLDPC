@@ -408,14 +408,15 @@ def assert_primitive_central_idempotents(
     assert len(idempotents) == len(classes)
 
 
-# The fields are built in the test, since building a field compiles its arithmetic, which would
-# otherwise slow down every collection of this file.
+# Each test builds its field from these parameters.  Building a field such as GF(9) compiles its
+# arithmetic, so building the fields here would slow down every collection of this file.
 @pytest.mark.parametrize(
     "group, order, irreducible_poly",
     [
         (abstract.DihedralGroup(4), 5, None),
         (abstract.CyclicGroup(4), 9, "x^2 + 1"),
     ],
+    ids=["D4-GF5", "C4-GF9"],
 )
 def test_computed_primitive_central_idempotents(
     group: abstract.Group, order: int, irreducible_poly: str | None
