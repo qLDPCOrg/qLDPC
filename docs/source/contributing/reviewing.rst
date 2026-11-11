@@ -52,13 +52,13 @@ The coordinator gives each reviewer:
     * documentation that states something false.
 
     Mark every other finding about the change minor.
-  * If you cannot read the changes in the area of one of your angles in full, or check them as that angle requires, ask for a closer look at that angle.
+  * If you cannot read in full the changes in the area of one of your angles, or cannot check them as that angle requires, ask for a closer look at that angle.
     Checks left to CI, such as the finishing checks, notebook runs, and the GAP integration tests, are not part of what an angle requires.
     Make the request separately from your findings, and say which part of the change it concerns.
   * Report problems that existed before the change separately, as pre-existing problems.
     A problem that the change causes in unchanged code, such as a broken caller, is a finding about the change.
   * Do not rerun the checks whose output you were given.
-    Run other drafting checks of the :ref:`validation commands <validation-commands>` only as your angles need, such as a targeted test of an edge case.
+    Run only those other drafting checks of the :ref:`validation commands <validation-commands>` that your angles need, such as a targeted test of an edge case.
     Run ``format_.py`` only with ``--check``.
   * Check whether the change requires updates elsewhere, such as to callers, to docstrings or guides that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
 
@@ -92,7 +92,7 @@ In a full review, the coordinator may group angles under one reviewer within the
 * Correctness and Testing standard may share a reviewer only with each other.
 * For a change to a code construction, code-core algebra or cached state, a decoder, or a circuit or tableau tool, Correctness has a reviewer of its own.
 
-The coordinator may also split an angle among several reviewers, such as one Correctness reviewer for each subsystem of a large change.
+In a full review, the coordinator may also split an angle among several reviewers, such as one Correctness reviewer for each subsystem of a large change.
 Split or regroup angles whenever a reviewer's share of the change is too large to read in full.
 
 In a full review, if a reviewer asks for a closer look at an angle, start one or more reviewers for that angle in the same round, before revising the change.
@@ -100,7 +100,7 @@ Split the requesting reviewer's whole share of the change for that angle among t
 Brief each like the other reviewers, with that angle and its share, and add the request's reason and the part of the change it concerns.
 Do not give them the other reviewers' findings.
 If one of them asks for a closer look in turn, split its share again in the same way.
-A later round that examines the same share again starts with the final split for that angle.
+Later rounds that review the same share keep the final split.
 Splitting cannot meet some requests, such as when no reviewer can run a check that the angle requires.
 Such a request counts as a significant finding that needs a decision.
 The round's findings include those of every reviewer added for a closer look.
@@ -113,10 +113,9 @@ Rounds
 The coordinator runs each round as follows:
 
 1. Run the anytime checks and ``coverage_.py -i`` of the :ref:`validation commands <validation-commands>`, unless they already ran on the change in its current state.
-   Give their output to every reviewer.
    Start the reviewers together, so that none sees the findings of another.
-   In a full review, reviewers added for a closer look start later in the round, as :ref:`assigning angles to reviewers <review-grouping>` describes.
-   In a full review, the first two rounds examine the whole change, except as step 5 allows.
+   In a full review, reviewers added for a closer look start later in the round, as the :ref:`grouping rules <review-grouping>` describe.
+   In a full review, the first two rounds review the whole change, except as step 5 allows.
    Later rounds review the revisions since the previous round and what they affect.
    A round after the first may skip an angle that no revision since the previous round can affect.
 2. Fix clear findings about the change, and verify each fix with the drafting checks.
@@ -154,8 +153,9 @@ Quick review
 
 A quick review follows the rest of this page, with these differences:
 
-* In the first round, a single reviewer examines the whole change and covers every angle that the change can affect.
-* In the second round, a fresh reviewer examines only the revisions of the first round and what they affect, and covers every angle that they can affect.
+* In the first round, a single reviewer reviews the whole change and covers every angle that the change can affect.
+* In the second round, a fresh reviewer reviews only the revisions of the first round and what they affect, and covers every angle that those revisions can affect.
 * The review ends after two rounds.
-* If a reviewer asks for a closer look at an angle, the review ends without passing after that round's fixes, and the coordinator suggests a full review rather than another round.
+* If a reviewer asks for a closer look at an angle, the review ends without passing after that round's fixes.
+  The coordinator then suggests a full review rather than another round.
   In a full review that follows, the first round gives that angle one or more reviewers of its own.

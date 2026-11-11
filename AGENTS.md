@@ -29,7 +29,7 @@ Read the [orientation](docs/source/contributing/index.rst#orientation) before re
 
 Coordinate each **full review** or **quick review** as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
 Run a full review only when asked; you may suggest one.
-As a reviewer in a review that someone else coordinates, follow the coordinator's instructions, and end your report without a review status.
+As a reviewer, follow the coordinator's instructions, and end your report without a review status.
 Otherwise, end every report on a change with its review status, as in "review: not run", "quick review: passed after 1 round; open decisions: none", "full review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "full review: not passed after 4 rounds; open decisions: none".
 Count every pre-existing problem that the review fixed, and list each one in the report, so that the maintainer sees each change they did not ask for.
 When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
@@ -49,7 +49,7 @@ Leave repository-wide test runs, notebook runs, and the GAP integration tests to
 
 ## Handing off a change
 
-Hand a change to the maintainer to push only once it has passed the review that the maintainer asked for, or, if they asked for none, at least a [quick review](docs/source/contributing/reviewing.rst#quick-review).
+Hand a change to the maintainer to push only once it has passed the review that the maintainer asked for, or at least a [quick review](docs/source/contributing/reviewing.rst#quick-review) if they did not ask for one.
 If the maintainer did not ask for a review and a full review would suit the change, suggest one rather than handing the change off.
 When handing off a change, give the following for each of its pull requests:
 
