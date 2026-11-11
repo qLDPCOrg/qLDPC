@@ -97,7 +97,7 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
 
 
 def test_quantum_tanner_generating_data() -> None:
-    """Quantum Tanner codes read their generating subsets as sets of group members."""
+    """Quantum Tanner codes validate and compare their generating data."""
     shift = abstract.CyclicGroup(6).generators[0]
     members = [shift, ~shift]
     subcode = codes.RepetitionCode(2)
@@ -119,11 +119,11 @@ def test_quantum_tanner_generating_data() -> None:
     # raise error if a seed code does not have one bit per distinct member of its subset, even if
     # the product of the block lengths of the seed codes is right
     other_members = [shift**2, shift**3, ~(shift**2)]
-    for code_a, code_b in [
-        (codes.RepetitionCode(3), codes.RepetitionCode(2)),
-        (codes.RepetitionCode(2), codes.RepetitionCode(2)),
+    for code_a, code_b, wrong_code in [
+        (codes.RepetitionCode(3), codes.RepetitionCode(2), "C_A"),
+        (codes.RepetitionCode(2), codes.RepetitionCode(2), "C_B"),
     ]:
-        with pytest.raises(ValueError, match="block length"):
+        with pytest.raises(ValueError, match=f"seed code {wrong_code} has block length"):
             codes.QTCode(members, other_members, code_a, code_b)
 
     # one generating subset may be empty, which leaves a complex without faces, but not both

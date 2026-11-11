@@ -121,8 +121,8 @@ class QTCode(CSSCode):
         ):
             return False
 
-        # SymPy permutations on different numbers of points are never equal, and the members of the
-        # two complexes may be written on different numbers of points, so read all of them on the
+        # The members of the two complexes may be written on different numbers of points, and SymPy
+        # permutations on different numbers of points are never equal.  Read all members on the
         # largest number of points.
         subsets = [
             self.complex.subset_a,
@@ -174,8 +174,8 @@ class QTCode(CSSCode):
         ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
 
         Each face also has a "sort" attribute, which numbers the faces in the order in which they
-        are found, and thereby fixes the order of the bits of the classical Tanner codes, and so of
-        the qudits of the quantum Tanner code.
+        are found.  This fixes the order of the bits of the classical Tanner codes, and so of the
+        qudits of the quantum Tanner code.
         """
         # sort the subsets by the total order on the group, which fixes the order in which faces are
         # added below, and thereby the qudit that each face of the Cayley complex is identified with

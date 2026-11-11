@@ -40,14 +40,13 @@ def test_cayley_complex() -> None:
         objects.CayleyComplex.build_cayley_graph([])
 
     # subsets may be given as any iterables, such as arrays and iterators
-    shift = abstract.CyclicGroup(3).generators[0]
+    group = abstract.CyclicGroup(3)
+    shift = group.generators[0]
     members = np.array([shift, ~shift], dtype=object)
     assert objects.CayleyComplex(members).subset_a == {shift, ~shift}
     assert objects.CayleyComplex(iter([shift, ~shift])).subset_b == {shift, ~shift}
 
     # quadripartite complex
-    group = abstract.CyclicGroup(3)
-    shift = group.generators[0]
     subset_a = [shift, ~shift]
     cayplex = objects.CayleyComplex(subset_a, bipartite=False)
     assert_valid_complex(cayplex)
