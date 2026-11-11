@@ -415,12 +415,12 @@ class TannerCode(ClassicalCode):
 
     For convenience, we make G directed, with edges directed from V to W.  The node sets V and W can
     then be identified, respectively, by the sources and sinks of G.  Nodes without edges are sinks,
-    and hence bits.
+    and hence bits.  Every other node must be a source or a sink.
 
     The Tanner code ``T(G,C)`` is defined on ``|W|`` bits.  A ``|W|``-bit string x is a code word of
     ``T(G,C)`` iff, for every node v in V, the bits of x incident to v are a code word of C.  If G
     has parallel edges (as a MultiDiGraph), a bit appears at several positions of the word that v
-    checks, and the parity checks of C at those positions add.
+    checks, and the columns of the parity check matrix of C at those positions add.
 
     This construction requires an ordering of the edges E(v) adjacent to each vertex v.  This class
     sorts E(v) by the value of the "sort" attribute attached to each edge.  If there is no "sort"
@@ -443,8 +443,9 @@ class TannerCode(ClassicalCode):
     Notes:
 
     - If the subcode C has m checks, its parity matrix has shape ``(m,n)``.
-    - The code ``T(G,C)`` has ``|W|`` bits and ``|V|m`` checks.  If n = 0, nodes in V have no edges,
-      so they are bits rather than checks, and the code has no checks.
+    - The code ``T(G,C)`` has ``|W|`` bits and ``|V|m`` checks.  If n = 0, nodes in V have no
+      edges, so the code has no checks.  The nodes of a directed graph G are then bits, whereas the
+      nodes of an undirected graph G' are left out.
 
     References:
 
@@ -464,12 +465,22 @@ class TannerCode(ClassicalCode):
 
         self.subgraph = subgraph
         self.subcode = subcode
+
+        # nodes without edges are bits (sinks), rather than checks (sources)
         sinks = [node for node in subgraph if subgraph.out_degree(node) == 0]
         sources = [
             node
             for node in subgraph
             if subgraph.in_degree(node) == 0 and subgraph.out_degree(node) > 0
         ]
+        if len(sources) + len(sinks) != subgraph.number_of_nodes():
+            node = next(
+                node for node in subgraph if subgraph.in_degree(node) and subgraph.out_degree(node)
+            )
+            raise ValueError(
+                f"Node {node} of the subgraph of this Tanner code has both incoming and outgoing"
+                " edges, so it is neither a check (source) nor a bit (sink)"
+            )
         sink_indices = {
             sink: idx for idx, sink in enumerate(sorted(sinks, key=self._get_node_sort_key))
         }
@@ -482,7 +493,7 @@ class TannerCode(ClassicalCode):
             bits = [sink_indices[sink] for sink in self._get_sorted_neighbors(source)]
             TannerCode._check_degree(source, len(bits), len(subcode))
             if len(set(bits)) == len(bits):
-                # a fast path for the usual case, in which a node sees each of its bits once
+                # usually, a node sees each of its bits once, so no field addition is needed
                 matrix[np.ix_(checks, bits)] = subcode.matrix
             else:
                 # add the parity checks of the subcode at the positions of each repeated bit
@@ -510,15 +521,16 @@ class TannerCode(ClassicalCode):
             nx.MultiDiGraph() if is_multigraph or nx.number_of_selfloops(subgraph) else nx.DiGraph()
         )
         edges = subgraph.edges(keys=True, data=True) if is_multigraph else subgraph.edges(data=True)
-        for index, (node_a, node_b, *keys, edge_data) in enumerate(edges):
-            edge: object = frozenset([node_a, node_b])
+        # the edges of a MultiGraph also have a key, which distinguishes parallel edges
+        for index, (node_a, node_b, *key, edge_data) in enumerate(edges):
+            edge_node: object = frozenset([node_a, node_b])
             if is_multigraph:
-                edge = (edge, *keys)
-            directed_subgraph.add_node(edge, sort=index)
+                edge_node = (edge_node, *key)
+            directed_subgraph.add_node(edge_node, sort=index)
             sort_data = edge_data.get("sort")
             for node in [node_a, node_b]:
                 edge_attributes = {} if sort_data is None else {"sort": sort_data[node]}
-                directed_subgraph.add_edge(node, edge, **edge_attributes)
+                directed_subgraph.add_edge(node, edge_node, **edge_attributes)
         return directed_subgraph
 
     def _get_node_sort_key(self, node: object) -> Any:

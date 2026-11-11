@@ -209,6 +209,7 @@ class QTCode(CSSCode):
                 subgraph_x.add_edge(gg, face, sort=(aa, bb))
                 subgraph_z.add_edge(aa_gg, face, sort=(~aa, bb))
 
+                # queue the corner agb, which is a source of subgraph_x like gg, if it is new
                 if aa_gg_bb not in nodes_found:
                     nodes_found.add(aa_gg_bb)
                     heapq.heappush(nodes_to_visit, aa_gg_bb)

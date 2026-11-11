@@ -176,10 +176,10 @@ class CayleyComplex:
         """Build a left-right Cayley graph generated from the identity element of a group.
 
         Either subset may be empty, but not both.  Repeated members are merged, including members
-        that differ only by trailing fixed points, and the nodes of the graph act on the largest
-        number of points of any member.  The graph is built breadth-first from the
-        identity, applying the members of each subset in sorted order, so that the order of its
-        nodes and edges is reproducible.
+        that differ only by trailing fixed points.  The nodes of the graph act on the largest number
+        of points of any member.  The graph is built breadth-first from the identity, applying the
+        members of each subset in sorted order, so that the order of its nodes and edges is
+        reproducible.
         """
         subset_a, subset_b = map(
             sorted, CayleyComplex._resize_members(list(subset_a), list(subset_b))
@@ -222,14 +222,14 @@ class CayleyComplex:
 
     @staticmethod
     def _resize_members(
-        subset_a: Sequence[abstract.GroupMember], subset_b: Sequence[abstract.GroupMember]
+        subset_a: Collection[abstract.GroupMember], subset_b: Collection[abstract.GroupMember]
     ) -> tuple[set[abstract.GroupMember], set[abstract.GroupMember]]:
         """Read the members of two subsets on the largest number of points, merging repeats.
 
         A SymPy permutation acts on the points up to the largest one in its cycles or array form,
         unless given a size, so trailing fixed points can be omitted and one group member can appear
-        in different forms.  These forms compare unequal, so they would be different nodes of a
-        graph, and the covers in cover_subset_a/b would put their extra factors on different points.
+        in different forms.  These forms compare unequal.  They would be different nodes of a graph,
+        and the covers in cover_subset_a/b would put their extra factors on different points.
         """
         from qldpc import abstract
 

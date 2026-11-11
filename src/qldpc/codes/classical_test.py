@@ -209,7 +209,7 @@ def test_tanner_code_preserves_input_graph() -> None:
 
 
 def test_tanner_code_requires_matching_degree() -> None:
-    """A Tanner code requires every source node to have degree equal to the subcode block length."""
+    """A Tanner code requires every check node to have degree equal to the subcode block length."""
     subgraph = nx.Graph([(0, 3), (1, 3), (0, 4)])
     with pytest.raises(ValueError, match="but the subcode of this Tanner code"):
         codes.TannerCode(subgraph, codes.RepetitionCode(3))
@@ -249,7 +249,8 @@ def test_tanner_code_on_undirected_graph_with_self_loops() -> None:
     """A Tanner code on an undirected graph orders its bits as the graph lists its edges.
 
     A self-loop adds 2 to the degree of its node, so its bit appears at two positions of the word
-    that its node checks, where the parity checks of the subcode add.
+    that its node checks.  The columns of the parity check matrix of the subcode at those positions
+    add.
     """
     # The graph lists its edges as (0,1), (0,0), (0,2), (1,1), (1,2), (2,2), so, for example, node 0
     # checks the word on bits (0, 1, 1, 2).  This order differs from the edges' own (partial)
@@ -270,18 +271,15 @@ def test_tanner_code_on_undirected_graph_with_self_loops() -> None:
 
 
 def test_tanner_code_on_graphs_with_parallel_edges() -> None:
-    """Parallel edges of a multigraph are distinct bits, or repeat a bit, of a Tanner code.
-
-    Parallel edges of an undirected multigraph are distinct bits, whereas those of a directed
-    multigraph repeat a bit in the word that a check sees.
-    """
+    """Parallel edges are distinct bits of undirected graphs, and repeat bits of directed ones."""
     # each node of this undirected multigraph has two edges to each of the other nodes
     subgraph = nx.MultiGraph([(0, 1), (0, 1), (0, 2), (0, 2), (1, 2), (1, 2)])
     code = codes.TannerCode(subgraph, codes.ClassicalCode([[1, 0, 1, 0], [0, 1, 0, 1]]))
     supports = [tuple(np.flatnonzero(row)) for row in code.matrix.view(np.ndarray)]
     assert supports == [(0, 2), (1, 3), (0, 4), (1, 5), (2, 4), (3, 5)]
 
-    # a directed multigraph whose check sees bit_0 at positions 0 and 2, as sorted by its edges
+    # a directed multigraph whose check sees bit_0 at positions 0 and 2, as ordered by the "sort"
+    # attributes of its edges
     directed_subgraph = nx.MultiDiGraph()
     directed_subgraph.add_edge("check", "bit_0", sort=2)
     directed_subgraph.add_edge("check", "bit_0", sort=0)
@@ -302,11 +300,27 @@ def test_tanner_code_isolated_nodes() -> None:
     code = codes.TannerCode(directed_subgraph, codes.RepetitionCode(2))
     np.testing.assert_array_equal(code.matrix.view(np.ndarray), [[1, 1, 0]])
 
+    # with a subcode on no bits, nodes have no edges, so the code has no checks
+    subcode = codes.ClassicalCode(np.zeros((1, 0), dtype=int))
+    assert codes.TannerCode(nx.empty_graph(3, create_using=nx.DiGraph), subcode).matrix.shape == (
+        0,
+        3,
+    )
+    assert codes.TannerCode(nx.empty_graph(3), subcode).matrix.shape == (0, 0)
+
+
+def test_tanner_code_requires_sources_and_sinks() -> None:
+    """Every node of a directed graph for a Tanner code is a check (source) or a bit (sink)."""
+    subgraph = nx.DiGraph([("check", "middle"), ("middle", "bit"), ("check", "bit")])
+    with pytest.raises(ValueError, match=r"Node middle .* both incoming and outgoing"):
+        codes.TannerCode(subgraph, codes.RepetitionCode(2))
+
 
 def test_tanner_code_directed_subgraph() -> None:
     """An undirected graph becomes a directed graph whose sinks are the undirected graph's edges."""
     assert type(codes.TannerCode.as_directed_subgraph(nx.path_graph(3))) is nx.DiGraph
     assert type(codes.TannerCode.as_directed_subgraph(nx.Graph([(0, 0)]))) is nx.MultiDiGraph
+    assert type(codes.TannerCode.as_directed_subgraph(nx.MultiGraph([(0, 1)]))) is nx.MultiDiGraph
 
     # a multigraph with parallel edges, a self-loop, and an isolated node
     subgraph = nx.MultiGraph()
