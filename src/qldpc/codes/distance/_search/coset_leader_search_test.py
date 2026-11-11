@@ -29,7 +29,7 @@ from ..conftest import (
     get_random_full_rank_matrix,
 )
 from . import affine_instance, completion_bounds, coset_leader_search, information_sets
-from .coset_leader_search import CosetLeaderSearch, MinWeightBound
+from .coset_leader_search import CosetLeaderSearch, CosetSearchMethod, MinWeightBound
 
 
 def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
@@ -1866,33 +1866,62 @@ def test_min_weights_of_cosets_match_brute_force(
     ],
     ids=["disjoint", "tables", "no-tables"],
 )
-def test_min_weights_of_pauli_cosets_match_exhaustive_minima(
+def test_min_weights_match_exhaustive_minima(
     tuning: dict[str, int], pytestconfig: pytest.Config, tune: Tune
 ) -> None:
-    """Searches of Pauli errors for minimum weights agree with exhaustive minima, by either weight.
+    """The minimum weights of syndrome classes agree with exhaustive minima, by either method.
 
-    The states are graph states with phases on two to five qubits.  By physical weight, the embedded
-    words of the errors have even Hamming weights, and the incumbents of the searches are one below
-    the Hamming weight of their best words.  By CSS weight, the searches weigh words without tables
-    (see ``_assert_min_weights_match_brute_force``).
+    Graph states with phases on two to five qubits and on eight qubits are not CSS, so one search
+    covers their Pauli errors, by either weight.  By physical weight, the embedded words of the
+    errors have even Hamming weights, so once a BZ search finds a word, its incumbent is one below
+    the Hamming weight of its best word.  The searches of the state on eight qubits also stop early
+    within steps and skip words by tables.  The stabilizers of the state on a cycle of five qubits
+    have even Hamming weights as words [x|z] too, but CSS weights have no parity, so its searches by
+    CSS weight do not lower their incumbents by one.  Random CSS states on two to five qubits, the
+    logical zero of the Steane code, whose code of X parts is even and that of Z parts is not, and a
+    GHZ block beside its conjugate by Hadamard gates, whose codes are both even, are weighed by CSS
+    weight, which splits their searches.  The search of the Z part of a class then ends at a word
+    within the weight of its X part.  Some classes of the GHZ blocks have an X part of weight two
+    and a Z part of weight three, which a connected-support search of the Z part weighs exactly only
+    from a weight limit of at most two.  The Steane state is also weighed by physical weight.  An
+    oracle answers one batch of every syndrome, in random order, at every maximum weight from minus
+    two, below every weight, to one past the number of qubits.  The BZ searches take the disjoint
+    families, and at the threshold zero other families by tails, with completion tables and without
+    them.  The connected-support method, which the tuning of these families does not configure,
+    answers under the default tuning, but not by CSS weight on states that are not CSS.
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    cases = []
     for num_qubits in range(2, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
-        matrix = _graph_state(num_qubits, edges, phase=True)
-        checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
-        for css_weight in (False, True):
-            search = coset_leader_search._get_pauli_search(
-                coset_leader_search._StabilizerKey(matrix, checks),
-                css_weight,
-                coset_leader_search._CosetTuning.from_tuning(
-                    get_tuning(), paulis_by_css_weight=css_weight
-                ),
-            )
-            _assert_min_weights_match_brute_force(
-                search, range(1 << num_qubits), _css_minima(matrix, css_weight), num_qubits, rng
-            )
+        graph_state = _graph_state(num_qubits, edges, phase=True)
+        css_state = _random_css_state(num_qubits, int(rng.integers(num_qubits + 1)), rng)
+        cases += [(graph_state, False, True), (graph_state, True, False), (css_state, True, True)]
+    edges = [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5), (1, 6), (1, 7), (2, 3), (2, 4), (2, 5)]
+    edges += [(2, 6), (2, 7), (3, 4), (3, 5), (3, 7), (4, 5), (5, 6), (5, 7)]
+    graph_state = _graph_state(8, edges, phase=True)
+    cases += [(graph_state, False, True), (graph_state, True, False)]
+    cycle_state = _graph_state(5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)], phase=True)
+    cases.append((cycle_state, True, False))
+    steane_zero = ("XXXX___", "XX__XX_", "X_X_X_X", "ZZZZ___", "ZZ__ZZ_", "Z_Z_Z_Z", "ZZZZZZZ")
+    cases += [(_product_state(steane_zero), css_weight, True) for css_weight in (False, True)]
+    ghz_block = ("XXXX____", "ZZ______", "_ZZ_____", "__ZZ____")
+    conjugate_block = ("____ZZZZ", "____XX__", "_____XX_", "______XX")
+    cases.append((_product_state(ghz_block + conjugate_block), True, True))
+    for matrix, css_weight, by_support in cases:
+        num_qubits = len(matrix)
+        minima = _css_minima(matrix, css_weight)
+        syndromes = rng.permutation(1 << num_qubits)
+        packed_syndromes = _pack_syndromes(syndromes.tolist(), num_qubits)
+        methods: list[CosetSearchMethod] = ["brouwer_zimmermann"]
+        if by_support and not tuning:
+            methods.append("connected_support")
+        for method in methods:
+            oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method=method)
+            for max_weight in range(-2, num_qubits + 2):
+                weights = oracle._get_min_weights(packed_syndromes, max_weight)
+                assert np.array_equal(weights, np.minimum(minima[syndromes], max_weight + 1))
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -2020,7 +2049,8 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
     error within ``max_weight`` gets ``max(2, max_weight + 1)``.  The queries of batches, which try
     increasing weight limits, instead get the exact minimum and a lightest error when they are
     within ``max_weight``.  These exact bounds imply the inequalities that ``_assert_exact_answers``
-    checks.
+    checks.  A search of Pauli errors from a first weight limit above ``max_weight`` answers as a
+    single query.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
@@ -2037,6 +2067,12 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
                 minimum = int(minima[syndrome])
                 single = oracle.get_min_weight_bound(syndrome, max_weight)
                 batched = oracle._get_batch_support_bound(syndrome, max_weight)
+                if not css_weight:
+                    search = oracle._support_searches[0]
+                    late = search.get_min_weight_bound(
+                        syndrome, max_weight, first_limit=max_weight + 1
+                    )
+                    assert late == single
                 for bound, exact in [(single, False), (batched, True)]:
                     weight = _pauli_weight(bound.representative, num_qubits, css_weight)
                     assert _get_syndrome(matrix, bound.representative) == syndrome
