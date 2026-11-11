@@ -123,7 +123,7 @@ The generating data of a saved code are its subsets, its local codes, and its co
 Different generating data can still give the same code, which then has several rows in the summary below.
 They can also give codes that are equivalent up to a permutation of qubits.
 With default settings, the search enumerates the pairs of subsets for 89 of its 122 choices of group and local codes, which gives 2,223 codes.
-It draws 100 random samples for each of the other 33 choices, and saves 5,523 codes in total, of which 4,986 are distinct.
+It draws 100 random samples for each of the other 33 choices, and saves 5,523 codes in total, of which 4,953 are distinct.
 
 1. `run_search.py` constructs codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
    Groups without symmetric subsets of the required sizes have no samples.
