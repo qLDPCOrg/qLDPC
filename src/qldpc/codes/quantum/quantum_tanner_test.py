@@ -236,18 +236,17 @@ def test_quantum_tanner_qudit_order() -> None:
         (2, 9, 10, 11),
     ]
 
-    # a code that is large enough for its order of faces to depend on the order of visiting nodes
-    shift = abstract.CyclicGroup(8).generators[0]
-    code = codes.QTCode([shift, ~shift], [shift**2, ~(shift**2)], codes.RepetitionCode(2))
+    # a code in which visiting the least node first and visiting nodes in the order in which they
+    # are found give different orders of faces
+    shift = abstract.CyclicGroup(6).generators[0]
+    code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
     assert get_supports(code) == [
         (0, 1, 2, 3),
-        (2, 4, 5, 6),
-        (5, 7, 8, 9),
-        (0, 8, 10, 11),
-        (4, 11, 12, 13),
-        (3, 7, 13, 14),
-        (6, 10, 14, 15),
-        (1, 9, 12, 15),
+        (1, 2, 4, 5),
+        (4, 6, 7, 8),
+        (0, 7, 8, 9),
+        (5, 9, 10, 11),
+        (3, 6, 10, 11),
     ]
 
 

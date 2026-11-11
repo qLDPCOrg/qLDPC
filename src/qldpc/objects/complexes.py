@@ -228,8 +228,9 @@ class CayleyComplex:
 
         A SymPy permutation acts on the points up to the largest one in its cycles or array form,
         unless given a size, so trailing fixed points can be omitted and one group member can appear
-        in different forms.  These forms compare unequal.  They would be different nodes of a graph,
-        and the covers in cover_subset_a/b would put their extra factors on different points.
+        in different forms.  Since these forms compare unequal, they would otherwise be different
+        nodes of a graph, and the covers in cover_subset_a/b would put their extra factors on
+        different points.
         """
         from qldpc import abstract
 

@@ -289,7 +289,7 @@ def test_tanner_code_on_graphs_with_parallel_edges() -> None:
 
 
 def test_tanner_code_isolated_nodes() -> None:
-    """Isolated nodes of undirected graphs are checks, and those of directed graphs are bits."""
+    """Isolated nodes are bits of directed graphs, and need a subcode without bits otherwise."""
     subgraph = nx.cycle_graph(3)
     subgraph.add_node(3)
     with pytest.raises(ValueError, match="Node 3 has degree 0"):
@@ -300,13 +300,13 @@ def test_tanner_code_isolated_nodes() -> None:
     code = codes.TannerCode(directed_subgraph, codes.RepetitionCode(2))
     np.testing.assert_array_equal(code.matrix.view(np.ndarray), [[1, 1, 0]])
 
-    # with a subcode on no bits, nodes have no edges, so the code has no checks
+    # With a subcode on no bits, no node has edges, so the code has no checks.  The nodes of a
+    # directed graph are then bits, whereas the code on an undirected graph has no bits.
     subcode = codes.ClassicalCode(np.zeros((1, 0), dtype=int))
-    assert codes.TannerCode(nx.empty_graph(3, create_using=nx.DiGraph), subcode).matrix.shape == (
-        0,
-        3,
-    )
-    assert codes.TannerCode(nx.empty_graph(3), subcode).matrix.shape == (0, 0)
+    directed_code = codes.TannerCode(nx.empty_graph(3, create_using=nx.DiGraph), subcode)
+    undirected_code = codes.TannerCode(nx.empty_graph(3), subcode)
+    assert directed_code.matrix.shape == (0, 3)
+    assert undirected_code.matrix.shape == (0, 0)
 
 
 def test_tanner_code_requires_sources_and_sinks() -> None:
@@ -314,6 +314,20 @@ def test_tanner_code_requires_sources_and_sinks() -> None:
     subgraph = nx.DiGraph([("check", "middle"), ("middle", "bit"), ("check", "bit")])
     with pytest.raises(ValueError, match=r"Node middle .* both incoming and outgoing"):
         codes.TannerCode(subgraph, codes.RepetitionCode(2))
+
+    # a self-loop at a bit, and the directed version of an undirected graph, which has edges in
+    # both directions
+    for subgraph in [
+        nx.DiGraph([("check", "bit_0"), ("check", "bit_1"), ("bit_0", "bit_0")]),
+        nx.cycle_graph(4).to_directed(),
+    ]:
+        with pytest.raises(ValueError, match="both incoming and outgoing"):
+            codes.TannerCode(subgraph, codes.RepetitionCode(2))
+
+    # the node of an edge of an undirected graph cannot also be a node of that graph
+    subgraph = nx.Graph([(0, 1), (0, frozenset([0, 1]))])
+    with pytest.raises(ValueError, match="is also a node"):
+        codes.TannerCode.as_directed_subgraph(subgraph)
 
 
 def test_tanner_code_directed_subgraph() -> None:
