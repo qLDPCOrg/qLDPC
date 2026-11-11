@@ -10,7 +10,7 @@ Contributor documentation comes in two kinds:
 * :doc:`Standards <standards/index>` state the rules that a change must satisfy, one topic per standard.
 * Guides, such as this page, explain how qLDPC works and how to make a change, and link to the standards rather than restating them.
 
-Read the standards that apply to a change before editing, and check the change against them in a :doc:`standard review <reviewing>`.
+Read the standards that apply to a change before editing, and check the change against them in a :doc:`review <reviewing>`.
 
 .. _kinds-of-change:
 
@@ -94,7 +94,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
      - Formatting, lint, mypy, tests with overall 100% coverage, and (on full runs) the docs build
 
 Checks come in three tiers by cost.
-The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`standard review <reviewing>` and in a draft pull request.
+The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`review <reviewing>` and in a draft pull request.
 The third tier is the finishing checks.
 
 * **Anytime:** ``format_.py --check``, ``lint_.py``, and ``mypy_.py`` over the whole repository.
@@ -111,7 +111,7 @@ The third tier is the finishing checks.
   Run the anytime checks, ``coverage_.py -i``, the tests of closely related code, such as callers and subclasses of changed code, and ``build_docs.py`` if the change edits documentation, notebooks, or docstrings.
   Leave repository-wide test runs to CI.
   After fixing a failure, rerun the failed checks.
-  If a standard review ran, ask the maintainer whether to review a significant fix in another round.
+  If a review ran, ask the maintainer whether to have a significant fix reviewed.
   If the maintainer is away, report that question as an open decision.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
