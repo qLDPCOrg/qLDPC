@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ast
 import os
+import pickle
 import time
 import types
 from collections.abc import Iterator
@@ -111,7 +112,7 @@ def test_there_is_no_cache_directory_if_the_source_files_cannot_be_read(
         raise PermissionError("unreadable")
 
     monkeypatch.setattr(Path, "read_bytes", refuse)
-    with pytest.warns(RuntimeWarning, match="cannot be read"):
+    with pytest.warns(RuntimeWarning, match="cannot be read.*reinstall qLDPC"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -190,7 +191,7 @@ def test_errors_while_deleting_outdated_cache_directories_are_ignored(tmp_path: 
 
 
 def test_there_is_no_cache_directory_without_source_files(tmp_path: Path) -> None:
-    with pytest.warns(RuntimeWarning, match="no source files"):
+    with pytest.warns(RuntimeWarning, match="no source files.*with its .py source files"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -201,7 +202,7 @@ def test_an_unwritable_cache_directory_is_not_used(
     not_a_directory = tmp_path / "file"
     not_a_directory.write_text("a file, so that no directory can be made inside it")
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(not_a_directory))
-    with pytest.warns(RuntimeWarning, match="cannot be written"):
+    with pytest.warns(RuntimeWarning, match="cannot be written.*NUMBA_CACHE_DIR"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -217,7 +218,7 @@ def test_a_read_only_cache_directory_is_not_used(
         raise PermissionError("read-only")
 
     monkeypatch.setattr(_compilation.tempfile, "TemporaryFile", refuse)
-    with pytest.warns(RuntimeWarning, match="cannot be written"):
+    with pytest.warns(RuntimeWarning, match="cannot be written.*NUMBA_CACHE_DIR"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -244,7 +245,90 @@ def test_a_function_is_not_cached_if_numba_does_not_use_the_directory(
         return njit(inline=inline)
 
     monkeypatch.setattr(_compilation.numba, "njit", cache_elsewhere)
-    with pytest.warns(RuntimeWarning, match="numba does not use"):
+    with pytest.warns(RuntimeWarning, match="numba does not use.*NUMBA_CACHE_DIR"):
+        compiled = _compilation.always_compiled(_add_one)
+    assert compiled.stats.cache_path is None
+    assert compiled(1) == 2
+
+
+def test_versions_compiled_at_the_same_time_are_loaded_only_for_their_argument_types(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A version compiled for some argument types is never loaded for others.
+
+    The docstring of ``_compilation`` explains how processes that compile a function at once can
+    leave numba's index pointing at code compiled for other argument types.  Without the check of
+    keys, a later process here would run code compiled for F-ordered arrays on a C-ordered array and
+    return a wrong entry.  Each new dispatcher stands for a process, and replacing the index file
+    stages the order of the writes.
+    """
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    matrix = np.array([[0, 1], [2, 3]], dtype=np.uint8)
+
+    # Two processes read the empty index before either writes it.  The first compiles for C-ordered
+    # arrays, and the second for F-ordered arrays.  The second writes the data file last, and the
+    # first writes the index last.
+    assert _compilation.always_compiled(_get_top_right_entry)(matrix) == 1
+    (index,) = (tmp_path / "cache").rglob("*.nbi")
+    first_index = index.read_bytes()
+    index.unlink()
+    assert _compilation.always_compiled(_get_top_right_entry)(np.asfortranarray(matrix)) == 1
+    index.write_bytes(first_index)
+
+    # A later process compiles for C-ordered arrays again, and saves that code in place of the
+    # other, which the process after it loads.
+    later_process = _compilation.always_compiled(_get_top_right_entry)
+    assert later_process(matrix) == _get_top_right_entry(matrix) == 1
+    assert later_process.stats.cache_misses
+    next_process = _compilation.always_compiled(_get_top_right_entry)
+    assert next_process(matrix) == 1
+    assert next_process.stats.cache_hits
+
+
+@pytest.mark.parametrize("missing_module", [False, True], ids=["loadable", "missing_module"])
+def test_code_saved_by_another_version_of_numba_is_compiled_again(
+    missing_module: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Code that another version of numba saved for the same key is compiled again, not loaded.
+
+    ``_KeyCheckedCacheFile`` explains how the index of this version can name a data file that
+    another version of numba wrote, and why its code is not unpickled.  In one case, this version
+    can unpickle that code.  In the other, the code refers to a module that this version lacks, as
+    code that numba 0.61.2 saved does for numba 0.67.0.
+    """
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+
+    # A process with another version of numba writes the data file last, and a process with this
+    # version writes the index last.
+    assert _compilation.always_compiled(_add_one)(1) == 2
+    (index,) = (tmp_path / "cache").rglob("*.nbi")
+    first_index = index.read_bytes()
+    with monkeypatch.context() as other_numba:
+        other_numba.setattr(numba, "__version__", "other")
+        assert _compilation.always_compiled(_add_one)(1) == 2
+    if missing_module:
+        # A pickle that refers to the global ``name`` of a module that does not exist.
+        (data_file,) = (tmp_path / "cache").rglob("*.nbc")
+        data_file.write_bytes(pickle.dumps(("other", b"cno_such_module\nname\n.")))
+    index.write_bytes(first_index)
+
+    # A later process with this version compiles again.
+    later_process = _compilation.always_compiled(_add_one)
+    assert later_process(1) == 2
+    assert later_process.stats.cache_misses
+
+
+def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """qLDPC caches only through a cache-file object exactly of the class that qLDPC extends.
+
+    Here ``object`` stands for the class that qLDPC extends, so numba's cache-file object is of a
+    subclass of it.
+    """
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    monkeypatch.setattr(_compilation, "caching", types.SimpleNamespace(IndexDataCacheFile=object))
+    with pytest.warns(RuntimeWarning, match="class that qLDPC extends.*earlier version"):
         compiled = _compilation.always_compiled(_add_one)
     assert compiled.stats.cache_path is None
     assert compiled(1) == 2
@@ -383,6 +467,10 @@ def _scaled_sum(values: npt.NDArray[np.int64], scale: int) -> int:
 
 def _add_one(value: int) -> int:
     return value + 1
+
+
+def _get_top_right_entry(matrix: npt.NDArray[np.uint8]) -> int:
+    return matrix[0, -1]
 
 
 def _get_source_trees() -> Iterator[tuple[Path, ast.Module]]:
