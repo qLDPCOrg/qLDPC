@@ -42,7 +42,7 @@ The coordinator gives each reviewer:
 
   * Report findings without editing the change.
   * Give each finding a location, the problem, why it matters, and a suggested fix.
-  * Mark a finding significant if the change has or causes one of these problems:
+  * Mark a finding significant only if the change has or causes one of these problems:
 
     * a wrong result;
     * a broken contract;
@@ -51,10 +51,10 @@ The coordinator gives each reviewer:
     * claimed behavior that no test verifies;
     * documentation that states something false.
 
-    A finding that asks for a closer look at an angle, as the next instruction describes, is also significant.
     Mark every other finding about the change minor.
-  * If you cover several angles and one of them needs more attention than you can give it alongside the others, ask for a closer look at that angle in a finding.
-    One sign is that, alongside your other angles, you cannot read the changes in that angle's area in full or check them as that angle requires.
+  * If you cannot read the changes in the area of one of your angles in full, or check them as that angle requires, ask for a closer look at that angle.
+    Checks left to CI, such as the finishing checks, notebook runs, and the GAP integration tests, are not part of what an angle requires.
+    Make the request separately from your findings, and say which part of the change it concerns.
   * Report problems that existed before the change separately, as pre-existing problems.
     A problem that the change causes in unchanged code, such as a broken caller, is a finding about the change.
   * Do not rerun the checks whose output you were given.
@@ -95,10 +95,15 @@ In a full review, the coordinator may group angles under one reviewer within the
 The coordinator may also split an angle among several reviewers, such as one Correctness reviewer for each subsystem of a large change.
 Split or regroup angles whenever a reviewer's share of the change is too large to read in full.
 
-If a reviewer asks for a closer look at an angle, the next round gives that angle one or more reviewers of its own, who between them examine the whole change.
-If step 2 ends a full review after one round, start these reviewers in the same round instead, on the same state of the change as the other reviewers.
+In a full review, if a reviewer asks for a closer look at an angle, start one or more reviewers for that angle in the same round, before revising the change.
+Split the requesting reviewer's whole share of the change for that angle among them, so that each can read its share in full and check it as the angle requires.
+Brief each like the other reviewers, with that angle and its share, and add the request's reason and the part of the change it concerns.
 Do not give them the other reviewers' findings.
-The findings of the angle's own reviewers then take the place of the request, which no longer counts as a significant finding.
+If one of them asks for a closer look in turn, split its share again in the same way.
+A later round that examines the same share again starts with the final split for that angle.
+Splitting cannot meet some requests, such as when no reviewer can run a check that the angle requires.
+Such a request counts as a significant finding that needs a decision.
+The round's findings include those of every reviewer added for a closer look.
 
 .. _review-rounds:
 
@@ -110,10 +115,10 @@ The coordinator runs each round as follows:
 1. Run the anytime checks and ``coverage_.py -i`` of the :ref:`validation commands <validation-commands>`, unless they already ran on the change in its current state.
    Give their output to every reviewer.
    Start the reviewers together, so that none sees the findings of another.
+   In a full review, reviewers added for a closer look start later in the round, as :ref:`assigning angles to reviewers <review-grouping>` describes.
    In a full review, the first two rounds examine the whole change, except as step 5 allows.
    Later rounds review the revisions since the previous round and what they affect.
    A round after the first may skip an angle that no revision since the previous round can affect.
-   An angle for which a reviewer in the previous round asked for a closer look is never skipped, and its own reviewers examine the whole change.
 2. Fix clear findings about the change, and verify each fix with the drafting checks.
    If the coordinator is not permitted to revise the change, as for another contributor's pull request, report fixes as suggestions instead of making them.
    The review then ends after one round.
@@ -129,14 +134,15 @@ The coordinator runs each round as follows:
    Recommend fixing it in the change, in a follow-up pull request, or in a small pull request that precedes the change.
    List the remaining pre-existing problems in the report, without raising them as decisions.
 5. Start another round with fresh reviewers if the round had a significant finding, unless four rounds have run, or two in a quick review.
-   In a full review, if every significant finding was fixed by a local, evidently correct edit and no reviewer asked for a closer look at an angle, the next round may review only the revisions since the previous round and what they affect.
+   In a full review, if every significant finding was fixed by a local, evidently correct edit, the next round may review only the revisions since the previous round and what they affect.
    Edits that change logic, an interface, or how parts of the code interact are not local.
    Minor findings and pre-existing problems do not start another round.
    If a significant problem needs a decision, report it and ask how to proceed, such as by splitting the change, before starting another round.
    From the third round on, do the same for a significant problem that needs more than a local fix outside the revisions.
 
-A review passes when a round has no significant finding.
+A review passes when a round has no significant finding and, in a quick review, no request for a closer look.
 After the last round, report whether the review passed, each round's reviewers and their angles, what each round found and changed, the pre-existing problems that the review fixed, and the decisions that remain open.
+Also report each request for a closer look and how it was handled.
 A review does not run the finishing checks of the :ref:`validation commands <validation-commands>`, which belong to finishing a pull request.
 If the review ends without passing, such as at its round limit, say so and ask how to proceed.
 Options include another round, a full review after a quick review, and splitting the change.
