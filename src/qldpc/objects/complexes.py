@@ -117,6 +117,8 @@ class CayleyComplex:
 
         if subset_b is None:
             subset_b = subset_a
+        if not subset_a or not subset_b:
+            raise ValueError("The generating subsets of a Cayley complex must be nonempty")
 
         # Read all members on the same number of points.  A SymPy permutation acts on the points up
         # to the largest one in its cycles or array form, unless given a size, so trailing fixed
@@ -178,7 +180,9 @@ class CayleyComplex:
     ) -> nx.Graph:
         """Build a left-right Cayley graph generated from the identity element of a group."""
         # identify the identity element
-        member = next(iter(subset_a))
+        member = next(itertools.chain(subset_a, subset_b), None)
+        if member is None:
+            raise ValueError("A Cayley graph needs at least one generating member")
         identity = member * ~member
 
         # identify the set of nodes for which we still need to add edges

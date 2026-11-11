@@ -43,10 +43,31 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="Underspecified generating data"):
         codes.QTCode(subset_a, subset_b, subcode_a)
 
+    # repeated members are merged before the sizes of the subsets are compared
+    members = list(subset_a)
+    assert codes.QTCode(members * 2, members, subcode_a) == codes.QTCode(
+        members, members, subcode_a
+    )
+
+    # raise error if a generating subset is empty
+    with pytest.raises(ValueError, match="must be nonempty"):
+        codes.QTCode([], subset_a, subcode_a)
+
     # raise error if seed codes are over different fields
     subcode_b = codes.RepetitionCode(2, field=3)
     with pytest.raises(ValueError, match="different fields"):
-        codes.QTCode([], [], subcode_a, subcode_b)
+        codes.QTCode(subset_a, subset_a, subcode_a, subcode_b)
+
+    # codes are equal if their members are equal after adding fixed points to the end of them
+    padded_subset_a, padded_subset_b = [
+        [abstract.GroupMember(member.array_form, size=member.size + 1) for member in subset]
+        for subset in [code.complex.subset_a, code.complex.subset_b]
+    ]
+    padded_code = codes.QTCode(padded_subset_a, padded_subset_b, code.code_a, code.code_b)
+    assert padded_code.complex.subset_a != code.complex.subset_a
+    assert padded_code == code
+    assert code == padded_code
+    assert code != code.complex
 
     # saving and loading a QTCode, creating a missing directory along the way
     path = tmp_path / "subdirectory" / "code.txt"
@@ -137,8 +158,19 @@ def test_quantum_tanner_nonabelian_faces() -> None:
 
     def matrix_supports(matrix: np.ndarray, graph: nx.DiGraph) -> list[frozenset[object]]:
         """Matrix-row supports expressed using the graph's face nodes."""
-        faces = sorted(node for node in graph if graph.out_degree(node) == 0)
+        faces = sorted(
+            (node for node in graph if graph.out_degree(node) == 0),
+            key=lambda face: graph.nodes[face]["sort"],
+        )
         return [frozenset(faces[col] for col in np.flatnonzero(row)) for row in matrix]
+
+    # the faces of both subgraphs are numbered in one order, from zero
+    face_labels_x, face_labels_z = [
+        {node: label for node, label in graph.nodes(data="sort") if graph.out_degree(node) == 0}
+        for graph in [subgraph_x, subgraph_z]
+    ]
+    assert face_labels_x == face_labels_z
+    assert sorted(face_labels_x.values()) == list(range(code.num_qudits))
 
     for matrix, graph in [(code.matrix_x, subgraph_x), (code.matrix_z, subgraph_z)]:
         expected = {

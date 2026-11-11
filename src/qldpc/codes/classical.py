@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from typing import Any
 
 import galois
 import numpy as np
@@ -420,7 +421,11 @@ class TannerCode(ClassicalCode):
 
     This construction requires an ordering of the edges E(v) adjacent to each vertex v.  This class
     sorts E(v) by the value of the "sort" attribute attached to each edge.  If there is no "sort"
-    attribute, its value is treated as the corresponding neighbor of v.
+    attribute, its value is taken from the "sort" attribute of the corresponding neighbor of v, or
+    else is the neighbor itself.  The nodes in V and W, which index the checks and bits of the code,
+    are likewise sorted by their "sort" attributes, or else by the nodes themselves.  Nodes that are
+    only partially ordered, such as frozensets, should have "sort" attributes, since sorting them by
+    their own order can depend on the order in which they were added to G.
 
     Tanner codes can similarly be defined on regular (undirected) graphs ``G' = (V',E')`` by placing
     checks on V' and bits on E'.
@@ -447,12 +452,14 @@ class TannerCode(ClassicalCode):
         self.subcode = subcode
         sources = [node for node in subgraph if subgraph.in_degree(node) == 0]
         sinks = [node for node in subgraph if subgraph.out_degree(node) == 0]
-        sink_indices = {sink: idx for idx, sink in enumerate(sorted(sinks))}
+        sink_indices = {
+            sink: idx for idx, sink in enumerate(sorted(sinks, key=self._get_node_sort_key))
+        }
 
         num_bits = len(sinks)
         num_checks = len(sources) * subcode.num_checks
         matrix = np.zeros((num_checks, num_bits), dtype=int)
-        for idx, source in enumerate(sorted(sources)):
+        for idx, source in enumerate(sorted(sources, key=self._get_node_sort_key)):
             checks = range(subcode.num_checks * idx, subcode.num_checks * (idx + 1))
             bits = [sink_indices[sink] for sink in self._get_sorted_neighbors(source)]
             if len(bits) != len(subcode):
@@ -466,10 +473,15 @@ class TannerCode(ClassicalCode):
 
     @staticmethod
     def as_directed_subgraph(subgraph: nx.Graph) -> nx.DiGraph:
-        """Convert an undirected graph for a Tanner code into a directed graph for the same code."""
+        """Convert an undirected graph for a Tanner code into a directed graph for the same code.
+
+        Each edge of the undirected graph becomes a node, whose "sort" attribute numbers the edges
+        in the order in which the undirected graph lists them.
+        """
         directed_subgraph = nx.DiGraph()
-        for node_a, node_b, edge_data in subgraph.edges(data=True):
+        for index, (node_a, node_b, edge_data) in enumerate(subgraph.edges(data=True)):
             edge = frozenset([node_a, node_b])
+            directed_subgraph.add_node(edge, sort=index)
             directed_subgraph.add_edge(node_a, edge)
             directed_subgraph.add_edge(node_b, edge)
             if (sort_data := edge_data.get("sort")) is not None:
@@ -477,9 +489,15 @@ class TannerCode(ClassicalCode):
                 directed_subgraph[node_b][edge]["sort"] = sort_data[node_b]
         return directed_subgraph
 
+    def _get_node_sort_key(self, node: object) -> Any:
+        """Key by which to sort a node: its "sort" attribute, or else the node itself."""
+        return self.subgraph.nodes[node].get("sort", node)
+
     def _get_sorted_neighbors(self, node: object) -> Sequence[object]:
         """Sorted neighbors of the given node."""
         return sorted(
             self.subgraph.neighbors(node),
-            key=lambda neighbor: self.subgraph[node][neighbor].get("sort", neighbor),
+            key=lambda neighbor: self.subgraph[node][neighbor].get(
+                "sort", self._get_node_sort_key(neighbor)
+            ),
         )

@@ -81,10 +81,12 @@ class QTCode(CSSCode):
         bipartite: bool = False,
     ) -> None:
         """Construct a quantum Tanner code."""
+        # the complex merges repeated members, so the subsets are compared by their sizes after that
+        self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
         code_a = ClassicalCode(code_a, field)
         if code_b is not None:
             code_b = ClassicalCode(code_b, field)
-        elif len(subset_a) == len(subset_b):
+        elif len(self.complex.subset_a) == len(self.complex.subset_b):
             code_b = ~code_a
         else:
             raise ValueError(
@@ -97,18 +99,32 @@ class QTCode(CSSCode):
 
         self.code_a = code_a
         self.code_b = code_b
-        self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
         code_x, code_z = self.get_subcodes(self.complex, code_a, code_b)
         super().__init__(code_x, code_z, field)
         self._is_subsystem_code = False  # known by construction
 
     def __eq__(self, other: object) -> bool:
+        if not isinstance(other, QTCode):
+            return False
+
+        # Members of the two complexes may be written on different numbers of points, which SymPy
+        # permutations compare as different, so read them all on the same number of points.
+        subsets = [
+            self.complex.subset_a,
+            self.complex.subset_b,
+            other.complex.subset_a,
+            other.complex.subset_b,
+        ]
+        size = max(member.size for subset in subsets for member in subset)
+        subset_a, subset_b, other_subset_a, other_subset_b = [
+            {abstract.GroupMember(member.array_form, size=size) for member in subset}
+            for subset in subsets
+        ]
         return (
-            isinstance(other, QTCode)
-            and self.code_a == other.code_a
+            self.code_a == other.code_a
             and self.code_b == other.code_b
-            and self.complex.subset_a == other.complex.subset_a
-            and self.complex.subset_b == other.complex.subset_b
+            and subset_a == other_subset_a
+            and subset_b == other_subset_b
             and self.complex.bipartite == other.complex.bipartite
         )
 
@@ -147,6 +163,9 @@ class QTCode(CSSCode):
         source node is induced by assigning the label (a, b) to edge ``(g, f(g,a,b))``.  Consistency
         then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by defining
         ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
+
+        Each face also has a "sort" attribute, which numbers the faces in the order in which they
+        are found, and thereby fixes the order of the qudits of the classical Tanner codes.
         """
         # sort the subsets by the total order on the group, which fixes the order in which faces are
         # added below, and thereby the qudit that each face of the Cayley complex is identified with
@@ -162,6 +181,7 @@ class QTCode(CSSCode):
         # build the subgraphs one node at a time
         subgraph_x = nx.DiGraph()
         subgraph_z = nx.DiGraph()
+        num_faces = 0
         while nodes_to_add:
             gg = min(nodes_to_add)
             nodes_to_add.remove(gg)
@@ -175,6 +195,11 @@ class QTCode(CSSCode):
                 aa_gg, gg_bb = aa * gg, gg * bb
                 aa_gg_bb = aa_gg * bb
                 face = frozenset([gg, aa_gg, gg_bb, aa_gg_bb])
+                if face not in subgraph_x:
+                    # label each face by the order in which it is found, which orders the qudits
+                    subgraph_x.add_node(face, sort=num_faces)
+                    subgraph_z.add_node(face, sort=num_faces)
+                    num_faces += 1
                 subgraph_x.add_edge(gg, face, sort=(aa, bb))
                 subgraph_z.add_edge(aa_gg, face, sort=(~aa, bb))
 

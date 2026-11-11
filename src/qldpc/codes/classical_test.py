@@ -4,8 +4,12 @@
 
 from __future__ import annotations
 
+import itertools
+from collections.abc import Sequence
+
 import networkx as nx
 import numpy as np
+import numpy.typing as npt
 import pytest
 from sympy.abc import x, y
 
@@ -209,6 +213,41 @@ def test_tanner_code_requires_matching_degree() -> None:
     subgraph = nx.Graph([(0, 3), (1, 3), (0, 4)])
     with pytest.raises(ValueError, match="but the subcode of this Tanner code"):
         codes.TannerCode(subgraph, codes.RepetitionCode(3))
+
+
+def test_tanner_code_sorts_nodes_by_sort_attributes() -> None:
+    """A Tanner code orders its checks and bits by "sort" node attributes, if they are given."""
+    # Bits are frozensets, which are only partially ordered, so sorting them by their own order
+    # would depend on the order in which they are added to the graph.
+    bits = [frozenset([0]), frozenset([0, 1]), frozenset([2])]
+    subcode = codes.ClassicalCode([[1, 1, 0]])
+
+    def get_matrix(bit_order: Sequence[int], label_edges: bool) -> npt.NDArray[np.int_]:
+        """Matrix of a Tanner code whose bits are added to its graph in the given order."""
+        subgraph = nx.DiGraph()
+        for bit in bit_order:
+            subgraph.add_node(bits[bit], sort=-bit)
+        for label, source in enumerate(["x", "y"]):
+            subgraph.add_node(source, sort=-label)
+            for bit, node in enumerate(bits):
+                edge_data = {"sort": (bit + label) % 3} if label_edges else {}
+                subgraph.add_edge(source, node, **edge_data)
+        return codes.TannerCode(subgraph, subcode).matrix.view(np.ndarray)
+
+    # Checks are ordered as (y, x), and bits as (bits[2], bits[1], bits[0]).  The edges of a check
+    # are ordered by their own "sort" attributes, if given, or else by those of their bits.
+    for label_edges, expected in [(True, [[1, 0, 1], [0, 1, 1]]), (False, [[1, 1, 0], [1, 1, 0]])]:
+        for bit_order in itertools.permutations(range(len(bits))):
+            np.testing.assert_array_equal(get_matrix(bit_order, label_edges), expected)
+
+
+def test_tanner_code_numbers_the_edges_of_undirected_graphs() -> None:
+    """An undirected graph becomes a directed graph whose edge nodes are numbered in order."""
+    subgraph = nx.Graph([(0, 1), (1, 2), (2, 0)])
+    directed_subgraph = codes.TannerCode.as_directed_subgraph(subgraph)
+    assert [directed_subgraph.nodes[frozenset(edge)]["sort"] for edge in subgraph.edges] == list(
+        range(subgraph.number_of_edges())
+    )
 
 
 def test_tanner_code() -> None:
