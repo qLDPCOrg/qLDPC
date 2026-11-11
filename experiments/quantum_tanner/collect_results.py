@@ -7,10 +7,10 @@ This script reads the files of codes saved by run_search.py, and the exact dista
 compute_distances.py, if any.  It writes the parameters of the codes to codes.csv in --results-dir
 (by default, results/codes.csv in this directory), with one row per distinct code that has at least
 one logical qubit.  Saved codes count as distinct if their generating data (subsets, local codes,
-and complex; see saved_codes.get_code_key) differ, and the saved files with the same generating
-data are copies of one code.  Each row summarizes the copies of one code.  Different generating data
-can still give the same code, which then has several rows.  The specification and sample of a row
-are those of its first copy, where copies are ordered by group (order first), local codes, complex,
+and complex; see saved_codes.get_code_key) differ, and the saved files with the same generating data
+are copies of one code.  Each row summarizes the copies of one code.  Different generating data can
+still give the same code, which then has several rows.  The specification and sample of a row are
+those of its first copy, where copies are ordered by group (order first), local codes, complex,
 identity exclusion, and sample (enumerated before random, and then by number).  The columns of the
 CSV file are CSV_FIELDS:
 - group, group_order: the identifier and order of the group that defines the code (see
@@ -22,7 +22,7 @@ CSV file are CSV_FIELDS:
 - sample: the sample identifier of the first copy, which is "r{index}" for a random sample, or
   "e{index}" for an enumerated sample (see saved_codes),
 - num_copies: the number of saved copies of the code, which may have different groups, local
-  codes, identity settings, or samples,
+  codes, identity exclusion, or samples,
 - n, k: the number of physical qubits and the number of logical qubits,
 - d, d_kind: the code distance if d_kind is "exact", or else the smallest upper bound on the code
   distance among saved copies of the code, in which case d_kind is "upper_bound",
@@ -140,9 +140,7 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
             distance, distance_kind = upper_bound, "upper_bound"
 
         # identify this code by its first copy
-        first_path = min(
-            paths, key=lambda path: get_spec_sort_key(saved_codes.parse_code_path(path))
-        )
+        first_path = min(paths, key=get_copy_sort_key)
         spec, sample_id = saved_codes.parse_code_path(first_path)
         row = (
             spec.group_id,
@@ -160,7 +158,7 @@ def get_code_data(results_dir: pathlib.Path) -> list[tuple[int | str, ...]]:
             num_trials,
             weight,
         )
-        keyed_rows.append((get_spec_sort_key((spec, sample_id)), row))
+        keyed_rows.append((get_copy_sort_key(first_path), row))
     return [row for _, row in sorted(keyed_rows)]
 
 
@@ -181,14 +179,12 @@ def get_exact_distances(results_dir: pathlib.Path) -> dict[str, int]:
     return exact_distances
 
 
-def get_spec_sort_key(
-    spec_and_sample_id: tuple[saved_codes.CodeSpec, str],
-) -> tuple[int | str | bool, ...]:
-    """Get a key that sorts specifications and samples by their fields, in order.
+def get_copy_sort_key(path: pathlib.Path) -> tuple[int | str | bool, ...]:
+    """Get a key that sorts saved codes by the fields of their specifications, and then by sample.
 
     Groups are sorted by their orders first; see saved_codes.get_group_sort_key.
     """
-    spec, sample_id = spec_and_sample_id
+    spec, sample_id = saved_codes.parse_code_path(path)
     group_key = saved_codes.get_group_sort_key(spec.group_id)
     sample_key = saved_codes.get_sample_sort_key(sample_id)
     codes_key = (spec.code_a_id, spec.code_b_id, spec.bipartite, spec.exclude_identity)

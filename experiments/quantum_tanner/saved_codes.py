@@ -92,23 +92,27 @@ class CodeSpec:
 
         The seed is a deterministic hash of this specification, the sample index, and the attempt
         index.  A bipartite complex exists only if the subsets drawn for a seed satisfy the Total No
-        Conjugacy condition (see qldpc.objects.CayleyComplex), so build makes up to
-        MAX_TNC_ATTEMPTS attempts per random sample on a bipartite complex.
+        Conjugacy condition (see qldpc.objects.CayleyComplex), so build makes up to MAX_TNC_ATTEMPTS
+        attempts per random sample on a bipartite complex.
         """
         return get_deterministic_hash(*dataclasses.astuple(self), sample_index, attempt)
 
     def build(self, sample_id: str) -> codes.QTCode:
         """Construct the quantum Tanner code with this specification and a sample identifier.
 
-        Raises a NoValidSubsetsError if the complex is bipartite and no attempt draws random
-        subsets that satisfy the Total No Conjugacy condition, and a ValueError if, for example,
-        the sample identifier is malformed or an enumerated index is out of range.
+        Raises:
+            NoValidSubsetsError: If the complex is bipartite, and no attempt draws random subsets
+                that satisfy the Total No Conjugacy condition.
+            ValueError: If, for example, the sample identifier is malformed, an enumerated index is
+                out of range, or the group has no symmetric subsets of the required sizes.
         """
-        # construct the group and local codes first, so that their errors are not mistaken below for
-        # violations of the Total No Conjugacy condition
+        # Construct the group and local codes, and check that subsets of the required sizes exist,
+        # so that these errors are not mistaken below for violations of Total No Conjugacy.
         group = get_group(self.group_id)
         code_a = get_local_code(self.code_a_id)
         code_b = get_local_code(self.code_b_id)
+        if count_subset_pairs(self) == 0:
+            raise ValueError(f"{self.group_id} has no symmetric subsets of the required sizes")
 
         kind, index = sample_id[:1], int(sample_id[1:])
         if kind == "e":
@@ -133,8 +137,7 @@ class CodeSpec:
                     seed=self.get_seed(index, attempt),
                 )
             except ValueError:
-                # The group and local codes are valid, and the search checked the subset sizes, so
-                # the only error expected here is a violation of the Total No Conjugacy condition.
+                # the only error expected here is a violation of the Total No Conjugacy condition
                 if not self.bipartite:
                     raise
         raise NoValidSubsetsError(
@@ -202,12 +205,12 @@ def get_subset_pairs(
     """List the ordered pairs of symmetric subsets of the sizes that the local codes require.
 
     The subsets exclude the identity element if spec.exclude_identity is True.  For a bipartite
-    complex, the list excludes pairs that violate the Total No Conjugacy condition.
-    The pairs are ordered by their first subsets, and then by their second subsets, in the order of
+    complex, the list excludes pairs that violate the Total No Conjugacy condition.  The pairs are
+    ordered by their first subsets, and then by their second subsets, in the order of
     get_symmetric_subsets.  The index of a pair in this list identifies an enumerated sample.  If
     this order changes, for example when the permutation representation of a group changes, then
-    saved files of enumerated samples can identify different subsets.  Such files fail
-    verification, and a resumed search skips the pairs whose indices already have files.
+    saved files of enumerated samples can identify different subsets.  Such files fail verification,
+    and a resumed search skips the pairs whose indices already have files.
     """
     subset_pairs = itertools.product(
         get_symmetric_subsets(
@@ -449,9 +452,9 @@ def get_code_key(path: pathlib.Path) -> str:
     """Get a key that identifies the generating data of the quantum Tanner code in a saved file.
 
     Two files have the same key if and only if they save the same subsets, local codes, field, and
-    choice of complex, and thereby the same code.  Different generating data can still give the
-    same code.  The key ignores the header of the file, and the choice of parity checks of each
-    local code, which can differ between equal codes with different identifiers.
+    choice of complex, and thereby the same code.  Different generating data can still give the same
+    code.  The key ignores the header of the file, and the choice of parity checks of each local
+    code, which can differ between equal codes with different identifiers.
     """
     sections = read_sections(path)
     field = galois.GF(int(sections["base field"][0]))
@@ -474,7 +477,7 @@ def contains_identity(path: pathlib.Path) -> bool:
     """Does a subset of the quantum Tanner code in a saved file contain the identity element?"""
     sections = read_sections(path)
     return any(
-        [int(value) for value in row.split()] == list(range(len(row.split())))
+        abstract.GroupMember([int(value) for value in row.split()]).is_Identity
         for row in sections["subset_a"] + sections["subset_b"]
     )
 
@@ -482,16 +485,18 @@ def contains_identity(path: pathlib.Path) -> bool:
 def read_sections(path: pathlib.Path) -> dict[str, list[str]]:
     """Read the sections of generating data in a file written by qldpc.codes.QTCode.save.
 
-    Returns the lines of each section, keyed by the name in the comment line that starts it.  The
-    sections "base field" and "bipartite" hold their values on their comment lines.
+    Returns the lines of each section, keyed by the name in the comment line that starts it.  A
+    value on that comment line, such as that of "base field", is the first line of its section.
+    Raises a ValueError if a section is missing.
     """
     names = ["subset_a", "subset_b", "code_a.matrix", "code_b.matrix", "base field", "bipartite"]
     sections: dict[str, list[str]] = {}
     name = None
     for line in path.read_text().splitlines():
-        if line.startswith("# ") and (comment_name := line[2:].split(":")[0]) in names:
-            name = comment_name
-            sections[name] = [line.split(":", 1)[1].strip()] if name in names[-2:] else []
+        if line_name := next((name for name in names if line.startswith(f"# {name}:")), None):
+            name = line_name
+            value = line.split(":", 1)[1].strip()
+            sections[name] = [value] if value else []
         elif name is not None:
             sections[name].append(line)
     if missing := [name for name in names if name not in sections]:

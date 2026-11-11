@@ -85,17 +85,18 @@ The options of `run_search.py` choose the groups, the local codes, and the compl
   With `--bipartite`, the codes live on the bipartite complex instead.
   A code on the bipartite complex has at most as many qubits as the code with the same subsets on the quadripartite complex, and often half as many.
   The search tries up to `saved_codes.MAX_TNC_ATTEMPTS` seeds per random sample to find subsets that satisfy the Total No Conjugacy condition, and skips the sample if none of them does.
+  A rerun tries skipped samples again.
 - By default, the subsets may contain the identity element of the group.
-  With `--exclude-identity`, they exclude it, as in arXiv:2508.05095, whose subsets generate Cayley graphs.
-  Such generating sets usually exclude the identity, which would add a loop at every vertex.
+  With `--exclude-identity`, they exclude it, as in arXiv:2508.05095, which defines Cayley graphs by generating sets without the identity element.
+  The identity would add a loop at every vertex.
 
 With these choices, the search covers codes like those of arXiv:2508.05095, together with others.
 By default, the search differs from that work in four ways, and with `--exclude-identity`, in the last three:
 
-- The subsets may contain the identity element, which changes the codes on every group.
-  It also changes which bipartite codes exist.
+- The subsets may contain the identity element, so the search includes codes that arXiv:2508.05095 does not consider.
+  On some groups, these include bipartite codes.
   A symmetric subset with an odd number of elements contains an element that is its own inverse.
-  In a dihedral group of order 2m with odd m, that element can be the identity, whereas otherwise it is a reflection.
+  In a dihedral group of order 2m with odd m, that element can be the identity, and any other such element is a reflection.
   Hence the search finds bipartite codes on such groups, which Lemma 3 of arXiv:2508.05095 rules out for subsets without the identity element.
 - The two subsets need not generate the group.
   The complex then keeps only the component that contains the identity element.
@@ -122,14 +123,15 @@ Second, different seeds can draw the same subsets, and thereby the same code.
 The generating data of a saved code are its subsets, its local codes, and its complex, and saved codes count as distinct if their generating data differ.
 Different generating data can still give the same code, which then has several rows in the summary below.
 They can also give codes that are equivalent up to a permutation of qubits.
-With default settings, the search enumerates the pairs of subsets for 89 of its 122 choices of group and local codes, which gives 2,223 codes.
+With default settings, 40 of the search's 162 choices of group and local codes have no samples.
+The search enumerates the pairs of subsets for 89 choices, which gives 2,223 codes.
 It draws 100 random samples for each of the other 33 choices, and saves 5,523 codes in total, of which 4,953 are distinct.
 
 1. `run_search.py` constructs codes for every group and pair of local codes, and saves each code to a text file in `results/codes/`.
    Groups without symmetric subsets of the required sizes have no samples.
    For example, such groups are too small, or with `--exclude-identity`, they have odd order while a local code has odd block length.
    On the bipartite complex, the search also skips some groups whose subsets cannot satisfy the Total No Conjugacy condition (see `get_search_space` in `run_search.py`).
-   File names identify the group, local codes, complex, and identity exclusion of each code, and end with a sample identifier.
+   File names identify the group, local codes, and complex of each code, and whether the search excluded the identity element, and end with a sample identifier.
    This identifier is `r{index}` for a random sample, whose seeds are determined by the rest of the file name and the index, and `e{index}` for the subsets at an index in the enumeration of pairs of subsets (see `saved_codes.get_subset_pairs`).
    A results directory can hold both kinds of samples of the same group and local codes, such as after a change of `--num-samples`.
    Codes that already have a file are skipped, even if that file used a different `--num-trials`, unless `--overwrite` is passed.
@@ -145,7 +147,7 @@ It draws 100 random samples for each of the other 33 choices, and saves 5,523 co
    Its columns are `group, group_order, code_a, code_b, complex, contains_identity, sample, num_copies, n, k, d, d_kind, num_trials, stabilizer_weight`.
    Here `contains_identity` says whether a subset of the code contains the identity element, `sample` is the sample identifier of the first copy (see the `collect_results.py` docstring for the order of copies), `num_copies` counts the saved copies of the code, and `stabilizer_weight` is the maximum weight of a parity check (stabilizer generator) of the code.
    The distance `d` is exact if `d_kind` is `exact`, and otherwise it is the smallest upper bound among the saved copies of the code.
-   A row attributes a code to its first copy, which can belong to another group, other local codes, or another identity setting.
+   A row attributes a code to its first copy, which can belong to another group, other local codes, or a search with another choice of identity exclusion.
    Frequencies of parameters for a given group and local codes therefore come from the saved files rather than from rows of `codes.csv`.
 4. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its file name reproduces it.
 

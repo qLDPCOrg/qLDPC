@@ -16,17 +16,17 @@ identifiers).  By default, each pair of local codes is a base code and its dual.
 all", the pairs are instead every ordered pair of codes with equal block lengths among the base
 codes and their duals, so that local codes need not be dual, as in arXiv:2508.05095.
 
-By default, the codes live on the quadripartite Cayley complex of arXiv:2206.07571.  This complex
-is built on four copies of the group (G x Z_2 x Z_2), so that the subsets need not satisfy the Total
-No Conjugacy condition, which the bipartite complex of arXiv:2202.13641 requires; see
+By default, the codes live on the quadripartite Cayley complex of arXiv:2206.07571.  This complex is
+built on four copies of the group (G x Z_2 x Z_2), so that the subsets need not satisfy the Total No
+Conjugacy condition, which the bipartite complex of arXiv:2202.13641 requires; see
 qldpc.objects.CayleyComplex.  With --bipartite, the codes instead live on the bipartite complex.  A
 code on this complex has at most as many qubits as the code with the same subsets on the
-quadripartite complex, and often half as many.  The search skips some groups and local codes
-whose subsets cannot satisfy the Total No Conjugacy condition at all; see get_search_space.
+quadripartite complex, and often half as many.  The search skips some groups and local codes whose
+subsets cannot satisfy the Total No Conjugacy condition at all; see get_search_space.
 
 By default, the subsets may contain the identity element of the group.  With --exclude-identity,
-they exclude it, as in arXiv:2508.05095, whose subsets generate Cayley graphs.  Such generating
-sets usually exclude the identity, which would add a loop at every vertex.
+they exclude it, as in arXiv:2508.05095, which defines Cayley graphs by generating sets without the
+identity element.  The identity would add a loop at every vertex.
 
 For each group and pair of local codes, the script enumerates the pairs of symmetric subsets of the
 required sizes if there are at most --num-samples of them, keeping only pairs that satisfy the Total
@@ -37,8 +37,8 @@ Different pairs can still give the same code.
 Otherwise, the script draws --num-samples random pairs with qldpc.codes.QTCode.random, using
 deterministic seeds (see saved_codes.CodeSpec.build).  On a bipartite complex, it tries up to
 saved_codes.MAX_TNC_ATTEMPTS seeds per random sample to find subsets that satisfy the Total No
-Conjugacy condition, and skips the sample if none of them does.  Random sampling has two
-limitations.  First, the subsets are not uniformly random (see
+Conjugacy condition, and skips the sample if none of them does.  A rerun tries skipped samples
+again.  Random sampling has two limitations.  First, the subsets are not uniformly random (see
 qldpc.abstract.Group.random_symmetric_subset), so the frequencies of code parameters among random
 samples reflect this sampler, rather than the fractions of pairs of symmetric subsets that give
 these parameters.  Second, different seeds can draw the same subsets, and thereby the same code.
@@ -235,10 +235,11 @@ def get_search_space(
     as many elements as the two local codes have bits together, plus one if the subsets exclude the
     identity element.  Moreover, a symmetric subset with an odd number of members contains a member
     that is its own inverse, which in a group of odd order is the identity element.  A group of odd
-    order thereby has no disjoint symmetric subsets of odd sizes.  Other groups can still have no
-    valid subsets, such as dihedral groups of order 2m with odd m for subsets of odd sizes without
-    the identity (Lemma 3 of arXiv:2508.05095).  Their enumerations are empty, and their random
-    samples are skipped after saved_codes.MAX_TNC_ATTEMPTS attempts each.
+    order thereby has no disjoint symmetric subsets of odd sizes.  Other groups and local codes can
+    still have no pairs of subsets that satisfy this condition, such as dihedral groups of order 2m
+    with odd m for subsets of odd sizes without the identity (Lemma 3 of arXiv:2508.05095).  Their
+    enumerations are empty, and their random samples are skipped after saved_codes.MAX_TNC_ATTEMPTS
+    attempts each.
     """
     local_code_pairs = list(local_code_pairs)
     for group_id in group_ids:
@@ -247,9 +248,9 @@ def get_search_space(
             # skip bipartite complexes whose subsets cannot be disjoint
             num_bits_a = saved_codes.get_local_code(code_a_id).num_bits
             num_bits_b = saved_codes.get_local_code(code_b_id).num_bits
+            min_order = num_bits_a + num_bits_b + (1 if exclude_identity else 0)
             if bipartite and (
-                order < num_bits_a + num_bits_b + exclude_identity
-                or order % 2 == num_bits_a % 2 == num_bits_b % 2 == 1
+                order < min_order or order % 2 == num_bits_a % 2 == num_bits_b % 2 == 1
             ):
                 continue
 
