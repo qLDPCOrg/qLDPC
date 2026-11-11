@@ -77,8 +77,10 @@ def test_scans_resume_after_every_chunk(
 def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: int) -> None:
     """Large basis families of overlapping sets give the counts of a brute-force scan."""
     tune(overlapping_minimum_work=0, max_information_sets=max_sets)
-    # This code makes the basis family stages choose basis families of over four overlapping sets.
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    # With a limit of 16 sets, this code makes the basis family stages choose basis families of over
+    # four overlapping sets, as test_the_information_set_limit_bounds_the_basis_families_of_a_count
+    # checks.
+    code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
@@ -90,7 +92,7 @@ def test_counts_through_the_costly_stages_count_every_word_once(
 ) -> None:
     """Counts with partitioned families and the certificate of linear programs are exact."""
     tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
@@ -116,7 +118,7 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
 
     monkeypatch.setattr(information_sets, "get_overlapping_family", record)
     tune(overlapping_minimum_work=0)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     weights = range(len(code) + 1)
     for weight in weights:
         lc.count_logical_ops_css(code, weight)
@@ -221,7 +223,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
 
     monkeypatch.setattr(scan._StepTables, "select", record)
     tune(overlapping_minimum_work=0, max_information_sets=max_sets, **FORCED_TABLES)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
+    code = get_random_css_code(np.random.default_rng(5), 14, 5, 5)
     counter = lc.CSSLogicalCounter(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
@@ -326,7 +328,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     assert step_tables.select(2, 0)[0] is completion_bounds.NO_TABLES
 
 
-@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("compiled", [False, pytest.param(True, marks=pytest.mark.compiled)])
 def test_skipping_chunks_stop_at_a_lighter_nontrivial_word(compiled: bool) -> None:
     """A step with tables stops at a nontrivial word lighter than the target, if asked to."""
     # Three systematic rows [I | P], each followed by a distinct label and by its tail P.

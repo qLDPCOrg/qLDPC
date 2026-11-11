@@ -14,7 +14,8 @@ line that runs with the test file responsible for it, and resets shared state be
 (see that module).  This check credits a module only with the lines that its own test file ran: in
 its tests, or while it and the ``conftest.py`` files of its directories were collected.  It also
 credits every test file with the lines that ran while pytest started, or while a module of the
-repository first ran, which every test file needs.
+repository first ran, which every test file needs.  The check skips the tests marked ``compiled``,
+which run compiled code that coverage cannot trace.
 
 ``--isolated`` instead runs each test file in its own process, as an audit of the coverage that this
 check credits.  It runs only from the root directory of the repository.  If a selected module needs
@@ -22,19 +23,27 @@ a test file and has none, it fails without running the audit.
 
 ``--shard K/N`` checks only the K-th of N shards of the test files, so that N machines can share the
 check.  Every shard reports every selected module without a test file, since such modules are in no
-shard.
+shard.  The shards are balanced by the durations of tests in ``.test_durations``, which pytest-split
+writes.  To update it, run the whole check, unsharded and without paths, from the root directory of
+the repository, as in ``python checks/coverage_.py --store-durations --clean-durations``, which
+passes these pytest-split options to pytest.  The time of a test file that ``.test_durations`` does
+not list is estimated from its size (see get_test_file_times).  Outdated durations can unbalance the
+shards, but not change what they check.
 """
 
 import argparse
+import collections
 import contextlib
 import io
+import json
+import math
 import os
 import pathlib
 import re
 import subprocess
 import sys
 import textwrap
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 import checks_superstaq
 import coverage
@@ -44,8 +53,16 @@ import pytest_
 # Globs of the files that are neither checked nor run as tests.
 EXCLUDE = pytest_.EXCLUDE
 
+# The file in which pytest-split stores the durations of tests by pytest node ID, which balance the
+# shards (see get_test_file_times).
+DURATIONS_FILE = ".test_durations"
+
 # Options for pytest.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
-PYTEST_OPTIONS = ("-pno:nbmake",)
+# It skips the tests marked ``compiled`` (see the module docstring).  The marker expression has no
+# space, since --isolated passes these options through an argument parser that reads an argument
+# containing a space as a file.  A caller's own -m option replaces it, if written without a space;
+# -mcompiled selects only the tests marked compiled, which skips the tests that coverage needs.
+PYTEST_OPTIONS = ("-pno:nbmake", "-mnot(compiled)")
 
 check_utils = checks_superstaq.check_utils
 
@@ -56,7 +73,9 @@ def run(*args: str) -> int:
     parser.description = textwrap.dedent(
         """
         Check that every module is fully covered by its own test file, in one parallel pytest run.
-        Unrecognized arguments are passed to pytest.
+        Unrecognized arguments are passed to pytest.  Tests marked compiled are skipped.  To replace
+        this selection, pass a marker expression in one argument without spaces, as in -mcompiled,
+        which runs only the tests marked compiled and so leaves out the tests that coverage needs.
         """
     )
     parser.add_argument(
@@ -108,7 +127,7 @@ def run(*args: str) -> int:
             return report_results(0, [], untested)
         modular_args = [arg for arg in args if arg != "--isolated"]
         return checks_superstaq.coverage_.run(
-            *modular_args, "--modular", "--sysmon", *PYTEST_OPTIONS, exclude=EXCLUDE
+            *PYTEST_OPTIONS, *modular_args, "--modular", "--sysmon", exclude=EXCLUDE
         )
 
     files = check_utils.extract_files(parsed_args, "*.py", EXCLUDE)
@@ -172,22 +191,22 @@ def get_shard(files: Sequence[str], shard_number: int, num_shards: int) -> list[
     """The selected files in shard ``shard_number`` of ``num_shards``, numbered from 1.
 
     A shard holds test files, each with the files that it must cover, so that the shards together
-    check what the unsharded check does.  Files without a test file are in no shard.  The size of a
-    test file stands in for the time that it takes: each test file, from largest to smallest, joins
-    the shard with the smallest total size so far.  The shards depend only on the names and sizes of
-    the test files of the selected files, so every machine with the same checkout computes the same
-    shards.  Call it from the root directory of the repository, to which the paths of the files are
-    relative.
+    check what the unsharded check does.  Files without a test file are in no shard.  Each test
+    file, from slowest to fastest by the estimates of get_test_file_times, joins the shard with the
+    smallest total time so far.  The shards depend only on the names and sizes of the test files of
+    the selected files, and on DURATIONS_FILE, so every machine with the same checkout computes the
+    same shards.  Call it from the root directory of the repository, to which the paths of the files
+    are relative.
     """
     covered_files = get_covered_files(files)
-    file_sizes = {test_file: os.path.getsize(test_file) for test_file in covered_files}
-    shard_sizes = [0] * num_shards
+    file_times = get_test_file_times(covered_files)
+    shard_times = [0.0] * num_shards
     shards: list[list[str]] = [[] for _ in range(num_shards)]
     for test_file in sorted(
-        covered_files, key=lambda test_file: (-file_sizes[test_file], test_file)
+        covered_files, key=lambda test_file: (-file_times[test_file], test_file)
     ):
-        index = shard_sizes.index(min(shard_sizes))
-        shard_sizes[index] += file_sizes[test_file]
+        index = shard_times.index(min(shard_times))
+        shard_times[index] += file_times[test_file]
         shards[index].append(test_file)
     if sorted(test_file for test_files in shards for test_file in test_files) != sorted(
         covered_files
@@ -197,6 +216,47 @@ def get_shard(files: Sequence[str], shard_number: int, num_shards: int) -> list[
         file for test_file in shards[shard_number - 1] for file in covered_files[test_file]
     }
     return [file for file in files if file in shard_files]
+
+
+def get_test_file_times(test_files: Collection[str]) -> dict[str, float]:
+    """Estimate how long each of the given test files takes to run.
+
+    The estimate for a test file is the sum of the durations of its tests in DURATIONS_FILE, if
+    DURATIONS_FILE lists any of them.  Otherwise, it is the size of the test file times the average
+    time per byte of the given test files that DURATIONS_FILE lists.  So the estimates are in
+    seconds, or in bytes if DURATIONS_FILE lists none of the given test files.  Only their ratios
+    matter.  Raise ValueError if DURATIONS_FILE is not a valid file of test durations.
+    """
+    durations: collections.defaultdict[str, float] = collections.defaultdict(float)
+    if os.path.isfile(DURATIONS_FILE):
+        try:
+            with open(DURATIONS_FILE, encoding="utf-8") as file:
+                # Older versions of pytest-split wrote a list of [node ID, duration] pairs, which it
+                # still reads, so accept one too.
+                for node_id, duration in dict(json.load(file)).items():
+                    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+                        raise TypeError(f"the duration of {node_id} is {duration!r}")
+                    seconds = float(duration)
+                    if not math.isfinite(seconds) or seconds < 0:
+                        raise ValueError(f"the duration of {node_id} is {duration}")
+                    durations[node_id.split("::")[0]] += seconds
+        except (ArithmeticError, AttributeError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"{DURATIONS_FILE} is not a valid file of test durations ({error}).  Delete it, "
+                "then regenerate it by running this command from the root directory of the "
+                "repository: python checks/coverage_.py --store-durations --clean-durations"
+            ) from error
+    # Pytest node IDs separate directories with "/" on every platform.
+    paths = {test_file: pathlib.PurePath(test_file).as_posix() for test_file in test_files}
+    sizes = {test_file: os.path.getsize(test_file) for test_file in test_files}
+    listed = [test_file for test_file in test_files if paths[test_file] in durations]
+    listed_size = sum(sizes[test_file] for test_file in listed)
+    listed_time = sum(durations[paths[test_file]] for test_file in listed)
+    time_per_byte = listed_time / listed_size if listed_size else 1.0
+    return {
+        test_file: durations.get(paths[test_file], sizes[test_file] * time_per_byte)
+        for test_file in test_files
+    }
 
 
 def check_test_files(

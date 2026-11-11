@@ -66,7 +66,9 @@ def test_special_codes() -> None:
     """More complicated classical codes."""
     code: codes.ClassicalCode
 
-    bits, dimension = 3, 2
+    # galois compiles costly functions for each field, so the Reed-Solomon code and the binary BCH
+    # code below share GF(8), which holds the symbols of the one and the roots of the other
+    bits, dimension = 7, 4
     code = codes.ReedSolomonCode(bits, dimension)
     assert code.dimension == codes.ClassicalCode(code.matrix).dimension == dimension
 
@@ -75,11 +77,6 @@ def test_special_codes() -> None:
     assert code.dimension == codes.ClassicalCode(code.matrix).dimension == dimension
     with pytest.raises(ValueError, match=rf"block lengths {field}\^m - 1"):
         codes.BCHCode(bits - 1, dimension, field)
-
-    # with block length q - 1, a BCH code is a Reed-Solomon code, which is MDS: [q - 1, k, q - k]
-    code = codes.BCHCode(2, 1, field=3)
-    assert code.dimension == 1
-    assert codes.ClassicalCode(code.matrix).get_code_params() == (2, 1, 2)
 
     order, size, field = 1, 3, 2
     code = codes.ReedMullerCode(order, size, field)
@@ -187,10 +184,11 @@ def test_bch_block_lengths() -> None:
     for length, order in [(-4, 2), (-1, 2), (0, 2), (6, 2), (14, 2), (7, 3), (119, 11)]:
         assert not codes.BCHCode._is_valid_bch_length(length, order)
 
-    # a valid length over a field of order greater than 10 builds a code of the asked-for dimension,
-    # which its parity checks have to agree with
-    code = codes.BCHCode(10, 6, field=11)
-    assert codes.ClassicalCode(code.matrix).dimension == 6
+    # a valid length over a field of order greater than 10 builds a code of the asked-for dimension.
+    # With block length q - 1, a BCH code is a Reed-Solomon code, which is MDS: [q - 1, k, q - k].
+    code = codes.BCHCode(10, 1, field=11)
+    assert code.dimension == 1
+    assert codes.ClassicalCode(code.matrix).get_code_params() == (10, 1, 10)
 
 
 def test_tanner_code_preserves_input_graph() -> None:

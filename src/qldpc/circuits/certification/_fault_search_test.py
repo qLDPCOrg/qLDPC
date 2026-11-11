@@ -19,7 +19,12 @@ import stim
 from . import _fault_search
 
 
-@pytest.fixture(params=[False, True], ids=["compiled", "python"])
+@pytest.fixture(
+    params=[
+        pytest.param(False, marks=pytest.mark.compiled, id="compiled"),
+        pytest.param(True, id="python"),
+    ]
+)
 def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the compiled listing, or its Python version for coverage."""
     if request.param:

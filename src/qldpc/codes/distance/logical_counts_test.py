@@ -424,18 +424,26 @@ def test_dense_eighty_qubits_against_physical_enumeration() -> None:
                     break
                 word ^= pivots[pivot]
         columns = [sum(int(bit) << jj for jj, bit in enumerate(col)) for col in checks.T]
+        # A support has zero syndrome exactly if the column of its largest qubit equals the syndrome
+        # of the other qubits.  Choosing the other qubits first, and then only qubits larger than
+        # them whose column equals that syndrome, visits each support once.
+        qubits_by_column: dict[int, list[int]] = {}
+        for jj, column in enumerate(columns):
+            qubits_by_column.setdefault(column, []).append(jj)
         found = 0
         for weight in range(1, 5):
-            for positions in itertools.combinations(range(n), weight):
-                if functools.reduce(int.__xor__, (columns[jj] for jj in positions)):
-                    continue
-                reduced = sum(1 << jj for jj in positions)
-                for pivot in sorted(pivots, reverse=True):
-                    if reduced >> pivot & 1:
-                        reduced ^= pivots[pivot]
-                if reduced:
-                    assert weight == 4
-                    found += 1
+            for head in itertools.combinations(range(n), weight - 1):
+                syndrome = functools.reduce(int.__xor__, (columns[jj] for jj in head), 0)
+                for last in qubits_by_column.get(syndrome, []):
+                    if head and last <= head[-1]:
+                        continue
+                    reduced = sum(1 << jj for jj in (*head, last))
+                    for pivot in sorted(pivots, reverse=True):
+                        if reduced >> pivot & 1:
+                            reduced ^= pivots[pivot]
+                    if reduced:
+                        assert weight == 4
+                        found += 1
         counts.append(found)
     assert counts == [1, 0]
     assert get_counter(x, z).count_logical_ops(count_pauli=True) == Counts(4, 1, 0, 1)

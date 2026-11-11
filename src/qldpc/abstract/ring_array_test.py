@@ -481,22 +481,18 @@ def test_ufunc_outputs() -> None:
     assert np.dot(matrix, operand, out=np.zeros((1, 1), dtype=object)) == "function"
 
 
-def test_ring_row_reduction() -> None:
+def test_ring_row_reduction(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """RingArrays can be row reduced in various ways."""
-    matrix: list[list[int | abstract.RingMember]] | abstract.RingArray
-
-    # we can row-reduce a RingArray over a cyclic group algebra
-    ring = abstract.GroupRing(abstract.CyclicGroup(5), field=3)
+    # we can row-reduce a RingArray over a cyclic group algebra, here with a second row that is the
+    # first times 1 + gen, which is not a unit
+    ring = ring_cyclic3_gf2
     one = ring.one
     gen = ring.generators[0]
-    gen_inverse = gen.inverse()
-    assert gen_inverse is not None
-
     matrix = abstract.RingArray.build(
         [
-            [one + gen, 0, gen],
-            [gen + gen**2, 0, gen**2],
-            [0, 0, one + gen],
+            [gen, 0, one],
+            [gen + gen**2, 0, one + gen],
+            [0, 0, gen],
         ]
     )
     matrix_row_reduced = abstract.RingArray.build([[1, 0, 0], [0, 0, 1], [0, 0, 0]], ring)

@@ -14,7 +14,7 @@ from .._tuning import DEFAULT_TUNING
 from . import macwilliams as mw
 
 
-@pytest.mark.parametrize("compiled", [True, False])
+@pytest.mark.parametrize("compiled", [pytest.param(True, marks=pytest.mark.compiled), False])
 @pytest.mark.parametrize("num_bits", [8, 70])
 def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int, compiled: bool) -> None:
     """Count two disjoint four-qubit blocks, with any remaining qubits free, at every weight.

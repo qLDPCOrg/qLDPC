@@ -71,7 +71,7 @@ def get_bound_oracle(
     )
 
 
-@pytest.mark.parametrize("interpreted", [False, True])
+@pytest.mark.parametrize("interpreted", [pytest.param(False, marks=pytest.mark.compiled), True])
 def test_bounds_are_exact_relaxations(
     interpreted: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -91,7 +91,10 @@ def test_bounds_are_exact_relaxations(
     for num_rows, num_columns in [(2, 1), (3, 5), (6, 21), (7, 70)]:
         tails = get_random_tails(rng, num_rows, num_columns)
         rows = pack_bits(tails)
-        all_tables = {bits: cb.CompletionTables.build(rows, bits) for bits in (8, 16)}
+        # the compiled variant also checks the default width of 16 columns, which is slow in Python,
+        # and both variants keep two widths, so that they check that merging never weakens a bound
+        widths = (4, 8) if interpreted else (4, 8, 16)
+        all_tables = {bits: cb.CompletionTables.build(rows, bits) for bits in widths}
         for first, _ in itertools.product(range(num_rows - 1), range(6)):
             selection = rng.integers(0, 2, num_rows).astype(bool)
             prefix = np.bitwise_xor.reduce(tails[selection], axis=0, initial=0).astype(np.uint8)
@@ -107,7 +110,9 @@ def test_bounds_are_exact_relaxations(
                 for limit in range(bound + 2):
                     stopped = get_bound(tables.tables, tables.offsets, bits, first, packed, limit)
                     assert (stopped >= limit) == (bound >= limit)
-            assert bounds[8] <= bounds[16]
+            assert all(
+                bounds[narrow] <= bounds[wide] for narrow, wide in itertools.pairwise(widths)
+            )
 
 
 def test_bounds_ignore_ones_past_the_tails() -> None:
@@ -156,7 +161,7 @@ def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -
     assert cb.build_tables_within(rows[:1], 8, MAX_VALUE) is None
 
 
-@pytest.mark.parametrize("interpreted", [False, True])
+@pytest.mark.parametrize("interpreted", [pytest.param(False, marks=pytest.mark.compiled), True])
 def test_sampled_supports_are_counted_exactly(
     interpreted: bool, pytestconfig: pytest.Config
 ) -> None:
@@ -169,15 +174,18 @@ def test_sampled_supports_are_counted_exactly(
     rows = pack_bits(tails)
     for weight in (2, 3, 5):
         supports = np.array(list(itertools.combinations(range(9), weight)), dtype=np.int64)
-        for limit, block_bits in itertools.product(range(4), (8, 16)):
-            expected = 0
+        for block_bits in (8, 16):
+            bounds = []
             for support in supports:
                 prefix = np.bitwise_xor.reduce(tails[support[: weight - 2]], axis=0, initial=0)
-                bound = get_bound_oracle(
-                    tails, prefix.astype(np.uint8), support[weight - 2], block_bits
+                bounds.append(
+                    get_bound_oracle(
+                        tails, prefix.astype(np.uint8), support[weight - 2], block_bits
+                    )
                 )
-                expected += bound >= limit
-            assert count(rows, supports, limit, block_bits, 37) == expected
+            for limit in range(4):
+                expected = sum(bound >= limit for bound in bounds)
+                assert count(rows, supports, limit, block_bits, 37) == expected
 
 
 def test_selection_follows_its_policy() -> None:
