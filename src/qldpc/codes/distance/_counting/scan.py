@@ -257,10 +257,9 @@ class _Steps:
 
     def get_next(self, layer: int, set_index: int) -> tuple[int, int]:
         """The step after a step, or ``(0, 0)`` after the last step."""
-        num_sets = self._last_num_completed if layer == self._last_layer else self._num_sets
-        if set_index + 1 < num_sets:
-            return layer, set_index + 1
-        return (layer + 1, 0) if layer < self._last_layer else (0, 0)
+        return _get_next_step(
+            layer, set_index, self._num_sets, self._last_layer, self._last_num_completed
+        )
 
     def find(self, step: tuple[int, int], accept: Callable[[int, int], bool]) -> tuple[int, int]:
         """The first step after ``step`` that ``accept`` accepts, or ``(0, 0)`` if none does."""
@@ -268,6 +267,16 @@ class _Steps:
         while step != (0, 0) and not accept(*step):
             step = self.get_next(*step)
         return step
+
+
+@compiled_on_request
+def _get_next_step(
+    layer: int, set_index: int, num_sets: int, last_layer: int, last_num_completed: int
+) -> tuple[int, int]:
+    """The step after a step of a scan, or ``(0, 0)`` after its last step (see ``_Steps``)."""
+    if set_index + 1 < (last_num_completed if layer == last_layer else num_sets):
+        return layer, set_index + 1
+    return (layer + 1, 0) if layer < last_layer else (0, 0)
 
 
 class _StepTables:
@@ -442,14 +451,13 @@ def _scan_coefficient_layers(
 ) -> int:
     """Visit the supports of the steps from ``cursor`` on, for at most ``max_chunks`` chunks.
 
-    A step visits all supports of one layer of one set (see ``_count_chunk``).  The layers run from
-    one to ``last_layer``.  Each set has a step in each layer, except that only the first
-    ``last_num_completed`` sets visit the last layer.  The steps run in lexicographic order of their
-    layer and set, so the steps that the scan visits are a prefix of that order.  Each word
-    of the target weight is owned by the first step that visits it (see ``_is_owned``), which
-    therefore lies in the prefix, since the certificate rules out unvisited words of the target
-    weight after its last step.  This loop is a function of its own so that it can be compiled,
-    which saves a call from Python for every chunk.
+    A step visits all supports of one layer of one set (see ``_count_chunk``).  The steps run in the
+    order of ``_Steps``, given by ``_get_next_step``, which is lexicographic in their layer and set,
+    so the steps that the scan visits are a prefix of that order.  Each word of the target weight
+    is owned by the first step that visits it (see ``_is_owned``), which therefore lies in the
+    prefix, since the certificate rules out unvisited words of the target weight after its last
+    step.  This loop is a function of its own so that it can be compiled, which saves a call from
+    Python for every chunk.
 
     The call stops before the step ``(stop_layer, stop_set)``, or runs to the end of the scan if
     that step is ``(0, 0)``.  With ``tables`` of ``completion_bounds.CompletionTables``, its steps
@@ -522,16 +530,14 @@ def _scan_coefficient_layers(
                 return _SCAN_FOUND_LIGHTER_WORD
 
         # Move to the next step, and stop at the end of the scan or before the stopping step.
-        num_sets = last_num_completed if layer == last_layer else len(rows_and_labels)
-        cursor[_CURSOR_SET] += 1
-        cursor[_CURSOR_DEPTH] = 0
-        support[:] = 0
-        if cursor[_CURSOR_SET] >= num_sets:
-            cursor[_CURSOR_LAYER] += 1
-            cursor[_CURSOR_SET] = 0
-        if cursor[_CURSOR_LAYER] > last_layer:
+        layer, set_index = _get_next_step(
+            layer, set_index, len(rows_and_labels), last_layer, last_num_completed
+        )
+        if layer == 0:
             return _SCAN_FINISHED
-        if cursor[_CURSOR_LAYER] == stop_layer and cursor[_CURSOR_SET] == stop_set:
+        cursor[_CURSOR_LAYER], cursor[_CURSOR_SET], cursor[_CURSOR_DEPTH] = layer, set_index, 0
+        support[:] = 0
+        if layer == stop_layer and set_index == stop_set:
             return _SCAN_UNFINISHED
 
 
