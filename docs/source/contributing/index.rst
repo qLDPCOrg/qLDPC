@@ -103,8 +103,8 @@ The third tier is the finishing checks.
 * **As needed:** when writing, reviewing, or verifying a change, run targeted tests that cover it.
   Select tests by function, or run the test file of a changed module, as in ``python -m pytest src/qldpc/codes/common_test.py::test_name``.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it largely repeats the test run of ``coverage_.py``.
-  When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module.
-  For example, ``python checks/coverage_.py src/qldpc/codes/common.py`` checks one module, and ``python checks/coverage_.py -i`` checks every changed module.
+  When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module and its test file.
+  For example, ``python checks/coverage_.py src/qldpc/codes/common.py src/qldpc/codes/common_test.py`` checks the coverage of one module and its test file.
 * **Finishing:** local checks that catch, before CI runs, the failures that a change most likely causes.
   CI runs them too, over the whole repository, so they are needed only when no one will read CI's results soon, such as when a change is finished while the maintainers are away.
   In that case, check the finished change and the code that it could affect before its pull request is marked ready for review.
@@ -125,7 +125,7 @@ It skips the per-module coverage gate and ``pyproject.toml`` formatting.
 Running it alongside ``coverage_.py`` runs most tests twice.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
-For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed modules only, which is much faster than a full run.
+For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed files only, which is much faster than a full run.
 Check scripts discover files through Git, so stage new source and test files with ``git add`` before running any check on them, including incremental runs.
 For incremental runs, prefer the individual scripts: ``all_.py -i`` measures overall coverage over only the selected tests, so shared fixtures in ``conftest.py`` files can fail it spuriously.
 
