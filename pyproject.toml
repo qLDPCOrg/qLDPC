@@ -56,7 +56,6 @@ optional-dependencies.decoders = [
 ]
 optional-dependencies.dev = [
   "checks-superstaq>=0.5.67",
-  "coverage>=7.10",               # labeled coverage measurement in checks/coverage_contexts.py
   "grimp>=3.14",                  # import graphs for the layering tests
   "jupyter>=1.1.1",
   "pypandoc-binary>=1.13",        # bundles pandoc for building the notebook docs locally
@@ -110,7 +109,6 @@ ci-notebooks = [
 ]
 ci-test = [
   "checks-superstaq>=0.5.67",
-  "coverage>=7.10",
   "grimp>=3.14",
   "pytest>=8,!=9.1.*",
   "pytest-randomly>=3.10",
