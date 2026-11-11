@@ -156,7 +156,8 @@ show_error_codes = true
 
 [tool.pytest]
 ini_options.addopts = "--disable-socket"  # forbid tests from making network calls
-# CI's coverage check skips the tests marked compiled, and a job of their own runs them.
+# checks/coverage_.py skips the tests marked compiled, and a CI job of their own runs them (see the
+# testing standard).
 ini_options.markers = [
   "compiled: runs numba-compiled code, which coverage cannot trace, rather than its Python version",
 ]

@@ -650,7 +650,6 @@ def test_layers_visit_each_support_once_with_its_sums(pytestconfig: pytest.Confi
             assert visited == expected
 
 
-@pytest.mark.compiled
 def test_functions_agree_in_plain_python_and_compiled(pytestconfig: pytest.Config) -> None:
     """Pruned and replacement basis families are identical, bit for bit, plain and compiled."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
