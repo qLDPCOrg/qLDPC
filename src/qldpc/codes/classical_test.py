@@ -289,7 +289,10 @@ def test_tanner_code_on_graphs_with_parallel_edges() -> None:
 
 
 def test_tanner_code_isolated_nodes() -> None:
-    """Isolated nodes are bits of directed graphs, and need a subcode without bits otherwise."""
+    """Isolated nodes are bits of directed graphs, and raise a degree error in undirected ones.
+
+    The degree error is raised unless the subcode has no bits.
+    """
     subgraph = nx.cycle_graph(3)
     subgraph.add_node(3)
     with pytest.raises(ValueError, match="Node 3 has degree 0"):
@@ -300,7 +303,7 @@ def test_tanner_code_isolated_nodes() -> None:
     code = codes.TannerCode(directed_subgraph, codes.RepetitionCode(2))
     np.testing.assert_array_equal(code.matrix.view(np.ndarray), [[1, 1, 0]])
 
-    # With a subcode on no bits, no node has edges, so the code has no checks.  The nodes of a
+    # With a subcode without bits, no node has edges, so the code has no checks.  The nodes of a
     # directed graph are then bits, whereas the code on an undirected graph has no bits.
     subcode = codes.ClassicalCode(np.zeros((1, 0), dtype=int))
     directed_code = codes.TannerCode(nx.empty_graph(3, create_using=nx.DiGraph), subcode)
@@ -323,11 +326,6 @@ def test_tanner_code_requires_sources_and_sinks() -> None:
     ]:
         with pytest.raises(ValueError, match="both incoming and outgoing"):
             codes.TannerCode(subgraph, codes.RepetitionCode(2))
-
-    # the node of an edge of an undirected graph cannot also be a node of that graph
-    subgraph = nx.Graph([(0, 1), (0, frozenset([0, 1]))])
-    with pytest.raises(ValueError, match="is also a node"):
-        codes.TannerCode.as_directed_subgraph(subgraph)
 
 
 def test_tanner_code_directed_subgraph() -> None:
@@ -357,6 +355,17 @@ def test_tanner_code_directed_subgraph() -> None:
         (1, edge_1, 1),
     ]
     assert sorted(directed_subgraph.edges(data="sort"), key=str) == sorted(expected_edges, key=str)
+
+    # A node of an undirected graph cannot equal the node of one of its edges.  In a multigraph, the
+    # node of an edge includes its key, so a node may equal the frozenset of the edge.
+    for subgraph in [
+        nx.Graph([(0, 1), (0, frozenset([0, 1]))]),
+        nx.MultiGraph([(0, 1), (0, (frozenset([0, 1]), 0))]),
+    ]:
+        with pytest.raises(ValueError, match="is also a node"):
+            codes.TannerCode.as_directed_subgraph(subgraph)
+    subgraph = nx.MultiGraph([(0, 1), (0, frozenset([0, 1]))])
+    assert codes.TannerCode.as_directed_subgraph(subgraph).number_of_nodes() == 5
 
 
 def test_tanner_code() -> None:
