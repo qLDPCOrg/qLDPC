@@ -14,7 +14,9 @@ if __name__ == "__main__":
     # The docs build runs here too, so the pandoc that nbsphinx needs has to be discoverable.
     build_docs.ensure_sphinx_on_path()
     build_docs.ensure_pandoc_on_path()
-    skip_files = ["--sysmon", "--skip", "configs", "requirements"]
+    # Each check to skip is a separate "--skip=..." argument, since a separate value list would also
+    # take the caller's files.
+    skip_files = ["--sysmon", "--skip=configs", "--skip=requirements"]
     check_result = checks_superstaq.all_.run(*skip_files, *sys.argv[1:])
     # Rendered docstrings exist only after a full run, which builds the docs; file or incremental
     # runs skip the docs build, so they skip this validation too.
