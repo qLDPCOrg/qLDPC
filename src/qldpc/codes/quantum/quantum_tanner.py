@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast
+import heapq
 import itertools
 import os
 from collections.abc import Iterable, Sequence
@@ -186,20 +187,15 @@ class QTCode(CSSCode):
         member = next(itertools.chain(subset_a, subset_b))
         identity = member * ~member
 
-        # identify the set of nodes for which we still need to add faces
-        nodes_to_add = {identity}
-
-        # build the subgraphs one node at a time
+        # Build the subgraphs one node at a time, always adding the faces of the least node that has
+        # been found but not yet visited.  The heap holds the nodes that are waiting to be visited.
         subgraph_x = nx.DiGraph()
         subgraph_z = nx.DiGraph()
+        nodes_found = {identity}
+        nodes_to_visit = [identity]
         num_faces = 0
-        while nodes_to_add:
-            gg = min(nodes_to_add)
-            nodes_to_add.remove(gg)
-
-            # identify nodes we have already covered, and new nodes we may need to cover
-            old_nodes = set(subgraph_x.nodes())
-            new_nodes = set()
+        while nodes_to_visit:
+            gg = heapq.heappop(nodes_to_visit)
 
             # add all faces adjacent to this node, numbering each face when it is first found
             for aa, bb in itertools.product(subset_a, subset_b):
@@ -213,9 +209,10 @@ class QTCode(CSSCode):
                 subgraph_x.add_edge(gg, face, sort=(aa, bb))
                 subgraph_z.add_edge(aa_gg, face, sort=(~aa, bb))
 
-                new_nodes.add(aa_gg_bb)
-
-            nodes_to_add |= new_nodes - old_nodes
+                # queue the corner agb, which is a source of subgraph_x like gg, if it is new
+                if aa_gg_bb not in nodes_found:
+                    nodes_found.add(aa_gg_bb)
+                    heapq.heappush(nodes_to_visit, aa_gg_bb)
 
         return subgraph_x, subgraph_z
 

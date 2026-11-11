@@ -409,15 +409,18 @@ class TannerCode(ClassicalCode):
     [1] A bipartite "half-regular" graph G.  That is, a graph...
 
         ... with two sets of nodes, V and W.
-        ... in which all nodes in V have degree n.
+        ... in which all nodes in V have degree n, counting parallel edges separately.
 
     [2] A classical code C on n bits.
 
     For convenience, we make G directed, with edges directed from V to W.  The node sets V and W can
-    then be identified, respectively, by the sources and sinks of G.
+    then be identified, respectively, by the sources and sinks of G.  Nodes without edges are sinks,
+    and hence bits.  Every other node must be a source or a sink.
 
     The Tanner code ``T(G,C)`` is defined on ``|W|`` bits.  A ``|W|``-bit string x is a code word of
-    ``T(G,C)`` iff, for every node v in V, the bits of x incident to v are a code word of C.
+    ``T(G,C)`` iff, for every node v in V, the bits of x incident to v are a code word of C.  If G
+    has parallel edges (as a MultiDiGraph), a bit appears at several positions of the word that v
+    checks, and the columns of the parity check matrix of C at those positions add.
 
     This construction requires an ordering of the edges E(v) adjacent to each vertex v.  This class
     sorts E(v) by the value of the "sort" attribute attached to each edge.  If there is no "sort"
@@ -430,14 +433,20 @@ class TannerCode(ClassicalCode):
     compares values of different kinds.
 
     Tanner codes can similarly be defined on regular (undirected) graphs ``G' = (V',E')`` by placing
-    checks on V' and bits on E'.  Bits are then ordered as G' lists its edges, and checks by the
-    nodes in V' themselves.  The "sort" attribute of an edge (v,w) in E', if any, is a dictionary
-    that maps each of v and w to the sort value of the edge at that node.
+    checks on V' and bits on E'.  Every node in V', including isolated nodes, must then have degree
+    n.  No node in V' may equal a node that as_directed_subgraph uses to represent an edge.  Bits
+    are ordered as G' lists its edges, and checks by the nodes in V' themselves.  The "sort"
+    attribute of an edge (v,w) in E', if any, is a dictionary that maps each of v and w to the sort
+    value of the edge at that node.  Parallel edges (in a MultiGraph) are distinct bits.  As is
+    standard, a self-loop at v adds 2 to the degree of v.  Its bit therefore appears at two
+    positions of the word that v checks.  Both positions take the sort value of the self-loop at v.
 
     Notes:
 
     - If the subcode C has m checks, its parity matrix has shape ``(m,n)``.
-    - The code ``T(G,C)`` has ``|W|`` bits and ``|V|m`` checks.
+    - The code ``T(G,C)`` has ``|W|`` bits and ``|V|m`` checks.  If n = 0, no node may have edges,
+      so the code has no checks.  The nodes of a directed graph G are then its bits, whereas the
+      code on an undirected graph G' has no bits.
 
     References:
 
@@ -450,12 +459,26 @@ class TannerCode(ClassicalCode):
     def __init__(self, subgraph: nx.Graph, subcode: ClassicalCode) -> None:
         """Construct a classical Tanner code."""
         if not isinstance(subgraph, nx.DiGraph):
+            # check isolated nodes here, since the directed graph leaves them out
+            for node in nx.isolates(subgraph):
+                TannerCode._check_degree(node, 0, len(subcode))
             subgraph = TannerCode.as_directed_subgraph(subgraph)
 
         self.subgraph = subgraph
         self.subcode = subcode
-        sources = [node for node in subgraph if subgraph.in_degree(node) == 0]
+
+        # every node must be a check (source) or a bit (sink), so none has both incoming and
+        # outgoing edges
+        for node in subgraph:
+            if subgraph.in_degree(node) and subgraph.out_degree(node):
+                raise ValueError(
+                    f"Node {node} of the subgraph of this Tanner code has both incoming and"
+                    " outgoing edges, so it is neither a check (source) nor a bit (sink)"
+                )
+
+        # nodes without edges are bits (sinks), rather than checks (sources)
         sinks = [node for node in subgraph if subgraph.out_degree(node) == 0]
+        sources = [node for node in subgraph if subgraph.out_degree(node) > 0]
         sink_indices = {
             sink: idx for idx, sink in enumerate(sorted(sinks, key=self._get_node_sort_key))
         }
@@ -466,31 +489,52 @@ class TannerCode(ClassicalCode):
         for idx, source in enumerate(sorted(sources, key=self._get_node_sort_key)):
             checks = range(subcode.num_checks * idx, subcode.num_checks * (idx + 1))
             bits = [sink_indices[sink] for sink in self._get_sorted_neighbors(source)]
-            if len(bits) != len(subcode):
-                raise ValueError(
-                    f"Node {source} has degree {len(bits)}, but the subcode of this Tanner code is"
-                    f" defined on {len(subcode)} bits.  Every source node of the subgraph must have"
-                    " degree equal to the block length of the subcode."
-                )
-            matrix[np.ix_(checks, bits)] = subcode.matrix
+            TannerCode._check_degree(source, len(bits), len(subcode))
+            if len(set(bits)) == len(bits):
+                # usually, a node sees each bit once, so skip the slower field addition below
+                matrix[np.ix_(checks, bits)] = subcode.matrix
+            else:
+                # add the columns of the subcode's parity check matrix at the positions of each bit
+                distinct_bits, columns = np.unique(bits, return_inverse=True)
+                block = subcode.field.Zeros((subcode.num_checks, len(distinct_bits)))
+                for position, column in enumerate(columns):
+                    block[:, column] += subcode.matrix[:, position]
+                matrix[np.ix_(checks, distinct_bits)] = block
         super().__init__(matrix, subcode.field)
 
     @staticmethod
     def as_directed_subgraph(subgraph: nx.Graph) -> nx.DiGraph:
         """Convert an undirected graph for a Tanner code into a directed graph for the same code.
 
-        Each edge of the undirected graph becomes a node, whose "sort" attribute numbers the edges
-        in the order in which the undirected graph lists them.
+        Each edge (v,w) of the undirected graph becomes a node, frozenset({v,w}), whose "sort"
+        attribute numbers the edges in the order in which the undirected graph lists them.  In a
+        MultiGraph, the node of an edge is instead (frozenset({v,w}), key), with the key that
+        distinguishes parallel edges.  A self-loop at v becomes two parallel edges from v to the
+        node of the self-loop.  The directed graph is therefore a MultiDiGraph if the undirected
+        graph is a MultiGraph or has self-loops, and a DiGraph otherwise.  Isolated nodes are left
+        out.  If a node of the undirected graph equals the node of an edge, this method raises a
+        ValueError, since the directed graph could not tell the node from the edge.
         """
-        directed_subgraph = nx.DiGraph()
-        for index, (node_a, node_b, edge_data) in enumerate(subgraph.edges(data=True)):
-            edge = frozenset([node_a, node_b])
-            directed_subgraph.add_node(edge, sort=index)
-            directed_subgraph.add_edge(node_a, edge)
-            directed_subgraph.add_edge(node_b, edge)
-            if (sort_data := edge_data.get("sort")) is not None:
-                directed_subgraph[node_a][edge]["sort"] = sort_data[node_a]
-                directed_subgraph[node_b][edge]["sort"] = sort_data[node_b]
+        is_multigraph = subgraph.is_multigraph()
+        directed_subgraph: nx.DiGraph = (
+            nx.MultiDiGraph() if is_multigraph or nx.number_of_selfloops(subgraph) else nx.DiGraph()
+        )
+        edges = subgraph.edges(keys=True, data=True) if is_multigraph else subgraph.edges(data=True)
+        # keys holds the key that tells apart parallel edges of a MultiGraph, and is otherwise empty
+        for index, (node_a, node_b, *keys, edge_data) in enumerate(edges):
+            edge_node: object = frozenset([node_a, node_b])
+            if is_multigraph:
+                edge_node = (edge_node, *keys)
+            if edge_node in subgraph:
+                raise ValueError(
+                    f"The node {edge_node} that represents an edge of the subgraph of this Tanner"
+                    " code is also a node of the subgraph"
+                )
+            directed_subgraph.add_node(edge_node, sort=index)
+            sort_data = edge_data.get("sort")
+            for node in [node_a, node_b]:
+                edge_attributes = {} if sort_data is None else {"sort": sort_data[node]}
+                directed_subgraph.add_edge(node, edge_node, **edge_attributes)
         return directed_subgraph
 
     def _get_node_sort_key(self, node: object) -> Any:
@@ -498,10 +542,21 @@ class TannerCode(ClassicalCode):
         return self.subgraph.nodes[node].get("sort", node)
 
     def _get_sorted_neighbors(self, node: object) -> Sequence[object]:
-        """Sorted neighbors of the given node."""
-        return sorted(
-            self.subgraph.neighbors(node),
-            key=lambda neighbor: self.subgraph[node][neighbor].get(
-                "sort", self._get_node_sort_key(neighbor)
-            ),
-        )
+        """Sorted neighbors of the given node, with one entry for each edge to a neighbor."""
+
+        def get_sort_key(edge: tuple[object, object, dict[str, object]]) -> Any:
+            _, neighbor, edge_data = edge
+            return edge_data.get("sort", self._get_node_sort_key(neighbor))
+
+        edges = sorted(self.subgraph.out_edges(node, data=True), key=get_sort_key)
+        return [neighbor for _, neighbor, _ in edges]
+
+    @staticmethod
+    def _check_degree(node: object, degree: int, block_length: int) -> None:
+        """Check that a node has one edge for each bit of the subcode of a Tanner code."""
+        if degree != block_length:
+            raise ValueError(
+                f"Node {node} has degree {degree}, but the subcode of this Tanner code is defined on"
+                f" {block_length} bits.  Every check node must have degree equal to the block length"
+                " of the subcode."
+            )

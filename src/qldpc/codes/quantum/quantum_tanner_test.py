@@ -236,6 +236,19 @@ def test_quantum_tanner_qudit_order() -> None:
         (2, 9, 10, 11),
     ]
 
+    # a code in which visiting the least node first and visiting nodes in the order in which they
+    # are found give different orders of faces
+    shift = abstract.CyclicGroup(6).generators[0]
+    code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
+    assert get_supports(code) == [
+        (0, 1, 2, 3),
+        (1, 2, 4, 5),
+        (4, 6, 7, 8),
+        (0, 7, 8, 9),
+        (5, 9, 10, 11),
+        (3, 6, 10, 11),
+    ]
+
 
 def test_random_quantum_tanner_code_is_reproducible() -> None:
     """A seed fixes both of the random subsets that define a random quantum Tanner code."""

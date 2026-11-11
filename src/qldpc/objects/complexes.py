@@ -115,23 +115,14 @@ class CayleyComplex:
         bipartite: bool = False,
     ) -> None:
         """Construct a left-right Cayley complex."""
-        from qldpc import abstract
-
-        # copy the subsets into lists, since an iterator can be read only once, and an array may
-        # have no truth value
+        # copy the subsets into lists, since an iterator can be read only once
         subset_a = list(subset_a)
         subset_b = subset_a if subset_b is None else list(subset_b)
+
+        # merge repeated members, including members that differ only by trailing fixed points
+        subset_a, subset_b = CayleyComplex._resize_members(subset_a, subset_b)
         if not subset_a and not subset_b:
             raise ValueError("A Cayley complex needs at least one generating member")
-
-        # Read all members on the same number of points.  A SymPy permutation acts on the points up
-        # to the largest one in its cycles or array form, unless given a size, so trailing fixed
-        # points can be omitted and one group member can appear in different forms.  These would be
-        # different nodes, and the covers in cover_subset_a/b would put their extra factors on
-        # different points.
-        size = max(member.size for member in itertools.chain(subset_a, subset_b))
-        subset_a = {abstract.GroupMember(member.array_form, size=size) for member in subset_a}
-        subset_b = {abstract.GroupMember(member.array_form, size=size) for member in subset_b}
 
         # assert that the generating subsets are symmetric
         for subset, name in [(subset_a, "subset_a"), (subset_b, "subset_b")]:
@@ -179,17 +170,20 @@ class CayleyComplex:
 
     @staticmethod
     def build_cayley_graph(
-        subset_a: Collection[abstract.GroupMember],
-        subset_b: Collection[abstract.GroupMember] = (),
+        subset_a: Iterable[abstract.GroupMember],
+        subset_b: Iterable[abstract.GroupMember] = (),
     ) -> nx.Graph:
         """Build a left-right Cayley graph generated from the identity element of a group.
 
-        Either subset may be empty, but not both.  The graph is built breadth-first from the
-        identity, applying the members of each subset in sorted order, so that the order of its
-        nodes and edges is reproducible.
+        Either subset may be empty, but not both.  Repeated members are merged, including members
+        that differ only by trailing fixed points.  The nodes of the graph act on the largest number
+        of points of any member.  The graph is built breadth-first from the identity, applying the
+        members of each subset in sorted order, so that the order of its nodes and edges is
+        reproducible.
         """
-        subset_a = sorted(subset_a)
-        subset_b = sorted(subset_b)
+        subset_a, subset_b = map(
+            sorted, CayleyComplex._resize_members(list(subset_a), list(subset_b))
+        )
 
         # identify the identity element
         member = next(itertools.chain(subset_a, subset_b), None)
@@ -225,6 +219,27 @@ class CayleyComplex:
             aa * gg != gg * bb
             for gg, aa, bb in itertools.product(group.generate(), subset_a, subset_b)
         )
+
+    @staticmethod
+    def _resize_members(
+        subset_a: Collection[abstract.GroupMember], subset_b: Collection[abstract.GroupMember]
+    ) -> tuple[set[abstract.GroupMember], set[abstract.GroupMember]]:
+        """Read the members of two subsets on the largest number of points, merging repeats.
+
+        A SymPy permutation acts on the points up to the largest one in its cycles or array form,
+        unless given a size, so trailing fixed points can be omitted and one group member can appear
+        in different forms.  These forms compare unequal, so they would be different nodes of a
+        graph.  Forms on different numbers of points would also make the covers in cover_subset_a/b
+        put their extra factors on different points.
+        """
+        from qldpc import abstract
+
+        size = max((member.size for member in itertools.chain(subset_a, subset_b)), default=0)
+        resized_a, resized_b = (
+            {abstract.GroupMember(member.array_form, size=size) for member in subset}
+            for subset in [subset_a, subset_b]
+        )
+        return resized_a, resized_b
 
 
 class ChainComplex:
