@@ -19,6 +19,7 @@ A kind that a request names holds for the rest of the work on the change, and so
 The exception is a revision that gives the change a new reason to suit a full review, as when work on one decoder also changes a code construction.
 A request can narrow or extend the review, as in "full review of the tests and prose".
 Instructions in the request take precedence over this page.
+If this page does not settle a case, take the more careful option, and list the choice as an open decision.
 
 Scope
 -----
@@ -57,6 +58,7 @@ The coordinator gives each reviewer:
     * documentation that states something false.
 
     Mark every other finding about the change minor.
+    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is minor, unless an agent that follows the rules in good faith would plausibly cause one of the problems listed above without reporting it.
   * If you cannot read in full the changes in the area of one of your angles, or cannot check them as that angle requires, ask for a closer look at that angle.
     Make the request separately from your findings, and say what you could not read or check.
     No angle requires a check other than the drafting checks.
