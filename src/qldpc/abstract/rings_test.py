@@ -420,10 +420,11 @@ def test_computed_primitive_central_idempotents(
 ) -> None:
     """Computed idempotents are the primitive central idempotents, sorted by their coefficients.
 
-    D4 is not abelian, so conjugation by every generator matters.  Over GF(5), the 5th power of each
-    member of D4 is the member itself, so only conjugation merges its classes.  Over GF(9), the
-    F_9-conjugacy classes of C4 differ from its F_3-conjugacy classes.  With a non-default
-    irreducible polynomial, the idempotents of C4 have coefficients outside the prime field.
+    D4 is not abelian, so conjugation by every generator matters.  Over GF(5), each member of D4 is
+    its own 5th power, so the F_5-conjugacy classes of D4 are its conjugacy classes.  Over GF(9),
+    the F_9-conjugacy classes of C4 differ from its F_3-conjugacy classes.  The idempotents of C4
+    over GF(9) have coefficients outside the prime field, here written with a non-default
+    irreducible polynomial.
     """
     ring = abstract.GroupRing(group, field)
     idempotents = rings._get_primitive_central_idempotents(ring)

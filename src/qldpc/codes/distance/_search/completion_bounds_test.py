@@ -91,7 +91,8 @@ def test_bounds_are_exact_relaxations(
     for num_rows, num_columns in [(2, 1), (3, 5), (6, 21), (7, 70)]:
         tails = get_random_tails(rng, num_rows, num_columns)
         rows = pack_bits(tails)
-        # the compiled variant also checks the default width of 16 columns, which is slow in Python
+        # the compiled variant also checks the default width of 16 columns, which is slow in Python,
+        # and both variants keep two widths, so that they check that merging never weakens a bound
         widths = (4, 8) if interpreted else (4, 8, 16)
         all_tables = {bits: cb.CompletionTables.build(rows, bits) for bits in widths}
         for first, _ in itertools.product(range(num_rows - 1), range(6)):

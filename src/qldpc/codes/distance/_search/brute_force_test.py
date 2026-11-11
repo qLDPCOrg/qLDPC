@@ -65,10 +65,11 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
     The spy records each enumerated word through its weight function: ``np.bitwise_count`` for
     Hamming weights, and ``symplectic_weight`` for symplectic weights.
 
-    Each word packs into two 64-bit integers.  So for Hamming weights, the batches vectorize over no
-    generators, two of the four stabilizers, or every stabilizer and two logical operators, and for
-    symplectic weights, over no generators, two of the three stabilizers, or every stabilizer and
-    three logical operators.
+    A batch holds at most 2**batch_exponent 64-bit integers, and each word packs into two, so a
+    batch vectorizes over batch_exponent - 1 generators.  For Hamming weights, the exponents 1, 3,
+    and 7 vectorize over no generators, two of the four stabilizers, or all four stabilizers and two
+    logical operators.  For symplectic weights, they vectorize over no generators, two of the three
+    stabilizers, or all three stabilizers and three logical operators.
     """
     tune(enumeration_batch_exponent=batch_exponent)
     rng = np.random.default_rng(97)

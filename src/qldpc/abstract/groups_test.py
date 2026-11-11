@@ -510,17 +510,20 @@ def test_wreath_product_group() -> None:
         padded_member, bottom_members
     )
     other_group = abstract.WreathProductGroup(abstract.CyclicGroup(2), abstract.SymmetricGroup(3))
-    assert other_group.order == 2 * 6**2  # the bottom group has two generators
+    # these orders are right only if the generators of a wreath product include every generator of
+    # its top group and of its bottom group, here of S3, which has two
+    assert other_group.order == 2 * 6**2
+    assert abstract.WreathProductGroup(abstract.SymmetricGroup(3), bottom).order == 6 * 2**3
     assert other_group.element(other_group.top.identity, [short_member] * 2) == other_group.element(
         other_group.top.identity, [padded_member] * 2
     )
     assert member in group
     assert np.array_equal(group.lift(member), member.to_matrix())
 
-    # Members act on the points of each block of bottom_degree points by their top and bottom
-    # components.  The top generator above is its own inverse, so a wreath product of C3 by C3,
-    # whose members of order 3 differ from their inverses, also checks that no component acts by
-    # its inverse.
+    # A member maps point col of block row to point bottom_components[row](col) of block
+    # top_component(row).  Every component of the member above is its own inverse, so a wreath
+    # product of C3 by C3, whose members of order 3 differ from their inverses, also checks that no
+    # component acts by its inverse.
     cyclic_wreath = abstract.WreathProductGroup(abstract.CyclicGroup(3), abstract.CyclicGroup(3))
     cyclic_top_member = cyclic_wreath.top.generators[0]
     cyclic_shift = cyclic_wreath.bottom.generators[0]
@@ -549,7 +552,6 @@ def test_wreath_product_group_errors() -> None:
     top = abstract.SymmetricGroup(3)
     bottom = abstract.CyclicGroup(2)
     group = abstract.WreathProductGroup(top, bottom)
-    assert group.order == 6 * 2**3  # the top group has two generators
 
     with pytest.raises(ValueError, match="top member"):
         group.element(abstract.CyclicGroup(4).generators[0], [bottom.identity] * 3)
