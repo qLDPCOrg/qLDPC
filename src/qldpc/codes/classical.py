@@ -425,9 +425,9 @@ class TannerCode(ClassicalCode):
     else is the neighbor itself.  The nodes in V and W, which index the checks and bits of the code,
     are likewise sorted by their "sort" attributes, or else by the nodes themselves.  Nodes that are
     only partially ordered, such as frozensets, should have "sort" attributes, since sorting them by
-    their own order can depend on the order in which they were added to G.  Give "sort" attributes
-    to all or none of the nodes in V, of the nodes in W, and of the edges in each E(v), since
-    sorting otherwise compares values of different kinds.
+    their own order can depend on the order in which they were added to G.  Within each of V, W,
+    and each E(v), give "sort" attributes to all members or to none, since sorting otherwise
+    compares values of different kinds.
 
     Tanner codes can similarly be defined on regular (undirected) graphs ``G' = (V',E')`` by placing
     checks on V' and bits on E'.  Bits are then ordered as G' lists its edges, and checks by the

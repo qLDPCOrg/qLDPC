@@ -120,8 +120,9 @@ def test_quantum_tanner_generating_data() -> None:
     # the product of the block lengths of the seed codes is right
     other_members = [shift**2, shift**3, ~(shift**2)]
     for code_a, code_b, wrong_code in [
-        (codes.RepetitionCode(3), codes.RepetitionCode(2), "C_A"),
+        (codes.RepetitionCode(3), codes.RepetitionCode(3), "C_A"),
         (codes.RepetitionCode(2), codes.RepetitionCode(2), "C_B"),
+        (codes.RepetitionCode(3), codes.RepetitionCode(2), "C_[AB]"),
     ]:
         with pytest.raises(ValueError, match=f"seed code {wrong_code} has block length"):
             codes.QTCode(members, other_members, code_a, code_b)

@@ -117,8 +117,8 @@ class CayleyComplex:
         """Construct a left-right Cayley complex."""
         from qldpc import abstract
 
-        # copy the subsets into lists, since an iterator can be read only once, and an array with
-        # several members has no truth value
+        # copy the subsets into lists, since an iterator can be read only once, and an array may
+        # have no truth value
         subset_a = list(subset_a)
         subset_b = subset_a if subset_b is None else list(subset_b)
         if not subset_a and not subset_b:
