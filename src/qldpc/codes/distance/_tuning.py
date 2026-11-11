@@ -99,7 +99,7 @@ The fields of the completion tables of distance searches and counts (Section 3.9
   five other layers, the cost model fitted to it predicted cost ratios at most 0.12 above, and 0.02
   below, the measured ones.
 
-To refit the cost model of completion tables, which ``select_completion_tables`` and
+To refit the cost model of completion tables, which ``predict_completion_cost`` and
 ``_estimate_build_cost`` in ``_search/completion_bounds.py`` compute:
 
 1. Time layers of one information set with tables disabled
@@ -325,10 +325,10 @@ class SearchTuning:
 
     # Fields of completion tables.
 
-    #: The number of supports (choices of rows) from which a layer of one information set in a
-    #: distance search or count considers completion tables, which skip supports that cannot
-    #: complete a word lighter than the best, or, in a count, within the counted weight (Section 3.9
-    #: of ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling.  Lowering it
+    #: The number of supports (choices of rows) of an information set from which a distance search
+    #: or count considers completion tables for its layer, which skip supports that cannot complete
+    #: a word lighter than the best, or, in a count, within the counted weight (Section 3.9 of
+    #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling.  Lowering it
     #: considers smaller layers; zero every layer, and ``MAX_VALUE`` none.  Defaults to 10**8, about
     #: 0.2 seconds of scanning on the calibration machine, so that sampling costs a few percent at
     #: most.  To retune it, time layers near the threshold with tables disabled and forced.
