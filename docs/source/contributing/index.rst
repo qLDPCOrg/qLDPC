@@ -88,6 +88,8 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/coverage_.py``
      - Per-module tests and coverage, as in CI: each module under ``src/`` needs its own test file, which must pass and alone cover 100% of the module's statements.
        It skips the tests marked ``compiled``.
+   * - ``python -m pytest src -m compiled``
+     - The tests marked ``compiled``
    * - ``python checks/build_docs.py``
      - Strict Sphinx and notebook documentation build
    * - ``python checks/all_.py``
@@ -95,7 +97,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
 
 Checks come in three tiers by cost.
 The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`review <reviewing>` and in a draft pull request.
-The third tier is the finishing checks.
+The third tier is the extended checks.
 
 * **Anytime:** ``format_.py --check``, ``lint_.py``, and ``mypy_.py`` over the whole repository.
   To apply formatting, run ``format_.py --fix`` on changed files, as in ``python checks/format_.py --fix -i``.
@@ -105,20 +107,20 @@ The third tier is the finishing checks.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it largely repeats the test run of ``coverage_.py``.
   When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module and its test file.
   For example, ``python checks/coverage_.py src/qldpc/codes/common.py src/qldpc/codes/common_test.py`` checks the coverage of one module and its test file.
-* **Finishing:** local checks that catch, before CI runs, the failures that a change most likely causes.
-  CI runs them too, over the whole repository, so they are needed only when no one will read CI's results soon, such as when a change is finished while the maintainers are away.
-  In that case, check the finished change and the code that it could affect before its pull request is marked ready for review.
-  Run the anytime checks, ``coverage_.py -i``, the tests of closely related code, such as callers and subclasses of changed code, and ``build_docs.py`` if the change edits documentation, notebooks, or docstrings.
-  Leave repository-wide test runs to CI.
-  After fixing a failure, rerun the failed checks.
-  If a review ran, ask the maintainer whether to have a significant fix reviewed.
-  If the maintainer is away, report that question as an open decision.
+* **Extended:** the checks that CI runs on every pull request, other than the notebook runs.
+  The extended checks are needed only when the maintainer asks for them by name, or has said that they will be away while a change is completed.
+  Run the anytime checks, ``coverage_.py`` over the whole repository, the tests marked ``compiled``, and ``build_docs.py``.
+  After fixing a failure that the change causes, verify the fix with the drafting checks, and rerun the failed checks and every extended check that the fix could affect.
+  Report any other failure, such as one that also occurs on the main branch, as an open decision.
+  Report a failure whose fix needs a decision in the same way.
+  If a review ran, report as an open decision whether to review each fix, unless the fix is :ref:`local <review-rounds>` and evidently correct.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 
 CI runs on pull requests that are ready for review, not on drafts.
 It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
-It also runs the tests marked ``compiled``, which ``coverage_.py`` skips, so these need not run locally either.
+It also runs the tests marked ``compiled``, which ``coverage_.py`` skips.
+Run these locally only in the extended checks, or as targeted tests of a change to compiled code.
 
 ``all_.py`` runs most checks in one command.
 It skips the per-module coverage gate and ``pyproject.toml`` formatting.
