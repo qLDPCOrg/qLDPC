@@ -23,12 +23,29 @@ a test file and has none, it fails without running the audit.
 
 ``--shard K/N`` checks only the K-th of N shards of the test files, so that N machines can share the
 check.  Every shard reports every selected module without a test file, since such modules are in no
-shard.  The shards are balanced by the durations of tests in ``.test_durations``, which pytest-split
-writes.  To update it, run the whole check, unsharded and without paths, from the root directory of
-the repository, as in ``python checks/coverage_.py --store-durations --clean-durations``, which
-passes these pytest-split options to pytest.  The time of a test file that ``.test_durations`` does
-not list is estimated from its size (see get_test_file_times).  Outdated durations can unbalance the
-shards, but not change what they check.
+shard.  The shards are balanced by the durations of test files in ``.test_durations``.  The time of
+a test file that ``.test_durations`` does not list is estimated from its size (see
+get_test_file_times).  Outdated durations can unbalance the shards, but not change what they check.
+
+To update ``.test_durations``, run the whole check, unsharded and without paths, from the root
+directory of the repository, as in ``python checks/coverage_.py --store-durations
+--clean-durations``, which passes these pytest-split options to pytest.  pytest-split writes the
+duration of each test, and the check then replaces these by the total of each test file.  Run it on
+a CI runner rather than locally, since the ratios of these durations differ between machines.  For
+example, add a temporary CI job that runs it and prints the file, and commit that output as
+``.test_durations``.  The check refuses ``--store-durations``:
+
+* without ``--clean-durations``, which would keep the durations of test files that no longer exist;
+* with ``--isolated``, since the process of each test file would overwrite ``.test_durations``;
+* with ``--shard``, paths, ``--incremental`` (``-i``), or ``--exclude`` (``-x``), which would drop
+  the durations of the test files that did not run; and
+* with ``--durations-path``, since the check replaces the durations only in ``.test_durations``.
+
+Pytest options that narrow the run, such as ``-k`` or ``--lf``, also drop durations, so do not pass
+them with ``--store-durations``.
+
+Write a pytest option and its value as one argument, as in ``--deselect=NODE_ID``, since the check
+reads a separate value as a path.
 """
 
 import argparse
@@ -53,8 +70,9 @@ import pytest_
 # Globs of the files that are neither checked nor run as tests.
 EXCLUDE = pytest_.EXCLUDE
 
-# The file in which pytest-split stores the durations of tests by pytest node ID, which balance the
-# shards (see get_test_file_times).
+# The file of the durations of test files, which balance the shards (see get_test_file_times).
+# pytest-split writes the duration of each test, keyed by its node ID, and the check replaces these
+# by the total of each test file (see compact_durations).
 DURATIONS_FILE = ".test_durations"
 
 # Options for pytest.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
@@ -112,6 +130,8 @@ def run(*args: str) -> int:
             "the check takes paths, not test node IDs; to pass a pytest option whose value is"
             " a node ID, write it as --option=value"
         )
+    if "--store-durations" in pytest_args:
+        check_store_durations(parser, parsed_args, pytest_args)
     if parsed_args.isolated:
         if parsed_args.shard is not None:
             parser.error("--shard does not apply to --isolated")
@@ -146,7 +166,33 @@ def run(*args: str) -> int:
         test_returncode, coverage_reports = check_test_files(
             covered_files, parsed_args.jobs, parsed_args.branch, pytest_args
         )
+        if "--store-durations" in pytest_args:
+            compact_durations()
     return report_results(test_returncode, coverage_reports, untested)
+
+
+def check_store_durations(
+    parser: argparse.ArgumentParser, parsed_args: argparse.Namespace, pytest_args: Sequence[str]
+) -> None:
+    """Exit with a usage error if --store-durations would store wrong durations.
+
+    See the module docstring.
+    """
+    if "--clean-durations" not in pytest_args:
+        parser.error("--store-durations requires --clean-durations")
+    if parsed_args.isolated:
+        parser.error("--store-durations does not apply to --isolated")
+    if parsed_args.shard is not None:
+        parser.error("--store-durations does not apply to --shard")
+    if any(arg.startswith("--durations-path") for arg in pytest_args):
+        parser.error(
+            f"--store-durations writes only to {DURATIONS_FILE}, so it takes no --durations-path"
+        )
+    if parsed_args.files or parsed_args.revisions is not None or parsed_args.exclude:
+        parser.error(
+            "--store-durations requires a run of the whole check, without paths,"
+            " --incremental (-i), or --exclude (-x)"
+        )
 
 
 def get_untested_files(files: Sequence[str]) -> list[str]:
@@ -221,31 +267,12 @@ def get_shard(files: Sequence[str], shard_number: int, num_shards: int) -> list[
 def get_test_file_times(test_files: Collection[str]) -> dict[str, float]:
     """Estimate how long each of the given test files takes to run.
 
-    The estimate for a test file is the sum of the durations of its tests in DURATIONS_FILE, if
-    DURATIONS_FILE lists any of them.  Otherwise, it is the size of the test file times the average
-    time per byte of the given test files that DURATIONS_FILE lists.  So the estimates are in
-    seconds, or in bytes if DURATIONS_FILE lists none of the given test files.  Only their ratios
-    matter.  Raise ValueError if DURATIONS_FILE is not a valid file of test durations.
+    The estimate for a test file is its duration from read_durations, if DURATIONS_FILE lists the
+    test file or its tests.  Otherwise, it is the size of the test file times the average time per
+    byte of the given test files that DURATIONS_FILE lists.  So the estimates are in seconds, or in
+    bytes if DURATIONS_FILE lists none of the given test files.  Only their ratios matter.
     """
-    durations: collections.defaultdict[str, float] = collections.defaultdict(float)
-    if os.path.isfile(DURATIONS_FILE):
-        try:
-            with open(DURATIONS_FILE, encoding="utf-8") as file:
-                # Older versions of pytest-split wrote a list of [node ID, duration] pairs, which it
-                # still reads, so accept one too.
-                for node_id, duration in dict(json.load(file)).items():
-                    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
-                        raise TypeError(f"the duration of {node_id} is {duration!r}")
-                    seconds = float(duration)
-                    if not math.isfinite(seconds) or seconds < 0:
-                        raise ValueError(f"the duration of {node_id} is {duration}")
-                    durations[node_id.split("::")[0]] += seconds
-        except (ArithmeticError, AttributeError, TypeError, ValueError) as error:
-            raise ValueError(
-                f"{DURATIONS_FILE} is not a valid file of test durations ({error}).  Delete it, "
-                "then regenerate it by running this command from the root directory of the "
-                "repository: python checks/coverage_.py --store-durations --clean-durations"
-            ) from error
+    durations = read_durations()
     # Pytest node IDs separate directories with "/" on every platform.
     paths = {test_file: pathlib.PurePath(test_file).as_posix() for test_file in test_files}
     sizes = {test_file: os.path.getsize(test_file) for test_file in test_files}
@@ -257,6 +284,55 @@ def get_test_file_times(test_files: Collection[str]) -> dict[str, float]:
         test_file: durations.get(paths[test_file], sizes[test_file] * time_per_byte)
         for test_file in test_files
     }
+
+
+def read_durations() -> dict[str, float]:
+    """The durations of test files in DURATIONS_FILE, in seconds, or {} if there is no such file.
+
+    DURATIONS_FILE maps pytest node IDs, of tests or of test files, to durations.  The duration of a
+    test file is the sum of the durations of its tests, if DURATIONS_FILE lists any of them, and
+    otherwise its own duration.  Raise ValueError if DURATIONS_FILE is not a valid file of test
+    durations.
+    """
+    if not os.path.isfile(DURATIONS_FILE):
+        return {}
+    test_totals: collections.defaultdict[str, float] = collections.defaultdict(float)
+    file_durations: dict[str, float] = {}
+    try:
+        with open(DURATIONS_FILE, encoding="utf-8") as file:
+            # Older versions of pytest-split wrote a list of [node ID, duration] pairs, which it
+            # still reads, so accept one too.
+            for node_id, duration in dict(json.load(file)).items():
+                if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+                    raise TypeError(f"the duration of {node_id} is {duration!r}")
+                seconds = float(duration)
+                if not math.isfinite(seconds) or seconds < 0:
+                    raise ValueError(f"the duration of {node_id} is {duration}")
+                test_file, separator, _ = node_id.partition("::")
+                if separator:
+                    test_totals[test_file] += seconds
+                else:
+                    file_durations[test_file] = seconds
+    except (ArithmeticError, AttributeError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"{DURATIONS_FILE} is not a valid file of test durations ({error}).  Delete it, which "
+            "balances the shards by the sizes of test files, and regenerate it on a CI runner, as "
+            "the module docstring of checks/coverage_.py describes"
+        ) from error
+    return {**file_durations, **test_totals}
+
+
+def compact_durations() -> None:
+    """Replace the durations in DURATIONS_FILE, if it exists, by those of test files.
+
+    See read_durations.
+    """
+    if not os.path.isfile(DURATIONS_FILE):
+        return
+    durations = read_durations()
+    with open(DURATIONS_FILE, "w", encoding="utf-8") as file:
+        json.dump(dict(sorted(durations.items())), file, indent=4)
+        file.write("\n")
 
 
 def check_test_files(
