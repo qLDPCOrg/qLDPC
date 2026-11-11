@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared pytest fixtures and test helpers for qLDPC package tests."""
+"""Shared pytest fixtures, hooks, and test helpers for qLDPC package tests."""
 
 from __future__ import annotations
 
@@ -231,6 +231,53 @@ def wedderburn_artin_rings_to_test(
         case "dihedral7_gf9":
             return ring_dihedral7_gf9
     raise ValueError(f"Invalid fixture name: {request.param}")  # pragma: no cover
+
+
+####################################################################################################
+# cache clearing between test files
+
+# If this environment variable is "1", qLDPC's functools caches are emptied after each test file
+# (see pytest_runtest_teardown).  The coverage check sets it.
+CLEAR_CACHES_VARIABLE = "QLDPC_CLEAR_CACHES"
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> Iterator[None]:
+    """Empty qLDPC's functools caches after each test file if QLDPC_CLEAR_CACHES is "1".
+
+    The coverage check runs several test files in each process.  A cache that one test file fills
+    could keep lines from running in a later test file, which would then fail coverage falsely.  As
+    the outermost wrapper of the hook, this empties the caches after every other implementation of
+    the hook has run, including those that tear down fixtures.  It applies to the test files under
+    the directory of this conftest.py file.
+    """
+    result = yield
+    if os.environ.get(CLEAR_CACHES_VARIABLE) == "1" and (
+        nextitem is None or nextitem.path != item.path
+    ):
+        clear_caches()
+    return result
+
+
+def clear_caches(modules: Mapping[str, types.ModuleType | None] = sys.modules) -> None:
+    """Empty every functools cache of a function or method of the given modules of qLDPC."""
+    for name, module in list(modules.items()):
+        if module is None or name.partition(".")[0] != "qldpc":
+            continue
+        for value in list(vars(module).values()):
+            # Modules hold no cache.  Looking up a missing attribute of one could run its
+            # __getattr__, such as one that warns of a deprecated name or finishes a lazy import.
+            if isinstance(value, types.ModuleType):
+                continue
+            candidates = [value]
+            if isinstance(value, type) and value.__module__ == name:
+                candidates += [
+                    getattr(member, "__func__", member) for member in vars(value).values()
+                ]
+            for candidate in candidates:
+                cache_clear = getattr(candidate, "cache_clear", None)
+                if callable(cache_clear):
+                    cache_clear()
 
 
 ####################################################################################################

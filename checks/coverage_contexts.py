@@ -17,8 +17,9 @@ test, and labels every line that runs with a coverage context:
 To make a test file run as it would in a fresh process, the plugin also undoes the state that a
 test file leaves behind for the next one on the same worker: after the last test of a test file, it
 tears down the session- and package-scoped fixtures of the repository that the file used, so that
-the next test file sets them up anew, and it empties every ``functools`` cache of the packages in
-``CACHED_PACKAGES``.  Other state that a test file leaves in modules is not reset.
+the next test file sets them up anew.  After the plugin tears down these fixtures, qLDPC's
+``conftest.py`` empties qLDPC's ``functools`` caches, because ``coverage_.py`` sets
+``QLDPC_CLEAR_CACHES``.  Other state that a test file leaves in modules is not reset.
 
 A module that first runs while a test file is collected or a test runs, such as one that qLDPC
 imports lazily, would otherwise have the lines that it runs on import labeled with that test file,
@@ -40,9 +41,6 @@ from collections.abc import Generator, Sequence
 
 import coverage
 import pytest
-
-# The packages whose functools caches are emptied after each test file.
-CACHED_PACKAGES = ("qldpc",)
 
 # Environment variables set by coverage_.py.
 DATA_FILE_VARIABLE = "MODULAR_COVERAGE_DATA_FILE"
@@ -111,13 +109,12 @@ def pytest_runtest_call(item: pytest.Item) -> None:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> Generator[None]:
-    """Label the teardown of a test, and reset shared state after the last test of a test file."""
+    """Label the teardown of a test, and tear down shared fixtures after the last test of a file."""
     _switch_context(f"{item.nodeid}|teardown")
     try:
         yield
         if nextitem is None or _get_test_file(nextitem) != _get_test_file(item):
             _finish_shared_fixtures(item)
-            _clear_package_caches()
     finally:
         _switch_context(UNATTRIBUTED)
 
@@ -232,23 +229,6 @@ def _finish_shared_fixtures(item: pytest.Item) -> None:
     for fixturedef in reversed(fixturedefs):
         # FixtureDef.finish uses its request only to name the node in an error message.
         fixturedef.finish(item._request)  # type: ignore[attr-defined]
-
-
-def _clear_package_caches() -> None:
-    """Empty every functools cache of a function or method of a module in CACHED_PACKAGES."""
-    for name, module in list(sys.modules.items()):
-        if module is None or name.partition(".")[0] not in CACHED_PACKAGES:
-            continue
-        for value in list(vars(module).values()):
-            candidates = [value]
-            if isinstance(value, type) and value.__module__ == name:
-                candidates += [
-                    getattr(member, "__func__", member) for member in vars(value).values()
-                ]
-            for candidate in candidates:
-                cache_clear = getattr(candidate, "cache_clear", None)
-                if callable(cache_clear):
-                    cache_clear()
 
 
 def _is_repository_file(file: str) -> bool:
