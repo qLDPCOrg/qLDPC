@@ -232,6 +232,7 @@ The optimizations are:
 - [Section 3.5](#35-packed-enumeration-with-pivot-column-deletion) packs words into machine words, reuses partial XORs, and avoids storing pivot columns.
 - [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) enumerates every word when that is cheaper than running BZ.
 - [Section 3.9](#39-skipping-completions-by-completion-tables) skips the supports whose last two rows provably cannot complete a word lighter than `U`, or, in a count or a coset query, a word within its weight.
+- [Section 3.10](#310-minimum-weights-of-cosets) finds the minimum weight of a coset up to a maximum weight with one search, rather than with queries at increasing maximum weights.
 
 [Section 3.7](#37-images-of-an-information-set-under-automorphisms) is both an extension and an optimization, for problems that a group of coordinate permutations preserves.
 It certifies with the images of one information set under the group, and scans only that set.
@@ -702,7 +703,8 @@ Skipping at `h(ω)` made the same decisions.
 Every `R` that it reported equaled the bound of a scan without tables.
 A lower bound of `ω + 1`, not rounded up to the parity of the coset, lowered the bounds of 162 queries without a word within `ω` there.
 The estimates then made 1.6% to 3.5% more queries.
-An estimate raises the maximum weight of its next query of a syndrome to the lower bound of the last, so a bound below `R` adds a query that cannot find a word.
+Before the searches of [Section 3.10](#310-minimum-weights-of-cosets), an estimate raised the maximum weight of its next query of a syndrome to the lower bound of the last, so a bound below `R` added a query that could not find a word.
+A search for the minimum weight of a coset skips at `h(ω)` too until it finds a word within `ω`, and then, when each scan starts, at the Hamming weight of its lightest word, less one where every word of the coset has its parity ([Section 3.10](#310-minimum-weights-of-cosets)).
 
 #### When a search uses the tables
 
@@ -735,6 +737,42 @@ With tables forced, by `completion_bound_minimum_layer_work` set to zero and `co
 Such small layers gain little even when tables pay, and estimating the share of skipped supports takes milliseconds, so a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports.
 The share of skipped supports depends on the code, the scanned set, and the order of its rows, and other codes may gain less, or nothing when a search declines the tables.
 Skipping does not reduce the number of layers that a search must complete, and the number of prefixes still grows like that of supports for a fixed ratio `w/r`.
+
+### 3.10 Minimum weights of cosets
+
+The residual-weight estimator of `qldpc.experimental` needs the minimum weight of each coset that it meets, up to a maximum weight `ω`, or `ω + 1` for a coset without a word within `ω`.
+A query of a coset search ([Section 4.1](#41-module-map-and-layering)) only decides whether its coset has a word within its maximum weight.
+Queries at increasing maximum weights find the minimum, but each repeats the scan of the one before.
+So the coset searches find the minimum weight of a coset with one search, which stops as a distance search does ([Section 2.5](#25-the-stopping-certificate)), with `ω + 1` as an assumed upper bound, as under the weight limit of [Section 4.5](#45-behavior-spanning-files).
+
+The search keeps an upper bound `U`, the lesser of `ω + 1` and the weight of the lightest word that it has found, starting from the word of its syndrome.
+It stops after the first step whose bound reaches `U`, since every word that it has not visited then weighs at least `U`.
+So `U` is then the minimum weight of the coset if it is at most `ω`, and otherwise the coset has no word within `ω`.
+The search finds this step as a query finds its stopping step, and moves it earlier whenever `U` falls.
+It skips each search basis that adds nothing to the bound of that step, as a query does.
+Such a basis adds nothing to the bound of an earlier step either, so the bound of the step at which the search stops holds.
+Within a step, every word not yet visited weighs at least the bound of the step before, so the search also stops as soon as `U` is at most that bound.
+The search takes the route of `ω`, or of the number of qubits if that is smaller ([Section 4.4](#44-heuristics-and-cost-models)), whose tables cover the layers that it scans, since its stopping step comes no later than that of a query at that weight.
+
+In a search by Hamming weight, the scans keep only the words lighter than an incumbent.
+Until the search finds a word within `ω`, the incumbent is the limit `h(ω)` of [Section 3.9](#39-skipping-completions-by-completion-tables), so the scans keep no word beyond `ω`.
+Then it is `η U`, the Hamming weight of the lightest word, for the weight factor `η` of [Section 4.1](#41-module-map-and-layering).
+Where every word of the coset has the parity of `η U`, no word is one lighter, so the search lowers the incumbent to `η U - 1` when each scan starts, and the scans keep the same words.
+This holds in a search of Pauli errors by physical weight, whose words `T(x, z)` are all even ([Section 2.7](#27-pauli-weight-as-hamming-weight)), and in a search of X or Z parts of an even code ([Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple)).
+On a route by tails, the completion tables skip the completions whose bound reaches the incumbent, and, once a scan finds a lighter word, those whose bound reaches the Hamming weight of the lightest word that the scan has found.
+So the search skips no word lighter than its answer, and in a coset without a word within `ω`, it weighs and skips exactly the words of a query at `ω`.
+A search of Pauli errors by CSS weight weighs words by that weight, and its scans keep the words lighter than `U`.
+
+For the CSS weight on a CSS state, the weight of a class of errors is the larger of the minimum weights of its X and Z parts.
+So `CosetLeaderSearch` searches the X part, and then, if its weight `w_x` is at most `ω`, the Z part with `w_x` as a floor: a word of the Z part within `w_x` ends the search, and gives the class the weight `w_x`.
+The connected-support searches of [connected_support.md](connected_support.md) find a minimum weight by trying increasing weight limits, and `CosetLeaderSearch` searches each part once, the Z part from the limit `w_x`.
+Certification keeps its queries, which stop at the first word within their maximum weight.
+
+On the residual-weight estimates of the circuits of [Section 3.9](#39-skipping-completions-by-completion-tables), at `ω` of six and of eight, by either weight, the searches for minimum weights gave every syndrome the weight of the queries at increasing maximum weights that they replaced, with either method.
+With the BZ method, they examined 0.09 to 0.89 times as many words, and the whole estimates took 0.71 to 0.98 times as long.
+The estimates drew 20,000 samples each, or 2,000 for the circuit of 95 qubits by physical weight.
+They were timed single-threaded on the machine of [Section 3.9](#39-skipping-completions-by-completion-tables), as medians of three rounds of fresh processes that alternated between the queries and the searches.
+In all but the costliest estimate, sampling and the other stages took most of the time.
 
 ## 4. Guide to the source code
 
@@ -772,6 +810,7 @@ The distance search and `CosetLeaderSearch` scan their layers with the compiled 
 `scan_family` scans every set of a family in lockstep, `scan_information_set` scans one information set with or without completion tables, and `scan_coset_layer` and `scan_coset_layer_by_css_weight` scan one layer of one set of a coset and keep its lightest word.
 `scan_coset_layer_by_tails` scans one layer of one set of a coset by the tails of its words, without the pivot columns of the set ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and keeps the support of its lightest word.
 `scan_coset_layer_by_tails_with_tables` does the same for a layer of two or more rows, and skips the completions of a prefix by tables if their bound reaches a skip bound ([Section 3.9](#39-skipping-completions-by-completion-tables)).
+`scan_coset_layer_by_tails_with_tables_below_best` skips them instead if their bound reaches the best weight so far, for the searches for minimum weights of [Section 3.10](#310-minimum-weights-of-cosets).
 Numba compiles the body separately for each entry point, so no flag costs a branch for each word.
 Each search builds an `AffineInstance` of [_search/affine_instance.py](_search/affine_instance.py) for its problem before it scans, rather than for each layer or query.
 The instance holds the packed rows, labels, and pivots of the sets that the search scans, the ranks of those sets, and the certificate of their steps.
@@ -807,6 +846,9 @@ If there is none and its maximum weight is below two, it gives the lower bound t
 Otherwise, a query takes the tables of the **route** of its maximum weight, which `CosetRoutes` of [_search/coset_routes.py](_search/coset_routes.py) chooses once for each maximum weight ([Section 4.4](#44-heuristics-and-cost-models)).
 A route is a family of search bases of the code, with its coset instance and planning buffer: the disjoint sets, or a family that the routes build for costly queries.
 `find_first_not_within_max_weight` answers a batch with the route of its maximum weight, which it takes once, and the batch of the X parts and that of the Z parts each take their own.
+`_get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](#310-minimum-weights-of-cosets) for the residual-weight estimator.
+`_CosetSearch.get_min_weights` answers a batch on the route of the maximum weight ([Section 4.4](#44-heuristics-and-cost-models)), with `_find_min_weights`, or with `_find_min_weights_by_tails` on a route by tails.
+These searches find their stopping steps with `plan_steps`, and leave the cached steps of the planning buffer to the queries.
 The gate tests the predicted examinations of a query with the disjoint family against its threshold, to decide whether the query may take another family ([Section 4.4](#44-heuristics-and-cost-models)).
 A route is a **route by tails** if those with the route's own family, which can do less work, also reach the threshold.
 The queries of a route by tails weigh words by their tails ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and run `_search_coset_by_tails` instead of `_search_coset`.
@@ -935,6 +977,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The first holds the most disjoint information sets and then the largest partial set, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, and the routes keep it only if it has more information sets or a larger partial set than the greedy packing.
   The second is an overlapping family of `get_overlapping_family`, aimed at the Hamming weight `η ω_T + 1` for the weight factor `η` of [Section 4.1](#41-module-map-and-layering), and the routes keep it only if the stage finds one that does less work than the family that it starts from.
   The route of `ω` is the family with the least work at `ω`, summed over its tables, and among families of equal work, the disjoint family, then the maximum disjoint one.
+  A search for minimum weights up to `ω` ([Section 3.10](#310-minimum-weights-of-cosets)) takes the route of `ω`, or of the number of qubits if that is smaller, since no coset has a larger minimum weight.
   Building the families takes milliseconds, which the queries that reach the default threshold repay.
   In a search that weighs Hamming weights, the route of `ω` is a route by tails if the predicted examinations with its own family at `ω`, rather than with the disjoint family, reach the threshold too, and its queries then weigh words by their tails ([Section 4.1](#41-module-map-and-layering)).
   They also skip completions by tables on blocks of `coset_completion_block_bits` columns ([Section 3.9](#39-skipping-completions-by-completion-tables)).
@@ -1029,6 +1072,11 @@ Changes to the BZ algorithm can use different representations, certificates, and
 - **Skip in a coset query only words beyond its maximum weight.**
   A coset query of maximum weight `ω` may skip supports only if their bound reaches `h(ω)`, never `h(ω) - 1`, so that it finds a word within `ω` exactly when one exists ([Section 3.9](#39-skipping-completions-by-completion-tables)).
   If it finds none, it reports the least weight `R` beyond `ω` that a word of its coset can have only if it skipped a word, and otherwise the bound of a scan without tables.
+- **Find the minimum weights of cosets exactly up to the maximum weight.**
+  A search for the minimum weight of a coset up to `ω` may stop only at a step whose bound reaches `U`, the lesser of `ω + 1` and the weight of its lightest word, or within a step once that weight is at most the bound of the step before or the floor of the search ([Section 3.10](#310-minimum-weights-of-cosets)).
+  The floor is the weight of the X part of a class in the search of its Z part, for the CSS weight on a CSS state, and zero otherwise.
+  The scans of the search may keep only the words lighter than the incumbent of that section, and its tables may skip only the completions whose bound reaches it: `h(ω)` until it finds a word within `ω`, and then the Hamming weight of its lightest word, less one only where every word of the coset has the parity of that word.
+  `test_min_weights_of_cosets_match_brute_force` and `test_min_weights_match_exhaustive_minima` in [_search/coset_leader_search_test.py](_search/coset_leader_search_test.py) check the weights against every word of each coset, on even codes and with tables, and `test_min_weight_searches_above_max_weight_examine_as_queries` checks that a search of a coset without a word within `ω` weighs and skips as many words as a query at `ω`.
 - **Keep the strict certificate available to fixed-weight counting.**
   [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
   Distance may stop at `L(t, j) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t, j) > w`.

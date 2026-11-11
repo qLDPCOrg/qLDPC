@@ -474,6 +474,61 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
     assert total_skipped
 
 
+@pytest.mark.usefixtures("compilation_mode")
+def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower_it(
+    pytestconfig: pytest.Config,
+) -> None:
+    """A coset tail scan below the best weight skips completions only if they cannot lower it.
+
+    The bases of six rows have rank deficiency zero and three.  From a best weight of at most the
+    least weight of a layer, which no word lowers, the scan skips the supports that a scan with that
+    skip bound skips, which the test above checks against enumeration.  From a best weight above
+    every word of the layer, it finds a lightest word, since every word that it skips weighs at
+    least the best weight at the time.  It weighs or skips every support, and skips some.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    num_rows, num_columns, block_bits = 6, 24, 4
+    tails = (rng.random((num_rows, num_columns)) < 0.25).astype(np.uint8)
+    tails[0, -1] = 1
+    packed_tails = pack_bits(tails)[None]
+    widths = np.array([packed_tails.shape[2]], dtype=np.int64)
+    tables = completion_bounds.CompletionTables.build(packed_tails[0], block_bits)
+    table_arguments = (tables.tables, tables.offsets, tables.block_bits)
+    total_skipped = 0
+    for rank, _ in itertools.product((num_rows, num_rows - 3), range(4)):
+        offset_tail = (rng.random(num_columns) < 0.25).astype(np.uint8)
+        packed_offset = pack_bits(offset_tail[None])[0]
+        for layer in range(2, num_rows + 1):
+            weights = dict(_get_tail_weights(offset_tail, tails, rank, layer))
+            least = min(weights.values())
+            for best in (least - 1, least, num_columns + num_rows + 1):
+                arguments = (
+                    packed_offset,
+                    packed_tails,
+                    np.array([rank]),
+                    widths,
+                    np.empty(layer, dtype=np.int64),
+                    np.empty((layer, 1, widths[0]), dtype=np.uint64),
+                )
+                best_support = np.full(layer, -1, dtype=np.int64)
+                found, weighed, skipped = (
+                    affine_search.scan_coset_layer_by_tails_with_tables_below_best(
+                        *arguments, best, -1, *table_arguments, best_support
+                    )
+                )
+                assert weighed + skipped == math.comb(num_rows, layer)
+                if best > least:
+                    assert found == least == weights[tuple(best_support)]
+                else:
+                    assert found == best
+                    _, *expected = affine_search.scan_coset_layer_by_tails_with_tables(
+                        *arguments, best, best - 1, best, *table_arguments, best_support
+                    )
+                    assert [weighed, skipped] == expected
+                total_skipped += skipped
+    assert total_skipped
+
+
 def _get_completion_bound(
     tails: npt.NDArray[np.uint8],
     support: Sequence[int],

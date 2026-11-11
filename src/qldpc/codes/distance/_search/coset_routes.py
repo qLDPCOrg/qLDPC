@@ -61,7 +61,9 @@ searches.  The builder gives a set tables only if they fit in the field
 ``completion_bound_max_table_bytes`` of the tuning.  Every route by tails of a family gives the
 latest record of the family, which holds the tables of each set once.  That record can hold tables
 that other routes of the family needed, but the queries of a route read only the tables that it
-needs, so their answers do not depend on earlier queries.
+needs, so their answers do not depend on earlier queries.  A search for minimum weights up to the
+maximum weight of a route takes the route too, and visits no layer that its queries do not visit,
+since its stopping step comes no later than theirs (Section 3.10 of ``brouwer_zimmermann.md``).
 
 The tails change how a query weighs words, and the tables which words it skips, but neither changes
 which word of weight at most the maximum weight a query finds first, if any.  A query without such a

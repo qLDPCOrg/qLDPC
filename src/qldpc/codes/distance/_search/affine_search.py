@@ -9,8 +9,11 @@ from excluded ones, and keeps only the best weight.  The coset search of ``Coset
 a coset, with the offset of each basis, and keeps the lightest word.  On its routes by tails (see
 ``coset_routes``), a coset search that weighs Hamming weights scans the tails of the rows and
 offsets instead, without the pivot columns of each basis, and keeps the support of the lightest
-word, from which it rebuilds the word.  In layers of two or more rows, it also skips the completions
-of a prefix that completion tables of the tails show to lie beyond the maximum weight of its query.
+word, from which it rebuilds the word.  A search for the minimum weight of a coset needs only the
+weight, and rebuilds no word.  In layers of two or more rows, a coset search also skips the
+completions of a prefix that completion tables of the tails show to lie beyond the maximum weight of
+its query, and, in a search for the minimum weight of a coset, also those that cannot be lighter
+than its lightest word so far.
 
 Every scan of this module runs one body, ``_scan``, which its compiled entry points call with
 constant flags.  Numba includes the body in each entry point, which compiles it for those flags, so
@@ -391,14 +394,14 @@ def scan_coset_layer_by_tails_with_tables(
     since the pivot rows come first: ``max(0, 2 - (num_rows - rank))``.  Its tail weighs at least
     the bound of the tables.  If the sum reaches ``skip_bound``, the scan skips these words.
 
-    A coset search passes as ``skip_bound`` the least bound that proves a word of its coset heavier
-    than the maximum weight of its query: one more than the greatest Hamming weight, at most
-    ``cutoff``, that a word of the coset can have.  So the scan skips no word within that maximum
-    weight.  ``skip_bound`` must be at most ``cutoff + 1``.  Then, while the best weight exceeds
-    ``cutoff``, the scan skips every completion whose bound shows that it cannot lower the best
-    weight, and more.  A larger skip bound would make it weigh completions that cannot lower the
-    best weight.  Skipped words can be lighter than the best weight, which is then the weight of the
-    lightest word weighed.
+    A coset query passes as ``skip_bound`` the least bound that proves a word of its coset heavier
+    than its maximum weight: one more than the greatest Hamming weight, at most ``cutoff``, that a
+    word of the coset can have.  So the scan skips no word within that maximum weight.
+    ``skip_bound`` must be at most ``cutoff + 1``.  Then, while the best weight exceeds ``cutoff``,
+    the scan skips every completion whose bound shows that it cannot lower the best weight, and
+    more.  A larger skip bound would make it weigh completions that cannot lower the best weight.
+    Skipped words can be lighter than the best weight, which is then the weight of the lightest word
+    weighed.
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of
@@ -434,6 +437,73 @@ def scan_coset_layer_by_tails_with_tables(
         css_weight=False,
         chunked=False,
         threshold=True,
+        ranked=True,
+        record_support=True,
+    )
+    return best, weighed, skipped
+
+
+@always_compiled
+def scan_coset_layer_by_tails_with_tables_below_best(
+    offset_tail: npt.NDArray[np.uint64],
+    tails: npt.NDArray[np.uint64],
+    ranks: npt.NDArray[np.int64],
+    widths: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    best: int,
+    cutoff: int,
+    tables: npt.NDArray[np.uint8],
+    offsets: npt.NDArray[np.int64],
+    block_bits: int,
+    best_support: npt.NDArray[np.int64],
+) -> tuple[int, int, int]:
+    """Scan a layer by tails, and skip by tables the completions that cannot lower the best weight.
+
+    The scan weighs the words of the layer as ``scan_coset_layer_by_tails_with_tables`` does, but
+    skips, as a distance search does, the completions whose bound reaches the best weight so far,
+    which starts at ``best``, rather than those whose bound reaches a fixed skip bound.  So it skips
+    no word lighter than the best weight at the time, and finds the lightest word of the layer if it
+    is lighter than ``best``, unless it returns at the cutoff first.  A search for the minimum
+    weight of a coset passes as ``best`` the skip bound of its maximum weight until it finds a word
+    within that weight, and then the Hamming weight of its lightest word, or one less where every
+    word of the coset has its parity (see ``coset_leader_search._search_coset_for_min_weight``).
+
+    Returns:
+        The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of
+        words weighed and of supports skipped.
+    """
+    prefixes[0, 0] = offset_tail
+    support[0] = 0
+    best, _, weighed, _, skipped = _scan(
+        tails,
+        tails,
+        ranks,
+        widths,
+        widths,
+        support,
+        prefixes,
+        0,
+        best,
+        cutoff,
+        0,
+        tables,
+        offsets,
+        block_bits,
+        # This scan neither reads labels nor weighs X parts nor records words, nor takes a skip
+        # bound.
+        prefixes[0, 0],
+        prefixes[0, 0],
+        0,
+        best_support,
+        one_set=True,
+        pair_steps=True,
+        deleted_pivots=True,
+        test_labels=False,
+        record=False,
+        css_weight=False,
+        chunked=False,
+        threshold=False,
         ranked=True,
         record_support=True,
     )
@@ -478,9 +548,10 @@ def _scan(
     """Scan the supports of a layer of a stack of search bases, starting from ``support``.
 
     The arguments are those of ``scan_family``, ``scan_information_set``,
-    ``scan_coset_layer_by_css_weight``, ``scan_coset_layer_by_tails``, and
-    ``scan_coset_layer_by_tails_with_tables``, and the flags, which callers pass as constants,
-    choose what the scan does:
+    ``scan_coset_layer_by_css_weight``, ``scan_coset_layer_by_tails``,
+    ``scan_coset_layer_by_tails_with_tables``, and
+    ``scan_coset_layer_by_tails_with_tables_below_best``, and the flags, which callers pass as
+    constants, choose what the scan does:
 
     - ``one_set``: scan only the first basis, rather than all bases in lockstep.
     - ``pair_steps``: with ``one_set``, step through the first of the last two rows of a support

@@ -1038,10 +1038,13 @@ class _CSSWeightTables:
 class _CosetSearchWeights:
     """Exact residual weights of the syndromes of any stabilizer state, by a coset search.
 
-    This uses the exact minimum-weight search of ``certify_bounded_fault_propagation``, by the
-    given method.  It is slower than ``_CSSWeightTables``, but works for any stabilizer state and
-    either Pauli weight, except that the connected-support method weighs errors by CSS weight only
-    on CSS states.
+    This uses ``CosetLeaderSearch``, the exact minimum-weight oracle of
+    ``certify_bounded_fault_propagation``, by the given method.  The oracle finds the residual
+    weight of each syndrome, up to the largest that the histogram resolves, by searching each coset
+    once.  It searches one coset for each syndrome, or, for the CSS weight on a CSS state, the coset
+    of the X part and, if that part is within the largest weight, the coset of the Z part.  It is
+    slower than ``_CSSWeightTables``, but works for any stabilizer state and either Pauli weight,
+    except that the connected-support method weighs errors by CSS weight only on CSS states.
     """
 
     def __init__(
@@ -1063,18 +1066,8 @@ class _CosetSearchWeights:
 
     def get_weights(self, keys: npt.NDArray[np.uint64]) -> npt.NDArray[np.intp]:
         """Residual weights of packed syndromes, capped at ``max_residual_weight + 1``."""
-        weights = np.zeros(len(keys), dtype=np.intp)
-        for row, words in enumerate(keys):
-            syndrome = sum(int(word) << (64 * index) for index, word in enumerate(words))
-            # raise the weight to each new lower bound until a Pauli error that light exists
-            weight = 0
-            while weight <= self.max_residual_weight:
-                bound = self._search.get_min_weight_bound(syndrome, weight)
-                if bound.within_max_weight:
-                    break
-                weight = max(weight + 1, bound.lower_bound)
-            weights[row] = min(weight, self.max_residual_weight + 1)
-        return weights
+        weights = self._search._get_min_weights(keys, self.max_residual_weight)
+        return weights.astype(np.intp, copy=False)
 
 
 def _get_css_supports(

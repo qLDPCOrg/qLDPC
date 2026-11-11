@@ -31,9 +31,10 @@ Start from a symptom
      - Lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` or raise :attr:`~SearchTuning.completion_bound_max_cost_percent` to use completion tables in more layers; raise :attr:`~SearchTuning.max_information_sets`; lower :attr:`~SearchTuning.lp_minimum_work` or :attr:`~SearchTuning.automorphism_minimum_layer_work`.
    * - A cheap search spends its time building families of information sets
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
-   * - Queries of ``CosetLeaderSearch`` by the Brouwer--Zimmermann method at moderate maximum weights are slow, as in residual-weight estimates
+   * - Queries of ``CosetLeaderSearch`` by the Brouwer--Zimmermann method at moderate maximum weights, or its searches for minimum weights up to them in residual-weight estimates, are slow
      - Lower :attr:`~SearchTuning.overlapping_minimum_work`, so that cheaper queries try a family of overlapping information sets, or a disjoint family with more information sets or a larger partial set.
        In the BZ searches by physical weight, and in the searches of the X and Z parts of errors for the CSS weight on CSS states, a query also weighs words without the pivot columns of each set, and skips completions by tables on blocks of :attr:`~SearchTuning.coset_completion_block_bits` columns, if its predicted examinations with the family that it takes reach the threshold too.
+       A search for minimum weights up to a maximum weight takes the family of a query at that weight, or at the number of qubits if that is smaller.
        The oracle builds these families once for each cached search, and their tails and tables once for each family (see :data:`CSS_SEARCH_CACHE_SIZE` and :data:`PAULI_SEARCH_CACHE_SIZE`).
        For larger overlapping families, raise :attr:`~SearchTuning.max_information_sets` or :attr:`~SearchTuning.overlapping_attempts_per_set`.
    * - The costliest queries of ``CosetLeaderSearch`` by the Brouwer--Zimmermann method, which weigh words without pivot columns (see the row above), spend their time building completion tables

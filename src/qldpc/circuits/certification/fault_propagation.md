@@ -115,7 +115,7 @@ The oracle builds these families once for each cached search (see `CSS_SEARCH_CA
 Another family can change the error that the oracle returns, and the lower bound that it gives, but never whether it finds an error of weight at most the threshold.
 The costliest of these searches also skip errors that tables of bounds prove to weigh more than the threshold ([Section 3.9](../../codes/distance/brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)), which can change the error and the lower bound in the same way.
 So the `output_pauli` and `residual_weight_lower_bound` of a counterexample can change between versions of qLDPC when the queries that find it are costly, while the verdict and the smallest violating fault do not.
-The thresholds of certifications are usually small, so their searches rarely cost that much, but those of the residual-weight estimates of `qldpc.experimental` often do.
+The thresholds of certifications are usually small, so their searches rarely cost that much, but the maximum weights of the residual-weight estimates of `qldpc.experimental` often are not.
 
 The search skips the oracle for a fault `F` in two cases, each of which cannot hide a violation.
 
