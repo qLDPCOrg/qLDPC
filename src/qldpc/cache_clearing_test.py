@@ -81,7 +81,7 @@ def test_coverage_check_sets_the_variable() -> None:
     check = pathlib.Path(__file__).parents[2] / "checks" / "coverage_.py"
     text = check.read_text(encoding="utf-8")
     assert f'CLEAR_CACHES_VARIABLE = "{conftest.CLEAR_CACHES_VARIABLE}"' in text
-    assert 'CLEAR_CACHES_VARIABLE: "1"' in text
+    assert 'os.environ[CLEAR_CACHES_VARIABLE] = "1"' in text
 
 
 def _make_probe_module() -> types.ModuleType:
