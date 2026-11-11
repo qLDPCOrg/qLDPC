@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import collections
 import functools
 import itertools
 from collections.abc import Collection, Iterable, Iterator, Sequence
@@ -29,7 +30,8 @@ class CayleyComplex:
 
     A Cayley complex is a geometric structure that is built out of two subsets A and B of a group G.
     The subsets respectively act on elements of G from the left and right, and must be symmetric,
-    which is to say (for example) that if ``a ∈ A``, then ``a^-1 ∈ A``.
+    which is to say (for example) that if ``a ∈ A``, then ``a^-1 ∈ A``.  Either subset may be empty,
+    but not both.
 
     The generating data (A,B) is used to build vertices V, edges E, and faces F as follows:
 
@@ -107,25 +109,26 @@ class CayleyComplex:
 
     def __init__(
         self,
-        subset_a: Collection[abstract.GroupMember],
-        subset_b: Collection[abstract.GroupMember] | None = None,
+        subset_a: Iterable[abstract.GroupMember],
+        subset_b: Iterable[abstract.GroupMember] | None = None,
         *,
         bipartite: bool = False,
     ) -> None:
         """Construct a left-right Cayley complex."""
         from qldpc import abstract
 
-        if subset_b is None:
-            subset_b = subset_a
-        if not subset_a or not subset_b:
-            raise ValueError("The generating subsets of a Cayley complex must be nonempty")
+        # read the subsets once, so that iterators are not consumed before they are used
+        subset_a = list(subset_a)
+        subset_b = subset_a if subset_b is None else list(subset_b)
+        if not subset_a and not subset_b:
+            raise ValueError("A Cayley complex needs at least one generating member")
 
         # Read all members on the same number of points.  A SymPy permutation acts on the points up
         # to the largest one in its cycles or array form, unless given a size, so trailing fixed
         # points can be omitted and one group member can appear in different forms.  These would be
         # different nodes, and the covers in cover_subset_a/b would put their extra factors on
         # different points.
-        size = max((member.size for member in itertools.chain(subset_a, subset_b)), default=0)
+        size = max(member.size for member in itertools.chain(subset_a, subset_b))
         subset_a = {abstract.GroupMember(member.array_form, size=size) for member in subset_a}
         subset_b = {abstract.GroupMember(member.array_form, size=size) for member in subset_b}
 
@@ -178,36 +181,32 @@ class CayleyComplex:
         subset_a: Collection[abstract.GroupMember],
         subset_b: Collection[abstract.GroupMember] = (),
     ) -> nx.Graph:
-        """Build a left-right Cayley graph generated from the identity element of a group."""
+        """Build a left-right Cayley graph generated from the identity element of a group.
+
+        Either subset may be empty, but not both.  Nodes and edges are added in an order fixed by
+        the total order on the group, rather than by the iteration order of sets of members, which
+        varies between Python sessions.
+        """
+        subset_a = sorted(subset_a)
+        subset_b = sorted(subset_b)
+
         # identify the identity element
         member = next(itertools.chain(subset_a, subset_b), None)
         if member is None:
             raise ValueError("A Cayley graph needs at least one generating member")
         identity = member * ~member
 
-        # identify the set of nodes for which we still need to add edges
-        nodes_to_add = {identity}
-
-        # build the graph one node at a time
+        # build the graph one node at a time, in the order in which nodes are found
         graph = nx.Graph()
+        graph.add_node(identity)
+        nodes_to_add = collections.deque([identity])
         while nodes_to_add:
-            gg = nodes_to_add.pop()
-
-            # identify nodes we have already covered, and new nodes we may need to cover
-            old_nodes = set(graph.nodes())
-            new_nodes = set()
-
-            # add all edges adjacent to this node
-            for aa in subset_a:
-                aa_gg = aa * gg
-                graph.add_edge(gg, aa_gg, type="L")  # "L" for left-acting
-                new_nodes.add(aa_gg)
-            for bb in subset_b:
-                gg_bb = gg * bb
-                graph.add_edge(gg, gg_bb, type="R")  # "R" for right-acting
-                new_nodes.add(gg_bb)
-
-            nodes_to_add |= new_nodes - old_nodes
+            gg = nodes_to_add.popleft()
+            neighbors = [(aa * gg, "L") for aa in subset_a] + [(gg * bb, "R") for bb in subset_b]
+            for neighbor, edge_type in neighbors:  # "L" and "R" for left- and right-acting
+                if neighbor not in graph:
+                    nodes_to_add.append(neighbor)
+                graph.add_edge(gg, neighbor, type=edge_type)
 
         return graph
 

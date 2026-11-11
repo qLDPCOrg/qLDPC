@@ -34,7 +34,7 @@ class QTCode(CSSCode):
 
     Altogether, a quantum Tanner code is defined by:
 
-    - two symmetric (self-inverse) subsets A and B of a group G, and
+    - two symmetric (self-inverse) subsets A and B of a group G, not both empty, and
     - two classical codes ``C_A`` and ``C_B``, respectively with block lengths ``|A|`` and ``|B|``.
 
     The qudits of a quantum Tanner code live on the faces of a Cayley complex built out of A and B.
@@ -81,7 +81,7 @@ class QTCode(CSSCode):
         bipartite: bool = False,
     ) -> None:
         """Construct a quantum Tanner code."""
-        # the complex merges repeated members, so the subsets are compared by their sizes after that
+        # build the complex first, since it merges repeated members of the subsets
         self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
         code_a = ClassicalCode(code_a, field)
         if code_b is not None:
@@ -96,6 +96,15 @@ class QTCode(CSSCode):
 
         if field is None and code_a.field is not code_b.field:
             raise ValueError("The sub-codes provided for this QTCode are over different fields")
+        for name, code, subset in [
+            ("A", code_a, self.complex.subset_a),
+            ("B", code_b, self.complex.subset_b),
+        ]:
+            if len(code) != len(subset):
+                raise ValueError(
+                    f"The seed code C_{name} has block length {len(code)}, but the generating"
+                    f" subset {name} has {len(subset)} distinct members"
+                )
 
         self.code_a = code_a
         self.code_b = code_b
@@ -104,11 +113,16 @@ class QTCode(CSSCode):
         self._is_subsystem_code = False  # known by construction
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, QTCode):
+        if not (
+            isinstance(other, QTCode)
+            and self.code_a == other.code_a
+            and self.code_b == other.code_b
+            and self.complex.bipartite == other.complex.bipartite
+        ):
             return False
 
-        # Members of the two complexes may be written on different numbers of points, which SymPy
-        # permutations compare as different, so read them all on the same number of points.
+        # SymPy permutations on different numbers of points are never equal, and the members of the
+        # two complexes may be written on different numbers of points, so read them all on one.
         subsets = [
             self.complex.subset_a,
             self.complex.subset_b,
@@ -120,13 +134,7 @@ class QTCode(CSSCode):
             {abstract.GroupMember(member.array_form, size=size) for member in subset}
             for subset in subsets
         ]
-        return (
-            self.code_a == other.code_a
-            and self.code_b == other.code_b
-            and subset_a == other_subset_a
-            and subset_b == other_subset_b
-            and self.complex.bipartite == other.complex.bipartite
-        )
+        return subset_a == other_subset_a and subset_b == other_subset_b
 
     @staticmethod
     def get_subcodes(
@@ -173,7 +181,8 @@ class QTCode(CSSCode):
         subset_b = sorted(cayplex.cover_subset_b)
 
         # identify the identity element
-        identity = subset_a[0] * ~subset_a[0]
+        member = next(itertools.chain(subset_a, subset_b))
+        identity = member * ~member
 
         # identify the set of nodes for which we still need to add faces
         nodes_to_add = {identity}
@@ -196,7 +205,6 @@ class QTCode(CSSCode):
                 aa_gg_bb = aa_gg * bb
                 face = frozenset([gg, aa_gg, gg_bb, aa_gg_bb])
                 if face not in subgraph_x:
-                    # label each face by the order in which it is found, which orders the qudits
                     subgraph_x.add_node(face, sort=num_faces)
                     subgraph_z.add_node(face, sort=num_faces)
                     num_faces += 1
