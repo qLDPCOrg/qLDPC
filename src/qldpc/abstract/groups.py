@@ -91,10 +91,9 @@ class GroupMember(comb.Permutation):
         """Compare array forms lexicographically, padding the shorter one with fixed points.
 
         Permutations that differ only in trailing fixed points are therefore neither smaller nor
-        larger than each other.  Sorting therefore keeps them in their input order, although they
-        are not equal (==).  On
-        permutations of the same size, this is the order of SymPy ranks.  It also covers the
-        identity of the trivial group, which acts on no points.
+        larger than each other.  Sorting keeps them in their input order, although they are not
+        equal (==).  On permutations of the same size, this is the order of SymPy ranks.  It also
+        covers the identity of the trivial group, which acts on no points.
         """
         if not isinstance(other, comb.Permutation):
             return NotImplemented
