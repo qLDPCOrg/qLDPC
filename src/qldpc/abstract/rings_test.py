@@ -408,15 +408,17 @@ def assert_primitive_central_idempotents(
     assert len(idempotents) == len(classes)
 
 
+# The fields are built in the test, since building a field compiles its arithmetic, which would
+# otherwise slow down every collection of this file.
 @pytest.mark.parametrize(
-    "group, field",
+    "group, order, irreducible_poly",
     [
-        (abstract.DihedralGroup(4), galois.GF(5)),
-        (abstract.CyclicGroup(4), galois.GF(9, irreducible_poly="x^2 + 1")),
+        (abstract.DihedralGroup(4), 5, None),
+        (abstract.CyclicGroup(4), 9, "x^2 + 1"),
     ],
 )
 def test_computed_primitive_central_idempotents(
-    group: abstract.Group, field: type[galois.FieldArray]
+    group: abstract.Group, order: int, irreducible_poly: str | None
 ) -> None:
     """Computed idempotents are the primitive central idempotents, sorted by their coefficients.
 
@@ -426,6 +428,7 @@ def test_computed_primitive_central_idempotents(
     over GF(9) have coefficients outside the prime field, here written with a non-default
     irreducible polynomial.
     """
+    field = galois.GF(order, irreducible_poly=irreducible_poly)
     ring = abstract.GroupRing(group, field)
     idempotents = rings._get_primitive_central_idempotents(ring)
     assert_primitive_central_idempotents(ring, idempotents)
