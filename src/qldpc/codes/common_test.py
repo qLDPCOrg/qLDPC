@@ -49,6 +49,11 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     code = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**31))
     assert "GF(3)" in str(code)
 
+    # random codes without checks, or without bits, would all have unchecked bits or trivial checks
+    for bits, checks in [(4, 0), (0, 2)]:
+        with pytest.raises(ValueError, match="needs both bits and checks"):
+            codes.ClassicalCode.random(bits, checks)
+
     code = codes.RepetitionCode(2, field=3)
     assert len(code) == 2
     assert code.dimension == 1

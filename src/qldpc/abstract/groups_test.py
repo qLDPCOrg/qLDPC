@@ -421,6 +421,31 @@ def test_members_on_other_numbers_of_points() -> None:
     assert sympy.combinatorics.Permutation(0, 1) in abstract.SymmetricGroup(3)
 
 
+def test_member_order() -> None:
+    """Group members are ordered lexicographically, read on the same number of points."""
+    # on the same number of points, the order is that of SymPy ranks
+    members = [abstract.GroupMember(list(perm)) for perm in itertools.permutations(range(4))]
+    random.Random(0).shuffle(members)
+    assert sorted(members) == sorted(members, key=lambda member: member.rank())
+
+    # a permutation on fewer points reads as one with extra fixed points
+    swap, padded_swap = abstract.GroupMember([1, 0]), abstract.GroupMember([1, 0, 2])
+    assert not swap < padded_swap and not padded_swap < swap
+    assert abstract.GroupMember([0, 2, 1]) < swap < abstract.GroupMember([1, 2, 0])
+
+    # the identity of the trivial group, on no points, is padded like other permutations
+    identity = next(abstract.TrivialGroup().generate())
+    padded_identity = abstract.GroupMember([0, 1])
+    assert identity.size == 0
+    assert not identity < padded_identity and not padded_identity < identity and identity < swap
+
+    # SymPy permutations compare with members on either side, and other objects do not compare
+    assert sympy.combinatorics.Permutation([0, 2, 1]) < swap
+    for compare in [operator.lt, operator.gt]:
+        with pytest.raises(TypeError):
+            compare(swap, "swap")
+
+
 def test_group_product() -> None:
     """Direct product of groups."""
     cycle = abstract.CyclicGroup(2)
@@ -568,6 +593,16 @@ def test_random_symmetric_subset() -> None:
     for size in [0, group.order + 1]:
         with pytest.raises(ValueError, match="must have a size between"):
             group.random_symmetric_subset(size=size)
+
+    # subsets without the identity have at most order - 1 members, and odd sizes need a group of
+    # even order
+    for subset_group, size in [(group, group.order - 1), (abstract.CyclicGroup(3), 2)]:
+        subset = subset_group.random_symmetric_subset(size=size, exclude_identity=True)
+        assert len(subset) == size and subset_group.identity not in subset
+    with pytest.raises(ValueError, match="must have a size between"):
+        group.random_symmetric_subset(size=group.order, exclude_identity=True)
+    with pytest.raises(ValueError, match="no symmetric subset of odd size"):
+        abstract.CyclicGroup(3).random_symmetric_subset(size=1, exclude_identity=True)
 
     # groups of order 1 have random members
     for group in [abstract.CyclicGroup(1), abstract.Group.from_generating_mats([[1]])]:

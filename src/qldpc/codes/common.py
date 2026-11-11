@@ -735,7 +735,15 @@ class ClassicalCode(AbstractCode):
 
         Reject any code with trivial checks or unchecked bits, identified by an all-zero row or
         column in the code's parity check matrix.
+
+        Raises:
+            ValueError: If exactly one of bits and checks is zero, so that every code has trivial
+                checks or unchecked bits.
         """
+        if (bits == 0) != (checks == 0):
+            raise ValueError(
+                f"A random code needs both bits and checks, or neither (bits={bits}, checks={checks})"
+            )
         field = resolve_field(field)
 
         def nontrivial(matrix: galois.FieldArray) -> bool:
