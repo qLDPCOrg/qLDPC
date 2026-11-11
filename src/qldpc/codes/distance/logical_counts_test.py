@@ -188,14 +188,21 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
         ) == counter.count_logical_ops(count_pauli=True, method="brute_force")
 
 
-def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Compiling up front gives the same counts and distances, and nothing compiles afterwards.
+@pytest.mark.parametrize(
+    "compiled", [False, pytest.param(True, marks=pytest.mark.compiled)], ids=["python", "compiled"]
+)
+def test_compile_search_setup(compiled: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Calling ``compile_search_setup`` up front leaves the counts and distances unchanged.
 
     The test starts from functions that no other test has compiled.  Its counters are deformed after
-    a count, so that they move their kept basis families through a named and a general gate.
+    a count, so that they move their kept basis families through a named and a general gate.  When
+    the set-up code is compiled, nothing compiles afterwards.  The coverage check skips that
+    variant, so another runs the same steps with ``set_on_request_functions_compiled`` disabled.
     """
     fresh = [replace(item, compiled=None) for item in _compilation._ON_REQUEST_FUNCTIONS]
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", fresh)
+    if not compiled:
+        monkeypatch.setattr(lc, "set_on_request_functions_compiled", lambda _: None)
     code = qldpc.codes.SurfaceCode(5)
 
     def get_results() -> list[qldpc.codes.CSSLogicalCounts]:
