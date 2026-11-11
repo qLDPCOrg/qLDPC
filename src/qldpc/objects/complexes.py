@@ -35,7 +35,7 @@ class CayleyComplex:
 
     - vertices are members of G,
     - edges have the form (g, ag) and (g, gb), and
-    - faces f(g,a,b) have the form {g, ab, gb, agb}::
+    - faces f(g,a,b) have the form {g, ag, gb, agb}::
 
          g  →  gb
          ↓     ↓
