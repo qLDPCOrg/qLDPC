@@ -111,7 +111,7 @@ The third tier is the finishing checks.
   Run the anytime checks, ``coverage_.py -i``, the tests of closely related code, such as callers and subclasses of changed code, and ``build_docs.py`` if the change edits documentation, notebooks, or docstrings.
   Leave repository-wide test runs to CI.
   After fixing a failure, rerun the failed checks.
-  If a review ran, ask the maintainer whether to review a significant fix in another round.
+  If a review ran, ask the maintainer whether to have a significant fix reviewed.
   If the maintainer is away, report that question as an open decision.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
