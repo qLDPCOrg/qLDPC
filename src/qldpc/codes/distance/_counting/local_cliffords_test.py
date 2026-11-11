@@ -71,7 +71,7 @@ def test_invalid_local_matrices_are_rejected() -> None:
             local_cliffords.get_local_matrices(invalid, 2)
 
 
-@pytest.mark.parametrize("compiled", [True, False])
+@pytest.mark.parametrize("compiled", [pytest.param(True, marks=pytest.mark.compiled), False])
 def test_apply_local_maps_the_target_columns_by_the_matrix(
     pytestconfig: pytest.Config, compiled: bool
 ) -> None:

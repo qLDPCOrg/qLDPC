@@ -71,7 +71,7 @@ def get_bound_oracle(
     )
 
 
-@pytest.mark.parametrize("interpreted", [False, True])
+@pytest.mark.parametrize("interpreted", [pytest.param(False, marks=pytest.mark.compiled), True])
 def test_bounds_are_exact_relaxations(
     interpreted: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -160,7 +160,7 @@ def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -
     assert cb.build_tables_within(rows[:1], 8, MAX_VALUE) is None
 
 
-@pytest.mark.parametrize("interpreted", [False, True])
+@pytest.mark.parametrize("interpreted", [pytest.param(False, marks=pytest.mark.compiled), True])
 def test_sampled_supports_are_counted_exactly(
     interpreted: bool, pytestconfig: pytest.Config
 ) -> None:

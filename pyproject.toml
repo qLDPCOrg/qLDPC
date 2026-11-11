@@ -156,6 +156,10 @@ show_error_codes = true
 
 [tool.pytest]
 ini_options.addopts = "--disable-socket"  # forbid tests from making network calls
+# CI's coverage check skips the tests marked compiled, and a job of their own runs them.
+ini_options.markers = [
+  "compiled: runs numba-compiled code, which coverage cannot trace, rather than its Python version",
+]
 ini_options.filterwarnings = [
   "error::DeprecationWarning",                                                # tests use the modern API
   "error::FutureWarning",                                                     # tests opt in to future changes

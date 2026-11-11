@@ -37,7 +37,7 @@ _KERNELS = (
 _Rotations = tuple[stim.PauliString, list[stim.PauliString], list[stim.PauliString]]
 
 
-@pytest.fixture(params=["compiled", "python"])
+@pytest.fixture(params=[pytest.param("compiled", marks=pytest.mark.compiled), "python"])
 def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the compiled kernels, or their Python versions for coverage."""
     if request.param == "python":

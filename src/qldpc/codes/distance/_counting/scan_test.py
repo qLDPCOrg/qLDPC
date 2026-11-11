@@ -326,7 +326,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     assert step_tables.select(2, 0)[0] is completion_bounds.NO_TABLES
 
 
-@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("compiled", [False, pytest.param(True, marks=pytest.mark.compiled)])
 def test_skipping_chunks_stop_at_a_lighter_nontrivial_word(compiled: bool) -> None:
     """A step with tables stops at a nontrivial word lighter than the target, if asked to."""
     # Three systematic rows [I | P], each followed by a distinct label and by its tail P.

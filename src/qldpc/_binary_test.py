@@ -18,7 +18,12 @@ from qldpc import _binary as binary
 # linear algebra of unpacked binary matrices
 
 
-@pytest.fixture(params=[False, True], ids=["compiled", "python"])
+@pytest.fixture(
+    params=[
+        pytest.param(False, marks=pytest.mark.compiled, id="compiled"),
+        pytest.param(True, id="python"),
+    ]
+)
 def binary_kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the compiled functions, or their Python versions, which coverage can trace."""
     if request.param:

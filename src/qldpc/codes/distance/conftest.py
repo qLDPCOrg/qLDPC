@@ -68,7 +68,7 @@ def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
     return stages
 
 
-@pytest.fixture(params=["python", "compiled"])
+@pytest.fixture(params=["python", pytest.param("compiled", marks=pytest.mark.compiled)])
 def compilation_mode(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[None]:
@@ -78,8 +78,8 @@ def compilation_mode(
     always-compiled functions that the scans of layers, the basis family stages, the automorphism
     families, the connected-support search, and the coset-leader search define or import from this
     package, such as ``completion_bounds.get_completion_bound`` in the scans of layers.  Coverage
-    can trace them.  The compiled mode compiles the compiled-on-request functions once per session,
-    and restores plain Python afterwards.
+    can trace them.  The compiled mode, which is marked compiled, compiles the compiled-on-request
+    functions once per session, and restores plain Python afterwards.
     """
     if request.param == "python":
         package = __name__.rpartition(".")[0]
