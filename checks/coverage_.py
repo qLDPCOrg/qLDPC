@@ -74,8 +74,8 @@ def run(*args: str) -> int:
         """
         Check that every module is fully covered by its own test file, in one parallel pytest run.
         Unrecognized arguments are passed to pytest.  Tests marked compiled are skipped.  To replace
-        this selection, pass a marker expression in one argument without spaces, as in
-        -mcompiled, which also skips the tests that coverage needs.
+        this selection, pass a marker expression in one argument without spaces, as in -mcompiled,
+        which runs only the tests marked compiled and so leaves out the tests that coverage needs.
         """
     )
     parser.add_argument(
