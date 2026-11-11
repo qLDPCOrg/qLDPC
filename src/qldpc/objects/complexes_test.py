@@ -59,9 +59,11 @@ def test_cayley_complex_reads_members_on_one_number_of_points() -> None:
     """Members that differ only in trailing fixed points are one member of a Cayley complex."""
     swap, padded_swap = abstract.GroupMember([1, 0]), abstract.GroupMember([1, 0, 2])
     reflection = abstract.GroupMember([0, 2, 1])
+    sympy_swap = comb.Permutation(0, 1)  # in cycle notation, on two points
     for subsets, padded_subsets in [
         (([swap, reflection],), ([padded_swap, reflection],)),
         (([swap], [reflection]), ([padded_swap], [reflection])),
+        (([sympy_swap, reflection],), ([padded_swap, reflection],)),
     ]:
         cayplex = objects.CayleyComplex(*subsets)
         padded_cayplex = objects.CayleyComplex(*padded_subsets)

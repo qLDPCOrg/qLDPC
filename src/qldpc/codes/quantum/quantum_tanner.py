@@ -199,11 +199,11 @@ class QTCode(CSSCode):
         """Construct a random quantum Tanner code from a base group and seed code(s).
 
         If only one code C is provided, use its dual ~C for the second code.  If exclude_identity is
-        True, the random subsets exclude the identity element of the group, as the generating sets
-        of Cayley graphs usually do.  A subset with the identity gives faces f(g,e,b) whose
-        vertices g and eg coincide in the group, which only the covers of the Cayley complex keep
-        apart.  See help(qldpc.abstract.Group.random_symmetric_subset) for the sizes of subsets
-        without the identity, and the error raised for other sizes.
+        True, the random subsets exclude the identity element e of the group, as the generating sets
+        of Cayley graphs usually do.  A subset with the identity gives faces f(g,e,b) whose vertices
+        g and eg coincide in the group, which only the double or quadruple covers built by
+        CayleyComplex keep apart.  See help(qldpc.abstract.Group.random_symmetric_subset) for the
+        sizes of subsets without the identity, and the error raised for other sizes.
         """
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else ~code_a, field)
@@ -266,8 +266,9 @@ class QTCode(CSSCode):
         with open(path, "r") as file:
             lines = file.read().splitlines()
 
-        # Find the comment line that starts each section of generating data.  Headers come first
-        # and may mimic these lines, so search backwards from the end, which no header precedes.
+        # Find the comment line that starts each section of generating data.  Headers come first and
+        # may mimic these lines, so search backwards from the end of the file, finding each line
+        # before the one that follows it.
         names = [
             "subset_a",
             "subset_b",

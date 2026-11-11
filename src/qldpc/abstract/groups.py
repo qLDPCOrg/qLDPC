@@ -91,9 +91,9 @@ class GroupMember(comb.Permutation):
         """Compare array forms lexicographically, padding the shorter one with fixed points.
 
         Permutations that differ only in trailing fixed points are therefore neither smaller nor
-        larger than each other, although they are not equal (==), so sorting keeps their input
-        order.  On permutations of the same size, this is the order of SymPy ranks.  It also covers
-        the identity of the trivial group, which acts on no points.
+        larger than each other.  They are not equal (==), and sorting keeps their input order.  On
+        permutations of the same size, this is the order of SymPy ranks.  It also covers the
+        identity of the trivial group, which acts on no points.
         """
         if not isinstance(other, comb.Permutation):
             return NotImplemented
@@ -565,15 +565,15 @@ class Group:
         .. note::
             This is not a uniformly random subset, only a "sufficiently random" one.
 
-        If exclude_identity is True, the subset excludes the identity element.  Such a subset of a
-        given size exists exactly if the size is at most the order of the group minus one, and the
-        size or the order is even, since only a group of even order has members other than the
-        identity that are their own inverses.
+        If exclude_identity is True, the subset excludes the identity element.  Such a subset exists
+        exactly if its size is at most the order of the group minus one, and the size or the order
+        is even.  Only a group of even order has members other than the identity that are their own
+        inverses.
 
         Raises:
-            ValueError: If no symmetric subset of the given size exists.
+            ValueError: If size is not positive, or no symmetric subset of that size exists.
         """
-        max_size = self.order - exclude_identity
+        max_size = self.order - 1 if exclude_identity else self.order
         if not 0 < size <= max_size:
             raise ValueError(
                 "A random symmetric subset of this group must have a size between 1 and"
@@ -586,7 +586,7 @@ class Group:
         rng = _get_rng(seed)
         singles = set()  # group members equal to their own inverse
         doubles = set()  # pairs of group members and their inverses
-        # loop until the members collected have the requested size; see the warning above
+        # loop until the members collected have the requested size, which the checks above allow
         while True:
             member = self._random_member(rng)
             if exclude_identity and member == self.identity:

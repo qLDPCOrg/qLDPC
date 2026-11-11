@@ -118,10 +118,10 @@ class CayleyComplex:
         if subset_b is None:
             subset_b = subset_a
 
-        # Read all members on the same number of points.  Permutations in cycle notation omit
-        # trailing fixed points, so one group member can appear in different forms.  These would be
-        # different nodes, and the covers in cover_subset_a/b would put their extra factors on
-        # different points.
+        # Read all members on the same number of points.  A permutation acts on as many points as it
+        # was written with, and cycle notation or a short array form omits trailing fixed points,
+        # so one group member can appear in different forms.  These would be different nodes, and
+        # the covers in cover_subset_a/b would put their extra factors on different points.
         size = max((member.size for member in itertools.chain(subset_a, subset_b)), default=0)
         subset_a = {abstract.GroupMember(member.array_form, size=size) for member in subset_a}
         subset_b = {abstract.GroupMember(member.array_form, size=size) for member in subset_b}
