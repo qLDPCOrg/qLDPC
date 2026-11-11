@@ -434,11 +434,11 @@ class TannerCode(ClassicalCode):
 
     Tanner codes can similarly be defined on regular (undirected) graphs ``G' = (V',E')`` by placing
     checks on V' and bits on E'.  Every node in V', including isolated nodes, must then have degree
-    n, and must not equal the node that represents an edge (see as_directed_subgraph).  Bits are
-    ordered as G' lists its edges, and checks by the nodes in V' themselves.  The "sort" attribute
-    of an edge (v,w) in E', if any, is a dictionary that maps each of v and w to the sort value of
-    the edge at that node.  Parallel edges (in a MultiGraph) are distinct bits.
-    As is standard, a self-loop at v adds 2 to the degree of v.  Its bit therefore appears at two
+    n.  No node in V' may equal a node that as_directed_subgraph uses to represent an edge.  Bits
+    are ordered as G' lists its edges, and checks by the nodes in V' themselves.  The "sort"
+    attribute of an edge (v,w) in E', if any, is a dictionary that maps each of v and w to the sort
+    value of the edge at that node.  Parallel edges (in a MultiGraph) are distinct bits.  As is
+    standard, a self-loop at v adds 2 to the degree of v.  Its bit therefore appears at two
     positions of the word that v checks.  Both positions take the sort value of the self-loop at v.
 
     Notes:
@@ -467,7 +467,8 @@ class TannerCode(ClassicalCode):
         self.subgraph = subgraph
         self.subcode = subcode
 
-        # every node must be a check (source) or a bit (sink), so none has edges in and out
+        # every node must be a check (source) or a bit (sink), so none has both incoming and
+        # outgoing edges
         for node in subgraph:
             if subgraph.in_degree(node) and subgraph.out_degree(node):
                 raise ValueError(
@@ -512,14 +513,14 @@ class TannerCode(ClassicalCode):
         node of the self-loop.  The directed graph is therefore a MultiDiGraph if the undirected
         graph is a MultiGraph or has self-loops, and a DiGraph otherwise.  Isolated nodes are left
         out.  If a node of the undirected graph equals the node of an edge, this method raises a
-        ValueError, since a node and an edge would then have the same label.
+        ValueError, since the directed graph could not tell the node from the edge.
         """
         is_multigraph = subgraph.is_multigraph()
         directed_subgraph: nx.DiGraph = (
             nx.MultiDiGraph() if is_multigraph or nx.number_of_selfloops(subgraph) else nx.DiGraph()
         )
         edges = subgraph.edges(keys=True, data=True) if is_multigraph else subgraph.edges(data=True)
-        # keys holds the key that distinguishes parallel edges of a MultiGraph, or nothing otherwise
+        # keys holds the key that tells apart parallel edges of a MultiGraph, and is otherwise empty
         for index, (node_a, node_b, *keys, edge_data) in enumerate(edges):
             edge_node: object = frozenset([node_a, node_b])
             if is_multigraph:

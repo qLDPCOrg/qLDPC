@@ -303,7 +303,7 @@ def test_tanner_code_isolated_nodes() -> None:
     code = codes.TannerCode(directed_subgraph, codes.RepetitionCode(2))
     np.testing.assert_array_equal(code.matrix.view(np.ndarray), [[1, 1, 0]])
 
-    # With a subcode without bits, no node has edges, so the code has no checks.  The nodes of a
+    # With a subcode on no bits, no node may have edges, so the code has no checks.  The nodes of a
     # directed graph are then bits, whereas the code on an undirected graph has no bits.
     subcode = codes.ClassicalCode(np.zeros((1, 0), dtype=int))
     directed_code = codes.TannerCode(nx.empty_graph(3, create_using=nx.DiGraph), subcode)
@@ -329,7 +329,10 @@ def test_tanner_code_requires_sources_and_sinks() -> None:
 
 
 def test_tanner_code_directed_subgraph() -> None:
-    """An undirected graph becomes a directed graph whose sinks are the undirected graph's edges."""
+    """An undirected graph becomes a directed graph whose sinks are the undirected graph's edges.
+
+    The conversion rejects a node that equals the node of an edge.
+    """
     assert type(codes.TannerCode.as_directed_subgraph(nx.path_graph(3))) is nx.DiGraph
     assert type(codes.TannerCode.as_directed_subgraph(nx.Graph([(0, 0)]))) is nx.MultiDiGraph
     assert type(codes.TannerCode.as_directed_subgraph(nx.MultiGraph([(0, 1)]))) is nx.MultiDiGraph
