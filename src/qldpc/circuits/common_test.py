@@ -73,7 +73,7 @@ def test_restriction() -> None:
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
-        common.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+        _ = common.not_a_real_export  # type: ignore[attr-defined]
 
 
 def test_get_immune_qubits() -> None:

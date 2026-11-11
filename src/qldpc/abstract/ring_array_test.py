@@ -264,7 +264,7 @@ def test_matmul_fallbacks() -> None:
 
     # a RingArray without a base ring says so, rather than returning None
     with pytest.raises(ValueError, match="no base ring"):
-        unknown_ring.ring  # noqa: B018
+        _ = unknown_ring.ring
 
     # an empty inner dimension gives zeros, which are integers without a base ring
     empty_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
@@ -540,7 +540,7 @@ def test_deprecated_argument_order() -> None:
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
-        ring_array_module.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+        _ = ring_array_module.not_a_real_export  # type: ignore[attr-defined]
 
 
 def test_ring_array_over_matrix_ring() -> None:

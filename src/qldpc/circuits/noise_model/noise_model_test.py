@@ -1135,8 +1135,7 @@ def test_noise_model_serialization() -> None:
         rules={"SXY": circuits.NoiseRule(after=circuits.PauliChannel.depolarizing(2, 0.05))},
     )
     circuit = stim.Circuit("R 0 1\nH 0\nCX 0 1\nTICK\nM 0 1")
-    # This deserializes only the in-memory object constructed above, never untrusted external data.
-    round_tripped = pickle.loads(pickle.dumps(model))  # noqa: S301
+    round_tripped = pickle.loads(pickle.dumps(model))  # noqa: S301 - trusted in-memory round trip
     for restored in (round_tripped, copy.deepcopy(model)):
         assert circuits_are_equivalent(
             model.noisy_circuit(circuit), restored.noisy_circuit(circuit)

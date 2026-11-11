@@ -272,7 +272,7 @@ class _KeyCheckedCacheFile(caching.IndexDataCacheFile):
             return None
         # Numba has just unpickled this data file, as it does every file of its cache, so unpickling
         # the payload trusts the file no more than numba does.
-        saved_key, data = pickle.loads(pickled)  # noqa: S301
+        saved_key, data = pickle.loads(pickled)  # noqa: S301 - numba already unpickled this file
         return data if saved_key == key else None
 
 

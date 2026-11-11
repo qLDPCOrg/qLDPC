@@ -182,7 +182,8 @@ def test_matching_protocol_adapter() -> None:
     single = decoder.decode_errors_detailed(syndromes[0])
     assert np.array_equal(single.error, decoder.decode(syndromes[0]))
     assert decoder.decode_errors_detailed_batch(syndromes[:0]) == ()
-    assert pickle.loads(pickle.dumps(pymatching.Matching)) is pymatching.Matching  # noqa: S301
+    pickled = pickle.dumps(pymatching.Matching)
+    assert pickle.loads(pickled) is pymatching.Matching  # noqa: S301 - trusted in-memory round trip
 
 
 def test_pymatching_protocol_adapter_is_created_once(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -281,9 +281,8 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     ):
         codes.RepetitionCode(2).get_automorphism_group()
 
-    # otherwise, check that automorphisms do indeed preserve the code space this pytest.warns block
-    # intentionally wraps a loop of warning-emitting calls
-    with (  # noqa: PT031
+    # otherwise, check that automorphisms do indeed preserve the code space
+    with (  # noqa: PT031 - wraps several calls that warn
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
         unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
         unittest.mock.patch(

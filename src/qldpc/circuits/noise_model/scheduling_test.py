@@ -586,8 +586,7 @@ def test_schedules_are_immutable_values() -> None:
     untagged = circuits.TickScheduler().get_schedule(stim.Circuit("REPEAT 2 {\nH 0\n}"))
     assert tagged != untagged
     assert copy.deepcopy(tagged) == tagged
-    # This deserializes only the in-memory object constructed above, never untrusted external data.
-    assert pickle.loads(pickle.dumps(tagged)) == tagged  # noqa: S301
+    assert pickle.loads(pickle.dumps(tagged)) == tagged  # noqa: S301 - trusted in-memory round trip
 
 
 def test_built_in_schedulers() -> None:
