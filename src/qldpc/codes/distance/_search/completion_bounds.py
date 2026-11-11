@@ -12,11 +12,15 @@ pair on every block, so the sum bounds the weight of the tail of every completio
 the search skips them.  Section 3.9 of ``brouwer_zimmermann.md`` derives this bound.
 
 A count of the words of a given weight uses the same bound with ``U`` one above that weight, so that
-it skips only completions heavier than the weight (``_counting/scan.py``).  The costliest queries of
-the coset searches of ``CosetLeaderSearch`` use it with the least bound that proves a word heavier
-than their maximum weight in place of ``U``.  Their bases need not be information sets, so in place
-of ``w`` they bound the ones of a completion on pivot columns (see
-``affine_search.scan_coset_layer_by_tails_with_tables``).
+it skips only completions heavier than the weight (``_counting/scan.py``).  The coset searches of
+``CosetLeaderSearch`` use it in their costliest queries and searches for minimum weights.  A query
+puts in place of ``U`` the least bound that proves a word heavier than its maximum weight.  A search
+for a minimum weight uses that bound until it finds a word within the maximum weight, and then, when
+each scan starts, the Hamming weight of its lightest word, or one less where every word of the coset
+has its parity.  Once a scan finds a lighter word, the tables skip at the Hamming weight of the
+lightest word that it has found (see ``coset_leader_search._search_coset_for_min_weight_by_tails``).
+The bases of the coset searches need not be information sets, so in place of ``w`` they bound the
+ones of a completion on pivot columns (see ``affine_search.scan_coset_layer_by_tails_with_tables``).
 
 Tables of the least weights on each block, for every value of ``p`` on the block and every ``s``,
 make each bound a few lookups.  They cost memory and time to build, so ``select_completion_tables``
