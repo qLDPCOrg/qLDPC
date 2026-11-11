@@ -322,6 +322,7 @@ def test_batches_find_each_class_above_max_weight(
             assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_batches_return_bounds_above_max_weight_plus_one() -> None:
     """On |0000> with CSS weight, the syndrome 1111 needs X on every qubit, so weight four.
 
@@ -336,6 +337,7 @@ def test_batches_return_bounds_above_max_weight_plus_one() -> None:
     assert oracle.get_min_weight_bound(0b1111, 2).lower_bound == 4
 
 
+@pytest.mark.usefixtures("compilation_mode")
 @_BLOCK_CASES
 def test_batches_read_syndromes_of_several_words(
     block: tuple[str, ...], css_weight: bool, pytestconfig: pytest.Config
@@ -365,6 +367,7 @@ def test_batches_read_syndromes_of_several_words(
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
 
+@pytest.mark.usefixtures("compilation_mode")
 @_BLOCK_CASES
 def test_batches_read_syndromes_of_fewer_words(
     block: tuple[str, ...], css_weight: bool, pytestconfig: pytest.Config
@@ -395,6 +398,7 @@ def test_batches_read_syndromes_of_fewer_words(
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_x_and_z_syndromes_span_several_words(pytestconfig: pytest.Config) -> None:
     """On |0>^70 |+>^70, the syndromes of the X and Z parts have 70 bits, more than one word.
 
@@ -439,6 +443,7 @@ def test_css_weight_counts_the_larger_sector() -> None:
     assert not css.get_min_weight_bound(3, 0).within_max_weight
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_css_weight_minimizes_both_sectors_jointly() -> None:
     """On a four-qubit path graph state, Z^4 is equivalent to pure X and to pure Z, but not to both.
 
@@ -494,6 +499,7 @@ def test_exhausted_search_gives_the_exact_minimum() -> None:
     assert oracle.get_min_weight_bound(0b11111, 4).within_max_weight
 
 
+@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_wide_states_span_several_packed_words(css_weight: bool) -> None:
     """Eleven GHZ blocks use 99 bits for the physical weight, more than one 64-bit word.
@@ -694,6 +700,7 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     assert num_sooner
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_cached_searches_answer_only_for_their_stabilizer_group(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -718,6 +725,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
             assert _get_syndrome(matrix, bound.representative) == syndrome
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
     """An oracle builds its searches with the tuning in force, keyed by the fields that they read.
 
@@ -771,6 +779,7 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             assert bool(orders) == reads
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -841,6 +850,7 @@ def test_connected_support_oracles_make_checks_sparser_with_their_tuning(
     assert calls == [(5, 2)]
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
     """An oracle answers as a fresh oracle under the threshold of its gate, whatever is cached.
 
@@ -876,6 +886,7 @@ def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
             assert answers_now == answers[minimum_work]
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
     """Oracles built in turn answer exactly for their own stabilizers and weight.
 
@@ -907,6 +918,7 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
         _assert_exact_answers(oracle, matrix, css_weight)
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune: Tune) -> None:
     """Oracles answer for the stabilizers that they were built from, when an array changes later.
 
@@ -1045,7 +1057,9 @@ _SKIPPING_CODE = np.array(
 
 # A longer code with cosets of minimum weight six.  At maximum weight four and the threshold zero,
 # its searches of them for minimum weights skip some completions by tables whose bound reaches the
-# skip bound of that weight, but not the weight of the lightest word that the searches weigh.
+# skip bound of that weight, but not the weight of the lightest word that the searches weigh.  The
+# searches by tails of some of its cosets, such as those of syndromes 1126, 4578, and 6129, stop
+# early within steps.
 _HEAVY_COSETS_CODE = get_binary_matrix(
     [
         "11100011110000110001",
@@ -1159,6 +1173,7 @@ def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
     _assert_classical_cosets_match_brute_force(np.hstack([_RANK_DEFICIENT_CODE, parities]))
 
 
+@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
 )
@@ -1180,6 +1195,7 @@ def test_cosets_match_brute_force_with_other_families(
     _assert_classical_cosets_match_brute_force(code)
 
 
+@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     "matrix, css_weight",
     [
@@ -1213,6 +1229,7 @@ def test_oracles_answer_exactly_with_other_families(
         assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, tune: Tune) -> None:
     """The answers of a search depend only on its code, the syndrome, and the maximum weight.
 
@@ -1647,6 +1664,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
         assert skipped or not (block_bits and must_skip)
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1682,6 +1700,7 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     assert search.find_first_not_within_max_weight(packed_syndromes, 2) == (len(syndromes), None)
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1796,15 +1815,16 @@ def _assert_min_weights_match_brute_force(
 
     One batch holds the syndromes, in random order, and ``minima`` holds the least weight of the
     coset of each.  At each maximum weight from zero to one past the largest least weight, the
-    floors of the batch are zero, and then random up to the maximum weight.  A coset whose least
-    weight is at most its floor gets a weight from its least weight to its floor.  Any other coset
-    gets its least weight, or one more than the maximum weight if that is smaller.
+    floors of the batch are zero, then random up to the maximum weight, and then that weight.  A
+    coset whose least weight is at most its floor gets a weight from its least weight to its floor.
+    Any other coset gets its least weight, or one more than the maximum weight if that is smaller.
     """
     order = rng.permutation(len(syndromes))
     packed_syndromes = _pack_syndromes([syndromes[index] for index in order], num_syndrome_bits)
     least = minima[order]
     for max_weight in range(int(least.max()) + 2):
-        for floors in (np.zeros_like(least), rng.integers(0, max_weight + 1, len(least))):
+        random_floors = rng.integers(0, max_weight + 1, len(least))
+        for floors in (np.zeros_like(least), random_floors, np.full_like(least, max_weight)):
             weights = search.get_min_weights(packed_syndromes, max_weight, floors.astype(np.int64))
             exact = least > floors
             assert np.array_equal(weights[exact], np.minimum(least, max_weight + 1)[exact])
@@ -1826,16 +1846,14 @@ def test_min_weights_of_cosets_match_brute_force(
 ) -> None:
     """Searches for the minimum weights of cosets agree with the least weights of their words.
 
-    The codes are the rank-deficient code, a code whose searches skip words by tables, a random
-    code, and a longer code with cosets of minimum weight up to seven, each also made even by a
-    column of the parities of its rows.  The searches of the even codes round to the parity of each
-    coset, and their incumbents are one below the Hamming weight of their best words.  The cosets
-    have both parities.  The searches of the longer code stop early within steps and skip words by
-    tables in many ways, but take long as plain Python, so every sixteenth of its syndromes is
-    searched.  The searches take the disjoint family of each code, and at the threshold zero other
-    families by tails, with completion tables and without them (see
-    ``_assert_min_weights_match_brute_force``).  The least weights come from every word of each
-    coset.
+    The codes are the rank-deficient code, a code whose searches skip words by tables, and a random
+    code, each also made even by a column of the parities of its rows.  The searches of the even
+    codes round to the parity of each coset, and their incumbents are one below the Hamming weight
+    of their best words.  The cosets have both parities.  Three cosets of a longer code are
+    searched too.  Their searches by tails stop early within steps.  The searches take the disjoint
+    family of each code, and at the threshold zero other families by tails, with completion tables
+    and without them (see ``_assert_min_weights_match_brute_force``).  The least weights come from
+    every word of each coset.
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -1844,16 +1862,19 @@ def test_min_weights_of_cosets_match_brute_force(
     )
     num_rows, num_columns = int(rng.integers(3, 6)), int(rng.integers(8, 11))
     random_code = get_random_full_rank_matrix(rng, num_rows, num_columns)
-    for code in (_RANK_DEFICIENT_CODE, _SKIPPING_CODE, random_code, _HEAVY_COSETS_CODE):
+    for code in (_RANK_DEFICIENT_CODE, _SKIPPING_CODE, random_code):
         even_code = np.hstack([code, code.sum(axis=1, keepdims=True) % 2]).astype(np.uint8)
         for generators in (code, even_code):
             checks = get_kernel(generators)
             search = coset_leader_search._get_classical_search(generators, checks, tuning_fields)
             syndromes = range(1 << len(checks))
-            if code is _HEAVY_COSETS_CODE:
-                syndromes = syndromes[2::16]
             minima = _coset_minima(generators, checks, syndromes)
             _assert_min_weights_match_brute_force(search, syndromes, minima, len(checks), rng)
+    checks = get_kernel(_HEAVY_COSETS_CODE)
+    search = coset_leader_search._get_classical_search(_HEAVY_COSETS_CODE, checks, tuning_fields)
+    early_stop_syndromes = [1126, 4578, 6129]
+    minima = _coset_minima(_HEAVY_COSETS_CODE, checks, early_stop_syndromes)
+    _assert_min_weights_match_brute_force(search, early_stop_syndromes, minima, len(checks), rng)
 
 
 @pytest.mark.usefixtures("compilation_mode")
@@ -2086,6 +2107,7 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
                         assert bound.lower_bound == 2 and weight <= max_weight
 
 
+@pytest.mark.usefixtures("compilation_mode")
 def test_connected_support_batches_read_syndromes_of_several_words(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -2179,6 +2201,7 @@ def test_connected_support_rejects_what_it_cannot_search() -> None:
         CosetLeaderSearch([[1, 0]], method=method)
 
 
+@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support"])
 def test_batches_reject_syndromes_out_of_range(method: CosetSearchMethod) -> None:
     """Batches of either method reject a syndrome at or above ``2**num_qubits``.

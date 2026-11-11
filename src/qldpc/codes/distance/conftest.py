@@ -101,6 +101,9 @@ def compilation_mode(
         try:
             yield
         finally:
+            # Undo the test's patches first, since a patched name may be restored to compiled code,
+            # which switching the compilation off then replaces by plain Python.
+            monkeypatch.undo()
             _compilation.set_on_request_functions_compiled(False)
 
 
