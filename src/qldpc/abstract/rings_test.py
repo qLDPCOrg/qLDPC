@@ -652,7 +652,7 @@ def test_deprecated_argument_order() -> None:
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
-        rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+        _ = rings.not_a_real_export  # type: ignore[attr-defined]
 
 
 def test_ring_interface() -> None:

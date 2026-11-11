@@ -193,7 +193,7 @@ def test_legacy_flat_backend_options() -> None:
     # builders without backend_options receive their keyword arguments unchanged, and the legacy
     # constructors remain pickleable for Sinter
     pickled = pickle.dumps(deprecated_decoders._get_decoder_constructors()["BP_OSD"])
-    constructor = pickle.loads(pickled)  # noqa: S301
+    constructor = pickle.loads(pickled)  # noqa: S301 - trusted in-memory round trip
     assert np.array_equal(constructor(matrix).decode(np.array([1, 0])), [1, 0, 0])
     with pytest.warns(DeprecationWarning):
         decoder = deprecated_decoders.get_decoder(matrix, with_lookup=True, max_weight=1)
@@ -276,7 +276,7 @@ def test_deprecated_lookup_builders() -> None:
 
     # Sinter pickles the legacy lookup constructor
     pickled = pickle.dumps(deprecated_decoders._get_decoder_constructors()["lookup"])
-    constructor = pickle.loads(pickled)  # noqa: S301
+    constructor = pickle.loads(pickled)  # noqa: S301 - trusted in-memory round trip
     assert np.array_equal(constructor(dem, max_weight=1).decode(syndrome), [1])
 
 

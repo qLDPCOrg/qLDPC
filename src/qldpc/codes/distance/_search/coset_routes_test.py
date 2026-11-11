@@ -330,7 +330,7 @@ def test_routes_pickle() -> None:
     """
     routes = _build_routes(EVEN_ROUTES_CODE, 0, _get_instance_record)
     assert routes.get_route(4)[1] is not None
-    copy = pickle.loads(pickle.dumps(routes))  # noqa: S301
+    copy = pickle.loads(pickle.dumps(routes))  # noqa: S301 - trusted in-memory round trip
     for max_weight in (4, 5):
         (tables, tails), (copied_tables, copied_tails) = (
             routes.get_route(max_weight),

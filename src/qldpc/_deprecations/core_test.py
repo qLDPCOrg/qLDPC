@@ -69,7 +69,8 @@ def test_deprecated_names() -> None:
             warnings.simplefilter("ignore", DeprecationWarning)
             module = importlib.import_module(module_name)
             namespace: dict[str, object] = {}
-            exec(f"from {module_name} import {', '.join(sorted(names))}", namespace)  # noqa: S102
+            statement = f"from {module_name} import {', '.join(sorted(names))}"
+            exec(statement, namespace)  # noqa: S102 - trusted import statement
         assert names <= namespace.keys()
         assert not names & set(getattr(module, "__all__", ()))
     with pytest.raises(AttributeError, match=r"module 'qldpc\.decoders' has no attribute 'Other'"):
@@ -94,7 +95,7 @@ def test_star_imports_do_not_warn() -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             # a star import is only valid at module level, so execute it in a fresh namespace
-            exec(f"from {module_name} import *", {})  # noqa: S102
+            exec(f"from {module_name} import *", {})  # noqa: S102 - trusted import statement
 
 
 def test_deprecated_methods() -> None:
