@@ -118,7 +118,9 @@ class CayleyComplex:
         # copy the subsets into lists, since an iterator can be read only once
         subset_a = list(subset_a)
         subset_b = subset_a if subset_b is None else list(subset_b)
-        subset_a, subset_b = CayleyComplex._read_on_common_points(subset_a, subset_b)
+
+        # merge repeated members, including members that differ only by trailing fixed points
+        subset_a, subset_b = CayleyComplex._resize_members(subset_a, subset_b)
         if not subset_a and not subset_b:
             raise ValueError("A Cayley complex needs at least one generating member")
 
@@ -174,12 +176,13 @@ class CayleyComplex:
         """Build a left-right Cayley graph generated from the identity element of a group.
 
         Either subset may be empty, but not both.  Repeated members are merged, including members
-        that differ only by trailing fixed points.  The graph is built breadth-first from the
+        that differ only by trailing fixed points, and the nodes of the graph act on the largest
+        number of points of any member.  The graph is built breadth-first from the
         identity, applying the members of each subset in sorted order, so that the order of its
         nodes and edges is reproducible.
         """
         subset_a, subset_b = map(
-            sorted, CayleyComplex._read_on_common_points(list(subset_a), list(subset_b))
+            sorted, CayleyComplex._resize_members(list(subset_a), list(subset_b))
         )
 
         # identify the identity element
@@ -218,10 +221,10 @@ class CayleyComplex:
         )
 
     @staticmethod
-    def _read_on_common_points(
-        *subsets: Sequence[abstract.GroupMember],
-    ) -> list[set[abstract.GroupMember]]:
-        """Read the members of the given subsets on one number of points, merging repeats.
+    def _resize_members(
+        subset_a: Sequence[abstract.GroupMember], subset_b: Sequence[abstract.GroupMember]
+    ) -> tuple[set[abstract.GroupMember], set[abstract.GroupMember]]:
+        """Read the members of two subsets on the largest number of points, merging repeats.
 
         A SymPy permutation acts on the points up to the largest one in its cycles or array form,
         unless given a size, so trailing fixed points can be omitted and one group member can appear
@@ -230,11 +233,12 @@ class CayleyComplex:
         """
         from qldpc import abstract
 
-        size = max((member.size for subset in subsets for member in subset), default=0)
-        return [
+        size = max((member.size for member in itertools.chain(subset_a, subset_b)), default=0)
+        resized_a, resized_b = (
             {abstract.GroupMember(member.array_form, size=size) for member in subset}
-            for subset in subsets
-        ]
+            for subset in [subset_a, subset_b]
+        )
+        return resized_a, resized_b
 
 
 class ChainComplex:
