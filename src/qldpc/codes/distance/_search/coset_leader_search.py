@@ -307,9 +307,8 @@ class CosetLeaderSearch:
         Args:
             syndromes: One packed syndrome (see ``CosetLeaderSearch``) per row, split into 64-bit
                 machine words, with machine word ``j`` holding bits ``64 j`` and up.  Each syndrome
-                must be below ``2**num_qubits``.  The BZ searches do not check this, and the
-                connected-support searches raise a ``ValueError``.  The rows may have fewer words
-                than ``num_qubits`` bits need, if every syndrome fits in them.
+                must be below ``2**num_qubits``.  The rows may have fewer words than ``num_qubits``
+                bits need, if every syndrome fits in them.
             max_weight: The largest weight that the query accepts.
 
         Returns:
@@ -321,7 +320,12 @@ class CosetLeaderSearch:
             gives.  If the X and Z parts are searched separately, the representative of a part
             within ``max_weight`` can differ, since the batch searches with increasing weight
             limits (see ``_get_batch_support_bound``).
+
+        Raises:
+            ValueError: If a syndrome is out of range.
         """
+        self._check_syndromes(syndromes)
+
         # The connected-support searches answer one syndrome at a time.
         if self._support_searches:
             for index, row in enumerate(syndromes):
@@ -359,14 +363,18 @@ class CosetLeaderSearch:
         limits (see ``_get_min_support_weight``).
 
         Args:
-            syndromes: Packed syndromes, as for ``find_first_not_within_max_weight``.  Each must be
-                below ``2**num_qubits``, which the BZ searches do not check.
+            syndromes: Packed syndromes, as for ``find_first_not_within_max_weight``.
             max_weight: The largest minimum weight to find.
 
         Returns:
             The minimum weight of the class of each syndrome, or ``max_weight + 1`` if that is
             larger.
+
+        Raises:
+            ValueError: If a syndrome is out of range.
         """
+        self._check_syndromes(syndromes)
+
         # Every class weighs more than a negative maximum weight.
         if max_weight < 0:
             return np.full(len(syndromes), max_weight + 1, dtype=np.int64)
@@ -431,12 +439,9 @@ class CosetLeaderSearch:
 
         Most syndromes of a batch have an error within ``max_weight``, which a search at a lower
         weight limit finds sooner (see ``_ConnectedSupportCosetSearch.get_min_weight_bound``).
-
-        Raises:
-            ValueError: If the syndrome is out of range.
+        ``find_first_not_within_max_weight`` checks the range of every syndrome first
+        (``_check_syndromes``).
         """
-        if not 0 <= syndrome < 1 << self.num_qubits:
-            raise ValueError("The syndrome is out of range")
         searches = self._support_searches
         if len(searches) == 1:
             return searches[0].get_min_weight_bound(syndrome, max_weight, first_limit=2)
@@ -445,6 +450,20 @@ class CosetLeaderSearch:
             searches[0].get_min_weight_bound(x_syndrome, max_weight, first_limit=2),
             searches[1].get_min_weight_bound(z_syndrome, max_weight, first_limit=2),
         )
+
+    def _check_syndromes(self, syndromes: npt.NDArray[np.uint64]) -> None:
+        """Raise a ``ValueError`` unless each packed syndrome of a batch is below ``2**num_qubits``.
+
+        The compiled searches read a row of the right inverse of their checks for each set bit of a
+        syndrome, and do not check the range of the bit.  So a batch checks its rows first, in the
+        machine word that holds bit ``num_qubits``, if any, and in the words above it.
+        """
+        num_words, num_bits = divmod(self.num_qubits, 64)
+        high_words = syndromes[:, num_words:]
+        if high_words.size and (
+            np.any(high_words[:, 0] >> np.uint64(num_bits)) or np.any(high_words[:, 1:])
+        ):
+            raise ValueError("A syndrome of the batch is out of range")
 
     def _split_syndrome(self, syndrome: int) -> tuple[int, int]:
         """Map a syndrome for the given stabilizers to the syndromes of the parts of its errors."""

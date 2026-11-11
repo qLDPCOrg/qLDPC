@@ -2169,10 +2169,7 @@ def test_rounds_of_random_reductions_make_rows_sparser() -> None:
 
 
 def test_connected_support_rejects_what_it_cannot_search() -> None:
-    """The engine rejects the CSS weight on a non-CSS state, and its batches reject large syndromes.
-
-    Other methods are unknown.
-    """
+    """Oracles reject unknown methods, and the CSS weight on non-CSS states by connected support."""
     with pytest.raises(ValueError, match="only on CSS states"):
         CosetLeaderSearch(
             _graph_state(2, [(0, 1)], phase=True), css_weight=True, method="connected_support"
@@ -2181,7 +2178,21 @@ def test_connected_support_rejects_what_it_cannot_search() -> None:
     with pytest.raises(ValueError, match="Unknown coset-leader search method"):
         CosetLeaderSearch([[1, 0]], method=method)
 
-    # A batch of the engine checks the range of its syndromes, through ``_get_batch_support_bound``.
-    oracle = CosetLeaderSearch([[1, 0]], method="connected_support")
-    with pytest.raises(ValueError, match="out of range"):
-        oracle.find_first_not_within_max_weight(np.array([[2]], dtype=np.uint64), 1)
+
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support"])
+def test_batches_reject_syndromes_out_of_range(method: CosetSearchMethod) -> None:
+    """Batches of either method reject a syndrome at or above ``2**num_qubits``.
+
+    The syndromes of the state |+0> are below four.  A row with bit two set, or with a second
+    machine word that is not zero, is out of range, in a batch of queries and in one of minimum
+    weights.  A row with a zero second word is in range: the syndrome three needs Z on the first
+    qubit and X on the second.
+    """
+    oracle = CosetLeaderSearch(_product_state(["X_", "_Z"]), method=method)
+    for row in ([4], [3, 1]):
+        syndromes = np.array([row], dtype=np.uint64)
+        with pytest.raises(ValueError, match="out of range"):
+            oracle.find_first_not_within_max_weight(syndromes, 1)
+        with pytest.raises(ValueError, match="out of range"):
+            oracle._get_min_weights(syndromes, 1)
+    assert oracle._get_min_weights(np.array([[3, 0]], dtype=np.uint64), 1).tolist() == [2]
