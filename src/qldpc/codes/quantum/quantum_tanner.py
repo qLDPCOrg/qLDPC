@@ -7,7 +7,7 @@ from __future__ import annotations
 import ast
 import itertools
 import os
-from collections.abc import Collection, Sequence
+from collections.abc import Iterable, Sequence
 
 import galois
 import numpy as np
@@ -72,8 +72,8 @@ class QTCode(CSSCode):
 
     def __init__(
         self,
-        subset_a: Collection[abstract.GroupMember],
-        subset_b: Collection[abstract.GroupMember],
+        subset_a: Iterable[abstract.GroupMember],
+        subset_b: Iterable[abstract.GroupMember],
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
         field: int | type[galois.FieldArray] | None = None,
@@ -122,7 +122,8 @@ class QTCode(CSSCode):
             return False
 
         # SymPy permutations on different numbers of points are never equal, and the members of the
-        # two complexes may be written on different numbers of points, so read them all on one.
+        # two complexes may be written on different numbers of points, so read all of them on the
+        # largest number of points.
         subsets = [
             self.complex.subset_a,
             self.complex.subset_b,
@@ -173,7 +174,8 @@ class QTCode(CSSCode):
         ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
 
         Each face also has a "sort" attribute, which numbers the faces in the order in which they
-        are found, and thereby fixes the order of the qudits of the classical Tanner codes.
+        are found, and thereby fixes the order of the bits of the classical Tanner codes, and so of
+        the qudits of the quantum Tanner code.
         """
         # sort the subsets by the total order on the group, which fixes the order in which faces are
         # added below, and thereby the qudit that each face of the Cayley complex is identified with
@@ -199,7 +201,7 @@ class QTCode(CSSCode):
             old_nodes = set(subgraph_x.nodes())
             new_nodes = set()
 
-            # add all faces adjacent to this node
+            # add all faces adjacent to this node, numbering each face when it is first found
             for aa, bb in itertools.product(subset_a, subset_b):
                 aa_gg, gg_bb = aa * gg, gg * bb
                 aa_gg_bb = aa_gg * bb

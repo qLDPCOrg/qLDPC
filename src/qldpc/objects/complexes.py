@@ -117,7 +117,8 @@ class CayleyComplex:
         """Construct a left-right Cayley complex."""
         from qldpc import abstract
 
-        # read the subsets once, so that iterators are not consumed before they are used
+        # copy the subsets into lists, which, unlike iterators and arrays, can be read more than
+        # once and tested for emptiness
         subset_a = list(subset_a)
         subset_b = subset_a if subset_b is None else list(subset_b)
         if not subset_a and not subset_b:
@@ -183,9 +184,9 @@ class CayleyComplex:
     ) -> nx.Graph:
         """Build a left-right Cayley graph generated from the identity element of a group.
 
-        Either subset may be empty, but not both.  Nodes and edges are added in an order fixed by
-        the total order on the group, rather than by the iteration order of sets of members, which
-        varies between Python sessions.
+        Either subset may be empty, but not both.  The graph is built breadth-first from the
+        identity, applying the members of each subset in sorted order, so that the order of its
+        nodes and edges is reproducible.
         """
         subset_a = sorted(subset_a)
         subset_b = sorted(subset_b)
@@ -196,14 +197,15 @@ class CayleyComplex:
             raise ValueError("A Cayley graph needs at least one generating member")
         identity = member * ~member
 
-        # build the graph one node at a time, in the order in which nodes are found
+        # build the graph breadth-first from the identity
         graph = nx.Graph()
         graph.add_node(identity)
         nodes_to_add = collections.deque([identity])
         while nodes_to_add:
             gg = nodes_to_add.popleft()
+            # "L" and "R" for left- and right-acting members
             neighbors = [(aa * gg, "L") for aa in subset_a] + [(gg * bb, "R") for bb in subset_b]
-            for neighbor, edge_type in neighbors:  # "L" and "R" for left- and right-acting
+            for neighbor, edge_type in neighbors:
                 if neighbor not in graph:
                     nodes_to_add.append(neighbor)
                 graph.add_edge(gg, neighbor, type=edge_type)

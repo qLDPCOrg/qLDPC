@@ -247,13 +247,14 @@ def test_tanner_code_sorts_nodes_by_sort_attributes() -> None:
 
 def test_tanner_code_on_undirected_graph_orders_bits_as_edges() -> None:
     """A Tanner code on an undirected graph orders its bits as the graph lists its edges."""
-    # The complete graph lists its edges as (0,1), (0,2), (0,3), (1,2), (1,3), (2,3), so node 1 has
-    # edges 0, 3, and 4, of which the subcode checks the first two.  This order is the one that
-    # Tanner codes had before their nodes could have "sort" attributes.
-    subgraph = nx.complete_graph(4)
+    # The graph lists its edges as (0,1), (0,0), (0,2), (1,1), (1,2), (2,2), so node 1 has edges 0,
+    # 3, and 4, of which the subcode checks the first two.  Self-loops make this order differ from
+    # that of the edges' own (partial) order, in which the self-loop {0} precedes {0,1}.
+    subgraph = nx.Graph([(0, 1), (0, 0), (0, 2), (1, 1), (1, 2), (2, 2)])
+    assert list(subgraph.edges) == [(0, 1), (0, 0), (0, 2), (1, 1), (1, 2), (2, 2)]
     code = codes.TannerCode(subgraph, codes.ClassicalCode([[1, 1, 0]]))
     supports = [tuple(np.flatnonzero(row)) for row in code.matrix.view(np.ndarray)]
-    assert supports == [(0, 1), (0, 3), (1, 3), (2, 4)]
+    assert supports == [(0, 1), (0, 3), (2, 4)]
 
 
 def test_tanner_code() -> None:

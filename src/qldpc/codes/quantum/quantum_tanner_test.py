@@ -43,45 +43,10 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="Underspecified generating data"):
         codes.QTCode(subset_a, subset_b, subcode_a)
 
-    # repeated members are merged before the sizes of the subsets are compared
-    members = list(subset_a)
-    assert codes.QTCode(members * 2, members, subcode_a) == codes.QTCode(
-        members, members, subcode_a
-    )
-
-    # raise error if a seed code does not have one bit per distinct member of its subset, even if
-    # the product of the block lengths of the seed codes is right
-    shift = abstract.CyclicGroup(6).generators[0]
-    with pytest.raises(ValueError, match="block length"):
-        codes.QTCode(
-            [shift, ~shift],
-            [shift**2, shift**3, ~(shift**2)],
-            codes.RepetitionCode(3),
-            codes.RepetitionCode(2),
-        )
-
-    # one generating subset may be empty, which leaves a complex without faces, but not both
-    no_bits = np.zeros((0, 0), dtype=int)
-    assert codes.QTCode([], members, no_bits, subcode_a).num_qudits == 0
-    assert codes.QTCode(members, [], subcode_a, no_bits).num_qudits == 0
-    with pytest.raises(ValueError, match="at least one generating member"):
-        codes.QTCode([], [], no_bits)
-
     # raise error if seed codes are over different fields
     subcode_b = codes.RepetitionCode(2, field=3)
     with pytest.raises(ValueError, match="different fields"):
         codes.QTCode(subset_a, subset_a, subcode_a, subcode_b)
-
-    # codes are equal if their members are equal after adding fixed points to the end of them
-    padded_subset_a, padded_subset_b = [
-        [abstract.GroupMember(member.array_form, size=member.size + 1) for member in subset]
-        for subset in [code.complex.subset_a, code.complex.subset_b]
-    ]
-    padded_code = codes.QTCode(padded_subset_a, padded_subset_b, code.code_a, code.code_b)
-    assert padded_code.complex.subset_a != code.complex.subset_a
-    assert padded_code == code
-    assert code == padded_code
-    assert code != code.complex
 
     # saving and loading a QTCode, creating a missing directory along the way
     path = tmp_path / "subdirectory" / "code.txt"
@@ -129,6 +94,44 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
         assert not any(
             member.is_Identity for member in code.complex.subset_a | code.complex.subset_b
         )
+
+
+def test_quantum_tanner_generating_data() -> None:
+    """Quantum Tanner codes read their generating subsets as sets of group members."""
+    shift = abstract.CyclicGroup(6).generators[0]
+    members = [shift, ~shift]
+    subcode = codes.RepetitionCode(2)
+    code = codes.QTCode(members, members, subcode)
+
+    # repeated members are merged before the sizes of the subsets are compared
+    assert codes.QTCode(members * 2, members, subcode) == code
+
+    # codes are equal if their members are equal after adding fixed points to the end of them
+    padded_members = [
+        abstract.GroupMember(member.array_form, size=member.size + 1) for member in members
+    ]
+    padded_code = codes.QTCode(padded_members, padded_members, subcode)
+    assert padded_code.complex.subset_a != code.complex.subset_a
+    assert padded_code == code
+    assert code == padded_code
+    assert code != code.complex
+
+    # raise error if a seed code does not have one bit per distinct member of its subset, even if
+    # the product of the block lengths of the seed codes is right
+    other_members = [shift**2, shift**3, ~(shift**2)]
+    for code_a, code_b in [
+        (codes.RepetitionCode(3), codes.RepetitionCode(2)),
+        (codes.RepetitionCode(2), codes.RepetitionCode(2)),
+    ]:
+        with pytest.raises(ValueError, match="block length"):
+            codes.QTCode(members, other_members, code_a, code_b)
+
+    # one generating subset may be empty, which leaves a complex without faces, but not both
+    no_bits = np.zeros((0, 0), dtype=int)
+    assert codes.QTCode([], members, no_bits, subcode).num_qudits == 0
+    assert codes.QTCode(members, [], subcode, no_bits).num_qudits == 0
+    with pytest.raises(ValueError, match="at least one generating member"):
+        codes.QTCode([], [], no_bits)
 
 
 def test_quantum_tanner_nonabelian_faces() -> None:
@@ -198,7 +201,7 @@ def test_quantum_tanner_nonabelian_faces() -> None:
 
 
 def test_quantum_tanner_qudit_order() -> None:
-    """Quantum Tanner codes keep the qudit order that they had before faces had "sort" attributes.
+    """Quantum Tanner codes have a fixed qudit order.
 
     A code that is saved and loaded is rebuilt from its generating data, so changing the order of
     its qudits would invalidate anything that refers to them by index.

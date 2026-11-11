@@ -39,10 +39,11 @@ def test_cayley_complex() -> None:
     with pytest.raises(ValueError, match="at least one generating member"):
         objects.CayleyComplex.build_cayley_graph([])
 
-    # subsets may be given as any collections, such as arrays, or as iterators
-    members = np.array([shift], dtype=object)
-    assert objects.CayleyComplex(members).subset_a == {shift}
-    assert objects.CayleyComplex(iter([shift])).subset_b == {shift}
+    # subsets may be given as any iterables, such as arrays and iterators
+    shift = abstract.CyclicGroup(3).generators[0]
+    members = np.array([shift, ~shift], dtype=object)
+    assert objects.CayleyComplex(members).subset_a == {shift, ~shift}
+    assert objects.CayleyComplex(iter([shift, ~shift])).subset_b == {shift, ~shift}
 
     # quadripartite complex
     group = abstract.CyclicGroup(3)
@@ -90,7 +91,7 @@ def test_cayley_graph_is_independent_of_hash_seed() -> None:
 
     The hash seed sets the iteration order of the sets of group members that graphs are built from.
     Child interpreters with fixed hash seeds must reproduce the graph built here, under this
-    interpreter's (randomized) hash seed.
+    interpreter's hash seed.
     """
     script = (
         "from qldpc import abstract, objects;"
