@@ -7,7 +7,7 @@ from __future__ import annotations
 import ast
 import itertools
 import os
-from collections.abc import Collection, Sequence
+from collections.abc import Iterable, Sequence
 
 import galois
 import numpy as np
@@ -34,7 +34,7 @@ class QTCode(CSSCode):
 
     Altogether, a quantum Tanner code is defined by:
 
-    - two symmetric (self-inverse) subsets A and B of a group G, and
+    - two symmetric (self-inverse) subsets A and B of a group G, not both empty, and
     - two classical codes ``C_A`` and ``C_B``, respectively with block lengths ``|A|`` and ``|B|``.
 
     The qudits of a quantum Tanner code live on the faces of a Cayley complex built out of A and B.
@@ -72,8 +72,8 @@ class QTCode(CSSCode):
 
     def __init__(
         self,
-        subset_a: Collection[abstract.GroupMember],
-        subset_b: Collection[abstract.GroupMember],
+        subset_a: Iterable[abstract.GroupMember],
+        subset_b: Iterable[abstract.GroupMember],
         code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
         field: int | type[galois.FieldArray] | None = None,
@@ -81,10 +81,12 @@ class QTCode(CSSCode):
         bipartite: bool = False,
     ) -> None:
         """Construct a quantum Tanner code."""
+        # build the complex first, since it merges repeated members of the subsets
+        self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
         code_a = ClassicalCode(code_a, field)
         if code_b is not None:
             code_b = ClassicalCode(code_b, field)
-        elif len(subset_a) == len(subset_b):
+        elif len(self.complex.subset_a) == len(self.complex.subset_b):
             code_b = ~code_a
         else:
             raise ValueError(
@@ -94,23 +96,46 @@ class QTCode(CSSCode):
 
         if field is None and code_a.field is not code_b.field:
             raise ValueError("The sub-codes provided for this QTCode are over different fields")
+        for name, code, subset in [
+            ("A", code_a, self.complex.subset_a),
+            ("B", code_b, self.complex.subset_b),
+        ]:
+            if len(code) != len(subset):
+                raise ValueError(
+                    f"The seed code C_{name} has block length {len(code)}, but the generating"
+                    f" subset {name} has {len(subset)} distinct members"
+                )
 
         self.code_a = code_a
         self.code_b = code_b
-        self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
         code_x, code_z = self.get_subcodes(self.complex, code_a, code_b)
         super().__init__(code_x, code_z, field)
         self._is_subsystem_code = False  # known by construction
 
     def __eq__(self, other: object) -> bool:
-        return (
+        if not (
             isinstance(other, QTCode)
             and self.code_a == other.code_a
             and self.code_b == other.code_b
-            and self.complex.subset_a == other.complex.subset_a
-            and self.complex.subset_b == other.complex.subset_b
             and self.complex.bipartite == other.complex.bipartite
-        )
+        ):
+            return False
+
+        # The members of the two complexes may be written on different numbers of points, and SymPy
+        # permutations on different numbers of points are never equal.  Read all members on the
+        # largest number of points.
+        subsets = [
+            self.complex.subset_a,
+            self.complex.subset_b,
+            other.complex.subset_a,
+            other.complex.subset_b,
+        ]
+        size = max(member.size for subset in subsets for member in subset)
+        subset_a, subset_b, other_subset_a, other_subset_b = [
+            {abstract.GroupMember(member.array_form, size=size) for member in subset}
+            for subset in subsets
+        ]
+        return subset_a == other_subset_a and subset_b == other_subset_b
 
     @staticmethod
     def get_subcodes(
@@ -147,6 +172,10 @@ class QTCode(CSSCode):
         source node is induced by assigning the label (a, b) to edge ``(g, f(g,a,b))``.  Consistency
         then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by defining
         ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
+
+        Each face also has a "sort" attribute, which numbers the faces in the order in which they
+        are found.  This fixes the order of the bits of the classical Tanner codes, and so of the
+        qudits of the quantum Tanner code.
         """
         # sort the subsets by the total order on the group, which fixes the order in which faces are
         # added below, and thereby the qudit that each face of the Cayley complex is identified with
@@ -154,7 +183,8 @@ class QTCode(CSSCode):
         subset_b = sorted(cayplex.cover_subset_b)
 
         # identify the identity element
-        identity = subset_a[0] * ~subset_a[0]
+        member = next(itertools.chain(subset_a, subset_b))
+        identity = member * ~member
 
         # identify the set of nodes for which we still need to add faces
         nodes_to_add = {identity}
@@ -162,6 +192,7 @@ class QTCode(CSSCode):
         # build the subgraphs one node at a time
         subgraph_x = nx.DiGraph()
         subgraph_z = nx.DiGraph()
+        num_faces = 0
         while nodes_to_add:
             gg = min(nodes_to_add)
             nodes_to_add.remove(gg)
@@ -170,11 +201,15 @@ class QTCode(CSSCode):
             old_nodes = set(subgraph_x.nodes())
             new_nodes = set()
 
-            # add all faces adjacent to this node
+            # add all faces adjacent to this node, numbering each face when it is first found
             for aa, bb in itertools.product(subset_a, subset_b):
                 aa_gg, gg_bb = aa * gg, gg * bb
                 aa_gg_bb = aa_gg * bb
                 face = frozenset([gg, aa_gg, gg_bb, aa_gg_bb])
+                if face not in subgraph_x:
+                    subgraph_x.add_node(face, sort=num_faces)
+                    subgraph_z.add_node(face, sort=num_faces)
+                    num_faces += 1
                 subgraph_x.add_edge(gg, face, sort=(aa, bb))
                 subgraph_z.add_edge(aa_gg, face, sort=(~aa, bb))
 

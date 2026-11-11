@@ -4,8 +4,12 @@
 
 from __future__ import annotations
 
+import itertools
+from collections.abc import Sequence
+
 import networkx as nx
 import numpy as np
+import numpy.typing as npt
 import pytest
 from sympy.abc import x, y
 
@@ -209,6 +213,48 @@ def test_tanner_code_requires_matching_degree() -> None:
     subgraph = nx.Graph([(0, 3), (1, 3), (0, 4)])
     with pytest.raises(ValueError, match="but the subcode of this Tanner code"):
         codes.TannerCode(subgraph, codes.RepetitionCode(3))
+
+
+def test_tanner_code_sorts_nodes_by_sort_attributes() -> None:
+    """A Tanner code orders its checks and bits by "sort" node attributes, if they are given."""
+    # Bits are frozensets, which are only partially ordered, so sorting them by their own order
+    # would depend on the order in which they are added to the graph.
+    bit_nodes = [frozenset([0]), frozenset([0, 1]), frozenset([2])]
+    subcode = codes.ClassicalCode([[1, 1, 0]])
+
+    def get_matrix(bit_order: Sequence[int], label_edges: bool) -> npt.NDArray[np.int_]:
+        """Matrix of a Tanner code whose bits are added to its graph in the given order.
+
+        If label_edges is True, edges have "sort" attributes, which differ from those of their bits.
+        """
+        subgraph = nx.DiGraph()
+        for bit_index in bit_order:
+            subgraph.add_node(bit_nodes[bit_index], sort=-bit_index)
+        for source_index, source in enumerate(["x", "y"]):
+            subgraph.add_node(source, sort=-source_index)
+            for bit_index, bit_node in enumerate(bit_nodes):
+                edge_data = {"sort": (bit_index + source_index) % 3} if label_edges else {}
+                subgraph.add_edge(source, bit_node, **edge_data)
+        return codes.TannerCode(subgraph, subcode).matrix.view(np.ndarray)
+
+    # Checks are ordered as (y, x), and bits as (bit_nodes[2], bit_nodes[1], bit_nodes[0]).  The
+    # edges of a check are ordered by their own "sort" attributes, if given, or else by those of
+    # their bits.
+    for label_edges, expected in [(True, [[1, 0, 1], [0, 1, 1]]), (False, [[1, 1, 0], [1, 1, 0]])]:
+        for bit_order in itertools.permutations(range(len(bit_nodes))):
+            np.testing.assert_array_equal(get_matrix(bit_order, label_edges), expected)
+
+
+def test_tanner_code_on_undirected_graph_orders_bits_as_edges() -> None:
+    """A Tanner code on an undirected graph orders its bits as the graph lists its edges."""
+    # The graph lists its edges as (0,1), (0,0), (0,2), (1,1), (1,2), (2,2), so node 1 has edges 0,
+    # 3, and 4, of which the subcode checks the first two.  Self-loops make this order differ from
+    # that of the edges' own (partial) order, in which the self-loop {0} precedes {0,1}.
+    subgraph = nx.Graph([(0, 1), (0, 0), (0, 2), (1, 1), (1, 2), (2, 2)])
+    assert list(subgraph.edges) == [(0, 1), (0, 0), (0, 2), (1, 1), (1, 2), (2, 2)]
+    code = codes.TannerCode(subgraph, codes.ClassicalCode([[1, 1, 0]]))
+    supports = [tuple(np.flatnonzero(row)) for row in code.matrix.view(np.ndarray)]
+    assert supports == [(0, 1), (0, 3), (2, 4)]
 
 
 def test_tanner_code() -> None:
