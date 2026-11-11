@@ -255,13 +255,13 @@ def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> 
     if os.environ.get(CLEAR_CACHES_VARIABLE) == "1" and (
         nextitem is None or nextitem.path != item.path
     ):
-        clear_caches()
+        _clear_caches()
     return result
 
 
-def clear_caches(modules: Mapping[str, types.ModuleType | None] = sys.modules) -> None:
-    """Empty every functools cache of a function or method of the given modules of qLDPC."""
-    for name, module in list(modules.items()):
+def _clear_caches() -> None:
+    """Empty every functools cache of a function or method of a module of qLDPC."""
+    for name, module in list(sys.modules.items()):
         if module is None or name.partition(".")[0] != "qldpc":
             continue
         for value in list(vars(module).values()):
