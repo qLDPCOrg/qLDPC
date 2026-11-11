@@ -594,6 +594,12 @@ def test_random_symmetric_subset() -> None:
         with pytest.raises(ValueError, match="must have a size between"):
             group.random_symmetric_subset(size=size)
 
+    # subsets without the identity need room without it, and an odd size needs an even order
+    with pytest.raises(ValueError, match="must have a size between"):
+        group.random_symmetric_subset(size=group.order, exclude_identity=True)
+    with pytest.raises(ValueError, match="no symmetric subset of odd size"):
+        abstract.CyclicGroup(3).random_symmetric_subset(size=1, exclude_identity=True)
+
     # groups of order 1 have random members
     for group in [abstract.CyclicGroup(1), abstract.Group.from_generating_mats([[1]])]:
         assert group.random() == group.identity

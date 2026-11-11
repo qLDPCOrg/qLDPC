@@ -88,13 +88,12 @@ class GroupMember(comb.Permutation):
         return NotImplemented
 
     def __lt__(self, other: comb.Permutation) -> bool:
-        """Compare the array forms of permutations lexicographically, after padding the shorter one.
+        """Compare array forms lexicographically, padding the shorter one with fixed points.
 
-        The shorter array form is padded with fixed points, so permutations that differ only in
-        trailing fixed points are neither smaller nor larger than each other, although they are not
-        equal (==).  Sorting keeps the input order of such permutations.  On permutations of the
-        same size, this order is that of SymPy ranks.  It also orders the identity of the trivial
-        group, which acts on no points.
+        Permutations that differ only in trailing fixed points are therefore neither smaller nor
+        larger than each other, although they are not equal (==), so sorting keeps their input
+        order.  On permutations of the same size, this is the order of SymPy ranks.  It also covers
+        the identity of the trivial group, which acts on no points.
         """
         if not isinstance(other, comb.Permutation):
             return NotImplemented
@@ -102,7 +101,10 @@ class GroupMember(comb.Permutation):
         return self_form < other_form
 
     def __gt__(self, other: comb.Permutation) -> bool:
-        """Compare permutations in the order of __lt__, which also orders SymPy permutations."""
+        """Compare permutations in the order of __lt__.
+
+        Python also calls this method for ``p < member`` when p is a SymPy permutation.
+        """
         if not isinstance(other, comb.Permutation):
             return NotImplemented
         self_form, other_form = GroupMember._get_padded_array_forms(self, other)
@@ -563,15 +565,23 @@ class Group:
         .. note::
             This is not a uniformly random subset, only a "sufficiently random" one.
 
-        .. warning::
-            If excluding the identity element, not all groups have symmetric subsets of arbitrary
-            size.  If called with a poor choice of group and subset size, this method may never
-            terminate.
+        If exclude_identity is True, the subset excludes the identity element.  Such a subset of a
+        given size exists exactly if the size is at most the order of the group minus one, and the
+        size or the order is even, since only a group of even order has members other than the
+        identity that are their own inverses.
+
+        Raises:
+            ValueError: If no symmetric subset of the given size exists.
         """
-        if not 0 < size <= self.order:
+        max_size = self.order - exclude_identity
+        if not 0 < size <= max_size:
             raise ValueError(
                 "A random symmetric subset of this group must have a size between 1 and"
-                f" {self.order} (provided: {size})"
+                f" {max_size} (provided: {size})"
+            )
+        if exclude_identity and size % 2 and self.order % 2:
+            raise ValueError(
+                "A group of odd order has no symmetric subset of odd size without the identity"
             )
         rng = _get_rng(seed)
         singles = set()  # group members equal to their own inverse

@@ -199,9 +199,11 @@ class QTCode(CSSCode):
         """Construct a random quantum Tanner code from a base group and seed code(s).
 
         If only one code C is provided, use its dual ~C for the second code.  If exclude_identity is
-        True, the random subsets exclude the identity element of the group.  Not every group has
-        such subsets of every size, and without them this method may never terminate; see
-        help(qldpc.abstract.Group.random_symmetric_subset).
+        True, the random subsets exclude the identity element of the group, as the generating sets
+        of Cayley graphs usually do.  A subset with the identity gives faces f(g,e,b) whose
+        vertices g and eg coincide in the group, which only the covers of the Cayley complex keep
+        apart.  See help(qldpc.abstract.Group.random_symmetric_subset) for the sizes of subsets
+        without the identity, and the error raised for other sizes.
         """
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else ~code_a, field)
@@ -264,8 +266,8 @@ class QTCode(CSSCode):
         with open(path, "r") as file:
             lines = file.read().splitlines()
 
-        # Find the comment line that starts each section of generating data.  Sections can be
-        # empty, such as for a seed code without parity checks.
+        # Find the comment line that starts each section of generating data.  Headers come first
+        # and may mimic these lines, so search backwards from the end, which no header precedes.
         names = [
             "subset_a",
             "subset_b",
@@ -274,27 +276,35 @@ class QTCode(CSSCode):
             "base field",
             "bipartite",
         ]
-        starts = [lines.index(f"# {names[0]}:")]
-        for name in names[1:]:
-            starts.append(
-                next(
+        starts: dict[str, int] = {}
+        end = len(lines)
+        for name in reversed(names):
+            start = next(
+                (
                     index
-                    for index in range(starts[-1] + 1, len(lines))
+                    for index in range(end - 1, -1, -1)
                     if lines[index].startswith(f"# {name}:")
-                )
+                ),
+                None,
             )
+            if start is None:
+                raise ValueError(f"Saved code has no '# {name}:' line: {path}")
+            starts[name] = end = start
 
-        def read_rows(section: int) -> list[list[int]]:
-            """Read the rows of integers in a section."""
-            section_lines = lines[starts[section] + 1 : starts[section + 1]]
+        def read_rows(name: str) -> list[list[int]]:
+            """Read the rows of integers in a section, which can be empty or have empty rows."""
+            next_start = starts[names[names.index(name) + 1]]
+            section_lines = lines[starts[name] + 1 : next_start]
             return [[int(value) for value in line.split()] for line in section_lines]
 
         # construct subsets and generating codes
-        field = ast.literal_eval(lines[starts[4]].split(":")[-1])
-        bipartite = ast.literal_eval(lines[starts[5]].split(":")[-1])
-        subset_a = {abstract.GroupMember(row) for row in read_rows(0)}
-        subset_b = {abstract.GroupMember(row) for row in read_rows(1)}
-        rows_a, rows_b = read_rows(2), read_rows(3)
+        field = ast.literal_eval(lines[starts["base field"]].split(":")[-1])
+        bipartite = ast.literal_eval(lines[starts["bipartite"]].split(":")[-1])
+        subset_a = {abstract.GroupMember(row) for row in read_rows("subset_a")}
+        subset_b = {abstract.GroupMember(row) for row in read_rows("subset_b")}
+
+        # a seed code without parity checks still has one bit per member of its subset
+        rows_a, rows_b = read_rows("code_a.matrix"), read_rows("code_b.matrix")
         matrix_a = np.array(rows_a, dtype=int).reshape(len(rows_a), len(subset_a))
         matrix_b = np.array(rows_b, dtype=int).reshape(len(rows_b), len(subset_b))
         code_a = ClassicalCode(matrix_a, field)

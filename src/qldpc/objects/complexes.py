@@ -118,11 +118,13 @@ class CayleyComplex:
         if subset_b is None:
             subset_b = subset_a
 
-        # Read all members on the same number of points.  SymPy drops trailing fixed points, so one
-        # group member can otherwise appear in different forms, which would be different nodes.
+        # Read all members on the same number of points.  Permutations in cycle notation omit
+        # trailing fixed points, so one group member can appear in different forms.  These would be
+        # different nodes, and the covers in cover_subset_a/b would put their extra factors on
+        # different points.
         size = max((member.size for member in itertools.chain(subset_a, subset_b)), default=0)
-        subset_a = {abstract.GroupMember(member, size=size) for member in subset_a}
-        subset_b = {abstract.GroupMember(member, size=size) for member in subset_b}
+        subset_a = {abstract.GroupMember(member.array_form, size=size) for member in subset_a}
+        subset_b = {abstract.GroupMember(member.array_form, size=size) for member in subset_b}
 
         # assert that the generating subsets are symmetric
         for subset, name in [(subset_a, "subset_a"), (subset_b, "subset_b")]:

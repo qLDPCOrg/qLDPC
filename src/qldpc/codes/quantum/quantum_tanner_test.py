@@ -68,25 +68,32 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
         saved_files.append(path.read_text())
     assert saved_files[0] == saved_files[1]
 
-    # codes with empty sections of saved data, such as members of the trivial group or seed codes
-    # without parity checks, load back too
+    # codes whose saved data has empty rows or sections, such as members of the trivial group or
+    # seed codes without parity checks, load back too, even with headers that mimic section names
     generator = abstract.CyclicGroup(2).generators[0]
     for saved_code in [
         codes.QTCode.random(abstract.TrivialGroup(), codes.ClassicalCode([[1]])),
         codes.QTCode([generator], [generator], np.zeros((0, 1), dtype=int), [[1]]),
     ]:
-        saved_code.save(str(path))
+        saved_code.save(str(path), "subset_a:\nsubset_b:")
         assert codes.QTCode.load(str(path)) == saved_code
 
-    # Random subsets can exclude the identity element.  Without that exclusion, about half of the
-    # symmetric subsets of size 3 in this group contain it, so several seeds would catch it.
+    # loading fails clearly if a section is missing
+    path.write_text("# subset_a:\n")
+    with pytest.raises(ValueError, match="Saved code has no"):
+        codes.QTCode.load(str(path))
+
+    # Random subsets can exclude the identity element.  Without that exclusion, about a third of
+    # random symmetric subsets of size 3 in this group contain it, so several seeds would catch it.
     symmetric_group = abstract.SymmetricGroup(3)
     first_seed = np.random.randint(2**31)
     for seed in range(first_seed, first_seed + 10):
         code = codes.QTCode.random(
             symmetric_group, codes.HammingCode(2), exclude_identity=True, seed=seed
         )
-        assert symmetric_group.identity not in code.complex.subset_a | code.complex.subset_b
+        assert not any(
+            member.is_Identity for member in code.complex.subset_a | code.complex.subset_b
+        )
 
 
 def test_quantum_tanner_nonabelian_faces() -> None:
