@@ -76,6 +76,14 @@ def test_caches_of_other_packages_are_kept() -> None:
     assert module.function.cache_info().currsize == 1
 
 
+def test_coverage_check_sets_the_variable() -> None:
+    """The coverage check sets QLDPC_CLEAR_CACHES, which makes conftest.py empty caches, to "1"."""
+    check = pathlib.Path(__file__).parents[2] / "checks" / "coverage_.py"
+    text = check.read_text(encoding="utf-8")
+    assert f'CLEAR_CACHES_VARIABLE = "{conftest.CLEAR_CACHES_VARIABLE}"' in text
+    assert 'os.environ[CLEAR_CACHES_VARIABLE] = "1"' in text
+
+
 def _make_probe_module() -> types.ModuleType:
     """A stand-in module of qLDPC, with a cached function and a cached static method.
 

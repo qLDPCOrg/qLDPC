@@ -1,43 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check that every module is fully covered by its own test file, in one parallel pytest run.
+"""Run the modular coverage check of checks-superstaq with ``--modular --single-run``.
 
-This runs the modular coverage check of checks-superstaq with ``--modular --single-run`` (see its
-module ``coverage_``).  Each module ``x.py`` with a test file ``x_test.py`` must be fully covered by
-``x_test.py`` alone, and each test file must be fully covered by itself, with the test files run
-together in one pytest-xdist run.  The module ``_coverage_contexts`` of checks-superstaq says which
-lines the check credits to each test file.  A module under ``src/`` without a test file of its own
-also fails the check, unless it is a ``conftest.py`` file or matches ``EXCLUDE``, and every shard
-reports such modules.  If everything else passed, the check then prints ``COVERAGE FAILURE!`` after
-the success banner of checks-superstaq.
+This wrapper also skips the tests marked ``compiled``, sets ``QLDPC_CLEAR_CACHES`` (see
+``src/qldpc/conftest.py``), and fails the check for each selected module under ``src/``, other than
+a ``conftest.py`` file, that has no test file.
 
-The check skips the tests marked ``compiled``, which run compiled code that coverage cannot trace.
-It sets ``QLDPC_CLEAR_CACHES``, so that qLDPC's ``conftest.py`` empties qLDPC's caches after each
-test file.
-
-Unrecognized options are passed to pytest, and a ``-m`` option replaces the default marker
-expression.  Write a pytest option and its value as one argument without spaces, as in ``-kname``,
-since the check reads any other argument as a file.  Run ``python checks/coverage_.py -h`` for the
-options of the check, which include:
-
-* ``--no-single-run``, which runs each test file in its own process instead, as an audit of the
-  coverage that the check credits;
-* ``--shard K/N``, which checks only the K-th of N shards of the test files, balanced by the
-  durations of test files in ``.test_durations``, so that N machines can share the check; and
-* ``--store-durations --clean-durations``, which updates ``.test_durations``.  Use it only in a
-  single run over the whole repository, without paths, ``-i``, ``-x``, ``-k``, ``--shard``, or
-  ``--no-single-run``, and on a CI runner rather than locally, since the ratios of the durations
-  differ between machines.
-
-Until a release of checks-superstaq includes its single-run check, this check runs copies of its
-modules in ``checks/_superstaq_coverage`` (see the README there).  To switch to such a release:
+Until a release of checks-superstaq includes ``--single-run``, this runs copies of its coverage
+modules in ``checks/_superstaq_coverage``.  To switch to such a release:
 
 1. delete ``checks/_superstaq_coverage``;
-2. in this file, replace ``from _superstaq_coverage import coverage_`` by ``from checks_superstaq
-   import coverage_``, delete the line that sets ``coverage_._PLUGIN`` and the comment above it,
-   and delete this paragraph and the list that it introduces; and
-3. raise every minimum version of checks-superstaq in ``pyproject.toml`` to that release.
+2. in this file, replace ``from _superstaq_coverage import coverage_`` with ``from checks_superstaq
+   import coverage_``;
+3. in this file, delete the line that sets ``coverage_._PLUGIN``, with its comment;
+4. in this file, delete the paragraph that begins "Until a release", together with this list; and
+5. raise every minimum version of checks-superstaq in ``pyproject.toml`` to that release.
 """
 
 import contextlib
@@ -64,7 +42,6 @@ CLEAR_CACHES_VARIABLE = "QLDPC_CLEAR_CACHES"
 
 # Options of the check, which come before the caller's arguments, so that the caller's own options
 # replace them.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
-# --sysmon speeds up --no-single-run; a single run chooses its own coverage core.
 OPTIONS = ("--modular", "--single-run", "--sysmon", "-pno:nbmake", "-mnot(compiled)")
 
 
