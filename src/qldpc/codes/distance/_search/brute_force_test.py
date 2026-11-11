@@ -67,9 +67,10 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
 
     A batch holds at most 2**batch_exponent 64-bit integers, and each word packs into two, so a
     batch vectorizes over batch_exponent - 1 generators.  For Hamming weights, the exponents 1, 3,
-    and 7 vectorize over no generators, two of the four stabilizers, or all four stabilizers and two
-    logical operators.  For symplectic weights, they vectorize over no generators, two of the three
-    stabilizers, or all three stabilizers and three logical operators.
+    and 7 vectorize over, respectively, no generators, two of the four stabilizers, and all four
+    stabilizers and two logical operators.  For symplectic weights, they vectorize over,
+    respectively, no generators, two of the three stabilizers, and all three stabilizers and three
+    logical operators.
     """
     tune(enumeration_batch_exponent=batch_exponent)
     rng = np.random.default_rng(97)
