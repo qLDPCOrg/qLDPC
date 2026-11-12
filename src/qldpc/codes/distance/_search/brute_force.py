@@ -27,7 +27,7 @@ def get_distance_quantum_brute_force(
 
     Every combination of the rows of logical_ops that uses at least one row, multiplied by every
     combination of the rows of stabilizers, is a candidate.  The rows of logical_ops and stabilizers
-    must together be linearly independent; callers in this package construct or verify such bases.
+    must together be linearly independent; callers in this package construct such bases.
 
     Args:
         logical_ops: Binary rows that, together with the stabilizers, generate the logical space.
@@ -40,7 +40,9 @@ def get_distance_quantum_brute_force(
 
     Returns:
         The minimum weight of a nontrivial logical operator or, after an early exit, the weight (at
-        most cutoff) of the lightest operator seen.
+        most cutoff) of the lightest operator seen.  Without logical_ops, the result is one more
+        than the largest possible weight: the number of columns if homogeneous, and otherwise the
+        number of qubits.
     """
     num_bits = np.shape(logical_ops)[-1]
 
@@ -85,11 +87,17 @@ def get_distance_quantum_brute_force(
     # loop below therefore writes the weights into this uint64 buffer.
     out = np.empty_like(arrayf)
 
-    # Min weight of the block containing logical ops, with weights cast to uint64 as above.
-    weights = np.asarray(weight_func(arrayf[2**num_stabilizers :]), dtype=np.uint64)
-    min_weight = inplace_rowsum(weights).min(initial=num_bits)
-    if min_weight <= cutoff:
-        return int(min_weight)
+    # Until an operator is weighed, the lightest weight seen is one more than any operator can have,
+    # and an early exit must not return it.
+    min_weight = (num_bits if homogeneous else num_bits // 2) + 1
+
+    # Min weight of the block containing logical ops, if any, with weights cast to uint64 as above.
+    logical_block = arrayf[2**num_stabilizers :]
+    if len(logical_block):
+        weights = np.asarray(weight_func(logical_block), dtype=np.uint64)
+        min_weight = inplace_rowsum(weights).min()
+        if min_weight <= cutoff:
+            return int(min_weight)
 
     # Sweep over every remaining logical-op combination and, nested, every remaining stabilizer
     # combination, on top of the vectorized block above.  The sweep uses a reflected Gray code:
