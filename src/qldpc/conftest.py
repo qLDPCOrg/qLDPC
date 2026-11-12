@@ -262,7 +262,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Switch the set-up code of distance and count searches to compiled code before every"
-        " test, as after qldpc.codes.distance.compile_search_setup().",
+        " test, as qldpc.codes.distance.compile_search_setup() does.",
     )
 
 
@@ -281,24 +281,16 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) -> bool | None:
-    """With ``--compiled-module-tests``, skip every test file but those of compiled modules.
+    """With ``--compiled-module-tests``, skip each test file whose module has no compiled function.
 
-    A compiled module defines compiled functions, and its test file, ``x_test.py`` for a module
-    ``x.py``, is beside it.  Whatever this returns, pytest collects a test file that the command
-    line names, if no directory that the command line names contains it.
+    The module of a test file ``x_test.py`` is ``x.py`` beside it.  Whatever this returns, pytest
+    collects a test file named on the command line if no directory named there contains it.
     """
     if config.getoption("--compiled-module-tests") and collection_path.name.endswith("_test.py"):
         module = collection_path.with_name(collection_path.name.removesuffix("_test.py") + ".py")
-        if not defines_compiled_functions(module):
+        if not _defines_compiled_functions(module):
             return True
     return None
-
-
-def defines_compiled_functions(path: pathlib.Path) -> bool:
-    """Whether a module exists and defines a function that numba compiles."""
-    if not path.is_file():
-        return False
-    return any(get_compiled_functions(ast.parse(path.read_text(encoding="utf-8"))).values())
 
 
 def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]:
@@ -335,13 +327,24 @@ def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]
     return functions
 
 
+def _defines_compiled_functions(path: pathlib.Path) -> bool:
+    """Whether a module exists and has a function with a decorator of compiled code.
+
+    The decorators are ``always_compiled`` and ``compiled_on_request`` (see get_compiled_functions).
+    """
+    if not path.is_file():
+        return False
+    return any(get_compiled_functions(ast.parse(path.read_text(encoding="utf-8"))).values())
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item: pytest.Item) -> None:
     """With ``--compile-search-setup``, switch the set-up code of searches to compiled code.
 
     The code is compiled by ``compile_search_setup`` before the first test of each process.
     Fixtures such as ``plain_search_setup`` of the distance tests may switch it back to plain Python
-    for one test, so this hook switches it on before every test, before the fixtures run.
+    for one test, so this hook switches it to compiled code before every test, ahead of the test's
+    fixtures.
     """
     if item.config.getoption("--compile-search-setup"):
         compile_search_setup_once()
