@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Trace the decisions and time of each stage of the BZ searches of a distance or count workload.
+"""Trace the decisions and stage times of BZ searches of a distance, hadamard, or count workload.
 
 The script wraps functions of ``qldpc.codes.distance._brouwer_zimmermann`` and
 ``qldpc.codes.distance._information_sets`` in this process only, warms up as ``trial.py`` does, and

@@ -213,13 +213,13 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
             print(f"WARNING: the layers of {workload} differ between tunings; skipping it")
             continue
         large = [layer for layer in sequences["disabled"] if layer["evaluated"] >= min_supports]
+        if large and any("set_evaluations" not in layer for layer in large):
+            print(f"WARNING: {workload} lacks set_evaluations; builds use supports")
         for arm in ("forced", "forced8"):
             predictions = get_predictions(arms[arm])
             if large:
                 # A scan in lockstep evaluates each support for each set, so the unit of builds is
                 # the candidate/set evaluation.  A trace without set_evaluations counts supports.
-                if any("set_evaluations" not in layer for layer in large):
-                    print(f"WARNING: {workload} lacks set_evaluations; builds use supports")
                 seconds_per_evaluation = sum(layer["seconds"] for layer in large) / sum(
                     layer.get("set_evaluations", layer["evaluated"]) for layer in large
                 )

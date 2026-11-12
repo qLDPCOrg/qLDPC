@@ -74,13 +74,17 @@ Coset searches read none of the thresholds that `windows.py` covers but `overlap
 Trace the long runs, and a set of quick ones, at the defaults, and give the traces to `windows.py`, which prints, for each threshold, the nearest decision on either side of it, for the workloads named by `--long` and for all.
 A threshold whose window on long runs is wide, or whose candidates measured alike on long runs, is robust there, and its precise value matters only for quick runs.
 A narrow window, or an effect of more than 1.2 times on a long run, makes it sensitive; trace the long runs just past each edge to see what changes.
-To compare two tunings on a long run without timing it, trace it under both and run `windows.py --compare` on the two traces: if the tunings differ only in thresholds and every decision is the same, so is the search, apart from the time of the decisions themselves.  `--compare` records the number of sets of each family, not the sets, so it cannot tell searches apart that fields such as `max_partition_coverage` change.
+To compare two tunings on a long run without timing it, trace it under both and run `windows.py --compare` on the two traces: if the tunings differ only in thresholds and every decision is the same, so is the search, apart from the time of the decisions themselves.
+Traces record the number of sets of each family, not the sets, so `--compare` cannot tell apart searches that fields such as `max_partition_coverage` change.
 Time a long run, one search at a time and in 4 or more paired rounds, only where a decision differs.
 `trace.py` cannot trace `ccount` workloads, whose compiled setup bypasses its wrappers; trace the same counts as `count` workloads.
 
 ## 6. Reproduce the numbers in the comments
 
-The commands below ran on the library code of their time, at the commits that `trials.jsonl` records, and each compares its arms with its first arm: the defaults of its time, or, in the sweeps whose arms all set `completion_bound_minimum_layer_work` to `3 * 10**7`, those defaults with that value.
+The commands below ran on the library code of their time, at the commits that `trials.jsonl` records, and each compares its arms with its first arm, as its command gives it.
+That arm is usually the defaults of its time, and in the sweeps whose first arm sets `completion_bound_minimum_layer_work` to `3 * 10**7`, those defaults with that value.
+In `final-short-f`, it holds the earlier defaults of the five fields that this retuning set to other candidates.
+Some sweeps, such as `p3-noaut`, also set a field in every arm.
 Their `--base` gives those defaults where they differ from the current ones, so that each command compares the same values on the current code.
 The refit data set of the Retuning section is that of the row "Cost coefficients".
 
@@ -95,7 +99,7 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Sampling of `completion_bound_minimum_layer_work` | `trace.py <workload> --output <file>` at the defaults, and with automorphisms off, summing the `seconds` of the `predict` events before each `layer` event |
 | Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X` for the predictions, and `fit_completion_costs.py collect --repeats 3 --workloads distance/pp232/X 'distance/classical:150:100:1/-'`, then `fit_completion_costs.py fit`, for the measured costs; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
-| Windows of the thresholds | `trace.py <w> --output <dir>/<w>.json` at the defaults for every `distance`, `hadamard`, and `count` workload of section 3 and the long runs, with `--setup-only` for the classical codes of 1000 to 8000 bits that enumerate; then `windows.py <dir>/*.json --long` with the distance workloads of the long runs of section 5 |
+| Windows of the thresholds | `trace.py <w> --output <dir>/<slug>.json` at the defaults, where `<slug>` is `<w>` with each `/` replaced by `_`, for every `distance`, `hadamard`, and `count` workload of section 3 and the long runs, with `--setup-only` for the classical codes of 1000 to 8000 bits that enumerate; then `windows.py <dir>/*.json --long` with the distance workloads of the long runs of section 5 |
 | Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each compared with its trace at the defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05}'`, whose layer 6 declines its tables, for the time of that layer without them |
 | Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |

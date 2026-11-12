@@ -29,7 +29,8 @@ are compared with are:
 
 With ``--compare``, it instead compares the decisions of two traces of one workload under two
 tunings: enumeration tests, families and their gates, certificates, switches, the tables of each
-layer, and each comparison of a predicted cost with the limit.
+layer, and each comparison of a predicted cost with the limit.  Either way, it warns of traces from
+several sources of the library code, or that do not record theirs.
 
 Example:
 
@@ -70,6 +71,7 @@ def main() -> None:
     """Print the windows of the thresholds, or compare two traces."""
     args = parse_args()
     traces = [json.loads(path.read_text(encoding="utf-8")) for path in args.traces]
+    warn_of_sources(traces)
     if args.compare:
         if len(traces) != 2:
             raise ValueError("--compare takes two traces")
@@ -118,16 +120,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def warn_of_sources(traces: list[dict[str, Any]]) -> None:
+    """Warn of traces from several sources of the library code, or of unknown source."""
+    if any(trace.get("source") is None for trace in traces):
+        print("WARNING: some traces do not record their source")
+    sources = {json.dumps(trace.get("source"), sort_keys=True) for trace in traces}
+    if len(sources) > 1:
+        print(f"WARNING: the traces come from {len(sources)} sources")
+
+
 def get_tuning(traces: list[dict[str, Any]]) -> _tuning.SearchTuning:
     """The tuning that every trace ran under.
 
     ``trace.py`` records the whole tuning.  For a trace without it, the tuning is the defaults of
     this commit with the recorded changes, which the script warns of, since the trace may have run
-    under other defaults.  It also warns of traces from several sources.
+    under other defaults.
     """
-    sources = {json.dumps(trace.get("source"), sort_keys=True) for trace in traces}
-    if len(sources) > 1:
-        print(f"WARNING: the traces come from {len(sources)} sources")
     if all("full_tuning" in trace for trace in traces):
         tunings = {json.dumps(trace["full_tuning"], sort_keys=True) for trace in traces}
         if len(tunings) != 1:
