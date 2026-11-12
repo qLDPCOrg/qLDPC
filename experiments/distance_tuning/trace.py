@@ -2,8 +2,9 @@
 
 """Trace the decisions and the time of each stage of the BZ distance searches of one workload.
 
-The script wraps functions of ``qldpc.codes.distance._search`` in this process only, warms up as
-``trial.py`` does, and runs a distance workload once under the given tuning.  It records:
+The script wraps functions of ``qldpc.codes.distance._brouwer_zimmermann`` and
+``qldpc.codes.distance._information_sets`` in this process only, warms up as ``trial.py`` does, and
+runs a distance workload once under the given tuning.  It records:
 
 - each family of information sets that the search builds (disjoint, overlapping, or by matroid
   partitioning), with its number of sets and the seconds that building it took, and for
@@ -47,12 +48,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from qldpc.codes.distance import _tuning
-from qldpc.codes.distance._search import (
-    affine_search,
-    brouwer_zimmermann,
-    completion_bounds,
-    information_sets,
-)
+from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
+from qldpc.codes.distance._information_sets import basis_families, completion_bounds
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.distance_tuning.*, and would silently treat a bare "import trial" as untyped.
@@ -128,14 +125,14 @@ def parse_args() -> argparse.Namespace:
 
 def install_wrappers() -> None:
     """Wrap the stages of BZ searches, in this process, to record events."""
-    search_class = brouwer_zimmermann._BrouwerZimmermannSearch
+    search_class = distance._BrouwerZimmermannSearch
     tables_class = completion_bounds.CompletionTables
     patches: list[tuple[object, str, Callable[[Callable[..., Any]], Callable[..., Any]]]] = [
-        (information_sets, f"get_{kind}_family", functools.partial(wrap_family, kind))
+        (basis_families, f"get_{kind}_family", functools.partial(wrap_family, kind))
         for kind in ("disjoint", "overlapping", "partitioned")
     ]
     patches += [
-        (information_sets.BasisFamily, "get_search_certificate", wrap_certificate),
+        (basis_families.BasisFamily, "get_search_certificate", wrap_certificate),
         (search_class, "advance", wrap_advance),
         (search_class, "_switch_to_automorphism_family", wrap_switch),
         (search_class, "_choose_tables_of_sets", wrap_choose),
@@ -182,7 +179,7 @@ def wrap_family(kind: str, function: Callable[..., Any]) -> Callable[..., Any]:
 def get_partition_gate(
     basis: Any, _labels: Any, basis_family: Any, upper_bound: int, tuning: Any
 ) -> dict[str, Any]:
-    """The quantities that ``information_sets.get_partitioned_family`` compares to skip it.
+    """The quantities that ``basis_families.get_partitioned_family`` compares to skip it.
 
     These are the estimated work of the family that partitioning would replace, in candidate/set
     evaluations, and the estimated cost of partitioning in the same unit, which the search

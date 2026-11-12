@@ -65,7 +65,7 @@ from sympy.abc import x, y
 
 from qldpc import abstract, circuits, codes
 from qldpc.codes.distance import CSSLogicalCounter
-from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch
+from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch
 from qldpc.objects import Pauli
 
 ####################################################################################################

@@ -12,8 +12,9 @@ import pytest
 
 from qldpc._binary import row_reduce_binary, unpack_bits
 
+from .._information_sets import basis_families, certificates
 from ..conftest import get_random_full_rank_matrix
-from . import affine_instance, information_sets
+from . import affine_instance
 
 
 def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config) -> None:
@@ -40,7 +41,7 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
             for _ in range(num_sets)
         ]
         pivots = np.array([found for *_, found in sets], dtype=np.int64)
-        overlapping = information_sets.BasisFamily(
+        overlapping = basis_families.BasisFamily(
             np.array([rows for rows, *_ in sets]),
             np.zeros((num_sets, num_rows, 0), dtype=np.uint8),
             pivots,
@@ -89,7 +90,7 @@ def test_distance_instances_delete_pivot_columns(pytestconfig: pytest.Config) ->
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     basis = get_random_full_rank_matrix(rng, 4, 70)
     labels = np.eye(4, dtype=np.uint8)
-    family = information_sets.get_disjoint_family(basis, labels, random_column_orders=0)
+    family = basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
     certificate = family.get_search_certificate(3, 0, 1)
     instance = affine_instance.get_distance_instance(family, certificate)
     assert instance.certificate is certificate
@@ -113,14 +114,14 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     """A coset instance packs the full rows of its sets, and the empty code has one set."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     generators = get_random_full_rank_matrix(rng, 5, 70)
-    family = information_sets.get_disjoint_family(generators, None, random_column_orders=0)
+    family = basis_families.get_disjoint_family(generators, None, random_column_orders=0)
     instance = affine_instance.get_coset_instance(
         generators, random_column_orders=0, weight_factor=2
     )
     assert instance.weight_factor == 2
     assert np.array_equal(instance.ranks, family.ranks)
     assert np.array_equal(instance.pivots, family.pivots)
-    assert instance.certificate == information_sets.Certificate(5, tuple(family.ranks.tolist()))
+    assert instance.certificate == certificates.Certificate(5, tuple(family.ranks.tolist()))
     assert np.array_equal(instance.widths, [2] * len(family.ranks))
     for rows, packed in zip(family.generators, instance.generators, strict=True):
         assert np.array_equal(unpack_bits(packed, 70), rows)
@@ -131,7 +132,7 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     first = family.pivots[0]
     order = np.concatenate([first[:1], np.setdiff1d(np.arange(70), first)])
     reduced, _, second = row_reduce_binary(generators, None, columns=order)
-    overlapping = information_sets.BasisFamily(
+    overlapping = basis_families.BasisFamily(
         np.stack([family.generators[0], reduced]),
         np.zeros((2, 5, 0), dtype=np.uint8),
         np.stack([first, second]),
@@ -141,7 +142,7 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     )
     instance = affine_instance.get_coset_family_instance(overlapping, weight_factor=1)
     assert np.array_equal(instance.pivots, overlapping.pivots)
-    assert instance.certificate == information_sets.Certificate(5, (5, 5), max_coverage=2)
+    assert instance.certificate == certificates.Certificate(5, (5, 5), max_coverage=2)
     for rows, packed in zip(overlapping.generators, instance.generators, strict=True):
         assert np.array_equal(unpack_bits(packed, 70), rows)
 
@@ -152,7 +153,7 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     assert np.array_equal(empty.widths, [2])
     assert empty.pivots.shape == (1, 0)
     assert np.array_equal(empty.ranks, [0])
-    assert np.array_equal(empty.get_weight_bounds(), [[0, information_sets.NO_WORD_BOUND]])
+    assert np.array_equal(empty.get_weight_bounds(), [[0, certificates.NO_WORD_BOUND]])
 
 
 def _get_unvisited_minima(

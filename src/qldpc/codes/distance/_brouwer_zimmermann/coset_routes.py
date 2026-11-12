@@ -4,20 +4,20 @@
 
 A BZ coset search of ``CosetLeaderSearch`` answers whether the coset of a syndrome has a word of
 weight at most ``max_weight`` by scanning the layers of a family of information sets of its code, up
-to the stopping step of ``max_weight`` (see ``coset_leader_search.py``).  It is built with the
-disjoint information sets of a greedy packing, which are cheap to find.  A code whose length is less
-than twice its dimension has only one such information set, so queries at larger maximum weights
-scan many layers.  A greedy packing can also miss information sets.  The columns ``e1``, ``e2``,
+to the stopping step of ``max_weight`` (see ``coset.py``).  It is built with the disjoint
+information sets of a greedy packing, which are cheap to find.  A code whose length is less than
+twice its dimension has only one such information set, so queries at larger maximum weights scan
+many layers.  A greedy packing can also miss information sets.  The columns ``e1``, ``e2``,
 ``e1 + e2``, and ``e1 + e2`` hold two disjoint information sets, but a greedy packing in natural
 order takes ``e1`` and ``e2``, and leaves a partial set of rank one.  Families with more information
 sets stop sooner, but take milliseconds to build, which only costly queries repay.
 
 The routes choose the family that answers each maximum weight.  A search has a table of the bounds
 of its steps for each parity of its cosets, or one table for every coset.  The work of a table at
-``max_weight`` is the work of the plan of its steps (see ``information_sets.plan_steps``).  It is
-the number of words that a query that takes the table weighs, or skips by completion tables (Section
-3.9 of ``brouwer_zimmermann.md``), after the word of its syndrome if no word of its coset weighs at
-most ``max_weight``, and at most that number otherwise.  The predicted examinations of a query at
+``max_weight`` is the work of the plan of its steps (see ``certificates.plan_steps``).  It is the
+number of words that a query that takes the table weighs, or skips by completion tables (Section 3.9
+of ``brouwer_zimmermann.md``), after the word of its syndrome if no word of its coset weighs at most
+``max_weight``, and at most that number otherwise.  The predicted examinations of a query at
 ``max_weight`` are one more than the largest work of a table of the disjoint family: the
 examinations of the costliest query that finds no light enough word, without completion tables, and
 at most that number with them.  The gate compares them with its threshold, the field
@@ -26,9 +26,9 @@ disjoint family.  Otherwise, the routes try to build two other families once, at
 the smallest maximum weight from two whose predicted examinations reach the threshold.  They keep
 each that they find:
 
-- the maximum disjoint family of ``information_sets.get_maximum_disjoint_family``, if it has more
+- the maximum disjoint family of ``basis_families.get_maximum_disjoint_family``, if it has more
   information sets or a larger partial set than the greedy packing; and
-- a family of overlapping information sets from ``information_sets.get_overlapping_family``, if it
+- a family of overlapping information sets from ``basis_families.get_overlapping_family``, if it
   finds one that does less work than the family that it starts from.  It is aimed at the Hamming
   weight ``η * target_weight + 1`` that a query at the target weight without a light word must
   certify, for the weight factor ``η`` of the search, and it is built with the fields
@@ -48,9 +48,9 @@ The gate tests the predicted examinations with the disjoint family against its t
 whether a query may take another family.  A route is a route by tails if those with the route's own
 family, which can do less work, also reach the threshold.  The queries of a route by tails weigh the
 words of its family by their tails, which hold the columns other than the pivot columns of each set
-(see ``coset_leader_search._CosetTails``).  They also skip the completions that completion tables of
-the tails show to lie beyond their maximum weight (Section 3.9 of ``brouwer_zimmermann.md``).  So
-the routes also give the record of the tails and tables of the family of each route by tails, with a
+(see ``coset_tables.CosetTails``).  They also skip the completions that completion tables of the
+tails show to lie beyond their maximum weight (Section 3.9 of ``brouwer_zimmermann.md``).  So the
+routes also give the record of the tails and tables of the family of each route by tails, with a
 builder that the search gives them.  A search that gives none, such as the search of Pauli errors by
 CSS weight, has no routes by tails.  The routes build the tails of a family once, and the tables of
 a set of the family once, for the first route that needs them.  A route needs the tables of the sets
@@ -87,16 +87,17 @@ import numpy.typing as npt
 
 from qldpc._binary import unpack_bits
 
+from .._information_sets import basis_families, certificates, completion_bounds
 from .._tuning import MAX_VALUE, SearchTuning
-from . import affine_instance, completion_bounds, information_sets
+from . import affine_instance
 
 
 class _SearchTables(Protocol):
     """The tables of a coset search that its routes read: its planning buffer.
 
-    The buffer holds a table of the bounds of the steps of the search for each parity of its
-    cosets, or one table for every coset, each with one more row that caches a stopping step (see
-    ``coset_leader_search._get_planning``).
+    The buffer holds a table of the bounds of the steps of the search for each parity of its cosets,
+    or one table for every coset, each with one more row that caches a stopping step (see
+    ``coset_tables._get_planning``).
     """
 
     @property
@@ -179,7 +180,7 @@ class CosetRoutes(Generic[_Tables, _Tails]):
             overlapping_minimum_work=0,
             overlapping_attempts_per_set=attempts_per_set,
         )
-        self._binomials = information_sets.get_capped_binomials(len(basis))
+        self._binomials = certificates.get_capped_binomials(len(basis))
         self.disjoint_tables = build_tables(disjoint)
         # The tables of the route of each maximum weight, and the position of its family among the
         # disjoint family and the others if it is a route by tails.
@@ -213,14 +214,14 @@ class CosetRoutes(Generic[_Tables, _Tails]):
     ) -> list[int]:
         """The work of a family at a maximum weight, for each table of its planning buffer.
 
-        This is the work of the plan of the steps of the table (see ``information_sets.plan_steps``)
+        This is the work of the plan of the steps of the table (see ``certificates.plan_steps``)
         from layer zero, for the limit ``max_weight``, without the unused sets that a query leaves
         out.  It is the number of words that a query that finds no word weighs, or skips by
         completion tables (Section 3.9 of ``brouwer_zimmermann.md``), after the word of its
         syndrome.
         """
         return [
-            information_sets.plan_steps(
+            certificates.plan_steps(
                 table[:-1],
                 max_weight,
                 0,
@@ -287,27 +288,26 @@ class CosetRoutes(Generic[_Tables, _Tails]):
         """The sets of a family whose completion tables the queries at a maximum weight use.
 
         A query visits each set up to the last layer that the set completes by the stopping step of
-        its table, unless the set is an unused set of that step (see
-        ``information_sets.plan_steps``), and then the query skips the set.  It uses the tables of a
-        set in every layer of two or more rows, the layers that
-        ``completion_bounds.considers_tables`` considers under ``_TABLE_TUNING``.  So a set needs
-        tables if the predicate considers its last layer.
+        its table, unless the set is an unused set of that step (see ``certificates.plan_steps``),
+        and then the query skips the set.  It uses the tables of a set in every layer of two or more
+        rows, the layers that ``completion_bounds.considers_tables`` considers under
+        ``_TABLE_TUNING``.  So a set needs tables if the predicate considers its last layer.
         """
         num_rows = len(self._basis)
         sets = set()
         for table in tables.planning:
-            stop_layer, stop_num_completed = information_sets.find_stopping_step(
+            stop_layer, stop_num_completed = certificates.find_stopping_step(
                 table[:-1], max_weight, 0, len(table) - 2
             )
             for set_index in range(len(instance.ranks)):
-                last_layer = information_sets.get_completed_layer(
+                last_layer = certificates.get_completed_layer(
                     set_index, stop_layer, stop_num_completed
                 )
                 # The predicate checks first that the last layer has at least two rows, so the check
                 # of unused sets gets the nonnegative layer that it requires.
                 if completion_bounds.considers_tables(
                     num_rows, last_layer, _TABLE_TUNING
-                ) and not information_sets.is_unused_set(
+                ) and not certificates.is_unused_set(
                     instance.pivots, set_index, stop_layer, stop_num_completed
                 ):
                     sets.add(set_index)
@@ -324,13 +324,13 @@ class CosetRoutes(Generic[_Tables, _Tails]):
         """
         weight_factor = self._disjoint.weight_factor
         disjoint = _get_basis_family(self._disjoint, self._basis.shape[1])
-        maximum = information_sets.get_maximum_disjoint_family(self._basis, disjoint)
-        overlapping = information_sets.get_overlapping_family(
+        maximum = basis_families.get_maximum_disjoint_family(self._basis, disjoint)
+        overlapping = basis_families.get_overlapping_family(
             self._basis,
             np.empty((len(self._basis), 0), dtype=np.uint8),
             maximum if len(maximum.ranks) else disjoint,
             weight_factor * target_weight + 1,
-            information_sets.get_overlapping_family_policy(
+            basis_families.get_overlapping_family_policy(
                 self._overlapping_tuning, len(self._basis)
             ),
         )
@@ -348,7 +348,7 @@ class CosetRoutes(Generic[_Tables, _Tails]):
 
 def _get_basis_family(
     instance: affine_instance.AffineInstance, num_columns: int
-) -> information_sets.BasisFamily:
+) -> basis_families.BasisFamily:
     """The basis family of the sets of a coset instance, without labels or a weight divisor.
 
     The routes keep the coset instance of the disjoint family, which every query may scan, and
@@ -356,7 +356,7 @@ def _get_basis_family(
     """
     num_sets, dimension, width = instance.generators.shape
     generators = unpack_bits(instance.generators.reshape(-1, width), num_columns)
-    return information_sets.BasisFamily(
+    return basis_families.BasisFamily(
         generators.reshape(num_sets, dimension, num_columns),
         np.empty((num_sets, dimension, 0), dtype=np.uint8),
         instance.pivots,

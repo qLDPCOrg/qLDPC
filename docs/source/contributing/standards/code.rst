@@ -38,10 +38,10 @@ Code style and organization
 * Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compilation_test.py`` enforces its rules.
 * ``src/qldpc/_code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
-  ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
+  ``_LAYERS`` in the package's ``_layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
   Imports in functions and under ``TYPE_CHECKING`` count; tests and ``conftest.py`` files may import from any layer.
   To keep an import that breaks the layers, end its line (for an import that spans several lines, its first line) with ``# layering-exception: <reason>``; the check fails if such a comment is no longer needed.
-  To layer another package, add a ``layering_test.py`` to its directory that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
+  To layer another package, add a ``_layering_test.py`` to its directory that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
 * Do not weaken a failure with ``noqa``, ``type: ignore``, or coverage exclusions unless the exceptional condition is real and documented.
 
 .. _simplicity-and-clarity:

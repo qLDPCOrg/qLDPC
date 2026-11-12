@@ -21,7 +21,8 @@ import argparse
 import time
 from typing import TYPE_CHECKING, Any
 
-from qldpc.codes.distance._search import coset_leader_search, information_sets
+from qldpc.codes.distance._brouwer_zimmermann import coset
+from qldpc.codes.distance._information_sets import certificates
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.distance_tuning.*, and would silently treat a bare "import workloads" as untyped.
@@ -47,9 +48,9 @@ def main() -> None:
             workloads.run_workload(name)
             print(f"cycle {cycle} {name}: {time.perf_counter() - start:.3f} s", flush=True)
     caches: dict[str, Any] = {
-        "BINOMIAL_CACHE_SIZE": information_sets.get_capped_binomials,
-        "CSS_SEARCH_CACHE_SIZE": coset_leader_search._get_css_searches,
-        "PAULI_SEARCH_CACHE_SIZE": coset_leader_search._get_pauli_search,
+        "BINOMIAL_CACHE_SIZE": certificates.get_capped_binomials,
+        "CSS_SEARCH_CACHE_SIZE": coset.get_css_searches,
+        "PAULI_SEARCH_CACHE_SIZE": coset.get_pauli_search,
     }
     for name, cache in caches.items():
         print(f"{name}: {cache.cache_info()}")

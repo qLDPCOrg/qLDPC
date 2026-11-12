@@ -21,10 +21,11 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
+from .._information_sets import basis_families, certificates, completion_bounds
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
 from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
-from . import affine_instance, affine_search, completion_bounds, information_sets
-from . import brouwer_zimmermann as bz
+from . import affine_instance, affine_search
+from . import distance as bz
 
 # A tuning that never uses completion tables, for searches built directly.
 TABLES_DISABLED = dataclasses.replace(
@@ -48,7 +49,7 @@ def test_brouwer_zimmermann_search_state() -> None:
             labels=np.ones((1, 2, 1), dtype=np.uint64),
             widths=np.array([1], dtype=np.int64),
             pivots=np.full((1, 2), -1, dtype=np.int64),
-            certificate=information_sets.Certificate(2, (0,)),
+            certificate=certificates.Certificate(2, (0,)),
         ),
         cutoff=1,
         batch_size=1,
@@ -96,7 +97,7 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
                 labels=np.zeros((1, dimension, 1), dtype=np.uint64),
                 widths=np.array([2], dtype=np.int64),
                 pivots=np.arange(dimension, dtype=np.int64)[None],
-                certificate=information_sets.Certificate(dimension, (dimension,)),
+                certificate=certificates.Certificate(dimension, (dimension,)),
             ),
             cutoff=0,
             batch_size=1,
@@ -311,7 +312,7 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     labels = np.vstack([np.zeros((2, 3), dtype=np.uint8), np.eye(3, dtype=np.uint8)])
     expected = bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0)
     get_basis_family = mock.Mock(
-        return_value=information_sets.get_disjoint_family(
+        return_value=basis_families.get_disjoint_family(
             basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
         )
     )
@@ -321,7 +322,7 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
         get_disjoint_basis_families=[get_basis_family],
     )
     with mock.patch.object(
-        information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
+        basis_families, "get_disjoint_family", wraps=basis_families.get_disjoint_family
     ) as first_stage:
         assert search(cutoff=0) == expected
         get_basis_family.assert_called_once_with()
@@ -457,9 +458,9 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
     # Lower only the work threshold so this small oracle exercises production basis family
     # construction, and check that the overlapping family has no witness as light as the distance.
     tune(overlapping_minimum_work=0)
-    original = information_sets.get_overlapping_family
+    original = basis_families.get_overlapping_family
 
-    def select(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+    def select(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
         selected = original(*args, **kwargs)
         assert len(selected.ranks) and selected.max_coverage > 1
         assert (
@@ -472,7 +473,7 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
         return selected
 
     with mock.patch.object(
-        information_sets, "get_overlapping_family", side_effect=select
+        basis_families, "get_overlapping_family", side_effect=select
     ) as select_mock:
         assert (
             qldpc.codes.get_distance_quantum(logicals, stabilizers, homogeneous=True, cutoff=0)
@@ -712,12 +713,12 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
     labels = _no_labels(basis)
     shift = np.roll(np.arange(size), -1)
     automorphisms = np.concatenate([shift, shift + size])[None]
-    first_family = information_sets.BasisFamily(
+    first_family = basis_families.BasisFamily(
         basis[None],
         labels[None],
         np.arange(size)[None],
         np.array([size]),
-        information_sets.infer_weight_divisor(basis),
+        basis_families.infer_weight_divisor(basis),
         1,
     )
     tune(automorphism_minimum_layer_work=math.comb(size, 3))
@@ -793,7 +794,7 @@ def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
 
 def _get_family(
     generators: npt.NDArray[np.uint8], column_sets: list[list[int]]
-) -> tuple[information_sets.BasisFamily, information_sets.Certificate]:
+) -> tuple[basis_families.BasisFamily, certificates.Certificate]:
     """A basis family without labels, of generators row reduced on each set of columns.
 
     Returns the family and its certificate, with the ranks that the row reduction finds.
@@ -805,7 +806,7 @@ def _get_family(
         reduced.append(rows)
         pivots[index, : len(found)] = found
     ranks = np.count_nonzero(pivots >= 0, axis=1)
-    family = information_sets.BasisFamily(
+    family = basis_families.BasisFamily(
         np.array(reduced),
         np.empty((len(column_sets), num_rows, 0), dtype=np.uint8),
         pivots,
@@ -813,7 +814,7 @@ def _get_family(
         1,
         1,
     )
-    return family, information_sets.Certificate(num_rows, tuple(ranks.tolist()))
+    return family, certificates.Certificate(num_rows, tuple(ranks.tolist()))
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
@@ -902,7 +903,7 @@ def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
             labels=np.array([[[1], [2]]], dtype=np.uint64),
             widths=np.array([1], dtype=np.int64),
             pivots=np.full((1, 2), -1, dtype=np.int64),
-            certificate=information_sets.Certificate(2, (0,)),
+            certificate=certificates.Certificate(2, (0,)),
         ),
         cutoff=-1,
         batch_size=1,
@@ -1102,7 +1103,7 @@ def test_layers_scan_several_sets_one_at_a_time_only_if_that_pays(
             labels=np.zeros((2, 3, 0), dtype=np.uint64),
             widths=np.ones(2, dtype=np.int64),
             pivots=np.zeros((2, 3), dtype=np.int64),
-            certificate=information_sets.Certificate(3, (3, 3)),
+            certificate=certificates.Certificate(3, (3, 3)),
         ),
         cutoff=0,
         batch_size=1,

@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 from qldpc import codes
 from qldpc.codes.distance import CSSLogicalCounter, _tuning, compile_search_setup
-from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch
+from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch
 from qldpc.objects import Pauli
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as

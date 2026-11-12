@@ -60,7 +60,7 @@ A mechanism justifies a choice only once it is verified:
 - Label each claim verified, consistent (it fits the data, untested), or conjecture, and state only verified mechanisms in field comments.
 
 For example, the factor `enumeration_setup_cost_factor` was meant to be the ratio of setup time to the time per enumerated word, but that ratio was 0.35 to 97 across codes.
-The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_search/brute_force.py` and confirmed by raising `enumeration_batch_exponent`, which made that enumeration about 100 to 300 times faster.
+The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_brute_force.py` and confirmed by raising `enumeration_batch_exponent`, which made that enumeration about 100 to 300 times faster.
 
 ## 5. Reproduce the numbers in the comments
 
@@ -75,7 +75,7 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Sampling of `completion_bound_minimum_layer_work` | `trace.py <workload> --output <file>` at the defaults, and with automorphisms off, summing the `seconds` of the `predict` events before each `layer` event |
 | Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X`; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
-| Memory of `max_css_single_pairs` | `tracemalloc` around `coset_leader_search._tabulate_css_singles` on 255, 372, and 511 random single-qubit syndromes of full size |
+| Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |
 
 These sweeps produced the ratios that the comments cite, and `collect_results.py --tags <tag>` summarizes each.

@@ -14,10 +14,11 @@ a root, finds a light vector with that syndrome, such as a light Pauli error wit
 on a stabilizer state.
 
 ``connected_support.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
-correctness requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the
-same problem for any binary code.  This module reuses the weight divisors of
-``information_sets.py``, and the verification and orbits of automorphisms of
-``automorphism_families.py``.
+correctness requirements.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py``
+solves the same problem for any binary code.  This module reuses ``infer_weight_divisor`` of
+``_information_sets/basis_families.py``, and ``verify_automorphisms`` and ``get_orbits`` of
+``_information_sets/automorphism_families.py``.  The coset searches of ``CosetLeaderSearch`` that
+start from a syndrome are in ``coset.py`` beside this module.
 """
 
 from __future__ import annotations
@@ -33,9 +34,9 @@ from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_w
 from qldpc._compilation import always_compiled
 
 from .._binary import assert_binary, get_nested_code_basis
+from .._information_sets import automorphism_families
+from .._information_sets.basis_families import infer_weight_divisor
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
-from . import automorphism_families
-from .information_sets import infer_weight_divisor
 
 # The largest scale of the weights of checks, which keeps their sums far from overflowing 64 bits.
 _MAX_SCALE = 2**40
