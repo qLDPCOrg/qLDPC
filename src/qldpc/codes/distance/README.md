@@ -87,7 +87,7 @@ From the top:
 6. `_binary.py`.
 
 A top-level module or subpackage imports only from lower levels, and a module also from its own subpackage.
-`layering_test.py` checks this.
+`_layering_test.py` checks this.
 Within a subpackage, the order is a convention.
 In `_information_sets/`, `basis_families` builds on `certificates` and `matroid_partition`, `automorphism_families` on `basis_families` and `certificates`, and `completion_bounds` on `certificates`.
 In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, `coset` also on `coset_routes` and `coset_tables`, and those two on `affine_instance`.

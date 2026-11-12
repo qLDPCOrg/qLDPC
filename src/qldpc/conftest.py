@@ -431,7 +431,7 @@ def check_import_layering(package: str, layers: Sequence[Sequence[str]]) -> None
     """
     graph = _get_import_graph()
     sources = _get_source_files(package)
-    config = f"_LAYERS in {_get_display_path(sources[package].with_name('layering_test.py'))}"
+    config = f"_LAYERS in {_get_display_path(sources[package].with_name('_layering_test.py'))}"
     listed = [unit for layer in layers for unit in layer]
     layer_index = {unit: index for index, layer in enumerate(layers) for unit in layer}
     units = {_get_unit(package, module) for module in graph.find_children(package)}
