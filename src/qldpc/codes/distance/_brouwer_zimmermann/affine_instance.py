@@ -34,7 +34,7 @@ import numpy.typing as npt
 
 from qldpc._binary import pack_bits
 
-from . import information_sets
+from .._information_sets import basis_families, certificates
 
 ####################################################################################################
 # instances
@@ -73,7 +73,7 @@ class AffineInstance:
     label_widths: npt.NDArray[np.int64] = field(init=False)
     pivots: npt.NDArray[np.int64]
     ranks: npt.NDArray[np.int64] = field(init=False)
-    certificate: information_sets.Certificate
+    certificate: certificates.Certificate
     weight_factor: int = 1
 
     def __post_init__(self) -> None:
@@ -97,7 +97,7 @@ class AffineInstance:
 
 
 def get_distance_instance(
-    basis_family: information_sets.BasisFamily, certificate: information_sets.Certificate
+    basis_family: basis_families.BasisFamily, certificate: certificates.Certificate
 ) -> AffineInstance:
     """Pack the sets of a basis family for the distance search, with their pivot columns deleted.
 
@@ -160,17 +160,17 @@ def get_coset_instance(
             labels=np.zeros((1, 0, 0), dtype=np.uint64),
             widths=np.full(1, width, dtype=np.int64),
             pivots=np.full((1, 0), -1, dtype=np.int64),
-            certificate=information_sets.Certificate(0, (0,)),
+            certificate=certificates.Certificate(0, (0,)),
             weight_factor=weight_factor,
         )
-    family = information_sets.get_disjoint_family(
+    family = basis_families.get_disjoint_family(
         generators, None, random_column_orders=random_column_orders
     )
     return get_coset_family_instance(family, weight_factor=weight_factor)
 
 
 def get_coset_family_instance(
-    basis_family: information_sets.BasisFamily, *, weight_factor: int
+    basis_family: basis_families.BasisFamily, *, weight_factor: int
 ) -> AffineInstance:
     """Pack the sets of any basis family of a code for the coset search, with every column.
 
@@ -191,7 +191,7 @@ def get_coset_family_instance(
         labels=np.zeros((num_sets, num_generators, 0), dtype=np.uint64),
         widths=np.full(num_sets, packed_generators.shape[2], dtype=np.int64),
         pivots=basis_family.pivots,
-        certificate=information_sets.Certificate(
+        certificate=certificates.Certificate(
             num_generators,
             tuple(int(rank) for rank in basis_family.ranks),
             max_coverage=basis_family.max_coverage,

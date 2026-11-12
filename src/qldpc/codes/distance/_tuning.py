@@ -100,14 +100,14 @@ The fields of the completion tables of distance searches and counts (Section 3.9
   below, the measured ones.
 
 To refit the cost model of completion tables, which ``predict_completion_cost`` and
-``_estimate_build_cost`` in ``_search/completion_bounds.py`` compute:
+``_estimate_build_cost`` in ``_information_sets/completion_bounds.py`` compute:
 
 1. Time layers of one information set with tables disabled
    (``completion_bound_max_table_bytes=0``), forced (``completion_bound_minimum_layer_work=0`` and
    ``completion_bound_max_cost_percent=MAX_VALUE``), and at the defaults.  For each layer, record
    the share of its supports that tables skipped and its number of lookups, which
-   ``scan_information_set`` in ``_search/affine_search.py`` returns for each call, and time
-   ``CompletionTables.build`` separately.
+   ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each call, and
+   time ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
 3. Fit the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
@@ -445,10 +445,10 @@ class SearchTuning:
 
     #: The cost of building completion tables, in scanned supports for each step of the
     #: breadth-first searches that fill them, as ``_estimate_build_cost`` in
-    #: ``_search/completion_bounds.py`` counts steps.  Raising it makes searches decline tables that
-    #: are costly to build; lowering it lets them build tables that small layers do not repay.
-    #: Defaults to 0.2, chosen by hand with ``completion_bound_table_byte_cost``.  To refit it, see
-    #: :ref:`Retuning <tuning-retuning>`.
+    #: ``_information_sets/completion_bounds.py`` counts steps.  Raising it makes searches decline
+    #: tables that are costly to build; lowering it lets them build tables that small layers do not
+    #: repay.  Defaults to 0.2, chosen by hand with ``completion_bound_table_byte_cost``.  To refit
+    #: it, see :ref:`Retuning <tuning-retuning>`.
     completion_bound_build_step_cost: float = 0.2
 
     # Fields of batches and memory limits.

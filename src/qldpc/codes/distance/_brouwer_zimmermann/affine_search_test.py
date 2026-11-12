@@ -14,7 +14,8 @@ import pytest
 
 from qldpc._binary import pack_bits
 
-from . import affine_search, completion_bounds
+from .._information_sets import completion_bounds
+from . import affine_search
 
 
 def test_family_scan() -> None:

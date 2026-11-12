@@ -15,7 +15,7 @@ import pytest
 
 from qldpc import codes
 from qldpc.codes.distance import _tuning
-from qldpc.codes.distance._search import automorphism_families
+from qldpc.codes.distance._information_sets import automorphism_families
 from qldpc.objects import Pauli
 
 # Changes fields of the active search tuning until the end of a test (see the tune fixture).

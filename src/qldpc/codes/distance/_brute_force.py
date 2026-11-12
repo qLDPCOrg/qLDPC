@@ -9,7 +9,9 @@ import numpy.typing as npt
 
 from qldpc._binary import count_trailing_zeros, pack_bits
 
-from .._binary import get_eligible_rows, inplace_rowsum, riffle, symplectic_weight
+from ._binary import get_eligible_rows
+
+_MASK55 = np.uint64(0x5555555555555555)
 
 ####################################################################################################
 # exhaustive enumeration
@@ -147,3 +149,48 @@ def get_nested_distance_brute_force(
         batch_exponent=batch_exponent,
         homogeneous=homogeneous,
     )
+
+
+####################################################################################################
+# weights of riffled words, and array helpers
+
+
+def symplectic_weight(
+    words: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
+) -> npt.NDArray[np.uint64]:
+    """Count the qubits in the support of each riffled word (see ``riffle``).
+
+    Each qubit occupies one aligned bit pair ``(2m, 2m + 1)`` of a word, so a qubit is in the
+    support if either bit of its pair is set.  The result is uint64, and ``out`` doubles as scratch
+    space.
+    """
+    out = np.right_shift(words, 1, out=out)
+    out |= words
+    out &= _MASK55
+    return np.bitwise_count(out, out=out)
+
+
+def inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
+    """Destructively compute ``arr.sum(-1)``, placing the result in the first column of ``arr``.
+
+    When complete, the returned sum will be stored in ``arr[..., 0]``, while other entries in
+    ``arr[..., 1:]`` will be left in indeterminate states.  This permits a faster sum
+    implementation.
+    """
+    width = arr.shape[-1]
+    while width > 1:
+        split = width // 2
+        arr[..., :split] += arr[..., width - split : width]
+        width -= split
+
+    return arr[..., 0]
+
+
+def riffle(array: npt.ArrayLike) -> npt.ArrayLike:
+    """'Riffle' Pauli strings, putting X and Z support bits for each qubit next to each other."""
+    arr = np.asarray(array)
+    num_bits = arr.shape[-1]
+    assert num_bits % 2 == 0
+    if arr.size == 0:
+        return np.empty((0, num_bits), dtype=arr.dtype)  # nothing to riffle (e.g. no stabilizers)
+    return np.reshape(arr, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)

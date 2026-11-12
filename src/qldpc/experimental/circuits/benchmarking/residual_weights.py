@@ -41,7 +41,7 @@ from qldpc.circuits.certification.fault_propagation import (
     _is_css_state,
 )
 from qldpc.codes.distance import DistanceMethod
-from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch, CosetSearchMethod
+from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch, CosetSearchMethod
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .consumer_profiles import ConsumerProfile

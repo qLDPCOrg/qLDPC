@@ -17,7 +17,7 @@ from qldpc.objects import Pauli
 
 from ...conftest import Tune
 from .. import logical_counts as lc
-from .._search import completion_bounds, information_sets
+from .._information_sets import basis_families, completion_bounds
 from .._tuning import MAX_VALUE
 from ..conftest import (
     HAND_X,
@@ -104,14 +104,14 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
 ) -> None:
     """The limit shrinks the overlapping basis families that a count may use, not the counts."""
     sizes: list[int] = []
-    original = information_sets.get_overlapping_family
+    original = basis_families.get_overlapping_family
 
-    def record(*args: Any) -> information_sets.BasisFamily:
+    def record(*args: Any) -> basis_families.BasisFamily:
         replacement = original(*args)
         sizes.append(len(replacement.ranks))
         return replacement
 
-    monkeypatch.setattr(information_sets, "get_overlapping_family", record)
+    monkeypatch.setattr(basis_families, "get_overlapping_family", record)
     tune(overlapping_minimum_work=0)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     weights = range(len(code) + 1)
@@ -243,7 +243,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     """Steps get tables only for layers of two or more rows of full sets, within a memory limit."""
     code = get_random_css_code(np.random.default_rng(1), 24, 8, 8)
     basis, labels = get_sector_problem(code, Pauli.X)
-    disjoint = information_sets.get_disjoint_family(basis, labels, random_column_orders=0)
+    disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
     deficient = len(disjoint.ranks) - 1
     assert disjoint.ranks[0] == len(basis) and disjoint.ranks[deficient] < len(basis)
 

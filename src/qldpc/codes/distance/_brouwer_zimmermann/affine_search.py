@@ -29,8 +29,8 @@ import numpy.typing as npt
 from qldpc._binary import popcount_word
 from qldpc._compilation import always_compiled
 
-from .completion_bounds import get_completion_bound
-from .information_sets import advance_support
+from .._information_sets.completion_bounds import get_completion_bound
+from .._information_sets.support_stepping import advance_support
 
 # Placeholders for the completion tables of scans without them, which never read them.
 _NO_TABLE_BYTES = np.zeros(0, dtype=np.uint8)

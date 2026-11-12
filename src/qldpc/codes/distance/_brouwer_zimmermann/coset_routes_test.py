@@ -17,8 +17,9 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from .._information_sets import certificates
 from ..conftest import EVEN_ROUTES_CODE, OVERLAPPING_ROUTES_CODE, TWO_FAMILIES_CODE
-from . import affine_instance, coset_routes, information_sets
+from . import affine_instance, coset_routes
 
 
 class _Tables(NamedTuple):
@@ -90,9 +91,9 @@ def _get_instance_record(
 def _get_work(tables: _Tables, max_weight: int) -> int:
     """The work of the plans of the steps of the tables, without the sets that a query skips."""
     dimension = len(tables.planning[0]) - 2
-    binomials = information_sets.get_capped_binomials(dimension)
+    binomials = certificates.get_capped_binomials(dimension)
     return sum(
-        information_sets.plan_steps(
+        certificates.plan_steps(
             table[:-1], max_weight, 0, dimension, tables.instance.ranks, binomials, True
         )[2]
         for table in tables.planning

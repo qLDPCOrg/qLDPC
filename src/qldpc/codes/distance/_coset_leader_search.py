@@ -30,17 +30,12 @@ from qldpc._binary import (
 )
 from qldpc._compilation import always_compiled
 
-from .. import _tuning
-from .._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
-from .._tuning import SearchTuning, get_tuning
-from . import (
-    affine_instance,
-    affine_search,
-    completion_bounds,
-    connected_support,
-    coset_routes,
-    information_sets,
-)
+from . import _tuning
+from ._binary import as_binary_matrix, assert_binary, symplectic_to_hamming
+from ._brouwer_zimmermann import affine_instance, affine_search, coset_routes
+from ._connected_support import search as connected_support
+from ._information_sets import certificates, completion_bounds
+from ._tuning import SearchTuning, get_tuning
 
 # The method of a coset-leader search.
 CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
@@ -1627,7 +1622,7 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
         max_weight < bounds[layer, num_completed] and bounds[layer, num_completed - 1] <= max_weight
     )
     if not is_stopping_step:
-        layer, num_completed = information_sets.find_stopping_step(
+        layer, num_completed = certificates.find_stopping_step(
             bounds, max_weight, 0, len(bounds) - 1
         )
         table[-1, 0], table[-1, 1] = layer, num_completed
@@ -1708,7 +1703,7 @@ def _search_from_syndrome_word(
     prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
     for layer in range(stop_layer + 1):
         for set_index in range(num_sets if layer < stop_layer else stop_num_completed):
-            if information_sets.is_unused_set(pivots, set_index, stop_layer, stop_num_completed):
+            if certificates.is_unused_set(pivots, set_index, stop_layer, stop_num_completed):
                 continue
             set_skipped = 0
             if layer == 0:
@@ -1946,9 +1941,7 @@ def _search_coset_for_min_weight(
             # the floor or the bound of the step before this one.  A scan returns once its best
             # weight, which starts at the incumbent, is at most its cutoff, so the cutoff stays
             # below the incumbent.
-            if not information_sets.is_unused_set(
-                pivots, set_index, stop_layer, stop_num_completed
-            ):
+            if not certificates.is_unused_set(pivots, set_index, stop_layer, stop_num_completed):
                 incumbent = min(best_units - slack, skip_bound)
                 step_floor = max(floor, bounds[layer, set_index])
                 cutoff = min(factor * step_floor, incumbent - 1)
@@ -2040,7 +2033,7 @@ def _get_first_step_reaching(bounds: npt.NDArray[np.int64], target: int) -> tupl
     ``target - 1``.  Unlike ``_get_stopping_step``, this function caches no step, so the cached
     steps of the planning buffer serve only the queries of ``_search_coset``.
     """
-    return information_sets.find_stopping_step(bounds, target - 1, 0, len(bounds) - 1)
+    return certificates.find_stopping_step(bounds, target - 1, 0, len(bounds) - 1)
 
 
 @always_compiled(inline=True)

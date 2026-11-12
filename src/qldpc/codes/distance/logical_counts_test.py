@@ -25,7 +25,7 @@ from qldpc._binary import get_independent_rows
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._counting import macwilliams
-from ._search import information_sets
+from ._information_sets import basis_families
 from ._tuning import DEFAULT_TUNING, use_tuning
 from .conftest import (
     HAND_X,
@@ -240,7 +240,7 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
     monkeypatch.setattr(lc, "_warm_up_compiled_functions", refuse)
     with pytest.raises(RuntimeError, match="refused"):
         qldpc.codes.distance.compile_search_setup()
-    select = information_sets.get_overlapping_family
+    select = basis_families.get_overlapping_family
     assert not isinstance(select, numba.core.registry.CPUDispatcher)
 
 
@@ -291,14 +291,14 @@ def test_deprecated_max_information_sets_argument(
 
     # The limit also reaches the scans of a count of a given weight, which searches no distance.
     sizes: list[int] = []
-    original_family = information_sets.get_overlapping_family
+    original_family = basis_families.get_overlapping_family
 
-    def family(*args: Any) -> information_sets.BasisFamily:
+    def family(*args: Any) -> basis_families.BasisFamily:
         replacement = original_family(*args)
         sizes.append(len(replacement.ranks))
         return replacement
 
-    monkeypatch.setattr(information_sets, "get_overlapping_family", family)
+    monkeypatch.setattr(basis_families, "get_overlapping_family", family)
     tune(overlapping_minimum_work=0)
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
     expected = lc.count_logical_ops_css(code, 3, method="brute_force")
@@ -318,14 +318,14 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
     that a limit of three bounds it only if the limit reaches the distance search.
     """
     sizes: list[int] = []
-    original = information_sets.get_overlapping_family
+    original = basis_families.get_overlapping_family
 
-    def record(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+    def record(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
         family = original(*args, **kwargs)
         sizes.append(len(family.ranks))
         return family
 
-    monkeypatch.setattr(information_sets, "get_overlapping_family", record)
+    monkeypatch.setattr(basis_families, "get_overlapping_family", record)
     # Make the distance search build information sets, and every search try overlapping families.
     tune(
         allow_enumeration_by_size=False,
@@ -357,7 +357,7 @@ def test_later_counts_reuse_the_first_family_stage() -> None:
     """
     counter = lc.CSSLogicalCounter(codes.SurfaceCode(5, rotated=False))
     with mock.patch.object(
-        information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
+        basis_families, "get_disjoint_family", wraps=basis_families.get_disjoint_family
     ) as first_stage:
         assert counter.count_logical_ops() == Counts(5, 5, 5, None)
         num_first_stages = first_stage.call_count
@@ -398,7 +398,7 @@ def test_deformed_counter_reuses_the_first_family_stage() -> None:
     fresh = get_counter(deformed.checks_x, deformed.checks_z)
     expected = [fresh.count_logical_ops(weight) for weight in weights]
     with mock.patch.object(
-        information_sets, "get_disjoint_family", wraps=information_sets.get_disjoint_family
+        basis_families, "get_disjoint_family", wraps=basis_families.get_disjoint_family
     ) as first_stage:
         counts = [deformed.count_logical_ops(weight) for weight in weights]
         with use_tuning(disjoint_random_column_orders=3):

@@ -11,9 +11,9 @@ from qldpc.conftest import check_import_layering
 _LAYERS = (
     ("_binary",),
     ("_tuning",),
-    ("_search",),
-    ("_counting",),
-    ("core",),
+    ("_brute_force", "_information_sets"),
+    ("_brouwer_zimmermann", "_connected_support", "_counting"),
+    ("_coset_leader_search", "core"),
     ("logical_counts",),
 )
 

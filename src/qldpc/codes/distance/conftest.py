@@ -18,7 +18,7 @@ from qldpc.objects import Pauli, PauliXZ
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._search import information_sets
+from ._information_sets import basis_families, certificates
 
 
 @pytest.fixture
@@ -44,8 +44,8 @@ def plain_search_setup() -> None:
 class CostlyStages(NamedTuple):
     """The results of the costly stages of searches, which the costly_stages fixture records."""
 
-    partitioned_families: list[information_sets.BasisFamily]
-    search_certificates: list[information_sets.Certificate]
+    partitioned_families: list[basis_families.BasisFamily]
+    search_certificates: list[certificates.Certificate]
 
 
 @pytest.fixture
@@ -56,23 +56,23 @@ def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
     family, and a certificate with pivot blocks shows that a search used linear programming.
     """
     stages = CostlyStages([], [])
-    get_partitioned_family = information_sets.get_partitioned_family
-    get_search_certificate = information_sets.BasisFamily.get_search_certificate
+    get_partitioned_family = basis_families.get_partitioned_family
+    get_search_certificate = basis_families.BasisFamily.get_search_certificate
 
-    def record_family(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+    def record_family(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
         family = get_partitioned_family(*args, **kwargs)
         stages.partitioned_families.append(family)
         return family
 
     def record_certificate(
-        basis_family: information_sets.BasisFamily, *args: Any, **kwargs: Any
-    ) -> information_sets.Certificate:
+        basis_family: basis_families.BasisFamily, *args: Any, **kwargs: Any
+    ) -> certificates.Certificate:
         certificate = get_search_certificate(basis_family, *args, **kwargs)
         stages.search_certificates.append(certificate)
         return certificate
 
-    monkeypatch.setattr(information_sets, "get_partitioned_family", record_family)
-    monkeypatch.setattr(information_sets.BasisFamily, "get_search_certificate", record_certificate)
+    monkeypatch.setattr(basis_families, "get_partitioned_family", record_family)
+    monkeypatch.setattr(basis_families.BasisFamily, "get_search_certificate", record_certificate)
     return stages
 
 
@@ -82,15 +82,15 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# of the routes of coset searches (see ``_search/coset_routes.py``).  The even code has the columns
-# e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has even weight.  Its greedy packing
-# has ranks three and two, and its columns hold two disjoint information sets.  In the random [10,
-# 6] code, a greedy packing of ranks six and three leaves room for one of ranks six and four, and
-# for a family of three overlapping information sets, and queries take each of these at some maximum
-# weights.  In the random [14, 8] code, a greedy packing of ranks eight and six uses every column,
-# and three overlapping information sets do less work for some queries, but not for others.  So its
-# overlapping family depends on the weight at which it is built, and that family changes some
-# answers.
+# of the routes of coset searches (see ``_brouwer_zimmermann/coset_routes.py``).  The even code has
+# the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has even weight.  Its
+# greedy packing has ranks three and two, and its columns hold two disjoint information sets.  In
+# the random [10, 6] code, a greedy packing of ranks six and three leaves room for one of ranks six
+# and four, and for a family of three overlapping information sets, and queries take each of these
+# at some maximum weights.  In the random [14, 8] code, a greedy packing of ranks eight and six uses
+# every column, and three overlapping information sets do less work for some queries, but not for
+# others.  So its overlapping family depends on the weight at which it is built, and that family
+# changes some answers.
 EVEN_ROUTES_CODE = get_binary_matrix(["100111", "010111", "001001"])
 TWO_FAMILIES_CODE = get_binary_matrix(
     ["1001010111", "0110001011", "0101111010", "0010111100", "0010100000", "0000100110"]

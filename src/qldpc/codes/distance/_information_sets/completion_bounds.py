@@ -47,7 +47,7 @@ from qldpc._binary import popcount_word
 from qldpc._compilation import always_compiled
 
 from .._tuning import SearchTuning
-from . import information_sets
+from . import certificates
 
 ####################################################################################################
 # completion tables
@@ -254,7 +254,7 @@ def get_completion_bound(
 
 def _get_layer_work(num_rows: int, weight: int) -> int:
     """The number of supports of a layer, saturated at the cap of work estimates."""
-    return min(math.comb(num_rows, weight), information_sets._WORK_CAP)
+    return min(math.comb(num_rows, weight), certificates._WORK_CAP)
 
 
 def _get_num_tail_bits(rows: npt.NDArray[np.uint64]) -> int:

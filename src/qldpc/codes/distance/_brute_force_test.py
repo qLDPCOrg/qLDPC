@@ -14,10 +14,9 @@ import pytest
 import qldpc
 from qldpc._binary import pack_bits
 
-from ...conftest import Tune
-from .. import _binary as binary
-from ..conftest import count_set_bits
-from . import brute_force
+from ..conftest import Tune
+from . import _brute_force
+from .conftest import count_set_bits
 
 
 @pytest.mark.parametrize("batch_exponent", [1, 3, 13])
@@ -82,7 +81,7 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
     # The weight spy records every nonzero logical combination combined with every stabilizer
     # combination, including the empty one.
     observed_bitstrings: list[tuple[int, ...]] = []
-    weight_function = np.bitwise_count if homogeneous else binary.symplectic_weight
+    weight_function = np.bitwise_count if homogeneous else _brute_force.symplectic_weight
 
     def _spy_weight(
         arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
@@ -93,7 +92,7 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
     spy = (
         mock.patch.object(np, "bitwise_count", _spy_weight)
         if homogeneous
-        else mock.patch("qldpc.codes.distance._search.brute_force.symplectic_weight", _spy_weight)
+        else mock.patch("qldpc.codes.distance._brute_force.symplectic_weight", _spy_weight)
     )
     with spy:
         distance = qldpc.codes.distance.get_distance_quantum(
@@ -104,8 +103,8 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
         )
 
     # Symplectic words are packed with their X and Z bits interleaved.
-    stabilizer_bits = stabilizers if homogeneous else binary.riffle(stabilizers)
-    logical_bits = logical_ops if homogeneous else binary.riffle(logical_ops)
+    stabilizer_bits = stabilizers if homogeneous else _brute_force.riffle(stabilizers)
+    logical_bits = logical_ops if homogeneous else _brute_force.riffle(logical_ops)
     int_stabilizers = pack_bits(np.asarray(stabilizer_bits, dtype=np.uint8))
     int_logical_ops = pack_bits(np.asarray(logical_bits, dtype=np.uint8))
     expected_bitstrings = np.array(
@@ -183,7 +182,7 @@ def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
     num_qubits = 3
     logical_op = [1, 0, 0] if homogeneous else [1, 0, 0, 0, 0, 0]
     stabilizer = [0, 1, 1] if homogeneous else [0, 1, 1, 0, 0, 0]
-    distance = brute_force.get_distance_quantum_brute_force(
+    distance = _brute_force.get_distance_quantum_brute_force(
         [logical_op],
         [stabilizer],
         cutoff=len(logical_op),
@@ -193,7 +192,7 @@ def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
     assert distance == 1
 
     # Without logical operators, the result exceeds every weight, whatever the cutoff.
-    distance = brute_force.get_distance_quantum_brute_force(
+    distance = _brute_force.get_distance_quantum_brute_force(
         np.empty((0, len(logical_op)), dtype=np.uint8),
         [stabilizer],
         cutoff=100,
@@ -201,3 +200,37 @@ def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
         homogeneous=homogeneous,
     )
     assert distance == num_qubits + 1
+
+
+def test_riffle() -> None:
+    symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
+    expected = np.stack((symplectic[:, :3], symplectic[:, 3:]), axis=2).reshape(-1, 6)
+    np.testing.assert_array_equal(_brute_force.riffle(symplectic), expected)
+    assert np.shape(_brute_force.riffle(np.empty((0, 6)))) == (0, 6)
+    with pytest.raises(AssertionError):
+        _brute_force.riffle(np.zeros((1, 3)))
+
+
+def test_symplectic_weight() -> None:
+    """Validate symplectic_weight against the reference bit-counting implementation."""
+    rng = np.random.default_rng(64)
+    vals = rng.integers(0, 2**64, size=(7, 11), dtype=np.uint64)
+    expected_weights = count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
+    weights = _brute_force.symplectic_weight(vals)
+    assert weights.dtype == np.uint64
+    np.testing.assert_array_equal(weights, expected_weights)
+
+    out = rng.integers(0, 2**64, size=vals.shape, dtype=vals.dtype)
+    weights = _brute_force.symplectic_weight(vals, out=out)
+    np.testing.assert_array_equal(weights, expected_weights)
+    assert weights is out
+
+
+@pytest.mark.parametrize("width", range(1, 8))
+def test_inplace_rowsum(width: int) -> None:
+    """inplace_rowsum reduces each row to its sum and stores the result in the first column."""
+    arr = np.random.default_rng(width).integers(2**31, size=(10, width), dtype=np.uint64)
+    expected = arr.sum(-1)
+    actual = _brute_force.inplace_rowsum(arr)
+    np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_array_equal(actual, arr[:, 0])

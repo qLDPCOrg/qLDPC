@@ -18,18 +18,21 @@ import stim
 from qldpc import math
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 
-from ...conftest import Tune
-from .._binary import symplectic_to_hamming
-from .._tuning import DEFAULT_TUNING, MAX_VALUE, get_tuning, use_tuning
-from ..conftest import (
+from ..conftest import Tune
+from . import _coset_leader_search
+from ._binary import symplectic_to_hamming
+from ._brouwer_zimmermann import affine_instance
+from ._coset_leader_search import CosetLeaderSearch, CosetSearchMethod, MinWeightBound
+from ._information_sets import basis_families, completion_bounds
+from ._information_sets import certificates as certificates_module
+from ._tuning import DEFAULT_TUNING, MAX_VALUE, get_tuning, use_tuning
+from .conftest import (
     EVEN_ROUTES_CODE,
     OVERLAPPING_ROUTES_CODE,
     TWO_FAMILIES_CODE,
     get_binary_matrix,
     get_random_full_rank_matrix,
 )
-from . import affine_instance, completion_bounds, coset_leader_search, information_sets
-from .coset_leader_search import CosetLeaderSearch, CosetSearchMethod, MinWeightBound
 
 
 def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
@@ -668,21 +671,21 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     # Find the stopping step of each query as ``_search_coset`` does.  Steps ``(layer,
     # num_completed)`` compare as tuples in the order of the search.
     instance = affine_instance.get_coset_instance(matrix, random_column_orders=0, weight_factor=2)
-    inverse = coset_leader_search._get_inverse(checks)
-    tables = coset_leader_search._get_search_tables(instance, inverse, num_qubits)
+    inverse = _coset_leader_search._get_inverse(checks)
+    tables = _coset_leader_search._get_search_tables(instance, inverse, num_qubits)
     unrounded = instance.get_weight_bounds()
     steps = list(itertools.product(range(len(unrounded)), range(1, unrounded.shape[1])))
     best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
     num_sooner = 0
     for syndrome in range(1 << num_qubits):
-        _, parity = coset_leader_search._get_syndrome_word(
+        _, parity = _coset_leader_search._get_syndrome_word(
             _pack_syndromes([syndrome], num_qubits)[0], best, tables.inverse, tables.x_mask, 0
         )
-        table = coset_leader_search._get_planning_table(tables.planning, parity)
+        table = _coset_leader_search._get_planning_table(tables.planning, parity)
         bounds = instance.get_weight_bounds(class_parities[syndrome])
         for max_weight in range(2, num_qubits):
             stopping_step = next(step for step in steps if bounds[step] > max_weight)
-            assert coset_leader_search._get_stopping_step(table, max_weight)[:2] == stopping_step
+            assert _coset_leader_search._get_stopping_step(table, max_weight)[:2] == stopping_step
             num_sooner += stopping_step < next(
                 step for step in steps if unrounded[step] > max_weight
             )
@@ -703,7 +706,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     plus_zero = np.block([[eye, zeros, zeros, zeros], [zeros, zeros, zeros, eye]])
     matrices = [_scramble(matrix, rng) for matrix in (zero_plus, zero_plus, plus_zero)]
-    coset_leader_search._get_css_searches.cache_clear()
+    _coset_leader_search._get_css_searches.cache_clear()
     oracles = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices]
     for oracle, matrix in zip(oracles, matrices, strict=True):
         minima = _css_minima(matrix)
@@ -730,18 +733,18 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
     ``coset_completion_block_bits``.
     """
     orders: list[int] = []
-    get_disjoint_family = information_sets.get_disjoint_family
+    get_disjoint_family = basis_families.get_disjoint_family
 
-    def record(*args: Any, random_column_orders: int) -> information_sets.BasisFamily:
+    def record(*args: Any, random_column_orders: int) -> basis_families.BasisFamily:
         orders.append(random_column_orders)
         return get_disjoint_family(*args, random_column_orders=random_column_orders)
 
-    monkeypatch.setattr(information_sets, "get_disjoint_family", record)
+    monkeypatch.setattr(basis_families, "get_disjoint_family", record)
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     phased = _graph_state(2, [(0, 1)], phase=True)
-    coset_leader_search._get_css_searches.cache_clear()
-    coset_leader_search._get_pauli_search.cache_clear()
+    _coset_leader_search._get_css_searches.cache_clear()
+    _coset_leader_search._get_pauli_search.cache_clear()
     default = DEFAULT_TUNING.disjoint_random_column_orders
     for column_orders, matrix in itertools.product((default, 3), (zero_plus, phased)):
         with use_tuning(disjoint_random_column_orders=column_orders):
@@ -780,11 +783,11 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     """
     calls: list[tuple[int, int]] = []
     table_calls: set[tuple[int, int]] = set()
-    get_overlapping_family = information_sets.get_overlapping_family
+    get_overlapping_family = basis_families.get_overlapping_family
     build_tables_within = completion_bounds.build_tables_within
     signature = inspect.signature(get_overlapping_family)
 
-    def record(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+    def record(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
         policy = signature.bind(*args, **kwargs).arguments["policy"]
         calls.append((policy.max_sets, policy.attempts_per_set))
         return get_overlapping_family(*args, **kwargs)
@@ -795,9 +798,9 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
         table_calls.add((block_bits, max_bytes))
         return build_tables_within(rows, block_bits, max_bytes)
 
-    monkeypatch.setattr(information_sets, "get_overlapping_family", record)
+    monkeypatch.setattr(basis_families, "get_overlapping_family", record)
     monkeypatch.setattr(completion_bounds, "build_tables_within", record_tables)
-    coset_leader_search._get_pauli_search.cache_clear()
+    _coset_leader_search._get_pauli_search.cache_clear()
     with use_tuning(
         overlapping_minimum_work=0,
         max_information_sets=5,
@@ -822,7 +825,7 @@ def test_connected_support_oracles_make_checks_sparser_with_their_tuning(
     state with phases, which is not CSS, so the oracle has one search of Pauli errors.
     """
     calls: list[tuple[int, int]] = []
-    get_sparser_rows = coset_leader_search._get_sparser_rows
+    get_sparser_rows = _coset_leader_search._get_sparser_rows
     signature = inspect.signature(get_sparser_rows)
 
     def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
@@ -830,7 +833,7 @@ def test_connected_support_oracles_make_checks_sparser_with_their_tuning(
         calls.append((arguments["max_rounds"], arguments["rounds_without_improvement"]))
         return get_sparser_rows(*args, **kwargs)
 
-    monkeypatch.setattr(coset_leader_search, "_get_sparser_rows", record)
+    monkeypatch.setattr(_coset_leader_search, "_get_sparser_rows", record)
     with use_tuning(max_sparsifying_rounds=5, sparsifying_rounds_without_improvement=2):
         CosetLeaderSearch(_graph_state(2, [(0, 1)], phase=True), method="connected_support")
     assert calls == [(5, 2)]
@@ -858,8 +861,8 @@ def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
         queries = list(itertools.product(syndromes, range(6)))
         answers = {}
         for minimum_work in (0, MAX_VALUE):
-            coset_leader_search._get_css_searches.cache_clear()
-            coset_leader_search._get_pauli_search.cache_clear()
+            _coset_leader_search._get_css_searches.cache_clear()
+            _coset_leader_search._get_pauli_search.cache_clear()
             with use_tuning(overlapping_minimum_work=minimum_work):
                 oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
                 answers[minimum_work] = [oracle.get_min_weight_bound(*query) for query in queries]
@@ -886,7 +889,7 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
         _product_state(generators)
         for generators in (("Y__", "_Z_", "__X"), ("Y__", "YZ_", "__X"), ("X__", "_Y_", "__Z"))
     ]
-    coset_leader_search._get_pauli_search.cache_clear()
+    _coset_leader_search._get_pauli_search.cache_clear()
     oracles = []
     for changes in ({}, {"max_css_single_pairs": 0}, {"disjoint_random_column_orders": 3}):
         with use_tuning(**changes):
@@ -915,7 +918,7 @@ def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune
     """
     tune(overlapping_minimum_work=0)
     first, second = _ROUTED_CSS_WEIGHT_STATE, _ROUTED_PHYSICAL_STATES[1]
-    coset_leader_search._get_pauli_search.cache_clear()
+    _coset_leader_search._get_pauli_search.cache_clear()
     array = first.copy()
     oracles = [
         (first, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
@@ -942,9 +945,9 @@ def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
     """
     x_singles = {0: 0, 0b01: 0b0001, 0b11: 0b0010}
     z_singles = {0: 0, 0b10: 0b0100}
-    table = coset_leader_search._tabulate_css_singles(x_singles, z_singles, 6)
+    table = _coset_leader_search._tabulate_css_singles(x_singles, z_singles, 6)
     assert table == {0: 0, 0b10: 0b0100, 0b01: 0b0001, 0b11: 0b0101}
-    assert coset_leader_search._tabulate_css_singles(x_singles, z_singles, 5) is None
+    assert _coset_leader_search._tabulate_css_singles(x_singles, z_singles, 5) is None
 
 
 def test_invalid_arguments_are_rejected() -> None:
@@ -980,28 +983,28 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     zero, two, and four in a code of dimension four, for both weight factors.
     """
     plans: list[int] = []
-    find_stopping_step = information_sets.find_stopping_step
+    find_stopping_step = certificates_module.find_stopping_step
 
     def record(*args: Any) -> tuple[int, int]:
         plans.append(args[1])
         return find_stopping_step(*args)
 
-    monkeypatch.setattr(information_sets, "find_stopping_step", record)
+    monkeypatch.setattr(certificates_module, "find_stopping_step", record)
     # Take the Python version even when the function is compiled, since only it calls the recording
     # function.
-    function = coset_leader_search._get_stopping_step
+    function = _coset_leader_search._get_stopping_step
     get_stopping_step = getattr(function, "py_func", function)
     certificates = [
-        information_sets.Certificate(0, (0,)),
-        information_sets.Certificate(1, (1,) * 64),
-        information_sets.Certificate(4, (0, 2, 4, 0)),
+        certificates_module.Certificate(0, (0,)),
+        certificates_module.Certificate(1, (1,) * 64),
+        certificates_module.Certificate(4, (0, 2, 4, 0)),
     ]
     for certificate, factor in itertools.product(certificates, (1, 2)):
         bounds = certificate.get_weight_bounds(factor)
         num_rows, num_sets = bounds.shape[0] - 1, bounds.shape[1] - 1
         steps = list(itertools.product(range(num_rows + 1), range(1, num_sets + 1)))
-        largest = int(bounds[bounds < information_sets.NO_WORD_BOUND].max())
-        (table,) = coset_leader_search._get_planning([bounds])
+        largest = int(bounds[bounds < certificates_module.NO_WORD_BOUND].max())
+        (table,) = _coset_leader_search._get_planning([bounds])
         for planted, max_weight in itertools.product(steps, range(largest + 2)):
             stopping_step = next(step for step in steps if bounds[step] > max_weight)
             expected = (*stopping_step, int(bounds[stopping_step]))
@@ -1072,8 +1075,8 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
     """
     num_columns = generators.shape[1]
     checks = get_kernel(generators)
-    tuning = coset_leader_search._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
-    search = coset_leader_search._get_classical_search(
+    tuning = _coset_leader_search._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    search = _coset_leader_search._get_classical_search(
         generators, checks, tuning._replace(disjoint_random_column_orders=0)
     )
     minima = _classical_minima(checks)
@@ -1225,10 +1228,10 @@ def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, t
 
     def get_answers(order: str) -> dict[tuple[int, int], MinWeightBound]:
         """Every answer of a fresh search, with the maximum weights in the given order."""
-        tuning = coset_leader_search._CosetTuning.from_tuning(
+        tuning = _coset_leader_search._CosetTuning.from_tuning(
             get_tuning(), paulis_by_css_weight=False
         )
-        search = coset_leader_search._get_classical_search(
+        search = _coset_leader_search._get_classical_search(
             OVERLAPPING_ROUTES_CODE, checks, tuning._replace(disjoint_random_column_orders=0)
         )
         weights = list(range(15))
@@ -1267,7 +1270,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
         num_rows = int(rng.integers(1, num_columns))
         generators = get_random_full_rank_matrix(rng, num_rows, num_columns)
         checks = get_kernel(generators)
-        family = information_sets.get_disjoint_family(generators, None, random_column_orders=0)
+        family = basis_families.get_disjoint_family(generators, None, random_column_orders=0)
         ranks = (*family.ranks.tolist(), 0)
         num_sets = len(ranks)
         rows = np.concatenate([family.generators, generators[None]])
@@ -1276,10 +1279,10 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             labels=np.zeros((num_sets, num_rows, 0), dtype=np.uint64),
             widths=np.ones(num_sets, dtype=np.int64),
             pivots=np.vstack([family.pivots, np.full(num_rows, -1)]),
-            certificate=information_sets.Certificate(num_rows, ranks),
+            certificate=certificates_module.Certificate(num_rows, ranks),
         )
-        inverse = coset_leader_search._get_inverse(checks)
-        tables = coset_leader_search._get_search_tables(instance, inverse, num_columns)
+        inverse = _coset_leader_search._get_inverse(checks)
+        tables = _coset_leader_search._get_search_tables(instance, inverse, num_columns)
         minima = _classical_minima(checks)
 
         for syndrome, max_weight in itertools.product(
@@ -1287,16 +1290,16 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
         ):
             best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
             packed_syndrome = _pack_syndromes([syndrome], len(checks))[0]
-            best_weight, parity = coset_leader_search._get_syndrome_word(
+            best_weight, parity = _coset_leader_search._get_syndrome_word(
                 packed_syndrome, best, tables.inverse, tables.x_mask, 1
             )
             if best_weight <= max_weight:
                 continue
-            table = coset_leader_search._get_planning_table(tables.planning, parity)
-            stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
+            table = _coset_leader_search._get_planning_table(tables.planning, parity)
+            stop_layer, stop_num_completed, stop_bound = _coset_leader_search._get_stopping_step(
                 table, max_weight
             )
-            lower_bound, weighed, _ = coset_leader_search._search_from_syndrome_word(
+            lower_bound, weighed, _ = _coset_leader_search._search_from_syndrome_word(
                 packed_syndrome,
                 max_weight,
                 stop_layer,
@@ -1326,8 +1329,8 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                     if last_layer >= num_rows - rank
                     for layer in range(last_layer + 1)
                 )
-                binomials = information_sets.get_capped_binomials(num_rows)
-                plan = information_sets.plan_steps(
+                binomials = certificates_module.get_capped_binomials(num_rows)
+                plan = certificates_module.plan_steps(
                     table[:-1], max_weight, 0, num_rows, instance.ranks, binomials, True
                 )
                 assert plan == (stop_layer, stop_num_completed, weighed)
@@ -1385,13 +1388,13 @@ def _assert_searches_by_tails_match_searches_of_words(
         labels=np.zeros((len(sets), num_rows, 0), dtype=np.uint64),
         widths=np.ones(len(sets), dtype=np.int64),
         pivots=np.array(pivots, dtype=np.int64),
-        certificate=information_sets.Certificate(
+        certificate=certificates_module.Certificate(
             num_rows, tuple(int(np.sum(row >= 0)) for row in pivots)
         ),
         weight_factor=2 if scale == 2 else 1,
     )
-    tables = coset_leader_search._get_search_tables(instance, inverse, num_columns)
-    tails = coset_leader_search._get_coset_tails(
+    tables = _coset_leader_search._get_search_tables(instance, inverse, num_columns)
+    tails = _coset_leader_search._get_coset_tails(
         instance,
         list(range(len(sets))) if block_bits else [],
         None,
@@ -1406,7 +1409,7 @@ def _assert_searches_by_tails_match_searches_of_words(
         answers = {}
         for syndrome, packed_syndrome in zip(syndromes, packed_syndromes, strict=True):
             words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
-            best_weight, parity = coset_leader_search._get_syndrome_word(
+            best_weight, parity = _coset_leader_search._get_syndrome_word(
                 packed_syndrome, words[0], tables.inverse, tables.x_mask, scale
             )
             if best_weight <= max_weight:
@@ -1414,10 +1417,10 @@ def _assert_searches_by_tails_match_searches_of_words(
             words[1] = words[0]
             word = unpack_bits(words[:1], num_columns)[0]
             coset_parity = int(word.sum()) % 2
-            stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
-                coset_leader_search._get_planning_table(tables.planning, parity), max_weight
+            stop_layer, stop_num_completed, stop_bound = _coset_leader_search._get_stopping_step(
+                _coset_leader_search._get_planning_table(tables.planning, parity), max_weight
             )
-            *answer, _ = coset_leader_search._search_from_syndrome_word(
+            *answer, _ = _coset_leader_search._search_from_syndrome_word(
                 packed_syndrome,
                 max_weight,
                 stop_layer,
@@ -1432,7 +1435,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                 scale,
                 parity if len(tables.planning) == 2 else -1,
             )
-            *answer_by_tails, skipped = coset_leader_search._search_from_syndrome_word(
+            *answer_by_tails, skipped = _coset_leader_search._search_from_syndrome_word(
                 packed_syndrome,
                 max_weight,
                 stop_layer,
@@ -1481,10 +1484,10 @@ def _assert_searches_by_tails_match_searches_of_words(
         start = 0
         while True:
             words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
-            found = coset_leader_search._find_first_not_within_max_weight(
+            found = _coset_leader_search._find_first_not_within_max_weight(
                 packed_syndromes[start:], max_weight, words[0], *tables, None, scale
             )
-            found_by_tails = coset_leader_search._find_first_not_within_max_weight(
+            found_by_tails = _coset_leader_search._find_first_not_within_max_weight(
                 packed_syndromes[start:], max_weight, words[1], *tables, tails, scale
             )
             assert found_by_tails[0] == found[0]
@@ -1582,7 +1585,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
                 (
                     (
                         code,
-                        coset_leader_search._get_inverse(checks),
+                        _coset_leader_search._get_inverse(checks),
                         1,
                         (num_rows, num_rows - 1),
                         range(-1, code.shape[1] + 2),
@@ -1600,7 +1603,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
             (
                 (
                     even,
-                    coset_leader_search._get_inverse(checks),
+                    _coset_leader_search._get_inverse(checks),
                     1,
                     (5, 4),
                     range(-1, even.shape[1] + 2),
@@ -1618,7 +1621,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
         (
             (
                 wide,
-                coset_leader_search._get_inverse(checks),
+                _coset_leader_search._get_inverse(checks),
                 1,
                 (4, 3),
                 range(-1, 40, 4),
@@ -1634,7 +1637,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
         (
             (
                 symplectic_to_hamming(matrix),
-                symplectic_to_hamming(coset_leader_search._get_inverse(checks)),
+                symplectic_to_hamming(_coset_leader_search._get_inverse(checks)),
                 2,
                 (2, 1) if block_bits else (4, 3),
                 range(-1, 6),
@@ -1661,20 +1664,20 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     queries at maximum weight two find a light enough word in every coset, even in the cosets whose
     words weigh at least three, which a search of whole words would reject.
     """
-    get_coset_tails = coset_leader_search._get_coset_tails
+    get_coset_tails = _coset_leader_search._get_coset_tails
 
-    def get_zero_tails(*args: Any, **kwargs: Any) -> coset_leader_search._CosetTails:
+    def get_zero_tails(*args: Any, **kwargs: Any) -> _coset_leader_search._CosetTails:
         """The record of the tails of a family, with every tail zero."""
         record = get_coset_tails(*args, **kwargs)
         return record._replace(
             tails=np.zeros_like(record.tails), inverse_tails=np.zeros_like(record.inverse_tails)
         )
 
-    monkeypatch.setattr(coset_leader_search, "_get_coset_tails", get_zero_tails)
+    monkeypatch.setattr(_coset_leader_search, "_get_coset_tails", get_zero_tails)
     generators = np.ones((1, 7), dtype=np.uint8)
     checks = get_kernel(generators)
-    tuning = coset_leader_search._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
-    search = coset_leader_search._get_classical_search(
+    tuning = _coset_leader_search._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    search = _coset_leader_search._get_classical_search(
         generators, checks, tuning._replace(overlapping_minimum_work=0)
     )
     syndromes = np.flatnonzero(_classical_minima(checks) > 2).tolist()
@@ -1698,17 +1701,17 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
     bound such cosets by four.  The code is not even, so four is the least weight beyond the maximum
     weight that a word of such a coset can have.
     """
-    get_coset_tails = coset_leader_search._get_coset_tails
+    get_coset_tails = _coset_leader_search._get_coset_tails
 
-    def get_skipping_tails(*args: Any, **kwargs: Any) -> coset_leader_search._CosetTails:
+    def get_skipping_tails(*args: Any, **kwargs: Any) -> _coset_leader_search._CosetTails:
         """The record of the tails of a family, with tables that skip every completion."""
         record = get_coset_tails(*args, **kwargs)
         return record._replace(completion_tables=np.full_like(record.completion_tables, 255))
 
-    monkeypatch.setattr(coset_leader_search, "_get_coset_tails", get_skipping_tails)
+    monkeypatch.setattr(_coset_leader_search, "_get_coset_tails", get_skipping_tails)
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
-    tuning = coset_leader_search._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
-    search = coset_leader_search._get_classical_search(
+    tuning = _coset_leader_search._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    search = _coset_leader_search._get_classical_search(
         OVERLAPPING_ROUTES_CODE, checks, tuning._replace(overlapping_minimum_work=0)
     )
     minima = _classical_minima(checks)
@@ -1739,17 +1742,17 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
         _RANK_DEFICIENT_CODE, random_column_orders=0, weight_factor=1
     )
     assert instance.ranks.tolist() == [5, 4]
-    inverse = coset_leader_search._get_inverse(checks)
+    inverse = _coset_leader_search._get_inverse(checks)
 
     def get_record(
-        sets: list[int], record: coset_leader_search._CosetTails | None, max_table_bytes: int
-    ) -> coset_leader_search._CosetTails:
+        sets: list[int], record: _coset_leader_search._CosetTails | None, max_table_bytes: int
+    ) -> _coset_leader_search._CosetTails:
         """The record of the tails of the family, with the tables of the sets that fit."""
-        return coset_leader_search._get_coset_tails(
+        return _coset_leader_search._get_coset_tails(
             instance, sets, record, inverse=inverse, block_bits=8, max_table_bytes=max_table_bytes
         )
 
-    def get_set_tables(record: coset_leader_search._CosetTails, set_index: int) -> list[int]:
+    def get_set_tables(record: _coset_leader_search._CosetTails, set_index: int) -> list[int]:
         """The tables of a set, as its layout places them in the record."""
         start, num_blocks = record.layout[set_index, :2]
         offsets = record.layout[set_index, 2 : num_blocks + 3]
@@ -1784,13 +1787,13 @@ def _coset_minima(
     """
     code = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators % 2
     bits = (np.array(syndromes)[:, None] >> np.arange(len(checks))) & 1
-    words = bits @ coset_leader_search._get_inverse(checks) % 2
+    words = bits @ _coset_leader_search._get_inverse(checks) % 2
     assert np.array_equal(_classical_syndrome(checks, words), syndromes)
     return np.array([((word + code) % 2).sum(axis=1).min() for word in words])
 
 
 def _assert_min_weights_match_brute_force(
-    search: coset_leader_search._CosetSearch,
+    search: _coset_leader_search._CosetSearch,
     syndromes: Sequence[int],
     minima: npt.NDArray[np.int_],
     num_syndrome_bits: int,
@@ -1841,7 +1844,7 @@ def test_min_weights_of_cosets_match_brute_force(
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    tuning_fields = coset_leader_search._CosetTuning.from_tuning(
+    tuning_fields = _coset_leader_search._CosetTuning.from_tuning(
         get_tuning(), paulis_by_css_weight=False
     )
     num_rows, num_columns = int(rng.integers(3, 6)), int(rng.integers(8, 11))
@@ -1850,12 +1853,12 @@ def test_min_weights_of_cosets_match_brute_force(
         even_code = np.hstack([code, code.sum(axis=1, keepdims=True) % 2]).astype(np.uint8)
         for generators in (code, even_code):
             checks = get_kernel(generators)
-            search = coset_leader_search._get_classical_search(generators, checks, tuning_fields)
+            search = _coset_leader_search._get_classical_search(generators, checks, tuning_fields)
             syndromes = range(1 << len(checks))
             minima = _coset_minima(generators, checks, syndromes)
             _assert_min_weights_match_brute_force(search, syndromes, minima, len(checks), rng)
     checks = get_kernel(_HEAVY_COSETS_CODE)
-    search = coset_leader_search._get_classical_search(_HEAVY_COSETS_CODE, checks, tuning_fields)
+    search = _coset_leader_search._get_classical_search(_HEAVY_COSETS_CODE, checks, tuning_fields)
     early_stop_syndromes = [1126, 4578, 6129]
     minima = _coset_minima(_HEAVY_COSETS_CODE, checks, early_stop_syndromes)
     _assert_min_weights_match_brute_force(search, early_stop_syndromes, minima, len(checks), rng)
@@ -1944,7 +1947,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
     each coset.
     """
     tune(**tuning)
-    tuning_fields = coset_leader_search._CosetTuning.from_tuning(
+    tuning_fields = _coset_leader_search._CosetTuning.from_tuning(
         get_tuning(), paulis_by_css_weight=False
     )
     cases = []
@@ -1956,13 +1959,13 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
     ]:
         checks = get_kernel(generators)
         syndromes = chosen_syndromes or list(range(1 << len(checks)))
-        search = coset_leader_search._get_classical_search(generators, checks, tuning_fields)
+        search = _coset_leader_search._get_classical_search(generators, checks, tuning_fields)
         minima = _coset_minima(generators, checks, syndromes)
         cases.append((search, len(checks), syndromes, minima, True))
     matrix = _ROUTED_PHYSICAL_STATES[1]
     checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
-    search = coset_leader_search._get_pauli_search(
-        coset_leader_search._StabilizerKey(matrix, checks), False, tuning_fields
+    search = _coset_leader_search._get_pauli_search(
+        _coset_leader_search._StabilizerKey(matrix, checks), False, tuning_fields
     )
     syndromes = list(range(1 << len(matrix)))
     cases.append((search, len(matrix), syndromes, _css_minima(matrix, css_weight=False), False))
@@ -1976,13 +1979,16 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
                     continue
                 packed_syndrome = _pack_syndromes([syndrome], num_syndrome_bits)[0]
                 best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
-                best_weight, parity = coset_leader_search._get_syndrome_word(
+                best_weight, parity = _coset_leader_search._get_syndrome_word(
                     packed_syndrome, best, tables.inverse, tables.x_mask, search.scale
                 )
-                stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
-                    coset_leader_search._get_planning_table(tables.planning, parity), max_weight
+                stop_layer, stop_num_completed, stop_bound = (
+                    _coset_leader_search._get_stopping_step(
+                        _coset_leader_search._get_planning_table(tables.planning, parity),
+                        max_weight,
+                    )
                 )
-                _, *expected = coset_leader_search._search_from_syndrome_word(
+                _, *expected = _coset_leader_search._search_from_syndrome_word(
                     packed_syndrome,
                     max_weight,
                     stop_layer,
@@ -1997,7 +2003,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
                     search.scale,
                     parity if len(tables.planning) == 2 else -1,
                 )
-                _, *found = coset_leader_search._search_coset_for_min_weight(
+                _, *found = _coset_leader_search._search_coset_for_min_weight(
                     packed_syndrome, max_weight, 0, best, *tables, tails, search.scale
                 )
                 skipped += expected[1]
@@ -2131,7 +2137,7 @@ def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
             matrix = rng.integers(2, size=(6, 8), dtype=np.uint8)
             cases.append((matrix[row_reduce_binary(matrix.T.copy())[2]], homogeneous))
     for matrix, homogeneous in cases:
-        rows, transform = coset_leader_search._sparsify(matrix, homogeneous=homogeneous)
+        rows, transform = _coset_leader_search._sparsify(matrix, homogeneous=homogeneous)
         assert np.array_equal(transform @ matrix % 2, rows)
         assert len(row_reduce_binary(transform)[2]) == len(matrix)
         weights = get_weights(rows, homogeneous)
@@ -2157,7 +2163,7 @@ def test_rounds_of_random_reductions_make_rows_sparser() -> None:
         dtype=np.uint8,
     )
     for max_rounds, total_weight in [(0, 10), (20, 9)]:
-        rows, transform = coset_leader_search._get_sparser_rows(
+        rows, transform = _coset_leader_search._get_sparser_rows(
             matrix, homogeneous=False, max_rounds=max_rounds, rounds_without_improvement=20
         )
         assert np.array_equal(transform @ matrix % 2, rows)

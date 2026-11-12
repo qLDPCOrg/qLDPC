@@ -87,8 +87,9 @@ import numpy.typing as npt
 
 from qldpc._binary import unpack_bits
 
+from .._information_sets import basis_families, certificates, completion_bounds
 from .._tuning import MAX_VALUE, SearchTuning
-from . import affine_instance, completion_bounds, information_sets
+from . import affine_instance
 
 
 class _SearchTables(Protocol):
@@ -179,7 +180,7 @@ class CosetRoutes(Generic[_Tables, _Tails]):
             overlapping_minimum_work=0,
             overlapping_attempts_per_set=attempts_per_set,
         )
-        self._binomials = information_sets.get_capped_binomials(len(basis))
+        self._binomials = certificates.get_capped_binomials(len(basis))
         self.disjoint_tables = build_tables(disjoint)
         # The tables of the route of each maximum weight, and the position of its family among the
         # disjoint family and the others if it is a route by tails.
@@ -220,7 +221,7 @@ class CosetRoutes(Generic[_Tables, _Tails]):
         syndrome.
         """
         return [
-            information_sets.plan_steps(
+            certificates.plan_steps(
                 table[:-1],
                 max_weight,
                 0,
@@ -296,18 +297,18 @@ class CosetRoutes(Generic[_Tables, _Tails]):
         num_rows = len(self._basis)
         sets = set()
         for table in tables.planning:
-            stop_layer, stop_num_completed = information_sets.find_stopping_step(
+            stop_layer, stop_num_completed = certificates.find_stopping_step(
                 table[:-1], max_weight, 0, len(table) - 2
             )
             for set_index in range(len(instance.ranks)):
-                last_layer = information_sets.get_completed_layer(
+                last_layer = certificates.get_completed_layer(
                     set_index, stop_layer, stop_num_completed
                 )
                 # The predicate checks first that the last layer has at least two rows, so the check
                 # of unused sets gets the nonnegative layer that it requires.
                 if completion_bounds.considers_tables(
                     num_rows, last_layer, _TABLE_TUNING
-                ) and not information_sets.is_unused_set(
+                ) and not certificates.is_unused_set(
                     instance.pivots, set_index, stop_layer, stop_num_completed
                 ):
                     sets.add(set_index)
@@ -324,13 +325,13 @@ class CosetRoutes(Generic[_Tables, _Tails]):
         """
         weight_factor = self._disjoint.weight_factor
         disjoint = _get_basis_family(self._disjoint, self._basis.shape[1])
-        maximum = information_sets.get_maximum_disjoint_family(self._basis, disjoint)
-        overlapping = information_sets.get_overlapping_family(
+        maximum = basis_families.get_maximum_disjoint_family(self._basis, disjoint)
+        overlapping = basis_families.get_overlapping_family(
             self._basis,
             np.empty((len(self._basis), 0), dtype=np.uint8),
             maximum if len(maximum.ranks) else disjoint,
             weight_factor * target_weight + 1,
-            information_sets.get_overlapping_family_policy(
+            basis_families.get_overlapping_family_policy(
                 self._overlapping_tuning, len(self._basis)
             ),
         )
@@ -348,7 +349,7 @@ class CosetRoutes(Generic[_Tables, _Tails]):
 
 def _get_basis_family(
     instance: affine_instance.AffineInstance, num_columns: int
-) -> information_sets.BasisFamily:
+) -> basis_families.BasisFamily:
     """The basis family of the sets of a coset instance, without labels or a weight divisor.
 
     The routes keep the coset instance of the disjoint family, which every query may scan, and
@@ -356,7 +357,7 @@ def _get_basis_family(
     """
     num_sets, dimension, width = instance.generators.shape
     generators = unpack_bits(instance.generators.reshape(-1, width), num_columns)
-    return information_sets.BasisFamily(
+    return basis_families.BasisFamily(
         generators.reshape(num_sets, dimension, num_columns),
         np.empty((num_sets, dimension, 0), dtype=np.uint8),
         instance.pivots,

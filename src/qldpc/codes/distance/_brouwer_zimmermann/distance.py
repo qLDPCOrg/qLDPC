@@ -27,19 +27,19 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits
 
 from .._binary import get_eligible_rows
-from .._tuning import SearchTuning, get_tuning
-from . import (
-    affine_instance,
-    affine_search,
+from .._brute_force import get_nested_distance_brute_force
+from .._information_sets import (
     automorphism_families,
+    basis_families,
+    certificates,
     completion_bounds,
-    information_sets,
 )
-from .brute_force import get_nested_distance_brute_force
+from .._tuning import SearchTuning, get_tuning
+from . import affine_instance, affine_search
 
 # A function that returns the automorphism family of a problem for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[
-    [int], tuple[information_sets.BasisFamily, information_sets.Certificate] | None
+    [int], tuple[basis_families.BasisFamily, certificates.Certificate] | None
 ]
 
 ####################################################################################################
@@ -52,7 +52,7 @@ def get_distance_brouwer_zimmermann_many(
     cutoff: int,
     weight_divisor: int = 1,
     upper_bound: int | None = None,
-    get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]] | None = None,
+    get_disjoint_basis_families: Sequence[Callable[[], basis_families.BasisFamily]] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning | None = None,
 ) -> int:
@@ -200,7 +200,7 @@ def enumeration_is_cheaper_than_setup(
 def _enumeration_is_cheaper_than_search(
     *,
     num_logical_rows: int,
-    certificate: information_sets.Certificate,
+    certificate: certificates.Certificate,
     upper_bound: int,
 ) -> bool:
     """Estimate whether exhaustive nested-code enumeration will outperform BZ.
@@ -314,9 +314,7 @@ class _BrouwerZimmermannSearch:
         # Before a costly layer, consider scanning one set and certifying with its images.  Like
         # the work estimates of certificates, this estimate saturates at their cap, so that the
         # largest threshold of a tuning forbids the switch.
-        layer_work = min(
-            num_scanned * math.comb(self.dimension, weight), information_sets._WORK_CAP
-        )
+        layer_work = min(num_scanned * math.comb(self.dimension, weight), certificates._WORK_CAP)
         if (
             self.get_automorphism_family is not None
             and layer_work >= self.tuning.automorphism_minimum_layer_work
@@ -551,7 +549,7 @@ def _prepare_brouwer_zimmermann_search(
     weight_divisor: int,
     upper_bound: int,
     initial_upper_bound: int | None = None,
-    get_disjoint_basis_family: Callable[[], information_sets.BasisFamily] | None = None,
+    get_disjoint_basis_family: Callable[[], basis_families.BasisFamily] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning,
 ) -> int | _BrouwerZimmermannSearch:
@@ -592,7 +590,7 @@ def _prepare_brouwer_zimmermann_search(
 
     # The disjoint basis family's certificate also uses any inferred even ambient parity.
     basis_family = (
-        information_sets.get_disjoint_family(
+        basis_families.get_disjoint_family(
             basis,
             labels,
             random_column_orders=tuning.disjoint_random_column_orders,
@@ -605,7 +603,7 @@ def _prepare_brouwer_zimmermann_search(
     if best <= cutoff:
         return best
 
-    basis_family = information_sets.prune_family(basis_family, upper_bound=best)
+    basis_family = basis_families.prune_family(basis_family, upper_bound=best)
     # Each basis family of an independent basis has a set, whose systematic rows complete layer one.
     completed_weight = 1
     lower_bound = basis_family.certificate.lower_bound(completed_weight)
@@ -615,14 +613,14 @@ def _prepare_brouwer_zimmermann_search(
     # Replace the basis family only when overlapping sets, built heuristically and then, for costly
     # searches, by matroid partitioning, predict less certification work.
     for get_replacement in (
-        lambda family, best: information_sets.get_overlapping_family(
+        lambda family, best: basis_families.get_overlapping_family(
             basis,
             labels,
             family,
             best,
-            information_sets.get_overlapping_family_policy(tuning, dimension),
+            basis_families.get_overlapping_family_policy(tuning, dimension),
         ),
-        lambda family, best: information_sets.get_partitioned_family(
+        lambda family, best: basis_families.get_partitioned_family(
             basis,
             labels,
             family,
@@ -683,7 +681,7 @@ def _get_automorphism_family(
     labels: npt.NDArray[np.uint8],
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None],
     weight_divisor: int,
-) -> tuple[information_sets.BasisFamily, information_sets.Certificate] | None:
+) -> tuple[basis_families.BasisFamily, certificates.Certificate] | None:
     """Verify the automorphisms of a problem, and build the automorphism family of one set.
 
     Args:
@@ -720,7 +718,7 @@ def _get_lightest_eligible_row_weight(
 
 
 def _get_basis_family_upper_bound(
-    basis_family: information_sets.BasisFamily,
+    basis_family: basis_families.BasisFamily,
     upper_bound: int,
 ) -> int:
     """Tighten an upper bound with the systematic rows of a basis family: its layer-one words."""

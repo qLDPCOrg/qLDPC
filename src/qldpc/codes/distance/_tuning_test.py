@@ -26,9 +26,10 @@ from qldpc.objects import Pauli
 
 from . import _tuning, core
 from . import logical_counts as lc
+from ._brouwer_zimmermann import distance as bz
+from ._connected_support import search as connected_support
 from ._counting import scan
-from ._search import brouwer_zimmermann as bz
-from ._search import connected_support, information_sets
+from ._information_sets import basis_families
 from .conftest import CostlyStages, get_random_css_code, get_sector_problem
 
 
@@ -143,7 +144,7 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
     By default, and with every threshold below at ``MAX_VALUE``, the distance searches of this code
     enumerate every word.  With every threshold below at zero, the searches take a family found by
     matroid partitioning instead.  These searches never scan one information set at a time, so the
-    tests of ``_search/brouwer_zimmermann_test.py`` force completion tables instead.
+    tests of ``_brouwer_zimmermann/distance_test.py`` force completion tables instead.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
@@ -259,11 +260,11 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     Tuning keeps results, so recording the arguments of each reader is what shows that a value
     arrives.  The tuning takes every route, with values that differ from the defaults.  Fields that
     this test does not follow are read in one of two ways.  Some are read within one function from
-    the tuning that it receives, and their tests in ``_search/completion_bounds_test.py`` and
-    ``_search/information_sets_test.py`` change them there.  Others are read once by
+    the tuning that it receives, and their tests in ``_information_sets/completion_bounds_test.py``
+    and ``_information_sets/basis_families_test.py`` change them there.  Others are read once by
     ``CosetLeaderSearch``, which passes their values down to its coset searches:
     ``max_css_single_pairs``, ``max_sparsifying_rounds``, and
-    ``sparsifying_rounds_without_improvement``.  Tests in ``_search/coset_leader_search_test.py``
+    ``sparsifying_rounds_without_improvement``.  Tests in ``_coset_leader_search_test.py``
     change or record these, and the fields that the oracle passes down to the routes of its BZ
     searches.
     """
@@ -282,10 +283,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         monkeypatch.setattr(owner, name, recording)
 
     record(bz, "enumeration_is_cheaper_than_setup", "max_dimension", "setup_cost_factor")
-    record(information_sets, "_get_disjoint_sets", "random_column_orders")
-    record(information_sets, "get_overlapping_family_policy", "tuning", prefix="overlapping ")
-    record(information_sets, "get_partitioned_family", "tuning")
-    record(information_sets.BasisFamily, "get_search_certificate", "lp_max_denominator")
+    record(basis_families, "_get_disjoint_sets", "random_column_orders")
+    record(basis_families, "get_overlapping_family_policy", "tuning", prefix="overlapping ")
+    record(basis_families, "get_partitioned_family", "tuning")
+    record(basis_families.BasisFamily, "get_search_certificate", "lp_max_denominator")
     record(bz, "get_nested_distance_brute_force", "batch_exponent", prefix="bz ")
     record(core, "get_distance_quantum_brute_force", "batch_exponent", prefix="classical ")
     record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="quantum ")

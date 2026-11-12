@@ -17,7 +17,7 @@ from qldpc.objects import Pauli
 
 from .._binary import get_eligible_rows
 from ..conftest import get_sector_problem
-from . import automorphism_families, information_sets
+from . import automorphism_families, certificates
 
 
 def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
@@ -115,7 +115,7 @@ def test_automorphism_family_work_scans_one_set_per_layer() -> None:
     This certificate of three images of an information set of a five-row basis, with coverage two,
     bounds unvisited words by ``ceil(3 (t + 1) / 2)`` once every image has completed layer ``t``.
     """
-    certificate = information_sets.Certificate(5, (5,) * 3, max_coverage=2)
+    certificate = certificates.Certificate(5, (5,) * 3, max_coverage=2)
     # layer one certifies weight three; layer two certifies five; no layer certifies 100
     assert automorphism_families.estimate_automorphism_family_work(certificate, 3) == 5
     assert automorphism_families.estimate_automorphism_family_work(certificate, 4) == 5 + 10

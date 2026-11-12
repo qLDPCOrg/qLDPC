@@ -26,12 +26,12 @@ from ._binary import (
     get_nested_code_basis,
     symplectic_to_hamming,
 )
-from ._search.brouwer_zimmermann import (
+from ._brouwer_zimmermann.distance import (
     get_distance_brouwer_zimmermann,
     get_distance_brouwer_zimmermann_many,
 )
-from ._search.brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
-from ._search.connected_support import get_distance_connected_support
+from ._brute_force import get_distance_quantum_brute_force, get_nested_distance_brute_force
+from ._connected_support.search import get_distance_connected_support
 from ._tuning import SearchTuning, get_tuning
 
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
@@ -386,7 +386,7 @@ def _get_distance_connected_support(
     sector of a CSS code, the parity checks of a classical code with nothing excluded, or the
     symplectic stabilizers and gauge generators of a qubit code (``homogeneous=False``).  This
     function searches them with the active tuning.  Its other arguments, its result, and its errors
-    are those of ``get_distance_connected_support`` in ``_search/connected_support.py``, which
+    are those of ``get_distance_connected_support`` in ``_connected_support/search.py``, which
     validates the problems.
     """
     return get_distance_connected_support(

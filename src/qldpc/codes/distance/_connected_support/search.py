@@ -33,9 +33,9 @@ from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_w
 from qldpc._compilation import always_compiled
 
 from .._binary import assert_binary, get_nested_code_basis
+from .._information_sets import automorphism_families
+from .._information_sets.basis_families import infer_weight_divisor
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
-from . import automorphism_families
-from .information_sets import infer_weight_divisor
 
 # The largest scale of the weights of checks, which keeps their sums far from overflowing 64 bits.
 _MAX_SCALE = 2**40
