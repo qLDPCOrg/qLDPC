@@ -35,7 +35,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize_scalar
 
-from qldpc.codes import CSSLogicalCounter, CSSLogicalCounts, LogicalCountMethod
+from qldpc.codes import NO_DISTANCE, CSSLogicalCounter, CSSLogicalCounts, LogicalCountMethod
 from qldpc.codes.distance import _tuning
 
 from .proposals import CODE_TYPES, CodeType, propose
@@ -199,7 +199,13 @@ class Score:
 
     @classmethod
     def from_counts(cls, counts: CSSLogicalCounts) -> Score:
-        """The score of a code, from library counts at its distance."""
+        """The score of a code, from library counts at its distance.
+
+        Raises:
+            ValueError: If the code encodes no logical qubits, and so has no distance.
+        """
+        if counts.weight is NO_DISTANCE:
+            raise ValueError("A code without logical qubits has no score")
         return cls(counts.weight, counts.count_x, counts.count_z)
 
 

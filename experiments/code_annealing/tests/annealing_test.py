@@ -273,7 +273,7 @@ def test_a_configuration_rejects_a_code_that_its_policy_cannot_use(
 def _brute_force_score(counter: codes.CSSLogicalCounter) -> a.Score:
     """The score of a code from the brute-force counts of the library."""
     counts = counter.count_logical_ops(method="brute_force")
-    return a.Score(counts.weight, counts.count_x, counts.count_z)
+    return a.Score.from_counts(counts)
 
 
 def _rank(score: a.Score) -> tuple[int, int]:
