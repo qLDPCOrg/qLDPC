@@ -20,7 +20,7 @@ from qldpc.objects import PAULIS_XZ, Pauli
 
 from .. import _tuning
 from ..conftest import get_span
-from . import connected_support as cs
+from . import search as cs
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
