@@ -20,7 +20,7 @@ import galois
 import grimp
 import pytest
 
-from qldpc import abstract, external
+from qldpc import _compilation, abstract, external
 
 # A comment that lets an import break the layering rule of check_import_layering.
 _LAYERING_EXCEPTION = re.compile(r"#\s*layering-exception:\s*\S")
@@ -33,11 +33,14 @@ def run_python(
 
     The child interpreter receives this interpreter's import path as its PYTHONPATH, so that it
     imports the same qLDPC sources rather than whatever qldpc its environment happens to resolve.
+    The child does not inherit ``QLDPC_DISABLE_COMPILATION``, so that it compiles qLDPC's functions
+    as a user's interpreter does.  ``env`` can still set that variable, and the child inherits
+    ``NUMBA_DISABLE_JIT``.
 
     Args:
         code: The code to run, passed to the interpreter with -c.
         *options: Interpreter options that precede -c, such as "-W", "error".
-        env: Environment variables to set in the child, in addition to this process's environment.
+        env: Environment variables to set in the child, in addition to the ones that it inherits.
         timeout: The number of seconds after which to abort the child.  Default: 600.
 
     Returns:
@@ -47,11 +50,13 @@ def run_python(
         AssertionError: If the child exits with a nonzero return code, showing its standard error.
     """
     import_path = os.pathsep.join(path for path in sys.path if path)
+    environment = {**os.environ, "PYTHONPATH": import_path}
+    environment.pop(_compilation.DISABLE_COMPILATION_VARIABLE, None)
     result = subprocess.run(
         [sys.executable, *options, "-c", code],
         capture_output=True,
         check=False,
-        env={**os.environ, "PYTHONPATH": import_path, **(env or {})},
+        env={**environment, **(env or {})},
         text=True,
         timeout=timeout,
     )

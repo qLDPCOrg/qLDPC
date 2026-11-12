@@ -53,6 +53,14 @@ function that is neither runs as ordinary Python.  A small always-compiled helpe
 call can be marked ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function
 may call always-compiled and compiled-on-request functions.  An always-compiled function may call
 only always-compiled functions, since it is compiled and cached by itself.
+
+If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
+function of both kinds runs as ordinary Python, much more slowly.  :func:`always_compiled` then
+returns the function itself, :func:`~qldpc.codes.distance.compile_search_setup` leaves the
+compiled-on-request functions as they are, and qLDPC neither uses nor cleans up its directories of
+compiled code.  Coverage tools can then trace every line of these functions, and errors in them show
+Python tracebacks.  Numba's own ``NUMBA_DISABLE_JIT`` does the same for every package that uses
+numba, such as galois, which then runs slowly too.
 """
 
 from __future__ import annotations
@@ -87,11 +95,16 @@ class _NumbaConfig(Protocol):
     """The settings of numba that this module reads and writes."""
 
     CACHE_DIR: str
-    DISABLE_JIT: bool
+    DISABLE_JIT: int
 
 
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
 _numba_config = cast(_NumbaConfig, config)
+
+# If this environment variable is "1" when qLDPC is imported, the functions that numba would compile
+# run as ordinary Python (see the module docstring).
+DISABLE_COMPILATION_VARIABLE = "QLDPC_DISABLE_COMPILATION"
+_DISABLED_BY_VARIABLE = os.environ.get(DISABLE_COMPILATION_VARIABLE) == "1"
 
 # The directory of qLDPC, whose source files name the directory of its compiled code.
 _PACKAGE_DIRECTORY = Path(__file__).parent
@@ -160,12 +173,17 @@ def always_compiled(
 
     Used as ``@always_compiled(inline=True)``, it also makes compiled code that calls the function
     include its code rather than call it, which saves the cost of a call in a hot loop.
+
+    If ``QLDPC_DISABLE_COMPILATION`` or numba's ``NUMBA_DISABLE_JIT`` disables compilation (see the
+    module docstring), it returns the function itself.
     """
     if function is None:
         return lambda function: always_compiled(function, inline=inline)
+    if is_compilation_disabled():
+        # The plain function stands in for a dispatcher, as numba's njit returns it under
+        # NUMBA_DISABLE_JIT.  qLDPC's library code only calls it.
+        return cast("Dispatcher[_Function]", function)
     mode: Literal["always", "never"] = "always" if inline else "never"
-    if _numba_config.DISABLE_JIT:  # numba then runs every function as ordinary Python
-        return numba.njit(inline=mode)(function)
     cache_directory = _get_cache_directory(_PACKAGE_DIRECTORY)
     dispatcher = (
         None if cache_directory is None else _compile_with_cache_in(function, cache_directory, mode)
@@ -189,7 +207,10 @@ def set_on_request_functions_compiled(compiled: bool) -> None:
     """Replace every registered function by its compiled, or by its plain Python, version.
 
     A function is compiled once, when first called after the first request, and kept for later ones.
+    If ``QLDPC_DISABLE_COMPILATION`` or numba's ``NUMBA_DISABLE_JIT`` disables compilation, every
+    function stays plain Python.
     """
+    compiled = compiled and not is_compilation_disabled()
     for item in _ON_REQUEST_FUNCTIONS:
         if compiled and item.compiled is None:
             item.compiled = numba.njit(item.function)
@@ -198,6 +219,11 @@ def set_on_request_functions_compiled(compiled: bool) -> None:
 
 ####################################################################################################
 # helper functions
+
+
+def is_compilation_disabled() -> bool:
+    """Whether qLDPC's or numba's switch disables compilation (see the module docstring)."""
+    return _DISABLED_BY_VARIABLE or bool(_numba_config.DISABLE_JIT)
 
 
 def _compile_with_cache_in(

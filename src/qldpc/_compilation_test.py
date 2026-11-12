@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for compiled functions: the disk cache, the registry, and the rules that make them safe."""
+"""Tests for compiled functions: the disk cache, the registry, and the rules that make them safe.
+
+They also test ``QLDPC_DISABLE_COMPILATION``, which runs the functions as plain Python.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +26,12 @@ import qldpc
 from qldpc.conftest import run_python
 
 from . import _compilation
+
+
+@pytest.fixture(autouse=True)
+def enable_compilation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compile by default in each test here, even in a run with ``QLDPC_DISABLE_COMPILATION``."""
+    monkeypatch.setattr(_compilation, "_DISABLED_BY_VARIABLE", False)
 
 
 def test_registered_functions_switch_between_plain_and_compiled(
@@ -334,13 +343,46 @@ def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class
     assert compiled(1) == 2
 
 
-def test_always_compiled_functions_are_plain_python_if_numba_is_disabled(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("switch", ["qldpc", "numba"])
+def test_functions_run_as_plain_python_if_compilation_is_disabled(
+    switch: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(_compilation._numba_config, "DISABLE_JIT", True)
-    compiled = _compilation.always_compiled(_add_one)
-    assert compiled(1) == 2
-    assert not hasattr(compiled, "stats")
+    """Either qLDPC's switch or numba's leaves functions of both kinds as they are.
+
+    qLDPC never looks up its directory of compiled code, so it neither uses nor cleans up its
+    directories.
+    """
+    monkeypatch.setattr(
+        _compilation,
+        "_get_cache_directory",
+        lambda package: pytest.fail("looked up the cache directory"),
+    )
+    if switch == "qldpc":
+        monkeypatch.setattr(_compilation, "_DISABLED_BY_VARIABLE", True)
+    else:
+        monkeypatch.setattr(_compilation._numba_config, "DISABLE_JIT", 1)
+    assert _compilation.always_compiled(_add_one) is _add_one
+    assert _compilation.always_compiled(inline=True)(_add_one) is _add_one
+
+    monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", [])
+    plain = _compilation.compiled_on_request(_scaled_sum)
+    try:
+        _compilation.set_on_request_functions_compiled(True)
+        assert globals()["_scaled_sum"] is plain
+    finally:
+        _compilation.set_on_request_functions_compiled(False)
+
+
+def test_the_environment_variable_disables_compilation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``QLDPC_DISABLE_COMPILATION`` disables compilation if it is 1 when qLDPC is imported.
+
+    The interpreters that ``run_python`` starts do not inherit it, so they compile as a user's does.
+    """
+    code = "from qldpc import _binary\nprint(type(_binary.pack_bits).__name__)"
+    monkeypatch.setenv("QLDPC_DISABLE_COMPILATION", "1")
+    assert run_python(code).strip() == "CPUDispatcher"
+    assert run_python(code, env={"QLDPC_DISABLE_COMPILATION": "0"}).strip() == "CPUDispatcher"
+    assert run_python(code, env={"QLDPC_DISABLE_COMPILATION": "1"}).strip() == "function"
 
 
 def test_editing_a_callee_in_another_subpackage_recompiles_its_caller(tmp_path: Path) -> None:
