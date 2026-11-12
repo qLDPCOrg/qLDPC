@@ -7,7 +7,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
-| [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and paired comparisons of their tunings on distance, count, and coset workloads | `benchmark.py`; `sweep.py`, then `collect_results.py` |
+| [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and paired comparisons of their tunings on distance, count, and coset workloads | `benchmark.py`; `sweep.py`, then `collect_results.py`; `trace.py`, `fit_completion_costs.py`, and `cache_stats.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
@@ -220,6 +220,12 @@ python experiments/distance_tuning/sweep.py --tag max-sets --rounds 6 \
     --workloads distance/pp232/X distance/lp13s5/X --field max_information_sets --values 16 8 24
 python experiments/distance_tuning/collect_results.py --tags max-sets
 ```
+
+Three more scripts explain what a tuning changes.
+[`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of one distance search or count, such as the families of information sets that it builds and the completion tables of each layer.
+[`fit_completion_costs.py`](distance_tuning/fit_completion_costs.py) traces searches with completion tables disabled, forced, and at the defaults, and refits the cost model that chooses them.
+[`cache_stats.py`](distance_tuning/cache_stats.py) reports the hit rates of the caches of exact searches over a sequence of workloads.
+Lookups of completion tables compete for the processor's caches, so time them one search at a time.
 
 ## Lattice surgery
 
