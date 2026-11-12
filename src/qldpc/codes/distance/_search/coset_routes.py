@@ -294,13 +294,10 @@ class CosetRoutes(Generic[_Tables, _Tails]):
         tables if the predicate considers its last layer.
         """
         num_rows = len(self._basis)
-        # The routes need the stopping step alone.  Empty binomials ask ``plan_steps`` for the step
-        # only, and a plan that leaves out no sets reads no ranks, so both are empty placeholders.
-        no_values = np.empty(0, dtype=np.int64)
         sets = set()
         for table in tables.planning:
-            stop_layer, stop_num_completed, _ = information_sets.plan_steps(
-                table[:-1], max_weight, 0, len(table) - 2, no_values, no_values, False
+            stop_layer, stop_num_completed = information_sets.find_stopping_step(
+                table[:-1], max_weight, 0, len(table) - 2
             )
             for set_index in range(len(instance.ranks)):
                 last_layer = information_sets.get_completed_layer(

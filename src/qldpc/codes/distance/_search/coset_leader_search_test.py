@@ -981,13 +981,13 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     zero, two, and four in a code of dimension four, for both weight factors.
     """
     plans: list[int] = []
-    plan_steps = information_sets.plan_steps
+    find_stopping_step = information_sets.find_stopping_step
 
-    def record(*args: Any) -> tuple[int, int, int]:
+    def record(*args: Any) -> tuple[int, int]:
         plans.append(args[1])
-        return plan_steps(*args)
+        return find_stopping_step(*args)
 
-    monkeypatch.setattr(information_sets, "plan_steps", record)
+    monkeypatch.setattr(information_sets, "find_stopping_step", record)
     # Take the Python version even when the function is compiled, since only it calls the recording
     # function.
     function = coset_leader_search._get_stopping_step

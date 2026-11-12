@@ -1606,10 +1606,10 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
     ``[w, j - 1]``, and for a nonnegative maximum weight, step ``(w, j)`` is the stopping step
     exactly if its bound exceeds the maximum weight and entry ``[w, j - 1]`` does not.  The step
     cached in the table (see ``_get_planning``) is reused if it passes this check.  Otherwise,
-    ``information_sets.plan_steps`` finds the stopping step by binary search, and it is cached in
-    its place.  A negative maximum weight fails the check, and the binary search returns the first
-    step.  If no bound exceeds the maximum weight, which happens only when the maximum weight
-    reaches the largest native integer, the binary search returns the last step.
+    ``information_sets.find_stopping_step`` finds the stopping step by binary search, and it is
+    cached in its place.  A negative maximum weight fails the check, and the binary search returns
+    the first step.  If no bound exceeds the maximum weight, which happens only when the maximum
+    weight reaches the largest native integer, the binary search returns the last step.
 
     Oracles that share a cached search share its planning buffer.  Compiled calls hold the global
     interpreter lock, since numba compiles them without ``nogil``, so calls interleave only when
@@ -1627,11 +1627,8 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
         max_weight < bounds[layer, num_completed] and bounds[layer, num_completed - 1] <= max_weight
     )
     if not is_stopping_step:
-        # The search needs the step alone.  Empty binomials ask ``plan_steps`` for the step only,
-        # and a plan that leaves out no sets reads no ranks, so both are empty placeholders.
-        no_values = np.empty(0, dtype=np.int64)
-        layer, num_completed, _ = information_sets.plan_steps(
-            bounds, max_weight, 0, len(bounds) - 1, no_values, no_values, False
+        layer, num_completed = information_sets.find_stopping_step(
+            bounds, max_weight, 0, len(bounds) - 1
         )
         table[-1, 0], table[-1, 1] = layer, num_completed
     return layer, num_completed, int(bounds[layer, num_completed])
@@ -2039,16 +2036,11 @@ def _search_coset_for_min_weight(
 def _get_first_step_reaching(bounds: npt.NDArray[np.int64], target: int) -> tuple[int, int]:
     """The first step whose bound in a table of bounds of steps reaches ``target``.
 
-    It is the stopping step of ``information_sets.plan_steps`` for the limit ``target - 1``.  Given
-    empty ranks and binomials, ``plan_steps`` returns only that step, with zero work.  Unlike
-    ``_get_stopping_step``, this function caches no step, so the cached steps of the planning buffer
-    serve only the queries of ``_search_coset``.
+    It is the stopping step of ``information_sets.find_stopping_step`` for the limit
+    ``target - 1``.  Unlike ``_get_stopping_step``, this function caches no step, so the cached
+    steps of the planning buffer serve only the queries of ``_search_coset``.
     """
-    no_values = np.empty(0, dtype=np.int64)
-    layer, num_completed, _ = information_sets.plan_steps(
-        bounds, target - 1, 0, len(bounds) - 1, no_values, no_values, False
-    )
-    return layer, num_completed
+    return information_sets.find_stopping_step(bounds, target - 1, 0, len(bounds) - 1)
 
 
 @always_compiled(inline=True)
