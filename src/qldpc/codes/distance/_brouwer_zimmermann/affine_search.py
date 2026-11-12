@@ -403,7 +403,7 @@ def scan_coset_layer_by_tails_with_tables(
     skips, as a distance search does, the completions whose bound reaches the best weight so far.
     So it skips no word lighter than the best weight at the time, and finds the lightest word of the
     layer if it is lighter than ``best``, unless it returns at the cutoff first (see
-    ``coset_leader_search._search_coset_for_min_weight``).
+    ``_search_coset_for_min_weight`` in ``coset.py``).
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of

@@ -5,13 +5,16 @@
 The disjoint/rank-deficient certificates follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_;
 the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
 The overlapping-set certificate and implementation invariants are derived in
-``brouwer_zimmermann.md`` beside this module.  Information-set families and their certificates are
-built in ``information_sets.py``, which fixed-weight logical counting shares.  Families of
-images of one information set under automorphisms are built in ``automorphism_families.py``, and
-tables that let a scan skip hopeless supports in ``completion_bounds.py``.  The compiled scans of
-layers, which the coset search shares, are in ``affine_search.py``.  ``affine_instance.py`` packs
-the sets of a search with their certificate, for the coset search too.  This module owns witness
-discovery, early exits, exhaustive dispatch, and the resumable scans of layers in chunks.
+``brouwer_zimmermann.md`` in ``src/qldpc/codes/distance/``.
+
+Information-set families and their certificates are built in ``_information_sets/``, which
+fixed-weight logical counting shares.  Its ``basis_families.py`` builds the families, and
+``certificates.py`` their certificates.  Its ``automorphism_families.py`` builds families of the
+images of one information set under automorphisms, and ``completion_bounds.py`` the tables that let
+a scan skip hopeless supports.  Beside this module, ``affine_search.py`` holds the compiled scans of
+layers, and ``affine_instance.py`` packs the sets of a search with their certificate.  The coset
+searches share both.  This module owns witness discovery, early
+exits, exhaustive dispatch, and the resumable scans of layers in chunks.
 """
 
 from __future__ import annotations
@@ -74,9 +77,9 @@ def get_distance_brouwer_zimmermann_many(
         get_disjoint_basis_families: If given, holds a function for each problem that returns a
             disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the
             problem's basis, with quotient labels of the problem, certified with this
-            ``weight_divisor``.  The result of ``information_sets.get_disjoint_family`` is one,
-            and a caller that keeps such families saves that first stage.  Each function is called
-            only if its search needs it.
+            ``weight_divisor``.  The result of ``basis_families.get_disjoint_family`` is one, and a
+            caller that keeps such families saves that first stage.  Each function is called only if
+            its search needs it.
         get_automorphisms: If given, returns an array of generators of a group of column
             permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.
             Each generator must map the searched space and the excluded subspace of every problem
@@ -555,7 +558,7 @@ def _prepare_brouwer_zimmermann_search(
 ) -> int | _BrouwerZimmermannSearch:
     """Prepare one BZ search, or return immediately when another route is cheaper.
 
-    The basis family stages of ``information_sets`` run in order, with distance-specific witness,
+    The basis family stages of ``basis_families`` run in order, with distance-specific witness,
     cutoff, certificate, and exhaustive exits between them.  ``tuning`` sets the thresholds of the
     stages and exits.  ``get_disjoint_basis_family``, if given, returns the result of the first
     stage.  ``get_automorphisms``, if given, lets the search switch to an automorphism family before

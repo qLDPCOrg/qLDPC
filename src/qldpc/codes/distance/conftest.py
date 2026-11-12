@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared fixtures and helpers for exact-distance, binary-algebra, BZ, and count tests."""
+"""Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
 import itertools
 from collections.abc import Iterable, Sequence
@@ -289,10 +289,11 @@ def _pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np
 
 # Graph states whose searches of Pauli errors, by physical and by CSS weight, have a maximum
 # disjoint family with more information sets, or a larger partial set, than their greedy packing,
-# which their costly queries take (see ``coset_routes``).  The family of the first state for the
-# physical weight has more information sets, and those of the other two states have a larger partial
-# set.  The two states for the physical weight differ in the answers that this family changes.  On
-# the second, it returns other errors for some classes without a light enough error.
+# which their costly queries take (see ``_brouwer_zimmermann/coset_routes.py``).  The family of the
+# first state for the physical weight has more information sets, and those of the other two states
+# have a larger partial set.  The two states for the physical weight differ in the answers that this
+# family changes.  On the second, it returns other errors for some classes without a light enough
+# error.
 _ROUTED_PHYSICAL_STATES = (
     _graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
     _graph_state(5, [(0, 4), (2, 3)]),

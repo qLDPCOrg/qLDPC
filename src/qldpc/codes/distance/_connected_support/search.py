@@ -14,10 +14,11 @@ a root, finds a light vector with that syndrome, such as a light Pauli error wit
 on a stabilizer state.
 
 ``connected_support.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
-correctness requirements.  The Brouwer-Zimmermann search in ``brouwer_zimmermann.py`` solves the
-same problem for any binary code.  This module reuses the weight divisors of
-``information_sets.py``, and the verification and orbits of automorphisms of
-``automorphism_families.py``.
+correctness requirements.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py``
+solves the same problem for any binary code.  This module reuses the weight divisors of
+``_information_sets/basis_families.py``, and the verification and orbits of automorphisms of
+``_information_sets/automorphism_families.py``.  The coset searches of ``CosetLeaderSearch`` that
+start from a syndrome are in ``coset.py`` beside it.
 """
 
 from __future__ import annotations

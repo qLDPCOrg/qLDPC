@@ -18,9 +18,10 @@ puts in place of ``U`` the least bound that proves a word heavier than its maxim
 for a minimum weight uses that bound until it finds a word within the maximum weight, and then, when
 each scan starts, the Hamming weight of its lightest word, or one less where every word of the coset
 has its parity.  Once a scan finds a lighter word, the tables skip at the Hamming weight of the
-lightest word that it has found (see ``coset_leader_search._search_coset_for_min_weight``).
-The bases of the coset searches need not be information sets, so in place of ``w`` they bound the
-ones of a completion on pivot columns (see ``affine_search.scan_coset_layer_by_tails_with_tables``).
+lightest word that it has found (see ``_search_coset_for_min_weight`` in
+``_brouwer_zimmermann/coset.py``).  The bases of the coset searches need not be information sets, so
+in place of ``w`` they bound the ones of a completion on pivot columns (see
+``scan_coset_layer_by_tails_with_tables`` in ``_brouwer_zimmermann/affine_search.py``).
 
 Tables of the least weights on each block, for every value of ``p`` on the block and every ``s``,
 make each bound a few lookups.  They cost memory and time to build, so ``predict_completion_cost``
@@ -32,7 +33,7 @@ only guides these choices: a search skips completions only when a computed bound
 cannot lower ``U``.
 ``considers_tables`` states which layers a tuning considers for tables at all.  Coset searches build
 the tables of the bases of their costliest queries without sampling, if they fit within a limit (see
-``coset_routes`` and ``build_tables_within``).
+``_brouwer_zimmermann/coset_routes.py``, and ``build_tables_within``).
 """
 
 from __future__ import annotations

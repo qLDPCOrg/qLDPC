@@ -3,7 +3,7 @@
 """The scan of the words of one weight in a sector: its set-up, its loop, and its native chunks.
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` selects
-information sets for the basis, with the basis family stages of ``information_sets.py``, packs
+information sets for the basis, with the basis family stages of ``_information_sets/``, packs
 them, and visits each word of the given weight once, by enumerating combinations of the rows of
 every set, layer by layer.  A step of two or more rows of an information set may skip the supports
 whose words all weigh more than the given weight, with the completion tables of

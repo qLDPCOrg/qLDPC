@@ -28,11 +28,11 @@ _SPARSIFYING_SEED = 0
 class _ConnectedSupportCosetSearch:
     """A coset search of a ``CosetLeaderSearch`` by the connected-support search of its checks.
 
-    The words, checks, and syndromes are those of a ``_CosetSearch``: packed Paulis, whose syndrome
-    for the stabilizers is that of the symplectic search of ``SupportSearch``, or
-    the X or Z parts of Paulis, whose syndrome is that of a binary search of the checks.  The search
-    starts from the syndrome of a query, and grows supports through its unsatisfied checks (Section
-    3.8 of ``connected_support.md``).
+    The words, checks, and syndromes are those of a BZ ``_CosetSearch``
+    (``_brouwer_zimmermann/coset.py``): packed Paulis, whose syndrome for the stabilizers is that of
+    the symplectic search of ``SupportSearch``, or the X or Z parts of Paulis, whose syndrome is
+    that of a binary search of the checks.  The search starts from the syndrome of a query, and
+    grows supports through its unsatisfied checks (Section 3.8 of ``connected_support.md``).
 
     Like a ``_CosetSearch``, it first looks up a word of weight zero or one by its syndrome: a
     single variable, or a single-qubit Pauli.  It searches only cosets with no such word, so a coset

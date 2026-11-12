@@ -10,9 +10,9 @@ with connected-support searches that start from the syndrome.  For the residual-
 maximum weight.
 
 This module is the entry point of these queries.  It splits a query into coset searches, which live
-with their methods: ``_brouwer_zimmermann/coset.py``, with the tables of its steps and tails in
-``_brouwer_zimmermann/coset_tables.py``, and ``_connected_support/coset.py``.  The parts that both
-methods share are in ``_cosets.py``.
+with their methods.  The BZ coset searches are in ``_brouwer_zimmermann/coset.py``, and the tables
+of their steps and tails in ``_brouwer_zimmermann/coset_tables.py``.  The connected-support coset
+searches are in ``_connected_support/coset.py``.  What both methods share is in ``_cosets.py``.
 """
 
 from __future__ import annotations
@@ -63,7 +63,8 @@ class CosetLeaderSearch:
 
     The oracle answers a query with one or two coset searches.  By default, each searches the
     cosets of a binary code with the Brouwer-Zimmermann (BZ) algorithm (see
-    ``brouwer_zimmermann.md``), as ``_search_coset`` describes, and ``get_min_weight_bound`` first
+    ``brouwer_zimmermann.md``), as ``_search_coset`` in ``_brouwer_zimmermann/coset.py`` describes,
+    and ``get_min_weight_bound`` first
     looks up words of weight at most one in a table.
 
     - In general, one Pauli search covers the Pauli errors themselves, modulo the stabilizers.
@@ -85,17 +86,17 @@ class CosetLeaderSearch:
       share them.
 
     With ``method="connected_support"``, each coset search is instead the search of
-    ``connected_support.SupportSearch`` from the syndrome of a query, through the unsatisfied
-    stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers
-    for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are sparse.
-    Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its checks with
-    sparser ones that span the same space, which can fall short of the sparsest generators.  Which
-    checks it finds depends on the tuning, and can change which error a query returns, but not its
-    answer or its lower bound.  The CSS weight is not a sum over qubits, so it weighs errors by CSS
-    weight only on CSS states, whose X and Z parts it searches separately.  Like the BZ
-    searches, it first looks up errors of weight at most one, so a syndrome with such an error gets
-    the weight of its lightest errors as a lower bound.  For any other syndrome, a query with an
-    error within ``max_weight`` gives two, and a query with none gives the larger of two and
+    ``SupportSearch`` in ``_connected_support/search.py`` from the syndrome of a query, through the
+    unsatisfied stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X
+    stabilizers for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are
+    sparse.  Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its
+    checks with sparser ones that span the same space, which can fall short of the sparsest
+    generators.  Which checks it finds depends on the tuning, and can change which error a query
+    returns, but not its answer or its lower bound.  The CSS weight is not a sum over qubits, so it
+    weighs errors by CSS weight only on CSS states, whose X and Z parts it searches separately.
+    Like the BZ searches, it first looks up errors of weight at most one, so a syndrome with such an
+    error gets the weight of its lightest errors as a lower bound.  For any other syndrome, a query
+    with an error within ``max_weight`` gives two, and a query with none gives the larger of two and
     ``max_weight + 1``.  ``find_first_not_within_max_weight`` searches each syndrome that the table
     lacks with increasing weight limits, which can find light errors sooner than one search at
     ``max_weight``.  The BZ searches often give higher bounds.
@@ -105,13 +106,13 @@ class CosetLeaderSearch:
     ``max_css_single_pairs`` configures the BZ searches by CSS weight that are not split into two
     classical searches.  The fields ``overlapping_minimum_work``, ``max_information_sets``, and
     ``overlapping_attempts_per_set`` configure the families of information sets with which a BZ
-    search answers costly queries (see ``coset_routes``).  These families can change the
-    representatives and lower bounds of the answers, but never whether an answer is within
-    ``max_weight``.  The threshold ``overlapping_minimum_work`` also decides which queries of the BZ
-    searches by physical weight, and of the classical searches, weigh words without the pivot
+    search answers costly queries (see ``_brouwer_zimmermann/coset_routes.py``).  These families can
+    change the representatives and lower bounds of the answers, but never whether an answer is
+    within ``max_weight``.  The threshold ``overlapping_minimum_work`` also decides which queries of
+    the BZ searches by physical weight, and of the classical searches, weigh words without the pivot
     columns of each set of their family, and skip the words that tables of bounds prove to weigh
-    more than ``max_weight`` (see ``coset_routes``).  The fields ``coset_completion_block_bits`` and
-    ``completion_bound_max_table_bytes`` configure these tables.  Skipping words can change the
+    more than ``max_weight`` (see ``coset_routes.py``).  The fields ``coset_completion_block_bits``
+    and ``completion_bound_max_table_bytes`` configure these tables.  Skipping words can change the
     representatives and lower bounds of the answers without a word within ``max_weight``, but never
     whether an answer is within it.  The fields ``max_sparsifying_rounds`` and
     ``sparsifying_rounds_without_improvement`` configure how the connected-support searches make

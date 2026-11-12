@@ -609,8 +609,8 @@ def _search_from_syndrome_word(
     ``_get_search_tables``), and otherwise -1.  A set of rank deficiency ``s`` adds to the bound of
     a step only once it has completed layer ``s``, so a set that would not have completed it by the
     stopping step adds nothing, and the search skips it.  These are the unused sets of
-    ``information_sets.plan_steps``, whose work for this step, from layer zero, counts the words
-    that the search weighs after the word of the syndrome if it finds no light enough word.
+    ``certificates.plan_steps``, whose work for this step, from layer zero, counts the words that
+    the search weighs after the word of the syndrome if it finds no light enough word.
 
     A search by tails (see ``_search_coset``) weighs a word by its rows below the rank of its set
     and its tail.  It keeps the set, the layer, and the support of the lightest word, and writes

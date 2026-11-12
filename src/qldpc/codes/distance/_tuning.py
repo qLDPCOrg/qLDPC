@@ -263,8 +263,8 @@ class SearchTuning:
     #: ``k`` rows, in units of ``b * k**2 * n`` candidate/set evaluations.  An underestimate wastes
     #: time on partitioning that cannot repay itself; an overestimate skips families that would save
     #: time.  Defaults to 20, measured on bases of 85 to 156 rows and 127 to 432 columns, which are
-    #: not recorded.  To refit it, time ``matroid_partition.get_information_sets_with_coverage`` in
-    #: candidate/set evaluations.
+    #: not recorded.  To refit it, time ``get_information_sets_with_coverage`` of
+    #: ``_information_sets/matroid_partition.py`` in candidate/set evaluations.
     partition_cost_factor: int = 20
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
@@ -598,12 +598,13 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 #: typical workloads, and keep the smallest size past which it stops rising.
 BINOMIAL_CACHE_SIZE = 1024
 
-#: The number of entries that ``coset_leader_search._get_css_searches`` keeps, one for each CSS
-#: state and tuning of the setup of the searches, each a pair of classical searches, for the X and Z
-#: parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses more memory, and a
-#: smaller one repeats the setup of searches that a workload reuses.  Chosen by hand.  To retune it,
-#: record the hit rate, the setup time of a missed pair, and the memory of each pair on workloads
-#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
+#: The number of entries that ``_get_css_searches`` in ``_brouwer_zimmermann/coset.py`` keeps, one
+#: for each CSS state and tuning of the setup of the searches, each a pair of classical searches,
+#: for the X and Z parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses
+#: more memory, and a smaller one repeats the setup of searches that a workload reuses.  Chosen by
+#: hand.  To retune it, record the hit rate, the setup time of a missed pair, and the memory of each
+#: pair on workloads such as certification, and keep the smallest size beyond which the hit rate
+#: stops growing.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The number of results that each of two caches of the MacWilliams method keeps, one of single
@@ -622,10 +623,11 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
 
-#: The number of searches of Pauli errors that ``coset_leader_search._get_pauli_search`` keeps, one
-#: for each stabilizer matrix, measure of weight, and tuning of the setup of the search.  It takes
-#: effect when qLDPC is imported.  A larger cache uses more memory, a smaller one repeats setups,
-#: and zero disables the cache.  Only speed and memory depend on it.  Chosen by hand.  To retune it,
-#: record the hit rate, the setup time of a missed search, and the memory per search on workloads
-#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
+#: The number of searches of Pauli errors that ``_get_pauli_search`` in
+#: ``_brouwer_zimmermann/coset.py`` keeps, one for each stabilizer matrix, measure of weight, and
+#: tuning of the setup of the search.  It takes effect when qLDPC is imported.  A larger cache uses
+#: more memory, a smaller one repeats setups, and zero disables the cache.  Only speed and memory
+#: depend on it.  Chosen by hand.  To retune it, record the hit rate, the setup time of a missed
+#: search, and the memory per search on workloads such as certification, and keep the smallest size
+#: beyond which the hit rate stops growing.
 PAULI_SEARCH_CACHE_SIZE = 8

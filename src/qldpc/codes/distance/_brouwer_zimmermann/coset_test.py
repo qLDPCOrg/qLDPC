@@ -79,13 +79,13 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     syndrome has Hamming weight four but CSS weight three, and the bounds of odd classes stop the
     search at maximum weight two before it finds an error of weight two.
 
-    Answers alone cannot show whether these searches round, since rounding mainly moves where an
-    odd class stops (see Section 3.2 of ``brouwer_zimmermann.md``).  So the test also finds the
-    stopping step of each query as ``_search_coset`` does, and checks it against the first step
-    whose bound in ``AffineInstance.get_weight_bounds`` for the parity of the class exceeds the
-    maximum weight.  ``information_sets_test.py`` and ``affine_instance_test.py`` check those bounds
-    against their definition and against brute force.  Some odd classes stop sooner than they would
-    without parity.
+    Answers alone cannot show whether these searches round, since rounding mainly moves where an odd
+    class stops (see Section 3.2 of ``brouwer_zimmermann.md``).  So the test also finds the stopping
+    step of each query as ``_search_coset`` does, and checks it against the first step whose bound
+    in ``AffineInstance.get_weight_bounds`` for the parity of the class exceeds the maximum weight.
+    ``certificates_test.py`` and ``affine_instance_test.py`` check those bounds against their
+    definition and against brute force.  Some odd classes stop sooner than they would without
+    parity.
     """
     generators = ("Y______", "_XZ____", "_ZX__ZZ", "___Y___", "____Y__", "__Z__YZ", "__Z__ZY")
     matrix = _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
@@ -154,7 +154,7 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
     The searches are cached, and the column orders key the cache.  So the first oracle built under
     some orders builds searches of its own with them, and a second oracle built under the same
     orders shares those searches.  The orders reach a search through
-    ``information_sets.get_disjoint_family``, which the test wraps to record them.  The states are
+    ``basis_families.get_disjoint_family``, which the test wraps to record them.  The states are
     |000+++>, whose two classical searches are cached by stabilizer group, and a two-qubit graph
     state with phases, which is not CSS, so its search of Pauli errors is cached by stabilizers.
     Every oracle answers exactly.  The caches are cleared first, since earlier tests may have filled
@@ -208,8 +208,8 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
 
     With the threshold of the gate at zero, the first query that searches builds the other families
     of the search (see ``coset_routes``).  The most sets of the overlapping family and the column
-    orders that it tries for each set reach ``information_sets.get_overlapping_family``, and the
-    width of the blocks of completion tables and their limit of bytes reach
+    orders that it tries for each set reach ``basis_families.get_overlapping_family``, and the width
+    of the blocks of completion tables and their limit of bytes reach
     ``completion_bounds.build_tables_within``, which the test wraps to record them.  They are those
     of the tuning in force when the oracle was built, not when it answers.
     """
@@ -533,15 +533,15 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
     """A search skips exactly the sets that add nothing to the bound of its stopping step.
 
     A set of rank ``r`` in a code of dimension ``k`` adds to the bound of a step only once it has
-    completed layer ``k - r`` (see ``information_sets.get_step_lower_bounds``).  A search that stops
-    at step ``(w, j)`` completes layer ``w`` on the first ``j`` sets and layer ``w - 1`` on the
-    others, so it visits a set only if that layer is at least ``k - r``.  The sets are the disjoint
+    completed layer ``k - r`` (see ``certificates.get_step_lower_bounds``).  A search that stops at
+    step ``(w, j)`` completes layer ``w`` on the first ``j`` sets and layer ``w - 1`` on the others,
+    so it visits a set only if that layer is at least ``k - r``.  The sets are the disjoint
     information sets of random codes, whose last one is often rank deficient, and a set of rank zero
     with every row of the code.  A search whose answer is no weighs every word of the layers of the
     sets that it visits, and every answer is exact.  The exact number of words weighed guards the
-    documented rule for skipping sets, so a legitimate future pruning of the coset scan would
-    change it.  The work of the plan of the steps of the search, from layer zero and without the
-    sets that it skips (see ``information_sets.plan_steps``), predicts this number.
+    documented rule for skipping sets, so a legitimate future pruning of the coset scan would change
+    it.  The work of the plan of the steps of the search, from layer zero and without the sets that
+    it skips (see ``certificates.plan_steps``), predicts this number.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(12):
@@ -1010,8 +1010,8 @@ def _coset_minima(
 ) -> npt.NDArray[np.int_]:
     """The least weight of the words of the coset of each syndrome, from every word of the coset.
 
-    A word with the syndrome sums rows of a right inverse of the checks, from the module under test,
-    so the helper checks the syndromes of these words.  The coset adds to such a word every word of
+    A word with the syndrome sums rows of a right inverse of the checks, from ``_cosets``, so the
+    helper checks the syndromes of these words.  The coset adds to such a word every word of
     the code of ``generators``.
     """
     code = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators % 2

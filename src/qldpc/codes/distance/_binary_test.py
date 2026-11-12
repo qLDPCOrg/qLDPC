@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for the binary input checks and nested bases of distance searches."""
+"""Tests of the input checks, nested bases, and symplectic-to-Hamming map of distance searches."""
 
 from __future__ import annotations
 

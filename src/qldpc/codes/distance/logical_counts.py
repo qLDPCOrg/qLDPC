@@ -6,7 +6,7 @@ See :class:`CSSLogicalCounter` for the conventions.
 
 Each X/Z sector uses a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
 ``brouwer_zimmermann.md``).  Words are enumerated in layers over Brouwer--Zimmermann (BZ)
-information sets, whose family and certificate come from the stages in ``information_sets.py`` that
+information sets, whose family and certificate come from the stages in ``_information_sets/`` that
 the distance search shares.  Unlike a distance search, the scan stops only when the BZ lower bound
 exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``), and a word visited by several information
 sets is counted by only one of them.  Full Pauli counts are derived from the homogeneous words of

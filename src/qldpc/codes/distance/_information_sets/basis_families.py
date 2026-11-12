@@ -1,23 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Basis families of information sets and their certificates, shared by exact BZ and coset searches.
+"""Basis families of information sets, shared by exact BZ and coset searches and by counts.
 
-Exact distance search (``brouwer_zimmermann.py``) and fixed-weight logical counting
-(``_counting/scan.py``) enumerate coefficient layers over the same basis families (see
-``brouwer_zimmermann.md`` for the terminology).  Layer ``w`` of an information set holds the words
-that add ``w`` of its rows to an offset.  The offset is zero in the distance and counting scans,
-which search a space.  The coset-leader oracle (``CosetLeaderSearch``) answers its queries with
-coset searches, whose offset is a fixed word of the searched coset (see ``_search_coset`` in
-``coset_leader_search.py``).  This module owns how those basis families are built, pruned, and
-replaced by overlapping ones, and the certificate that bounds the Hamming weight of eligible words
-that a basis family has not yet visited.  The coset searches use the disjoint information sets, and
-for costly queries the families of :func:`get_maximum_disjoint_family` and
-:func:`get_overlapping_family` (see ``coset_routes.py``).  The distance, counting, and coset scans
-all enumerate a layer with :func:`advance_support`.  The distance and coset searches find where
-they stop with :func:`find_stopping_step`: the first step whose bound exceeds a limit.
-:func:`plan_steps` also adds up the work of the steps up to it.  A distance search whose certificate
-solves linear programs instead finds where it stops in each layer by checking the steps in order
-(see ``Certificate.plan``).
+The Brouwer-Zimmermann distance search (``_brouwer_zimmermann/distance.py``) and fixed-weight
+logical counting (``_counting/scan.py``) enumerate coefficient layers over the same basis families
+(see ``brouwer_zimmermann.md`` for the terminology).  Layer ``w`` of an information set holds the
+words that add ``w`` of its rows to an offset.  The offset is zero in the distance and counting
+scans, which search a space.  The coset-leader oracle (``CosetLeaderSearch``) answers its queries
+with coset searches, whose offset is a fixed word of the searched coset (see ``_search_coset`` in
+``_brouwer_zimmermann/coset.py``).  This module owns how those basis families are built, pruned,
+and replaced by overlapping ones.  The coset searches use the disjoint information sets, and for
+costly queries the families of :func:`get_maximum_disjoint_family` and
+:func:`get_overlapping_family` (see ``_brouwer_zimmermann/coset_routes.py``).  The certificate that
+bounds the Hamming weight of the eligible words that a basis family has not yet visited, and the
+plans of the steps of searches, are in ``certificates.py``.  The step from one support of a layer
+to the next is in ``support_stepping.py``.
 
 A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
 every caller, in the subset of Python that numba compiles, and some of them are compiled (see
@@ -328,8 +325,8 @@ def get_overlapping_family_policy(tuning: SearchTuning, dimension: int) -> Overl
 
     It holds the limit, the minimum work, and the attempts of ``tuning``, the capped binomials of
     the dimension, and a new generator with a fixed seed.  So every search, of the distance, of the
-    counts, or of cosets (see ``coset_routes.py``), chooses the same replacement for the same basis
-    family and tuning.
+    counts, or of cosets (see ``_brouwer_zimmermann/coset_routes.py``), chooses the same replacement
+    for the same basis family and tuning.
     """
     return OverlappingFamilyPolicy(
         tuning.max_information_sets,
@@ -494,7 +491,7 @@ def _get_no_replacement(
 
     Stages three and four return it, and so does ``get_maximum_disjoint_family``.  The distance
     search and the counts then keep their basis family, and the routes of coset searches (see
-    ``coset_routes.py``) leave the family out of their candidates.
+    ``_brouwer_zimmermann/coset_routes.py``) leave the family out of their candidates.
     """
     dimension = basis.shape[0]
     return BasisFamily(

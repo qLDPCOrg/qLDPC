@@ -2,9 +2,9 @@
 
 """Certificates of the basis families of exact searches, and the plans of their steps.
 
-A certificate bounds the weights of the words that a search of a basis family has not visited, from
-the layers that its sets have completed.  It tells a search when it can stop, and a plan of steps
-says where a search stops for a weight limit, and the work of the steps up to there.
+A certificate bounds the weights of the eligible words that a search of a basis family has not
+visited, from the layers that its sets have completed.  It tells a search when it can stop, and a
+plan of steps says where a search stops for a weight limit, and the work of the steps up to there.
 """
 
 from __future__ import annotations
