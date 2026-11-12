@@ -204,7 +204,6 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
     assert len(sets_with_tables) > 1
 
 
-@pytest.mark.usefixtures("plain_search_setup")
 def test_counts_return_to_python_only_around_steps_that_may_use_tables(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:

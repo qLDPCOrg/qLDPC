@@ -440,7 +440,7 @@ def test_brouwer_zimmermann_overlap_mb(get_candidate_count: Callable[[], int]) -
     assert 0 < get_candidate_count() < 1_000_000
 
 
-@pytest.mark.usefixtures("force_information_sets", "plain_search_setup")
+@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> None:
     """Compare witness-improving overlap enumeration with an exhaustive quotient oracle."""
 
