@@ -22,14 +22,20 @@ least ``--min-supports`` supports that a forced trace scanned with tables, it co
 - its excess cost over the scan of the supports that it kept, per lookup and block, which a fit
   of ``completion_bound_lookup_block_cost`` and ``completion_bound_lookup_block_cost_per_mib``
   models;
-- the seconds of building its tables, which a fit of ``completion_bound_table_byte_cost`` and
-  ``completion_bound_build_step_cost`` models, as ``_estimate_build_cost`` counts bytes and steps.
+- the seconds of building its tables, which ``completion_bound_table_byte_cost`` and
+  ``completion_bound_build_step_cost`` model, as ``_estimate_build_cost`` counts bytes and steps;
+  bytes and steps grow together, so the fit scales both by the median ratio of measured to
+  predicted builds.
   Searches with tables forced build them in their first layers, and reuse them, so every layer
   that builds tables counts, with the seconds per support of the search's layers of at least
   ``--min-supports`` supports with tables disabled.
 
 It prints these layers, with whether the defaults used tables on them, and the fitted coefficients
-next to the current ones.  Medians over repeats replace single times.
+next to the current ones.  The fits of lookups use only the layers that scan one set, as the cost
+model assumes: with tables disabled, a layer of several sets scans them in lockstep, whose cost per
+support differs.  The fit of the kept-first-row ratio also leaves out layers that skip more than
+``--max-share`` of their supports, whose few lookups beyond those of prefixes it cannot resolve.
+Medians over repeats replace single times.
 
 Examples:
 
@@ -87,7 +93,7 @@ def main() -> None:
     if args.command == "collect":
         collect(args.workloads, args.repeats, directory, args.timeout)
     else:
-        fit(directory, args.min_supports)
+        fit(directory, args.min_supports, args.max_share)
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,6 +117,13 @@ def parse_args() -> argparse.Namespace:
         "--timeout", type=float, default=3600, help="seconds per trace (default: %(default)s)"
     )
     fit_parser = commands.add_parser("fit", help="fit the cost model to the traces")
+    fit_parser.add_argument(
+        "--max-share",
+        type=float,
+        default=0.99,
+        help="the largest skipped share of a layer whose kept-first-row ratio is fitted"
+        " (default: %(default)s)",
+    )
     fit_parser.add_argument(
         "--min-supports",
         type=float,
@@ -169,7 +182,7 @@ def collect(workloads: list[str], repeats: int, directory: pathlib.Path, timeout
 # fit
 
 
-def fit(directory: pathlib.Path, min_supports: float) -> None:
+def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
     """Fit the cost model to the traces, and print the layers and the coefficients."""
     traces: dict[tuple[str, int], dict[str, dict[str, Any]]] = collections.defaultdict(dict)
     for path in sorted(directory.glob("*.json")):
@@ -211,7 +224,7 @@ def fit(directory: pathlib.Path, min_supports: float) -> None:
     rows = [summarize(workload, index, group) for (workload, index), group in layers.items()]
     build_rows = [summarize(workload, index, group) for (workload, index), group in builds.items()]
     print_layers(rows)
-    print_fits(rows, build_rows)
+    print_fits(rows, build_rows, max_share)
 
 
 def get_layers(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -261,6 +274,8 @@ def measure(
         "measured": scan_cost / scanned,
         "measured_with_overhead": forced["seconds"] / disabled["seconds"],
         "default_uses_tables": default["tables"] is not None,
+        "single_set": num_sets < 1.5,
+        "block_bits": forced["tables"] if isinstance(forced["tables"], int) else 0,
         "lookup_ratio": (forced["lookups"] - prefix_lookups) / max(1.0, kept_lookups),
         "excess_per_lookup_block": (scan_cost - forced["evaluated"])
         / max(1, forced["lookups"] * forced["blocks"]),
@@ -316,48 +331,60 @@ def print_layers(rows: list[dict[str, Any]]) -> None:
         )
 
 
-def print_fits(rows: list[dict[str, Any]], build_rows: list[dict[str, Any]]) -> None:
+def print_fits(
+    rows: list[dict[str, Any]], build_rows: list[dict[str, Any]], max_share: float
+) -> None:
     """Fit the coefficients of the cost model, and print them with the current ones."""
     tuning = _tuning.DEFAULT_TUNING
     if not rows:
         print("No layers to fit")
         return
 
-    # Lookups: excess = lookups * blocks * (a + b * MiB), with each layer weighted equally.
-    scale = np.array([1 / row["scanned"] for row in rows])
-    design = np.array(
-        [[row["lookups_blocks"], row["lookups_blocks"] * row["table_mib"]] for row in rows]
-    )
-    target = np.array([row["excess"] for row in rows])
-    (lookup_cost, lookup_cost_per_mib), *_ = np.linalg.lstsq(
-        design * scale[:, None], target * scale, rcond=None
-    )
+    # Lookups: the excess cost per lookup and block is a + b * MiB, with each layer of one set
+    # weighted equally.
+    rows = [row for row in rows if row["single_set"]]
+    if not rows:
+        print("No layers of one set to fit")
+        return
+    design = np.array([[1.0, row["table_mib"]] for row in rows])
+    target = np.array([row["excess_per_lookup_block"] for row in rows])
+    (lookup_cost, lookup_cost_per_mib), *_ = np.linalg.lstsq(design, target, rcond=None)
 
-    # Builds: cost = byte_cost * bytes + step_cost * steps, with each build weighted equally.
+    # Builds: bytes and steps grow together, so scale both current coefficients by the median ratio
+    # of the measured costs of builds to their predicted costs.
     built = build_rows
-    if built:
-        scale = np.array([1 / row["build_cost"] for row in built])
-        design = np.array([[row["table_bytes"], row["steps"]] for row in built])
-        target = np.array([row["build_cost"] for row in built])
-        (byte_cost, step_cost), *_ = np.linalg.lstsq(
-            design * scale[:, None], target * scale, rcond=None
-        )
-    else:
-        byte_cost = step_cost = math.nan
-
-    ratios = [row["lookup_ratio"] for row in rows]
     predicted_builds = [
         tuning.completion_bound_table_byte_cost * row["table_bytes"]
         + tuning.completion_bound_build_step_cost * row["steps"]
         for row in built
     ]
-    if built:
-        build_ratios = [
-            predicted / row["build_cost"] for predicted, row in zip(predicted_builds, built)
+    build_scale = (
+        statistics.median(
+            row["build_cost"] / predicted for row, predicted in zip(built, predicted_builds)
+        )
+        if built
+        else math.nan
+    )
+    byte_cost = build_scale * tuning.completion_bound_table_byte_cost
+    step_cost = build_scale * tuning.completion_bound_build_step_cost
+
+    ratios = [row["lookup_ratio"] for row in rows if row["share"] <= max_share]
+    for block_bits in sorted({row["block_bits"] for row in rows}):
+        selected = [
+            row["excess_per_lookup_block"] for row in rows if row["block_bits"] == block_bits
         ]
+        mib = [row["table_mib"] for row in rows if row["block_bits"] == block_bits]
+        print(
+            f"blocks of {block_bits} columns: {len(selected)} layers of {min(mib):.0f} to"
+            f" {max(mib):.0f} MiB, excess per lookup and block {min(selected):.2f} to"
+            f" {max(selected):.2f}, median {statistics.median(selected):.2f}"
+        )
+    if built:
         print(
             f"\n{len(built)} builds: the current coefficients predict"
-            f" {min(build_ratios):.2f} to {max(build_ratios):.2f} times their measured cost"
+            f" {1 / max(row['build_cost'] / predicted for row, predicted in zip(built, predicted_builds)):.2f}"
+            f" to {1 / min(row['build_cost'] / predicted for row, predicted in zip(built, predicted_builds)):.2f}"
+            f" times their measured cost, median {1 / build_scale:.2f}"
         )
     fits = {
         "completion_bound_lookup_block_cost": lookup_cost,
