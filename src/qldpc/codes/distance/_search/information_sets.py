@@ -451,8 +451,9 @@ def get_overlapping_family(
     best_num_sets = 0
     best_coverage = 1
     packed_basis, packed_labels = pack_bits(basis), pack_bits(labels)
-    # Saturate the number of attempts, which compiled code computes with 64-bit integers.
-    num_open = max(max_sets - num_full, 1)
+    # Saturate the number of attempts, which compiled code computes with 64-bit integers.  At least
+    # one set is open, since the family has fewer full sets than the limit.
+    num_open = max_sets - num_full
     num_attempts = (
         attempts_per_set * num_open
         if attempts_per_set <= _tuning.MAX_VALUE // num_open
