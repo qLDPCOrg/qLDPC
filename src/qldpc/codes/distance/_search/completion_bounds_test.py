@@ -199,7 +199,10 @@ def test_selection_follows_its_policy() -> None:
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 60, 24))
     assert cb.select_completion_tables(rows, 1, 12, None, FORCED) is None
     default = DEFAULT_TUNING
-    assert cb.select_completion_tables(rows, 6, 6, None, default) is None
+    # A layer with fewer supports than the minimum layer work is not considered.
+    above_layer = math.comb(60, 6) + 1
+    gated = dataclasses.replace(default, completion_bound_minimum_layer_work=above_layer)
+    assert cb.select_completion_tables(rows, 6, 6, None, gated) is None
 
     # Tables that skip every support repay their lookups and their construction.
     finite = dataclasses.replace(default, completion_bound_minimum_layer_work=0)
