@@ -71,12 +71,8 @@ def test_invalid_local_matrices_are_rejected() -> None:
             local_cliffords.get_local_matrices(invalid, 2)
 
 
-@pytest.mark.parametrize("compiled", [pytest.param(True, marks=pytest.mark.compiled), False])
-def test_apply_local_maps_the_target_columns_by_the_matrix(
-    pytestconfig: pytest.Config, compiled: bool
-) -> None:
+def test_apply_local_maps_the_target_columns_by_the_matrix(pytestconfig: pytest.Config) -> None:
     """The target entries of every row are multiplied by the matrix, and other columns are kept."""
-    apply = local_cliffords.apply_local if compiled else local_cliffords.apply_local.py_func
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     positions = np.array([1, 4, 7], dtype=np.int64)
     matrix = np.array([[1, 1, 0], [0, 1, 1], [1, 1, 1]])
@@ -87,7 +83,7 @@ def test_apply_local_maps_the_target_columns_by_the_matrix(
     expected = rows.copy()
     expected[:, positions] = rows[:, positions] @ matrix.T % 2
     local_x, _ = local_cliffords.get_local_matrices(matrix, 3)
-    np.testing.assert_array_equal(apply(rows, positions, local_x), expected)
+    np.testing.assert_array_equal(local_cliffords.apply_local(rows, positions, local_x), expected)
     np.testing.assert_array_equal(rows, original)
 
 

@@ -48,7 +48,8 @@ To choose between them, use :func:`always_compiled` for the per-word loops and f
 functions that other compiled code calls: every search needs them, and the disk cache makes
 compiling them a one-time cost.  Use :func:`compiled_on_request` for the larger functions that
 orchestrate a search, which select and bound its information sets, build its basis families, and
-drive its scan.  Compiling them pays off only in a program that makes very many searches.  A
+drive its scan.  Compiling them pays off only in a program that makes very many searches.  Define
+them only in :mod:`qldpc.codes.distance`, since CI compiles them only in a run of its tests.  A
 function that is neither runs as ordinary Python.  A small always-compiled helper that hot loops
 call can be marked ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function
 may call always-compiled and compiled-on-request functions.  An always-compiled function may call
@@ -60,7 +61,8 @@ returns the function itself, :func:`~qldpc.codes.distance.compile_search_setup` 
 compiled-on-request functions as they are, and qLDPC neither uses nor cleans up its directories of
 compiled code.  Coverage tools can then trace every line of these functions, and errors in them show
 Python tracebacks.  Numba's own ``NUMBA_DISABLE_JIT`` does the same for every package that uses
-numba, such as galois, which then runs slowly too.
+numba, such as galois, which then runs slowly too.  qLDPC's coverage check sets
+``QLDPC_DISABLE_COMPILATION``.
 """
 
 from __future__ import annotations

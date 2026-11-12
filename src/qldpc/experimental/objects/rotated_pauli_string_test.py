@@ -14,7 +14,7 @@ import pytest
 import stim
 
 from qldpc.experimental.conftest import get_circuit_unitary
-from qldpc.experimental.objects import RotatedPauliString, rotated_pauli_string
+from qldpc.experimental.objects import RotatedPauliString
 from qldpc.experimental.objects.conftest import (
     equal_up_to_phase,
     get_pauli_matrix,
@@ -23,28 +23,8 @@ from qldpc.experimental.objects.conftest import (
     get_rotation_matrix,
 )
 
-_KERNELS = (
-    "_apply_packed_circuit",
-    "_apply_t_rotation",
-    "_multiply",
-    "_simplify",
-    "_merge_t_axes",
-    "_equal",
-    "_remove_row",
-)
-
 # A core, π/2 axes, and π/4 axes.
 _Rotations = tuple[stim.PauliString, list[stim.PauliString], list[stim.PauliString]]
-
-
-@pytest.fixture(params=[pytest.param("compiled", marks=pytest.mark.compiled), "python"])
-def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the compiled kernels, or their Python versions for coverage."""
-    if request.param == "python":
-        for name in _KERNELS:
-            monkeypatch.setattr(
-                rotated_pauli_string, name, getattr(rotated_pauli_string, name).py_func
-            )
 
 
 def _get_rotations_matrix(
@@ -85,7 +65,6 @@ def _get_random_operator(rng: np.random.Generator, num_qubits: int) -> RotatedPa
     return RotatedPauliString.from_rotations(core, s_axes=s_axes, t_axes=t_axes)
 
 
-@pytest.mark.usefixtures("kernels")
 def test_simplification_preserves_operators(rng: np.random.Generator) -> None:
     for num_qubits in (1, 2, 3):
         for _ in range(10):
@@ -98,7 +77,6 @@ def test_simplification_preserves_operators(rng: np.random.Generator) -> None:
             )
 
 
-@pytest.mark.usefixtures("kernels")
 def test_simplified_forms() -> None:
     """Simplification merges and cancels rotations, and drops π/4 rotations about the identity.
 
@@ -122,7 +100,6 @@ def test_simplified_forms() -> None:
     assert RotatedPauliString("X").is_pauli
 
 
-@pytest.mark.usefixtures("kernels")
 def test_propagation_through_circuits(rng: np.random.Generator) -> None:
     """Random circuits, and a fixed one that reaches every case of propagation.
 
@@ -166,7 +143,6 @@ def test_t_gates_make_cliffords_and_then_non_cliffords() -> None:
     assert equal_up_to_phase(_get_matrix(twice), expected)
 
 
-@pytest.mark.usefixtures("kernels")
 def test_canceling_t_rotations_give_equal_operators() -> None:
     """A π/4 rotation and its inverse change neither propagated operators nor their hashes."""
     circuit = stim.Circuit("H 0\nS[T] 0\nCX 0 1\nSPP_DAG[T] X0*Z1")
@@ -212,7 +188,6 @@ def test_clifford_operators_have_canonical_forms(rng: np.random.Generator) -> No
             assert first != second or hash(first) == hash(second)
 
 
-@pytest.mark.usefixtures("kernels")
 def test_products_and_adjoints(rng: np.random.Generator) -> None:
     """Products and adjoints of a fixed pair of operators, and of random operators."""
     pairs = [

@@ -64,7 +64,7 @@ def test_deprecated_block_size_argument() -> None:
         assert records[0].filename == __file__
 
 
-@pytest.mark.usefixtures("force_information_sets", "compilation_mode")
+@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_information_set_search() -> None:
     """Information-set search excludes stabilizers, finds logical products, and honors cutoffs."""
     # The Hamming-weight-one stabilizer is lighter than every logical operator.  With batches of one
@@ -300,7 +300,7 @@ def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
             search(get_automorphisms=lambda: transposition[None])
 
 
-@pytest.mark.usefixtures("force_information_sets", "compilation_mode")
+@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_random_cross_checks() -> None:
     """Information-set search agrees with exhaustive enumeration on random nested codes."""
     rng = np.random.default_rng(118)

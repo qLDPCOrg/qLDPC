@@ -247,7 +247,7 @@ _COMPILING_DECORATORS = frozenset({"always_compiled", "compiled_on_request"})
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Add the options of test runs with compiled code."""
+    """Add the options of CI's compiled runs (see docs/source/contributing/index.rst)."""
     # Explicit defaults let pytest set these options when it loads this file after reading the
     # command line, as in a run of ``pytest src``.
     parser.addoption(

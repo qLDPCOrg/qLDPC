@@ -132,9 +132,8 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   `python checks/pytest_.py src/qldpc/codes/distance` runs the tests.
   `python checks/coverage_.py src/qldpc/codes/distance/<module>.py` checks one module's coverage.
   The validation commands in `docs/source/contributing/index.rst` list the other checks.
-- Coverage cannot see compiled code, so tests also run compiled functions as plain Python.
-  `conftest.py` holds the fixtures for this, and the helpers that several test files share, such as a check of counts against brute-force enumeration.
-  The variants of tests that run compiled code carry the `compiled` marker (see `docs/source/contributing/standards/testing.rst`).
+- `conftest.py` holds the fixtures and helpers that several test files share, such as a check of counts against brute-force enumeration.
+- Coverage cannot see compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Tests that replace a compiled-on-request function or a function that one calls, or that compare plain with compiled set-up code, request the `plain_search_setup` fixture of `conftest.py`, whose docstring says why.
 - `readme_test.py` fails if this page omits a module, or names a file that does not exist.
