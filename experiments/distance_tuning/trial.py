@@ -30,7 +30,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from qldpc import codes
-from qldpc.codes.distance import CSSLogicalCounter, _tuning
+from qldpc.codes.distance import CSSLogicalCounter, _tuning, compile_search_setup
 from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch
 from qldpc.objects import Pauli
 
@@ -125,9 +125,13 @@ def warm_up(kind: str) -> None:
     The warm-up runs small searches twice: under the active tuning, and with every route forced.
     Its codes, ``WARM_UP_CODES``, differ from the timed ones, so they leave no results for the
     timed search, and each of its distance searches first forgets the distances that the code
-    remembers.  The searches of ``CosetLeaderSearch`` are cached for each tuning of their setup, so
-    the two passes build their own.
+    remembers.  The searches of ``CosetLeaderSearch`` are cached for each tuning of their setup,
+    so the two passes build their own.  The warm-up of ``ccount`` first compiles the setup of
+    searches for this process.
     """
+    if kind == "ccount":
+        compile_search_setup()
+        kind = "count"
     for changes in ({}, FORCE_EVERY_ROUTE):
         with _tuning.use_tuning(**changes):
             if kind == "distance":

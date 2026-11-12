@@ -23,6 +23,8 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
 - ``hadamard/<code>``: ``get_distance_exact`` of the code that Hadamards on the second half of the
   qubits of a CSS code make, which is not CSS;
 - ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method;
+- ``ccount/<code>/<weight>``: the same count, in a process whose warm-up first calls
+  ``compile_search_setup`` (see ``trial.py``);
 - ``coset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: ``get_min_weights`` of
   a ``CosetLeaderSearch`` on the logical state ``|0...0>`` of a CSS code, by ``css`` or
   ``physical`` weight, for the syndromes of random Pauli errors of ``error_weight`` qubits.
@@ -306,6 +308,7 @@ WORKLOADS: dict[str, Callable[..., str]] = {
     "distance": run_distance,
     "hadamard": run_hadamard_distance,
     "count": run_count,
+    "ccount": run_count,
     "coset": run_cosets,
     "first": run_first_heavy_coset,
 }

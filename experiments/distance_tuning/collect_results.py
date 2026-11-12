@@ -4,11 +4,12 @@
 
 For each sweep, workload, and arm, the summary gives the number of successful trials, the median
 wall seconds, and the median, minimum, and maximum, over rounds, of the ratio of the arm's wall
-time to that of the first arm, the reference, in the same round.  Ratios of one round share the
-conditions of the machine, so their spread, across rounds, measures noise better than the spread of
-times.  The summary also gives the median peak resident memory in MiB after the timed search, and
-the trials that failed or timed out.  It flags a workload whose arms disagree on a result, which no
-tuning may change except a distance search with an early exit.
+time to that of the first arm, the reference, in the same round, with a distribution-free 95%
+confidence interval of the median ratio (see ``get_median_interval``).  Ratios of one round share
+the conditions of the machine, so their spread, across rounds, measures noise better than the
+spread of times.  The summary also gives the median peak resident memory in MiB after the timed
+search, and the trials that failed or timed out.  It flags a workload whose arms disagree on a
+result, which no tuning may change except a distance search with an early exit.
 
 It prints the summary, and writes it to ``summary.csv`` in the results directory.
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import math
 import pathlib
 import statistics
 from typing import TYPE_CHECKING, Any
@@ -45,6 +47,8 @@ CSV_FIELDS = (
     "failed",
     "median_wall",
     "median_ratio",
+    "ci_low",
+    "ci_high",
     "min_ratio",
     "max_ratio",
     "median_maxrss_mib",
@@ -101,11 +105,12 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for (tag, workload, arm_index), group in sorted(by_arm.items()):
         ok = [trial for trial in group if trial["status"] == "ok"]
-        ratios = [
+        ratios = sorted(
             trial["wall"][0] / reference[tag, workload, trial["round"]]
             for trial in ok
             if reference.get((tag, workload, trial["round"]))
-        ]
+        )
+        ci_low, ci_high = get_median_interval(ratios)
         rows.append(
             {
                 "tag": tag,
@@ -116,6 +121,8 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "failed": len(group) - len(ok),
                 "median_wall": median([trial["wall"][0] for trial in ok]),
                 "median_ratio": median(ratios),
+                "ci_low": ci_low,
+                "ci_high": ci_high,
                 "min_ratio": min(ratios, default=None),
                 "max_ratio": max(ratios, default=None),
                 "median_maxrss_mib": median([trial["maxrss"] / 2**20 for trial in ok]),
@@ -131,6 +138,26 @@ def get_results(trials: list[dict[str, Any]]) -> dict[tuple[str, str], set[str]]
         if trial["status"] == "ok":
             results[trial["tag"], trial["workload"]].update(trial["results"])
     return results
+
+
+def get_median_interval(values: list[float]) -> tuple[float | None, float | None]:
+    """A confidence interval of at least 95% of the median of sorted values, or Nones.
+
+    The interval runs from the ``k``-th smallest to the ``k``-th largest value, for the largest
+    ``k`` such that fewer than ``k`` of ``n`` independent values fall below the median with
+    probability at most 2.5%.  It needs no assumption about the distribution of the values, but at
+    least six of them.
+    """
+    num_values = len(values)
+    rank, tail = 0, 0.0
+    while True:
+        tail += math.comb(num_values, rank) / 2**num_values
+        if tail > 0.025:
+            break
+        rank += 1
+    if rank == 0:
+        return None, None
+    return values[rank - 1], values[num_values - rank]
 
 
 def median(values: list[float]) -> float | None:
@@ -150,6 +177,7 @@ def print_rows(rows: list[dict[str, Any]]) -> None:
             f" n={row['trials']:<3d} fail={row['failed']:<2d}"
             f" wall={show(row['median_wall'], 3):>9s}"
             f" ratio={show(row['median_ratio'], 3)}"
+            f" ci=[{show(row['ci_low'], 3)}, {show(row['ci_high'], 3)}]"
             f" [{show(row['min_ratio'], 3)}, {show(row['max_ratio'], 3)}]"
             f" rss={show(row['median_maxrss_mib'], 0)} MiB"
         )
