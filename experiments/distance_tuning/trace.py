@@ -11,12 +11,13 @@ The script wraps functions of ``qldpc.codes.distance._search`` in this process o
 - each attempt to switch to a family of automorphism images, the seconds it took, and whether the
   search switched;
 - each prediction of the cost of completion tables, as a share of the cost of a scan without them,
-  with the number of rows and the weight of its layer or step, and the seconds since the workload
-  started, which also time the steps of counts;
+  with the number of rows and the weight of its layer or step, the seconds it took, and the seconds
+  since the workload started, which also time the steps of counts;
 - each coefficient layer that a distance search advances by: its weight, number of basis rows and
   scanned sets, its supports, the best weight and lower bound after it, the supports that it
   evaluated and skipped and the lookups of completion tables that it made, the width of the blocks
-  of its tables if any, the seconds spent choosing and building tables, and its seconds in all.
+  of its tables if any, with their bytes and number of blocks, the seconds spent choosing and
+  building tables, and its seconds in all.
 
 It prints a table of the layers, and with ``--output``, saves the events as JSON.  The thresholds of
 ``SearchTuning`` decide where these stages start, so a trace shows which decisions a threshold can
@@ -189,6 +190,8 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             "lookups": 0,
             "skipped": 0,
             "tables": None,
+            "table_bytes": 0,
+            "blocks": 0,
             "choose_seconds": 0.0,
             "build_seconds": 0.0,
         }
@@ -220,6 +223,8 @@ def wrap_select(function: Callable[..., Any]) -> Callable[..., Any]:
         if CURRENT_LAYER is not None:
             CURRENT_LAYER["choose_seconds"] += time.perf_counter() - start
             CURRENT_LAYER["tables"] = None if tables is None else int(tables.block_bits)
+            if tables is not None:
+                record_tables(tables)
         return tables
 
     return wrapper
@@ -230,7 +235,9 @@ def wrap_predict(function: Callable[..., Any]) -> Callable[..., Any]:
 
     @functools.wraps(function)
     def wrapper(rows: Any, weight: int, *args: Any, **kwargs: Any) -> Any:
+        start = time.perf_counter()
         cost, block_bits = function(rows, weight, *args, **kwargs)
+        seconds = time.perf_counter() - start
         EVENTS.append(
             {
                 "event": "predict",
@@ -239,6 +246,7 @@ def wrap_predict(function: Callable[..., Any]) -> Callable[..., Any]:
                 "supports": math.comb(len(rows), weight),
                 "cost": cost,
                 "block_bits": block_bits,
+                "seconds": seconds,
                 "at": time.perf_counter() - START,
             }
         )
@@ -271,9 +279,17 @@ def wrap_build(function: Callable[..., Any]) -> Callable[..., Any]:
         result = function(*args, **kwargs)
         if CURRENT_LAYER is not None:
             CURRENT_LAYER["build_seconds"] += time.perf_counter() - start
+            record_tables(result)
         return result
 
     return wrapper
+
+
+def record_tables(tables: completion_bounds.CompletionTables) -> None:
+    """Record the bytes and the number of blocks of the largest tables of the current layer."""
+    assert CURRENT_LAYER is not None
+    CURRENT_LAYER["table_bytes"] = max(CURRENT_LAYER["table_bytes"], len(tables.tables))
+    CURRENT_LAYER["blocks"] = max(CURRENT_LAYER["blocks"], len(tables.offsets) - 1)
 
 
 def wrap_scan(function: Callable[..., Any]) -> Callable[..., Any]:
