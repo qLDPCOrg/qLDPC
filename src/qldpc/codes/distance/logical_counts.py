@@ -699,7 +699,7 @@ def compile_search_setup() -> None:
     """Compile the code that sets up exact distance and logical-operator count searches.
 
     By default, the inner loops of these searches are compiled by numba, and cached on disk, the
-    first time that they are used.  The code that sets those loops up runs as ordinary Python.  It
+    first time that they are used.  The code that sets those loops up runs as plain Python.  It
     selects and bounds the information sets of a code, packs them for the scan of its words, and
     moves them through local gates.  This function compiles that code instead, for the rest of this
     process.  It does not change any result, and it does not affect the MacWilliams method or the

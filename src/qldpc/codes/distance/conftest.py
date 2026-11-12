@@ -31,12 +31,12 @@ def force_information_sets(tune: Tune) -> None:
 def plain_search_setup() -> None:
     """Run the set-up code of searches as plain Python, even with ``--compile-search-setup``.
 
-    A test needs this if it replaces a compiled-on-request function, or a function that such a
-    function calls, such as to record calls to it.  Compiled callers would not call the replacement.
-    A test that compares the plain Python set-up code with its compiled version needs it too.  This
-    fixture sets every compiled-on-request function back to plain Python, which also undoes an
-    earlier replacement of one.  So a fixture that replaces one must request this fixture, which
-    then runs first.
+    A test needs this if it relies on a compiled-on-request function calling a function that the
+    test replaces, such as to record calls to it, since compiled callers would not call the
+    replacement.  A test that compares the plain Python set-up code with its compiled version needs
+    it too.  This fixture sets every compiled-on-request function back to plain Python, which also
+    undoes an earlier replacement of one.  So a fixture that replaces one must request this fixture,
+    which then runs first.
     """
     _compilation.set_on_request_functions_compiled(False)
 
