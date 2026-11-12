@@ -209,7 +209,7 @@ The option `--hadamards` applies Hadamards to the second half of the qubits of e
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
 
-[`distance_tuning/sweep.py`](distance_tuning/sweep.py) compares tunings of the Brouwer–Zimmermann searches (see the [tuning page](../docs/source/exact_search_tuning.rst)), as the retuning section of `qldpc.codes.distance._tuning` describes.
+[`distance_tuning/sweep.py`](distance_tuning/sweep.py) compares tunings of the Brouwer–Zimmermann searches (see the [tuning page](../docs/source/exact_search_tuning.rst)), as the Retuning section of `qldpc.codes.distance._tuning` describes.
 Each arm of a sweep is a set of changes to the fields of `SearchTuning`, and each trial times one workload of [`workloads.py`](distance_tuning/workloads.py), such as a distance, a count of logical operators, or queries of `CosetLeaderSearch`, under one arm, in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)).
 Rounds alternate the order of the arms, and an interrupted sweep resumes where it stopped.
 [`collect_results.py`](distance_tuning/collect_results.py) summarizes the ratio of each arm's time to the first arm's in the same round, and flags arms that disagree on a result.
@@ -226,7 +226,7 @@ Four more scripts explain what a tuning changes.
 [`windows.py`](distance_tuning/windows.py) reads traces and finds the interval of each threshold over which their decisions stay the same, or compares the decisions of two traces.
 [`fit_completion_costs.py`](distance_tuning/fit_completion_costs.py) traces searches with completion tables disabled, forced, and at the defaults, and refits the cost model that chooses them.
 [`cache_stats.py`](distance_tuning/cache_stats.py) reports the hit rates of the caches of exact searches over a sequence of workloads.
-Lookups of completion tables compete for the processor's caches, so time them one search at a time.
+Completion tables saved less when several searches ran at once (see the Retuning section), so time them one search at a time.
 
 ## Lattice surgery
 

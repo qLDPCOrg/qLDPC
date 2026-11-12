@@ -9,7 +9,8 @@ tunings: tables disabled (``completion_bound_max_table_bytes=0``), tables forced
 same on blocks of 8 columns, whose tables are about 128 times smaller, and the defaults, each in a
 new single-threaded process, in an order that alternates between repeats.  It saves each trace in
 ``traces/`` in the results directory, and skips the traces that are there.  Run it on a quiet
-machine, one trace at a time, since lookups of tables are sensitive to the processor's caches.
+machine, one trace at a time, since completion tables saved less when several searches ran at
+once.
 
 ``fit`` aligns the layers of the four traces of each workload and repeat, and expresses times in
 scanned supports: the seconds per support of the layer with tables disabled.  For each layer of at
@@ -216,7 +217,9 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
             predictions = get_predictions(arms[arm])
             if large:
                 # A scan in lockstep evaluates each support for each set, so the unit of builds is
-                # the candidate/set evaluation (traces from before set_evaluations count supports).
+                # the candidate/set evaluation.  A trace without set_evaluations counts supports.
+                if any("set_evaluations" not in layer for layer in large):
+                    print(f"WARNING: {workload} lacks set_evaluations; builds use supports")
                 seconds_per_evaluation = sum(layer["seconds"] for layer in large) / sum(
                     layer.get("set_evaluations", layer["evaluated"]) for layer in large
                 )

@@ -2,15 +2,15 @@
 
 """Report the hit rates of three caches of exact searches over a sequence of workloads.
 
-The caches are ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``
-of ``qldpc.codes.distance._tuning``.  The script warms up as ``trial.py`` does for each kind of
-workload, runs each workload once, so that it builds its codes and states and loads their compiled
-code, empties the three caches, and then runs the workloads one after another in this process,
-``--cycles`` times over, and prints ``cache_info()`` of each cache.  A cache whose misses stop
-falling as its size grows is large enough, so run a workload that cycles through more inputs than
-a cache holds to see the cost of misses: each cycle after the first should then hit, if the cache
-is large enough.  The time of a workload in the first cycle less that in the second is then the
-setup of the searches that it missed.
+The caches are those whose sizes ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, and
+``PAULI_SEARCH_CACHE_SIZE`` of ``qldpc.codes.distance._tuning`` fix when qLDPC is imported.  The
+script warms up as ``trial.py`` does for each kind of workload, runs each workload once, so that it
+builds its codes and states and loads their compiled code, empties the three caches, and then runs
+the workloads one after another in this process, ``--cycles`` times over, and prints
+``cache_info()`` of each cache.  If the workloads need no more searches than a cache holds, each
+cycle after the first hits it, and the time of a workload in the first cycle less that in the
+second is the setup of the searches that it missed.  If they need more, misses continue in later
+cycles; a cache whose misses stop falling as its size grows is large enough.
 
 Example:
 

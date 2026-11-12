@@ -17,7 +17,7 @@ Sweeps write their trials to `results/`, which Git ignores, so this page keeps t
 ## 1. Measure the noise floor
 
 Run a tuning against itself, as `noise-j1`, `noise-j4`, and `noise-j10` below do, and read the 95% intervals of `collect_results.py`.
-On an Apple M3 Max, ten rounds gave intervals of ±1% to ±9% one search at a time, ±3.5% in the median, and ±5–10% ten at a time; one of eleven workloads compared with itself one at a time had an interval that excluded 1.
+On an Apple M3 Max, ten rounds gave 95% intervals of ±1% to ±9% one search at a time, ±3.5% in the median, and ±3% to ±8% ten at a time, ±5.6% in the median; two of eleven workloads compared with themselves one at a time had intervals that excluded 1.
 Differences within these intervals do not distinguish candidates.
 
 ## 2. Work through the fields in order
@@ -62,25 +62,25 @@ A mechanism justifies a choice only once it is verified:
 - Cite trace fields, such as stage times, decisions, and counts, and, for claims about the code, its file and line.
 - Label each claim verified, consistent (it fits the data, untested), or conjecture, and state only verified mechanisms in field comments.
 
-For example, the factor `enumeration_setup_cost_factor` stands for the ratio of setup time to the time per enumerated word, but that ratio was 0.35 to 97 across codes.
-The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_brute_force.py` and confirmed by raising `enumeration_batch_exponent`, which made that enumeration about 100 to 300 times faster.
+For example, the factor `enumeration_setup_cost_factor` stands for the time to set up information sets, divided by the numbers of rows and columns and by the time per enumerated codeword, but that ratio was 0.35 to 97 across codes.
+The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_brute_force.py` and confirmed by raising `enumeration_batch_exponent` from 15 to 30, which made each enumerated codeword about 325 times faster on rows of 1000 bits.
 
 ## 5. Check the sensitivity of long runs
 
 The long runs, of a minute or more one search at a time, are `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, `distance/classical:160:110:1/-`, `distance/classical:1000:976:2/-`, the classical codes of 4000 and 8000 bits with 21 to 23 rows, the sparse codes of 4000 bits with 21 to 23 rows when they enumerate, and the coset searches `coset/pp232/css/10/10/3000`, `coset/qt7/css/10/10/3000`, and `coset/lp13s5/physical/7/7/1000`.
 The classical codes of 4000 and 8000 bits spend about 50 and 370 seconds of that in work that does not depend on the tuning (see "Before measuring").
-Coset searches read none of the thresholds below but `overlapping_minimum_work`.
+Coset searches read none of the thresholds that `windows.py` covers but `overlapping_minimum_work`.
 
 Trace the long runs, and a set of quick ones, at the defaults, and give the traces to `windows.py`, which prints, for each threshold, the nearest decision on either side of it, for the workloads named by `--long` and for all.
 A threshold whose window on long runs is wide, or whose candidates measured alike on long runs, is robust there, and its precise value matters only for quick runs.
 A narrow window, or an effect of more than 1.2 times on a long run, makes it sensitive; trace the long runs just past each edge to see what changes.
-To compare two tunings on a long run without timing it, trace it under both and run `windows.py --compare` on the two traces: if every decision is the same, so is the search, apart from the time of the decisions themselves.
+To compare two tunings on a long run without timing it, trace it under both and run `windows.py --compare` on the two traces: if the tunings differ only in thresholds and every decision is the same, so is the search, apart from the time of the decisions themselves.  `--compare` records the number of sets of each family, not the sets, so it cannot tell searches apart that fields such as `max_partition_coverage` change.
 Time a long run, one search at a time and in 4 or more paired rounds, only where a decision differs.
 `trace.py` cannot trace `ccount` workloads, whose compiled setup bypasses its wrappers; trace the same counts as `count` workloads.
 
 ## 6. Reproduce the numbers in the comments
 
-The commands below ran on the library code of their time, at the commits that `trials.jsonl` records, and each compares its arms with the defaults of its time.
+The commands below ran on the library code of their time, at the commits that `trials.jsonl` records, and each compares its arms with its first arm: the defaults of its time, or, in the sweeps whose arms all set `completion_bound_minimum_layer_work` to `3 * 10**7`, those defaults with that value.
 Their `--base` gives those defaults where they differ from the current ones, so that each command compares the same values on the current code.
 The refit data set of the Retuning section is that of the row "Cost coefficients".
 
@@ -96,7 +96,7 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X` for the predictions, and `fit_completion_costs.py collect --repeats 3 --workloads distance/pp232/X 'distance/classical:150:100:1/-'`, then `fit_completion_costs.py fit`, for the measured costs; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
 | Windows of the thresholds | `trace.py <w> --output <dir>/<w>.json` at the defaults for every `distance`, `hadamard`, and `count` workload of section 3 and the long runs, with `--setup-only` for the classical codes of 1000 to 8000 bits that enumerate; then `windows.py <dir>/*.json --long` with the distance workloads of the long runs of section 5 |
-| Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each compared with its trace at the defaults by `windows.py --compare` |
+| Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each compared with its trace at the defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05}'`, whose layer 6 declines its tables, for the time of that layer without them |
 | Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |

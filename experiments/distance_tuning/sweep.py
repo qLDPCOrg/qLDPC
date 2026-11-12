@@ -8,9 +8,9 @@ warms up and then times one workload under one arm.  Each round runs every arm o
 workload, in an order that alternates between rounds, so that drifts of the load of the machine
 affect every arm alike.  With ``--jobs`` above one, groups of trials, each one round of one
 workload, run at once, while the arms of a group run one after another on one worker, so that they
-share the conditions of the machine as closely as possible.  Lookups of completion tables are
-sensitive to the processor's caches, which concurrent trials share, so compare their cost models
-with ``--jobs 1``.
+share the conditions of the machine as closely as possible.  Completion tables saved less when
+several searches ran at once (see the Retuning section of ``qldpc.codes.distance._tuning``), so
+compare their cost models with ``--jobs 1``.
 
 Each trial appends one JSON line to ``trials.jsonl`` in the results directory, with the sweep's tag,
 the arm, the round, the commit and a hash of the differences of the source from it, the load
@@ -47,6 +47,7 @@ import hashlib
 import json
 import os
 import pathlib
+import statistics
 import subprocess
 import sys
 import threading
@@ -213,7 +214,7 @@ def run_group(group: list[dict[str, Any]], path: pathlib.Path, lock: threading.L
             with path.open("a", encoding="utf-8") as file:
                 file.write(line + "\n")
             status = record["status"]
-            wall = f"{record['wall'][0]:.3f} s" if status == "ok" else status
+            wall = f"{statistics.median(record['wall']):.3f} s" if status == "ok" else status
             arm = f"arm {trial['arm_index']} {trial['arm']}"
             print(f"{trial['workload']} round {trial['round']} {arm}: {wall}", flush=True)
 

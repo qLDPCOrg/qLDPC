@@ -121,10 +121,13 @@ def parse_args() -> argparse.Namespace:
 def get_tuning(traces: list[dict[str, Any]]) -> _tuning.SearchTuning:
     """The tuning that every trace ran under.
 
-    ``trace.py`` records the whole tuning.  For traces from before it did, the tuning is the
-    defaults of this commit with the recorded changes, which the script warns of, since the
-    defaults may have changed since.
+    ``trace.py`` records the whole tuning.  For a trace without it, the tuning is the defaults of
+    this commit with the recorded changes, which the script warns of, since the trace may have run
+    under other defaults.  It also warns of traces from several sources.
     """
+    sources = {json.dumps(trace.get("source"), sort_keys=True) for trace in traces}
+    if len(sources) > 1:
+        print(f"WARNING: the traces come from {len(sources)} sources")
     if all("full_tuning" in trace for trace in traces):
         tunings = {json.dumps(trace["full_tuning"], sort_keys=True) for trace in traces}
         if len(tunings) != 1:

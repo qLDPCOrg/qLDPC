@@ -35,7 +35,8 @@ records:
   supports that it evaluated and skipped, its candidate/set evaluations (each support of a scan in
   lockstep counts once for each of its sets), and the lookups of completion tables that it made, the
   width of the blocks of its tables if any, with their bytes and number of blocks, the seconds spent
-  choosing and building tables, and its seconds in all.
+  choosing tables (which, for a layer of one set, include building them) and building them, and
+  its seconds in all.
 
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
@@ -101,6 +102,9 @@ def main() -> None:
     if args.workload.split("/")[0] not in ("distance", "hadamard", "count"):
         raise ValueError("Only distance, hadamard, and count workloads can be traced")
     trial.check_workload(args.workload)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+    source = sweep.get_source_fingerprint()
     with _tuning.use_tuning(**json.loads(args.tuning)) as tuning:
         trial.warm_up(args.workload.split("/")[0])
         install_wrappers()
@@ -115,10 +119,15 @@ def main() -> None:
         seconds = time.perf_counter() - start
     print_trace(result, seconds)
     if args.output is not None:
-        record = {"workload": args.workload, "tuning": json.loads(args.tuning)}
-        record |= {"full_tuning": dataclasses.asdict(tuning)}
-        record |= {"source": sweep.get_source_fingerprint()}
-        record |= {"result": result, "seconds": seconds, "events": EVENTS}
+        record = {
+            "workload": args.workload,
+            "tuning": json.loads(args.tuning),
+            "full_tuning": dataclasses.asdict(tuning),
+            "source": source,
+            "result": result,
+            "seconds": seconds,
+            "events": EVENTS,
+        }
         args.output.write_text(json.dumps(record, indent=1), encoding="utf-8")
 
 
@@ -127,7 +136,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("workload", help="a distance or count workload name (see workloads.py)")
+    parser.add_argument(
+        "workload", help="a distance, hadamard, or count workload name (see workloads.py)"
+    )
     parser.add_argument(
         "--tuning",
         default="{}",
