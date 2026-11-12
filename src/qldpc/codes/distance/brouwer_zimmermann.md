@@ -751,7 +751,7 @@ For the X sector of the [[288, 12, 18]] code above, with `U = 18` and the scanne
 On nine layers of `5 × 10^8` to `1.5 × 10^10` supports of that code and of three pair-partition codes, the scan of one information set without tables took 70% to 95% of the time of the scan of any family of sets.
 These two scans were measured as the kernels `_scan_one_information_set` and `_scan_brouwer_zimmermann`, before the distance and coset searches shared their scans; they are now `scan_information_set` and `scan_family` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which scan in the same order.
 With tables forced, by `completion_bound_minimum_layer_work` set to zero and `completion_bound_max_cost_percent` set to `MAX_VALUE`, three of four layers of `2 × 10^7` to `5 × 10^7` supports, of that code and of two pair-partition codes, were slower, with cost ratios up to 1.6, and the cost model predicted ratios above one for all four.
-Such small layers gain little even when tables pay, and estimating the share of skipped supports takes milliseconds, so a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports.
+Estimating the share of skipped supports takes milliseconds, so a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports, which bounds the cost of sampling; the cost model then declines tables on layers such as these.
 The share of skipped supports depends on the code, the scanned set, and the order of its rows, and other codes may gain less, or nothing when a search declines the tables.
 Skipping does not reduce the number of layers that a search must complete, and the number of prefixes still grows like that of supports for a fixed ratio `w/r`.
 
@@ -761,7 +761,7 @@ They have `6 × 10^8` to `1.5 × 10^9` supports for each basis.
 Scanning their bases one at a time with tables, including building the tables, took 0.11 to 0.30 times as long as the scan in lockstep, and the predicted costs of these layers were within 0.06 of the measured ratios.
 In layer five of the X sector of the [[288, 12, 18]] code without its automorphisms, the tables of one of nine bases paid, and the search scanned the layer in lockstep, which was 6% faster than scanning its bases one at a time.
 In layer six, with `1.4 × 10^10` supports for each basis, the tables of seven of nine bases paid, and scanning the bases one at a time took 0.81 times as long as the scan in lockstep, for a predicted cost of 0.78.
-Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search does not consider them.
+Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search that considers them declines the tables.
 
 ### 3.10 Minimum weights of cosets
 

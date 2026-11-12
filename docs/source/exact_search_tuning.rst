@@ -27,6 +27,7 @@ Start from a symptom
      - What to try first, then measure
    * - A search of a small problem, or of a long code of low dimension, spends its time on setup
      - Raise :attr:`~SearchTuning.enumeration_max_dimension` or :attr:`~SearchTuning.enumeration_setup_cost_factor` to enumerate every word instead.
+       Enumeration handles rows of more than 960 bits one word at a time (see :attr:`~SearchTuning.enumeration_batch_exponent`), so time it on longer codes.
    * - A hard distance search spends its time in its last, costliest layers
      - Lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` or raise :attr:`~SearchTuning.completion_bound_max_cost_percent` to use completion tables in more layers; raise :attr:`~SearchTuning.max_information_sets`; lower :attr:`~SearchTuning.lp_minimum_work` or :attr:`~SearchTuning.automorphism_minimum_layer_work`.
    * - A cheap search spends its time building families of information sets

@@ -41,8 +41,9 @@ if TYPE_CHECKING:
 else:
     import workloads
 
-# Changes that make small searches take every route of the BZ method, so that warming up on them
-# loads the compiled code of every route that a timed search may take.
+# Changes that make small searches take every route of the BZ method but enumeration, which the
+# warm-up under the active tuning covers, so that warming up loads the compiled code of every route
+# that a timed search may take.
 FORCE_EVERY_ROUTE = {
     "allow_enumeration_by_size": False,
     "allow_enumeration_by_work": False,
