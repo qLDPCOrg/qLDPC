@@ -135,4 +135,6 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - Coverage cannot see compiled code, so tests also run compiled functions as plain Python.
   `conftest.py` holds the fixtures for this, and the helpers that several test files share, such as a check of counts against brute-force enumeration.
   The variants of tests that run compiled code carry the `compiled` marker (see `docs/source/contributing/standards/testing.rst`).
+- `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
+  Tests that replace a compiled-on-request function or a function that one calls, or that compare plain with compiled set-up code, request the `plain_search_setup` fixture of `conftest.py`, whose docstring says why.
 - `readme_test.py` fails if this page omits a module, or names a file that does not exist.

@@ -726,7 +726,11 @@ def _get_above_distance_error(weight: int) -> ValueError:
 
 
 def _warm_up_compiled_functions() -> None:
-    """Compile every function now, by counting on a small code, so that no later call compiles."""
+    """Compile the compiled-on-request functions by running them on a small code.
+
+    Later calls of these functions compile them again only for arguments of other types, such as
+    arrays in Fortran order.
+    """
     from ..quantum import SteaneCode
 
     counter = CSSLogicalCounter(SteaneCode())

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import ast
 import builtins
 import functools
 import importlib
@@ -20,7 +21,7 @@ import galois
 import grimp
 import pytest
 
-from qldpc import _compilation, abstract, external
+from qldpc import _compilation, abstract, codes, external
 
 # A comment that lets an import break the layering rule of check_import_layering.
 _LAYERING_EXCEPTION = re.compile(r"#\s*layering-exception:\s*\S")
@@ -236,6 +237,124 @@ def wedderburn_artin_rings_to_test(
         case "dihedral7_gf9":
             return ring_dihedral7_gf9
     raise ValueError(f"Invalid fixture name: {request.param}")  # pragma: no cover
+
+
+####################################################################################################
+# runs with compiled code
+
+# The decorators of qldpc._compilation that make numba compile a function.
+_COMPILING_DECORATORS = frozenset({"always_compiled", "compiled_on_request"})
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add the options of test runs with compiled code."""
+    # Explicit defaults let pytest set these options when it loads this file after reading the
+    # command line, as in a run of ``pytest src``.
+    parser.addoption(
+        "--compiled-module-tests",
+        action="store_true",
+        default=False,
+        help="Collect, from the directories given, only the test files of the modules that define"
+        " compiled functions.",
+    )
+    parser.addoption(
+        "--compile-search-setup",
+        action="store_true",
+        default=False,
+        help="Switch the set-up code of distance and count searches to compiled code before every"
+        " test, as qldpc.codes.distance.compile_search_setup() does.",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Refuse the options of runs with compiled code while compilation is disabled."""
+    options = [
+        option
+        for option in ("--compiled-module-tests", "--compile-search-setup")
+        if config.getoption(option)
+    ]
+    if options and _compilation.is_compilation_disabled():
+        raise pytest.UsageError(
+            f"Compilation is disabled, but it is needed by {' and '.join(options)}.  Unset"
+            " QLDPC_DISABLE_COMPILATION and NUMBA_DISABLE_JIT."
+        )
+
+
+def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) -> bool | None:
+    """With ``--compiled-module-tests``, skip each test file whose module has no compiled function.
+
+    The module of a test file ``x_test.py`` is ``x.py`` beside it.  Whatever this returns, pytest
+    collects a test file named on the command line if no directory named there contains it.
+    """
+    if config.getoption("--compiled-module-tests") and collection_path.name.endswith("_test.py"):
+        module = collection_path.with_name(collection_path.name.removesuffix("_test.py") + ".py")
+        if not _defines_compiled_functions(module):
+            return True
+    return None
+
+
+def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]:
+    """The functions of a module that numba compiles, by the name of the decorator that marks them.
+
+    The decorators are ``always_compiled`` and ``compiled_on_request``, however they are imported,
+    as in ``@always_compiled``, ``@_compilation.always_compiled(inline=True)``, or a name that
+    ``from ... import ... as`` gives them.
+    """
+    # Map each name under which the module imports a decorator to the decorator's name.
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            aliases |= {
+                alias.asname or alias.name: alias.name
+                for alias in node.names
+                if alias.name in _COMPILING_DECORATORS
+            }
+
+    # Find the functions with each decorator.
+    functions: dict[str, list[ast.FunctionDef]] = {name: [] for name in _COMPILING_DECORATORS}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            for decorator in node.decorator_list:
+                if isinstance(decorator, ast.Call):  # a decorator with options
+                    decorator = decorator.func
+                name = (
+                    decorator.attr
+                    if isinstance(decorator, ast.Attribute)
+                    else aliases.get(getattr(decorator, "id", ""))
+                )
+                if name in functions:
+                    functions[name].append(node)
+    return functions
+
+
+def _defines_compiled_functions(path: pathlib.Path) -> bool:
+    """Whether a module exists and has a function with a decorator of compiled code.
+
+    The decorators are ``always_compiled`` and ``compiled_on_request`` (see get_compiled_functions).
+    """
+    if not path.is_file():
+        return False
+    return any(get_compiled_functions(ast.parse(path.read_text(encoding="utf-8"))).values())
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """With ``--compile-search-setup``, switch the set-up code of searches to compiled code.
+
+    The code is compiled by ``compile_search_setup`` before the first test of each process.
+    Fixtures such as ``plain_search_setup`` of the distance tests may switch it back to plain Python
+    for one test, so this hook switches it to compiled code before every test, ahead of the test's
+    fixtures.
+    """
+    if item.config.getoption("--compile-search-setup"):
+        compile_search_setup_once()
+        _compilation.set_on_request_functions_compiled(True)
+
+
+@functools.cache
+def compile_search_setup_once() -> None:
+    """Compile the set-up code of searches, the first time that this is called in a process."""
+    codes.distance.compile_search_setup()
 
 
 ####################################################################################################
