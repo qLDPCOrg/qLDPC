@@ -63,7 +63,8 @@ from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
-# The backends of the upper bounds of get_distance_bound.
+# The values of the backend argument of get_distance_bound, which selects how it computes an
+# upper bound.
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
 
 _GAP_DISTANCE_BOUND_KWARGS = frozenset({"maxav"})
@@ -4536,15 +4537,6 @@ def _as_pauli_bias_zxy(
     return pauli_bias_zxy / np.sum(pauli_bias_zxy)
 
 
-def _validate_distance_backend(backend: DistanceBackend) -> None:
-    """Validate a distance-bound backend selector."""
-    if backend not in get_args(DistanceBackend):
-        raise ValueError(
-            f"Unknown distance backend {backend!r}; choose from 'auto', 'decoder', 'gap', or "
-            "'sqetch'."
-        )
-
-
 def _resolve_distance_backend(
     backend: DistanceBackend,
     bound_kwargs: Mapping[str, object],
@@ -4669,6 +4661,15 @@ def _minimize_decoded_weight(
     if not num_solved:
         raise ValueError(_DECODING_FAILURE_MESSAGE)
     return min_weight
+
+
+def _validate_distance_backend(backend: DistanceBackend) -> None:
+    """Validate a distance-bound backend selector."""
+    if backend not in get_args(DistanceBackend):
+        raise ValueError(
+            f"Unknown distance backend {backend!r}; choose from 'auto', 'decoder', 'gap', or "
+            "'sqetch'."
+        )
 
 
 def _validate_num_trials(num_trials: object) -> None:

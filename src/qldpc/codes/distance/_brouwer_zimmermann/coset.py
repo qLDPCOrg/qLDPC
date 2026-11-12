@@ -91,7 +91,7 @@ class BrouwerZimmermannCosetSearch:
         # chooses which of these weights a scan computes.  The weight factor of the coset instances
         # is separate: it is two for every search of Pauli errors, including those by CSS weight,
         # whose scale is zero, since an error weighs at least half the Hamming weight of its
-        # embedded word (see ``get_pauli_search``).
+        # embedded word (see ``_get_pauli_search``).
         self.scale = 0 if css_weight and is_pauli else 1 if css_weight else 2
         self._num_qubits = num_qubits
         self._is_pauli = is_pauli
@@ -241,21 +241,17 @@ class BrouwerZimmermannCosetSearch:
 
 
 def get_pauli_search(
-    stabilizers: npt.NDArray[np.uint8],
-    checks: npt.NDArray[np.uint8],
-    css_weight: bool,
-    tuning: SearchTuning,
+    stabilizers: npt.NDArray[np.uint8], css_weight: bool, tuning: SearchTuning
 ) -> BrouwerZimmermannCosetSearch:
     """The search of Pauli errors modulo independent commuting stabilizers, from a cache.
 
-    The syndromes are for the rows of ``stabilizers``, and ``checks`` swaps their X and Z halves, so
-    that the syndrome of a packed Pauli ``e`` is ``checks @ e``.  ``css_weight`` selects the CSS
-    weight rather than the physical weight.  The rows of the stabilizers, the measure of weight,
-    and the fields of the tuning that the setup of the search reads key the cache (see
+    The syndromes are for the rows of ``stabilizers``.  ``css_weight`` selects the CSS weight rather
+    than the physical weight.  The rows of the stabilizers, the measure of weight, and the fields of
+    the tuning that the setup of the search reads key the cache (see
     ``_tuning.PAULI_SEARCH_CACHE_SIZE``).
     """
     return _get_pauli_search(
-        _StabilizerKey(stabilizers, checks),
+        _StabilizerKey(stabilizers),
         css_weight,
         _CosetTuning.from_tuning(tuning, paulis_by_css_weight=css_weight),
     )
@@ -282,19 +278,17 @@ def get_css_searches(
 
 
 class _StabilizerKey:
-    """A stabilizer matrix and its checks, which a cache can hash and compare by the matrix.
+    """A stabilizer matrix, which a cache can hash and compare by its bytes.
 
-    The checks follow from the stabilizers, so the stabilizers alone key the cache, and the key
-    keeps both matrices to build a search that the cache has not stored yet.  Keys of packed bytes
-    would not hold the matrices, but unpacking them would cost about 0.4% of the setup of a search.
-    The matrices may be arrays of the caller.  The key compares a copy of the bytes of the
-    stabilizers, and the search copies what it keeps of them, so later changes to the arrays of the
-    caller reach neither.
+    The key keeps the matrix to build a search that the cache has not stored yet.  Keys of packed
+    bytes would not hold the matrix, but unpacking them would cost about 0.4% of the setup of a
+    search.  The matrix may be an array of the caller.  The key compares a copy of its bytes, and
+    the search copies what it keeps of it, so later changes to the array of the caller reach
+    neither.
     """
 
-    def __init__(self, stabilizers: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8]) -> None:
+    def __init__(self, stabilizers: npt.NDArray[np.uint8]) -> None:
         self.stabilizers = stabilizers
-        self.checks = checks
         self._key = (stabilizers.shape, stabilizers.tobytes())
         self._hash = hash(self._key)
 
@@ -350,13 +344,14 @@ def _get_pauli_search(
 ) -> BrouwerZimmermannCosetSearch:
     """The cached Pauli search of ``get_pauli_search``.
 
-    ``key`` holds the stabilizers and their checks.  The syndromes
-    depend on the rows of the stabilizer matrix, not only on the group that they generate, so the
-    rows key the cache.  ``css_weight`` and the fields of the tuning that the setup reads key it
-    too.
+    The syndromes depend on the rows of the stabilizer matrix of ``key``, not only on the group that
+    they generate, so the rows key the cache (see ``get_pauli_search``).
     """
-    stabilizers, checks = key.stabilizers, key.checks
+    stabilizers = key.stabilizers
     num_qubits = len(stabilizers)
+    # The syndrome of a packed Pauli ``e`` is ``checks @ e``, where ``checks`` swaps the X and Z
+    # halves of the stabilizers.
+    checks = np.roll(stabilizers, num_qubits, axis=1)
     inverse = get_unit_syndrome_words(checks)
     embedded_stabilizers = stabilizers if css_weight else symplectic_to_hamming(stabilizers)
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)
@@ -390,7 +385,7 @@ def _get_css_searches(
     """The cached classical searches of ``get_css_searches``.
 
     ``x_rows`` holds the X parts of ``num_x_rows`` pure-X stabilizers, and ``z_rows`` the Z parts of
-    the other ``num_qubits - num_x_rows`` stabilizers, which are pure-Z, both packed by
+    the other ``num_qubits - num_x_rows`` stabilizers, which are pure-Z.  Both are packed by
     ``pack_bits`` into bytes, which ``lru_cache`` can hash.
     """
     num_words = max(1, (num_qubits + 63) // 64)

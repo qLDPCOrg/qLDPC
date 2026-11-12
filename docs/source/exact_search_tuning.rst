@@ -6,9 +6,8 @@ Exact-search performance and tuning
 Exact distance searches and logical-operator counts choose between routes, such as exhaustive enumeration and searches of overlapping information sets, by cost models, and they bound their batches, memory, and caches.
 This page leads from symptoms and routes to the values that control them, and renders the documentation of each from the private module ``qldpc.codes.distance._tuning``.
 
-Before you change a value, read :ref:`the documentation of that module <tuning-module>` at the bottom of this page.
+Before you change a value, read :ref:`the documentation of that module <tuning-module>` below.
 It says what its privacy means for code that uses it, what tuning can and cannot change, how to change it, and which values are fields of :class:`SearchTuning` and which are constants.
-Each field says what it decides, what raising or lowering it does, and how to retune it.
 The `Brouwer--Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-support guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_ explain the methods.
 
 Start from a symptom
@@ -132,13 +131,20 @@ Routes and the names that control them
      - :data:`CSS_SEARCH_CACHE_SIZE`
      - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
    * - Searches of the lightest Pauli errors by physical weight, or by CSS weight on another stabilizer state, by the Brouwer--Zimmermann method
-     - :attr:`SearchTuning.disjoint_random_column_orders`, :attr:`SearchTuning.max_css_single_pairs`, and for costly queries :attr:`SearchTuning.overlapping_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, and by physical weight :attr:`SearchTuning.coset_completion_block_bits`, :attr:`SearchTuning.completion_bound_max_table_bytes`
+     - :attr:`SearchTuning.disjoint_random_column_orders`, by CSS weight :attr:`SearchTuning.max_css_single_pairs`, and for costly queries :attr:`SearchTuning.overlapping_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, and by physical weight :attr:`SearchTuning.coset_completion_block_bits`, :attr:`SearchTuning.completion_bound_max_table_bytes`
      - :data:`PAULI_SEARCH_CACHE_SIZE`
      - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
    * - Counts of deformed codes
      -
      - :data:`LOCAL_CLIFFORD_CACHE_SIZE`
      -
+
+.. _tuning-module:
+
+The module
+----------
+
+.. automodule:: qldpc.codes.distance._tuning
 
 Settings
 --------
@@ -161,10 +167,3 @@ Constants
 .. autodata:: KRAWTCHOUK_CACHE_SIZE
 .. autodata:: LOCAL_CLIFFORD_CACHE_SIZE
 .. autodata:: PAULI_SEARCH_CACHE_SIZE
-
-.. _tuning-module:
-
-The module
-----------
-
-.. automodule:: qldpc.codes.distance._tuning

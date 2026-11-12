@@ -2151,10 +2151,14 @@ def test_css_distance_bound_backend_selection() -> None:
 
 def test_distance_backend_validation() -> None:
     """Backends are restricted to documented values, and sqetch and decoder to CSS codes."""
-    for backend in ["auto", "decoder", "gap", "sqetch"]:
-        common._validate_distance_backend(backend)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="Unknown distance backend"):
-        common._validate_distance_backend("other")  # type: ignore[arg-type]
+    bounded_codes: list[codes.ClassicalCode | codes.QuditCode] = [
+        codes.RepetitionCode(3),
+        codes.FiveQubitCode(),
+        codes.SteaneCode(),
+    ]
+    for code in bounded_codes:
+        with pytest.raises(ValueError, match="Unknown distance backend"):
+            code.get_distance_bound(backend="other")  # type: ignore[arg-type]
 
     code = codes.FiveQubitCode()
     code.forget_distance()

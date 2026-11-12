@@ -77,7 +77,7 @@ def _get_disjoint_instance(code: npt.NDArray[np.uint8]) -> affine_instance.Affin
 
 
 def _spy_on_tails(monkeypatch: pytest.MonkeyPatch) -> list[_TailsBuild]:
-    """Record each call of ``coset_tables.get_coset_tails``, which still builds the record."""
+    """Record each call of ``coset_tables.get_coset_tails``, and pass it on to that function."""
     builds: list[_TailsBuild] = []
     get_coset_tails = coset_tables.get_coset_tails
 
@@ -129,12 +129,14 @@ def test_the_gate_takes_other_families_from_its_threshold(
     The predicted examinations of a query are the largest work of the disjoint family at its maximum
     weight over the tables of the search, one for each parity of the cosets of the even code, plus
     one for the word of a syndrome.  The work of a table leaves out the sets that a query skips,
-    such as the partial set of the random code at maximum weight two.  At the maximum weight of each
-    case, a query does less work with another family.  It takes that family under a threshold at its
-    predicted examinations, but not under a threshold just above them.  Every lighter query, which
-    does less work, keeps the disjoint family.
+    such as the partial set of the overlapping code at maximum weight two.  At the maximum weight of
+    each case, a query does less work with another family.  It takes that family under a threshold
+    at its predicted examinations, but not under a threshold just above them.  Every lighter query,
+    which does less work, keeps the disjoint family.
     """
-    examinations = _get_examinations(_build_routes(code, 0).disjoint_tables, max_weight)
+    disjoint_tables = _build_routes(code, 0).disjoint_tables
+    assert len(disjoint_tables.planning) == (2 if code is EVEN_ROUTES_CODE else 1)
+    examinations = _get_examinations(disjoint_tables, max_weight)
     for minimum_work in (examinations, examinations + 1):
         routes = _build_routes(code, minimum_work)
         assert (routes.get_route(max_weight)[0] is routes.disjoint_tables) == (
@@ -156,9 +158,9 @@ def test_routes_take_the_family_of_least_work(code: npt.NDArray[np.uint8]) -> No
     and the others, and the first of the disjoint, the maximum disjoint, and the overlapping family
     among those of equal work.  The tables of a route show its family by their generators and
     pivots.  ``_get_candidates`` returns the maximum disjoint family before the overlapping one, so
-    the coverages of the families never decrease.  The random code builds both other families, and
-    queries take each of them, and the disjoint family, at some maximum weights.  The even code has
-    a table for each parity of its cosets.
+    the coverages of the families never decrease.  The two-families code builds both other families,
+    and queries take each of them, and the disjoint family, at some maximum weights.  The even code
+    has a table for each parity of its cosets.
     """
     routes = _build_routes(code, 0)
     families = [(_get_disjoint_instance(code), routes.disjoint_tables), *routes._get_candidates(2)]
@@ -192,8 +194,8 @@ def test_routes_by_tails_reach_the_threshold_with_their_own_family(
     once for each family, and pass it to later builds for the family, which add completion tables.
     Once the routes of every maximum weight are chosen, every route by tails of a family gives the
     latest record of the family, so that no route keeps the tables of an earlier one.  Routes built
-    with ``by_tails`` False give no records.  The random code has routes by tails on both of its
-    other families, so each family must get its own record.
+    with ``by_tails`` False give no records.  The two-families code has routes by tails on both of
+    its other families, so each family must get its own record.
     """
     examinations = {
         _get_examinations(_build_routes(code, 0).get_route(max_weight)[0], max_weight)

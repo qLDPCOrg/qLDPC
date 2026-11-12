@@ -47,7 +47,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_coset_leader_search.py` |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
@@ -99,7 +99,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 
 ## Tuning
 
-Every value that changes only how long a search takes or how much memory it uses, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
+Every value that changes only how long a search takes or how much memory it uses, and that a search can read when it starts, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
 The arguments of the public functions say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`; do not add arguments that only tune a search.
 Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–Zimmermann search uses its fields, and Sections 3.5 and 3.8 of `connected_support.md` where the connected-support searches use theirs.
 

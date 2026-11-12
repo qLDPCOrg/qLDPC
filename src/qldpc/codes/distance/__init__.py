@@ -17,10 +17,11 @@ in the current process only, for programs that count the logical operators of ve
 codes.
 
 Exact distance searches and logical-operator counts choose between routes, such as exhaustive
-enumeration and searches of overlapping information sets, by cost models whose defaults suit
-typical searches.  For very costly searches, the page :doc:`/exact_search_tuning` of the
-documentation leads from symptoms and routes to the settings of these models, and says how to
-change them and what that can and cannot change.
+enumeration and searches of overlapping information sets, by cost models, and bound their batches,
+memory, and caches.  The defaults of their settings suit typical searches.  For very costly
+searches, the page :doc:`/exact_search_tuning` of the documentation leads from symptoms and routes
+to the settings that control them, and says how to change them and what changing them can and cannot
+affect.
 
 Contributors can find a map of the modules in the README.md of this directory.
 """

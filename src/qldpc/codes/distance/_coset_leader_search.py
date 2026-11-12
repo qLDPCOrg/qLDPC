@@ -88,14 +88,14 @@ class CosetLeaderSearch:
     stabilizers for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are
     sparse.  Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its
     checks with sparser ones that span the same space, which can fall short of the sparsest
-    generators.  Which checks it finds depends on the tuning.  The CSS weight is not a sum over
-    qubits, so it weighs errors by CSS weight only on CSS states, whose X and Z parts it searches
-    separately.  Like the BZ searches, it first looks up errors of weight at most one, so a syndrome
-    with such an error gets the weight of its lightest errors as a lower bound.  For any other
-    syndrome, a query with an error within ``max_weight`` gives two, and a query with none gives the
-    larger of two and ``max_weight + 1``.  ``find_first_not_within_max_weight`` searches each
-    syndrome that the table lacks with increasing weight limits, which can find light errors sooner
-    than one search at ``max_weight``.  The BZ searches often give higher bounds.
+    generators.  The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only on
+    CSS states, whose X and Z parts it searches separately.  Like the BZ searches, it first looks up
+    errors of weight at most one, so a syndrome with such an error gets the weight of its lightest
+    errors as a lower bound.  For any other syndrome, a query with an error within ``max_weight``
+    gives two, and a query with none gives the larger of two and ``max_weight + 1``.
+    ``find_first_not_within_max_weight`` searches each syndrome that the table lacks with increasing
+    weight limits, which can find light errors sooner than one search at ``max_weight``.  The BZ
+    searches often give higher bounds.
 
     The oracle reads the active tuning when it is built, and the module docstring of ``_tuning``
     says what a tuning can change about its answers.  The field ``disjoint_random_column_orders``
@@ -166,9 +166,7 @@ class CosetLeaderSearch:
         combinations = _get_css_combinations(matrix) if css_weight else None
         if combinations is None:
             if method == "brouwer_zimmermann":
-                self._brouwer_zimmermann_searches = (
-                    get_pauli_search(matrix, checks, css_weight, tuning),
-                )
+                self._brouwer_zimmermann_searches = (get_pauli_search(matrix, css_weight, tuning),)
             elif css_weight:
                 raise ValueError(
                     "The connected-support method weighs errors by CSS weight only on CSS states;"

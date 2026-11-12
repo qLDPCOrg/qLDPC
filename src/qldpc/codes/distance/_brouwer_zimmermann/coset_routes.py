@@ -40,10 +40,9 @@ disjoint, the maximum disjoint, and the overlapping family.  The certificate of 
 bounds the words of each coset (see ``affine_instance.get_coset_family_instance``), so every route
 answers exactly.  Routes can return different words and lower bounds, within the contract of
 ``MinWeightBound``.  Each route depends only on the code, ``max_weight``, and the tuning, so the
-answers do not depend on which queries came before.  The routes keep copies of the generators of
-the code and of the words with unit syndromes, which they read when they build the other families
-and the tables and tails of the families, so later changes to the arrays of the caller do not reach
-them.
+answers do not depend on which queries came before.  The routes keep a copy of the generators of
+the code, which they read when they build the other families, so later changes to the array of the
+caller do not reach them.
 
 The gate tests the predicted examinations with the disjoint family against its threshold, to decide
 whether a query may take another family.  A route is a route by tails if those with the route's own
@@ -113,8 +112,8 @@ class CosetRoutes:
             copy.
         disjoint: The coset instance of the disjoint information sets of ``basis``.
         inverse: The embedded words whose syndromes have one bit set, with every column of the
-            embedded words, which the routes copy.  The tables and records of tails of every family
-            hold them (see ``coset_tables.get_search_tables`` and ``coset_tables.get_coset_tails``).
+            embedded words.  The tables and records of tails of every family hold them (see
+            ``coset_tables.get_search_tables`` and ``coset_tables.get_coset_tails``).
         num_x_columns: The number of the first columns of the embedded words that count as their X
             part (see ``coset_tables.get_search_tables``).
         minimum_work: The threshold of the gate and of the routes by tails, the field
@@ -151,7 +150,7 @@ class CosetRoutes:
     ) -> None:
         self._basis = basis.copy()
         self._disjoint = disjoint
-        self._inverse = inverse.copy()
+        self._inverse = inverse
         self._num_x_columns = num_x_columns
         self._minimum_work = minimum_work
         self._max_sets = max_sets
@@ -309,8 +308,8 @@ class CosetRoutes:
         weight_factor = self._disjoint.weight_factor
         disjoint = _get_basis_family(self._disjoint, self._basis.shape[1])
         maximum = basis_families.get_maximum_disjoint_family(self._basis, disjoint)
-        # The gate replaces the minimum work of the overlapping stage, so the stage never skips for
-        # low work; it may still find no family.
+        # The minimum work of the policy is zero, since the gate replaces it, so the stage never
+        # skips for low work; it may still find no family.
         overlapping = basis_families.get_overlapping_family(
             self._basis,
             np.empty((len(self._basis), 0), dtype=np.uint8),

@@ -1092,8 +1092,7 @@ def test_min_weights_of_cosets_match_brute_force(
     if "completion_bound_max_table_bytes" in tuning:
         return
     matrix = get_graph_state(4, [(0, 1), (1, 2), (2, 3)], phase=True)
-    checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
-    search = coset.get_pauli_search(matrix, checks, True, get_tuning())
+    search = coset.get_pauli_search(matrix, True, get_tuning())
     syndromes = range(1 << len(matrix))
     _assert_min_weights_match_brute_force(
         search, syndromes, get_exhaustive_minima(matrix, css_weight=True), len(matrix), rng
@@ -1130,8 +1129,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
         minima = _coset_minima(generators, checks, syndromes)
         cases.append((search, len(checks), syndromes, minima, True))
     matrix = ROUTED_PHYSICAL_STATES[1]
-    checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
-    search = coset.get_pauli_search(matrix, checks, False, get_tuning())
+    search = coset.get_pauli_search(matrix, False, get_tuning())
     syndromes = list(range(1 << len(matrix)))
     cases.append(
         (search, len(matrix), syndromes, get_exhaustive_minima(matrix, css_weight=False), False)
