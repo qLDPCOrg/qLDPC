@@ -98,9 +98,12 @@ special standing, by the first of these that applies:
 
 1. a verified mechanism, which a trace or the code shows and an intervention confirms, or, for a
    coefficient, a direct measurement of the quantity that it stands for;
-2. a large gain on some workloads, with no workload slower beyond the confidence interval;
+2. a large gain on long runs, those that take a minute or more one search at a time, with any loss
+   on quick runs, those of a few seconds or less, stated in absolute time;
 3. otherwise, the candidate whose reason is simplest to state, with a note in its comment that the
    candidates measured alike.
+
+Values thus favor long, large runs, whose speed should depend little on the precise values.
 
 A comment that says a value was chosen by hand, or that how it was chosen is not recorded, marks a
 field that these measurements did not choose.
@@ -108,7 +111,8 @@ field that these measurements did not choose.
 Completion tables saved less when several searches ran at once: with tables wherever they are
 considered, ``distance/classical:150:100:1/-`` took 0.75 of its time with
 ``completion_bound_max_cost_percent=90`` one search at a time, 0.90 six at a time, and 1.30 three
-at a time on a machine with a load average of 16.
+at a time on a machine with a load average of 16.  Comments report such effects of load, but they
+do not decide values.
 
 The fields of the completion tables of distance searches and counts (Section 3.9 of
 ``brouwer_zimmermann.md``) were first chosen on the same machine, with layers of one information
@@ -417,7 +421,7 @@ class SearchTuning:
     #: scanning without them.  Lowering it demands larger predicted savings; zero never uses tables,
     #: and ``MAX_VALUE`` uses them wherever they are considered, even where they cost more.
     #: Defaults to 90, a margin for the error of the cost model, which errs both ways.  It predicted
-    #: 0.67 for layer 5 of ``distance/pp232/X``, which took 0.86 of its time without tables when it
+    #: 0.67 for layer 5 of ``distance/pp232/X``, which took 0.94 of its time without tables when it
     #: used them, but 1.41 for layer 9 of ``distance/classical:150:100:1/-``, of 50 rows, which
     #: would have taken 0.64, and 0.90 for layer 6 of ``hadamard/gross``, which took 0.38.  No
     #: candidate was faster on every workload: 90 and 100 measured alike, and 200 made
