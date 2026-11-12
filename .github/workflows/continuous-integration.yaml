@@ -120,8 +120,8 @@ jobs:
       # Let every shard finish when one fails, so that each reports its own failures.
       fail-fast: false
       matrix:
-        # Each shard checks a share of the test files on its own runner (see checks/coverage_.py
-        # --shard).
+        # Each shard checks a share of the test files on its own runner, balanced by .test_durations
+        # (see checks/coverage_.py --shard), which the workflow test-durations.yaml measures.
         shard: [1, 2, 3]
     steps:
       - name: Check that the matrix runs each shard once
