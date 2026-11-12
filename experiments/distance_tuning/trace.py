@@ -10,10 +10,13 @@ The script wraps functions of ``qldpc.codes.distance._search`` in this process o
 - each certificate of a search, which may solve linear programs, and the seconds that took;
 - each attempt to switch to a family of automorphism images, the seconds it took, and whether the
   search switched;
-- each coefficient layer that a search advances by: its weight, number of basis rows and scanned
-  sets, its supports, the best weight and lower bound after it, the supports that it evaluated and
-  skipped and the lookups of completion tables that it made, the width of the blocks of its tables
-  if any, the seconds spent choosing and building tables, and its seconds in all.
+- each prediction of the cost of completion tables, as a share of the cost of a scan without them,
+  with the number of rows and the weight of its layer or step, and the seconds since the workload
+  started, which also time the steps of counts;
+- each coefficient layer that a distance search advances by: its weight, number of basis rows and
+  scanned sets, its supports, the best weight and lower bound after it, the supports that it
+  evaluated and skipped and the lookups of completion tables that it made, the width of the blocks
+  of its tables if any, the seconds spent choosing and building tables, and its seconds in all.
 
 It prints a table of the layers, and with ``--output``, saves the events as JSON.  The thresholds of
 ``SearchTuning`` decide where these stages start, so a trace shows which decisions a threshold can
@@ -56,17 +59,21 @@ EVENTS: list[dict[str, Any]] = []
 # The statistics of the layer that is being scanned, or None outside a layer.
 CURRENT_LAYER: dict[str, Any] | None = None
 
+# The time at which the traced workload started.
+START = 0.0
+
 
 def main() -> None:
     """Trace a workload, and print and save the trace."""
     args = parse_args()
-    if args.workload.split("/")[0] not in ("distance", "hadamard"):
-        raise ValueError("Only distance workloads can be traced")
+    if args.workload.split("/")[0] not in ("distance", "hadamard", "count", "ccount"):
+        raise ValueError("Only distance and count workloads can be traced")
     with _tuning.use_tuning(**json.loads(args.tuning)):
         trial.warm_up(args.workload.split("/")[0])
         install_wrappers()
         EVENTS.clear()
-        start = time.perf_counter()
+        global START
+        start = START = time.perf_counter()
         result = workloads.run_workload(args.workload)
         seconds = time.perf_counter() - start
     print_trace(result, seconds)
@@ -109,6 +116,7 @@ def install_wrappers() -> None:
         (search_class, "_switch_to_automorphism_family", wrap_switch),
         (search_class, "_choose_tables_of_sets", wrap_choose),
         (completion_bounds, "select_completion_tables", wrap_select),
+        (completion_bounds, "predict_completion_cost", wrap_predict),
         (tables_class, "build", lambda build: staticmethod(wrap_build(build))),
         (affine_search, "scan_information_set", wrap_scan),
         (affine_search, "scan_family", wrap_scan),
@@ -213,6 +221,28 @@ def wrap_select(function: Callable[..., Any]) -> Callable[..., Any]:
             CURRENT_LAYER["choose_seconds"] += time.perf_counter() - start
             CURRENT_LAYER["tables"] = None if tables is None else int(tables.block_bits)
         return tables
+
+    return wrapper
+
+
+def wrap_predict(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record each prediction of the cost of completion tables."""
+
+    @functools.wraps(function)
+    def wrapper(rows: Any, weight: int, *args: Any, **kwargs: Any) -> Any:
+        cost, block_bits = function(rows, weight, *args, **kwargs)
+        EVENTS.append(
+            {
+                "event": "predict",
+                "rows": len(rows),
+                "weight": weight,
+                "supports": math.comb(len(rows), weight),
+                "cost": cost,
+                "block_bits": block_bits,
+                "at": time.perf_counter() - START,
+            }
+        )
+        return cost, block_bits
 
     return wrapper
 
