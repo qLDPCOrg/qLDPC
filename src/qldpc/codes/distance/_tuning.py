@@ -92,9 +92,9 @@ count, and ``cache_stats.py`` the hit rates of the caches.  The comments of the 
 workloads.
 
 The comments of most fields of BZ searches give the measurements behind their values, taken with
-these scripts on an Apple M3 Max at qLDPC commit ``15897436``, in 3 to 10 rounds of one to six
-searches at a time.  The value of each such field was chosen among candidates, none of which had a
-special standing, by the first of these that applies:
+these scripts on an Apple M3 Max at qLDPC commits from ``15897436`` to ``eba1dd2f``, in 3 to 10
+rounds of one to six searches at a time.  The value of each such field was chosen among candidates,
+none of which had a special standing, by the first of these that applies:
 
 1. a verified mechanism, which a trace or the code shows and an intervention confirms, or, for a
    coefficient, a direct measurement of the quantity that it stands for;
@@ -440,17 +440,19 @@ class SearchTuning:
     #: their predicted cost, including building them, is at most this percentage of the cost of
     #: scanning without them.  Lowering it demands larger predicted savings; zero never uses tables,
     #: and ``MAX_VALUE`` uses them wherever they are considered, even where they cost more.
-    #: Defaults to 90, a margin for the error of the cost model, which errs both ways.  It predicted
-    #: 0.67 for layer 5 of ``distance/pp232/X``, which took 0.94 of its time without tables when it
-    #: used them, but 1.41 for layer 9 of ``distance/classical:150:100:1/-``, of 50 rows, which
-    #: would have taken 0.64, and 0.90 for layer 6 of ``hadamard/gross``, which took 0.45.  Its
-    #: decisions stay the same from 89.84, the predicted cost of that layer in percent, to 103.5,
-    #: that of layer 5 of ``hadamard/pp110``.  No candidate was faster on every workload: 90 and 100
-    #: measured alike, and 200 made ``distance/classical:140:90:1/-``,
-    #: ``distance/classical:150:100:1/-``, and ``distance/classical:160:110:1/-`` 1.2 to 1.6 times
-    #: faster one search at a time, but ``distance/classical:140:90:1/-`` 1.3 times slower three at
-    #: a time.  To retune it, compare predicted and measured costs with ``fit_completion_costs.py``,
-    #: and time searches one and several at a time.
+    #: Defaults to 90, a margin for the error of the cost model, which overestimates some layers
+    #: and, with the machine under load, underestimates others.  It predicted 0.67 for layer 5 of
+    #: ``distance/pp232/X``, which took 0.66 to 0.96 of its time without tables when it used them,
+    #: in two sessions, but 1.41 for layer 9 of ``distance/classical:150:100:1/-``, of 50 rows,
+    #: which would have taken 0.55 to 0.64, and 0.90 for layer 6 of ``hadamard/gross``, which took
+    #: 0.45.  Its decisions stay the same from 89.84, the predicted cost of that layer in percent,
+    #: to 103.5, that of layer 5 of ``hadamard/pp110``.  90 and 100 measured alike.  One search at a
+    #: time, 200 made ``distance/classical:160:110:1/-`` and ``distance/classical:150:100:1/-`` 1.4
+    #: and 1.3 times faster and slowed none of eight searches, and the long searches of
+    #: ``hadamard/gross``, ``hadamard/pp110``, and ``distance/pp170/X`` build the same tables one or
+    #: two layers sooner, a difference of at most 0.4 seconds; three at a time, it made
+    #: ``distance/classical:140:90:1/-`` 1.3 times slower.  To retune it, compare predicted and
+    #: measured costs with ``fit_completion_costs.py``, and time searches one and several at a time.
     completion_bound_max_cost_percent: int = 90
 
     #: The most bytes of completion tables that a distance search keeps for each problem, a count
@@ -539,13 +541,10 @@ class SearchTuning:
     #: them decline tables that would save time.  Defaults to 2.0, fitted to the cost data set, in
     #: which lookups cost 2 to 8 scanned supports per block.  A refit by ``fit_completion_costs.py``
     #: on the layers of one set of 9 workloads of ``experiments/distance_tuning`` gave
-    #: ``0.88 + 0.051`` scanned supports per block for each MiB of tables: lookups cost 0.5 to 0.9
-    #: in tables of under 1 MiB, and 1.5 to 10 in tables of 18 to 113 MiB.  But extrapolated to the
-    #: 165 MiB tables of layer 6 of ``hadamard/gross``, the refit predicts 0.94 and declines them,
-    #: though with them that layer took 0.45 of its time without them, while 2.0 and 0.04 predict
-    #: 0.90 and use them; on the other workloads that were traced or timed with both, they chose the
-    #: same tables.  So the values of the cost data set stand.  To refit it, see :ref:`Retuning
-    #: <tuning-retuning>`.
+    #: ``0.58 + 0.042`` scanned supports per block for each MiB of tables, from lookups of 0.46 to
+    #: 0.85 in tables of under 1 MiB, and 1.2 to 7.6 in tables of 18 to 113 MiB.  Its lower costs
+    #: would make searches use more tables, which no workload has timed.  To refit it, see
+    #: :ref:`Retuning <tuning-retuning>`.
     completion_bound_lookup_block_cost: float = 2.0
 
     #: The additional cost of a lookup of completion tables, in scanned supports for each block and
@@ -747,10 +746,10 @@ BINOMIAL_CACHE_SIZE = 1024
 #: for the X and Z parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses
 #: more memory, and a smaller one repeats the setup of searches that a workload reuses.  Chosen by
 #: hand.  Certification and residual-weight estimates search one state at a time, and a missed pair
-#: of the 144-qubit state of ``coset/gross/css/6/6/100`` took 0.09 seconds to set up.  To retune it,
-#: record the hit rate, the setup time of a missed pair, and the memory of each pair on workloads
-#: such as certification with ``cache_stats.py``, and keep the smallest size beyond which the hit
-#: rate stops growing.
+#: of the 144-qubit state of ``coset/gross/css/6/6/100`` took 0.015 seconds to set up.  To retune
+#: it, record the hit rate, the setup time of a missed pair, and the memory of each pair on
+#: workloads such as certification with ``cache_stats.py``, and keep the smallest size beyond which
+#: the hit rate stops growing.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The number of results that each of two caches of the MacWilliams method keeps, one of single
@@ -774,7 +773,7 @@ LOCAL_CLIFFORD_CACHE_SIZE = 1024
 #: tuning of the setup of the search.  It takes effect when qLDPC is imported.  A larger cache uses
 #: more memory, a smaller one repeats setups, and zero disables the cache.  Only speed and memory
 #: depend on it.  Chosen by hand; a missed search of the 343-qubit state of
-#: ``coset/qt7/physical/5/5/50`` took 0.4 seconds to set up.  To retune it, record the hit rate, the
-#: setup time of a missed search, and the memory per search on workloads such as certification with
-#: ``cache_stats.py``, and keep the smallest size beyond which the hit rate stops growing.
+#: ``coset/qt7/physical/5/5/50`` took 0.31 seconds to set up.  To retune it, record the hit rate,
+#: the setup time of a missed search, and the memory per search on workloads such as certification
+#: with ``cache_stats.py``, and keep the smallest size beyond which the hit rate stops growing.
 PAULI_SEARCH_CACHE_SIZE = 8
