@@ -15,9 +15,7 @@ from qldpc._binary import get_kernel
 from .. import _cosets
 from .._information_sets import certificates as certificates_module
 from .._information_sets import completion_bounds
-from ..conftest import (
-    _RANK_DEFICIENT_CODE,
-)
+from ..conftest import _RANK_DEFICIENT_CODE, EVEN_ROUTES_CODE
 from . import affine_instance, coset_tables
 
 
@@ -126,3 +124,50 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
         ]
         assert len(both.completion_tables) == sum(len(tables.tables) for tables in expected)
     assert get_set_tables(first, 1) == []
+
+
+def test_search_tables_plan_by_parity_exactly_when_cosets_of_an_even_code_differ() -> None:
+    """A search plans with a table of bounds for each parity if its code is even and a coset odd.
+
+    The words of a coset of an even code share a parity, and a word of each syndrome bit is a row
+    of the inverse, so some coset is odd exactly when one of those rows is.  The even code with the
+    inverse of its checks has odd cosets, and plans with a table for each parity.  With an inverse
+    of even rows, it plans with one table, and so does the rank-deficient code, which is not even.
+    That table serves cosets of either parity.
+    """
+    even_inverse = _cosets._get_inverse(get_kernel(EVEN_ROUTES_CODE))
+    assert np.any(even_inverse.sum(axis=1) % 2)
+    rank_deficient_inverse = _cosets._get_inverse(get_kernel(_RANK_DEFICIENT_CODE))
+    assert np.any(_RANK_DEFICIENT_CODE.sum(axis=1) % 2)
+    for code, inverse, parities in [
+        (EVEN_ROUTES_CODE, even_inverse, (0, 1)),
+        (EVEN_ROUTES_CODE, np.zeros_like(even_inverse), (None,)),
+        (_RANK_DEFICIENT_CODE, rank_deficient_inverse, (None,)),
+    ]:
+        instance = affine_instance.get_coset_instance(code, random_column_orders=0, weight_factor=1)
+        tables = coset_tables._get_search_tables(instance, inverse, 0)
+        expected = [instance.get_weight_bounds(parity).tolist() for parity in parities]
+        assert [table[:-1].tolist() for table in tables.planning] == expected
+        for parity in (0, 1):
+            table = coset_tables._get_planning_table(tables.planning, parity)
+            assert table[:-1].tolist() == expected[parity if len(expected) == 2 else 0]
+
+
+def test_first_steps_reaching_a_target_follow_their_definition() -> None:
+    """The first step whose bound reaches a target is the first step whose bound is at least it.
+
+    The bounds are those of a rank-one code with 64 sets, and of sets of ranks zero, two, and four
+    in a code of dimension four, for both weight factors.  Their last row holds ``NO_WORD_BOUND``,
+    which reaches every target.
+    """
+    certificates = [
+        certificates_module.Certificate(1, (1,) * 64),
+        certificates_module.Certificate(4, (0, 2, 4, 0)),
+    ]
+    for certificate, factor in itertools.product(certificates, (1, 2)):
+        bounds = certificate.get_weight_bounds(factor)
+        steps = list(itertools.product(range(len(bounds)), range(1, bounds.shape[1])))
+        largest = int(bounds[bounds < certificates_module.NO_WORD_BOUND].max())
+        for target in range(largest + 2):
+            expected = next(step for step in steps if bounds[step] >= target)
+            assert coset_tables._get_first_step_reaching(bounds, target) == expected

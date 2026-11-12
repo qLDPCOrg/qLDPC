@@ -1069,7 +1069,9 @@ def test_min_weights_of_cosets_match_brute_force(
     searched too.  Their searches by tails stop early within steps.  The searches take the disjoint
     family of each code, and at the threshold zero other families by tails, with completion tables
     and without them (see ``_assert_min_weights_match_brute_force``).  The least weights come from
-    every word of each coset.
+    every word of each coset.  The Pauli errors of a graph state that is not CSS are searched by
+    CSS weight too, with the disjoint family and at the threshold zero, and their least weights come
+    from every Pauli.  These searches never weigh words by tails, so they have no completion tables.
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -1089,6 +1091,14 @@ def test_min_weights_of_cosets_match_brute_force(
     early_stop_syndromes = [1126, 4578, 6129]
     minima = _coset_minima(_HEAVY_COSETS_CODE, checks, early_stop_syndromes)
     _assert_min_weights_match_brute_force(search, early_stop_syndromes, minima, len(checks), rng)
+    if "completion_bound_max_table_bytes" in tuning:
+        return
+    matrix = _graph_state(4, [(0, 1), (1, 2), (2, 3)], phase=True)
+    checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
+    css_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=True)
+    search = coset._get_pauli_search(coset._StabilizerKey(matrix, checks), True, css_fields)
+    syndromes = range(1 << len(matrix))
+    _assert_min_weights_match_brute_force(search, syndromes, _css_minima(matrix), len(matrix), rng)
 
 
 @pytest.mark.parametrize("tuning", [{}, {"overlapping_minimum_work": 0}], ids=["words", "tails"])

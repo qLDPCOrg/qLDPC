@@ -287,8 +287,6 @@ def _pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
 
-_PHASED_GHZ_BLOCK = ("YXXX", "ZZ__", "_ZZ_", "__ZZ")
-
 # Graph states whose searches of Pauli errors, by physical and by CSS weight, have a maximum
 # disjoint family with more information sets, or a larger partial set, than their greedy packing,
 # which their costly queries take (see ``coset_routes``).  The family of the first state for the
@@ -301,35 +299,6 @@ _ROUTED_PHYSICAL_STATES = (
 )
 
 _ROUTED_CSS_WEIGHT_STATE = _graph_state(5, [(0, 1), (0, 4), (1, 4)])
-
-
-def _find_each_not_within_max_weight(
-    oracle: CosetLeaderSearch,
-    matrix: npt.NDArray[np.uint8],
-    syndromes: npt.NDArray[np.uint64],
-    max_weight: int,
-) -> list[int]:
-    """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
-
-    The representative of each bound that a search returns has the syndrome for the stabilizers of
-    ``matrix``, its lower bound exceeds ``max_weight``, and, for a maximum weight of at least two,
-    the bound equals that of ``get_min_weight_bound``.  With one coset search,
-    ``find_first_not_within_max_weight`` computes its bound separately from
-    ``get_min_weight_bound``, so this checks one against the other.
-    """
-    found: list[int] = []
-    while True:
-        start = found[-1] + 1 if found else 0
-        index, bound = oracle.find_first_not_within_max_weight(syndromes[start:], max_weight)
-        if bound is None:
-            assert start + index == len(syndromes)
-            return found
-        found.append(start + index)
-        syndrome = int.from_bytes(syndromes[found[-1]].astype("<u8").tobytes(), "little")
-        assert not bound.within_max_weight and bound.lower_bound > max_weight
-        assert _get_syndrome(matrix, bound.representative) == syndrome
-        if max_weight >= 2:
-            assert bound == oracle.get_min_weight_bound(syndrome, max_weight)
 
 
 def _random_css_state(
@@ -378,43 +347,6 @@ def _css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.N
     minima = np.full(1 << n, 2 * n + 1)
     np.minimum.at(minima, syndromes, weights)
     return minima
-
-
-def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
-    """Generators of independent copies of a block state, given the generators of one block."""
-    size = len(block[0])
-    return [
-        stim.PauliString("_" * (size * index) + local + "_" * (size * (num_blocks - index - 1)))
-        for index in range(num_blocks)
-        for local in block
-    ]
-
-
-def _block_minimum(
-    block: Sequence[str], local_syndromes: Sequence[Sequence[int]], css_weight: bool
-) -> int:
-    """Minimum weight of an error on independent blocks with the given per-block syndromes.
-
-    The syndrome bits of a block are the commutation with its generators, in order.  Every Pauli on
-    one block is listed, and the blocks are combined by dynamic programming.
-    """
-    size = len(block[0])
-    stabilizers = [stim.PauliString(local) for local in block]
-    options: dict[tuple[int, ...], list[tuple[int, int, int]]] = {}
-    for paulis in itertools.product("_XYZ", repeat=size):
-        error = stim.PauliString("".join(paulis))
-        syndrome = tuple(int(not error.commutes(ss)) for ss in stabilizers)
-        x_weight = sum(pp in "XY" for pp in paulis)
-        z_weight = sum(pp in "YZ" for pp in paulis)
-        options.setdefault(syndrome, []).append((x_weight, z_weight, size - paulis.count("_")))
-    if not css_weight:
-        return sum(
-            min(support for _, _, support in options[tuple(local)]) for local in local_syndromes
-        )
-    totals = {(0, 0)}
-    for local in local_syndromes:
-        totals = {(a + x, b + z) for a, b in totals for x, z, _ in options[tuple(local)]}
-    return min(max(a, b) for a, b in totals)
 
 
 # A code whose disjoint information sets have ranks five and four.

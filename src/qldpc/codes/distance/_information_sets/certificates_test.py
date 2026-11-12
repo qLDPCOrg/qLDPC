@@ -20,7 +20,7 @@ DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
 
 
 def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None:
-    """The bounds, work estimate, and number of sets that certify a bound equal their definitions.
+    """The bounds, work estimates, and number of sets that certify a bound equal their definitions.
 
     A search visits the sets of a layer in family order and stops after the first set whose
     completion of the layer certifies the upper bound, so the work counts the sets visited, and
@@ -50,6 +50,8 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
             for step in steps
         }
         assert {step: certificate.step_lower_bound(*step) for step in steps} == step_oracle
+        ranks_array = np.array(ranks, dtype=np.int64)
+        binomials = certificates.get_capped_binomials(dimension)
         for upper_bound in range(1, 2 * dimension + 2):
             candidates = 0
             for weight, count in steps:
@@ -57,6 +59,16 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
                 if step_oracle[weight, count] >= upper_bound:
                     break
             assert certificate.work(upper_bound) == candidates
+            assert (
+                certificates.estimate_certificate_work(
+                    dimension, ranks_array, weight_divisor, max_coverage, upper_bound, binomials
+                )
+                == candidates
+            )
+            for step in steps:
+                assert certificate.certifies(*step, upper_bound) == (
+                    step_oracle[step] >= upper_bound
+                )
             for weight in range(1, dimension + 1):
                 num_sets = next(
                     (

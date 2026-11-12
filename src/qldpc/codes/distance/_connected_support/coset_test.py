@@ -11,26 +11,12 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pytest
-import stim
 
 from qldpc._binary import row_reduce_binary
 
-from ...conftest import Tune
 from .._coset_leader_search import CosetLeaderSearch
 from .._tuning import use_tuning
-from ..conftest import (
-    _PHASED_GHZ_BLOCK,
-    _block_generators,
-    _block_minimum,
-    _css_minima,
-    _find_each_not_within_max_weight,
-    _get_syndrome,
-    _graph_state,
-    _pack_syndromes,
-    _pauli_weight,
-    _random_css_state,
-    _stabilizer_matrix,
-)
+from ..conftest import _css_minima, _get_syndrome, _graph_state, _pauli_weight, _random_css_state
 from . import coset
 
 
@@ -105,46 +91,6 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
                         assert bound.lower_bound == 2 and weight <= max_weight
 
 
-def test_connected_support_batches_read_syndromes_of_several_words(
-    pytestconfig: pytest.Config, tune: Tune
-) -> None:
-    """On 17 phased GHZ blocks, batches of the connected-support engine agree with block minima.
-
-    The 68 syndrome bits span two words, and the physical weight takes one search of the Pauli
-    errors.  The batch holds the syndromes of 30 errors.  The first acts on one qubit in each of
-    blocks 0, 8, and 16.  Block 16 has its syndrome bits in the second word, so a search that read
-    only the first word would find a lighter error than the minimum of three.  The other errors each
-    act on one to three random qubits, and blocks that an error does not touch add nothing to its
-    minimum weight.  The oracle looks for sparser checks for one round, rather than for the many
-    rounds that are slow as plain Python.  On these blocks, one round gives the default checks.
-    """
-    tune(max_sparsifying_rounds=1)
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    num_blocks = 17
-    generators = _block_generators(_PHASED_GHZ_BLOCK, num_blocks)
-    matrix = _stabilizer_matrix(generators)
-    oracle = CosetLeaderSearch(matrix, method="connected_support")
-    syndromes, minima = [], []
-    for error_index in range(30):
-        error = stim.PauliString(4 * num_blocks)
-        qubits = (
-            [0, 35, 67]
-            if error_index == 0
-            else rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False)
-        )
-        for qubit in qubits:
-            error[int(qubit)] = int(rng.integers(1, 4))
-        syndromes.append(sum((not error.commutes(gg)) << jj for jj, gg in enumerate(generators)))
-        bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
-        local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
-        minima.append(_block_minimum(_PHASED_GHZ_BLOCK, [ss for ss in local if any(ss)], False))
-    assert syndromes[0] >> 64 and minima[0] == 3
-    words = _pack_syndromes(syndromes, 68)
-    for max_weight in range(4):
-        found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
-        assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
-
-
 def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
     """Adding rows to each other leaves rows of the same span, which no such addition makes lighter.
 
@@ -196,14 +142,3 @@ def test_rounds_of_random_reductions_make_rows_sparser() -> None:
         assert np.array_equal(transform @ matrix % 2, rows)
         assert len(row_reduce_binary(transform)[2]) == len(matrix)
         assert (rows[:, :5] | rows[:, 5:]).sum() == total_weight
-
-
-def test_connected_support_rejects_what_it_cannot_search() -> None:
-    """Oracles reject unknown methods, and the CSS weight on non-CSS states by connected support."""
-    with pytest.raises(ValueError, match="only on CSS states"):
-        CosetLeaderSearch(
-            _graph_state(2, [(0, 1)], phase=True), css_weight=True, method="connected_support"
-        )
-    method: Any = "brute_force"
-    with pytest.raises(ValueError, match="Unknown coset-leader search method"):
-        CosetLeaderSearch([[1, 0]], method=method)
