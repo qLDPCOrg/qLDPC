@@ -150,6 +150,11 @@ def warm_up(kind: str) -> None:
             elif kind == "count":
                 CSSLogicalCounter(codes.SurfaceCode(5)).count_logical_ops(5)
                 CSSLogicalCounter(codes.ToricCode(4, rotated=True)).count_logical_ops(4)
+            elif kind == "certify":
+                for weighing in ("css", "physical"):
+                    workloads.run_certification("surface:5", weighing, "3")
+            elif kind == "faultdist":
+                workloads.run_fault_distance("surface:5", "X")
             elif kind in ("coset", "first"):
                 stabilizers = workloads.get_zero_state_stabilizers("surface:5")
                 syndromes = workloads.get_random_syndromes(stabilizers, 3, 20, seed=1)

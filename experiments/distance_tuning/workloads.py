@@ -28,9 +28,19 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
 - ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method;
 - ``ccount/<code>/<weight>``: the same count, in a process whose warm-up first calls
   ``compile_search_setup`` (see ``trial.py``);
-- ``coset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: ``get_min_weights`` of
-  a ``CosetLeaderSearch`` on the logical state ``|0...0>`` of a CSS code, by ``css`` or
-  ``physical`` weight, for the syndromes of random Pauli errors of ``error_weight`` qubits.
+- ``coset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: the minimum weights,
+  up to ``max_weight``, that a ``CosetLeaderSearch`` on the logical state ``|0...0>`` of a CSS code
+  finds for the syndromes of random Pauli errors of ``error_weight`` qubits, by ``css`` or
+  ``physical`` weight, as residual-weight estimates search them;
+- ``first/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``:
+  ``find_first_not_within_max_weight`` for the same syndromes, as certifications of fault
+  propagation search them;
+- ``certify/<code>/<weighing>/<max_weight>``: ``certify_bounded_fault_propagation`` of the encoding
+  circuit of ``|0...0>`` of a CSS code under ``DepolarizingNoiseModel(1e-3)``, by ``css`` or
+  ``physical`` weight, whose result is the fault weight of the smallest violation, if any;
+- ``faultdist/<code>/<basis>``: ``get_fault_distance`` of one round of a memory experiment of a
+  CSS code in the basis ``X`` or ``Z``, with noise only on its QEC cycle, as in the notebook of
+  fault-tolerance certificates.
 
 Each workload returns a short string of its result, which every tuning must reproduce.
 """
@@ -40,12 +50,14 @@ from __future__ import annotations
 import functools
 import pathlib
 from collections.abc import Callable
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
+import stim
 from sympy.abc import x, y
 
-from qldpc import abstract, codes
+from qldpc import abstract, circuits, codes
 from qldpc.codes.distance import CSSLogicalCounter
 from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch
 from qldpc.objects import Pauli
@@ -314,6 +326,41 @@ def get_random_syndromes(
     return (padded.reshape(num_syndromes, num_words, 64) * weights).sum(axis=2, dtype=np.uint64)
 
 
+def run_certification(code_name: str, weighing: str, max_weight: str) -> str:
+    """Certify bounded fault propagation in a noisy encoding circuit of |0...0>."""
+    if weighing not in ("css", "physical"):
+        raise ValueError(f"Unknown weighing {weighing!r}; choose 'css' or 'physical'")
+    circuit = get_noisy_encoding_circuit(code_name)
+    certificate = circuits.certify_bounded_fault_propagation(
+        circuit, css_weight=weighing == "css", max_weight=int(max_weight)
+    )
+    counterexample = certificate.counterexample
+    return "bounded" if counterexample is None else f"violation:{len(counterexample.fault_indices)}"
+
+
+@functools.cache
+def get_noisy_encoding_circuit(code_name: str) -> stim.Circuit:
+    """The encoding circuit of |0...0> of a CSS code under depolarizing noise."""
+    circuit = circuits.get_encoding_circuit(get_css_code(code_name), only_zero=True)
+    return circuits.DepolarizingNoiseModel(1e-3).noisy_circuit(circuit)
+
+
+def run_fault_distance(code_name: str, basis: str) -> str:
+    """The fault distance of one round of a memory experiment with a noisy QEC cycle."""
+    if basis not in ("X", "Z"):
+        raise ValueError(f"Unknown basis {basis!r}; choose 'X' or 'Z'")
+    return str(circuits.get_fault_distance(get_noisy_memory_circuit(code_name, basis)))
+
+
+@functools.cache
+def get_noisy_memory_circuit(code_name: str, basis: str) -> stim.Circuit:
+    """One round of a memory experiment whose QEC cycle, alone, is noisy."""
+    pauli: Literal["X", "Z"] = "X" if basis == "X" else "Z"
+    parts = circuits.get_memory_experiment_parts(get_css_code(code_name), basis=pauli, num_rounds=1)
+    noise_model = circuits.DepolarizingNoiseModel(1e-3)
+    return parts.initialization + noise_model.noisy_circuit(parts.qec_cycle) + parts.readout
+
+
 WORKLOADS: dict[str, Callable[..., str]] = {
     "distance": run_distance,
     "hadamard": run_hadamard_distance,
@@ -321,4 +368,6 @@ WORKLOADS: dict[str, Callable[..., str]] = {
     "ccount": run_count,
     "coset": run_cosets,
     "first": run_first_heavy_coset,
+    "certify": run_certification,
+    "faultdist": run_fault_distance,
 }
