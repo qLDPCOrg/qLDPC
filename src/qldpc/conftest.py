@@ -248,6 +248,8 @@ _COMPILING_DECORATORS = frozenset({"always_compiled", "compiled_on_request"})
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Add the options of test runs with compiled code."""
+    # Explicit defaults let pytest set these options when it loads this file after reading the
+    # command line, as in a run of ``pytest src``.
     parser.addoption(
         "--compiled-module-tests",
         action="store_true",
@@ -259,8 +261,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--compile-search-setup",
         action="store_true",
         default=False,
-        help="Run every test with the set-up code of distance and count searches compiled, as"
-        " after qldpc.codes.distance.compile_search_setup().",
+        help="Switch the set-up code of distance and count searches to compiled code before every"
+        " test, as after qldpc.codes.distance.compile_search_setup().",
     )
 
 
@@ -273,7 +275,7 @@ def pytest_configure(config: pytest.Config) -> None:
     ]
     if options and _compilation.is_compilation_disabled():
         raise pytest.UsageError(
-            f"Compilation is disabled, but these options need it: {', '.join(options)}.  Unset"
+            f"Compilation is disabled, but it is needed by {' and '.join(options)}.  Unset"
             " QLDPC_DISABLE_COMPILATION and NUMBA_DISABLE_JIT."
         )
 
@@ -282,8 +284,8 @@ def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) 
     """With ``--compiled-module-tests``, skip every test file but those of compiled modules.
 
     A compiled module defines compiled functions, and its test file, ``x_test.py`` for a module
-    ``x.py``, is beside it.  Whatever this returns, pytest collects a test file named on the command
-    line outside every directory named there.
+    ``x.py``, is beside it.  Whatever this returns, pytest collects a test file that the command
+    line names, if no directory that the command line names contains it.
     """
     if config.getoption("--compiled-module-tests") and collection_path.name.endswith("_test.py"):
         module = collection_path.with_name(collection_path.name.removesuffix("_test.py") + ".py")
@@ -307,7 +309,7 @@ def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]
     ``from ... import ... as`` gives them.
     """
     # Map each name under which the module imports a decorator to the decorator's name.
-    aliases = {name: name for name in _COMPILING_DECORATORS}
+    aliases: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             aliases |= {
@@ -348,10 +350,7 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 @functools.cache
 def compile_search_setup_once() -> None:
-    """Compile the set-up code of searches, the first time that this is called in a process.
-
-    Emptying qLDPC's caches, as the coverage check does between test files, makes it compile again.
-    """
+    """Compile the set-up code of searches, the first time that this is called in a process."""
     codes.distance.compile_search_setup()
 
 

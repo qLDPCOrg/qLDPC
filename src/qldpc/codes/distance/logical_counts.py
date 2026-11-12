@@ -726,10 +726,10 @@ def _get_above_distance_error(weight: int) -> ValueError:
 
 
 def _warm_up_compiled_functions() -> None:
-    """Compile every compiled-on-request function, the set-up code of searches, on a small code.
+    """Compile every compiled-on-request function, by running them on a small code.
 
     Later calls of these functions compile them again only for arguments of other types, such as
-    arrays in another order.
+    arrays in Fortran order.
     """
     from ..quantum import SteaneCode
 
