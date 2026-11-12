@@ -3,13 +3,14 @@
 """Summarize the trials of sweeps, comparing each arm with the first arm of its sweep.
 
 For each sweep, workload, and arm, the summary gives the number of successful trials, the median
-wall seconds, and the median, minimum, and maximum, over rounds, of the ratio of the arm's wall
-time to that of the first arm, the reference, in the same round, with a distribution-free 95%
-confidence interval of the median ratio (see ``get_median_interval``).  Ratios of one round share
-the conditions of the machine, so their spread, across rounds, measures noise better than the
-spread of times.  The summary also gives the median peak resident memory in MiB after the timed
-search, and the trials that failed or timed out.  It flags a workload whose arms disagree on a
-result, which no tuning may change except a distance search with an early exit.
+wall seconds (of a trial, the median of its repetitions), and the median, minimum, and maximum, over
+rounds, of the ratio of the arm's wall time to that of the first arm, the reference, in the same
+round, with a distribution-free 95% confidence interval of the median ratio (see
+``get_median_interval``).  Ratios of one round share the conditions of the machine, so their spread,
+across rounds, measures noise better than the spread of times.  The summary also gives the median
+peak resident memory in MiB after the timed search, and the trials that failed or timed out.  It
+flags a workload whose arms disagree on a result, which no tuning may change except a distance
+search with an early exit.
 
 It prints the summary, and writes it to ``summary.csv`` in the results directory.
 
@@ -95,7 +96,7 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     # the wall time of each round of the reference arm, by sweep and workload
     reference = {
-        (tag, workload, trial["round"]): trial["wall"][0]
+        (tag, workload, trial["round"]): get_wall(trial)
         for (tag, workload, arm_index), group in by_arm.items()
         if arm_index == 0
         for trial in group
@@ -106,7 +107,7 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for (tag, workload, arm_index), group in sorted(by_arm.items()):
         ok = [trial for trial in group if trial["status"] == "ok"]
         ratios = sorted(
-            trial["wall"][0] / reference[tag, workload, trial["round"]]
+            get_wall(trial) / reference[tag, workload, trial["round"]]
             for trial in ok
             if reference.get((tag, workload, trial["round"]))
         )
@@ -119,7 +120,7 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "arm": group[0]["arm"],
                 "trials": len(ok),
                 "failed": len(group) - len(ok),
-                "median_wall": median([trial["wall"][0] for trial in ok]),
+                "median_wall": median([get_wall(trial) for trial in ok]),
                 "median_ratio": median(ratios),
                 "ci_low": ci_low,
                 "ci_high": ci_high,
@@ -129,6 +130,11 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def get_wall(trial: dict[str, Any]) -> float:
+    """The wall seconds of a trial: the median of its repetitions."""
+    return statistics.median(trial["wall"])
 
 
 def get_results(trials: list[dict[str, Any]]) -> dict[tuple[str, str], set[str]]:

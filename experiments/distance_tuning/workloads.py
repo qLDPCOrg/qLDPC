@@ -14,6 +14,9 @@ A code name is one of:
   ``lp13s5`` and ``lp13s8``;
 - ``surface:<d>`` and ``toric:<d>``: rotated surface and toric codes of distance ``d``;
 - ``classical:<bits>:<checks>:<seed>``: ``ClassicalCode.random(bits, checks, seed=seed)``;
+- ``sparse:<bits>:<dimension>:<row_weight>:<seed>``: a classical code of low distance, whose
+  generator matrix has ``dimension`` rows of ``row_weight`` ones each, in random columns that
+  NumPy's default generator draws from ``seed``;
 - a path to a ``.cpm`` file (see ``parse_cpm``).
 
 A workload name is a kind, then a code name, then the arguments of the kind, separated by ``/``:
@@ -162,6 +165,13 @@ def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
     if kind == "classical":
         bits, checks, seed = map(int, args.split(":"))
         return codes.ClassicalCode.random(bits, checks, seed=seed)
+    if kind == "sparse":
+        bits, dimension, row_weight, seed = map(int, args.split(":"))
+        rng = np.random.default_rng(seed)
+        generator = np.zeros((dimension, bits), dtype=int)
+        for row in generator:
+            row[rng.choice(bits, size=row_weight, replace=False)] = 1
+        return codes.ClassicalCode.from_generator(generator)
     if pathlib.Path(name).is_file():
         return parse_cpm(pathlib.Path(name).read_text(encoding="utf-8"))
     raise ValueError(f"Unknown code {name!r}")

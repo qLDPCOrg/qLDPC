@@ -18,6 +18,10 @@ and the record of ``trial.py``, or the error or timeout of the trial.  A sweep s
 the file already holds, so an interrupted sweep resumes where it stopped.  ``collect_results.py``
 summarizes the file.
 
+For searches of milliseconds, ``--repeat`` times the workload several times in each trial's
+process, and ``collect_results.py`` takes the median of the repetitions.  Only distance workloads
+repeat their searches; a workload of ``CosetLeaderSearch`` reuses its cached searches.
+
 Arms are given either as ``--field`` and ``--values``, which compares values of one field, or as
 ``--arms``, a JSON list of objects of changes.  ``--base`` adds changes to every arm.  The first
 arm is the reference of ``collect_results.py``, so list the current default first.
@@ -86,6 +90,7 @@ def main() -> None:
                 "arm": arm,
                 "source": source,
                 "timeout": args.timeout,
+                "repeat": args.repeat,
             }
             for position, (arm_index, arm) in enumerate(order_arms(arms, round_index))
         ]
@@ -125,6 +130,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--jobs", type=int, default=1, help="trials that run at once (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="times to run the workload in each trial's process (default: %(default)s)",
     )
     parser.add_argument(
         "--timeout",
@@ -175,6 +186,8 @@ def get_key(trial: dict[str, Any]) -> str:
     """A hash of what determines a trial's result: everything but its position."""
     names = ("tag", "workload", "round", "arm_index", "arm", "source")
     fields = {name: trial[name] for name in names}
+    if trial.get("repeat", 1) != 1:
+        fields["repeat"] = trial["repeat"]
     return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -208,6 +221,8 @@ def run_trial(trial: dict[str, Any]) -> dict[str, Any]:
         trial["workload"],
         "--tuning",
         json.dumps(trial["arm"]),
+        "--repeat",
+        str(trial.get("repeat", 1)),
     ]
     record = trial | {"key": get_key(trial), "load": os.getloadavg(), "start": time.time()}
     try:
