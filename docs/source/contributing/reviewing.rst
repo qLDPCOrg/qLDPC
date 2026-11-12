@@ -162,5 +162,6 @@ Quick review
 A quick review follows the rest of this page, with these differences:
 
 * Each round has one reviewer, who covers all of the round's angles.
+* The reviewer runs an additional drafting check only to confirm or rule out a specific problem suggested by reading the change and what it affects.
 * The second round reviews only the revisions since the first round started and what they affect.
 * The review ends after two rounds.

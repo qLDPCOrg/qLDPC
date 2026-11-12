@@ -21,9 +21,9 @@ What tuning can and cannot change:
 
 - Tuning changes only how long a search takes and how much memory it uses.  It never changes an
   exact distance, a distance limited by ``max_weight``, or a count of logical operators.
-- With an early exit (``cutoff`` of two or more), a distance search returns the weight of the first
-  nontrivial word that it finds at or below ``cutoff``, and which word comes first depends on
-  tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
+- With an early exit (``cutoff`` of two or more), a distance search returns the weight of a
+  nontrivial word at or below ``cutoff`` that it finds, and which word that is depends on tuning.
+  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
 - Under every tuning, a query of ``CosetLeaderSearch`` decides the same way whether a coset has a
   word of weight at most the query's maximum weight, and with the connected-support method it gives

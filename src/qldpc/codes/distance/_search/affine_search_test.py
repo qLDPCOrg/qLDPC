@@ -17,7 +17,6 @@ from qldpc._binary import pack_bits
 from . import affine_search, completion_bounds
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_family_scan() -> None:
     """Chunked scans of a family enumerate each combination of basis rows once.
 
@@ -86,7 +85,6 @@ def test_family_scan() -> None:
             assert (best, depth, visited) == (expected, -1, 0)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_family_scans_weigh_every_set_of_the_support_that_reaches_the_cutoff() -> None:
     """A scan returns at the cutoff only after it weighs the support in every set.
 
@@ -111,7 +109,6 @@ def test_family_scans_weigh_every_set_of_the_support_that_reaches_the_cutoff() -
     assert (best, visited) == (1, 1)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
     """A scan of one information set finds the lightest eligible word of a layer, in chunks.
 
@@ -197,7 +194,6 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                         )
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_coset_layer_scans_keep_the_first_lightest_word(
     css_weight: bool, pytestconfig: pytest.Config
@@ -268,7 +264,6 @@ def test_coset_layer_scans_keep_the_first_lightest_word(
                 np.testing.assert_array_equal(representative, expected_word)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_coset_layer_scans_keep_the_first_of_equally_light_words(css_weight: bool) -> None:
     """A scan keeps the first of the equally light words ``001``, ``010``, and ``100`` of layer one.
@@ -296,7 +291,6 @@ def test_coset_layer_scans_keep_the_first_of_equally_light_words(css_weight: boo
     assert representative[0] == 0b001
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_coset_layer_scans_reach_their_last_support() -> None:
     """A layer visits every support, including the last one.
 
@@ -341,7 +335,6 @@ def _get_tail_weights(
     ]
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -407,7 +400,6 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
                     assert tuple(best_support) == expected_support
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("deficiency", [0, 1, 3])
 def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound(
     deficiency: int, pytestconfig: pytest.Config
@@ -476,17 +468,18 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
     assert total_skipped
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower_it(
     pytestconfig: pytest.Config,
 ) -> None:
     """A coset tail scan below the best weight skips completions only if they cannot lower it.
 
-    The bases of six rows have rank deficiency zero and three.  From a best weight of at most the
-    least weight of a layer, which no word lowers, the scan skips the supports that a scan with that
-    skip bound skips, which the test above checks against enumeration.  From a best weight above
-    every word of the layer, it finds a lightest word, since every word that it skips weighs at
-    least the best weight at the time.  It weighs or skips every support, and skips some.
+    The scan takes its best weight at the start as its skip bound, as a search for the minimum
+    weight of a coset does.  The bases of six rows have rank deficiency zero and three.  From a best
+    weight of at most the least weight of a layer, which no word lowers, the scan skips the supports
+    that a scan with that skip bound skips, which the test above checks against enumeration.  From a
+    best weight above every word of the layer, it finds a lightest word, since every word that it
+    skips weighs at least the best weight at the time.  It weighs or skips every support, and skips
+    some.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_columns, block_bits = 6, 24, 4
@@ -513,10 +506,8 @@ def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower
                     np.empty((layer, 1, widths[0]), dtype=np.uint64),
                 )
                 best_support = np.full(layer, -1, dtype=np.int64)
-                found, weighed, skipped = (
-                    affine_search.scan_coset_layer_by_tails_with_tables_below_best(
-                        *arguments, best, -1, *table_arguments, best_support
-                    )
+                found, weighed, skipped = affine_search.scan_coset_layer_by_tails_with_tables(
+                    *arguments, best, -1, best, *table_arguments, best_support
                 )
                 assert weighed + skipped == math.comb(num_rows, layer)
                 if best > least:

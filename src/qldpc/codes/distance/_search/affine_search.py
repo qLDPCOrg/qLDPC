@@ -101,7 +101,6 @@ def scan_family(
         record=False,
         css_weight=False,
         chunked=True,
-        threshold=False,
         ranked=False,
         record_support=False,
     )
@@ -143,8 +142,9 @@ def scan_information_set(
         numbers of supports that the chunk weighed, of bounds that it looked up, and of supports
         that it skipped.
     """
-    # This scan neither reads ranks nor weighs X parts nor records words or supports, nor takes a
-    # skip bound.
+    # This scan neither reads ranks nor weighs X parts nor records words or supports.  Its skip
+    # bound is the best weight at the start, which the best weight never exceeds, so it skips
+    # exactly the completions that cannot lower the best weight.
     return _scan(
         generators,
         labels,
@@ -162,7 +162,7 @@ def scan_information_set(
         block_bits,
         prefixes[0, 0],
         prefixes[0, 0],
-        0,
+        best,
         support,
         one_set=True,
         pair_steps=True,
@@ -171,7 +171,6 @@ def scan_information_set(
         record=False,
         css_weight=False,
         chunked=True,
-        threshold=False,
         ranked=False,
         record_support=False,
     )
@@ -236,7 +235,6 @@ def scan_coset_layer(
         record=True,
         css_weight=False,
         chunked=False,
-        threshold=False,
         ranked=False,
         record_support=False,
     )
@@ -290,7 +288,6 @@ def scan_coset_layer_by_css_weight(
         record=True,
         css_weight=True,
         chunked=False,
-        threshold=False,
         ranked=False,
         record_support=False,
     )
@@ -355,7 +352,6 @@ def scan_coset_layer_by_tails(
         record=False,
         css_weight=False,
         chunked=False,
-        threshold=False,
         ranked=True,
         record_support=True,
     )
@@ -392,16 +388,22 @@ def scan_coset_layer_by_tails_with_tables(
     ``rank``, and none for the rows of the prefix at or above ``rank``.  Its last two rows have at
     least as many pivot ones as the last two rows of the basis, the pair with the fewest pivot rows,
     since the pivot rows come first: ``max(0, 2 - (num_rows - rank))``.  Its tail weighs at least
-    the bound of the tables.  If the sum reaches ``skip_bound``, the scan skips these words.
+    the bound of the tables.  If the sum reaches the lesser of ``skip_bound`` and the best weight so
+    far, which starts at ``best``, the scan skips these words.
 
     A coset query passes as ``skip_bound`` the least bound that proves a word of its coset heavier
     than its maximum weight: one more than the greatest Hamming weight, at most ``cutoff``, that a
-    word of the coset can have.  So the scan skips no word within that maximum weight.
-    ``skip_bound`` must be at most ``cutoff + 1``.  Then, while the best weight exceeds ``cutoff``,
-    the scan skips every completion whose bound shows that it cannot lower the best weight, and
-    more.  A larger skip bound would make it weigh completions that cannot lower the best weight.
-    Skipped words can be lighter than the best weight, which is then the weight of the lightest word
-    weighed.
+    word of the coset can have, which is at most ``cutoff + 1``.  The scan returns once the best
+    weight is at most ``cutoff``, so the best weight reaches the skip bound at every lookup, and the
+    scan skips at the skip bound.  So it skips no word within that maximum weight, and every
+    completion whose bound shows that it cannot lower the best weight, and more.  Skipped words can
+    be lighter than the best weight, which is then the weight of the lightest word weighed.
+
+    A search for the minimum weight of a coset passes a skip bound of at least ``best``, so the scan
+    skips, as a distance search does, the completions whose bound reaches the best weight so far.
+    So it skips no word lighter than the best weight at the time, and finds the lightest word of the
+    layer if it is lighter than ``best``, unless it returns at the cutoff first (see
+    ``coset_leader_search._search_coset_for_min_weight``).
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of
@@ -436,74 +438,6 @@ def scan_coset_layer_by_tails_with_tables(
         record=False,
         css_weight=False,
         chunked=False,
-        threshold=True,
-        ranked=True,
-        record_support=True,
-    )
-    return best, weighed, skipped
-
-
-@always_compiled
-def scan_coset_layer_by_tails_with_tables_below_best(
-    offset_tail: npt.NDArray[np.uint64],
-    tails: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    widths: npt.NDArray[np.int64],
-    support: npt.NDArray[np.int64],
-    prefixes: npt.NDArray[np.uint64],
-    best: int,
-    cutoff: int,
-    tables: npt.NDArray[np.uint8],
-    offsets: npt.NDArray[np.int64],
-    block_bits: int,
-    best_support: npt.NDArray[np.int64],
-) -> tuple[int, int, int]:
-    """Scan a layer by tails, and skip by tables the completions that cannot lower the best weight.
-
-    The scan weighs the words of the layer as ``scan_coset_layer_by_tails_with_tables`` does, but
-    skips, as a distance search does, the completions whose bound reaches the best weight so far,
-    which starts at ``best``, rather than those whose bound reaches a fixed skip bound.  So it skips
-    no word lighter than the best weight at the time, and finds the lightest word of the layer if it
-    is lighter than ``best``, unless it returns at the cutoff first.  A search for the minimum
-    weight of a coset passes as ``best`` the skip bound of its maximum weight until it finds a word
-    within that weight, and then the Hamming weight of its lightest word, or one less where every
-    word of the coset has its parity (see ``coset_leader_search._search_coset_for_min_weight``).
-
-    Returns:
-        The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of
-        words weighed and of supports skipped.
-    """
-    prefixes[0, 0] = offset_tail
-    support[0] = 0
-    best, _, weighed, _, skipped = _scan(
-        tails,
-        tails,
-        ranks,
-        widths,
-        widths,
-        support,
-        prefixes,
-        0,
-        best,
-        cutoff,
-        0,
-        tables,
-        offsets,
-        block_bits,
-        # This scan neither reads labels nor weighs X parts nor records words, nor takes a skip
-        # bound.
-        prefixes[0, 0],
-        prefixes[0, 0],
-        0,
-        best_support,
-        one_set=True,
-        pair_steps=True,
-        deleted_pivots=True,
-        test_labels=False,
-        record=False,
-        css_weight=False,
-        chunked=False,
-        threshold=False,
         ranked=True,
         record_support=True,
     )
@@ -541,30 +475,27 @@ def _scan(
     record: bool,
     css_weight: bool,
     chunked: bool,
-    threshold: bool,
     ranked: bool,
     record_support: bool,
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of a stack of search bases, starting from ``support``.
 
     The arguments are those of ``scan_family``, ``scan_information_set``,
-    ``scan_coset_layer_by_css_weight``, ``scan_coset_layer_by_tails``,
-    ``scan_coset_layer_by_tails_with_tables``, and
-    ``scan_coset_layer_by_tails_with_tables_below_best``, and the flags, which callers pass as
-    constants, choose what the scan does:
+    ``scan_coset_layer_by_css_weight``, ``scan_coset_layer_by_tails``, and
+    ``scan_coset_layer_by_tails_with_tables``, and the flags, which callers pass as constants,
+    choose what the scan does:
 
     - ``one_set``: scan only the first basis, rather than all bases in lockstep.
     - ``pair_steps``: with ``one_set``, step through the first of the last two rows of a support
-      separately, and skip completions by the completion tables, if any, as
-      ``scan_information_set`` describes.
+      separately, and skip the completions whose bound by the completion tables, if any, reaches the
+      lesser of ``skip_bound`` and the best weight so far (see ``scan_information_set`` and
+      ``scan_coset_layer_by_tails_with_tables``).
     - ``deleted_pivots``: the rows have their pivot columns deleted, so a word also weighs the
       number of its rows whose pivots are deleted, which is ``len(support)`` for an information set.
     - ``test_labels``: keep only words whose quotient labels make them eligible.
     - ``record``: copy each lighter word into ``representative``.
     - ``css_weight``: weigh words by their CSS weight, with ``x_mask``, rather than Hamming weight.
     - ``chunked``: return once the weighed supports and the lookups reach ``batch_size`` together.
-    - ``threshold``: with ``pair_steps``, skip completions whose bound reaches ``skip_bound``,
-      rather than ``best`` (see ``scan_coset_layer_by_tails_with_tables``).
     - ``ranked``: with ``one_set`` and ``deleted_pivots``, lift the assumption of a scan of one
       basis that the basis is an information set: only its first ``ranks[0]`` rows hold pivots.  A
       word then weighs the number of its rows below ``ranks[0]``, rather than ``len(support)``, plus
@@ -599,10 +530,10 @@ def _scan(
                 return best, depth, evaluated, lookups, skipped
             first = support[pair_depth]
 
-            # Skip every completion from row first on if none can be lighter than the best word, or
-            # with a threshold, if every one weighs at least the skip bound.  The check for tables
-            # runs once for each prefix: as a constant, it would let numba merge the lookup into the
-            # loop, and then count references to the tables for each lookup.
+            # Skip every completion from row first on if every one weighs at least the lesser of the
+            # skip bound and the best weight.  The check for tables runs once for each prefix: as a
+            # constant, it would let numba merge the lookup into the loop, and then count references
+            # to the tables for each lookup.
             prefix = prefixes[pair_depth, 0]
             if len(tables):
                 lookups += 1
@@ -617,7 +548,7 @@ def _scan(
                     for selected in range(pair_depth):
                         if support[selected] < ranks[0]:
                             pivot_ones += 1
-                limit = (skip_bound if threshold else best) - pivot_ones
+                limit = min(skip_bound, best) - pivot_ones
                 if get_completion_bound(tables, offsets, block_bits, first, prefix, limit) >= limit:
                     remaining = num_rows - first
                     skipped += remaining * (remaining - 1) // 2

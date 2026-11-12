@@ -16,7 +16,7 @@ Prose style
 * Prefer short sentences with one idea each.
   Split a sentence with stacked clauses, parenthetical asides, or chains of semicolons rather than compressing it.
 * Describe what code does, not what it does not do or how it used to work.
-  Give readers a sense of what happens, and point to where details live rather than repeating them.
+  Give readers a sense of what happens, and point to where details live rather than repeating or counting them.
   Check that comments and docstrings match what the code does, and update them when the code changes.
 * In substantial scientific exposition, introduce a problem and explain why it matters before describing implementation details.
   Worked examples also need enough context to explain the question they answer and what their results establish.

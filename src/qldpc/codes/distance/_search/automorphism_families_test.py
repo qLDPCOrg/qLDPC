@@ -44,7 +44,6 @@ def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
             automorphism_families.verify_automorphisms(basis, labels, np.array([swap]))
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_automorphism_families_certify_like_the_family_of_all_images() -> None:
     """The certificate is that of the images of the scanned set under every group element.
 
@@ -90,7 +89,6 @@ def test_automorphism_families_certify_like_the_family_of_all_images() -> None:
                     assert certificate.lower_bound(weight) == expected
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_scanned_sets_balance_two_orbits() -> None:
     """For two orbits, the scanned set has the fewest pivots in its fuller orbit that any can have.
 

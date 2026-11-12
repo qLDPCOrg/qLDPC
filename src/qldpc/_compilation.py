@@ -34,7 +34,7 @@ compiles the function again for that key, and saves the new code in place of the
 match.
 
 Compiled-on-request functions, such as the building of overlapping basis families, are registered
-with :func:`compiled_on_request`.  They run as ordinary Python until
+with :func:`compiled_on_request`.  They run as plain Python until
 :func:`~qldpc.codes.distance.compile_search_setup` replaces each registered name in its module by a
 version compiled in memory, which is never cached on disk.  A function calls other functions by
 their module-level names, which are looked up when it is compiled, so a compiled function calls
@@ -48,19 +48,21 @@ To choose between them, use :func:`always_compiled` for the per-word loops and f
 functions that other compiled code calls: every search needs them, and the disk cache makes
 compiling them a one-time cost.  Use :func:`compiled_on_request` for the larger functions that
 orchestrate a search, which select and bound its information sets, build its basis families, and
-drive its scan.  Compiling them pays off only in a program that makes very many searches.  A
-function that is neither runs as ordinary Python.  A small always-compiled helper that hot loops
-call can be marked ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function
-may call always-compiled and compiled-on-request functions.  An always-compiled function may call
-only always-compiled functions, since it is compiled and cached by itself.
+drive its scan.  Compiling them pays off only in a program that makes very many searches.  Define
+them only in :mod:`qldpc.codes.distance`, whose tests CI runs with them compiled.  A function that
+is neither runs as plain Python.  A small always-compiled helper that hot loops call can be marked
+``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function may call
+always-compiled and compiled-on-request functions.  An always-compiled function may call only
+always-compiled functions, since it is compiled and cached by itself.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
-function of both kinds runs as ordinary Python, much more slowly.  :func:`always_compiled` then
-returns the function itself, :func:`~qldpc.codes.distance.compile_search_setup` leaves the
+function of both kinds runs as plain Python, much more slowly.  :func:`always_compiled` then returns
+the function itself, :func:`~qldpc.codes.distance.compile_search_setup` leaves the
 compiled-on-request functions as they are, and qLDPC neither uses nor cleans up its directories of
 compiled code.  Coverage tools can then trace every line of these functions, and errors in them show
 Python tracebacks.  Numba's own ``NUMBA_DISABLE_JIT`` does the same for every package that uses
-numba, such as galois, which then runs slowly too.
+numba, such as galois, which then runs slowly too.  qLDPC's coverage check sets
+``QLDPC_DISABLE_COMPILATION``.
 """
 
 from __future__ import annotations
@@ -101,8 +103,8 @@ class _NumbaConfig(Protocol):
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
 _numba_config = cast(_NumbaConfig, config)
 
-# If this environment variable is "1" when qLDPC is imported, the functions that numba would compile
-# run as ordinary Python (see the module docstring).
+# If this environment variable is "1" when qLDPC is imported, qLDPC's compiled functions run as
+# plain Python (see the module docstring).
 DISABLE_COMPILATION_VARIABLE = "QLDPC_DISABLE_COMPILATION"
 _DISABLED_BY_VARIABLE = os.environ.get(DISABLE_COMPILATION_VARIABLE) == "1"
 

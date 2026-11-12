@@ -3,7 +3,7 @@
 """Shared fixtures and helpers for exact-distance, binary-algebra, BZ, and count tests."""
 
 import itertools
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from typing import Any, NamedTuple
 
 import galois
@@ -18,13 +18,7 @@ from qldpc.objects import Pauli, PauliXZ
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._search import (
-    affine_search,
-    automorphism_families,
-    connected_support,
-    coset_leader_search,
-    information_sets,
-)
+from ._search import information_sets
 
 
 @pytest.fixture
@@ -37,12 +31,12 @@ def force_information_sets(tune: Tune) -> None:
 def plain_search_setup() -> None:
     """Run the set-up code of searches as plain Python, even with ``--compile-search-setup``.
 
-    A test needs this if it replaces a compiled-on-request function, or a function that such a
-    function calls, such as to record calls to it.  Compiled callers would not call the replacement.
-    A test that compares the plain Python set-up code with its compiled version needs it too.  This
-    fixture sets every compiled-on-request function back to plain Python, which also undoes an
-    earlier replacement of one.  So a fixture that replaces one must request this fixture, which
-    then runs first.
+    A test needs this if it relies on a compiled-on-request function calling a function that the
+    test replaces, such as to record calls to it, since compiled callers would not call the
+    replacement.  A test that compares the plain Python set-up code with its compiled version needs
+    it too.  This fixture sets every compiled-on-request function back to plain Python, which also
+    undoes an earlier replacement of one.  So a fixture that replaces one must request this fixture,
+    which then runs first.
     """
     _compilation.set_on_request_functions_compiled(False)
 
@@ -80,46 +74,6 @@ def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
     monkeypatch.setattr(information_sets, "get_partitioned_family", record_family)
     monkeypatch.setattr(information_sets.BasisFamily, "get_search_certificate", record_certificate)
     return stages
-
-
-@pytest.fixture(params=["python", pytest.param("compiled", marks=pytest.mark.compiled)])
-def compilation_mode(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[None]:
-    """Run the compiled functions of the distance searches as plain Python, or compiled.
-
-    In the plain Python mode, the compiled-on-request functions run as Python.  So do the
-    always-compiled functions that the scans of layers, the basis family stages, the automorphism
-    families, the connected-support search, and the coset-leader search define or import from this
-    package, such as ``completion_bounds.get_completion_bound`` in the scans of layers.  Coverage
-    can trace them.  The compiled mode carries the ``compiled`` marker.  It compiles the
-    compiled-on-request functions once per session, and restores plain Python afterwards.
-    """
-    if request.param == "python":
-        _compilation.set_on_request_functions_compiled(False)
-        package = __name__.rpartition(".")[0]
-        for module in (
-            affine_search,
-            automorphism_families,
-            connected_support,
-            information_sets,
-            coset_leader_search,
-        ):
-            for name, function in list(vars(module).items()):
-                if hasattr(function, "py_func") and function.py_func.__module__.startswith(
-                    f"{package}."
-                ):
-                    monkeypatch.setattr(module, name, function.py_func)
-        yield
-    else:
-        _compilation.set_on_request_functions_compiled(True)
-        try:
-            yield
-        finally:
-            # Undo the test's patches first, since a patched name may be restored to compiled code,
-            # which switching the compilation off then replaces by plain Python.
-            monkeypatch.undo()
-            _compilation.set_on_request_functions_compiled(False)
 
 
 def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:

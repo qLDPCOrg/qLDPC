@@ -440,7 +440,7 @@ def test_brouwer_zimmermann_overlap_mb(get_candidate_count: Callable[[], int]) -
     assert 0 < get_candidate_count() < 1_000_000
 
 
-@pytest.mark.usefixtures("force_information_sets", "plain_search_setup")
+@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> None:
     """Compare witness-improving overlap enumeration with an exhaustive quotient oracle."""
 
@@ -844,6 +844,7 @@ def test_completion_tables_keep_distances_exact(
             homogeneous=True,
             method="brute_force",
         )
+        assert expected is not qldpc.codes.NO_DISTANCE
         for upper_bound in (None, expected + 1):
             skipped = completion_tables.skipped
             # One sixteen-column block covers the tails of this code, which makes its bounds exact,
@@ -879,10 +880,11 @@ def test_completion_tables_keep_distances_exact(
     five_qubit_code = qldpc.codes.FiveQubitCode()
     logicals, stabilizers = five_qubit_code.get_logical_ops(), five_qubit_code.get_stabilizer_ops()
     skipped = completion_tables.skipped
-    distance = qldpc.codes.get_distance_quantum(
+    quantum_distance = qldpc.codes.get_distance_quantum(
         logicals, stabilizers, homogeneous=False, cutoff=0, method="brouwer_zimmermann"
     )
-    assert assert_skips(distance) == qldpc.codes.get_distance_quantum(
+    assert quantum_distance is not qldpc.codes.NO_DISTANCE
+    assert assert_skips(quantum_distance) == qldpc.codes.get_distance_quantum(
         logicals, stabilizers, homogeneous=False, method="brute_force"
     )
 
@@ -1196,3 +1198,10 @@ def test_searches_take_completion_limits_from_their_tuning(
                 get_automorphisms=code._get_qudit_automorphisms,
             ) == code.get_distance(method="brute_force")
         assert block_bits == expected_block_bits
+
+
+def test_many_problems_need_a_problem_or_an_upper_bound() -> None:
+    """Without problems, the result is the known upper bound, which must then be given."""
+    with pytest.raises(ValueError, match="at least one problem or an upper bound"):
+        bz.get_distance_brouwer_zimmermann_many([], cutoff=0)
+    assert bz.get_distance_brouwer_zimmermann_many([], cutoff=0, upper_bound=3) == 3

@@ -239,7 +239,9 @@ def get_qdistrnd_distance_bound(
     bound = "".join([line for line in lines if not line.startswith("#")])
     if not bound:
         raise ValueError(f"Could not parse a distance bound from QDistRnd output: {output!r}")
-    return int(bound)
+
+    # QDistRnd negates a bound at or below its argument mindist, the cutoff, to mark an early stop.
+    return abs(int(bound))
 
 
 def _get_gap_sparse_matrix_commands(

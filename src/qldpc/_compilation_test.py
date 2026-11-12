@@ -3,8 +3,7 @@
 """Tests for compiled functions, and for running their tests compiled or as plain Python.
 
 They cover the disk cache, the registry of compiled-on-request functions, the switch to plain
-Python, the options of the test runs with compiled code, and the rules that make compiled functions
-safe.
+Python, the options of the compiled runs, and the rules for compiled functions.
 """
 
 from __future__ import annotations
@@ -448,6 +447,18 @@ def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
                 assert not imported, f"{path.name} imports {imported} by name"
 
 
+def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> None:
+    """CI runs only the distance tests with compiled-on-request functions compiled."""
+    modules = run_python(_FIND_ON_REQUEST_MODULES).split()
+    assert modules
+    outside = [
+        name
+        for name in modules
+        if name != "qldpc.codes.distance" and not name.startswith("qldpc.codes.distance.")
+    ]
+    assert not outside, outside
+
+
 def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:
     """Only qLDPC's source is hashed, but numba checks its version and implements NumPy itself."""
     for path, tree in _get_source_trees():
@@ -577,9 +588,8 @@ def test_options_of_compiled_runs_are_refused_while_compilation_is_disabled(
 # The packages whose functions always-compiled code may use.
 _COMPILABLE_PACKAGES = {"qldpc", "numpy", "numba"}
 
-# A program that imports every module of qLDPC, and prints those that hold compiled functions of
-# their own or register compiled-on-request functions.
-_FIND_COMPILED_MODULES = """
+# Code that imports every module of qLDPC other than tests, which registers every compiled function.
+_IMPORT_EVERY_MODULE = """
 import importlib, pkgutil, sys
 import numba
 import qldpc
@@ -588,6 +598,21 @@ from qldpc import _compilation
 for info in pkgutil.walk_packages(qldpc.__path__, "qldpc."):
     if not info.name.endswith(("_test", "conftest")):
         importlib.import_module(info.name)
+"""
+
+# A program that prints the modules that register compiled-on-request functions.
+_FIND_ON_REQUEST_MODULES = (
+    _IMPORT_EVERY_MODULE
+    + """
+print(*sorted({item.namespace["__name__"] for item in _compilation._ON_REQUEST_FUNCTIONS}))
+"""
+)
+
+# A program that prints the modules that hold compiled functions of their own or register
+# compiled-on-request functions.
+_FIND_COMPILED_MODULES = (
+    _IMPORT_EVERY_MODULE
+    + """
 modules = {item.namespace["__name__"] for item in _compilation._ON_REQUEST_FUNCTIONS}
 for name, module in list(sys.modules.items()):
     if module is None or not name.startswith("qldpc."):
@@ -598,6 +623,7 @@ for name, module in list(sys.modules.items()):
             modules.add(name)
 print(*sorted(modules))
 """
+)
 
 # A module whose functions ``bare`` and ``qualified`` are always compiled, and ``aliased`` is
 # compiled on request, beside two functions that are neither.  Each name says how its decorator is

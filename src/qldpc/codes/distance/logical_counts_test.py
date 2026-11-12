@@ -72,7 +72,7 @@ def test_known_codes(method: lc.LogicalCountMethod) -> None:
         # The Z sector is heavier, so it contributes nothing at the global minimum.
         ([[1, 1, 0]], [[0, 0, 1]], Counts(1, 2, 0, 2)),
         (np.zeros((0, 3)), np.zeros((0, 3)), Counts(1, 3, 3, 9)),
-        (np.eye(4), np.zeros((0, 4)), Counts(4, 0, 0, 0)),
+        (np.eye(4), np.zeros((0, 4)), Counts(codes.NO_DISTANCE, 0, 0, 0)),
     )
     for checks_x, checks_z, expected in examples:
         counter = get_counter(checks_x, checks_z)
@@ -190,27 +190,22 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
         ) == counter.count_logical_ops(count_pauli=True, method="brute_force")
 
 
-@pytest.mark.parametrize(
-    "compiled", [False, pytest.param(True, marks=pytest.mark.compiled)], ids=["python", "compiled"]
-)
 @pytest.mark.usefixtures("plain_search_setup")
-def test_compile_search_setup(compiled: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Calling ``compile_search_setup`` up front leaves the counts and distances unchanged.
 
     The test starts from functions that no other test has compiled.  Its counters are deformed after
-    a count, so that they move their kept basis families through a named and a general gate.  When
-    the set-up code is compiled, nothing compiles afterwards.  The coverage check skips that
-    variant, so another runs the same steps with ``set_on_request_functions_compiled`` disabled.
+    a count, so that they move their kept basis families through a named and a general gate.  Once
+    the set-up code is compiled, nothing compiles afterwards.
     """
     fresh = [replace(item, compiled=None) for item in _compilation._ON_REQUEST_FUNCTIONS]
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", fresh)
-    if not compiled:
-        monkeypatch.setattr(lc, "set_on_request_functions_compiled", lambda _: None)
     code = qldpc.codes.SurfaceCode(5)
 
     def get_results() -> list[qldpc.codes.CSSLogicalCounts]:
         counter = qldpc.codes.CSSLogicalCounter(code)
         results = [counter.count_logical_ops()]
+        assert results[0].weight is not qldpc.codes.NO_DISTANCE
         with use_tuning(max_information_sets=4):
             results.append(counter.count_logical_ops(count_pauli=True))
         for deformed in (counter.deformed_cnot(0, 1), counter.deformed([0, 1], [[1, 0], [1, 1]])):
@@ -341,6 +336,7 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
 
     # A count of the same weight, without the distance search, builds the families of the scans.
     expected = lc.CSSLogicalCounter(code).count_logical_ops()
+    assert expected.weight is not codes.NO_DISTANCE
     sizes_with_distance = collections.Counter(sizes)
     sizes.clear()
     lc.CSSLogicalCounter(code).count_logical_ops(expected.weight)
@@ -622,7 +618,17 @@ def test_deformed_counters_walk_their_own_checks() -> None:
 def test_macwilliams_capabilities() -> None:
     """Unsupported codes and requests raise errors, and still work with the other methods."""
     no_logicals = get_counter(np.eye(4)[:2], np.eye(4)[2:])
-    assert no_logicals.count_logical_ops(method="macwilliams") == Counts(4, 0, 0, None)
+    no_distance = no_logicals.count_logical_ops(method="macwilliams")
+    assert no_distance == Counts(codes.NO_DISTANCE, 0, 0, None)
+    assert no_distance.weight is codes.NO_DISTANCE
+    assert hash(no_distance) == hash(Counts(codes.NO_DISTANCE, 0, 0, None))
+    assert no_distance != Counts(4, 0, 0, None) and no_distance != (codes.NO_DISTANCE, 0, 0, None)
+
+    # As for dataclasses, counts of different classes differ.
+    class SubclassCounts(Counts):
+        pass
+
+    assert no_distance != SubclassCounts(codes.NO_DISTANCE, 0, 0, None)
     extended_hamming = codes.ExtendedHammingCode(3).matrix
     self_dual = get_counter(extended_hamming, extended_hamming)
     assert self_dual.dimension == 0

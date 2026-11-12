@@ -62,22 +62,28 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
 
 
 def as_binary_matrix(
-    vectors: npt.ArrayLike, *, num_cols: int | None = None
+    vectors: npt.ArrayLike, name: str = "rows", *, num_cols: int | None = None
 ) -> npt.NDArray[np.uint8]:
-    """Convert a collection of binary rows to a two-dimensional uint8 array."""
+    """Convert a collection of binary rows to a two-dimensional uint8 array.
+
+    The dimension and width checks use ``name`` in their error messages, as ``assert_binary`` does.
+    If NumPy cannot convert the rows to an array, such as when their lengths differ, it raises its
+    own error.
+    """
     matrix = np.asarray(vectors, dtype=np.uint8)
     if matrix.size == 0:
         if num_cols is None:
             if matrix.ndim != 2:
-                raise ValueError("Cannot infer the width of an empty binary matrix")
+                raise ValueError(f"Cannot infer the width of {name}, which are empty")
             num_cols = matrix.shape[1]
         return np.empty((0, num_cols), dtype=np.uint8)
     matrix = np.atleast_2d(matrix)
     if matrix.ndim != 2:
-        raise ValueError("Binary generators must be a two-dimensional matrix")
+        raise ValueError(f"The {name} must be a two-dimensional matrix")
     if num_cols is not None and matrix.shape[1] != num_cols:
         raise ValueError(
-            f"Binary matrices have incompatible widths {num_cols} and {matrix.shape[1]}"
+            f"The {name} have {matrix.shape[1]} columns, which is incompatible with the width"
+            f" {num_cols}"
         )
     return matrix
 
@@ -86,7 +92,15 @@ def get_nested_code_basis(
     logical_ops: npt.NDArray[np.uint8],
     stabilizers: npt.NDArray[np.uint8],
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Build an adapted basis for ``span(stabilizers, logical_ops) / span(stabilizers)``."""
+    """Build an adapted basis for ``span(stabilizers, logical_ops) / span(stabilizers)``.
+
+    Returns:
+        An independent basis whose first rows span the stabilizers, and the quotient labels of its
+        rows: row ``i`` of the labels holds the coordinates of row ``i`` of the basis in the
+        quotient, which are zero exactly for the stabilizer rows.  If the quotient is trivial, the
+        labels have no columns.  Callers must handle that case first, since ``get_eligible_rows``
+        and the scans read labels with no columns as excluding nothing.
+    """
     stabilizer_basis = get_independent_rows(stabilizers)
     stabilizer_pivots = [int(np.flatnonzero(row)[0]) for row in stabilizer_basis]
     reduced_logical_ops = logical_ops.copy()

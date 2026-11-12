@@ -24,10 +24,8 @@ from ..conftest import (
     HAND_Z,
     METHODS,
     CostlyStages,
-    Counts,
     assert_counts_match_enumeration,
     get_counter,
-    get_expected_counts,
     get_random_css_code,
     get_sector_problem,
 )
@@ -35,7 +33,6 @@ from ..core import DistanceMethod
 from . import scan
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("max_sets", [1, 3, 16])
 def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max_sets: int) -> None:
     """Counts match an independent enumeration, as do those of codes deformed after a count."""
@@ -50,7 +47,6 @@ def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max
         assert_counts_match_enumeration(deformed)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_a_deformed_self_dual_counter_shares_its_basis_family() -> None:
     """A self-dual code stays self-dual under a SWEL-preserving gate, and keeps one basis family."""
     counter = lc.CSSLogicalCounter(codes.SteaneCode())
@@ -60,7 +56,6 @@ def test_a_deformed_self_dual_counter_shares_its_basis_family() -> None:
     assert_counts_match_enumeration(deformed)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("method", METHODS)
 def test_scans_resume_after_every_chunk(
     tune: Tune, pytestconfig: pytest.Config, method: DistanceMethod
@@ -72,7 +67,6 @@ def test_scans_resume_after_every_chunk(
     assert_counts_match_enumeration(counter, method=method)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("max_sets", [4, 16])
 def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: int) -> None:
     """Large basis families of overlapping sets give the counts of a brute-force scan."""
@@ -132,43 +126,20 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
     assert sizes and max(sizes) <= 4
 
 
-@pytest.mark.usefixtures("plain_search_setup")
-def test_python_kernels(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
-    """Run the Python versions of the compiled kernels, which coverage can trace.
+@pytest.mark.parametrize("method", METHODS)
+def test_a_count_of_full_paulis_above_the_distance_raises_an_error(
+    method: lc.LogicalCountMethod,
+) -> None:
+    """A count of full Paulis at a weight above the distance raises an error."""
+    with pytest.raises(ValueError, match="less than weight 3"):
+        get_counter(HAND_X, HAND_Z).count_logical_ops(3, method=method, count_pauli=True)
 
-    The compiled helpers that the scan imports by name run as Python too.
-    """
-    for name in (
-        "_count_chunk",
-        "_count_chunk_skipping",
-        "_visit_last_rows",
-        "_is_owned",
-        "_get_masked_rank",
-        "advance_support",
-        "get_completion_bound",
-    ):
-        monkeypatch.setattr(scan, name, getattr(scan, name).py_func)
-    # Tiny chunks make every scan stop and resume repeatedly, and forced completion tables make the
-    # steps of two or more rows skip completions.
-    tune(scan_chunk_size=1, **FORCED_TABLES)
-    code = get_random_css_code(np.random.default_rng(3), 14, 4, 4)
-    assert_counts_match_enumeration(lc.CSSLogicalCounter(code))
-    for method in METHODS:
-        counter = get_counter(HAND_X, HAND_Z)
-        assert counter.count_logical_ops(count_pauli=True, method=method) == Counts(2, 2, 3, 6)
-        with pytest.raises(ValueError, match="less than weight 3"):
-            counter.count_logical_ops(3, method=method, count_pauli=True)
-        bacon_shor = codes.BaconShorCode(3)
-        expected = get_expected_counts(bacon_shor)
-        bacon_shor_counter = lc.CSSLogicalCounter(bacon_shor)
-        assert bacon_shor_counter.count_logical_ops(count_pauli=True, method=method) == expected
-        stacked = lc.CSSLogicalCounter(codes.CSSCode.stack([codes.SteaneCode()] * 2))
-        assert stacked.count_logical_ops(method=method) == Counts(3, 14, 14, None)
-        deformed = counter.deformed_cnot(0, 3)
-        fresh = get_counter(deformed.checks_x, deformed.checks_z)
-        assert deformed.count_logical_ops(
-            count_pauli=True, method=method
-        ) == fresh.count_logical_ops(count_pauli=True, method=method)
+
+def test_a_gate_that_breaks_a_set_of_a_basis_family_leaves_counts_exact() -> None:
+    """A counter deformed by a gate that breaks a set of its basis family still counts exactly."""
+    counter = get_counter(HAND_X, HAND_Z)
+    counter.count_logical_ops(count_pauli=True)
+    assert_counts_match_enumeration(counter.deformed_cnot(0, 3))
 
 
 ####################################################################################################
@@ -233,7 +204,6 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
     assert len(sets_with_tables) > 1
 
 
-@pytest.mark.usefixtures("plain_search_setup")
 def test_counts_return_to_python_only_around_steps_that_may_use_tables(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
@@ -331,8 +301,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     assert step_tables.select(2, 0)[0] is completion_bounds.NO_TABLES
 
 
-@pytest.mark.parametrize("compiled", [False, pytest.param(True, marks=pytest.mark.compiled)])
-def test_skipping_chunks_stop_at_a_lighter_nontrivial_word(compiled: bool) -> None:
+def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
     """A step with tables stops at a nontrivial word lighter than the target, if asked to."""
     # Three systematic rows [I | P], each followed by a distinct label and by its tail P.
     tails = np.array([[1, 0, 1, 0], [0, 1, 1, 0], [1, 1, 0, 1]], dtype=np.uint8)
@@ -340,7 +309,7 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word(compiled: bool) -> No
     labels = np.eye(3, dtype=np.uint8)
     step_rows = np.concatenate([pack_bits(words), pack_bits(labels), pack_bits(tails)], axis=1)
     tables = completion_bounds.CompletionTables.build(pack_bits(tails), 8)
-    count_chunk = scan._count_chunk_skipping if compiled else scan._count_chunk_skipping.py_func
+    count_chunk = scan._count_chunk_skipping
     support = np.zeros(2, dtype=np.int64)
     prefixes = np.zeros((3, 1, step_rows.shape[1]), dtype=np.uint64)
     histogram = np.zeros(1, dtype=np.int64)

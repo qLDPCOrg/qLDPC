@@ -3,9 +3,10 @@
 
 """Run the modular coverage check of checks-superstaq with ``--modular --single-run``.
 
-This wrapper also skips the tests marked ``compiled``, sets ``QLDPC_CLEAR_CACHES`` (see
-``src/qldpc/conftest.py``), and fails the check for each selected module under ``src/``, other than
-a ``conftest.py`` file, that has no test file.
+This wrapper also sets ``QLDPC_DISABLE_COMPILATION``, so that qLDPC's compiled functions run as
+plain Python, which coverage can trace (see ``src/qldpc/_compilation.py``).  It sets
+``QLDPC_CLEAR_CACHES`` (see ``src/qldpc/conftest.py``), and fails the check for each selected module
+under ``src/``, other than a ``conftest.py`` file, that has no test file.
 
 Until a release of checks-superstaq includes ``--single-run``, this runs copies of its coverage
 modules in ``checks/_superstaq_coverage``.  To switch to such a release:
@@ -28,6 +29,7 @@ import checks_superstaq
 import pytest_
 from _superstaq_coverage import coverage_
 
+from qldpc._compilation import DISABLE_COMPILATION_VARIABLE
 from qldpc.conftest import CLEAR_CACHES_VARIABLE
 
 check_utils = checks_superstaq.check_utils
@@ -40,11 +42,12 @@ EXCLUDE = pytest_.EXCLUDE
 
 # Options of the check, which come before the caller's arguments, so that the caller's own options
 # replace them.  The check runs only *.py tests, not notebooks, so it does not need nbmake.
-OPTIONS = ("--modular", "--single-run", "--sysmon", "-pno:nbmake", "-mnot(compiled)")
+OPTIONS = ("--modular", "--single-run", "--sysmon", "-pno:nbmake")
 
 
 def run(*args: str) -> int:
     """Run the check with command-line arguments, and return its exit code."""
+    os.environ[DISABLE_COMPILATION_VARIABLE] = "1"
     os.environ[CLEAR_CACHES_VARIABLE] = "1"
     # checks-superstaq parses the arguments first, so that it handles -h and usage errors.
     returncode = coverage_.run(*OPTIONS, *args, exclude=EXCLUDE)

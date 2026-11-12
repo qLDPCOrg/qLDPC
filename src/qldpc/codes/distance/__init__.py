@@ -33,8 +33,10 @@ from typing import TYPE_CHECKING
 from qldpc import _deprecations
 
 from .core import (
+    NO_DISTANCE,
     DistanceBackend,
     DistanceMethod,
+    NoDistance,
     get_distance_classical,
     get_distance_quantum,
 )
@@ -47,11 +49,13 @@ from .logical_counts import (
 )
 
 __all__ = [
+    "NO_DISTANCE",
     "CSSLogicalCounter",
     "CSSLogicalCounts",
     "DistanceBackend",
     "DistanceMethod",
     "LogicalCountMethod",
+    "NoDistance",
     "compile_search_setup",
     "count_logical_ops_css",
     "get_distance_classical",

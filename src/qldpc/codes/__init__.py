@@ -27,11 +27,13 @@ from .common import (
     QuditCode,
 )
 from .distance import (
+    NO_DISTANCE,
     CSSLogicalCounter,
     CSSLogicalCounts,
     DistanceBackend,
     DistanceMethod,
     LogicalCountMethod,
+    NoDistance,
     count_logical_ops_css,
     get_distance_classical,
     get_distance_quantum,
@@ -74,6 +76,7 @@ from .quantum import (
 )
 
 __all__ = [
+    "NO_DISTANCE",
     "AbstractCode",
     "BBCode",
     "BCHCode",
@@ -106,6 +109,7 @@ __all__ = [
     "LogicalCountMethod",
     "MBCode",
     "ManyHypercubeCode",
+    "NoDistance",
     "PairPartitionCode",
     "QTCode",
     "QuantumGolayCode",
