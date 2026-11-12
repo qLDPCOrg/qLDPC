@@ -2150,7 +2150,12 @@ def test_css_distance_bound_backend_selection() -> None:
 
 
 def test_distance_backend_validation() -> None:
-    """Reject sqetch and decoder selectors for non-CSS codes."""
+    """Backends are restricted to documented values, and sqetch and decoder to CSS codes."""
+    for backend in ["auto", "decoder", "gap", "sqetch"]:
+        common._validate_distance_backend(backend)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Unknown distance backend"):
+        common._validate_distance_backend("other")  # type: ignore[arg-type]
+
     code = codes.FiveQubitCode()
     code.forget_distance()
     for backend in ["sqetch", "decoder"]:

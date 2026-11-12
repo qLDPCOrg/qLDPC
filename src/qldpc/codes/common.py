@@ -14,7 +14,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, get_args
 
 import galois
 import numpy as np
@@ -48,7 +48,6 @@ from qldpc.objects import (
 from ._code_capacity import CodeCapacityDecoder, get_code_capacity_decoder
 from .distance import (
     NO_DISTANCE,
-    DistanceBackend,
     DistanceMethod,
     NoDistance,
     get_distance_classical,
@@ -58,12 +57,14 @@ from .distance.core import (
     _get_distance_connected_support,
     _get_distance_css_brouwer_zimmermann,
     _get_distance_quantum,
-    _validate_distance_backend,
     _validate_distance_method,
 )
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
+
+# The backends of the upper bounds of get_distance_bound.
+DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
 
 _GAP_DISTANCE_BOUND_KWARGS = frozenset({"maxav"})
 _SQETCH_DISTANCE_BOUND_KWARGS = frozenset({"d_target", "k_sub", "batch_size", "seed", "device"})
@@ -4533,6 +4534,15 @@ def _as_pauli_bias_zxy(
         raise ValueError(f"pauli_bias must have three entries (provided: {len(pauli_bias)})")
     pauli_bias_zxy = np.array([pauli_bias[2], pauli_bias[0], pauli_bias[1]], dtype=float)
     return pauli_bias_zxy / np.sum(pauli_bias_zxy)
+
+
+def _validate_distance_backend(backend: DistanceBackend) -> None:
+    """Validate a distance-bound backend selector."""
+    if backend not in get_args(DistanceBackend):
+        raise ValueError(
+            f"Unknown distance backend {backend!r}; choose from 'auto', 'decoder', 'gap', or "
+            "'sqetch'."
+        )
 
 
 def _resolve_distance_backend(

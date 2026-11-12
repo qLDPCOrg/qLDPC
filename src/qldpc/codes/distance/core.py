@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact binary distance calculations, and distance method and backend types and validation."""
+"""Exact binary distance calculations, and distance method types and validation."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import functools
 import math
 import operator
 from collections.abc import Callable, Sequence
-from typing import Literal, SupportsIndex, get_args
+from typing import Literal, SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
@@ -34,7 +34,6 @@ from ._brute_force import get_distance_quantum_brute_force, get_nested_distance_
 from ._connected_support.search import get_distance_connected_support
 from ._tuning import SearchTuning, get_tuning
 
-DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
 DistanceMethod = Literal[
     "brouwer_zimmermann", "brute_force", "information_sets", "connected_support"
 ]
@@ -476,16 +475,7 @@ def _get_lifted_automorphisms(
 
 
 ####################################################################################################
-# method and backend selectors
-
-
-def _validate_distance_backend(backend: DistanceBackend) -> None:
-    """Validate a distance-bound backend selector."""
-    if backend not in get_args(DistanceBackend):
-        raise ValueError(
-            f"Unknown distance backend {backend!r}; choose from 'auto', 'decoder', 'gap', or "
-            "'sqetch'."
-        )
+# method selectors
 
 
 def _validate_distance_method(

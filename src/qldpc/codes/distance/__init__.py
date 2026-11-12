@@ -34,7 +34,6 @@ from qldpc import _deprecations
 
 from .core import (
     NO_DISTANCE,
-    DistanceBackend,
     DistanceMethod,
     NoDistance,
     get_distance_classical,
@@ -52,7 +51,6 @@ __all__ = [
     "NO_DISTANCE",
     "CSSLogicalCounter",
     "CSSLogicalCounts",
-    "DistanceBackend",
     "DistanceMethod",
     "LogicalCountMethod",
     "NoDistance",
