@@ -242,8 +242,9 @@ class SearchTuning:
     #: between batches.  Rows of ``w`` packed 64-bit words are vectorized over
     #: ``2**(enumeration_batch_exponent + 1 - w)`` combinations of rows
     #: (``_search/brute_force.py``), so at 15, rows of more than 960 bits enumerate one word at a
-    #: time: forced enumeration of ``distance/classical:1000:980:2/-`` took 4.4 microseconds per
-    #: word at 15 and 45 nanoseconds at 30.  But at 30, rows of 4 words would take arrays of 4 GiB.
+    #: time: forced enumeration of ``distance/classical:1000:980:2/-`` took about 4 microseconds per
+    #: word at 15, and 13 to 45 nanoseconds at 30, in two runs.  But at 30, rows of 4 words would
+    #: take arrays of 4 GiB.
     #: Raising it can speed up enumeration, at the cost of memory; lowering it saves memory and
     #: makes interrupts prompter, but adds overhead.  At most 62.  Defaults to 15, chosen by hand.
     #: To retune it, time enumerations of bases of 16 to 24 rows, and keep the smallest value beyond

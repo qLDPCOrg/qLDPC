@@ -60,7 +60,7 @@ A mechanism justifies a choice only once it is verified:
 - Label each claim verified, consistent (it fits the data, untested), or conjecture, and state only verified mechanisms in field comments.
 
 For example, the factor `enumeration_setup_cost_factor` was meant to be the ratio of setup time to the time per enumerated word, but that ratio was 0.35 to 97 across codes.
-The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_search/brute_force.py` and confirmed by raising `enumeration_batch_exponent`, which made that enumeration 98 times faster.
+The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_search/brute_force.py` and confirmed by raising `enumeration_batch_exponent`, which made that enumeration about 100 to 300 times faster.
 
 ## 5. Reproduce the numbers in the comments
 
