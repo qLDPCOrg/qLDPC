@@ -3,21 +3,23 @@
 """Shared fixtures and helpers for exact-distance, binary-algebra, BZ, and count tests."""
 
 import itertools
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
+import stim
 
-from qldpc import _compilation, codes
-from qldpc._binary import get_independent_rows, get_kernel
+from qldpc import _compilation, codes, math
+from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
 from qldpc.objects import Pauli, PauliXZ
 
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
+from ._coset_leader_search import CosetLeaderSearch
 from ._information_sets import basis_families, certificates
 
 
@@ -242,3 +244,207 @@ def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: An
 # {2,4}, {0,3} and {1,3}.  The Z word {2,4} also supports the X stabilizer {2,4}, so in total there
 # are 2 + 3 + 1 = 6 logical Pauli operators of weight two.
 HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
+
+
+def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
+    return np.array([np.concatenate(gg.to_numpy()) for gg in generators], dtype=np.uint8)
+
+
+def _graph_state(
+    num_qubits: int, edges: Sequence[tuple[int, int]], phase: bool = False
+) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of a graph state, with S gates on every qubit if ``phase``.
+
+    Generator j acts as X (or Y) on qubit j, so the X parts of the generators form the identity.
+    """
+    circuit = stim.Circuit()
+    circuit.append("H", range(num_qubits))
+    for edge in edges:
+        circuit.append("CZ", edge)
+    if phase:
+        circuit.append("S", range(num_qubits))
+    return _stabilizer_matrix(stim.Tableau.from_circuit(circuit).to_stabilizers())
+
+
+def _pauli_weight(pauli: int, num_qubits: int, css_weight: bool) -> int:
+    """Weight of a packed Pauli, with X in the low bits and Z in the next block."""
+    x, z = pauli & ((1 << num_qubits) - 1), pauli >> num_qubits
+    return (x | z).bit_count() if not css_weight else max(x.bit_count(), z.bit_count())
+
+
+def _get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
+    """Syndrome of a packed Pauli: its symplectic product with each row of the stabilizer matrix."""
+    bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
+    products = matrix @ math.symplectic_conjugate(bits) % 2
+    return sum(int(bit) << jj for jj, bit in enumerate(products))
+
+
+def _pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
+    """Split packed syndromes into rows of 64-bit words, with word ``j`` in bits ``64 j`` and up."""
+    width = (num_qubits + 63) // 64
+    words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
+    return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
+
+
+_PHASED_GHZ_BLOCK = ("YXXX", "ZZ__", "_ZZ_", "__ZZ")
+
+# Graph states whose searches of Pauli errors, by physical and by CSS weight, have a maximum
+# disjoint family with more information sets, or a larger partial set, than their greedy packing,
+# which their costly queries take (see ``coset_routes``).  The family of the first state for the
+# physical weight has more information sets, and those of the other two states have a larger partial
+# set.  The two states for the physical weight differ in the answers that this family changes.  On
+# the second, it returns other errors for some classes without a light enough error.
+_ROUTED_PHYSICAL_STATES = (
+    _graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
+    _graph_state(5, [(0, 4), (2, 3)]),
+)
+
+_ROUTED_CSS_WEIGHT_STATE = _graph_state(5, [(0, 1), (0, 4), (1, 4)])
+
+
+def _find_each_not_within_max_weight(
+    oracle: CosetLeaderSearch,
+    matrix: npt.NDArray[np.uint8],
+    syndromes: npt.NDArray[np.uint64],
+    max_weight: int,
+) -> list[int]:
+    """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
+
+    The representative of each bound that a search returns has the syndrome for the stabilizers of
+    ``matrix``, its lower bound exceeds ``max_weight``, and, for a maximum weight of at least two,
+    the bound equals that of ``get_min_weight_bound``.  With one coset search,
+    ``find_first_not_within_max_weight`` computes its bound separately from
+    ``get_min_weight_bound``, so this checks one against the other.
+    """
+    found: list[int] = []
+    while True:
+        start = found[-1] + 1 if found else 0
+        index, bound = oracle.find_first_not_within_max_weight(syndromes[start:], max_weight)
+        if bound is None:
+            assert start + index == len(syndromes)
+            return found
+        found.append(start + index)
+        syndrome = int.from_bytes(syndromes[found[-1]].astype("<u8").tobytes(), "little")
+        assert not bound.within_max_weight and bound.lower_bound > max_weight
+        assert _get_syndrome(matrix, bound.representative) == syndrome
+        if max_weight >= 2:
+            assert bound == oracle.get_min_weight_bound(syndrome, max_weight)
+
+
+def _random_css_state(
+    num_qubits: int, num_x_stabilizers: int, rng: np.random.Generator
+) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of a random CSS state, with generators that mix pure-X and pure-Z.
+
+    The X parts of the pure-X stabilizers are random independent rows, and the Z parts of the pure-Z
+    stabilizers span their null space.  The generators are random invertible combinations of these
+    stabilizers.
+    """
+    while True:
+        x_rows = rng.integers(2, size=(num_x_stabilizers, num_qubits), dtype=np.uint8)
+        if len(row_reduce_binary(x_rows)[2]) == num_x_stabilizers:
+            break
+    pure = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
+    pure[:num_x_stabilizers, :num_qubits] = x_rows
+    pure[num_x_stabilizers:, num_qubits:] = get_kernel(x_rows)
+    return _scramble(pure, rng)
+
+
+def _scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDArray[np.uint8]:
+    """Random invertible combinations of the rows of a stabilizer matrix, which generate its group.
+
+    The combinations are a random permutation of an upper triangular matrix with ones on its
+    diagonal and random bits above it.
+    """
+    size = len(matrix)
+    upper = np.triu(rng.integers(2, size=(size, size), dtype=np.uint8), 1) + np.eye(
+        size, dtype=np.uint8
+    )
+    return (upper[rng.permutation(size)] @ matrix) % 2
+
+
+def _css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.NDArray[np.int_]:
+    """The smallest CSS (or physical) weight of an error with each packed syndrome.
+
+    The minima come from all ``4**n`` Paulis.
+    """
+    n = len(matrix)
+    errors = (np.arange(1 << (2 * n))[:, None] >> np.arange(2 * n)) & 1
+    checks = math.symplectic_conjugate(matrix.astype(int))
+    syndromes = (errors @ checks.T % 2) @ (1 << np.arange(n))
+    x, z = errors[:, :n], errors[:, n:]
+    weights = np.maximum(x.sum(axis=1), z.sum(axis=1)) if css_weight else (x | z).sum(axis=1)
+    minima = np.full(1 << n, 2 * n + 1)
+    np.minimum.at(minima, syndromes, weights)
+    return minima
+
+
+def _block_generators(block: Sequence[str], num_blocks: int) -> list[stim.PauliString]:
+    """Generators of independent copies of a block state, given the generators of one block."""
+    size = len(block[0])
+    return [
+        stim.PauliString("_" * (size * index) + local + "_" * (size * (num_blocks - index - 1)))
+        for index in range(num_blocks)
+        for local in block
+    ]
+
+
+def _block_minimum(
+    block: Sequence[str], local_syndromes: Sequence[Sequence[int]], css_weight: bool
+) -> int:
+    """Minimum weight of an error on independent blocks with the given per-block syndromes.
+
+    The syndrome bits of a block are the commutation with its generators, in order.  Every Pauli on
+    one block is listed, and the blocks are combined by dynamic programming.
+    """
+    size = len(block[0])
+    stabilizers = [stim.PauliString(local) for local in block]
+    options: dict[tuple[int, ...], list[tuple[int, int, int]]] = {}
+    for paulis in itertools.product("_XYZ", repeat=size):
+        error = stim.PauliString("".join(paulis))
+        syndrome = tuple(int(not error.commutes(ss)) for ss in stabilizers)
+        x_weight = sum(pp in "XY" for pp in paulis)
+        z_weight = sum(pp in "YZ" for pp in paulis)
+        options.setdefault(syndrome, []).append((x_weight, z_weight, size - paulis.count("_")))
+    if not css_weight:
+        return sum(
+            min(support for _, _, support in options[tuple(local)]) for local in local_syndromes
+        )
+    totals = {(0, 0)}
+    for local in local_syndromes:
+        totals = {(a + x, b + z) for a, b in totals for x, z, _ in options[tuple(local)]}
+    return min(max(a, b) for a, b in totals)
+
+
+# A code whose disjoint information sets have ranks five and four.
+_RANK_DEFICIENT_CODE = np.array(
+    [
+        [0, 0, 1, 1, 0, 1, 1, 1, 0, 0],
+        [0, 0, 1, 1, 0, 0, 1, 1, 1, 1],
+        [1, 0, 1, 1, 0, 1, 0, 1, 1, 0],
+        [0, 1, 1, 0, 1, 1, 0, 1, 0, 1],
+        [1, 0, 1, 1, 0, 1, 1, 1, 0, 1],
+    ],
+    dtype=np.uint8,
+)
+
+
+def _product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of the given Pauli strings."""
+    return _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
+
+
+def _assert_exact_answers(
+    oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
+) -> None:
+    """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
+    num_qubits = len(matrix)
+    minima = _css_minima(matrix, css_weight)
+    for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
+        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        weight = _pauli_weight(bound.representative, num_qubits, css_weight)
+        assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+        assert _get_syndrome(matrix, bound.representative) == syndrome
+        assert bound.lower_bound <= minima[syndrome] <= weight
+        assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight

@@ -47,6 +47,10 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
 | Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method, with its packed symplectic weights | `_brute_force.py` |
 | Minimum weights of syndrome classes of Pauli errors (coset-leader weights), by BZ or by connected-support searches, with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_coset_leader_search.py` |
+| The BZ coset searches of the coset-leader search | `_brouwer_zimmermann/coset.py` |
+| The tables of the steps and tails of BZ coset searches | `_brouwer_zimmermann/coset_tables.py` |
+| The connected-support coset searches of the coset-leader search | `_connected_support/coset.py` |
+| The parts that the coset searches of both methods share: their answers (`MinWeightBound`), inverses of checks, packed rows, and tables of light errors | `_cosets.py` |
 | The families of information sets with which a BZ coset-leader search answers costly queries, the gate that chooses them for each maximum weight, and the routes whose queries weigh words by their tails and skip completions by tables | `_brouwer_zimmermann/coset_routes.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
