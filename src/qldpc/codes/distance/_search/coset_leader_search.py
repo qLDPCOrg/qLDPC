@@ -20,7 +20,6 @@ from typing import Literal, NamedTuple, get_args
 import numpy as np
 import numpy.typing as npt
 
-from qldpc import math
 from qldpc._binary import (
     get_kernel,
     pack_bits,
@@ -210,7 +209,7 @@ class CosetLeaderSearch:
         # The syndrome of a packed Pauli ``e`` is ``checks @ e``, where ``checks`` swaps the X and Z
         # halves of the stabilizers, and the stabilizers commute exactly when ``checks @ matrix.T``
         # is zero.
-        checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
+        checks = np.roll(matrix, n, axis=1)
         if len(row_reduce_binary(matrix)[2]) != n or np.any((checks @ matrix.T) % 2):
             raise ValueError("Stabilizers must be independent and commute")
 
