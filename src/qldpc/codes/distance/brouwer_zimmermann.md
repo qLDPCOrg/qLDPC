@@ -871,19 +871,20 @@ Otherwise, a query takes the tables of the **route** of its maximum weight, whic
 A route is a family of search bases of the code, with its coset instance and planning buffer: the disjoint sets, or a family that the routes build for costly queries.
 `find_first_not_within_max_weight` answers a batch with the route of its maximum weight, which it takes once, and the batch of the X parts and that of the Z parts each take their own.
 `_get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](#310-minimum-weights-of-cosets) for the residual-weight estimator.
-`_CosetSearch.get_min_weights` answers a batch on the route of the maximum weight ([Section 4.4](#44-heuristics-and-cost-models)), with `_find_min_weights`, or with `_find_min_weights_by_tails` on a route by tails.
+`_CosetSearch.get_min_weights` answers a batch on the route of the maximum weight ([Section 4.4](#44-heuristics-and-cost-models)), with `_find_min_weights`.
 These searches find their stopping steps with `plan_steps`, and leave the cached steps of the planning buffer to the queries.
 The gate tests the predicted examinations of a query with the disjoint family against its threshold, to decide whether the query may take another family ([Section 4.4](#44-heuristics-and-cost-models)).
 A route is a **route by tails** if those with the route's own family, which can do less work, also reach the threshold.
-The queries of a route by tails weigh words by their tails ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and run `_search_coset_by_tails` instead of `_search_coset`.
+The queries of a route by tails weigh words by their tails ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)): they pass the record of tails of the route to the compiled searches, such as `_search_coset`, in place of None.
+Numba compiles each search separately for None and for a record of tails, so the choice costs nothing for each word.
 Every route by tails of a family gives the latest record `_CosetTails` of the family.
 The record holds the tails of the rows of each search basis, and of the rows of the right inverse of the checks, from which a query adds up the tail of each offset.
 It also holds the completion tables of the search bases that the queries of the route scan in layers of two or more rows, if they fit in `completion_bound_max_table_bytes`.
 The routes build the tails of a family once, and the tables of each of its search bases once, for the first route that needs them (`_get_coset_tails`, `completion_bounds.considers_tables`, and `completion_bounds.build_tables_within`).
 They keep only the latest record of a family, so they hold the tables of each search basis once.
-`_search_coset_by_tails` scans each layer of two or more rows of a search basis that has tables with `scan_coset_layer_by_tails_with_tables`.
+A query by tails scans each layer of two or more rows of a search basis that has tables with `scan_coset_layer_by_tails_with_tables`.
 It scans the other layers with `scan_coset_layer_by_tails`.
-It visits the words of `_search_coset` in the same order, except those that it skips, so it finds the same first word within the maximum weight.
+It visits the words of a query of whole words in the same order, except those that it skips, so it finds the same first word within the maximum weight.
 Without one, it can return another word and another lower bound ([Section 3.9](#39-skipping-completions-by-completion-tables)).
 It keeps the search basis and support of its lightest word, from which it rebuilds the word once, with the full rows.
 The search of Pauli errors by CSS weight has no routes by tails, since weighing a word by its CSS weight needs to know which deleted pivot columns lie in the X part.
