@@ -180,8 +180,8 @@ def always_compiled(
     if function is None:
         return lambda function: always_compiled(function, inline=inline)
     if is_compilation_disabled():
-        # Callers only call the function, which then lacks the attributes of a dispatcher, as
-        # numba's own switch leaves it.
+        # The plain function stands in for a dispatcher, as numba's njit returns it under
+        # NUMBA_DISABLE_JIT.  qLDPC's library code only calls it.
         return cast("Dispatcher[_Function]", function)
     mode: Literal["always", "never"] = "always" if inline else "never"
     cache_directory = _get_cache_directory(_PACKAGE_DIRECTORY)

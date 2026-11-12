@@ -124,7 +124,7 @@ Tests in `src/qldpc/_compilation_test.py` check four further rules, and the name
 - Other modules must call a compiled-on-request function through its module, and never import it by name.
 
 Set `QLDPC_DISABLE_COMPILATION=1` before importing qLDPC to run all of this code as plain Python while debugging.
-It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages that use numba, such as galois, as plain Python.
+It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages that use numba, such as galois, as plain Python, which makes them slow too.
 
 ## Working here
 
