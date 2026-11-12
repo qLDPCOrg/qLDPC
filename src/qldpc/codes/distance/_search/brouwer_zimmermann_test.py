@@ -601,12 +601,20 @@ def completion_tables(
 ) -> Iterator[CompletionRecord]:
     """Run a test with the default choice of completion tables, or with tables in every layer.
 
+    The tables of every layer have eight-column blocks.
+
     Record the tables that searches choose and the bounds that their scans look up, and check that a
     forced search used tables.
     """
     record = CompletionRecord(request.param == "forced", [])
     if record.forced:
-        tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=MAX_VALUE)
+        # Eight-column blocks, rather than the default sixteen, keep the tables quick to build as
+        # plain Python.
+        tune(
+            completion_bound_minimum_layer_work=0,
+            completion_bound_max_cost_percent=MAX_VALUE,
+            completion_bound_block_bits=8,
+        )
     select = completion_bounds.select_completion_tables
     scan = affine_search.scan_information_set
 
@@ -838,12 +846,15 @@ def test_completion_tables_keep_distances_exact(
         )
         for upper_bound in (None, expected + 1):
             skipped = completion_tables.skipped
-            distance = bz.get_distance_brouwer_zimmermann_many(
-                [get_sector_problem(code, pauli)],
-                cutoff=0,
-                upper_bound=upper_bound,
-                get_automorphisms=code._get_qudit_automorphisms,
-            )
+            # One sixteen-column block covers the tails of this code, which makes its bounds exact,
+            # so a bound that is too high changes the distance found.
+            with use_tuning(completion_bound_block_bits=16):
+                distance = bz.get_distance_brouwer_zimmermann_many(
+                    [get_sector_problem(code, pauli)],
+                    cutoff=0,
+                    upper_bound=upper_bound,
+                    get_automorphisms=code._get_qudit_automorphisms,
+                )
             assert assert_skips(distance) == expected
 
     # Column j of the relabelled problem is column columns[j] of the given one, so an automorphism

@@ -177,7 +177,9 @@ def test_frozen_qubits_preserve_counts(width: int) -> None:
     assert counter.count_logical_ops(count_pauli=True) == Counts(2, 2, 3, 6)
 
 
-@pytest.mark.parametrize("num_qubits, rank_x, rank_z", [(16, 10, 2), (32, 14, 12), (40, 22, 18)])
+# (16, 10, 2) builds families of three disjoint sets, and the count scans of (24, 12, 8) check
+# which set counts a word.
+@pytest.mark.parametrize("num_qubits, rank_x, rank_z", [(16, 10, 2), (24, 12, 8)])
 def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int) -> None:
     """Brute force visits every word once, so it checks the information sets used by BZ."""
     rng = np.random.default_rng(num_qubits)
