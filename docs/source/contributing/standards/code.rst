@@ -36,7 +36,7 @@ Code style and organization
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * Do not copy transient project history, machine-specific paths, or local-session instructions into any committed file, including code, tests, configuration, and documentation.
 * Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compilation_test.py`` enforces its rules.
-* ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
+* ``src/qldpc/_code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
   ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
   Imports in functions and under ``TYPE_CHECKING`` count; tests and ``conftest.py`` files may import from any layer.

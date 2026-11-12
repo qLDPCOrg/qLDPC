@@ -76,7 +76,7 @@ These files state the rules for working on qLDPC, or enforce them:
 - this file;
 - the "Goals" and "AI usage" sections of [`README.md`](README.md);
 - every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
-- the tests that enforce the standards: [`code_style_test.py`](src/qldpc/code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
+- the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
 They change only through a patch that a maintainer approves, including changes that a maintainer asks for.
 The exception is a change that the maintainer explicitly says to apply directly.
