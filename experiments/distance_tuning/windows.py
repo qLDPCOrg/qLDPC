@@ -10,9 +10,10 @@ since a changed decision can change what the searches decide later.  It prints t
 the workloads named by ``--long`` and for all traces.  The thresholds and the quantities that they
 are compared with are:
 
-- ``completion_bound_minimum_layer_work``: the supports of a layer of one information set, which
-  considers completion tables if they reach it; the script also prints the smallest layer that uses
-  tables, below which raising the threshold changes no layer that uses them;
+- ``completion_bound_minimum_layer_work``: the supports ``C(k, w)`` of a layer of a distance search,
+  or of a step of a count, which considers completion tables if they reach it; the script also
+  prints the smallest layer or step that used tables, below which raising the threshold changes no
+  layer or step that uses them;
 - ``completion_bound_max_cost_percent``: each predicted cost of completion tables, in percent, which
   a layer accepts if it is at most the threshold;
 - the product of ``partition_work_ratio`` and ``partition_cost_factor``: the estimated work of a
@@ -32,7 +33,9 @@ layer, and each comparison of a predicted cost with the limit.
 
 Example:
 
-    python experiments/distance_tuning/windows.py results/traces/*.json --long distance/bb288/X
+    python experiments/distance_tuning/trace.py distance/bb288/X --output traces/bb288.json
+    python experiments/distance_tuning/trace.py distance/qt7/X --output traces/qt7.json
+    python experiments/distance_tuning/windows.py traces/*.json --long distance/bb288/X
 """
 
 from __future__ import annotations
@@ -72,10 +75,7 @@ def main() -> None:
             raise ValueError("--compare takes two traces")
         compare(*traces)
         return
-    changes = {json.dumps(trace["tuning"], sort_keys=True) for trace in traces}
-    if len(changes) != 1:
-        raise ValueError("The traces must share one tuning")
-    tuning = dataclasses.replace(_tuning.SearchTuning(), **traces[0]["tuning"])
+    tuning = get_tuning(traces)
     thresholds = get_thresholds(tuning)
     gates: dict[str, list[Gate]] = {field: [] for field in thresholds}
     for trace in traces:
@@ -83,9 +83,8 @@ def main() -> None:
             gates[field].append(gate)
     for field, threshold in thresholds.items():
         found = gates[field]
-        print(
-            f"{field} = {threshold:g}: {len(found)} decisions in {len({g.workload for g in found})} workloads"
-        )
+        num_workloads = len({g.workload for g in found})
+        print(f"{field} = {threshold:g}: {len(found)} decisions in {num_workloads} workloads")
         for label, subset in (
             ("long", [g for g in found if g.workload in args.long]),
             ("all", found),
@@ -117,6 +116,25 @@ def parse_args() -> argparse.Namespace:
         "--compare", action="store_true", help="compare the decisions of two traces"
     )
     return parser.parse_args()
+
+
+def get_tuning(traces: list[dict[str, Any]]) -> _tuning.SearchTuning:
+    """The tuning that every trace ran under.
+
+    ``trace.py`` records the whole tuning.  For traces from before it did, the tuning is the
+    defaults of this commit with the recorded changes, which the script warns of, since the
+    defaults may have changed since.
+    """
+    if all("full_tuning" in trace for trace in traces):
+        tunings = {json.dumps(trace["full_tuning"], sort_keys=True) for trace in traces}
+        if len(tunings) != 1:
+            raise ValueError("The traces must share one tuning")
+        return dataclasses.replace(_tuning.SearchTuning(), **traces[0]["full_tuning"])
+    changes = {json.dumps(trace["tuning"], sort_keys=True) for trace in traces}
+    if len(changes) != 1:
+        raise ValueError("The traces must share one tuning")
+    print("WARNING: some traces lack their whole tuning; assuming the defaults of this commit")
+    return dataclasses.replace(_tuning.SearchTuning(), **traces[0]["tuning"])
 
 
 def get_thresholds(tuning: _tuning.SearchTuning) -> dict[str, float]:
@@ -151,7 +169,11 @@ def get_gates(trace: dict[str, Any], tuning: _tuning.SearchTuning) -> list[tuple
                 ("completion_bound_max_cost_percent", Gate(100 * event["cost"], workload, detail))
             )
         elif kind == "family" and event["kind"] == "partitioned" and "estimated_work" in event:
-            unit = event["estimated_cost"] / tuning.partition_cost_factor
+            # Older traces record the cost of partitioning, but not its unit.
+            factor = tuning.partition_cost_factor
+            unit = event.get("unit", event["estimated_cost"] / factor if factor else 0)
+            if not unit:
+                continue
             detail = f"k={event['rows']} n={event['columns']}"
             field = "partition_work_ratio * partition_cost_factor"
             gates.append((field, Gate(event["estimated_work"] / unit, workload, detail)))
@@ -184,10 +206,22 @@ def get_gates(trace: dict[str, Any], tuning: _tuning.SearchTuning) -> list[tuple
 
 
 def get_used_layers(trace: dict[str, Any], tuning: _tuning.SearchTuning) -> list[Gate]:
-    """The supports of each layer or step whose predicted cost of tables is within the limit."""
+    """The supports of each layer of a distance search that used tables, or each step of a count.
+
+    A layer of a distance search records the tables that it used.  A count records no layers, and
+    a step of a count uses tables if their predicted cost is within the limit.
+    """
+    workload = trace["workload"]
+    layers = [event for event in trace["events"] if event["event"] == "layer"]
+    if layers:
+        return [
+            Gate(event["supports"], workload, f"k={event['dimension']} w={event['weight']}")
+            for event in layers
+            if any(event["tables"] if isinstance(event["tables"], list) else [event["tables"]])
+        ]
     limit = tuning.completion_bound_max_cost_percent
     return [
-        Gate(event["supports"], trace["workload"], f"k={event['rows']} w={event['weight']}")
+        Gate(event["supports"], workload, f"k={event['rows']} w={event['weight']}")
         for event in trace["events"]
         if event["event"] == "predict" and 100 * event["cost"] <= limit
     ]
@@ -234,7 +268,8 @@ def get_decisions(trace: dict[str, Any]) -> list[tuple[Any, ...]]:
                 (kind, event["weight"], event["dimension"], event["sets"], event["tables"])
             )
         elif kind == "limit" and not math.isinf(event["cost"]):
-            decisions.append((kind, event["weight"], round(event["cost"], 9), event["within"]))
+            cost = round(event["cost"], 9)
+            decisions.append((kind, event.get("rows"), event["weight"], cost, event["within"]))
     return decisions
 
 
@@ -246,9 +281,8 @@ def compare(first: dict[str, Any], second: dict[str, Any]) -> None:
     """
     print(f"{first['workload']}: results {first['result']} and {second['result']}")
     decisions = [get_decisions(first), get_decisions(second)]
-    print(
-        f"    decisions: {len(decisions[0])} and {len(decisions[1])}, same: {decisions[0] == decisions[1]}"
-    )
+    same = decisions[0] == decisions[1]
+    print(f"    decisions: {len(decisions[0])} and {len(decisions[1])}, same: {same}")
     considered = [
         {
             (e["rows"], e["weight"])
@@ -261,8 +295,15 @@ def compare(first: dict[str, Any], second: dict[str, Any]) -> None:
         extra = considered[index] - considered[other]
         if not extra:
             continue
+        # Older traces record only the weight of a comparison with the limit.
         weights = {weight for _, weight in extra}
-        trimmed = [d for d in decisions[index] if not (d[0] == "limit" and d[1] in weights)]
+        trimmed = [
+            d
+            for d in decisions[index]
+            if not (
+                d[0] == "limit" and ((d[1], d[2]) in extra or (d[1] is None and d[2] in weights))
+            )
+        ]
         print(f"    layers that only trace {index + 1} considers: {sorted(extra)}")
         print(f"    same decisions without their predictions: {trimmed == decisions[other]}")
 

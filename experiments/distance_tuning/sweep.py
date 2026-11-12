@@ -12,22 +12,23 @@ share the conditions of the machine as closely as possible.  Lookups of completi
 sensitive to the processor's caches, which concurrent trials share, so compare their cost models
 with ``--jobs 1``.
 
-Each trial appends one JSON line to ``trials.jsonl`` in the results directory, with the sweep's
-tag, the arm, the round, the commit and the differences of the source from it, the load average,
-and the record of ``trial.py``, or the error or timeout of the trial.  A sweep skips trials that
-the file already holds, so an interrupted sweep resumes where it stopped.  ``collect_results.py``
-summarizes the file.
+Each trial appends one JSON line to ``trials.jsonl`` in the results directory, with the sweep's tag,
+the arm, the round, the commit and a hash of the differences of the source from it, the load
+average, and the record of ``trial.py``, or the error or timeout of the trial.  A sweep skips trials
+that the file already holds, so an interrupted sweep resumes where it stopped.
+``collect_results.py`` summarizes the file.
 
-For searches of milliseconds, ``--repeat`` times the workload several times in each trial's
-process, and ``collect_results.py`` takes the median of the repetitions.  Only distance workloads
-repeat their searches; a workload of ``CosetLeaderSearch`` reuses its cached searches.
+``--repeat`` times the workload several times in each trial's process, and ``collect_results.py``
+takes the median of the repetitions.  The first repetition also does work that codes remember and
+that does not depend on the tuning (see ``trial.py``), so with three or more repetitions the median
+leaves it out.  Distance, hadamard, and count workloads repeat their searches; a workload of
+``CosetLeaderSearch`` reuses its cached searches.
 
 Arms are given either as ``--field`` and ``--values``, which compares values of one field, or as
 ``--arms``, a JSON list of objects of changes.  ``--base`` adds changes to every arm.  The first
 arm is the reference of ``collect_results.py``, so list the current default first.
 
-Run sweeps under a guard of memory and time, such as ``~/.copilot/safe_run/safe_run.py`` with
-``--workers`` equal to ``--jobs``.
+Run sweeps under a guard of memory and time that allows ``--jobs`` processes.
 
 Examples:
 
@@ -170,7 +171,7 @@ def order_arms(arms: list[dict[str, Any]], round_index: int) -> list[tuple[int, 
     """The indices and changes of the arms in the order of a round.
 
     The order is forward in even rounds and backward in odd ones, rotated by half the round index,
-    so that every arm takes every position.
+    so that over twice as many rounds as arms, every arm takes every position.
     """
     indexed = list(enumerate(arms))
     shift = (round_index // 2) % len(arms)
@@ -183,7 +184,11 @@ def order_arms(arms: list[dict[str, Any]], round_index: int) -> list[tuple[int, 
 
 
 def get_key(trial: dict[str, Any]) -> str:
-    """A hash of what determines a trial's result: everything but its position."""
+    """A hash of what determines a trial's result.
+
+    It leaves out the position and the timeout, and the number of repetitions if it is one, so that
+    the trials of sweeps from before ``--repeat`` keep their keys.
+    """
     names = ("tag", "workload", "round", "arm_index", "arm", "source")
     fields = {name: trial[name] for name in names}
     if trial.get("repeat", 1) != 1:

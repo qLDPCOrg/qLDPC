@@ -4,11 +4,11 @@
 
 The script enters ``_tuning.use_tuning`` with the given changes, warms up the compiled code of the
 workload's kind on small codes, and then times the workload, ``--repeat`` times in this process.
-Codes and caches remember results, so only the first time is of a cold search; later repetitions
-check whether the warm-up loaded all the compiled code that the search uses (they should not be
-much faster).  It prints one JSON object: the workload, the tuning, the result of each repetition,
-their wall and CPU seconds, and the peak resident memory after the warm-up and after the
-repetitions.
+Each repetition repeats the search, but codes remember work that does not depend on the tuning, such
+as the generator matrix of a classical code given by its checks, and coset searches reuse their
+cached setups, so later repetitions can be much faster than the first.  It prints one JSON object:
+the workload, the tuning, the result of each repetition, their wall and CPU seconds, and the peak
+resident memory after the warm-up and after the repetitions.
 
 ``sweep.py`` runs this script in a new process for each trial.  To run it directly, limit it to
 one thread, as ``sweep.py`` does, with ``NUMBA_NUM_THREADS=1`` and ``OMP_NUM_THREADS=1``.
@@ -62,8 +62,7 @@ WARM_UP_CODES = ("classical:40:20:0", "surface:5", "toric:4")
 def main() -> None:
     """Warm up, time the workload, and print the results."""
     args = parse_args()
-    if args.workload.split("/")[1] in WARM_UP_CODES:
-        raise ValueError(f"The warm-up uses the code of {args.workload!r}; choose another code")
+    check_workload(args.workload)
     changes = json.loads(args.tuning)
     with _tuning.use_tuning(**changes) as tuning:
         if not args.cold:
@@ -117,6 +116,12 @@ def get_maxrss() -> int:
 
 ####################################################################################################
 # warm-up
+
+
+def check_workload(name: str) -> None:
+    """Reject a workload on a code of the warm-up, whose results the warm-up leaves behind."""
+    if name.split("/")[1] in WARM_UP_CODES:
+        raise ValueError(f"The warm-up uses the code of {name!r}; choose another code")
 
 
 def warm_up(kind: str) -> None:

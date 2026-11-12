@@ -5,8 +5,10 @@
 For each sweep, workload, and arm, the summary gives the number of successful trials, the median
 wall seconds (of a trial, the median of its repetitions), and the median, minimum, and maximum, over
 rounds, of the ratio of the arm's wall time to that of the first arm, the reference, in the same
-round, with a distribution-free 95% confidence interval of the median ratio (see
-``get_median_interval``).  Ratios of one round share the conditions of the machine, so their spread,
+round and of the same source, with a distribution-free 95% confidence interval of the median ratio
+(see ``get_median_interval``).  A sweep resumed after a change of the source reruns its trials, so
+a round can hold trials of several sources; the summary warns of such sweeps, and pairs only trials
+of one source.  Ratios of one round share the conditions of the machine, so their spread,
 across rounds, measures noise better than the spread of times.  The summary also gives the median
 peak resident memory in MiB after the timed search, and the trials that failed or timed out.  It
 flags a workload whose arms disagree on a result, which no tuning may change except a distance
@@ -68,6 +70,14 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
     print_rows(rows)
+    sources: dict[str, set[str]] = collections.defaultdict(set)
+    for trial in trials:
+        sources[trial["tag"]].add(get_source(trial))
+    for tag, tag_sources in sorted(sources.items()):
+        if len(tag_sources) > 1:
+            print(
+                f"WARNING: {tag} holds trials of {len(tag_sources)} sources: {sorted(tag_sources)}"
+            )
     for (tag, workload), results in sorted(get_results(trials).items()):
         if len(results) > 1:
             print(f"WARNING: the arms of {tag} disagree on {workload}: {sorted(results)}")
@@ -94,9 +104,9 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for trial in trials:
         by_arm[trial["tag"], trial["workload"], trial["arm_index"]].append(trial)
 
-    # the wall time of each round of the reference arm, by sweep and workload
+    # the wall time of each round of the reference arm, by sweep, workload, and source
     reference = {
-        (tag, workload, trial["round"]): get_wall(trial)
+        (tag, workload, trial["round"], get_source(trial)): get_wall(trial)
         for (tag, workload, arm_index), group in by_arm.items()
         if arm_index == 0
         for trial in group
@@ -107,9 +117,9 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for (tag, workload, arm_index), group in sorted(by_arm.items()):
         ok = [trial for trial in group if trial["status"] == "ok"]
         ratios = sorted(
-            get_wall(trial) / reference[tag, workload, trial["round"]]
+            get_wall(trial) / reference[tag, workload, trial["round"], get_source(trial)]
             for trial in ok
-            if reference.get((tag, workload, trial["round"]))
+            if reference.get((tag, workload, trial["round"], get_source(trial)))
         )
         ci_low, ci_high = get_median_interval(ratios)
         rows.append(
@@ -130,6 +140,11 @@ def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def get_source(trial: dict[str, Any]) -> str:
+    """The commit of a trial, with the hash of its differences from the commit."""
+    return f"{trial['source']['commit'][:8]}+{trial['source']['diff'][:8]}"
 
 
 def get_wall(trial: dict[str, Any]) -> float:

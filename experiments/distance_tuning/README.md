@@ -12,7 +12,7 @@ Sweeps write their trials to `results/`, which Git ignores, so this page keeps t
 - Record the commit: `sweep.py` keys trials by it, and by a hash of any uncommitted change to `src/`.
 - Do not edit `src/` while a sweep runs, since each trial imports it anew.
 - A trial of one repetition also times work that a search caches on its code, such as the generator matrix of a classical code given by checks, which is the same in every arm: under a second for most workloads, but about 50 seconds for the 4000-bit classical codes and 370 for the 8000-bit ones.
-  It shrinks ratios toward 1 without reversing them; time such workloads with `--repeat 2`, whose second repetition leaves it out.
+  It shrinks ratios toward 1 without reversing them; time such workloads with `--repeat 3`, whose median leaves it out.
 
 ## 1. Measure the noise floor
 

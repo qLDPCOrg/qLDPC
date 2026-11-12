@@ -164,6 +164,8 @@ def parse_cpm(text: str) -> codes.PairPartitionCode:
 @functools.cache
 def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
     """Build a named code (see the module docstring)."""
+    if pathlib.Path(name).is_file():
+        return parse_cpm(pathlib.Path(name).read_text(encoding="utf-8"))
     kind, _, args = name.partition(":")
     if kind.startswith("pp") and kind[2:] in INSTANCES:
         return parse_cpm(INSTANCES[kind[2:]][1])
@@ -190,8 +192,6 @@ def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
         for row in generator:
             row[rng.choice(bits, size=row_weight, replace=False)] = 1
         return codes.ClassicalCode.from_generator(generator)
-    if pathlib.Path(name).is_file():
-        return parse_cpm(pathlib.Path(name).read_text(encoding="utf-8"))
     raise ValueError(f"Unknown code {name!r}")
 
 

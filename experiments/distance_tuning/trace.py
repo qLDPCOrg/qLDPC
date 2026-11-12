@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Trace the decisions and the time of each stage of the BZ distance searches of one workload.
+"""Trace the decisions and time of each stage of the BZ searches of a distance or count workload.
 
 The script wraps functions of ``qldpc.codes.distance._brouwer_zimmermann`` and
 ``qldpc.codes.distance._information_sets`` in this process only, warms up as ``trial.py`` does, and
-runs a distance workload once under the given tuning.  It records:
+runs a ``distance``, ``hadamard``, or ``count`` workload once under the given tuning.  It cannot
+trace ``ccount`` workloads: their compiled setup calls the stages directly, past the wrappers.  It
+records:
 
 - each test of whether to enumerate every codeword instead of searching information sets: by size,
   with the dimension ``k``, the length ``n``, and ``2**k / (k * n)``, and by work, with the
@@ -13,31 +15,34 @@ runs a distance workload once under the given tuning.  It records:
   partitioning), with its number of sets and the seconds that building it took, and the quantities
   that the gates of overlapping families and of partitioning compare: for overlapping families, the
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
-  search and the cost of partitioning, in candidate/set evaluations;
+  search and the cost of partitioning, in candidate/set evaluations, and whether the gate let it
+  try (``partitioned``), even if it then found no family;
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
 - each attempt to switch to a family of automorphism images, the seconds it took, and whether the
   search switched;
-- each test of whether a layer of ``k`` rows and weight ``w`` considers completion tables, with its
-  ``C(k, w)`` supports, and each comparison of a predicted cost with the limit;
+- the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step
+  considers completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted
+  cost with the limit, with the rows and weight of the prediction before it;
 - each prediction of the cost of completion tables, as a share of the cost of a scan without them,
   with the number of rows and the weight of its layer or step, the seconds it took, and the seconds
   since the workload started, which also time the steps of counts;
 - each coefficient layer that a distance search advances by: its weight, number of basis rows and
-  sets, its supports, whether the search can still switch to automorphism images and, if so, the
-  work of the layer that the switch compares (scanned sets times supports), the best weight and
-  lower bound after it, the supports that it evaluated and skipped, its candidate/set evaluations
-  (each support of a scan in lockstep counts once for each of its sets), and the lookups of
-  completion tables that it made, the width of the blocks of its tables if any, with their bytes and
-  number of blocks, the seconds spent choosing and building tables, and its seconds in all.
+  sets (of the family of automorphism images, for the layer that switches to it), its supports,
+  whether the search can still switch to automorphism images and, if so, the work of the layer that
+  the switch compares (scanned sets times supports), the best weight and lower bound after it, the
+  supports that it evaluated and skipped, its candidate/set evaluations (each support of a scan in
+  lockstep counts once for each of its sets), and the lookups of completion tables that it made, the
+  width of the blocks of its tables if any, with their bytes and number of blocks, the seconds spent
+  choosing and building tables, and its seconds in all.
 
-It prints a table of the layers, and with ``--output``, saves the events as JSON.  With
-``--setup-only``, it stops before the first layer of the first search, after its families, or
-before the first enumeration of codewords.  The
-thresholds of ``SearchTuning`` decide where these stages start, so a trace shows which decisions a
-threshold can flip, and what each stage costs, before timing the tunings that flip them with
-``sweep.py``.
+It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
+the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
+``--setup-only``, it stops before the first layer of the first distance search, after its
+families, or before the first enumeration of codewords; it does not stop counts.  The thresholds of
+``SearchTuning`` decide where these stages start, so a trace shows which decisions a threshold can
+flip, and what each stage costs, before timing the tunings that flip them with ``sweep.py``.
 
 Example:
 
@@ -47,6 +52,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import functools
 import json
 import math
@@ -64,8 +70,9 @@ from qldpc.codes.distance._information_sets import basis_families, certificates,
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.distance_tuning.*, and would silently treat a bare "import trial" as untyped.
 if TYPE_CHECKING:
-    from experiments.distance_tuning import trial, workloads
+    from experiments.distance_tuning import sweep, trial, workloads
 else:
+    import sweep
     import trial
     import workloads
 
@@ -80,6 +87,9 @@ START = 0.0
 # Whether to stop before the first layer of the first search.
 SETUP_ONLY = False
 
+# The rows and weight of the latest prediction of the cost of completion tables.
+LAST_PREDICTION: dict[str, Any] = {"rows": None, "weight": None}
+
 
 class SetupDone(Exception):
     """Raised before the first layer of a search whose trace stops after its setup."""
@@ -88,9 +98,10 @@ class SetupDone(Exception):
 def main() -> None:
     """Trace a workload, and print and save the trace."""
     args = parse_args()
-    if args.workload.split("/")[0] not in ("distance", "hadamard", "count", "ccount"):
-        raise ValueError("Only distance and count workloads can be traced")
-    with _tuning.use_tuning(**json.loads(args.tuning)):
+    if args.workload.split("/")[0] not in ("distance", "hadamard", "count"):
+        raise ValueError("Only distance, hadamard, and count workloads can be traced")
+    trial.check_workload(args.workload)
+    with _tuning.use_tuning(**json.loads(args.tuning)) as tuning:
         trial.warm_up(args.workload.split("/")[0])
         install_wrappers()
         EVENTS.clear()
@@ -105,6 +116,8 @@ def main() -> None:
     print_trace(result, seconds)
     if args.output is not None:
         record = {"workload": args.workload, "tuning": json.loads(args.tuning)}
+        record |= {"full_tuning": dataclasses.asdict(tuning)}
+        record |= {"source": sweep.get_source_fingerprint()}
         record |= {"result": result, "seconds": seconds, "events": EVENTS}
         args.output.write_text(json.dumps(record, indent=1), encoding="utf-8")
 
@@ -114,7 +127,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("workload", help="a distance workload name (see workloads.py)")
+    parser.add_argument("workload", help="a distance or count workload name (see workloads.py)")
     parser.add_argument(
         "--tuning",
         default="{}",
@@ -124,7 +137,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--setup-only",
         action="store_true",
-        help="stop before the first layer or enumeration of the first search, after its setup",
+        help="stop a distance search before its first layer or enumeration, after its setup",
     )
     return parser.parse_args()
 
@@ -212,7 +225,8 @@ def get_partition_gate(
 
     These are the estimated work of the family that partitioning would replace, in candidate/set
     evaluations, and the estimated cost of partitioning in the same unit, which the search
-    multiplies by ``partition_work_ratio`` (see the source of ``get_partitioned_family``).
+    multiplies by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), and the
+    unit ``b * k**2 * n``, summed over coverages ``b``, that ``partition_cost_factor`` multiplies.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
@@ -224,6 +238,7 @@ def get_partition_gate(
         "columns": num_columns,
         "estimated_work": int(work),
         "estimated_cost": int(cost),
+        "unit": total_coverage * dimension**2 * num_columns,
         "ratio": tuning.partition_work_ratio,
         "partitioned": bool(work >= tuning.partition_work_ratio * cost),
     }
@@ -276,7 +291,9 @@ def wrap_enumeration_by_size(function: Callable[..., Any]) -> Callable[..., Any]
                 "test": "size",
                 "dimension": dimension,
                 "length": length,
-                "words_per_setup_unit": 2**dimension / (dimension * length),
+                "words_per_setup_unit": (
+                    2**dimension / (dimension * length) if dimension < 63 else math.inf
+                ),
                 "enumerate": result,
             }
         )
@@ -369,8 +386,7 @@ def wrap_limit(function: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(function)
     def wrapper(cost: float, tuning: Any) -> bool:
         result = function(cost, tuning)
-        weight = None if CURRENT_LAYER is None else CURRENT_LAYER["weight"]
-        EVENTS.append({"event": "limit", "cost": cost, "weight": weight, "within": result})
+        EVENTS.append({"event": "limit", "cost": cost, **LAST_PREDICTION, "within": result})
         return result
 
     return wrapper
@@ -402,23 +418,16 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             raise SetupDone
         weight, dimension = search.next_weight, search.dimension
         uses_automorphism_family = search.uses_automorphism_family
-
-        # The work of the layer that the switch to automorphism images compares with its threshold,
-        # as the source of ``advance`` computes it, if the search can still switch.
         can_switch = search.get_automorphism_family is not None and not uses_automorphism_family
-        switch_work = None
-        if can_switch:
-            num_scanned = search.instance.certificate.get_num_sets_to_certify(weight, search.best)
-            switch_work = min(num_scanned * math.comb(dimension, weight), certificates.WORK_CAP)
+        start = time.perf_counter()
         CURRENT_LAYER = {
             "event": "layer",
             "search": id(search),
             "weight": weight,
             "dimension": dimension,
-            "sets": len(search.instance.certificate.ranks),
             "supports": math.comb(dimension, weight),
             "can_switch": can_switch,
-            "switch_work": switch_work,
+            "switch_work": None,
             "evaluated": 0,
             "set_evaluations": 0,
             "lookups": 0,
@@ -429,12 +438,19 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             "choose_seconds": 0.0,
             "build_seconds": 0.0,
         }
-        start = time.perf_counter()
+        # The work of the layer that the switch to automorphism images compares with its threshold,
+        # as the source of ``advance`` computes it.  Its certificate may solve linear programs,
+        # which the search would solve in this layer anyway.
+        if can_switch:
+            num_scanned = search.instance.certificate.get_num_sets_to_certify(weight, search.best)
+            switch_work = min(num_scanned * math.comb(dimension, weight), certificates.WORK_CAP)
+            CURRENT_LAYER["switch_work"] = switch_work
         try:
             best = function(search)
         finally:
             layer, CURRENT_LAYER = CURRENT_LAYER, None
         layer["seconds"] = time.perf_counter() - start
+        layer["sets"] = len(search.instance.certificate.ranks)
         # A search that switches to automorphism images scans its set again from layer two.
         if search.uses_automorphism_family and not uses_automorphism_family:
             layer["weight"] = 2
@@ -472,6 +488,7 @@ def wrap_predict(function: Callable[..., Any]) -> Callable[..., Any]:
         start = time.perf_counter()
         cost, block_bits = function(rows, weight, *args, **kwargs)
         seconds = time.perf_counter() - start
+        LAST_PREDICTION.update(rows=len(rows), weight=weight)
         EVENTS.append(
             {
                 "event": "predict",
@@ -559,7 +576,8 @@ def print_trace(result: str, seconds: float) -> None:
             continue
         tables = "" if event["tables"] is None else f" tables={event['tables']}"
         print(
-            f"  layer w={event['weight']:<2d} rows={event['dimension']:<4d} sets={event['sets']:<2d}"
+            f"  layer w={event['weight']:<2d} rows={event['dimension']:<4d}"
+            f" sets={event['sets']:<2d}"
             f" supports={event['supports']:.2e} evaluated={event['evaluated']:.2e}"
             f" skipped={event['skipped']:.2e} lookups={event['lookups']:.2e}{tables}"
             f" best={event['best']} lower={event['lower_bound']}"

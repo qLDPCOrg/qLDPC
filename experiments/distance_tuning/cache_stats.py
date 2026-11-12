@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Report the hit rates of the caches of exact searches over a sequence of workloads.
+"""Report the hit rates of three caches of exact searches over a sequence of workloads.
 
-The script warms up as ``trial.py`` does for each kind of workload, empties the caches, runs
-workloads (see ``workloads.py``) one after another in this process, ``--cycles`` times over, and
-then prints ``cache_info()`` of each cache whose size ``qldpc.codes.distance._tuning`` fixes:
-``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``.  A cache whose
-misses stop falling as its size grows is large enough, so run a workload that cycles through more
-inputs than a cache holds to see the cost of misses: each cycle after the first should then hit, if
-the cache is large enough.  The time of a workload in the first cycle less that in the second is
-then the setup of the searches that it missed.
+The caches are ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``
+of ``qldpc.codes.distance._tuning``.  The script warms up as ``trial.py`` does for each kind of
+workload, runs each workload once, so that it builds its codes and states and loads their compiled
+code, empties the three caches, and then runs the workloads one after another in this process,
+``--cycles`` times over, and prints ``cache_info()`` of each cache.  A cache whose misses stop
+falling as its size grows is large enough, so run a workload that cycles through more inputs than
+a cache holds to see the cost of misses: each cycle after the first should then hit, if the cache
+is large enough.  The time of a workload in the first cycle less that in the second is then the
+setup of the searches that it missed.
 
 Example:
 
@@ -50,8 +51,12 @@ def main() -> None:
         "CSS_SEARCH_CACHE_SIZE": coset.get_css_searches,
         "PAULI_SEARCH_CACHE_SIZE": coset.get_pauli_search,
     }
+    for name in args.workloads:
+        trial.check_workload(name)
     for kind in sorted({name.split("/")[0] for name in args.workloads}):
         trial.warm_up(kind)
+    for name in args.workloads:
+        workloads.run_workload(name)
     for cache in caches.values():
         cache.cache_clear()
     for cycle in range(args.cycles):
