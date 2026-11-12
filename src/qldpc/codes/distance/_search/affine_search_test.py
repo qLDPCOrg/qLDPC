@@ -17,7 +17,6 @@ from qldpc._binary import pack_bits
 from . import affine_search, completion_bounds
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_family_scan() -> None:
     """Chunked scans of a family enumerate each combination of basis rows once.
 
@@ -86,7 +85,6 @@ def test_family_scan() -> None:
             assert (best, depth, visited) == (expected, -1, 0)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_family_scans_weigh_every_set_of_the_support_that_reaches_the_cutoff() -> None:
     """A scan returns at the cutoff only after it weighs the support in every set.
 
@@ -111,7 +109,6 @@ def test_family_scans_weigh_every_set_of_the_support_that_reaches_the_cutoff() -
     assert (best, visited) == (1, 1)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
     """A scan of one information set finds the lightest eligible word of a layer, in chunks.
 
@@ -197,7 +194,6 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                         )
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_coset_layer_scans_keep_the_first_lightest_word(
     css_weight: bool, pytestconfig: pytest.Config
@@ -268,7 +264,6 @@ def test_coset_layer_scans_keep_the_first_lightest_word(
                 np.testing.assert_array_equal(representative, expected_word)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_coset_layer_scans_keep_the_first_of_equally_light_words(css_weight: bool) -> None:
     """A scan keeps the first of the equally light words ``001``, ``010``, and ``100`` of layer one.
@@ -296,7 +291,6 @@ def test_coset_layer_scans_keep_the_first_of_equally_light_words(css_weight: boo
     assert representative[0] == 0b001
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_coset_layer_scans_reach_their_last_support() -> None:
     """A layer visits every support, including the last one.
 
@@ -341,7 +335,6 @@ def _get_tail_weights(
     ]
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -407,7 +400,6 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
                     assert tuple(best_support) == expected_support
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("deficiency", [0, 1, 3])
 def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound(
     deficiency: int, pytestconfig: pytest.Config
@@ -476,7 +468,6 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
     assert total_skipped
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower_it(
     pytestconfig: pytest.Config,
 ) -> None:

@@ -18,21 +18,6 @@ from qldpc import _binary as binary
 # linear algebra of unpacked binary matrices
 
 
-@pytest.fixture(
-    params=[
-        pytest.param(False, marks=pytest.mark.compiled, id="compiled"),
-        pytest.param(True, id="python"),
-    ]
-)
-def binary_kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the compiled functions, or their Python versions, which coverage can trace."""
-    if request.param:
-        for name in ("pack_bits", "unpack_bits", "row_reduce_packed", "get_rank_packed"):
-            monkeypatch.setattr(binary, name, getattr(binary, name).py_func)
-        monkeypatch.setattr(binary, "get_inverse", binary.get_inverse.py_func)
-
-
-@pytest.mark.usefixtures("binary_kernels")
 @pytest.mark.parametrize("height, width", [(5, 130), (0, 7), (3, 0)])
 def test_row_reduction_and_rank_match_galois(height: int, width: int) -> None:
     """In the default column order, row reduction gives the reduced row echelon form."""
@@ -47,7 +32,6 @@ def test_row_reduction_and_rank_match_galois(height: int, width: int) -> None:
     assert rank == np.count_nonzero(expected.any(axis=1))
 
 
-@pytest.mark.usefixtures("binary_kernels")
 @pytest.mark.parametrize("columns", ["subset", "repeated"])
 def test_row_reduction_over_selected_columns(columns: str) -> None:
     """Pivots come from the selected columns, and labels undergo the same row operations."""
@@ -96,7 +80,6 @@ def test_get_kernel(shape: tuple[int, int]) -> None:
 # compiled linear algebra
 
 
-@pytest.mark.usefixtures("binary_kernels")
 @pytest.mark.parametrize("width", [0, 64, 65, 130])
 def test_pack_bits(width: int) -> None:
     """Column j goes to bit j % 64 of word j // 64, and unpacking inverts packing."""
@@ -109,7 +92,6 @@ def test_pack_bits(width: int) -> None:
     np.testing.assert_array_equal(binary.unpack_bits(packed, width), matrix)
 
 
-@pytest.mark.usefixtures("binary_kernels")
 def test_get_inverse() -> None:
     """The inverse of a product of unitriangular matrices and a permutation inverts it."""
     rng = np.random.default_rng(70)

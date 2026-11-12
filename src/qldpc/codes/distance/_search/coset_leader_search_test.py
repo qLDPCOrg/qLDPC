@@ -262,7 +262,6 @@ def _block_minimum(
     return min(max(a, b) for a, b in totals)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     ("css_weight", "css_singles_table"), [(False, True), (True, True), (True, False)]
 )
@@ -298,7 +297,6 @@ def test_bounds_match_exhaustive_minima(
                     assert bound.lower_bound > max_weight
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_batches_find_each_class_above_max_weight(
     css_weight: bool, pytestconfig: pytest.Config
@@ -322,7 +320,6 @@ def test_batches_find_each_class_above_max_weight(
             assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_batches_return_bounds_above_max_weight_plus_one() -> None:
     """On |0000> with CSS weight, the syndrome 1111 needs X on every qubit, so weight four.
 
@@ -337,7 +334,6 @@ def test_batches_return_bounds_above_max_weight_plus_one() -> None:
     assert oracle.get_min_weight_bound(0b1111, 2).lower_bound == 4
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @_BLOCK_CASES
 def test_batches_read_syndromes_of_several_words(
     block: tuple[str, ...], css_weight: bool, pytestconfig: pytest.Config
@@ -367,7 +363,6 @@ def test_batches_read_syndromes_of_several_words(
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @_BLOCK_CASES
 def test_batches_read_syndromes_of_fewer_words(
     block: tuple[str, ...], css_weight: bool, pytestconfig: pytest.Config
@@ -398,7 +393,6 @@ def test_batches_read_syndromes_of_fewer_words(
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_x_and_z_syndromes_span_several_words(pytestconfig: pytest.Config) -> None:
     """On |0>^70 |+>^70, the syndromes of the X and Z parts have 70 bits, more than one word.
 
@@ -443,7 +437,6 @@ def test_css_weight_counts_the_larger_sector() -> None:
     assert not css.get_min_weight_bound(3, 0).within_max_weight
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_css_weight_minimizes_both_sectors_jointly() -> None:
     """On a four-qubit path graph state, Z^4 is equivalent to pure X and to pure Z, but not to both.
 
@@ -458,7 +451,6 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
     assert oracle.get_min_weight_bound(15, 2).within_max_weight
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(("syndrome", "minimum"), [(44, 2), (108, 3)])
 def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimum: int) -> None:
     """Rank-deficient sets give valid bounds whether a weight-two error exists or not.
@@ -481,7 +473,6 @@ def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimu
         assert bound.lower_bound > 2
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_exhausted_search_gives_the_exact_minimum() -> None:
     """On a state with stabilizers Y, Z, Z, Z, Z, the syndrome 11111 has CSS weight four.
 
@@ -499,7 +490,6 @@ def test_exhausted_search_gives_the_exact_minimum() -> None:
     assert oracle.get_min_weight_bound(0b11111, 4).within_max_weight
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_wide_states_span_several_packed_words(css_weight: bool) -> None:
     """Eleven GHZ blocks use 99 bits for the physical weight, more than one 64-bit word.
@@ -574,7 +564,6 @@ _ORDERED_QUERIES = [
 ]
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
     """Single and batch queries return the representatives and bounds of the search order.
 
@@ -612,7 +601,6 @@ def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
             assert (index, batch_bound) == (2, expected)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
     """On random CSS states, both queries for the CSS weight agree with exhaustive minima.
 
@@ -644,7 +632,6 @@ def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None
                 assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_parity() -> None:
     """Searches of Pauli errors by CSS weight stop at the bounds of each class, rounded to parity.
 
@@ -702,7 +689,6 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     assert num_sooner
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_cached_searches_answer_only_for_their_stabilizer_group(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -727,7 +713,6 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
             assert _get_syndrome(matrix, bound.representative) == syndrome
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
     """An oracle builds its searches with the tuning in force, keyed by the fields that they read.
 
@@ -781,7 +766,7 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             assert bool(orders) == reads
 
 
-@pytest.mark.usefixtures("compilation_mode")
+@pytest.mark.usefixtures("plain_search_setup")
 def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -852,7 +837,6 @@ def test_connected_support_oracles_make_checks_sparser_with_their_tuning(
     assert calls == [(5, 2)]
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
     """An oracle answers as a fresh oracle under the threshold of its gate, whatever is cached.
 
@@ -888,7 +872,6 @@ def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
             assert answers_now == answers[minimum_work]
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
     """Oracles built in turn answer exactly for their own stabilizers and weight.
 
@@ -920,7 +903,6 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
         _assert_exact_answers(oracle, matrix, css_weight)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune: Tune) -> None:
     """Oracles answer for the stabilizers that they were built from, when an array changes later.
 
@@ -1006,7 +988,10 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
         return plan_steps(*args)
 
     monkeypatch.setattr(information_sets, "plan_steps", record)
-    get_stopping_step = coset_leader_search._get_stopping_step.py_func
+    # Take the Python version even when the function is compiled, since only it calls the recording
+    # function.
+    function = coset_leader_search._get_stopping_step
+    get_stopping_step = getattr(function, "py_func", function)
     certificates = [
         information_sets.Certificate(0, (0,)),
         information_sets.Certificate(1, (1,) * 64),
@@ -1141,7 +1126,6 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
         assert found == [syndrome for syndrome in syndromes if minima[syndrome] > max_weight]
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
     """The coset searches of a rank-deficient code match the minima of all words.
 
@@ -1157,7 +1141,6 @@ def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
     _assert_classical_cosets_match_brute_force(_RANK_DEFICIENT_CODE)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
     """Coset searches of an even code give each coset with no light word a bound of its parity.
 
@@ -1175,7 +1158,6 @@ def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
     _assert_classical_cosets_match_brute_force(np.hstack([_RANK_DEFICIENT_CODE, parities]))
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
 )
@@ -1197,7 +1179,6 @@ def test_cosets_match_brute_force_with_other_families(
     _assert_classical_cosets_match_brute_force(code)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     "matrix, css_weight",
     [
@@ -1231,7 +1212,6 @@ def test_oracles_answer_exactly_with_other_families(
         assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, tune: Tune) -> None:
     """The answers of a search depend only on its code, the syndrome, and the maximum weight.
 
@@ -1268,7 +1248,6 @@ def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, t
         assert get_answers("up") != answers[0]
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pytest.Config) -> None:
     """A search skips exactly the sets that add nothing to the bound of its stopping step.
 
@@ -1558,7 +1537,6 @@ def _count_skipped_supports(
     return skipped
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("block_bits", [None, 4])
 def test_searches_by_tails_answer_as_searches_of_whole_words(
     block_bits: int | None, pytestconfig: pytest.Config
@@ -1666,7 +1644,6 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
         assert skipped or not (block_bits and must_skip)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1702,7 +1679,6 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     assert search.find_first_not_within_max_weight(packed_syndromes, 2) == (len(syndromes), None)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1833,7 +1809,6 @@ def _assert_min_weights_match_brute_force(
             assert np.all(exact | ((least <= weights) & (weights <= floors)))
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     "tuning",
     [
@@ -1879,7 +1854,6 @@ def test_min_weights_of_cosets_match_brute_force(
     _assert_min_weights_match_brute_force(search, early_stop_syndromes, minima, len(checks), rng)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     "tuning",
     [
@@ -1947,7 +1921,6 @@ def test_min_weights_match_exhaustive_minima(
                 assert np.array_equal(weights, np.minimum(minima[syndromes], max_weight + 1))
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("tuning", [{}, {"overlapping_minimum_work": 0}], ids=["words", "tails"])
 def test_min_weight_searches_above_max_weight_examine_as_queries(
     tuning: dict[str, int], tune: Tune
@@ -2061,7 +2034,6 @@ def _assert_exact_answers(
         assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
     """The connected-support engine answers every query exactly, by either measure of weight.
 
@@ -2109,7 +2081,6 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
                         assert bound.lower_bound == 2 and weight <= max_weight
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_connected_support_batches_read_syndromes_of_several_words(
     pytestconfig: pytest.Config, tune: Tune
 ) -> None:
@@ -2214,7 +2185,6 @@ def test_connected_support_rejects_what_it_cannot_search() -> None:
         CosetLeaderSearch([[1, 0]], method=method)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support"])
 def test_batches_reject_syndromes_out_of_range(method: CosetSearchMethod) -> None:
     """Batches of either method reject a syndrome at or above ``2**num_qubits``.

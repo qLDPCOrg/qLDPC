@@ -81,7 +81,6 @@ def test_a_basis_family_stacks_its_sets() -> None:
     assert no_labels.labels.shape == (3, 3, 0)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("basis", [PARTIAL_BASIS, EVEN_BASIS])
 def test_family_certificates(basis: npt.NDArray[np.uint8]) -> None:
     """Rank-deficient blocks and inferred parity give certificates valid for every word."""
@@ -102,7 +101,6 @@ def test_weight_divisor_inference() -> None:
     assert get_family(odd, None, weight_divisor=2).certificate.weight_divisor == 2
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize(
     "ranks, upper_bound, retained",
     [([10, 6, 2], 6, [10, 6]), ([10, 6, 2], 12, [10, 6, 2]), ([6, 2], 6, [6, 2])],
@@ -125,7 +123,6 @@ def test_prune_family(ranks: list[int], upper_bound: int, retained: list[int]) -
     assert pruned.certificate.work(upper_bound) <= basis_family.certificate.work(upper_bound)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_overlapping_family_certificates() -> None:
     """Check pivot coverage and label transformations against exhaustive codeword weights."""
 
@@ -146,7 +143,6 @@ def test_overlapping_family_certificates() -> None:
     _assert_certificate_bounds_unvisited_words(basis, basis_family)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_a_cheap_search_keeps_its_disjoint_basis_family() -> None:
     """No overlapping basis family is built if the work of the disjoint one is below the minimum."""
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
@@ -158,7 +154,6 @@ def test_a_cheap_search_keeps_its_disjoint_basis_family() -> None:
     assert not len(_get_overlapping_family(basis, labels, disjoint, 3, 0, minimum_work=0).ranks)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_overlapping_family_guards() -> None:
     """Reject unhelpful coverage and terminate repeated attempts at the same pivot set."""
 
@@ -184,7 +179,6 @@ def test_overlapping_family_guards() -> None:
     assert not len(_get_overlapping_family(small, None, disjoint, 3, minimum_work=0).ranks)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None:
     """The bounds, work estimate, and number of sets that certify a bound equal their definitions.
 
@@ -275,7 +269,6 @@ def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> No
             assert np.array_equal(certificate.get_weight_bounds(factor, parity), expected_bounds)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
     """The stopping step and the work of a plan follow their definitions.
 
@@ -591,7 +584,6 @@ def test_searches_of_overlapping_sets_use_linear_programming_when_costly() -> No
     assert not disjoint.get_search_certificate(3, 0, DENOMINATOR).pivot_blocks
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("dimension, num_sets", [(300, 16), (60, 8192)])
 def test_work_estimates_saturate(dimension: int, num_sets: int) -> None:
     """Work estimates for huge searches stay large and positive, rather than overflowing."""
@@ -606,7 +598,6 @@ def test_binomials_are_exact_where_they_fit_and_cannot_be_modified() -> None:
     assert 0 < binomials[35] < math.comb(70, 35)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("max_sets, num_sets", [(1, 0), (3, 0), (4, 4), (16, 4)])
 def test_the_size_limit_bounds_the_overlapping_basis_family(max_sets: int, num_sets: int) -> None:
     """A cheaper basis family of overlapping sets needs four sets, so a lower limit finds none."""
@@ -617,7 +608,6 @@ def test_the_size_limit_bounds_the_overlapping_basis_family(max_sets: int, num_s
     assert len(overlapping.ranks) == num_sets
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_layers_visit_each_support_once_with_its_sums(pytestconfig: pytest.Config) -> None:
     """A layer visits the combinations of rows in order, each with its sum in every set.
 
@@ -650,6 +640,7 @@ def test_layers_visit_each_support_once_with_its_sums(pytestconfig: pytest.Confi
             assert visited == expected
 
 
+@pytest.mark.usefixtures("plain_search_setup")
 def test_functions_agree_in_plain_python_and_compiled(pytestconfig: pytest.Config) -> None:
     """Pruned and replacement basis families are identical, bit for bit, plain and compiled."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))

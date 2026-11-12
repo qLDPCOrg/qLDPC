@@ -71,10 +71,7 @@ def get_bound_oracle(
     )
 
 
-@pytest.mark.parametrize("interpreted", [pytest.param(False, marks=pytest.mark.compiled), True])
-def test_bounds_are_exact_relaxations(
-    interpreted: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
     """Bounds equal their definition on blocks, and never exceed the lightest completion.
 
     The prefixes are sums of rows, the only prefixes that a scan bounds.  The cases include a
@@ -83,17 +80,12 @@ def test_bounds_are_exact_relaxations(
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     get_bound = cb.get_completion_bound
-    if interpreted:
-        monkeypatch.setattr(
-            cb, "_fill_tables", getattr(cb._fill_tables, "py_func", cb._fill_tables)
-        )
-        get_bound = getattr(get_bound, "py_func", get_bound)
     for num_rows, num_columns in [(2, 1), (3, 5), (6, 21), (7, 70)]:
         tails = get_random_tails(rng, num_rows, num_columns)
         rows = pack_bits(tails)
-        # the compiled variant also checks the default width of 16 columns, which is slow in Python,
-        # and both variants keep two widths, so that they check that merging never weakens a bound
-        widths = (4, 8) if interpreted else (4, 8, 16)
+        # The default width of 16 columns, and narrower ones.  16-column tables are slow to build
+        # as plain Python for 64 or more columns.
+        widths = (4, 8, 16) if num_columns < 64 else (4, 8)
         all_tables = {bits: cb.CompletionTables.build(rows, bits) for bits in widths}
         for first, _ in itertools.product(range(num_rows - 1), range(6)):
             selection = rng.integers(0, 2, num_rows).astype(bool)
@@ -124,7 +116,7 @@ def test_bounds_ignore_ones_past_the_tails() -> None:
     tails = np.eye(3, dtype=np.uint8)
     tables = cb.CompletionTables.build(pack_bits(tails), 8)
     prefix = pack_bits(np.array([[1, 1, 1, 0, 0, 1, 1, 1]], dtype=np.uint8))[0]
-    bound = cb.get_completion_bound.py_func(tables.tables, tables.offsets, 8, 0, prefix, 10**9)
+    bound = cb.get_completion_bound(tables.tables, tables.offsets, 8, 0, prefix, 10**9)
     assert bound == get_bound_oracle(tails, np.ones(3, dtype=np.uint8), 0, 8) == 1
 
 
@@ -161,15 +153,9 @@ def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -
     assert cb.build_tables_within(rows[:1], 8, MAX_VALUE) is None
 
 
-@pytest.mark.parametrize("interpreted", [pytest.param(False, marks=pytest.mark.compiled), True])
-def test_sampled_supports_are_counted_exactly(
-    interpreted: bool, pytestconfig: pytest.Config
-) -> None:
+def test_sampled_supports_are_counted_exactly(pytestconfig: pytest.Config) -> None:
     """The count of skipped sampled supports matches bounds computed independently."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    count = cb._count_skipped_samples
-    if interpreted:
-        count = getattr(count, "py_func", count)
     tails = get_random_tails(rng, 9, 37)
     rows = pack_bits(tails)
     for weight in (2, 3, 5):
@@ -185,7 +171,7 @@ def test_sampled_supports_are_counted_exactly(
                 )
             for limit in range(4):
                 expected = sum(bound >= limit for bound in bounds)
-                assert count(rows, supports, limit, block_bits, 37) == expected
+                assert cb._count_skipped_samples(rows, supports, limit, block_bits, 37) == expected
 
 
 def test_selection_follows_its_policy() -> None:

@@ -116,12 +116,7 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
 - `@compiled_on_request` marks parts of the set-up in `_search/information_sets.py` and `_counting/scan.py`, which run as ordinary Python unless a program calls `compile_search_setup()`.
 
 Numba looks up the functions that compiled code calls when it compiles it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.
-Tests in `src/qldpc/_compilation_test.py` check four further rules, and the name of a failing test says which one was broken:
-
-- Only `src/qldpc/_compilation.py` asks numba for a disk cache, so use `@always_compiled`, not `@njit(cache=True)`.
-- An always-compiled function may not call a compiled-on-request one.
-- Always-compiled code may use nothing from outside qLDPC except NumPy and numba, because the hash covers only qLDPC's source.
-- Other modules must call a compiled-on-request function through its module, and never import it by name.
+Tests in `src/qldpc/_compilation_test.py` check further rules, and the name of a failing test says which one was broken.
 
 Set `QLDPC_DISABLE_COMPILATION=1` before importing qLDPC to run all of this code as plain Python while debugging.
 It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages that use numba, such as galois, as plain Python, which makes them slow too.
@@ -132,9 +127,8 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   `python checks/pytest_.py src/qldpc/codes/distance` runs the tests.
   `python checks/coverage_.py src/qldpc/codes/distance/<module>.py` checks one module's coverage.
   The validation commands in `docs/source/contributing/index.rst` list the other checks.
-- Coverage cannot see compiled code, so tests also run compiled functions as plain Python.
-  `conftest.py` holds the fixtures for this, and the helpers that several test files share, such as a check of counts against brute-force enumeration.
-  The variants of tests that run compiled code carry the `compiled` marker (see `docs/source/contributing/standards/testing.rst`).
+- `conftest.py` holds the fixtures and helpers that several test files share, such as a check of counts against brute-force enumeration.
+- Coverage cannot trace compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Tests that replace a compiled-on-request function or a function that one calls, or that compare plain with compiled set-up code, request the `plain_search_setup` fixture of `conftest.py`, whose docstring says why.
 - `readme_test.py` fails if this page omits a module, or names a file that does not exist.

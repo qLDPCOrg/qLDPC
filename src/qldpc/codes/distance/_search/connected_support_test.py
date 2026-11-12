@@ -248,7 +248,6 @@ QUBIT_PROBLEMS = {
 }
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
 def test_the_distance_matches_enumeration(name: str) -> None:
     """The distance search, and a search through each weight limit, agree with an enumeration."""
@@ -267,7 +266,6 @@ def test_the_distance_matches_enumeration(name: str) -> None:
             )
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
 def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str) -> None:
     """The search from a variable alone, through the distance, finds the witnesses that it roots.
@@ -291,7 +289,6 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str) -> None
         assert witness is None or (min(witness) == root and is_witness(problem, witness))
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_each_support_is_visited_once_above_its_least_variable() -> None:
     """With every word excluded, a search visits the supports that grow from each root once.
 
@@ -316,7 +313,6 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
     assert num_states == {2: 5, 4: 6 + 2 + 1 + 1}
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """A cyclic code has a symmetry that leaves one root, and so fewer states.
 
@@ -338,7 +334,6 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     assert symmetric.num_states < plain.num_states
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_each_root_excludes_the_orbits_before_its_own() -> None:
     """The search from the root of an orbit uses no variable of an earlier orbit.
 
@@ -366,7 +361,6 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
         assert np.all(orbits[witness] >= orbit)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_each_root_ranks_lowest_in_its_orbit() -> None:
     """The ranks keep the order of the variables within each orbit, so each root ranks lowest.
 
@@ -390,7 +384,6 @@ def test_each_root_ranks_lowest_in_its_orbit() -> None:
     assert witness is not None and list(witness) == list(cycles[1])
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("minimum_states", [0, 30, _tuning.MAX_VALUE])
 def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> None:
     """A search asks for automorphisms at most once, and by the time it reaches the threshold.
@@ -416,7 +409,6 @@ def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> N
     assert bool(found) == (minimum_states < _tuning.MAX_VALUE)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
     """A search without an estimate of its states asks for automorphisms only before a raised limit.
 
@@ -436,7 +428,6 @@ def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
     assert not found
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -493,7 +484,6 @@ def test_wrong_automorphisms_are_rejected() -> None:
         search.find_witness(3)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     """The tetrahedral code has X-distance 7 and Z-distance 3: the Z sector bounds the X search.
 
@@ -515,7 +505,6 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     assert max(limits) == 3
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_the_logical_test_reads_every_block() -> None:
     """A witness may fail only tests past the first 64, in a later block of each packed column.
 
@@ -550,7 +539,6 @@ def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> It
         yield get_qubit_problem(codes.QuditCode(matrix, is_subsystem_code=code.is_subsystem_code))
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) -> None:
     """Qubit problems agree with an enumeration at every weight limit, and from every root.
 
@@ -612,7 +600,6 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
             assert witness is None or is_symplectic_witness(problem, witness)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """The cyclic shift of the five-qubit code leaves one root, and so fewer states."""
     problem = QUBIT_PROBLEMS["five-qubit"]
@@ -626,7 +613,6 @@ def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     assert symmetric.num_states < plain.num_states
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_the_scale_of_weights_leaves_room_for_every_weight_limit() -> None:
     """Weights in units of the capped scale, times a weight limit as large as the width, fit.
 
@@ -658,7 +644,6 @@ def test_a_broken_search_fails_instead_of_looping(
     assert len(limits) == 2 * 16 // 2
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     """A search can stop early at a witness within its cutoff, or at a known upper bound."""
     problem = PROBLEMS["toric-X"]
@@ -689,7 +674,6 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cs.get_distance_connected_support([components], cutoff=3) == 3
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_a_problem_without_logical_operators_has_no_distance() -> None:
     """Without a vector outside the excluded rows, the distance is one more than the width."""
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
@@ -704,7 +688,6 @@ def test_a_problem_without_logical_operators_has_no_distance() -> None:
     assert cs.get_distance_connected_support([one_qubit], cutoff=0, homogeneous=False) == 2
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_degenerate_checks() -> None:
     """Checks may be missing, zero, or repeated, and may be arrays over GF(2)."""
     no_checks = np.zeros((0, 3), dtype=np.uint8)
@@ -751,7 +734,6 @@ SYNDROME_PROBLEMS = {
 }
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("name", SYNDROME_PROBLEMS)
 def test_syndrome_queries_match_enumeration(name: str) -> None:
     """A query finds a vector with a syndrome exactly if the limit reaches the least weight.
@@ -787,7 +769,6 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
     assert search.num_states == 0
 
 
-@pytest.mark.usefixtures("compilation_mode")
 def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
     """A search from a root of -1 that finds nothing leaves the searches from variables unchanged.
 
@@ -834,7 +815,6 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
         assert search_from([-1, root], syndrome) == search_from([root], no_syndrome)
 
 
-@pytest.mark.usefixtures("compilation_mode")
 @pytest.mark.parametrize("name", ["nested-restrictions", "five-qubit-state"])
 def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
     """A syndrome query that memoizes overlaps and repairs finds what one without it finds.
