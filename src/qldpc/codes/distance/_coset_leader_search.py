@@ -29,8 +29,6 @@ from qldpc._compilation import always_compiled
 from ._binary import as_binary_matrix, assert_binary
 from ._brouwer_zimmermann.coset import (
     BrouwerZimmermannCosetSearch,
-    CosetTuning,
-    StabilizerKey,
     get_css_searches,
     get_pauli_search,
 )
@@ -173,11 +171,7 @@ class CosetLeaderSearch:
         if combinations is None:
             if method == "brouwer_zimmermann":
                 self._brouwer_zimmermann_searches = (
-                    get_pauli_search(
-                        StabilizerKey(matrix, checks),
-                        css_weight,
-                        CosetTuning.from_tuning(tuning, paulis_by_css_weight=css_weight),
-                    ),
+                    get_pauli_search(matrix, checks, css_weight, tuning),
                 )
             elif css_weight:
                 raise ValueError(
@@ -207,13 +201,7 @@ class CosetLeaderSearch:
                 support_search(x_rows, homogeneous=True),
             )
         else:
-            self._brouwer_zimmermann_searches = get_css_searches(
-                n,
-                len(x_rows),
-                pack_bits(x_rows).tobytes(),
-                pack_bits(z_rows).tobytes(),
-                CosetTuning.from_tuning(tuning, paulis_by_css_weight=False),
-            )
+            self._brouwer_zimmermann_searches = get_css_searches(x_rows, z_rows, tuning)
 
         # Row ``j`` of ``z_rows`` is the Z part of a pure-Z stabilizer, the product of the given
         # stabilizers with coefficients ``c = (z_transform @ z_combinations)[j]``.  An error's

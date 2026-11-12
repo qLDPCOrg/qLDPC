@@ -10,7 +10,7 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import popcount_word, unpack_bits
+from qldpc._binary import pack_bits, popcount_word, unpack_bits
 from qldpc._compilation import always_compiled
 
 from .. import _tuning
@@ -243,7 +243,48 @@ class BrouwerZimmermannCosetSearch:
         return _tabulate_css_singles(self._x_singles, self._z_singles, self._max_css_single_pairs)
 
 
-class StabilizerKey:
+def get_pauli_search(
+    stabilizers: npt.NDArray[np.uint8],
+    checks: npt.NDArray[np.uint8],
+    css_weight: bool,
+    tuning: SearchTuning,
+) -> BrouwerZimmermannCosetSearch:
+    """The search of Pauli errors modulo independent commuting stabilizers, from a cache.
+
+    The syndromes are for the rows of ``stabilizers``, and ``checks`` swaps their X and Z halves, so
+    that the syndrome of a packed Pauli ``e`` is ``checks @ e``.  ``css_weight`` selects the CSS
+    weight rather than the physical weight.  The rows of the stabilizers, the measure of weight,
+    and the fields of the tuning that the setup of the search reads key the cache (see
+    ``_tuning.PAULI_SEARCH_CACHE_SIZE``).
+    """
+    return _get_pauli_search(
+        _StabilizerKey(stabilizers, checks),
+        css_weight,
+        _CosetTuning.from_tuning(tuning, paulis_by_css_weight=css_weight),
+    )
+
+
+def get_css_searches(
+    x_rows: npt.NDArray[np.uint8], z_rows: npt.NDArray[np.uint8], tuning: SearchTuning
+) -> tuple[BrouwerZimmermannCosetSearch, BrouwerZimmermannCosetSearch]:
+    """The searches of the X parts and of the Z parts of the errors on a CSS state, from a cache.
+
+    ``x_rows`` holds the X parts of the pure-X stabilizers, and ``z_rows`` the Z parts of the
+    pure-Z stabilizers, both in reduced row echelon form, which depends only on the stabilizer
+    group.  The X parts of errors are searched modulo the code of the X rows, with the Z rows as
+    checks, and the Z parts the other way around.  The rows and the fields of the tuning that the
+    setup of the searches reads key the cache (see ``_tuning.CSS_SEARCH_CACHE_SIZE``).
+    """
+    return _get_css_searches(
+        x_rows.shape[1],
+        len(x_rows),
+        pack_bits(x_rows).tobytes(),
+        pack_bits(z_rows).tobytes(),
+        _CosetTuning.from_tuning(tuning, paulis_by_css_weight=False),
+    )
+
+
+class _StabilizerKey:
     """A stabilizer matrix and its checks, which a cache can hash and compare by the matrix.
 
     The checks follow from the stabilizers, so the stabilizers alone key the cache, and the key
@@ -264,10 +305,10 @@ class StabilizerKey:
         return self._hash
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, StabilizerKey) and self._key == other._key
+        return isinstance(other, _StabilizerKey) and self._key == other._key
 
 
-class CosetTuning(NamedTuple):
+class _CosetTuning(NamedTuple):
     """The fields of the tuning that the setup of a BZ coset search reads, which key its cache.
 
     ``disjoint_random_column_orders`` configures the disjoint information sets of the search.  Only
@@ -289,7 +330,7 @@ class CosetTuning(NamedTuple):
     coset_completion_block_bits: int
 
     @classmethod
-    def from_tuning(cls, tuning: SearchTuning, *, paulis_by_css_weight: bool) -> CosetTuning:
+    def from_tuning(cls, tuning: SearchTuning, *, paulis_by_css_weight: bool) -> _CosetTuning:
         """The fields of a tuning that the setup of a search reads.
 
         ``paulis_by_css_weight`` is True for a search of Pauli errors by CSS weight.  Only that
@@ -307,12 +348,12 @@ class CosetTuning(NamedTuple):
 
 
 @functools.lru_cache(maxsize=_tuning.PAULI_SEARCH_CACHE_SIZE)
-def get_pauli_search(
-    key: StabilizerKey, css_weight: bool, tuning: CosetTuning
+def _get_pauli_search(
+    key: _StabilizerKey, css_weight: bool, tuning: _CosetTuning
 ) -> BrouwerZimmermannCosetSearch:
-    """The Pauli search, of Pauli errors modulo the stabilizers, with syndromes for the stabilizers.
+    """The cached Pauli search of ``get_pauli_search``.
 
-    ``key`` holds the stabilizers and their checks (see ``CosetLeaderSearch``).  The syndromes
+    ``key`` holds the stabilizers and their checks.  The syndromes
     depend on the rows of the stabilizer matrix, not only on the group that they generate, so the
     rows key the cache.  ``css_weight`` and the fields of the tuning that the setup reads key it
     too.
@@ -346,17 +387,14 @@ def get_pauli_search(
 
 
 @functools.lru_cache(maxsize=_tuning.CSS_SEARCH_CACHE_SIZE)
-def get_css_searches(
-    num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes, tuning: CosetTuning
+def _get_css_searches(
+    num_qubits: int, num_x_rows: int, x_rows: bytes, z_rows: bytes, tuning: _CosetTuning
 ) -> tuple[BrouwerZimmermannCosetSearch, BrouwerZimmermannCosetSearch]:
-    """The classical searches of the X parts and of the Z parts of the errors on a CSS state.
+    """The cached classical searches of ``get_css_searches``.
 
     ``x_rows`` holds the X parts of ``num_x_rows`` pure-X stabilizers, and ``z_rows`` the Z parts of
-    the other ``num_qubits - num_x_rows`` stabilizers, which are pure-Z.  Both are in reduced row
-    echelon form, which depends only on the stabilizer group, and packed by ``pack_bits`` into
-    bytes, which ``lru_cache`` can hash.  The X parts of errors are searched modulo the code of the
-    X rows, with the Z rows as checks, and the Z parts the other way around (see
-    ``CosetLeaderSearch``).  The fields of the tuning that the setup reads key the cache too.
+    the other ``num_qubits - num_x_rows`` stabilizers, which are pure-Z, both packed by
+    ``pack_bits`` into bytes, which ``lru_cache`` can hash.
     """
     num_words = max(1, (num_qubits + 63) // 64)
     x_matrix = unpack_bits(
@@ -373,7 +411,7 @@ def get_css_searches(
 
 
 def _get_classical_search(
-    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], tuning: CosetTuning
+    generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], tuning: _CosetTuning
 ) -> BrouwerZimmermannCosetSearch:
     """The classical search of X or Z parts modulo the row space of independent generators.
 
@@ -399,7 +437,7 @@ def _get_routes(
     num_x_columns: int,
     *,
     weight_factor: int,
-    tuning: CosetTuning,
+    tuning: _CosetTuning,
     by_tails: bool,
 ) -> coset_routes.CosetRoutes[CosetSearchTables, CosetTails]:
     """The routes of a coset search of the code of independent embedded generators.
