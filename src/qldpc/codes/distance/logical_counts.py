@@ -726,9 +726,10 @@ def _get_above_distance_error(weight: int) -> ValueError:
 
 
 def _warm_up_compiled_functions() -> None:
-    """Compile the set-up code of searches, every compiled-on-request function, by a small count.
+    """Compile every compiled-on-request function, the set-up code of searches, on a small code.
 
-    Later calls compile again only for arguments of other types, such as arrays in another order.
+    Later calls of these functions compile them again only for arguments of other types, such as
+    arrays in another order.
     """
     from ..quantum import SteaneCode
 

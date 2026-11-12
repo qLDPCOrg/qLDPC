@@ -132,6 +132,7 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
     assert sizes and max(sizes) <= 4
 
 
+@pytest.mark.usefixtures("plain_search_setup")
 def test_python_kernels(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
     """Run the Python versions of the compiled kernels, which coverage can trace.
 

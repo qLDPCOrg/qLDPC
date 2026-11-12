@@ -251,12 +251,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--compiled-module-tests",
         action="store_true",
+        default=False,
         help="Collect, from the directories given, only the test files of the modules that define"
         " compiled functions.",
     )
     parser.addoption(
         "--compile-search-setup",
         action="store_true",
+        default=False,
         help="Run every test with the set-up code of distance and count searches compiled, as"
         " after qldpc.codes.distance.compile_search_setup().",
     )
@@ -264,11 +266,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     """Refuse the options of runs with compiled code while compilation is disabled."""
-    if (
-        config.getoption("--compiled-module-tests") or config.getoption("--compile-search-setup")
-    ) and _compilation.is_compilation_disabled():
+    options = [
+        option
+        for option in ("--compiled-module-tests", "--compile-search-setup")
+        if config.getoption(option)
+    ]
+    if options and _compilation.is_compilation_disabled():
         raise pytest.UsageError(
-            "--compiled-module-tests and --compile-search-setup need compilation, so unset"
+            f"Compilation is disabled, but these options need it: {', '.join(options)}.  Unset"
             " QLDPC_DISABLE_COMPILATION and NUMBA_DISABLE_JIT."
         )
 
@@ -277,8 +282,8 @@ def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) 
     """With ``--compiled-module-tests``, skip every test file but those of compiled modules.
 
     A compiled module defines compiled functions, and its test file, ``x_test.py`` for a module
-    ``x.py``, is beside it.  Pytest collects a test file given by path that no given directory
-    contains, whatever this returns.
+    ``x.py``, is beside it.  Whatever this returns, pytest collects a test file named on the command
+    line outside every directory named there.
     """
     if config.getoption("--compiled-module-tests") and collection_path.name.endswith("_test.py"):
         module = collection_path.with_name(collection_path.name.removesuffix("_test.py") + ".py")
@@ -301,6 +306,7 @@ def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]
     as in ``@always_compiled``, ``@_compilation.always_compiled(inline=True)``, or a name that
     ``from ... import ... as`` gives them.
     """
+    # Map each name under which the module imports a decorator to the decorator's name.
     aliases = {name: name for name in _COMPILING_DECORATORS}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -309,6 +315,8 @@ def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]
                 for alias in node.names
                 if alias.name in _COMPILING_DECORATORS
             }
+
+    # Find the functions with each decorator.
     functions: dict[str, list[ast.FunctionDef]] = {name: [] for name in _COMPILING_DECORATORS}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
@@ -325,13 +333,13 @@ def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]
     return functions
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item: pytest.Item) -> None:
     """With ``--compile-search-setup``, switch the set-up code of searches to compiled code.
 
-    The code is compiled once in each process, by ``compile_search_setup``, before its first test.
-    This hook runs before the fixtures of a test, which may switch the code back to plain Python, as
-    ``plain_search_setup`` of the distance tests does.  So it switches the code on before every
-    test.
+    The code is compiled by ``compile_search_setup`` before the first test of each process.
+    Fixtures such as ``plain_search_setup`` of the distance tests may switch it back to plain Python
+    for one test, so this hook switches it on before every test, before the fixtures run.
     """
     if item.config.getoption("--compile-search-setup"):
         compile_search_setup_once()
@@ -340,7 +348,10 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
 @functools.cache
 def compile_search_setup_once() -> None:
-    """Compile the set-up code of searches, the first time that this is called in a process."""
+    """Compile the set-up code of searches, the first time that this is called in a process.
+
+    Emptying qLDPC's caches, as the coverage check does between test files, makes it compile again.
+    """
     codes.distance.compile_search_setup()
 
 
