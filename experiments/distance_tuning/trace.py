@@ -6,7 +6,9 @@ The script wraps functions of ``qldpc.codes.distance._search`` in this process o
 ``trial.py`` does, and runs a distance workload once under the given tuning.  It records:
 
 - each family of information sets that the search builds (disjoint, overlapping, or by matroid
-  partitioning), with its number of sets and the seconds that building it took;
+  partitioning), with its number of sets and the seconds that building it took, and for
+  partitioning, the two estimates that its gate compares: the work of the search and the cost of
+  partitioning, in candidate/set evaluations;
 - each certificate of a search, which may solve linear programs, and the seconds that took;
 - each attempt to switch to a family of automorphism images, the seconds it took, and whether the
   search switched;
@@ -15,13 +17,16 @@ The script wraps functions of ``qldpc.codes.distance._search`` in this process o
   since the workload started, which also time the steps of counts;
 - each coefficient layer that a distance search advances by: its weight, number of basis rows and
   scanned sets, its supports, the best weight and lower bound after it, the supports that it
-  evaluated and skipped and the lookups of completion tables that it made, the width of the blocks
-  of its tables if any, with their bytes and number of blocks, the seconds spent choosing and
+  evaluated and skipped, its candidate/set evaluations (each support of a scan in lockstep counts
+  once for each of its sets), and the lookups of completion tables that it made, the width of the
+  blocks of its tables if any, with their bytes and number of blocks, the seconds spent choosing and
   building tables, and its seconds in all.
 
-It prints a table of the layers, and with ``--output``, saves the events as JSON.  The thresholds of
-``SearchTuning`` decide where these stages start, so a trace shows which decisions a threshold can
-flip, and what each stage costs, before timing the tunings that flip them with ``sweep.py``.
+It prints a table of the layers, and with ``--output``, saves the events as JSON.  With
+``--setup-only``, it stops before the first layer of the first search, after its families.  The
+thresholds of ``SearchTuning`` decide where these stages start, so a trace shows which decisions a
+threshold can flip, and what each stage costs, before timing the tunings that flip them with
+``sweep.py``.
 
 Example:
 
@@ -38,6 +43,8 @@ import pathlib
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from qldpc.codes.distance import _tuning
 from qldpc.codes.distance._search import (
@@ -63,6 +70,13 @@ CURRENT_LAYER: dict[str, Any] | None = None
 # The time at which the traced workload started.
 START = 0.0
 
+# Whether to stop before the first layer of the first search.
+SETUP_ONLY = False
+
+
+class SetupDone(Exception):
+    """Raised before the first layer of a search whose trace stops after its setup."""
+
 
 def main() -> None:
     """Trace a workload, and print and save the trace."""
@@ -73,9 +87,13 @@ def main() -> None:
         trial.warm_up(args.workload.split("/")[0])
         install_wrappers()
         EVENTS.clear()
-        global START
+        global START, SETUP_ONLY
+        SETUP_ONLY = args.setup_only
         start = START = time.perf_counter()
-        result = workloads.run_workload(args.workload)
+        try:
+            result = workloads.run_workload(args.workload)
+        except SetupDone:
+            result = "setup only"
         seconds = time.perf_counter() - start
     print_trace(result, seconds)
     if args.output is not None:
@@ -96,6 +114,11 @@ def parse_args() -> argparse.Namespace:
         help="a JSON object of changes to the fields of SearchTuning (default: no changes)",
     )
     parser.add_argument("--output", type=pathlib.Path, help="a JSON file for the events")
+    parser.add_argument(
+        "--setup-only",
+        action="store_true",
+        help="stop before the first layer of the first search, after it builds its families",
+    )
     return parser.parse_args()
 
 
@@ -147,12 +170,37 @@ def wrap_family(kind: str, function: Callable[..., Any]) -> Callable[..., Any]:
         start = time.perf_counter()
         family = function(*args, **kwargs)
         seconds = time.perf_counter() - start
-        EVENTS.append(
-            {"event": "family", "kind": kind, "sets": len(family.ranks), "seconds": seconds}
-        )
+        event = {"event": "family", "kind": kind, "sets": len(family.ranks), "seconds": seconds}
+        if kind == "partitioned" and len(args) == 5:
+            event |= get_partition_gate(*args)
+        EVENTS.append(event)
         return family
 
     return wrapper
+
+
+def get_partition_gate(
+    basis: Any, _labels: Any, basis_family: Any, upper_bound: int, tuning: Any
+) -> dict[str, Any]:
+    """The quantities that ``information_sets.get_partitioned_family`` compares to skip it.
+
+    These are the estimated work of the family that partitioning would replace, in candidate/set
+    evaluations, and the estimated cost of partitioning in the same unit, which the search
+    multiplies by ``partition_work_ratio`` (see the source of ``get_partitioned_family``).
+    """
+    dimension = len(basis)
+    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    total_coverage = sum(range(2, tuning.max_partition_coverage + 1))
+    cost = tuning.partition_cost_factor * total_coverage * dimension**2 * num_columns
+    work = basis_family.certificate.work(upper_bound)
+    return {
+        "rows": dimension,
+        "columns": num_columns,
+        "estimated_work": int(work),
+        "estimated_cost": int(cost),
+        "ratio": tuning.partition_work_ratio,
+        "partitioned": bool(work >= tuning.partition_work_ratio * cost),
+    }
 
 
 def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -177,6 +225,8 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
         global CURRENT_LAYER
         if search.finished or CURRENT_LAYER is not None:
             return function(search)
+        if SETUP_ONLY:
+            raise SetupDone
         weight, dimension = search.next_weight, search.dimension
         uses_automorphism_family = search.uses_automorphism_family
         CURRENT_LAYER = {
@@ -187,6 +237,7 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             "sets": len(search.instance.certificate.ranks),
             "supports": math.comb(dimension, weight),
             "evaluated": 0,
+            "set_evaluations": 0,
             "lookups": 0,
             "skipped": 0,
             "tables": None,
@@ -300,6 +351,9 @@ def wrap_scan(function: Callable[..., Any]) -> Callable[..., Any]:
         result = function(*args)
         if CURRENT_LAYER is not None:
             CURRENT_LAYER["evaluated"] += int(result[2])
+            # A scan in lockstep weighs each support in each of its sets.
+            num_sets = 1 if len(result) == 5 else len(args[0])
+            CURRENT_LAYER["set_evaluations"] += int(result[2]) * num_sets
             if len(result) == 5:
                 CURRENT_LAYER["lookups"] += int(result[3])
                 CURRENT_LAYER["skipped"] += int(result[4])
