@@ -4,11 +4,10 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import stim
 
-from qldpc import circuits
+from qldpc import circuits, codes
 from qldpc.codes.distance import DistanceMethod
 
 
@@ -32,6 +31,6 @@ def test_fault_distance(measurement: int, expected_distance: int, method: Distan
 
 
 def test_fault_distance_without_logical_faults() -> None:
-    """No undetected observable flip has the code distance convention np.nan."""
+    """Without an undetected observable flip, a circuit has no distance, and gives NO_DISTANCE."""
     circuit = stim.Circuit("R 0\nX_ERROR(0.01) 0\nM 0\nDETECTOR rec[-1]")
-    assert np.isnan(circuits.get_fault_distance(circuit))
+    assert circuits.get_fault_distance(circuit) is codes.NO_DISTANCE

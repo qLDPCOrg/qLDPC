@@ -902,7 +902,7 @@ An integer returned by preparation can incorporate a witness from another sector
 
 | Public route in [core.py](core.py) | Outcome |
 | --- | --- |
-| Trivial input | Returns `n+1`, capped at `max_weight+1`, for an empty classical code, a quantum problem with no logical rows, or `V = S` |
+| Trivial input | Returns `NO_DISTANCE`, whatever `max_weight` is, for an empty classical code, a quantum problem with no logical rows, or `V = S` |
 | `method="brute_force"` | Runs exhaustive enumeration over an independent basis, adapted to `S ⊆ V` for a quantum problem |
 
 `_prepare_brouwer_zimmermann_search` considers the following exits in order.
@@ -1034,8 +1034,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The limit also caps `cutoff` at `max_weight`.
   Without that cap, a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
   Passing `cutoff=max_weight` as well stops the search at the first word within the limit.
-  Inputs without nontrivial words have no distance and give `n+1`, capped at `max_weight+1`.
-  No word on `n` bits or qubits has weight `n+1`.
+  Inputs without nontrivial words have no distance and give `NO_DISTANCE`, a float `nan` (see `NoDistance` in `core.py`), whatever `max_weight` is.
+  Inside the searches, a problem without nontrivial words counts as `n+1`, which no word on `n` bits or qubits weighs, so that it never lowers the minimum over problems.
   For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
   Homogeneous input represents a pure-X or pure-Z problem with one support bit per qubit.

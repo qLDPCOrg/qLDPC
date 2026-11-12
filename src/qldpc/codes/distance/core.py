@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import dataclasses
+import enum
 import functools
+import math
 import operator
 from collections.abc import Callable, Sequence
 from typing import Literal, SupportsIndex, get_args
@@ -37,6 +39,37 @@ DistanceMethod = Literal[
     "brouwer_zimmermann", "brute_force", "information_sets", "connected_support"
 ]
 
+
+class NoDistance(float, enum.ReprEnum):
+    """The distance of an object with no nontrivial logical operator to minimize over.
+
+    A code that encodes nothing, or a circuit with no fault that flips a logical observable without
+    flipping a detector, has no distance.  qLDPC then returns ``NO_DISTANCE``, the only member of
+    this enum, which behaves as a float ``nan``:
+
+    - It prints as ``nan``, also in the representation of a tuple.
+    - It equals nothing, not even itself, and ordering comparisons with it are False.
+    - Arithmetic with it gives ``nan``, and NumPy and pandas treat it as missing.
+
+    Test for it with ``distance is NO_DISTANCE``, or with ``math.isnan(distance)``, which also
+    catches ``nan`` from arithmetic.  A result that can be ``NO_DISTANCE`` is annotated
+    ``int | Literal[NoDistance.NAN]``, so that type checkers treat it as an ``int`` once
+    ``distance is NO_DISTANCE`` is ruled out.
+    """
+
+    NAN = math.nan
+
+    def __repr__(self) -> str:
+        return float.__repr__(self)
+
+    @classmethod
+    def _missing_(cls, value: object) -> NoDistance | None:
+        # Pickling and copying look the member up by its value, which differs from itself.
+        return cls.NAN if isinstance(value, float) and math.isnan(value) else None
+
+
+NO_DISTANCE = NoDistance.NAN
+
 _CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force", "connected_support"]
 
 # The canonical name of every accepted exact-distance method name, including aliases.
@@ -59,7 +92,7 @@ def get_distance_classical(
     block_size: int | None = None,  # DEPRECATED: see qldpc._deprecations
     method: DistanceMethod = "brouwer_zimmermann",
     max_weight: SupportsIndex | None = None,
-) -> int:
+) -> int | Literal[NoDistance.NAN]:
     """Distance of a classical linear binary code.
 
     Args:
@@ -78,16 +111,18 @@ def get_distance_classical(
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial code word is heavier than ``max_weight``, which can be much
             faster than computing a large distance exactly.  The limit also caps ``cutoff``; pass
-            ``cutoff=max_weight`` as well to stop at the first code word within the limit.  A code
-            without nontrivial code words gives ``n + 1``, capped likewise.
+            ``cutoff=max_weight`` as well to stop at the first code word within the limit.
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
-        Hamming weight of a nontrivial code word.  A code of length ``n`` without nontrivial code
-        words has no distance and gives ``n + 1``.  No code word has this weight, so it is not an
-        observed weight, even if it is at most ``cutoff``.  If ``max_weight`` is given, the result
-        is the smaller of this value and ``max_weight + 1``, so a result of ``max_weight + 1`` means
-        that every nontrivial code word is heavier than ``max_weight``.
+        Hamming weight of a nontrivial code word.  As soon as the lightest code word seen so far
+        has weight ``<= cutoff``, the search stops early and returns that weight, an upper bound on
+        the distance in ``[distance, cutoff]``; pass ``cutoff=0`` to disable the early exit.  If
+        ``max_weight`` is given, the result is the
+        smaller of this distance and ``max_weight + 1``, so a result of ``max_weight + 1`` means
+        that every nontrivial code word is heavier than ``max_weight``.  A code without nontrivial
+        code words has no distance and gives ``NO_DISTANCE`` (see ``NoDistance``), whatever
+        ``cutoff`` and ``max_weight`` are.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
@@ -102,7 +137,7 @@ def get_distance_classical(
     matrix = as_binary_matrix(generators)
     basis = get_independent_rows(matrix)
     if not len(basis):
-        return _apply_upper_bound(matrix.shape[1] + 1, upper_bound)
+        return NO_DISTANCE
 
     if method == "brouwer_zimmermann":
         # Labels with no columns exclude no subcode.
@@ -134,7 +169,7 @@ def get_distance_quantum(
     homogeneous: bool = False,
     method: DistanceMethod = "brouwer_zimmermann",
     max_weight: SupportsIndex | None = None,
-) -> int:
+) -> int | Literal[NoDistance.NAN]:
     """Distance of a binary quantum code.
 
     Args:
@@ -158,8 +193,7 @@ def get_distance_quantum(
             proves that every nontrivial logical operator is heavier than ``max_weight``, which can
             be much faster than computing a large distance exactly.  The limit also caps ``cutoff``,
             so an early exit still returns the weight of an operator within the limit; pass
-            ``cutoff=max_weight`` as well to stop at the first such operator.  Inputs without
-            nontrivial logical operators give ``n + 1``, capped likewise.
+            ``cutoff=max_weight`` as well to stop at the first such operator.
 
     Returns:
         The exact minimum weight of a nontrivial logical operator in ``logical_ops`` modulo
@@ -168,11 +202,11 @@ def get_distance_quantum(
         bound on the true distance, in ``[distance, cutoff]``.  With the default ``cutoff=1`` this
         still returns the exact distance for every valid input (an early return can exceed the
         distance only when ``cutoff >= 2``).  Pass ``cutoff=0`` to disable the early exit and force
-        the exact minimum.  Inputs on ``n`` qubits without nontrivial logical operators have no
-        distance and give ``n + 1``.  No operator has this weight, so it is not an observed weight,
-        even if it is at most ``cutoff``.  If ``max_weight`` is given, the result is the smaller of
-        this value and ``max_weight + 1``, so a result of ``max_weight + 1`` means that every
-        nontrivial logical operator is heavier than ``max_weight``.
+        the exact minimum.  If ``max_weight`` is given, the result is the smaller of this value and
+        ``max_weight + 1``, so a result of ``max_weight + 1`` means that every nontrivial logical
+        operator is heavier than ``max_weight``.  Inputs without nontrivial logical operators have
+        no distance and give ``NO_DISTANCE`` (see ``NoDistance``), whatever ``cutoff`` and
+        ``max_weight`` are.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
@@ -213,7 +247,7 @@ def _get_distance_quantum(
     max_weight: SupportsIndex | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning | None = None,
-) -> int:
+) -> int | Literal[NoDistance.NAN]:
     """Compute the distance of ``get_distance_quantum``, letting BZ use qubit automorphisms.
 
     ``get_automorphisms``, if given, is a function that returns an array of generators of a group
@@ -236,16 +270,13 @@ def _get_distance_quantum(
     physical_size = num_bits if homogeneous else num_bits // 2
     if not homogeneous and num_bits % 2:
         raise ValueError("Symplectic operators must have an even number of columns")
-    # Without a nontrivial logical operator there is no distance, and the result is n + 1, which
-    # exceeds the weight of every operator.
-    no_distance = _apply_upper_bound(physical_size + 1, upper_bound)
     if not len(logical_matrix):
-        return no_distance
+        return NO_DISTANCE
 
     # Separate an independent excluded basis from a complement representing the quotient.
     basis, labels = get_nested_code_basis(logical_matrix, stabilizer_matrix)
     if labels.shape[1] == 0:
-        return no_distance
+        return NO_DISTANCE
     if method == "brute_force":
         distance = get_nested_distance_brute_force(
             basis,
@@ -299,9 +330,8 @@ def _get_distance_css_brouwer_zimmermann(
 
     Returns:
         The minimum exact distance across the supplied sectors and the optional upper bound.  A
-        sector without nontrivial logical operators counts as one more than its width, as in
-        get_distance_quantum, and no operator has that weight.  Any other result at or below
-        ``cutoff`` is an observed upper bound.
+        sector without nontrivial logical operators counts as one more than its width, which no
+        operator has.  Any other result at or below ``cutoff`` is an observed upper bound.
 
     Raises:
         ValueError: If there are neither sectors nor an upper bound, if the operators of a sector

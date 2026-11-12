@@ -45,6 +45,7 @@ from ._search import information_sets
 from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
 from ._search.brute_force import get_nested_distance_brute_force
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
+from .core import NO_DISTANCE, NoDistance
 
 # codes.common imports this package, and codes.quantum imports codes.common, so code classes are
 # imported only where they are used.
@@ -78,25 +79,40 @@ _LOGICAL_COUNT_METHODS: dict[str, _CanonicalLogicalCountMethod] = {
 # results and entry points
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CSSLogicalCounts:
     """Counts of the nontrivial logical operators of one weight in a binary CSS code.
 
     Attributes:
         weight: The weight of the counted operators.  If no weight was requested, this is the
-            distance of the code, or the number of qubits if the code encodes no qubits, as with
-            :func:`qldpc.codes.distance.get_distance_quantum`.
+            distance of the code, or ``NO_DISTANCE`` (see :class:`~qldpc.codes.distance.NoDistance`)
+            if the code encodes no qubits, and so has no distance.
         count_x: The number of X-only nontrivial logical operators of weight ``weight``.
         count_z: The number of Z-only nontrivial logical operators of weight ``weight``.
         count_pauli: The number of nontrivial logical Pauli operators of weight ``weight``,
             ignoring phase, or None if it was not requested.  It includes the X-only and Z-only
             operators counted by ``count_x`` and ``count_z``, as well as Y and mixed operators.
+
+    Two counts of exactly the same class are equal if their attributes are, and ``NO_DISTANCE``
+    equals itself here, although as a ``nan`` it does not equal itself elsewhere.
     """
 
-    weight: int
+    weight: int | Literal[NoDistance.NAN]
     count_x: int
     count_z: int
     count_pauli: int | None
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+        # Tuples compare identical items as equal, so NO_DISTANCE equals itself.
+        return self._as_tuple() == other._as_tuple()
+
+    def __hash__(self) -> int:
+        return hash(self._as_tuple())
+
+    def _as_tuple(self) -> tuple[int | float | None, ...]:
+        return self.weight, self.count_x, self.count_z, self.count_pauli
 
 
 class CSSLogicalCounter:
@@ -223,6 +239,8 @@ class CSSLogicalCounter:
         Args:
             weight: Weight of the operators to count, between zero and the number of qubits.  If
                 None (the default), count the operators whose weight is the distance of the code.
+                A code that encodes no qubits has no distance, and its counts are then zero at the
+                weight ``NO_DISTANCE``.
             method: ``"brouwer_zimmermann"`` (the default), ``"macwilliams"``, or
                 ``"brute_force"``.  MacWilliams uses check-space weight distributions, cached on the
                 counter but not transferred through deformation.  It does not support subsystem
@@ -242,7 +260,7 @@ class CSSLogicalCounter:
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
-            qubits, the returned weight is the number of qubits and every count is zero.
+            qubits, the returned weight is ``NO_DISTANCE`` and every count is zero.
 
         Raises:
             TypeError: If the weight is not an integer, or is a bool.
@@ -277,7 +295,7 @@ class CSSLogicalCounter:
         if not self.dimension:
             empty_pauli = 0 if count_pauli else None
             return CSSLogicalCounts(
-                self.num_qubits if weight is None else int(weight), 0, 0, empty_pauli
+                NO_DISTANCE if weight is None else int(weight), 0, 0, empty_pauli
             )
         if method == "macwilliams":
             return self._count_with_macwilliams(

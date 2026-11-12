@@ -171,6 +171,7 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
             distances = (fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z))
             counter_code = codes.CSSCode(code.matrix_x, code.matrix_z)
             counts = lc.CSSLogicalCounter(counter_code).count_logical_ops(count_pauli=True)
+            assert counts.weight is not codes.NO_DISTANCE
             macwilliams = lc.CSSLogicalCounter(counter_code).count_logical_ops(
                 counts.weight, method="macwilliams"
             )

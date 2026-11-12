@@ -10,7 +10,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 `__init__.py` re-exports these names, and everything else in this directory is private:
 
-- `get_distance_classical`, `get_distance_quantum`, `DistanceMethod`, and `DistanceBackend`, from `core.py`.
+- `get_distance_classical`, `get_distance_quantum`, `DistanceMethod`, `DistanceBackend`, and `NoDistance`, whose only member `NoDistance.NAN` is also exported as `NO_DISTANCE`, from `core.py`.
 - `CSSLogicalCounter`, `CSSLogicalCounts`, `count_logical_ops_css`, `LogicalCountMethod`, and `compile_search_setup`, from `logical_counts.py`.
 
 ## Terms

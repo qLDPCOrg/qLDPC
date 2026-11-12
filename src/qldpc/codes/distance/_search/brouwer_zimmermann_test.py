@@ -844,6 +844,7 @@ def test_completion_tables_keep_distances_exact(
             homogeneous=True,
             method="brute_force",
         )
+        assert expected is not qldpc.codes.NO_DISTANCE
         for upper_bound in (None, expected + 1):
             skipped = completion_tables.skipped
             # One sixteen-column block covers the tails of this code, which makes its bounds exact,
@@ -879,10 +880,11 @@ def test_completion_tables_keep_distances_exact(
     five_qubit_code = qldpc.codes.FiveQubitCode()
     logicals, stabilizers = five_qubit_code.get_logical_ops(), five_qubit_code.get_stabilizer_ops()
     skipped = completion_tables.skipped
-    distance = qldpc.codes.get_distance_quantum(
+    quantum_distance = qldpc.codes.get_distance_quantum(
         logicals, stabilizers, homogeneous=False, cutoff=0, method="brouwer_zimmermann"
     )
-    assert assert_skips(distance) == qldpc.codes.get_distance_quantum(
+    assert quantum_distance is not qldpc.codes.NO_DISTANCE
+    assert assert_skips(quantum_distance) == qldpc.codes.get_distance_quantum(
         logicals, stabilizers, homogeneous=False, method="brute_force"
     )
 
