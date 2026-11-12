@@ -309,9 +309,8 @@ class SearchTuning:
     #: zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE`` leaves
     #: the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 400, chosen by hand:
     #: on states ``|0⟩`` of the pair-partition codes of
-    #: ``experiments/connected_support_distance/benchmark.py``, 1000 rounds make the checks less
-    #: than 10% lighter on average than 400 do.  To retune it, time building the search and its
-    #: queries.
+    #: ``experiments/distance_tuning/workloads.py``, 1000 rounds make the checks less than 10%
+    #: lighter on average than 400 do.  To retune it, time building the search and its queries.
     max_sparsifying_rounds: int = 400
 
     #: Making checks sparser stops early after this many rounds in a row that leave the total
@@ -319,8 +318,8 @@ class SearchTuning:
     #: rounds on checks that rarely get lighter; zero stops after the first round, and ``MAX_VALUE``
     #: never stops early, so that with both fields at ``MAX_VALUE`` the rounds never end.  Defaults
     #: to 200, chosen by hand from the rounds between improvements on the pair-partition codes of
-    #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record the rounds
-    #: between improvements.
+    #: ``experiments/distance_tuning/workloads.py``.  To retune it, record the rounds between
+    #: improvements.
     sparsifying_rounds_without_improvement: int = 200
 
     # Fields of completion tables.
