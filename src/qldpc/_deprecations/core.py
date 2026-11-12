@@ -113,14 +113,15 @@ ALIASES: dict[str, dict[str, str]] = {
         "get_distance_css_brouwer_zimmermann": (
             "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
         ),
-        "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
+        "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.distance": {
+        "DistanceBackend": "qldpc.codes:DistanceBackend",
         "get_distance_css_brouwer_zimmermann": (
             "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
         ),
-        "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
+        "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.monte_carlo": {

@@ -820,7 +820,8 @@ It builds its families and certificates with the same stages of [_information_se
 It runs the stages in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
-`get_overlapping_family_policy` in [_information_sets/basis_families.py](_information_sets/basis_families.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to the distance search, the counts, and the coset routes of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
+`build_overlapping_family_policy` in [_information_sets/basis_families.py](_information_sets/basis_families.py) builds the policy of every caller of the overlapping stage, with its fixed-seed generator, so a change to it applies to the distance search, the counts, and the coset routes of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
+The distance search and the counts call it through `get_overlapping_family_policy`, which reads the settings of the policy from the tuning.
 [core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_support/search.py](_connected_support/search.py), which [connected_support.md](connected_support.md) describes, and [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
@@ -883,7 +884,7 @@ Numba compiles each search separately for None and for a record of tails, so the
 Every route by tails of a family gives the latest record `CosetTails` of the family.
 The record holds the tails of the rows of each search basis, and of the words with unit syndromes, from which a query adds up the tail of each offset.
 It also holds the completion tables of the search bases that the queries of the route scan in layers of two or more rows, if they fit in `completion_bound_max_table_bytes`.
-The routes build the tails of a family once, and the tables of each of its search bases once, for the first route that needs them (`get_coset_tails`, `completion_bounds.considers_tables`, and `completion_bounds.build_tables_within`).
+The routes build the tails of a family once, and the tables of each of its search bases once, for the first route that needs them (`get_coset_tails` and `completion_bounds.build_tables_within`).
 They keep only the latest record of a family, so they hold the tables of each search basis once.
 A query by tails scans each layer of two or more rows of a search basis that has tables with `scan_coset_layer_by_tails_with_tables`.
 It scans the other layers with `scan_coset_layer_by_tails`.
@@ -974,7 +975,7 @@ Coverage and pivot-column deletion both use the recorded pivot subset.
 
 The certificate is computed from verified ranks and the actual maximum coverage of whichever family of search bases is chosen.
 The heuristics below change search work while preserving certificate validity.
-With an early-exit cutoff above one, a different search order can find a different first witness at or below the cutoff, while preserving the upper-bound contract of [Section 4.5](#45-behavior-spanning-files).
+With an early-exit cutoff above one, a different search order can find a different first witness at or below the cutoff, while preserving the upper-bound contract of `cutoff` ([Section 4.5](#45-behavior-spanning-files)).
 
 The Tuning section of [README.md](README.md) explains how searches read the thresholds of these heuristics.
 
@@ -988,7 +989,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   It removes nothing if no block is an information set.
 - **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as the fields `max_sets` and `minimum_work` of its `OverlappingFamilyPolicy`.
   It returns a basis family with no sets if no block is an information set, if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
-  Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
+  Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
 - **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to `max_partition_coverage`.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
@@ -1013,8 +1014,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   In a search that weighs Hamming weights, the route of `ω` is a route by tails if the predicted examinations with its own family at `ω`, rather than with the disjoint family, reach the threshold too, and its queries then weigh words by their tails ([Section 4.1](#41-module-map-and-layering)).
   They also skip completions by tables on blocks of `coset_completion_block_bits` columns ([Section 3.9](#39-skipping-completions-by-completion-tables)).
   The gate of routes by tails replaces the minimum layer work and the cost model of `select_completion_tables`.
-  So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, which `considers_tables` considers with the minimum layer work at zero and the cost and bytes limits at `MAX_VALUE`.
-  The builder of the record of tails gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
+  So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, whatever the work of those layers.
+  `get_coset_tails` gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
   The comment of `coset_completion_block_bits` says why its blocks are narrower than those of distance searches.
 - **`select_completion_tables`** decides whether a layer of one information set, or a step of a count, uses completion tables, as [Section 3.9](#39-skipping-completions-by-completion-tables) explains; a count passes its target weight plus one in place of `U`.
   It considers the layers that `considers_tables` allows: layers of two to `r` rows with at least `completion_bound_minimum_layer_work` supports, under a tuning whose `completion_bound_max_cost_percent` and `completion_bound_max_table_bytes` are not zero.
@@ -1031,20 +1032,16 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 ### 4.5 Behavior spanning files
 
 - **Cutoff.**
-  `get_distance_classical` and `get_distance_quantum` default to `cutoff=1`, and `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
-  If a witness reaches `cutoff`, the computation can return its weight immediately as an upper bound, which can exceed the exact distance.
-  Otherwise, the search continues and returns the exact distance, which may be larger than `cutoff`.
-  The default of one is still exact for a valid nontrivial binary problem, because a distance is at least one.
+  The docstrings of `get_distance_classical` and `get_distance_quantum` in [core.py](core.py) state the contracts of `cutoff` and of an early exit.
+  Both functions default to `cutoff=1`, which gives the exact distance for a valid nontrivial binary problem, because a distance is at least one.
+  `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
   A `cutoff` of zero or less never triggers an early exit for such a problem, and `advance` clamps negative values to `-1` before it calls the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
 - **Weight limit.**
-  `get_distance_classical` and `get_distance_quantum` accept `max_weight`, which limits the search to weights at most `max_weight`: the result is `min(distance, max_weight+1)`.
-  They pass `upper_bound=max_weight+1` to the BZ route, as though a witness of that weight were known, so the search stops once its certificate reaches that bound, and they clamp the results of the other routes to it.
+  The same docstrings state the contract of `max_weight`, and what inputs without nontrivial words give.
+  The functions pass `upper_bound=max_weight+1` to the BZ route, as though a witness of that weight were known, so the search stops once its certificate reaches that bound, and they clamp the results of the other routes to it.
   A limit below the distance therefore avoids the cost of certifying the distance itself.
-  The limit also caps `cutoff` at `max_weight`.
-  Without that cap, a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
-  Passing `cutoff=max_weight` as well stops the search at the first word within the limit.
-  Inputs without nontrivial words have no distance and give `NO_DISTANCE`, a float `nan` (see `NoDistance` in `core.py`), whatever `max_weight` is.
+  The limit also caps `cutoff` at `max_weight`, since a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
   Inside the searches, a problem without nontrivial words counts as `n+1`, which no word on `n` bits or qubits weighs, so that it never lowers the minimum over problems.
   For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
@@ -1127,9 +1124,8 @@ Changes to the BZ algorithm can use different representations, certificates, and
   `test_answers_do_not_depend_on_earlier_queries` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks this.
   The tests of routes by tails in [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py) check that a route asks for the tables of the search bases that its queries scan in layers of two or more rows, and that the latest record of its family holds them, even when threads choose routes at once.
 - **Preserve the return contract.**
-  Return the exact minimum unless taking an early exit permitted by `cutoff`.
-  Such an early exit returns the weight of a known eligible witness, an upper bound between the distance and `cutoff` ([Section 4.5](#45-behavior-spanning-files)).
-  Under a weight limit, return the smaller of the distance and `max_weight+1`; an early exit must still return a witness within the limit.
+  Return the exact minimum, unless an early exit permitted by `cutoff` returns the weight of a known eligible witness at or below `cutoff`, which `max_weight` caps.
+  Under a weight limit, return `max_weight+1` if every nontrivial word is heavier than the limit ([Section 4.5](#45-behavior-spanning-files)).
 
 Representative correctness tests check certificate validity against exhaustive words, including rank-deficient blocks, inferred parity, and overlapping coverage (`test_family_certificates` and `test_overlapping_family_certificates` in [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py)), and joint-search results with distinct sector certificates (`test_brouwer_zimmermann_sector_certificates` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py)).
 `test_counting_continues_at_an_equal_lower_bound` in [logical_counts_test.py](logical_counts_test.py) checks the strict counting stop with a count that a stop at `L(t) = w` would miss, and `test_counts_with_completion_tables_match_enumeration` in [_counting/scan_test.py](_counting/scan_test.py) checks counts with completion tables forced against enumeration, which counts that skipped at equality would miss.

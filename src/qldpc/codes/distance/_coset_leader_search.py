@@ -29,8 +29,6 @@ from qldpc._compilation import always_compiled
 from ._binary import as_binary_matrix, assert_binary
 from ._brouwer_zimmermann.coset import (
     BrouwerZimmermannCosetSearch,
-    CosetTuning,
-    StabilizerKey,
     get_css_searches,
     get_pauli_search,
 )
@@ -90,32 +88,28 @@ class CosetLeaderSearch:
     stabilizers for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are
     sparse.  Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its
     checks with sparser ones that span the same space, which can fall short of the sparsest
-    generators.  Which checks it finds depends on the tuning, and can change which error a query
-    returns, but not its answer or its lower bound.  The CSS weight is not a sum over qubits, so it
-    weighs errors by CSS weight only on CSS states, whose X and Z parts it searches separately.
-    Like the BZ searches, it first looks up errors of weight at most one, so a syndrome with such an
-    error gets the weight of its lightest errors as a lower bound.  For any other syndrome, a query
-    with an error within ``max_weight`` gives two, and a query with none gives the larger of two and
-    ``max_weight + 1``.  ``find_first_not_within_max_weight`` searches each syndrome that the table
-    lacks with increasing weight limits, which can find light errors sooner than one search at
-    ``max_weight``.  The BZ searches often give higher bounds.
+    generators.  The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only on
+    CSS states, whose X and Z parts it searches separately.  Like the BZ searches, it first looks up
+    errors of weight at most one, so a syndrome with such an error gets the weight of its lightest
+    errors as a lower bound.  For any other syndrome, a query with an error within ``max_weight``
+    gives two, and a query with none gives the larger of two and ``max_weight + 1``.
+    ``find_first_not_within_max_weight`` searches each syndrome that the table lacks with increasing
+    weight limits, which can find light errors sooner than one search at ``max_weight``.  The BZ
+    searches often give higher bounds.
 
-    The oracle reads the active tuning (see ``_tuning``) when it is built.  Its field
-    ``disjoint_random_column_orders`` configures every BZ search of the oracle.  The field
-    ``max_css_single_pairs`` configures the BZ searches by CSS weight that are not split into two
-    classical searches.  The fields ``overlapping_minimum_work``, ``max_information_sets``, and
-    ``overlapping_attempts_per_set`` configure the families of information sets with which a BZ
-    search answers costly queries (see ``_brouwer_zimmermann/coset_routes.py``).  These families can
-    change the representatives and lower bounds of the answers, but never whether an answer is
-    within ``max_weight``.  The threshold ``overlapping_minimum_work`` also decides which queries of
-    the BZ searches by physical weight, and of the classical searches, weigh words without the pivot
-    columns of each set of their family, and skip the words that tables of bounds prove to weigh
-    more than ``max_weight``.  The fields ``coset_completion_block_bits`` and
-    ``completion_bound_max_table_bytes`` configure these tables.  Skipping words can change the
-    representatives and lower bounds of the answers without a word within ``max_weight``, but never
-    whether an answer is within it.  The fields ``max_sparsifying_rounds`` and
-    ``sparsifying_rounds_without_improvement`` configure how the connected-support searches make
-    their checks sparser.
+    The oracle reads the active tuning when it is built, and the module docstring of ``_tuning``
+    says what a tuning can change about its answers.  The field ``disjoint_random_column_orders``
+    configures every BZ search of the oracle.  The field ``max_css_single_pairs`` configures the BZ
+    searches by CSS weight that are not split into two classical searches.  The fields
+    ``overlapping_minimum_work``, ``max_information_sets``, and ``overlapping_attempts_per_set``
+    configure the families of information sets with which a BZ search answers costly queries (see
+    ``_brouwer_zimmermann/coset_routes.py``).  The threshold ``overlapping_minimum_work`` also
+    decides which queries of the BZ searches by physical weight, and of the classical searches,
+    weigh words without the pivot columns of each set of their family, and skip the words that
+    tables of bounds prove to weigh more than ``max_weight``.  The fields
+    ``coset_completion_block_bits`` and ``completion_bound_max_table_bytes`` configure these tables.
+    The fields ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` configure
+    how the connected-support searches make their checks sparser.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
@@ -172,13 +166,7 @@ class CosetLeaderSearch:
         combinations = _get_css_combinations(matrix) if css_weight else None
         if combinations is None:
             if method == "brouwer_zimmermann":
-                self._brouwer_zimmermann_searches = (
-                    get_pauli_search(
-                        StabilizerKey(matrix, checks),
-                        css_weight,
-                        CosetTuning.from_tuning(tuning, paulis_by_css_weight=css_weight),
-                    ),
-                )
+                self._brouwer_zimmermann_searches = (get_pauli_search(matrix, css_weight, tuning),)
             elif css_weight:
                 raise ValueError(
                     "The connected-support method weighs errors by CSS weight only on CSS states;"
@@ -207,13 +195,7 @@ class CosetLeaderSearch:
                 support_search(x_rows, homogeneous=True),
             )
         else:
-            self._brouwer_zimmermann_searches = get_css_searches(
-                n,
-                len(x_rows),
-                pack_bits(x_rows).tobytes(),
-                pack_bits(z_rows).tobytes(),
-                CosetTuning.from_tuning(tuning, paulis_by_css_weight=False),
-            )
+            self._brouwer_zimmermann_searches = get_css_searches(x_rows, z_rows, tuning)
 
         # Row ``j`` of ``z_rows`` is the Z part of a pure-Z stabilizer, the product of the given
         # stabilizers with coefficients ``c = (z_transform @ z_combinations)[j]``.  An error's

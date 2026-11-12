@@ -681,7 +681,10 @@ def _count_chunk_skipping(
     # The count steps through the supports of the first layer - 1 rows, whose last row is the first
     # of the last two rows of a support, and visits the last row of each in its own loop.  It skips
     # completions only if every one of their words weighs more than the target, so its limit is that
-    # of a best weight of target + 1.
+    # of a best weight of target + 1.  The pair steps of ``_scan`` in
+    # ``_brouwer_zimmermann/affine_search.py`` skip completions the same way, but with the lesser of
+    # a skip bound and the best weight so far, which falls as a search for a lightest word finds
+    # lighter words.
     head = support[: layer - 1]
     head_rows = step_rows[:, : num_rows - 1]
     pair_depth = layer - 2

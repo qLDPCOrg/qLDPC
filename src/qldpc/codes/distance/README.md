@@ -10,7 +10,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 `__init__.py` re-exports these names, and everything else in this directory is private:
 
-- `get_distance_classical`, `get_distance_quantum`, `DistanceMethod`, `DistanceBackend`, and `NoDistance`, whose only member `NoDistance.NAN` is also exported as `NO_DISTANCE`, from `core.py`.
+- `get_distance_classical`, `get_distance_quantum`, `DistanceMethod`, and `NoDistance`, whose only member `NoDistance.NAN` is also exported as `NO_DISTANCE`, from `core.py`.
 - `CSSLogicalCounter`, `CSSLogicalCounts`, `count_logical_ops_css`, `LogicalCountMethod`, and `compile_search_setup`, from `logical_counts.py`.
 
 ## Terms
@@ -47,7 +47,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_coset_leader_search.py` |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
@@ -90,7 +90,8 @@ A top-level module or subpackage imports only from lower levels, and a module al
 `_layering_test.py` checks this.
 Within a subpackage, the order is a convention.
 In `_information_sets/`, `basis_families` builds on `certificates` and `matroid_partition`, `automorphism_families` on `basis_families` and `certificates`, and `completion_bounds` on `certificates`.
-In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, `coset` also on `coset_routes` and `coset_tables`, and those two on `affine_instance`.
+In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, and `coset` also on `coset_routes` and `coset_tables`.
+`coset_routes` builds on `coset_tables`, and both build on `affine_instance`.
 In `_connected_support/`, `coset` builds on `search`, and in `_counting/`, `scan` on `local_cliffords`.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` and `codes.quantum` inside the functions that use them.
@@ -98,14 +99,14 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src
 
 ## Tuning
 
-Every value that changes only how long a search takes or how much memory it uses, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
+Every value that changes only how long a search takes or how much memory it uses, and that a search can read when it starts, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
 The arguments of the public functions say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`; do not add arguments that only tune a search.
 Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–Zimmermann search uses its fields, and Sections 3.5 and 3.8 of `connected_support.md` where the connected-support searches use theirs.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it only if their callers pass none.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
-  A value that the code keeps in a cache that outlives a search also keys that cache, as the fields of `CosetTuning` key the cached searches of `CosetLeaderSearch`.
+  A value that the code keeps in a cache that outlives a search also keys that cache, as the fields of `_CosetTuning` in `_brouwer_zimmermann/coset.py` key the cached searches of `CosetLeaderSearch`.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
 - Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
@@ -116,10 +117,8 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–
 - [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the fields and constants from their comments, after hand-written tables that lead from symptoms and routes to their names.
   When you add, rename, or remove a field or constant, update that map, and for a constant the list of constants on the page.
   `_tuning_test.py` checks that the map names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each field and constant has its own `#:` comment, and the documentation build fails on a broken reference into `_tuning`.
-- A tuning changes only how long a search takes and how much memory it uses, never a result that the search guarantees.
-  With an early exit, it can change which word a search finds first, and so the upper bound that it returns (see the module docstring of `_tuning.py`).
-  For a coset query of `CosetLeaderSearch`, it can change the representative of the answer, and with the Brouwer–Zimmermann method its lower bound, within the contract of `MinWeightBound`, but not whether the answer is within the maximum weight.
-  A new heuristic whose value could change a guaranteed result does not belong in `SearchTuning`.
+- A new heuristic whose value could change a result that a search guarantees does not belong in `SearchTuning`.
+  The module docstring of `_tuning.py` says which results a tuning can change, and how.
 - To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
 - For a field whose full range the implementation cannot safely support, narrow its range in its metadata rather than adding code for unsupported values.
 

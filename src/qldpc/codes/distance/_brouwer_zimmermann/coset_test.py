@@ -136,7 +136,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     plus_zero = np.block([[eye, zeros, zeros, zeros], [zeros, zeros, zeros, eye]])
     matrices = [scramble(matrix, rng) for matrix in (zero_plus, zero_plus, plus_zero)]
-    coset.get_css_searches.cache_clear()
+    coset._get_css_searches.cache_clear()
     oracles = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices]
     for oracle, matrix in zip(oracles, matrices, strict=True):
         minima = get_exhaustive_minima(matrix, css_weight=True)
@@ -173,8 +173,8 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     phased = get_graph_state(2, [(0, 1)], phase=True)
-    coset.get_css_searches.cache_clear()
-    coset.get_pauli_search.cache_clear()
+    coset._get_css_searches.cache_clear()
+    coset._get_pauli_search.cache_clear()
     default = DEFAULT_TUNING.disjoint_random_column_orders
     for column_orders, matrix in itertools.product((default, 3), (zero_plus, phased)):
         with use_tuning(disjoint_random_column_orders=column_orders):
@@ -230,7 +230,7 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
 
     monkeypatch.setattr(basis_families, "get_overlapping_family", record)
     monkeypatch.setattr(completion_bounds, "build_tables_within", record_tables)
-    coset.get_pauli_search.cache_clear()
+    coset._get_pauli_search.cache_clear()
     with use_tuning(
         overlapping_minimum_work=0,
         max_information_sets=5,
@@ -267,8 +267,8 @@ def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
         queries = list(itertools.product(syndromes, range(6)))
         answers = {}
         for minimum_work in (0, MAX_VALUE):
-            coset.get_css_searches.cache_clear()
-            coset.get_pauli_search.cache_clear()
+            coset._get_css_searches.cache_clear()
+            coset._get_pauli_search.cache_clear()
             with use_tuning(overlapping_minimum_work=minimum_work):
                 oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
                 answers[minimum_work] = [oracle.get_min_weight_bound(*query) for query in queries]
@@ -295,7 +295,7 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
         get_stabilizer_matrix(generators)
         for generators in (("Y__", "_Z_", "__X"), ("Y__", "YZ_", "__X"), ("X__", "_Y_", "__Z"))
     ]
-    coset.get_pauli_search.cache_clear()
+    coset._get_pauli_search.cache_clear()
     oracles = []
     for changes in ({}, {"max_css_single_pairs": 0}, {"disjoint_random_column_orders": 3}):
         with use_tuning(**changes):
@@ -324,7 +324,7 @@ def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune
     """
     tune(overlapping_minimum_work=0)
     first, second = ROUTED_CSS_WEIGHT_STATE, ROUTED_PHYSICAL_STATES[1]
-    coset.get_pauli_search.cache_clear()
+    coset._get_pauli_search.cache_clear()
     array = first.copy()
     oracles = [
         (first, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
@@ -387,7 +387,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
     """
     num_columns = generators.shape[1]
     checks = get_kernel(generators)
-    tuning = coset.CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     search = coset._get_classical_search(
         generators, checks, tuning._replace(disjoint_random_column_orders=0)
     )
@@ -507,7 +507,7 @@ def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, t
 
     def get_answers(order: str) -> dict[tuple[int, int], MinWeightBound]:
         """Every answer of a fresh search, with the maximum weights in the given order."""
-        tuning = coset.CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+        tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
         search = coset._get_classical_search(
             OVERLAPPING_ROUTES_CODE, checks, tuning._replace(disjoint_random_column_orders=0)
         )
@@ -950,10 +950,10 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
             tails=np.zeros_like(record.tails), inverse_tails=np.zeros_like(record.inverse_tails)
         )
 
-    monkeypatch.setattr(coset, "get_coset_tails", get_zero_tails)
+    monkeypatch.setattr(coset_tables, "get_coset_tails", get_zero_tails)
     generators = np.ones((1, 7), dtype=np.uint8)
     checks = get_kernel(generators)
-    tuning = coset.CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     search = coset._get_classical_search(
         generators, checks, tuning._replace(overlapping_minimum_work=0)
     )
@@ -985,9 +985,9 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
         record = get_coset_tails(*args, **kwargs)
         return record._replace(completion_tables=np.full_like(record.completion_tables, 255))
 
-    monkeypatch.setattr(coset, "get_coset_tails", get_skipping_tails)
+    monkeypatch.setattr(coset_tables, "get_coset_tails", get_skipping_tails)
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
-    tuning = coset.CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     search = coset._get_classical_search(
         OVERLAPPING_ROUTES_CODE, checks, tuning._replace(overlapping_minimum_work=0)
     )
@@ -1073,7 +1073,7 @@ def test_min_weights_of_cosets_match_brute_force(
     """
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    tuning_fields = coset.CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     num_rows, num_columns = int(rng.integers(3, 6)), int(rng.integers(8, 11))
     random_code = get_random_full_rank_matrix(rng, num_rows, num_columns)
     for code in (RANK_DEFICIENT_CODE, _SKIPPING_CODE, random_code):
@@ -1092,9 +1092,7 @@ def test_min_weights_of_cosets_match_brute_force(
     if "completion_bound_max_table_bytes" in tuning:
         return
     matrix = get_graph_state(4, [(0, 1), (1, 2), (2, 3)], phase=True)
-    checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
-    css_fields = coset.CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=True)
-    search = coset.get_pauli_search(coset.StabilizerKey(matrix, checks), True, css_fields)
+    search = coset.get_pauli_search(matrix, True, get_tuning())
     syndromes = range(1 << len(matrix))
     _assert_min_weights_match_brute_force(
         search, syndromes, get_exhaustive_minima(matrix, css_weight=True), len(matrix), rng
@@ -1117,7 +1115,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
     each coset.
     """
     tune(**tuning)
-    tuning_fields = coset.CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     cases = []
     parities = (_SKIPPING_CODE.sum(axis=1, keepdims=True) % 2).astype(np.uint8)
     for generators, chosen_syndromes in [
@@ -1131,8 +1129,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
         minima = _coset_minima(generators, checks, syndromes)
         cases.append((search, len(checks), syndromes, minima, True))
     matrix = ROUTED_PHYSICAL_STATES[1]
-    checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
-    search = coset.get_pauli_search(coset.StabilizerKey(matrix, checks), False, tuning_fields)
+    search = coset.get_pauli_search(matrix, False, get_tuning())
     syndromes = list(range(1 << len(matrix)))
     cases.append(
         (search, len(matrix), syndromes, get_exhaustive_minima(matrix, css_weight=False), False)

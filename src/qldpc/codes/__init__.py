@@ -23,6 +23,7 @@ from .common import (
     AbstractCode,
     ClassicalCode,
     CSSCode,
+    DistanceBackend,
     ErrorRateFunc,
     QuditCode,
 )
@@ -30,7 +31,6 @@ from .distance import (
     NO_DISTANCE,
     CSSLogicalCounter,
     CSSLogicalCounts,
-    DistanceBackend,
     DistanceMethod,
     LogicalCountMethod,
     NoDistance,

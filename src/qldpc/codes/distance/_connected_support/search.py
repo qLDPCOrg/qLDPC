@@ -131,10 +131,8 @@ def get_distance_connected_support(
 
     # No witness of a problem has a weight below its lower bound, which is a multiple of the weight
     # divisor.  Search the problem with the lowest bound, until the best known witness is as light.
-    # A limit without a witness is a multiple of the divisor below the weight of every witness.  So
-    # is the weight of a lightest witness, which is therefore at most d * (n // d) for n variables
-    # and divisor d.  A witness ends the search, so a correct search takes at most this many
-    # limits, and a broken one fails instead of looping.
+    # A correct search takes at most n // d limits for each problem of n variables and divisor d
+    # (see "Termination" in connected_support.md), and a broken one fails instead of looping.
     lower_bounds = [search.weight_divisor for search in searches]
     max_num_limits = sum(search.num_variables // search.weight_divisor for search in searches)
     num_limits = 0

@@ -515,6 +515,8 @@ def _scan(
     # With pair steps, the scan steps through the supports of the first weight - 1 rows, whose last
     # row is the first of the last two rows of a support, and visits the last row of each in its own
     # loop.  The first of the last two rows is never the last row, which no row can follow.
+    # ``_count_chunk_skipping`` in ``_counting/scan.py`` skips completions the same way, but with a
+    # fixed limit, since it must visit every word of its target weight.
     head = support[: weight - 1]
     head_rows = generators[:, : num_rows - 1]
     pair_depth = weight - 2

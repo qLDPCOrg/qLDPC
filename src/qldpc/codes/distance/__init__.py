@@ -17,13 +17,11 @@ in the current process only, for programs that count the logical operators of ve
 codes.
 
 Exact distance searches and logical-operator counts choose between routes, such as exhaustive
-enumeration and searches of overlapping information sets, by cost models.  Their settings affect
-how long a search takes, but not its exact result, and the defaults suit typical searches.  The page
-:doc:`/exact_search_tuning` of the documentation leads from symptoms and routes to these settings,
-which experienced users of very costly searches can change within a ``with`` block.  They are the
-fields of a record in the private module ``qldpc.codes.distance._tuning``, which can change in any
-release without a deprecation period or any other warning, so code that uses it should pin the
-exact version of qLDPC that it was written for.
+enumeration and searches of overlapping information sets, by cost models, and bound their batches,
+memory, and caches.  The defaults of their settings suit typical searches.  For very costly
+searches, the page :doc:`/exact_search_tuning` of the documentation leads from symptoms and routes
+to the private settings that control them.  It also says how to change these settings, and what
+changing them can and cannot affect.
 
 Contributors can find a map of the modules in the README.md of this directory.
 """
@@ -34,7 +32,6 @@ from qldpc import _deprecations
 
 from .core import (
     NO_DISTANCE,
-    DistanceBackend,
     DistanceMethod,
     NoDistance,
     get_distance_classical,
@@ -52,7 +49,6 @@ __all__ = [
     "NO_DISTANCE",
     "CSSLogicalCounter",
     "CSSLogicalCounts",
-    "DistanceBackend",
     "DistanceMethod",
     "LogicalCountMethod",
     "NoDistance",

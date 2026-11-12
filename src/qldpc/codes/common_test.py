@@ -2150,7 +2150,16 @@ def test_css_distance_bound_backend_selection() -> None:
 
 
 def test_distance_backend_validation() -> None:
-    """Reject sqetch and decoder selectors for non-CSS codes."""
+    """Unknown backends raise, and quantum codes that are not CSS reject sqetch and decoder."""
+    bounded_codes: list[codes.ClassicalCode | codes.QuditCode] = [
+        codes.RepetitionCode(3),
+        codes.FiveQubitCode(),
+        codes.SteaneCode(),
+    ]
+    for code in bounded_codes:
+        with pytest.raises(ValueError, match="Unknown distance backend"):
+            code.get_distance_bound(backend="other")  # type: ignore[arg-type]
+
     code = codes.FiveQubitCode()
     code.forget_distance()
     for backend in ["sqetch", "decoder"]:

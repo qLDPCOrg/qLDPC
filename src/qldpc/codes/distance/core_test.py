@@ -411,13 +411,8 @@ def test_max_weight_conventions_and_validation() -> None:
     assert distance == 2 and type(distance) is int
 
 
-def test_distance_backend_validation() -> None:
-    """Distance backend and exact-method selectors are restricted to documented values."""
-    for backend in ["auto", "decoder", "gap", "sqetch"]:
-        core._validate_distance_backend(backend)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="Unknown distance backend"):
-        core._validate_distance_backend("other")  # type: ignore[arg-type]
-
+def test_distance_method_validation() -> None:
+    """Exact-method selectors are restricted to documented values, and resolve aliases."""
     for method in ["brouwer_zimmermann", "brute_force", "connected_support"]:
         assert core._validate_distance_method(method) == method  # type: ignore[arg-type]
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"

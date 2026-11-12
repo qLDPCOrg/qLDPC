@@ -14,7 +14,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, get_args
 
 import galois
 import numpy as np
@@ -48,7 +48,6 @@ from qldpc.objects import (
 from ._code_capacity import CodeCapacityDecoder, get_code_capacity_decoder
 from .distance import (
     NO_DISTANCE,
-    DistanceBackend,
     DistanceMethod,
     NoDistance,
     get_distance_classical,
@@ -58,12 +57,15 @@ from .distance.core import (
     _get_distance_connected_support,
     _get_distance_css_brouwer_zimmermann,
     _get_distance_quantum,
-    _validate_distance_backend,
     _validate_distance_method,
 )
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
+
+# The values of the backend argument of get_distance_bound, which selects how it computes an upper
+# bound.
+DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
 
 _GAP_DISTANCE_BOUND_KWARGS = frozenset({"maxav"})
 _SQETCH_DISTANCE_BOUND_KWARGS = frozenset({"d_target", "k_sub", "batch_size", "seed", "device"})
@@ -2100,7 +2102,7 @@ class QuditCode(AbstractCode):
             NotImplementedError: If GAP cannot be called with ``backend="auto"``, or if the manual
                 workflow is declined with ``backend="gap"``.
             TypeError: If num_trials is not an integer or None.
-            ValueError: If backend is ``"decoder"`` or ``"sqetch"``, if given options that
+            ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
                 GAP/QDistRnd does not recognize, or if given options for GAP with
                 ``backend="auto"`` when GAP cannot be called.
         """
@@ -3763,10 +3765,11 @@ class CSSCode(QuditCode):
         Raises:
             NotImplementedError: If the manual GAP workflow is declined with ``backend="gap"``.
             TypeError: If num_trials is not an integer or None.
-            ValueError: If decoder is prebuilt or is combined with the ``"gap"`` or ``"sqetch"``
-                backend, if given options that the selected backend does not recognize, if options
-                select an unavailable backend with ``backend="auto"``, or if the decoder-based
-                algorithm fails to find a logical operator.
+            ValueError: If backend is not ``"auto"``, ``"decoder"``, ``"gap"``, or ``"sqetch"``, if
+                decoder is prebuilt or is combined with the ``"gap"`` or ``"sqetch"`` backend, if
+                given options that the selected backend does not recognize, if options select an
+                unavailable backend with ``backend="auto"``, or if the decoder-based algorithm fails
+                to find a logical operator.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -4659,6 +4662,15 @@ def _minimize_decoded_weight(
     if not num_solved:
         raise ValueError(_DECODING_FAILURE_MESSAGE)
     return min_weight
+
+
+def _validate_distance_backend(backend: DistanceBackend) -> None:
+    """Validate a distance-bound backend selector."""
+    if backend not in get_args(DistanceBackend):
+        raise ValueError(
+            f"Unknown distance backend {backend!r}; choose from 'auto', 'decoder', 'gap', or "
+            "'sqetch'."
+        )
 
 
 def _validate_num_trials(num_trials: object) -> None:
