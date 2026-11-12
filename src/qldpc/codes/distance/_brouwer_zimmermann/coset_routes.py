@@ -51,19 +51,19 @@ words of its family by their tails, which hold the columns other than the pivot 
 (see ``coset_tables.CosetTails``).  They also skip the completions that completion tables of the
 tails show to lie beyond their maximum weight (Section 3.9 of ``brouwer_zimmermann.md``).  So the
 routes also give the record of the tails and tables of the family of each route by tails, from
-``coset_tables.get_coset_tails``.  A search without routes by tails, such as the search of Pauli
-errors by CSS weight, gets no records.  The routes build the tails of a family once, and the tables
-of a set of the family once, for the first route that needs them.  A route needs the tables of the
-sets that its queries visit in layers of two or more rows, since tables bound the completions of a
-prefix by two more rows (see ``completion_bounds.considers_tables``).  The gate of routes by tails
-replaces the minimum work of a layer and the cost model of the tables of distance searches.  A set
-gets tables only if they fit in the field ``completion_bound_max_table_bytes`` of the tuning.  Every
-route by tails of a family gives the latest record of the family, which holds the tables of each set
-once.  That record can hold tables that other routes of the family needed, but the queries of a
-route read only the tables that it needs, so their answers do not depend on earlier queries.  A
-search for minimum weights up to the maximum weight of a route takes the route too, and visits no
-layer that its queries do not visit, since its stopping step comes no later than theirs (Section
-3.10 of ``brouwer_zimmermann.md``).
+``coset_tables.get_coset_tails``.  The search of Pauli errors by CSS weight has no routes by tails,
+so it gets no records.  The routes build the tails of a family once, and the tables of a set of the
+family once, for the first route that needs them.  A route needs the tables of the sets that its
+queries visit in layers of two or more rows, since tables bound the completions of a prefix by two
+more rows (see ``completion_bounds.considers_tables``).  It needs them whatever the work of those
+layers, since the gate of routes by tails replaces the minimum work of a layer and the cost model of
+the tables of distance searches.  A set gets tables only if they fit in the field
+``completion_bound_max_table_bytes`` of the tuning.  Every route by tails of a family gives the
+latest record of the family, which holds the tables of each set once.  That record can hold tables
+that other routes of the family needed, but the queries of a route read only the tables that it
+needs, so their answers do not depend on earlier queries.  A search for minimum weights up to the
+maximum weight of a route takes the route too, and visits no layer that its queries do not visit,
+since its stopping step comes no later than theirs (Section 3.10 of ``brouwer_zimmermann.md``).
 
 The tails change how a query weighs words, and the tables which words it skips, but neither changes
 which word of weight at most the maximum weight a query finds first, if any.  A query without such a
@@ -316,7 +316,10 @@ class CosetRoutes:
             maximum if len(maximum.ranks) else disjoint,
             weight_factor * target_weight + 1,
             basis_families.build_overlapping_family_policy(
-                self._max_sets, 0, self._attempts_per_set, len(self._basis)
+                max_sets=self._max_sets,
+                minimum_work=0,
+                attempts_per_set=self._attempts_per_set,
+                dimension=len(self._basis),
             ),
         )
 

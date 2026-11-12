@@ -2150,7 +2150,7 @@ def test_css_distance_bound_backend_selection() -> None:
 
 
 def test_distance_backend_validation() -> None:
-    """Backends are restricted to documented values, and sqetch and decoder to CSS codes."""
+    """Unknown backends raise, and quantum codes that are not CSS reject sqetch and decoder."""
     bounded_codes: list[codes.ClassicalCode | codes.QuditCode] = [
         codes.RepetitionCode(3),
         codes.FiveQubitCode(),

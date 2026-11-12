@@ -245,10 +245,11 @@ def get_pauli_search(
 ) -> BrouwerZimmermannCosetSearch:
     """The search of Pauli errors modulo independent commuting stabilizers, from a cache.
 
-    The syndromes are for the rows of ``stabilizers``.  ``css_weight`` selects the CSS weight rather
-    than the physical weight.  The rows of the stabilizers, the measure of weight, and the fields of
-    the tuning that the setup of the search reads key the cache (see
-    ``_tuning.PAULI_SEARCH_CACHE_SIZE``).
+    ``stabilizers`` is an ``n x 2n`` matrix in ``[X|Z]`` order whose rows are ``n`` independent
+    commuting stabilizers on ``n`` qubits (see ``CosetLeaderSearch``), and the syndromes are for its
+    rows.  ``css_weight`` selects the CSS weight rather than the physical weight.  The rows of the
+    stabilizers, the measure of weight, and the fields of the tuning that the setup of the search
+    reads key the cache (see ``_tuning.PAULI_SEARCH_CACHE_SIZE``).
     """
     return _get_pauli_search(
         _StabilizerKey(stabilizers),
@@ -262,11 +263,11 @@ def get_css_searches(
 ) -> tuple[BrouwerZimmermannCosetSearch, BrouwerZimmermannCosetSearch]:
     """The searches of the X parts and of the Z parts of the errors on a CSS state, from a cache.
 
-    ``x_rows`` holds the X parts of the pure-X stabilizers, and ``z_rows`` the Z parts of the
-    pure-Z stabilizers, both in reduced row echelon form, which depends only on the stabilizer
-    group.  The X parts of errors are searched modulo the code of the X rows, with the Z rows as
-    checks, and the Z parts the other way around.  The rows and the fields of the tuning that the
-    setup of the searches reads key the cache (see ``_tuning.CSS_SEARCH_CACHE_SIZE``).
+    ``x_rows`` holds the X parts of the pure-X stabilizers, and ``z_rows`` the Z parts of the pure-Z
+    stabilizers, both in reduced row echelon form, which depends only on the stabilizer group.  The
+    X parts of errors are searched modulo the code of the X rows, with the Z rows as checks, and the
+    Z parts the other way around.  The rows and the fields of the tuning that the setup of the
+    searches reads key the cache (see ``_tuning.CSS_SEARCH_CACHE_SIZE``).
     """
     return _get_css_searches(
         x_rows.shape[1],
@@ -280,11 +281,10 @@ def get_css_searches(
 class _StabilizerKey:
     """A stabilizer matrix, which a cache can hash and compare by its bytes.
 
-    The key keeps the matrix to build a search that the cache has not stored yet.  Keys of packed
-    bytes would not hold the matrix, but unpacking them would cost about 0.4% of the setup of a
-    search.  The matrix may be an array of the caller.  The key compares a copy of its bytes, and
-    the search copies what it keeps of it, so later changes to the array of the caller reach
-    neither.
+    The key keeps the matrix to build a search that the cache has not stored yet, which a key of
+    packed bytes would first have to unpack.  The matrix may be an array of the caller.  The key
+    compares a copy of its bytes, and the search copies what it keeps of it, so later changes to the
+    array of the caller reach neither.
     """
 
     def __init__(self, stabilizers: npt.NDArray[np.uint8]) -> None:

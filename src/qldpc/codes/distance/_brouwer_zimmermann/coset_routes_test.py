@@ -52,10 +52,10 @@ def _build_routes(
     """The routes of the cosets of a code, from its greedy packing in natural column order.
 
     Their tables hold the words with unit syndromes for the checks of the code, and every column
-    counts as the X part.  So the planning buffers of an even code have a table of the bounds of
-    the steps for each parity of its cosets, and those of other codes one table (see
-    ``coset_tables.get_search_tables``).  The routes have routes by tails if ``by_tails`` is True,
-    with completion tables under the default tuning.
+    counts as the X part.  So the planning buffers of an even code have a table of the bounds of the
+    steps for each parity of its cosets, and those of other codes one table (see
+    ``coset_tables.get_search_tables``).  The routes include routes by tails if ``by_tails`` is
+    True, with completion tables under the default tuning.
     """
     return coset_routes.CosetRoutes(
         code,
@@ -277,15 +277,17 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
     At the threshold zero, every route of the even code is by tails, and the routes of maximum
     weights -1 to 8 share two families, whose records gain the tables of each route.  A thread for
     each maximum weight chooses its route, and the threads start at once and switch often.  The test
-    wraps ``coset_tables.get_coset_tails`` to record the sets that each build asks for, and to sleep
-    before it builds, so that builds that ran at once would overlap.  No two builds overlap, and the
-    record of every route has tables for every set that the builds of its family asked for.
+    wraps ``coset_tables.get_coset_tails`` to sleep before it builds, so that builds that ran at
+    once would overlap, and to keep the record that each build of a family returns.  No two builds
+    overlap, each build of a family is given the record that the previous build of the family
+    returned, and every route gives the latest record of its family.
     """
     max_weights = range(-1, 9)
     counter_lock = threading.Lock()
     building = 0
     overlaps = []
-    asked: dict[int, tuple[affine_instance.AffineInstance, set[int]]] = {}
+    chained = []
+    latest: dict[int, tuple[affine_instance.AffineInstance, coset_tables.CosetTails]] = {}
     get_coset_tails = coset_tables.get_coset_tails
 
     def build_slowly(
@@ -294,15 +296,17 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
         record: coset_tables.CosetTails | None,
         **kwargs: Any,
     ) -> coset_tables.CosetTails:
-        """Record the sets of a build, and build its record after a sleep."""
+        """Build a record after a sleep, and keep it as the latest record of its family."""
         nonlocal building
         with counter_lock:
             building += 1
             overlaps.append(building > 1)
-            asked.setdefault(id(instance), (instance, set()))[1].update(sets)
+            previous = latest.get(id(instance))
+            chained.append(record is (None if previous is None else previous[1]))
         time.sleep(0.02)
         built = get_coset_tails(instance, sets, record, **kwargs)
         with counter_lock:
+            latest[id(instance)] = (instance, built)
             building -= 1
         return built
 
@@ -324,15 +328,15 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
     finally:
         sys.setswitchinterval(switch_interval)
     assert len(overlaps) == len(max_weights) and not any(overlaps)
-    assert len(asked) == 2 and any(sets for _, sets in asked.values())
+    assert len(latest) == 2 and all(chained)
     for max_weight in max_weights:
         tables, tails = routes.get_route(max_weight)
-        [sets] = [
-            sets
-            for instance, sets in asked.values()
+        [record] = [
+            record
+            for instance, record in latest.values()
             if np.array_equal(instance.pivots, tables.pivots)
         ]
-        assert tails is not None and set(np.flatnonzero(tails.layout[:, 1]).tolist()) == sets
+        assert tails is record
 
 
 def test_routes_pickle() -> None:

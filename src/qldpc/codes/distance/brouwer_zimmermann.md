@@ -821,7 +821,7 @@ It runs the stages in `_select_basis_family` and `count_words` of [_counting/sca
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
 `build_overlapping_family_policy` in [_information_sets/basis_families.py](_information_sets/basis_families.py) builds the policy of every caller of the overlapping stage, with its fixed-seed generator, so a change to it applies to the distance search, the counts, and the coset routes of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
-The distance search and the counts call it through `get_overlapping_family_policy`, which reads its thresholds from the tuning.
+The distance search and the counts call it through `get_overlapping_family_policy`, which reads the settings of the policy from the tuning.
 [core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_support/search.py](_connected_support/search.py), which [connected_support.md](connected_support.md) describes, and [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
@@ -1033,7 +1033,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 
 - **Cutoff.**
   The docstrings of `get_distance_classical` and `get_distance_quantum` in [core.py](core.py) state the contracts of `cutoff` and of an early exit.
-  Both default to `cutoff=1`, which gives the exact distance for a valid nontrivial binary problem, because a distance is at least one.
+  Both functions default to `cutoff=1`, which gives the exact distance for a valid nontrivial binary problem, because a distance is at least one.
   `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
   A `cutoff` of zero or less never triggers an early exit for such a problem, and `advance` clamps negative values to `-1` before it calls the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
@@ -1124,7 +1124,8 @@ Changes to the BZ algorithm can use different representations, certificates, and
   `test_answers_do_not_depend_on_earlier_queries` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks this.
   The tests of routes by tails in [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py) check that a route asks for the tables of the search bases that its queries scan in layers of two or more rows, and that the latest record of its family holds them, even when threads choose routes at once.
 - **Preserve the return contract.**
-  Return only what the contracts of `cutoff` and `max_weight` allow ([Section 4.5](#45-behavior-spanning-files)): the exact minimum; after an early exit, the weight of a known eligible witness within the limit; or `max_weight+1` if every nontrivial word is heavier than the limit.
+  Return the exact minimum, unless an early exit permitted by `cutoff` returns the weight of a known eligible witness at or below `cutoff`, which `max_weight` caps.
+  Under a weight limit, return `max_weight+1` if every nontrivial word is heavier than the limit ([Section 4.5](#45-behavior-spanning-files)).
 
 Representative correctness tests check certificate validity against exhaustive words, including rank-deficient blocks, inferred parity, and overlapping coverage (`test_family_certificates` and `test_overlapping_family_certificates` in [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py)), and joint-search results with distinct sector certificates (`test_brouwer_zimmermann_sector_certificates` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py)).
 `test_counting_continues_at_an_equal_lower_bound` in [logical_counts_test.py](logical_counts_test.py) checks the strict counting stop with a count that a stop at `L(t) = w` would miss, and `test_counts_with_completion_tables_match_enumeration` in [_counting/scan_test.py](_counting/scan_test.py) checks counts with completion tables forced against enumeration, which counts that skipped at equality would miss.

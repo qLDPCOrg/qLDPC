@@ -114,14 +114,13 @@ def get_distance_classical(
 
     Returns:
         The minimum Hamming distance between different code words, or equivalently the minimum
-        Hamming weight of a nontrivial code word.  As soon as the lightest code word seen so far
-        has weight ``<= cutoff``, the search stops early and returns that weight, an upper bound on
-        the distance in ``[distance, cutoff]``; pass ``cutoff=0`` to disable the early exit.  If
-        ``max_weight`` is given, the result is the
-        smaller of this distance and ``max_weight + 1``, so a result of ``max_weight + 1`` means
-        that every nontrivial code word is heavier than ``max_weight``.  A code without nontrivial
-        code words has no distance and gives ``NO_DISTANCE`` (see ``NoDistance``), whatever
-        ``cutoff`` and ``max_weight`` are.
+        Hamming weight of a nontrivial code word.  As soon as the lightest code word seen so far has
+        weight ``<= cutoff``, the search stops early and returns that weight, an upper bound on the
+        distance in ``[distance, cutoff]``; pass ``cutoff=0`` to disable the early exit.  If
+        ``max_weight`` is given, the result is the smaller of this distance and ``max_weight + 1``,
+        so a result of ``max_weight + 1`` means that every nontrivial code word is heavier than
+        ``max_weight``.  A code without nontrivial code words has no distance and gives
+        ``NO_DISTANCE`` (see ``NoDistance``), whatever ``cutoff`` and ``max_weight`` are.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.

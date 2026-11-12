@@ -3,11 +3,11 @@ Exact-search performance and tuning
 
 .. currentmodule:: qldpc.codes.distance._tuning
 
-Exact distance searches and logical-operator counts choose between routes, such as exhaustive enumeration and searches of overlapping information sets, by cost models, and they bound their batches, memory, and caches.
-This page leads from symptoms and routes to the values that control them, and renders the documentation of each from the private module ``qldpc.codes.distance._tuning``.
+This page leads from the symptoms of slow or memory-hungry exact distance searches and logical-operator counts, and from the routes that they choose, to the values that control them.
+It renders the documentation of each value from the private module ``qldpc.codes.distance._tuning``.
 
 Before you change a value, read :ref:`the documentation of that module <tuning-module>` below.
-It says what its privacy means for code that uses it, what tuning can and cannot change, how to change it, and which values are fields of :class:`SearchTuning` and which are constants.
+It says what the module's privacy means for code that uses it, what tuning can and cannot change, how to change the tuning, and which values are fields of :class:`SearchTuning` and which are constants.
 The `Brouwer--Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-support guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_ explain the methods.
 
 Start from a symptom
@@ -141,8 +141,8 @@ Routes and the names that control them
 
 .. _tuning-module:
 
-The module
-----------
+The tuning module
+-----------------
 
 .. automodule:: qldpc.codes.distance._tuning
 

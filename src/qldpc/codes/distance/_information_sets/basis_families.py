@@ -176,7 +176,7 @@ class OverlappingFamilyPolicy(NamedTuple):
     """How stage three builds a replacement basis family (see ``get_overlapping_family``).
 
     Searches take it from :func:`get_overlapping_family_policy`, or from
-    :func:`build_overlapping_family_policy` for limits that their tuning does not hold.
+    :func:`build_overlapping_family_policy` for settings that their tuning does not hold.
 
     Attributes:
         max_sets: The most sets of a replacement.
@@ -324,7 +324,7 @@ def get_overlapping_family(
 def get_overlapping_family_policy(tuning: SearchTuning, dimension: int) -> OverlappingFamilyPolicy:
     """The policy of stage three for a search of a basis of a given dimension, under a tuning.
 
-    It holds the limit, the minimum work, and the attempts of ``tuning`` (see
+    It holds the most sets, the minimum work, and the attempts per set of ``tuning`` (see
     ``build_overlapping_family_policy``).
     """
     return build_overlapping_family_policy(
@@ -338,12 +338,12 @@ def get_overlapping_family_policy(tuning: SearchTuning, dimension: int) -> Overl
 def build_overlapping_family_policy(
     max_sets: int, minimum_work: int, attempts_per_set: int, dimension: int
 ) -> OverlappingFamilyPolicy:
-    """The policy of stage three with given limits, for a search of a basis of a given dimension.
+    """The policy of stage three with given settings, for a search of a basis of a given dimension.
 
-    It holds the limits, the capped binomials of the dimension, and a new generator with a fixed
-    seed.  So every search, of the distance, of the counts, or of cosets (see
-    ``_brouwer_zimmermann/coset_routes.py``), chooses the same replacement for the same basis family
-    and limits.
+    It holds the most sets, the minimum work, and the attempts per set, the capped binomials of the
+    dimension, and a new generator with a fixed seed.  So every search, of the distance, of the
+    counts, or of cosets (see ``_brouwer_zimmermann/coset_routes.py``), chooses the same replacement
+    for the same basis family and settings.
     """
     return OverlappingFamilyPolicy(
         max_sets,
