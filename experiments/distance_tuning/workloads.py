@@ -32,6 +32,12 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
   up to ``max_weight``, that a ``CosetLeaderSearch`` on the logical state ``|0...0>`` of a CSS code
   finds for the syndromes of random Pauli errors of ``error_weight`` qubits, by ``css`` or
   ``physical`` weight, as residual-weight estimates search them;
+- ``hcoset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: the same, on the state
+  that Hadamards on the second half of the qubits make of ``|0...0>``, which is not CSS, so that
+  its searches by CSS weight are not split into searches of X and Z parts;
+- ``hbound/<code>/<error_weight>/<num_syndromes>``: ``get_min_weight_bound`` with maximum weight
+  one, by CSS weight, on that state, for the syndromes of random Pauli errors of ``error_weight``
+  qubits, as certifications of fault propagation query each primitive fault;
 - ``first/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``:
   ``find_first_not_within_max_weight`` for the same syndromes, as certifications of fault
   propagation search them;
@@ -266,12 +272,23 @@ def run_count(code_name: str, weight: str) -> str:
 
 
 def run_cosets(
-    code_name: str, weighing: str, error_weight: str, max_weight: str, num_syndromes: str
+    code_name: str,
+    weighing: str,
+    error_weight: str,
+    max_weight: str,
+    num_syndromes: str,
+    *,
+    hadamards: bool = False,
 ) -> str:
-    """The minimum weights of the cosets of random errors on the logical state |0...0>."""
+    """The minimum weights of the cosets of random errors on the logical state |0...0>.
+
+    With ``hadamards``, the state has Hadamards on the second half of its qubits.
+    """
     if weighing not in ("css", "physical"):
         raise ValueError(f"Unknown weighing {weighing!r}; choose 'css' or 'physical'")
     stabilizers = get_zero_state_stabilizers(code_name)
+    if hadamards:
+        stabilizers = get_hadamard_stabilizers(stabilizers)
     syndromes = get_random_syndromes(stabilizers, int(error_weight), int(num_syndromes))
     search = CosetLeaderSearch(stabilizers, css_weight=weighing == "css")
     weights = search._get_min_weights(syndromes, int(max_weight))
@@ -300,6 +317,28 @@ def get_zero_state_stabilizers(code_name: str) -> npt.NDArray[np.uint8]:
     stabilizers = code.get_stabilizer_ops(canonicalized=True, symplectic=True)
     logicals = code.get_logical_ops(Pauli.Z, symplectic=True)
     return np.vstack([stabilizers, logicals]).view(np.ndarray).astype(np.uint8)
+
+
+def run_weight_one_bounds(code_name: str, error_weight: str, num_syndromes: str) -> str:
+    """Bound by one the CSS weights of random errors on |0...0> with Hadamards on half of it."""
+    stabilizers = get_hadamard_stabilizers(get_zero_state_stabilizers(code_name))
+    syndromes = get_random_syndromes(stabilizers, int(error_weight), int(num_syndromes))
+    search = CosetLeaderSearch(stabilizers, css_weight=True)
+    within = 0
+    for _ in range(10):
+        for row in syndromes:
+            syndrome = sum(int(word) << (64 * index) for index, word in enumerate(row))
+            within += search.get_min_weight_bound(syndrome, 1).within_max_weight
+    return str(within)
+
+
+def get_hadamard_stabilizers(stabilizers: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """The stabilizers after Hadamards on the second half of the qubits, which swap X and Z."""
+    num_qubits = stabilizers.shape[1] // 2
+    columns = np.arange(2 * num_qubits)
+    for qubit in range(num_qubits // 2, num_qubits):
+        columns[qubit], columns[num_qubits + qubit] = num_qubits + qubit, qubit
+    return stabilizers[:, columns]
 
 
 def get_random_syndromes(
@@ -367,6 +406,8 @@ WORKLOADS: dict[str, Callable[..., str]] = {
     "count": run_count,
     "ccount": run_count,
     "coset": run_cosets,
+    "hcoset": functools.partial(run_cosets, hadamards=True),
+    "hbound": run_weight_one_bounds,
     "first": run_first_heavy_coset,
     "certify": run_certification,
     "faultdist": run_fault_distance,

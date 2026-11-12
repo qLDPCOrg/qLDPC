@@ -155,8 +155,12 @@ def warm_up(kind: str) -> None:
                     workloads.run_certification("surface:5", weighing, "3")
             elif kind == "faultdist":
                 workloads.run_fault_distance("surface:5", "X")
-            elif kind in ("coset", "first"):
+            elif kind == "hbound":
+                workloads.run_weight_one_bounds("surface:5", "1", "20")
+            elif kind in ("coset", "hcoset", "first"):
                 stabilizers = workloads.get_zero_state_stabilizers("surface:5")
+                if kind == "hcoset":
+                    stabilizers = workloads.get_hadamard_stabilizers(stabilizers)
                 syndromes = workloads.get_random_syndromes(stabilizers, 3, 20, seed=1)
                 for css_weight in (False, True):
                     search = CosetLeaderSearch(stabilizers, css_weight=css_weight)
