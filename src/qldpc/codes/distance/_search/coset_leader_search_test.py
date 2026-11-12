@@ -531,7 +531,9 @@ def test_bounds_match_per_block_minima(
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
     # For the first syndrome, the physical-weight search stops by its certificate while the lightest
     # error that it has visited is heavier than the minimum.
-    syndromes = [443351, *rng.integers(1 << (num_blocks * len(block)), size=7).tolist()]
+    # The phased GHZ block is slow to search as plain Python, so it gets fewer random syndromes.
+    num_random = 3 if block == _PHASED_GHZ_BLOCK else 7
+    syndromes = [443351, *rng.integers(1 << (num_blocks * len(block)), size=num_random).tolist()]
     for syndrome in syndromes:
         local = [
             [(syndrome >> (len(block) * index + jj)) & 1 for jj in range(len(block))]
@@ -2109,28 +2111,39 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
 
 @pytest.mark.usefixtures("compilation_mode")
 def test_connected_support_batches_read_syndromes_of_several_words(
-    pytestconfig: pytest.Config,
+    pytestconfig: pytest.Config, tune: Tune
 ) -> None:
     """On 17 phased GHZ blocks, batches of the connected-support engine agree with block minima.
 
     The 68 syndrome bits span two words, and the physical weight takes one search of the Pauli
-    errors.  Each error acts on at most three random qubits, and blocks that it does not touch add
-    nothing to its minimum weight.
+    errors.  The batch holds the syndromes of 30 errors.  The first acts on one qubit in each of
+    blocks 0, 8, and 16.  Block 16 has its syndrome bits in the second word, so a search that read
+    only the first word would find a lighter error than the minimum of three.  The other errors each
+    act on one to three random qubits, and blocks that an error does not touch add nothing to its
+    minimum weight.  The oracle looks for sparser checks for one round, rather than for the many
+    rounds that are slow as plain Python.  On these blocks, one round gives the default checks.
     """
+    tune(max_sparsifying_rounds=1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_blocks = 17
     generators = _block_generators(_PHASED_GHZ_BLOCK, num_blocks)
     matrix = _stabilizer_matrix(generators)
     oracle = CosetLeaderSearch(matrix, method="connected_support")
     syndromes, minima = [], []
-    for _ in range(30):
+    for error_index in range(30):
         error = stim.PauliString(4 * num_blocks)
-        for qubit in rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False):
+        qubits = (
+            [0, 35, 67]
+            if error_index == 0
+            else rng.choice(4 * num_blocks, size=rng.integers(1, 4), replace=False)
+        )
+        for qubit in qubits:
             error[int(qubit)] = int(rng.integers(1, 4))
         syndromes.append(sum((not error.commutes(gg)) << jj for jj, gg in enumerate(generators)))
         bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
         local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
         minima.append(_block_minimum(_PHASED_GHZ_BLOCK, [ss for ss in local if any(ss)], False))
+    assert syndromes[0] >> 64 and minima[0] == 3
     words = _pack_syndromes(syndromes, 68)
     for max_weight in range(4):
         found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)

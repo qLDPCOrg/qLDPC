@@ -132,8 +132,10 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
             labels[0, :, 1] = rng.integers(0, 4, dimension, dtype=np.uint64)
         widths = np.array([generators.shape[2]], dtype=np.int64)
         label_widths = np.array([num_label_words], dtype=np.int64)
+        # Both widths split the 70 columns into blocks with a narrower last block, and build quickly
+        # as plain Python; completion_bounds_test checks the default width.
         all_tables = [no_tables] + [
-            completion_bounds.CompletionTables.build(generators[0], bits) for bits in (8, 16)
+            completion_bounds.CompletionTables.build(generators[0], bits) for bits in (4, 8)
         ]
         for weight in range(2, dimension + 1):
             # The weight of each support in order, or None if its word is ineligible.
