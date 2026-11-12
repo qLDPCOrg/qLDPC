@@ -617,7 +617,9 @@ The counts cover only enumeration; building and packing the search bases costs e
 The layers that a search scans last dominate its cost, and most of their words weigh far more than `U`.
 For example, certifying distance eighteen for the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) with an automorphism family scans layer eight of a basis with `r = 150` rows, about `5 × 10^12` supports.
 A search can skip whole groups of these supports if a cheap lower bound proves that none of their words is lighter than `U`.
-qLDPC can do this when a layer scans one search basis whose block is an information set, which includes every layer of a search of an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
+qLDPC can do this when a layer scans search bases whose blocks are information sets, one such basis or several.
+Every layer of a search of an automorphism family scans one ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
+A distance search can scan several such bases one at a time, with the tables of each basis whose tables pay, when that pays for the whole layer (see "When a search uses the tables" below).
 The queries of the coset-leader search ([Section 4.1](#41-module-map-and-layering)) on their routes by tails can do it in search bases that are not information sets too.
 Counting skips only supports whose words all weigh more than its target weight, and those coset queries only supports whose words all weigh more than their maximum weight (see "Certificates and contracts" and "Coset searches" below).
 
@@ -668,6 +670,11 @@ The certificate `L` of a search bounds only such words: no eligible word weighs 
 `L` alone can exceed the weights of skipped words, just as it can exceed the weights of words whose images an automorphism family has examined ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), so a bound on the distance is `min(L, U)`.
 No skipped word is lighter than `U` at any later time, so a scan with tables finds the same witnesses in the same order as a scan without them, and an early exit at a cutoff returns the same weight.
 A search stops exactly when it would without skipping, because it stops once its certificate reaches `U`.
+These arguments hold for each search basis separately, with its own tables, so a layer may skip completions in several search bases if it scans them one at a time, in the order of the family.
+Once the first `j` bases have completed layer `w`, every eligible word lighter than `U` that is neither examined nor skipped satisfies the bounds of step `(w, j)` of [Section 2.5](#25-the-stopping-certificate).
+So the certificate `L(w, j)` holds for such words, and the search may stop after any basis whose step certifies `U`.
+It checks whether a step certifies `U` as a search that scans in lockstep does ([Section 3.1](#31-overlapping-search-bases)).
+Such a scan visits the words of the layer in another order than the scan of all bases in lockstep, so with an early exit at a cutoff above one, it can return another witness at or below the cutoff.
 Words that weigh exactly `U` can be skipped, since they cannot lower `U`.
 A search whose answer depends on the words up to a weight may never skip a word of that weight.
 Such searches are a count of the words of a target weight `t` ([Section 5](#5-correctness-requirements)), and a coset query, which asks whether its coset has a word of weight at most its maximum weight `ω`.
@@ -719,6 +726,13 @@ The search uses tables if the predicted cost is at most `completion_bound_max_co
 By default, tables use blocks of sixteen columns, or of eight columns if the tables would otherwise exceed `completion_bound_max_table_bytes`; the fields `completion_bound_block_bits` and `completion_bound_fallback_block_bits` set these widths.
 A search keeps its tables for later layers, and drops them when its basis changes, as when it switches to an automorphism family.
 It frees them when it finishes, but the search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
+A layer of a distance search that scans several search bases, all information sets, first predicts the cost of tables for each basis in the same way, with the cost of building them.
+It scans the bases one at a time, in the order of the family, if tables pay for some basis and for the whole layer.
+The predicted cost of the layer counts the full cost of a scan without tables for each basis whose tables do not pay, and must be at most `completion_bound_max_cost_percent` percent of its cost without tables.
+Otherwise it scans them in lockstep, as `scan_family` does.
+Scanning the bases one at a time without tables took 0.89 to 1.12 times as long as the scan in lockstep on the layers measured below, so the limit on the whole layer keeps a few bases whose tables pay from slowing the others.
+Each basis of such a layer builds its tables just before its scan and drops them after it, so the search holds the tables of one basis at a time.
+Building tables costs a few percent of the first layer that uses them, and much less of the larger layers after it, so rebuilding them in each layer costs little.
 A step of a count scans one layer of one set.
 `_StepTables` of [_counting/scan.py](_counting/scan.py) chooses tables in the same way for each step of two or more rows of an information set.
 A count keeps the tables of the sets that it has used, within `completion_bound_max_table_bytes` in all between steps, and also holds the tables that it is building.
@@ -737,6 +751,14 @@ With tables forced, by `completion_bound_minimum_layer_work` set to zero and `co
 Such small layers gain little even when tables pay, and estimating the share of skipped supports takes milliseconds, so a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports.
 The share of skipped supports depends on the code, the scanned set, and the order of its rows, and other codes may gain less, or nothing when a search declines the tables.
 Skipping does not reduce the number of layers that a search must complete, and the number of prefixes still grows like that of supports for a fixed ratio `w/r`.
+
+Layers that scan several search bases arise in searches of codes without a usable automorphism family, such as random codes, or quantum Tanner codes when no automorphisms are known.
+Such layers were measured with `U` fixed at the best weight of the search: layer six of the X sector of a random CSS code of 140 qubits, with three bases; layer five of both sectors of `QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)`, with fifteen; and layer five of the X sector of a [[325, 25, 12]] lifted-product code of the width data set of [_tuning.py](_tuning.py), with eleven.
+They have `6 × 10^8` to `1.5 × 10^9` supports for each basis.
+Scanning their bases one at a time with tables, including building the tables, took 0.11 to 0.30 times as long as the scan in lockstep, and the predicted costs of these layers were within 0.06 of the measured ratios.
+In layer five of the X sector of the [[288, 12, 18]] code without its automorphisms, the tables of one of nine bases paid, and the search scanned the layer in lockstep, which was 6% faster than scanning its bases one at a time.
+In layer six, with `1.4 × 10^10` supports for each basis, the tables of seven of nine bases paid, and scanning the bases one at a time took 0.81 times as long as the scan in lockstep, for a predicted cost of 0.78.
+Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search does not consider them.
 
 ### 3.10 Minimum weights of cosets
 
@@ -932,7 +954,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
 | Chunk | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
 | Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
-| Completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_search/completion_bounds.py](_search/completion_bounds.py), chosen for each layer by `select_completion_tables` from the completion fields of the search's `SearchTuning` and kept in `completion_tables` of a search; the scan is `scan_information_set` of [_search/affine_search.py](_search/affine_search.py), which returns the numbers of supports that it weighs and skips and of bounds that it looks up. A coset search keeps the tables of the search bases of the family of each route by tails in `_CosetTails`. Its scan with tables is `scan_coset_layer_by_tails_with_tables`. |
+| Completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_search/completion_bounds.py](_search/completion_bounds.py), chosen for each layer of one information set by `select_completion_tables` from the completion fields of the search's `SearchTuning` and kept in `completion_tables` of a search, and for each set of a layer that scans several sets one at a time by `_choose_tables_of_sets`; the scan is `scan_information_set` of [_search/affine_search.py](_search/affine_search.py), which returns the numbers of supports that it weighs and skips and of bounds that it looks up. A coset search keeps the tables of the search bases of the family of each route by tails in `_CosetTails`. Its scan with tables is `scan_coset_layer_by_tails_with_tables`. |
 
 For the rank-deficient remainder of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), the implementation records only the independent pivot columns, in the first `rank` entries of the set's row of `BasisFamily.pivots`, and pads the rest with -1.
 The remaining columns of that remainder stay in the generator matrix.
@@ -987,7 +1009,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The comment of `coset_completion_block_bits` says why its blocks are narrower than those of distance searches.
 - **`select_completion_tables`** decides whether a layer of one information set, or a step of a count, uses completion tables, as [Section 3.9](#39-skipping-completions-by-completion-tables) explains; a count passes its target weight plus one in place of `U`.
   It considers the layers that `considers_tables` allows: layers of two to `r` rows with at least `completion_bound_minimum_layer_work` supports, under a tuning whose `completion_bound_max_cost_percent` and `completion_bound_max_table_bytes` are not zero.
-  It uses tables if it predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.
+  It uses tables if `predict_completion_cost` predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.
+  A layer of a distance search that scans several information sets predicts the cost of the tables of each set in the same way, in `_choose_tables_of_sets`, and scans the sets one at a time if tables pay for some set and the predicted cost of the layer, at the full cost for each set without tables, is within that limit too.
   Random supports only estimate the value of tables; a search skips supports only when `w` plus their computed bound reaches `U`, and a count only when it exceeds the target weight.
   Its cost model was fitted to the scan of a distance search; counting weighs full rows and labels, so its scans cost more for each support, and the model then predicts conservatively.
 - **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
@@ -1068,6 +1091,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
 - **Skip only supports that a bound proves cannot lower `U`.**
   A search may skip supports only if a lower bound on the weight of every one of their words reaches `U` ([Section 3.9](#39-skipping-completions-by-completion-tables)).
   The completion bounds of qLDPC rely on a minimum over every remaining pair of rows, on disjoint blocks of columns, on exactly `w` pivot ones, which hold only for a block that is an information set, and on the order in which the scan sums the rows.
+  So the tables of a search basis must be built from its own rows, in its own order, also when a layer scans several search bases one at a time.
   A coset scan bounds the pivot ones instead by the rows of the prefix below the rank and the last two rows of the search basis, and its tails keep every column but the pivots, since an offset can have ones on columns where no row has one.
 - **Skip in a coset query only words beyond its maximum weight.**
   A coset query of maximum weight `ω` may skip supports only if their bound reaches `h(ω)`, never `h(ω) - 1`, so that it finds a word within `ω` exactly when one exists ([Section 3.9](#39-skipping-completions-by-completion-tables)).

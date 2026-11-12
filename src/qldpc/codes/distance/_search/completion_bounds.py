@@ -23,10 +23,13 @@ The bases of the coset searches need not be information sets, so in place of ``w
 ones of a completion on pivot columns (see ``affine_search.scan_coset_layer_by_tails_with_tables``).
 
 Tables of the least weights on each block, for every value of ``p`` on the block and every ``s``,
-make each bound a few lookups.  They cost memory and time to build, so ``select_completion_tables``
-estimates from a sample of supports how much of a layer the bound would skip, and uses tables only
-if their predicted cost is within the limits of the search's tuning.  The estimate only guides this
-choice: a search skips completions only when a computed bound proves that they cannot lower ``U``.
+make each bound a few lookups.  They cost memory and time to build, so ``predict_completion_cost``
+estimates from a sample of supports how much of a layer the bound would skip, and
+``select_completion_tables`` uses tables only if their predicted cost is within the limits of the
+search's tuning.  A distance search predicts the cost of the tables of each information set of a
+layer that scans several, and chooses for itself whether to scan them one at a time.  The estimate
+only guides these choices: a search skips completions only when a computed bound proves that they
+cannot lower ``U``.
 ``considers_tables`` states which layers a tuning considers for tables at all.  Coset searches build
 the tables of the bases of their costliest queries without sampling, if they fit within a limit (see
 ``coset_routes`` and ``build_tables_within``).
@@ -125,14 +128,48 @@ def select_completion_tables(
         ``tuning.completion_bound_max_cost_percent`` percent of the cost of a scan without them, or
         None.
     """
+    cost, block_bits = predict_completion_cost(
+        rows, weight, upper_bound, reuse=current is not None, tuning=tuning
+    )
+
+    # A search drops its tables when its basis changes, so tables that it passes belong to its
+    # rows.  Compiled lookups do not check bounds, so check at least that their layout fits.
+    if current is not None and block_bits:
+        offsets = _get_block_offsets(_get_num_tail_bits(rows), block_bits)
+        assert current.block_bits == block_bits and np.array_equal(current.offsets, offsets)
+        assert len(current.tables) == _get_table_bytes(len(rows), offsets)
+
+    if not is_within_cost_limit(cost, tuning):
+        return None
+    return CompletionTables.build(rows, block_bits) if current is None else current
+
+
+def predict_completion_cost(
+    rows: npt.NDArray[np.uint64],
+    weight: int,
+    upper_bound: int,
+    *,
+    reuse: bool,
+    tuning: SearchTuning,
+) -> tuple[float, int]:
+    """Predict the cost of a scan of a layer with completion tables, and the width of their blocks.
+
+    The arguments are those of ``select_completion_tables``, and ``reuse`` says whether the search
+    has the tables already, so that the prediction leaves out the cost of building them.
+
+    Returns:
+        The predicted cost of the layer with tables, as a share of its cost without them, and the
+        width of the blocks of the tables; or infinity and zero for a layer whose tables the tuning
+        does not consider, or that do not fit within ``tuning.completion_bound_max_table_bytes``.
+    """
     # Consider only the layers and tables that the tuning allows.
     num_rows = len(rows)
     if not considers_tables(num_rows, weight, tuning):
-        return None
+        return math.inf, 0
     num_bits = _get_num_tail_bits(rows)
     block_bits = _get_block_bits(num_rows, num_bits, tuning)
     if not block_bits:
-        return None
+        return math.inf, 0
 
     # Estimate a conservative share of the supports of the layer that tables would skip.
     share, num_samples = _estimate_skipped_share(
@@ -140,17 +177,10 @@ def select_completion_tables(
     )
     share = _get_share_lower_bound(share, num_samples, tuning.completion_bound_confidence_z)
 
-    # A search drops its tables when its basis changes, so tables that it passes belong to its
-    # rows.  Compiled lookups do not check bounds, so check at least that their layout fits.
-    offsets = _get_block_offsets(num_bits, block_bits)
-    if current is not None:
-        assert current.block_bits == block_bits and np.array_equal(current.offsets, offsets)
-        assert len(current.tables) == _get_table_bytes(num_rows, offsets)
-
     # Predict the cost of the layer with tables, as a share of the cost of scanning it without them,
-    # with the cost of building them unless they are reused, and use them if that is within the
-    # limit.  Dividing the integer binomials first keeps their ratios small, even for layers whose
-    # binomials are too large for floating point.
+    # with the cost of building them unless they are reused.  Dividing the integer binomials first
+    # keeps their ratios small, even for layers whose binomials are too large for floating point.
+    offsets = _get_block_offsets(num_bits, block_bits)
     num_supports = math.comb(num_rows, weight)
     kept_ratio = math.comb(num_rows, weight - 1) / num_supports
     prefix_ratio = math.comb(num_rows, weight - 2) / num_supports
@@ -161,13 +191,19 @@ def select_completion_tables(
         + tuning.completion_bound_lookup_block_cost_per_mib * table_mib
     )
     cost = 1 - share + lookup_cost * lookups
-    if current is None:
+    if not reuse:
         cost += _estimate_build_cost(num_rows, offsets, block_bits, tuning) / _get_layer_work(
             num_rows, weight
         )
-    if 100 * cost > tuning.completion_bound_max_cost_percent:
-        return None
-    return CompletionTables.build(rows, block_bits) if current is None else current
+    return cost, block_bits
+
+
+def is_within_cost_limit(cost: float, tuning: SearchTuning) -> bool:
+    """Whether a predicted cost, as a share of the cost without tables, is within the limit.
+
+    The limit is ``tuning.completion_bound_max_cost_percent`` percent.
+    """
+    return 100 * cost <= tuning.completion_bound_max_cost_percent
 
 
 def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
