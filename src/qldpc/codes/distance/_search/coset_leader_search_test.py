@@ -766,7 +766,6 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             assert bool(orders) == reads
 
 
-@pytest.mark.usefixtures("plain_search_setup")
 def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

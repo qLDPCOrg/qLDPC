@@ -113,7 +113,7 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
 - `@always_compiled` marks the per-word loops and their helpers.
   They are compiled on first use and cached on disk, in a directory named by a hash of qLDPC's source, so the first run after an edit anywhere in qLDPC compiles again.
   A small helper that hot loops call, such as `advance_support`, is marked `@always_compiled(inline=True)`, so that compiled callers include its code rather than pay for a call.
-- `@compiled_on_request` marks parts of the set-up in `_search/information_sets.py` and `_counting/scan.py`, which run as ordinary Python unless a program calls `compile_search_setup()`.
+- `@compiled_on_request` marks parts of the set-up of searches, which run as plain Python unless a program calls `compile_search_setup()`.
 
 Numba looks up the functions that compiled code calls when it compiles it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.
 Tests in `src/qldpc/_compilation_test.py` check further rules, and the name of a failing test says which one was broken.
@@ -130,5 +130,5 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - `conftest.py` holds the fixtures and helpers that several test files share, such as a check of counts against brute-force enumeration.
 - Coverage cannot trace compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
-  Tests that replace a compiled-on-request function or a function that one calls, or that compare plain with compiled set-up code, request the `plain_search_setup` fixture of `conftest.py`, whose docstring says why.
+  Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
 - `readme_test.py` fails if this page omits a module, or names a file that does not exist.
