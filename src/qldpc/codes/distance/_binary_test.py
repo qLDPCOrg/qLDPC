@@ -25,10 +25,10 @@ def test_binary_matrices_and_nested_bases() -> None:
     assert binary.as_binary_matrix([], num_cols=3).shape == (0, 3)
     with pytest.raises(ValueError, match="infer the width"):
         binary.as_binary_matrix([])
-    with pytest.raises(ValueError, match="two-dimensional"):
+    with pytest.raises(ValueError, match="The rows must be a two-dimensional"):
         binary.as_binary_matrix(np.zeros((1, 1, 1)))
-    with pytest.raises(ValueError, match="incompatible widths"):
-        binary.as_binary_matrix([[1, 0]], num_cols=3)
+    with pytest.raises(ValueError, match="The stabilizers have 2 columns"):
+        binary.as_binary_matrix([[1, 0]], "stabilizers", num_cols=3)
 
     matrix = np.array([[0, 1, 1], [1, 1, 0], [1, 0, 1], [0, 0, 0]], dtype=np.uint8)
     basis, tags = binary.get_nested_code_basis(matrix, np.array([[1, 0, 1]], dtype=np.uint8))

@@ -81,7 +81,7 @@ def count_words(
             labels,
             weight,
             get_disjoint_basis_family(),
-            *information_sets.get_overlapping_family_policy(tuning, len(basis)),
+            information_sets.get_overlapping_family_policy(tuning, len(basis)),
         )
         # Matroid partitioning runs outside of _select_basis_family, which can be compiled.
         partitioned = information_sets.get_partitioned_family(
@@ -190,21 +190,17 @@ def _select_basis_family(
     labels: npt.NDArray[np.uint8],
     weight: int,
     basis_family: information_sets.BasisFamily,
-    max_sets: int,
-    minimum_work: int,
-    attempts_per_set: int,
-    binomials: npt.NDArray[np.int64],
-    rng: np.random.Generator,
+    policy: information_sets.OverlappingFamilyPolicy,
 ) -> information_sets.BasisFamily:
     """Run the basis family stages that can be compiled: pruning, then an overlapping replacement.
 
     The stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives an exact
-    count.
+    count.  ``policy`` is that of the overlapping replacement.
     """
     upper_bound = weight + 1
     pruned = information_sets.prune_family(basis_family, upper_bound)
     replacement = information_sets.get_overlapping_family(
-        basis, labels, pruned, upper_bound, max_sets, minimum_work, attempts_per_set, binomials, rng
+        basis, labels, pruned, upper_bound, policy
     )
     return replacement if len(replacement.ranks) > 0 else pruned
 

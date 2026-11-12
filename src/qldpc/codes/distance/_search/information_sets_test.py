@@ -714,7 +714,7 @@ def _get_overlapping_family(
         np.empty((len(basis), 0), dtype=np.uint8) if labels is None else labels,
         basis_family,
         upper_bound,
-        *information_sets.get_overlapping_family_policy(tuning, len(basis)),
+        information_sets.get_overlapping_family_policy(tuning, len(basis)),
     )
 
 

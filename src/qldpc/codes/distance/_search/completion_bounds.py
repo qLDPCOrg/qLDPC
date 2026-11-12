@@ -18,7 +18,7 @@ puts in place of ``U`` the least bound that proves a word heavier than its maxim
 for a minimum weight uses that bound until it finds a word within the maximum weight, and then, when
 each scan starts, the Hamming weight of its lightest word, or one less where every word of the coset
 has its parity.  Once a scan finds a lighter word, the tables skip at the Hamming weight of the
-lightest word that it has found (see ``coset_leader_search._search_coset_for_min_weight_by_tails``).
+lightest word that it has found (see ``coset_leader_search._search_coset_for_min_weight``).
 The bases of the coset searches need not be information sets, so in place of ``w`` they bound the
 ones of a completion on pivot columns (see ``affine_search.scan_coset_layer_by_tails_with_tables``).
 

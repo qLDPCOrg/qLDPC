@@ -785,8 +785,8 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     signature = inspect.signature(get_overlapping_family)
 
     def record(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
-        arguments = signature.bind(*args, **kwargs).arguments
-        calls.append((arguments["max_sets"], arguments["attempts_per_set"]))
+        policy = signature.bind(*args, **kwargs).arguments["policy"]
+        calls.append((policy.max_sets, policy.attempts_per_set))
         return get_overlapping_family(*args, **kwargs)
 
     def record_tables(
@@ -980,13 +980,13 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     zero, two, and four in a code of dimension four, for both weight factors.
     """
     plans: list[int] = []
-    plan_steps = information_sets.plan_steps
+    find_stopping_step = information_sets.find_stopping_step
 
-    def record(*args: Any) -> tuple[int, int, int]:
+    def record(*args: Any) -> tuple[int, int]:
         plans.append(args[1])
-        return plan_steps(*args)
+        return find_stopping_step(*args)
 
-    monkeypatch.setattr(information_sets, "plan_steps", record)
+    monkeypatch.setattr(information_sets, "find_stopping_step", record)
     # Take the Python version even when the function is compiled, since only it calls the recording
     # function.
     function = coset_leader_search._get_stopping_step
@@ -1286,8 +1286,9 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             range(1 << len(checks)), range(num_columns + 1)
         ):
             best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
+            packed_syndrome = _pack_syndromes([syndrome], len(checks))[0]
             best_weight, parity = coset_leader_search._get_syndrome_word(
-                _pack_syndromes([syndrome], len(checks))[0], best, tables.inverse, tables.x_mask, 1
+                packed_syndrome, best, tables.inverse, tables.x_mask, 1
             )
             if best_weight <= max_weight:
                 continue
@@ -1295,7 +1296,8 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
                 table, max_weight
             )
-            lower_bound, weighed = coset_leader_search._search_from_syndrome_word(
+            lower_bound, weighed, _ = coset_leader_search._search_from_syndrome_word(
+                packed_syndrome,
                 max_weight,
                 stop_layer,
                 stop_num_completed,
@@ -1305,7 +1307,9 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                 tables.generators,
                 tables.pivots,
                 tables.x_mask,
+                None,
                 1,
+                parity if len(tables.planning) == 2 else -1,
             )
             representative = unpack_bits(best[None], num_columns)[0].astype(int)
             assert _classical_syndrome(checks, representative) == syndrome
@@ -1413,7 +1417,8 @@ def _assert_searches_by_tails_match_searches_of_words(
             stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
                 coset_leader_search._get_planning_table(tables.planning, parity), max_weight
             )
-            answer = coset_leader_search._search_from_syndrome_word(
+            *answer, _ = coset_leader_search._search_from_syndrome_word(
+                packed_syndrome,
                 max_weight,
                 stop_layer,
                 stop_num_completed,
@@ -1423,9 +1428,11 @@ def _assert_searches_by_tails_match_searches_of_words(
                 tables.generators,
                 tables.pivots,
                 tables.x_mask,
+                None,
                 scale,
+                parity if len(tables.planning) == 2 else -1,
             )
-            *answer_by_tails, skipped = coset_leader_search._search_by_tails_from_syndrome_word(
+            *answer_by_tails, skipped = coset_leader_search._search_from_syndrome_word(
                 packed_syndrome,
                 max_weight,
                 stop_layer,
@@ -1435,7 +1442,8 @@ def _assert_searches_by_tails_match_searches_of_words(
                 best_weight,
                 tables.generators,
                 tables.pivots,
-                *tails,
+                tables.x_mask,
+                tails,
                 scale,
                 parity if len(tables.planning) == 2 else -1,
             )
@@ -1474,10 +1482,10 @@ def _assert_searches_by_tails_match_searches_of_words(
         while True:
             words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
             found = coset_leader_search._find_first_not_within_max_weight(
-                packed_syndromes[start:], max_weight, words[0], *tables, scale
+                packed_syndromes[start:], max_weight, words[0], *tables, None, scale
             )
-            found_by_tails = coset_leader_search._find_first_not_within_max_weight_by_tails(
-                packed_syndromes[start:], max_weight, words[1], *tables, *tails, scale
+            found_by_tails = coset_leader_search._find_first_not_within_max_weight(
+                packed_syndromes[start:], max_weight, words[1], *tables, tails, scale
             )
             assert found_by_tails[0] == found[0]
             if start + found[0] == len(packed_syndromes):
@@ -1974,41 +1982,25 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
                 stop_layer, stop_num_completed, stop_bound = coset_leader_search._get_stopping_step(
                     coset_leader_search._get_planning_table(tables.planning, parity), max_weight
                 )
-                if tails is None:
-                    _, *expected = coset_leader_search._search_from_syndrome_word(
-                        max_weight,
-                        stop_layer,
-                        stop_num_completed,
-                        stop_bound,
-                        best,
-                        best_weight,
-                        tables.generators,
-                        tables.pivots,
-                        tables.x_mask,
-                        search.scale,
-                    )
-                    _, *found = coset_leader_search._search_coset_for_min_weight(
-                        packed_syndrome, max_weight, 0, best, *tables, search.scale
-                    )
-                else:
-                    _, *expected = coset_leader_search._search_by_tails_from_syndrome_word(
-                        packed_syndrome,
-                        max_weight,
-                        stop_layer,
-                        stop_num_completed,
-                        stop_bound,
-                        best,
-                        best_weight,
-                        tables.generators,
-                        tables.pivots,
-                        *tails,
-                        search.scale,
-                        parity if len(tables.planning) == 2 else -1,
-                    )
-                    _, *found = coset_leader_search._search_coset_for_min_weight_by_tails(
-                        packed_syndrome, max_weight, 0, best, *tables, *tails, search.scale
-                    )
-                    skipped += expected[1]
+                _, *expected = coset_leader_search._search_from_syndrome_word(
+                    packed_syndrome,
+                    max_weight,
+                    stop_layer,
+                    stop_num_completed,
+                    stop_bound,
+                    best,
+                    best_weight,
+                    tables.generators,
+                    tables.pivots,
+                    tables.x_mask,
+                    tails,
+                    search.scale,
+                    parity if len(tables.planning) == 2 else -1,
+                )
+                _, *found = coset_leader_search._search_coset_for_min_weight(
+                    packed_syndrome, max_weight, 0, best, *tables, tails, search.scale
+                )
+                skipped += expected[1]
                 assert found == expected
         assert skipped or not (tuning and must_skip)
 

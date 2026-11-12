@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
+import copy
 import functools
+import math
+import pickle
 from collections.abc import Callable
 from typing import cast, get_args
 from unittest import mock
@@ -48,7 +51,7 @@ def test_deprecated_block_size_argument() -> None:
     expected = qldpc.codes.get_distance_quantum(
         logical_ops, stabilizers, homogeneous=True, method="brute_force"
     )
-    searches: list[Callable[[], int]] = [
+    searches: list[Callable[[], float]] = [
         lambda: qldpc.codes.get_distance_classical(generator, block_size=2),
         lambda: qldpc.codes.get_distance_classical(generator, block_size=2, method="brute_force"),
         lambda: qldpc.codes.get_distance_quantum(
@@ -157,27 +160,31 @@ def test_connected_support_needs_parity_checks() -> None:
 def test_brouwer_zimmermann_special_inputs() -> None:
     """Brouwer-Zimmermann validates matrix shapes and preserves quotient edge cases.
 
-    Inputs on n bits or qubits without nontrivial words have no distance and give n + 1, whether
-    they have no logical rows or only logical rows in the stabilizer span.
+    Inputs without nontrivial words have no distance and give NO_DISTANCE, whether they have no
+    logical rows or only logical rows in the stabilizer span.
     """
-    assert qldpc.codes.get_distance_classical(np.empty((0, 4), dtype=np.uint8), cutoff=0) == 5
+    no_distance = qldpc.codes.NO_DISTANCE
+    assert qldpc.codes.get_distance_classical(np.empty((0, 4), dtype=np.uint8), cutoff=0) is (
+        no_distance
+    )
     assert (
         qldpc.codes.get_distance_quantum(
             np.empty((0, 4), dtype=np.uint8),
             np.empty((0, 4), dtype=np.uint8),
             homogeneous=True,
         )
-        == 5
+        is no_distance
     )
     for method in ("brouwer_zimmermann", "brute_force"):
         distance = qldpc.codes.get_distance_quantum(
             [[1, 0]], [[1, 0]], homogeneous=True, method=method
         )
-        assert distance == 3
-    assert qldpc.codes.get_distance_quantum(np.empty((0, 4), dtype=np.uint8), [[1, 0, 0, 0]]) == 3
-    assert qldpc.codes.get_distance_quantum([[1, 0, 0, 0]], [[1, 0, 0, 0]]) == 3
+        assert distance is no_distance
+    no_logical_ops = np.empty((0, 4), dtype=np.uint8)
+    assert qldpc.codes.get_distance_quantum(no_logical_ops, [[1, 0, 0, 0]]) is no_distance
+    assert qldpc.codes.get_distance_quantum([[1, 0, 0, 0]], [[1, 0, 0, 0]]) is no_distance
 
-    with pytest.raises(ValueError, match="incompatible widths"):
+    with pytest.raises(ValueError, match="The stabilizers have 2 columns"):
         qldpc.codes.get_distance_quantum([[1, 0, 0]], [[1, 0]], homogeneous=True)
     with pytest.raises(ValueError, match="even number of columns"):
         qldpc.codes.get_distance_quantum([[1, 0, 0]], [], homogeneous=False)
@@ -187,10 +194,14 @@ def test_brouwer_zimmermann_special_inputs() -> None:
             np.empty((0, 3), dtype=np.uint8),
             homogeneous=False,
         )
-    with pytest.raises(ValueError, match="two-dimensional"):
+    with pytest.raises(ValueError, match="The generators must be a two-dimensional"):
         qldpc.codes.get_distance_classical(np.zeros((1, 1, 1), dtype=np.uint8))
-    with pytest.raises(ValueError, match="infer the width"):
+    with pytest.raises(ValueError, match="infer the width of generators"):
         qldpc.codes.get_distance_classical([])
+    with pytest.raises(ValueError, match="The logical_ops must be a two-dimensional"):
+        qldpc.codes.get_distance_quantum(np.zeros((1, 1, 2), dtype=np.uint8), [[1, 0]])
+    with pytest.raises(ValueError, match="The stabilizers must be a two-dimensional"):
+        qldpc.codes.get_distance_quantum([[1, 0]], np.zeros((1, 1, 2), dtype=np.uint8))
 
 
 @pytest.mark.parametrize(
@@ -343,7 +354,7 @@ def test_max_weight(request: pytest.FixtureRequest) -> None:
         ((word | word >> 4) & 0b1111).bit_count() for word in get_span(basis) - get_span(basis[:2])
     )
 
-    def check(distance_with_limit: Callable[..., int], distance: int, method: str) -> None:
+    def check(distance_with_limit: Callable[..., float], distance: int, method: str) -> None:
         assert distance >= 2
         for max_weight in [distance - 2, distance]:
             result = distance_with_limit(cutoff=0, max_weight=max_weight, method=method)
@@ -372,11 +383,18 @@ def test_max_weight_caps_cutoff() -> None:
 
 
 def test_max_weight_conventions_and_validation() -> None:
-    """The limit also caps the results returned for inputs without nontrivial words."""
-    assert qldpc.codes.get_distance_classical([[0, 0, 0]], max_weight=1) == 2
+    """The limit leaves NO_DISTANCE, for inputs without nontrivial words, unchanged."""
+    no_distance = qldpc.codes.NO_DISTANCE
+    assert qldpc.codes.get_distance_classical([[0, 0, 0]], max_weight=1) is no_distance
     no_logical_ops = np.zeros((0, 4), dtype=int)
-    assert qldpc.codes.get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]], max_weight=0) == 1
-    assert qldpc.codes.get_distance_quantum([[1, 1, 0, 0]], [[1, 1, 0, 0]], max_weight=1) == 2
+    assert (
+        qldpc.codes.get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]], max_weight=0)
+        is no_distance
+    )
+    assert (
+        qldpc.codes.get_distance_quantum([[1, 1, 0, 0]], [[1, 1, 0, 0]], max_weight=1)
+        is no_distance
+    )
     with pytest.raises(ValueError, match="max_weight must be nonnegative"):
         qldpc.codes.get_distance_classical([[1, 1]], max_weight=-1)
     with pytest.raises(ValueError, match="max_weight must be nonnegative"):
@@ -409,3 +427,20 @@ def test_distance_backend_validation() -> None:
     # The types of method names agree with the table that validates them.
     assert set(get_args(core.DistanceMethod)) == set(core._DISTANCE_METHODS)
     assert set(get_args(core._CanonicalDistanceMethod)) == set(core._DISTANCE_METHODS.values())
+
+
+def test_no_distance_behaves_as_nan_and_survives_copies() -> None:
+    """NO_DISTANCE is a float nan, and copies and pickles of it are the same member."""
+    no_distance = core.NO_DISTANCE
+    assert qldpc.codes.NoDistance is qldpc.codes.distance.NoDistance is core.NoDistance
+    assert qldpc.codes.NO_DISTANCE is qldpc.codes.distance.NO_DISTANCE is core.NoDistance.NAN
+    assert isinstance(no_distance, float) and math.isnan(no_distance)
+    assert str(no_distance) == f"{no_distance}" == repr(no_distance) == "nan"
+    assert repr((2, 0, no_distance)) == "(2, 0, nan)"
+    assert not no_distance >= 3 and no_distance != core.NO_DISTANCE
+    restored = pickle.loads(pickle.dumps(no_distance))  # noqa: S301 - trusted in-memory round trip
+    assert restored is no_distance
+    assert copy.copy(no_distance) is copy.deepcopy(no_distance) is no_distance
+    assert core.NoDistance(math.nan) is no_distance
+    with pytest.raises(ValueError, match="not a valid NoDistance"):
+        core.NoDistance(1.0)

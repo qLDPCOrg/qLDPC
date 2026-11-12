@@ -47,8 +47,10 @@ from qldpc.objects import (
 
 from ._code_capacity import CodeCapacityDecoder, get_code_capacity_decoder
 from .distance import (
+    NO_DISTANCE,
     DistanceBackend,
     DistanceMethod,
+    NoDistance,
     get_distance_classical,
     get_distance_quantum,
 )
@@ -108,8 +110,9 @@ class AbstractCode(abc.ABC):
     _matrix: galois.FieldArray
     _field: type[galois.FieldArray]
     _dimension: int | None = None
-    _distance: int | float | None = None
-    _distance_bound: int | float | None = None  # best known upper bound on distance
+    _distance: int | Literal[NoDistance.NAN] | None = None
+    # the best known upper bound on distance
+    _distance_bound: int | Literal[NoDistance.NAN] | None = None
 
     _is_canonicalized: bool = False
 
@@ -439,7 +442,7 @@ class ClassicalCode(AbstractCode):
         bound: int | bool | None = None,
         decoder: decoders.DeferredErrorDecoderInput = None,
         **bound_kwargs: Any,
-    ) -> tuple[int, int, int | float]:
+    ) -> tuple[int, int, int | Literal[NoDistance.NAN]]:
         """Compute the parameters of this code: ``[n,k,d]``.
 
         Args:
@@ -450,10 +453,11 @@ class ClassicalCode(AbstractCode):
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
-            A tuple of integers, ``(n, k, d)``, where:
+            A tuple ``(n, k, d)``, where:
                 - n is the number of data bits
                 - k is the number of encoded ("logical") bits
-                - d is the code distance (or an upper bound on code distance).
+                - d is the code distance (or an upper bound on code distance), an integer, or
+                  ``NO_DISTANCE`` if the code encodes nothing.
         """
         dimension = self.dimension
         distance = self.get_distance(bound=bound, vector=None, decoder=decoder, **bound_kwargs)
@@ -467,7 +471,7 @@ class ClassicalCode(AbstractCode):
         decoder: decoders.ErrorDecoderInput = None,
         method: DistanceMethod = "brouwer_zimmermann",
         **bound_kwargs: Any,
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
 
         Args:
@@ -487,7 +491,7 @@ class ClassicalCode(AbstractCode):
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
-            An integer distance (or bound) if it is defined, and np.nan otherwise.
+            An integer distance (or bound) if it is defined, and ``NO_DISTANCE`` otherwise.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
@@ -512,7 +516,7 @@ class ClassicalCode(AbstractCode):
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         cutoff: int = 1,
         method: DistanceMethod = "brouwer_zimmermann",
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Compute the exact minimum Hamming weight of nontrivial code words.
 
         The cost of this computation generally grows exponentially with the size of the code.  The
@@ -535,7 +539,7 @@ class ClassicalCode(AbstractCode):
                 ``"connected_support"``.
 
         Returns:
-            An integer distance if it is defined, or np.nan otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
@@ -547,6 +551,7 @@ class ClassicalCode(AbstractCode):
             return known_distance
 
         # we do not know the exact distance, so compute it
+        distance: int | Literal[NoDistance.NAN]
         if vector is None and method == "connected_support":
             distance = _get_distance_connected_support(
                 [(self.matrix, np.zeros((0, len(self)), dtype=np.uint8))], cutoff=cutoff
@@ -609,7 +614,7 @@ class ClassicalCode(AbstractCode):
 
     def get_distance_if_known(
         self, vector: Sequence[int] | npt.NDArray[np.int_] | None = None
-    ) -> int | float | None:
+    ) -> int | Literal[NoDistance.NAN] | None:
         """Retrieve a distance, or None if it is not known.
 
         Args:
@@ -621,7 +626,7 @@ class ClassicalCode(AbstractCode):
 
         # the distance of dimension-0 codes is undefined
         if self.dimension == 0:
-            self._distance = np.nan
+            self._distance = NO_DISTANCE
 
         return self._distance
 
@@ -634,7 +639,7 @@ class ClassicalCode(AbstractCode):
         decoder: decoders.ErrorDecoderInput = None,
         backend: DistanceBackend = "auto",
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         The code distance is the minimum Hamming distance between two code words, or equivalently
@@ -674,10 +679,10 @@ class ClassicalCode(AbstractCode):
                 ``decoder=`` instead.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.  If the exact distance
-            is already known, it is returned.  When bounding code distance, the returned bound is
-            never worse than the best bound already known for this code, and the best bound is
-            remembered for later calls.
+            An upper bound on distance if it is defined, or ``NO_DISTANCE`` otherwise.  If the exact
+            distance is already known, it is returned.  When bounding code distance, the returned
+            bound is never worse than the best bound already known for this code, and the best bound
+            is remembered for later calls.
 
         Raises:
             TypeError: If num_trials is not an integer or None.
@@ -1899,7 +1904,7 @@ class QuditCode(AbstractCode):
 
     def get_code_params(
         self, *, bound: int | bool | None = None, **bound_kwargs: Any
-    ) -> tuple[int, int, int | float]:
+    ) -> tuple[int, int, int | Literal[NoDistance.NAN]]:
         """Compute the parameters of this code: ``[n,k,d]``.
 
         Args:
@@ -1909,10 +1914,11 @@ class QuditCode(AbstractCode):
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
-            A tuple of integers, ``(n, k, d)``, where:
+            A tuple ``(n, k, d)``, where:
                 - n is the number of data qudits
                 - k is the number of encoded ("logical") qudits
-                - d is the code distance (or an upper bound on code distance).
+                - d is the code distance (or an upper bound on code distance), an integer, or
+                  ``NO_DISTANCE`` if the code encodes nothing.
         """
         dimension = self.dimension
         distance = self.get_distance(bound=bound, **bound_kwargs)
@@ -1924,7 +1930,7 @@ class QuditCode(AbstractCode):
         bound: int | bool | None = None,
         method: DistanceMethod = "brouwer_zimmermann",
         **bound_kwargs: Any,
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
@@ -1940,7 +1946,7 @@ class QuditCode(AbstractCode):
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
-            An integer distance (or bound) if it is defined, and np.nan otherwise.
+            An integer distance (or bound) if it is defined, and ``NO_DISTANCE`` otherwise.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
@@ -1962,7 +1968,7 @@ class QuditCode(AbstractCode):
         *,
         cutoff: int = 1,
         method: DistanceMethod = "brouwer_zimmermann",
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Compute the exact minimum weight of nontrivial logical operators.
 
         The weight of an operator is the number of qudits on which it acts nontrivially.  For a
@@ -1984,7 +1990,7 @@ class QuditCode(AbstractCode):
                 ``"connected_support"``.
 
         Returns:
-            An integer distance if it is defined, or np.nan otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
@@ -1996,6 +2002,7 @@ class QuditCode(AbstractCode):
             return known_distance
 
         # we do not know the exact distance, so compute it
+        distance: int | Literal[NoDistance.NAN]
         if method == "connected_support":
             # A dressed logical operator commutes with the stabilizers, and is trivial if it is in
             # the gauge group, which the rows of self.matrix generate.
@@ -2042,14 +2049,14 @@ class QuditCode(AbstractCode):
             self._distance = int(distance)
         return distance
 
-    def get_distance_if_known(self) -> int | float | None:
+    def get_distance_if_known(self) -> int | Literal[NoDistance.NAN] | None:
         """Retrieve a distance, if known.
 
         Otherwise, return None.
         """
         # the distance of dimension-0 codes is undefined
         if self.dimension == 0:
-            self._distance = np.nan
+            self._distance = NO_DISTANCE
 
         return self._distance
 
@@ -2061,7 +2068,7 @@ class QuditCode(AbstractCode):
         cutoff: int | None = None,
         backend: DistanceBackend = "auto",
         **bound_kwargs: Any,
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use GAP's QDistRnd package to compute a distance bound.  By default,
@@ -2085,9 +2092,9 @@ class QuditCode(AbstractCode):
                 {gap_options}; see https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.  The returned bound is
-            never worse than the best bound already known for this code, and the best bound is
-            remembered for later calls.
+            An upper bound on distance if it is defined, or ``NO_DISTANCE`` otherwise.  The returned
+            bound is never worse than the best bound already known for this code, and the best bound
+            is remembered for later calls.
 
         Raises:
             NotImplementedError: If GAP cannot be called with ``backend="auto"``, or if the manual
@@ -2758,10 +2765,10 @@ class CSSCode(QuditCode):
 
     _code_x: ClassicalCode
     _code_z: ClassicalCode
-    _distance_x: int | float | None = None
-    _distance_z: int | float | None = None
-    _distance_bound_x: int | float | None = None
-    _distance_bound_z: int | float | None = None
+    _distance_x: int | Literal[NoDistance.NAN] | None = None
+    _distance_z: int | Literal[NoDistance.NAN] | None = None
+    _distance_bound_x: int | Literal[NoDistance.NAN] | None = None
+    _distance_bound_z: int | Literal[NoDistance.NAN] | None = None
 
     _equal_distance_xz: bool  # are the X and Z distances promised to be equal?
 
@@ -3480,7 +3487,7 @@ class CSSCode(QuditCode):
         bound: int | bool | None = None,
         decoder: decoders.DeferredErrorDecoderInput = None,
         **bound_kwargs: Any,
-    ) -> tuple[int, int, int | float]:
+    ) -> tuple[int, int, int | Literal[NoDistance.NAN]]:
         """Compute the parameters of this code: ``[n,k,d]``.
 
         Args:
@@ -3491,10 +3498,11 @@ class CSSCode(QuditCode):
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
-            A tuple of integers, ``(n, k, d)``, where:
+            A tuple ``(n, k, d)``, where:
                 - n is the number of data qudits
                 - k is the number of encoded ("logical") qudits
-                - d is the code distance (or an upper bound on code distance).
+                - d is the code distance (or an upper bound on code distance), an integer, or
+                  ``NO_DISTANCE`` if the code encodes nothing.
         """
         dimension = self.dimension
         distance = self.get_distance(bound=bound, decoder=decoder, **bound_kwargs)
@@ -3508,7 +3516,7 @@ class CSSCode(QuditCode):
         decoder: decoders.DeferredErrorDecoderInput = None,
         method: DistanceMethod = "brouwer_zimmermann",
         **bound_kwargs: Any,
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
 
         Args:
@@ -3529,7 +3537,7 @@ class CSSCode(QuditCode):
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
-            An integer distance (or bound) if it is defined, and np.nan otherwise.
+            An integer distance (or bound) if it is defined, and ``NO_DISTANCE`` otherwise.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
@@ -3554,7 +3562,7 @@ class CSSCode(QuditCode):
         *,
         cutoff: int = 1,
         method: DistanceMethod = "brouwer_zimmermann",
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Compute the exact minimum weight of nontrivial logical operators.
 
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
@@ -3580,7 +3588,7 @@ class CSSCode(QuditCode):
                 enumeration, and reject ``"connected_support"``.
 
         Returns:
-            An integer distance if it is defined, or np.nan otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
@@ -3677,7 +3685,9 @@ class CSSCode(QuditCode):
 
         return distance
 
-    def get_distance_if_known(self, pauli: PauliXZLike | None = None) -> int | float | None:
+    def get_distance_if_known(
+        self, pauli: PauliXZLike | None = None
+    ) -> int | Literal[NoDistance.NAN] | None:
         """Retrieve a distance, if known.
 
         Otherwise, return None.
@@ -3686,7 +3696,7 @@ class CSSCode(QuditCode):
 
         # the distances of dimension-0 codes are undefined
         if self.dimension == 0:
-            self._distance = self._distance_x = self._distance_z = np.nan
+            self._distance = self._distance_x = self._distance_z = NO_DISTANCE
 
         if pauli is Pauli.X:
             return self._distance_x
@@ -3711,7 +3721,7 @@ class CSSCode(QuditCode):
         decoder: decoders.DeferredErrorDecoderInput = None,
         backend: DistanceBackend = "auto",
         **bound_kwargs: Any,
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         """Estimate an upper bound on code distance with a randomized algorithm.
 
         Set ``backend="gap"`` to use GAP's QDistRnd package or ``backend="sqetch"`` to use the
@@ -3745,9 +3755,10 @@ class CSSCode(QuditCode):
                 that backend, and raise a ValueError if it is unavailable.
 
         Returns:
-            An upper bound on distance if it is defined, or np.nan otherwise.  If the exact distance
-            is already known, it is returned.  The returned bound is never worse than the best bound
-            already known for this code, and the best bound is remembered for later calls.
+            An upper bound on distance if it is defined, or ``NO_DISTANCE`` otherwise.  If the exact
+            distance is already known, it is returned.  The returned bound is never worse than the
+            best bound already known for this code, and the best bound is remembered for later
+            calls.
 
         Raises:
             NotImplementedError: If the manual GAP workflow is declined with ``backend="gap"``.
@@ -3843,7 +3854,7 @@ class CSSCode(QuditCode):
         cutoff: int | None = None,
         decoder: decoders.DeferredErrorDecoderInput = None,
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
-    ) -> int | float:
+    ) -> int | Literal[NoDistance.NAN]:
         r"""Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use the algorithm described in arXiv:2308.07915, also explained below.
@@ -3899,6 +3910,8 @@ class CSSCode(QuditCode):
         define equivalent decoding problems, so each problem is decoded at most once.  At most 100
         problems beyond ``num_trials`` are drawn to replace problems on which the decoder fails.
 
+        A code without logical qudits has no distance, and gives ``NO_DISTANCE``.
+
         Raises:
             ValueError: If the decoder fails to infer an error that reproduces its syndrome in every
                 decoding problem that it attempts.
@@ -3906,6 +3919,8 @@ class CSSCode(QuditCode):
         pauli = Pauli.coerce_xz(pauli)
         reject_prebuilt_decoder(decoder, _CSS_DISTANCE_BOUND_REASON)
         cutoff = cutoff or 0
+        if self.dimension == 0:
+            return NO_DISTANCE
 
         # pretend without loss of generality that we are computing the X-distance
         pauli_z: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
@@ -4369,7 +4384,9 @@ class CSSCode(QuditCode):
             get_automorphisms=lambda: self._found_qudit_automorphisms,
         )
 
-    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
+    def _get_distance_exact(
+        self, pauli: PauliXZ | None, *, method: DistanceMethod
+    ) -> int | Literal[NoDistance.NAN]:
         """Method for subclasses to compute specialized exact distance calculations.
 
         Args:
@@ -4378,7 +4395,9 @@ class CSSCode(QuditCode):
         """
         return NotImplemented
 
-    def _get_distance_bound_if_known(self, pauli: PauliXZ | None = None) -> int | float | None:
+    def _get_distance_bound_if_known(
+        self, pauli: PauliXZ | None = None
+    ) -> int | Literal[NoDistance.NAN] | None:
         """Retrieve the best known upper bound on (X-, Z-, or ordinary) distance, or ``None``."""
         if pauli is Pauli.X:
             candidates = [self._distance_x, self._distance_bound_x]
@@ -4395,7 +4414,9 @@ class CSSCode(QuditCode):
             ]
         return min((bound for bound in candidates if bound is not None), default=None)
 
-    def _update_distance_bound(self, bound: float, pauli: PauliXZ) -> float:
+    def _update_distance_bound(
+        self, bound: int | Literal[NoDistance.NAN], pauli: PauliXZ
+    ) -> int | Literal[NoDistance.NAN]:
         """Remember an upper bound on the X-distance or Z-distance, and return the best bound."""
         known_bound = self._get_distance_bound_if_known(None if self._equal_distance_xz else pauli)
         bound = bound if known_bound is None else min(bound, known_bound)
