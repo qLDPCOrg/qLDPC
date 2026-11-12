@@ -201,7 +201,7 @@ class CosetLeaderSearch:
         self._support_searches: tuple[_ConnectedSupportCosetSearch, ...] = ()
         self.css_weight = css_weight
         assert_binary(stabilizers, "stabilizers")
-        matrix = as_binary_matrix(stabilizers)
+        matrix = as_binary_matrix(stabilizers, "stabilizers")
         self.num_qubits = len(matrix)
         n = self.num_qubits
         if not n or matrix.shape[1] != 2 * n:
