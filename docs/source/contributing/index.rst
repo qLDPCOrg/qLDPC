@@ -123,6 +123,7 @@ CI runs on pull requests that are ready for review, not on drafts.
 It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
 It also makes the compiled runs.
 Run these locally only in the extended checks, or as targeted tests of a change to compiled code.
+To re-balance the coverage shards, run the "Store test durations" workflow from the Actions tab, then ``python checks/_fetch_test_durations.py``, and commit the updated ``.test_durations``.
 
 ``all_.py`` runs most checks in one command.
 It skips the per-module coverage gate and ``pyproject.toml`` formatting.
