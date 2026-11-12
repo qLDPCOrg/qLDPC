@@ -3,8 +3,7 @@
 """Tests for compiled functions, and for running their tests compiled or as plain Python.
 
 They cover the disk cache, the registry of compiled-on-request functions, the switch to plain
-Python, the options of the test runs with compiled code, and the rules that make compiled functions
-safe.
+Python, the options of the compiled runs, and the rules for compiled functions.
 """
 
 from __future__ import annotations
@@ -446,6 +445,19 @@ def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
             if isinstance(node, ast.ImportFrom):
                 imported = {alias.name for alias in node.names} & registered
                 assert not imported, f"{path.name} imports {imported} by name"
+
+
+def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> None:
+    """CI runs only the distance tests with compiled-on-request functions compiled."""
+    distance_package = Path(qldpc.__file__).parent / "codes" / "distance"
+    paths = [
+        path
+        for path, tree in _get_source_trees()
+        if _get_functions_decorated_by(tree, "compiled_on_request")
+    ]
+    assert paths
+    outside = [path for path in paths if not path.is_relative_to(distance_package)]
+    assert not outside, outside
 
 
 def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:

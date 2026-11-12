@@ -1,9 +1,9 @@
-# This workflow checks every push to main and every pull request that is ready for review.  Its
-# jobs lint the code and check its formatting and types, build the documentation, run the fast
-# example notebooks, run the tests with the per-module coverage check, and run tests with compiled
-# code.  The coverage check runs compiled functions as plain Python, so that coverage can trace
-# them.  build-changes.yaml runs further checks, such as the installation check, only when
-# pyproject.toml changes.
+# This workflow checks every push to main and every pull request that is ready for review.  Its jobs
+# lint the code and check its formatting and types, build the documentation, run the fast example
+# notebooks, run the tests with the per-module coverage check, and make the compiled runs.  The
+# coverage check runs compiled functions as plain Python, so that coverage can trace them.
+# build-changes.yaml runs further checks, such as the installation check, only when pyproject.toml
+# changes.
 
 name: Continuous integration
 
