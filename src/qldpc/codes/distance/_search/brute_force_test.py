@@ -17,6 +17,7 @@ from qldpc._binary import pack_bits
 from ...conftest import Tune
 from .. import _binary as binary
 from ..conftest import count_set_bits
+from . import brute_force
 
 
 @pytest.mark.parametrize("batch_exponent", [1, 3, 13])
@@ -169,3 +170,34 @@ def test_cutoff_early_exit(tune: Tune) -> None:
         method="brute_force",
     )
     assert distance == 1
+
+
+@pytest.mark.parametrize("homogeneous", [True, False], ids=["hamming", "symplectic"])
+def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
+    """An early exit returns the weight of an operator that the search has weighed.
+
+    With a batch of one word, the vectorized block holds no logical operator, so the search has
+    weighed none before its sweep, and a cutoff at or above the number of columns must not end it
+    there.
+    """
+    num_qubits = 3
+    logical_op = [1, 0, 0] if homogeneous else [1, 0, 0, 0, 0, 0]
+    stabilizer = [0, 1, 1] if homogeneous else [0, 1, 1, 0, 0, 0]
+    distance = brute_force.get_distance_quantum_brute_force(
+        [logical_op],
+        [stabilizer],
+        cutoff=len(logical_op),
+        batch_exponent=0,
+        homogeneous=homogeneous,
+    )
+    assert distance == 1
+
+    # Without logical operators, the result exceeds every weight, whatever the cutoff.
+    distance = brute_force.get_distance_quantum_brute_force(
+        np.empty((0, len(logical_op)), dtype=np.uint8),
+        [stabilizer],
+        cutoff=100,
+        batch_exponent=0,
+        homogeneous=homogeneous,
+    )
+    assert distance == num_qubits + 1

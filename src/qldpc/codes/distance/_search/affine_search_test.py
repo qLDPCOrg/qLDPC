@@ -473,11 +473,13 @@ def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower
 ) -> None:
     """A coset tail scan below the best weight skips completions only if they cannot lower it.
 
-    The bases of six rows have rank deficiency zero and three.  From a best weight of at most the
-    least weight of a layer, which no word lowers, the scan skips the supports that a scan with that
-    skip bound skips, which the test above checks against enumeration.  From a best weight above
-    every word of the layer, it finds a lightest word, since every word that it skips weighs at
-    least the best weight at the time.  It weighs or skips every support, and skips some.
+    The scan takes its best weight at the start as its skip bound, as a search for the minimum
+    weight of a coset does.  The bases of six rows have rank deficiency zero and three.  From a best
+    weight of at most the least weight of a layer, which no word lowers, the scan skips the supports
+    that a scan with that skip bound skips, which the test above checks against enumeration.  From a
+    best weight above every word of the layer, it finds a lightest word, since every word that it
+    skips weighs at least the best weight at the time.  It weighs or skips every support, and skips
+    some.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_columns, block_bits = 6, 24, 4
@@ -504,10 +506,8 @@ def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower
                     np.empty((layer, 1, widths[0]), dtype=np.uint64),
                 )
                 best_support = np.full(layer, -1, dtype=np.int64)
-                found, weighed, skipped = (
-                    affine_search.scan_coset_layer_by_tails_with_tables_below_best(
-                        *arguments, best, -1, *table_arguments, best_support
-                    )
+                found, weighed, skipped = affine_search.scan_coset_layer_by_tails_with_tables(
+                    *arguments, best, -1, best, *table_arguments, best_support
                 )
                 assert weighed + skipped == math.comb(num_rows, layer)
                 if best > least:

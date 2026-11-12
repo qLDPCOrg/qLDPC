@@ -133,6 +133,7 @@ Distances across packages
 Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
 Binary codes with sparse parity checks can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_.
 All exact methods can take exponential time.
+A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.core.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.core.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
 Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
