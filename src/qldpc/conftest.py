@@ -240,14 +240,14 @@ def wedderburn_artin_rings_to_test(
 
 
 ####################################################################################################
-# runs with compiled code
+# compiled runs
 
 # The decorators of qldpc._compilation that make numba compile a function.
 _COMPILING_DECORATORS = frozenset({"always_compiled", "compiled_on_request"})
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Add the options of CI's compiled runs (see docs/source/contributing/index.rst)."""
+    """Add the options of the compiled runs (see docs/source/contributing/index.rst)."""
     # Explicit defaults let pytest set these options when it loads this file after reading the
     # command line, as in a run of ``pytest src``.
     parser.addoption(
@@ -267,7 +267,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Refuse the options of runs with compiled code while compilation is disabled."""
+    """Refuse the options of the compiled runs while compilation is disabled."""
     options = [
         option
         for option in ("--compiled-module-tests", "--compile-search-setup")

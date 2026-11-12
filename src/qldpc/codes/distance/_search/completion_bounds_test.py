@@ -83,8 +83,8 @@ def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
     for num_rows, num_columns in [(2, 1), (3, 5), (6, 21), (7, 70)]:
         tails = get_random_tails(rng, num_rows, num_columns)
         rows = pack_bits(tails)
-        # the default width of 16 columns, and narrower ones, to check that merging never weakens a
-        # bound; 16-column tables of the longest tails are slow to build in plain Python
+        # The default width of 16 columns, and narrower ones.  16-column tables are slow to build
+        # as plain Python for 64 or more columns.
         widths = (4, 8, 16) if num_columns < 64 else (4, 8)
         all_tables = {bits: cb.CompletionTables.build(rows, bits) for bits in widths}
         for first, _ in itertools.product(range(num_rows - 1), range(6)):
