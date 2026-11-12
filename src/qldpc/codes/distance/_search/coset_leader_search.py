@@ -2159,8 +2159,9 @@ def _search_coset_for_min_weight_by_tails(
     of its set and its tail, as ``_search_by_tails_from_syndrome_word`` does.
 
     In each layer of two or more rows of a set with tables, it skips the completions of a prefix
-    whose bound reaches the best weight of the scan, which starts at its incumbent (see
-    ``affine_search.scan_coset_layer_by_tails_with_tables_below_best``).  Until it finds a word
+    whose bound reaches the best weight of the scan, which starts at its incumbent: the scan takes
+    the skip bound of ``max_weight``, which is at least the incumbent, as its skip bound (see
+    ``affine_search.scan_coset_layer_by_tails_with_tables``).  Until it finds a word
     within ``max_weight``, the incumbent is the skip bound of ``max_weight``, at which
     ``_search_by_tails_from_syndrome_word`` skips too.  Then it is the Hamming weight of the best
     word, or one less where every word of the coset has its parity, so the search skips no word
@@ -2224,21 +2225,20 @@ def _search_coset_for_min_weight_by_tails(
                     num_blocks = layout[set_index, 1]
                     block_offsets = layout[set_index, 2 : num_blocks + 3]
                     start = layout[set_index, 0]
-                    found, count, set_skipped = (
-                        affine_search.scan_coset_layer_by_tails_with_tables_below_best(
-                            offset_tails[set_index],
-                            tails[set_index : set_index + 1],
-                            ranks[set_index : set_index + 1],
-                            widths,
-                            support[:layer],
-                            prefixes,
-                            incumbent,
-                            cutoff,
-                            completion_tables[start : start + (num_rows - 1) * block_offsets[-1]],
-                            block_offsets,
-                            block_bits,
-                            best_support,
-                        )
+                    found, count, set_skipped = affine_search.scan_coset_layer_by_tails_with_tables(
+                        offset_tails[set_index],
+                        tails[set_index : set_index + 1],
+                        ranks[set_index : set_index + 1],
+                        widths,
+                        support[:layer],
+                        prefixes,
+                        incumbent,
+                        cutoff,
+                        skip_bound,
+                        completion_tables[start : start + (num_rows - 1) * block_offsets[-1]],
+                        block_offsets,
+                        block_bits,
+                        best_support,
                     )
                     skipped += set_skipped
                 else:
