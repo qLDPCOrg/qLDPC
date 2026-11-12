@@ -73,8 +73,9 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | `enumeration_batch_exponent` | `trial.py 'distance/classical:1000:980:2/-' --repeat 3 --tuning '{"enumeration_max_dimension": 62}'`, and with `"enumeration_batch_exponent": 30` |
 | `automorphism_minimum_layer_work` at `10**7` | `trace.py distance/qt7/X --tuning '{"automorphism_minimum_layer_work": 10000000}'` |
 | Sampling of `completion_bound_minimum_layer_work` | `trace.py <workload> --output <file>` at the defaults, and with automorphisms off, summing the `seconds` of the `predict` events before each `layer` event |
-| Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X`; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
+| Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X` for the predictions, and `fit_completion_costs.py collect --repeats 3 --workloads distance/pp232/X 'distance/classical:150:100:1/-'`, then `fit_completion_costs.py fit`, for the measured costs; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
+| The refit lookup costs on `hadamard/gross` | `trace.py hadamard/gross` at the defaults, and with `--tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05}'`, comparing the `predict` event and the seconds of the `layer` event of weight 6 |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |
 
@@ -383,28 +384,16 @@ python experiments/distance_tuning/sweep.py \
     --arms '[{}, {"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_max_cost_percent": 200}]'
 ```
 
-### final-short
+### final-short-f
 
 ```bash
 python experiments/distance_tuning/sweep.py \
-    --tag final-short \
+    --tag final-short-f \
     --rounds 8 \
     --jobs 3 \
     --timeout 3600 \
-    --workloads distance/classical:128:80:1/- distance/classical:140:90:1/- distance/classical:150:100:1/- distance/sparse:1000:21:50:2/- distance/lp13s5/X distance/qt7/Z distance/qt7/X distance/pp232/X count/pp110/12 count/gross/12 coset/gross/css/10/10/3000 ccount/pp110/12 coset/pp232/physical/6/6/500 hbound/pp372/2/2000 \
-    --arms '[{"completion_bound_minimum_layer_work": 100000000, "partition_work_ratio": 10, "enumeration_setup_cost_factor": 128, "max_css_single_pairs": 65536}, {}]'
-```
-
-### final-long
-
-```bash
-python experiments/distance_tuning/sweep.py \
-    --tag final-long \
-    --rounds 3 \
-    --jobs 3 \
-    --timeout 7200 \
-    --workloads hadamard/gross distance/bb288/X distance/pp170/X hadamard/pp110 distance/classical:160:110:1/- \
-    --arms '[{"completion_bound_minimum_layer_work": 100000000, "partition_work_ratio": 10, "enumeration_setup_cost_factor": 128, "max_css_single_pairs": 65536}, {}]'
+    --workloads distance/classical:128:80:1/- distance/classical:140:90:1/- distance/classical:150:100:1/- distance/sparse:1000:21:50:2/- distance/lp13s5/X distance/lp13s8/X distance/qt7/Z distance/qt7/X distance/pp232/X count/pp110/12 count/gross/12 coset/gross/css/10/10/3000 ccount/pp110/12 coset/pp232/physical/6/6/500 hbound/pp372/2/2000 certify/gross/css/2 faultdist/toric:6/Z \
+    --arms '[{"completion_bound_minimum_layer_work": 100000000, "partition_work_ratio": 10, "partition_cost_factor": 20, "enumeration_setup_cost_factor": 128, "max_css_single_pairs": 65536}, {}]'
 ```
 
 ### v-maxdim
