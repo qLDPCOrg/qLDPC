@@ -15,7 +15,8 @@ runs a distance workload once under the given tuning.  It records:
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
   search and the cost of partitioning, in candidate/set evaluations;
 - each certificate of a search, which may solve linear programs, with its estimated work, which
-  decides whether it does, and the seconds that took;
+  decides whether it may, and the seconds that took, and each linear program that it solves, with
+  its bound and seconds;
 - each attempt to switch to a family of automorphism images, the seconds it took, and whether the
   search switched;
 - each test of whether a layer of ``k`` rows and weight ``w`` considers completion tables, with its
@@ -155,6 +156,7 @@ def install_wrappers() -> None:
         (distance, "enumeration_is_cheaper_than_setup", wrap_enumeration_by_size),
         (distance, "_enumeration_is_cheaper_than_search", wrap_enumeration_by_work),
         (distance, "get_nested_distance_brute_force", wrap_enumerate),
+        (certificates, "get_lp_lower_bound", wrap_linear_program),
     ]
     for owner, name, wrap in patches:
         setattr(owner, name, wrap(getattr(owner, name)))
@@ -318,6 +320,21 @@ def wrap_enumerate(function: Callable[..., Any]) -> Callable[..., Any]:
         result = function(*args, **kwargs)
         EVENTS.append({"event": "enumerate", "seconds": time.perf_counter() - start})
         return result
+
+    return wrapper
+
+
+def wrap_linear_program(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record each linear program that a certificate solves, its bound, and its seconds."""
+
+    @functools.wraps(function)
+    def wrapper(*args: Any, **kwargs: Any) -> int:
+        start = time.perf_counter()
+        bound = function(*args, **kwargs)
+        weight = None if CURRENT_LAYER is None else CURRENT_LAYER["weight"]
+        event = {"event": "linear program", "weight": weight, "bound": int(bound)}
+        EVENTS.append(event | {"seconds": time.perf_counter() - start})
+        return bound
 
     return wrapper
 
