@@ -95,7 +95,7 @@ class _NumbaConfig(Protocol):
     """The settings of numba that this module reads and writes."""
 
     CACHE_DIR: str
-    DISABLE_JIT: bool
+    DISABLE_JIT: int
 
 
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
@@ -104,7 +104,7 @@ _numba_config = cast(_NumbaConfig, config)
 # If this environment variable is "1" when qLDPC is imported, the functions that numba would compile
 # run as ordinary Python (see the module docstring).
 DISABLE_COMPILATION_VARIABLE = "QLDPC_DISABLE_COMPILATION"
-_COMPILATION_DISABLED = os.environ.get(DISABLE_COMPILATION_VARIABLE) == "1"
+_DISABLED_BY_VARIABLE = os.environ.get(DISABLE_COMPILATION_VARIABLE) == "1"
 
 # The directory of qLDPC, whose source files name the directory of its compiled code.
 _PACKAGE_DIRECTORY = Path(__file__).parent
@@ -180,6 +180,8 @@ def always_compiled(
     if function is None:
         return lambda function: always_compiled(function, inline=inline)
     if is_compilation_disabled():
+        # Callers only call the function, which then lacks the attributes of a dispatcher, as
+        # numba's own switch leaves it.
         return cast("Dispatcher[_Function]", function)
     mode: Literal["always", "never"] = "always" if inline else "never"
     cache_directory = _get_cache_directory(_PACKAGE_DIRECTORY)
@@ -221,7 +223,7 @@ def set_on_request_functions_compiled(compiled: bool) -> None:
 
 def is_compilation_disabled() -> bool:
     """Whether qLDPC's or numba's switch disables compilation (see the module docstring)."""
-    return _COMPILATION_DISABLED or _numba_config.DISABLE_JIT
+    return _DISABLED_BY_VARIABLE or bool(_numba_config.DISABLE_JIT)
 
 
 def _compile_with_cache_in(
