@@ -1050,9 +1050,12 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 - **Resumable layers.**
   The compiled scan returns after at most `batch_size` supports.
   A scan of one information set with completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) returns after at most `batch_size` supports and lookups together, so it stays responsive while it skips most supports.
-  Within one `advance` call, successive compiled batches reuse the local `support` and `prefixes` arrays.
-  `advance` changes `lower_bound` and `next_weight` only after a layer is complete in every search basis, or when the search switches to an automorphism family, which sets `next_weight` to two and keeps the larger `lower_bound`.
-  Aborting `advance`, for example with an exception or a cutoff return, leaves those completed-layer fields unchanged.
+  Successive compiled batches that scan the same sets reuse their local `support` and `prefixes` arrays.
+  Once the leading search bases that `advance` scans have completed a layer, it may raise `lower_bound`, since the certificate of [Section 2.5](#25-the-stopping-certificate) can advance within a layer.
+  It increments `next_weight`, the coefficient weight of the next layer, only once every search basis has completed that layer.
+  Before a costly layer, `advance` may switch the search to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
+  If the scan of a layer stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan.
+  A switch earlier in the same call still takes effect.
   A subsequent call that is still permitted to advance restarts the unfinished layer from its first support.
 - **CSS sectors.**
   A joint search runs one search per sector in round-robin order and shares the best bound.
