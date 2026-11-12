@@ -6,25 +6,34 @@ The script wraps functions of ``qldpc.codes.distance._brouwer_zimmermann`` and
 ``qldpc.codes.distance._information_sets`` in this process only, warms up as ``trial.py`` does, and
 runs a distance workload once under the given tuning.  It records:
 
+- each test of whether to enumerate every codeword instead of searching information sets: by size,
+  with the dimension ``k``, the length ``n``, and ``2**k / (k * n)``, and by work, with the
+  candidates of each route;
 - each family of information sets that the search builds (disjoint, overlapping, or by matroid
-  partitioning), with its number of sets and the seconds that building it took, and for
-  partitioning, the two estimates that its gate compares: the work of the search and the cost of
-  partitioning, in candidate/set evaluations;
-- each certificate of a search, which may solve linear programs, and the seconds that took;
+  partitioning), with its number of sets and the seconds that building it took, and the quantities
+  that the gates of overlapping families and of partitioning compare: for overlapping families, the
+  check that stopped the attempt and the estimated work, and for partitioning, the work of the
+  search and the cost of partitioning, in candidate/set evaluations;
+- each certificate of a search, which may solve linear programs, with its estimated work, which
+  decides whether it does, and the seconds that took;
 - each attempt to switch to a family of automorphism images, the seconds it took, and whether the
   search switched;
+- each test of whether a layer of ``k`` rows and weight ``w`` considers completion tables, with its
+  ``C(k, w)`` supports, and each comparison of a predicted cost with the limit;
 - each prediction of the cost of completion tables, as a share of the cost of a scan without them,
   with the number of rows and the weight of its layer or step, the seconds it took, and the seconds
   since the workload started, which also time the steps of counts;
 - each coefficient layer that a distance search advances by: its weight, number of basis rows and
-  scanned sets, its supports, the best weight and lower bound after it, the supports that it
-  evaluated and skipped, its candidate/set evaluations (each support of a scan in lockstep counts
-  once for each of its sets), and the lookups of completion tables that it made, the width of the
-  blocks of its tables if any, with their bytes and number of blocks, the seconds spent choosing and
-  building tables, and its seconds in all.
+  sets, its supports, whether the search can still switch to automorphism images and, if so, the
+  work of the layer that the switch compares (scanned sets times supports), the best weight and
+  lower bound after it, the supports that it evaluated and skipped, its candidate/set evaluations
+  (each support of a scan in lockstep counts once for each of its sets), and the lookups of
+  completion tables that it made, the width of the blocks of its tables if any, with their bytes and
+  number of blocks, the seconds spent choosing and building tables, and its seconds in all.
 
 It prints a table of the layers, and with ``--output``, saves the events as JSON.  With
-``--setup-only``, it stops before the first layer of the first search, after its families.  The
+``--setup-only``, it stops before the first layer of the first search, after its families, or
+before the first enumeration of codewords.  The
 thresholds of ``SearchTuning`` decide where these stages start, so a trace shows which decisions a
 threshold can flip, and what each stage costs, before timing the tunings that flip them with
 ``sweep.py``.
@@ -49,7 +58,7 @@ import numpy as np
 
 from qldpc.codes.distance import _tuning
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
-from qldpc.codes.distance._information_sets import basis_families, completion_bounds
+from qldpc.codes.distance._information_sets import basis_families, certificates, completion_bounds
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.distance_tuning.*, and would silently treat a bare "import trial" as untyped.
@@ -114,7 +123,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--setup-only",
         action="store_true",
-        help="stop before the first layer of the first search, after it builds its families",
+        help="stop before the first layer or enumeration of the first search, after its setup",
     )
     return parser.parse_args()
 
@@ -141,19 +150,35 @@ def install_wrappers() -> None:
         (tables_class, "build", lambda build: staticmethod(wrap_build(build))),
         (affine_search, "scan_information_set", wrap_scan),
         (affine_search, "scan_family", wrap_scan),
+        (completion_bounds, "considers_tables", wrap_considers),
+        (completion_bounds, "is_within_cost_limit", wrap_limit),
+        (distance, "enumeration_is_cheaper_than_setup", wrap_enumeration_by_size),
+        (distance, "_enumeration_is_cheaper_than_search", wrap_enumeration_by_work),
+        (distance, "get_nested_distance_brute_force", wrap_enumerate),
     ]
     for owner, name, wrap in patches:
         setattr(owner, name, wrap(getattr(owner, name)))
 
 
 def wrap_certificate(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the seconds of each certificate, which may solve linear programs."""
+    """Record each certificate of a search, its estimated work, and its seconds.
+
+    A family of overlapping sets whose estimated work reaches ``lp_minimum_work`` also bounds
+    unvisited words by linear programming (see ``BasisFamily.get_search_certificate``).
+    """
 
     @functools.wraps(function)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+    def wrapper(
+        family: Any, upper_bound: int, lp_minimum_work: int, *args: Any, **kwargs: Any
+    ) -> Any:
         start = time.perf_counter()
-        result = function(*args, **kwargs)
-        EVENTS.append({"event": "certificate", "seconds": time.perf_counter() - start})
+        result = function(family, upper_bound, lp_minimum_work, *args, **kwargs)
+        seconds = time.perf_counter() - start
+        overlapping = family.max_coverage != 1
+        work = int(family.certificate.work(upper_bound)) if overlapping else None
+        lp = work is not None and work >= lp_minimum_work
+        event = {"event": "certificate", "overlapping": overlapping, "work": work, "lp": lp}
+        EVENTS.append(event | {"seconds": seconds})
         return result
 
     return wrapper
@@ -170,6 +195,8 @@ def wrap_family(kind: str, function: Callable[..., Any]) -> Callable[..., Any]:
         event = {"event": "family", "kind": kind, "sets": len(family.ranks), "seconds": seconds}
         if kind == "partitioned" and len(args) == 5:
             event |= get_partition_gate(*args)
+        if kind == "overlapping" and len(args) == 5:
+            event |= get_overlapping_gate(*args)
         EVENTS.append(event)
         return family
 
@@ -200,6 +227,138 @@ def get_partition_gate(
     }
 
 
+def get_overlapping_gate(
+    basis: Any, _labels: Any, basis_family: Any, upper_bound: int, policy: Any
+) -> dict[str, Any]:
+    """The check that ends an attempt of ``basis_families.get_overlapping_family``, and its work.
+
+    The checks follow the source of ``get_overlapping_family``.  It keeps a family with no full
+    sets, with as many as the limit, or whose full sets pack every column; then one whose estimated
+    work is below ``minimum_work`` of the policy; and then one that no family of at most the limit
+    could beat.  Past these checks, it builds sets.
+    """
+    max_sets, minimum_work, _, binomials, _ = policy
+    dimension = basis.shape[0]
+    num_columns = int(np.count_nonzero(basis.sum(axis=0)))
+    ranks = basis_family.ranks
+    num_full = int(np.count_nonzero(ranks == dimension))
+    gate: dict[str, Any] = {"rows": dimension, "minimum_work": int(minimum_work)}
+    if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
+        return gate | {"stage": "no open sets", "estimated_work": None}
+    divisor = basis_family.weight_divisor
+    work = int(
+        basis_families.estimate_certificate_work(
+            dimension, ranks, divisor, basis_family.max_coverage, upper_bound, binomials
+        )
+    )
+    gate["estimated_work"] = work
+    if work < minimum_work:
+        return gate | {"stage": "below minimum work"}
+    optimistic_work = basis_families._estimate_optimistic_work(
+        dimension, num_columns, divisor, upper_bound, max_sets, binomials
+    )
+    if optimistic_work >= work:
+        return gate | {"stage": "cannot do less work"}
+    return gate | {"stage": "built"}
+
+
+def wrap_enumeration_by_size(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record each test of whether to enumerate codewords instead of building information sets."""
+
+    @functools.wraps(function)
+    def wrapper(dimension: int, length: int, max_dimension: int, factor: int) -> bool:
+        result = function(dimension, length, max_dimension, factor)
+        EVENTS.append(
+            {
+                "event": "enumeration",
+                "test": "size",
+                "dimension": dimension,
+                "length": length,
+                "words_per_setup_unit": 2**dimension / (dimension * length),
+                "enumerate": result,
+            }
+        )
+        return result
+
+    return wrapper
+
+
+def wrap_enumeration_by_work(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record each test of whether to enumerate codewords instead of searching information sets."""
+
+    @functools.wraps(function)
+    def wrapper(*, num_logical_rows: int, certificate: Any, upper_bound: int) -> bool:
+        result = function(
+            num_logical_rows=num_logical_rows, certificate=certificate, upper_bound=upper_bound
+        )
+        dimension = certificate.dimension
+        EVENTS.append(
+            {
+                "event": "enumeration",
+                "test": "work",
+                "dimension": dimension,
+                "exhaustive": ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows),
+                "estimated_work": int(certificate.work(upper_bound)),
+                "enumerate": result,
+            }
+        )
+        return result
+
+    return wrapper
+
+
+def wrap_enumerate(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record the seconds of each enumeration of codewords, or stop before it after the setup."""
+
+    @functools.wraps(function)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        if SETUP_ONLY:
+            raise SetupDone
+        start = time.perf_counter()
+        result = function(*args, **kwargs)
+        EVENTS.append({"event": "enumerate", "seconds": time.perf_counter() - start})
+        return result
+
+    return wrapper
+
+
+def wrap_considers(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record the first test of each layer shape for whether it considers completion tables."""
+    seen = set()
+
+    @functools.wraps(function)
+    def wrapper(num_rows: int, weight: int, tuning: Any) -> bool:
+        result = function(num_rows, weight, tuning)
+        if (num_rows, weight) not in seen and 2 <= weight <= num_rows:
+            seen.add((num_rows, weight))
+            layer_work = completion_bounds._get_layer_work(num_rows, weight)
+            EVENTS.append(
+                {
+                    "event": "considers",
+                    "rows": num_rows,
+                    "weight": weight,
+                    "layer_work": int(layer_work),
+                    "considers": result,
+                }
+            )
+        return result
+
+    return wrapper
+
+
+def wrap_limit(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record each comparison of a predicted cost of completion tables with the limit."""
+
+    @functools.wraps(function)
+    def wrapper(cost: float, tuning: Any) -> bool:
+        result = function(cost, tuning)
+        weight = None if CURRENT_LAYER is None else CURRENT_LAYER["weight"]
+        EVENTS.append({"event": "limit", "cost": cost, "weight": weight, "within": result})
+        return result
+
+    return wrapper
+
+
 def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
     """Record the seconds of an attempt to switch to automorphism images, and its outcome."""
 
@@ -226,6 +385,14 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             raise SetupDone
         weight, dimension = search.next_weight, search.dimension
         uses_automorphism_family = search.uses_automorphism_family
+
+        # The work of the layer that the switch to automorphism images compares with its threshold,
+        # as the source of ``advance`` computes it, if the search can still switch.
+        can_switch = search.get_automorphism_family is not None and not uses_automorphism_family
+        switch_work = None
+        if can_switch:
+            num_scanned = search.instance.certificate.get_num_sets_to_certify(weight, search.best)
+            switch_work = min(num_scanned * math.comb(dimension, weight), certificates.WORK_CAP)
         CURRENT_LAYER = {
             "event": "layer",
             "search": id(search),
@@ -233,6 +400,8 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             "dimension": dimension,
             "sets": len(search.instance.certificate.ranks),
             "supports": math.comb(dimension, weight),
+            "can_switch": can_switch,
+            "switch_work": switch_work,
             "evaluated": 0,
             "set_evaluations": 0,
             "lookups": 0,
