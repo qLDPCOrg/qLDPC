@@ -116,12 +116,7 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
 - `@compiled_on_request` marks parts of the set-up in `_search/information_sets.py` and `_counting/scan.py`, which run as ordinary Python unless a program calls `compile_search_setup()`.
 
 Numba looks up the functions that compiled code calls when it compiles it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.
-Tests in `src/qldpc/_compilation_test.py` check four further rules, and the name of a failing test says which one was broken:
-
-- Only `src/qldpc/_compilation.py` asks numba for a disk cache, so use `@always_compiled`, not `@njit(cache=True)`.
-- An always-compiled function may not call a compiled-on-request one.
-- Always-compiled code may use nothing from outside qLDPC except NumPy and numba, because the hash covers only qLDPC's source.
-- Other modules must call a compiled-on-request function through its module, and never import it by name.
+Tests in `src/qldpc/_compilation_test.py` check further rules, and the name of a failing test says which one was broken.
 
 Set `QLDPC_DISABLE_COMPILATION=1` before importing qLDPC to run all of this code as plain Python while debugging.
 It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages that use numba, such as galois, as plain Python, which makes them slow too.

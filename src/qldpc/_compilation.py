@@ -50,10 +50,10 @@ compiling them a one-time cost.  Use :func:`compiled_on_request` for the larger 
 orchestrate a search, which select and bound its information sets, build its basis families, and
 drive its scan.  Compiling them pays off only in a program that makes very many searches.  Define
 them only in :mod:`qldpc.codes.distance`, whose tests CI runs with them compiled.  A function that
-is neither runs as ordinary Python.  A small always-compiled helper that hot loops
-call can be marked ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function
-may call always-compiled and compiled-on-request functions.  An always-compiled function may call
-only always-compiled functions, since it is compiled and cached by itself.
+is neither runs as ordinary Python.  A small always-compiled helper that hot loops call can be
+marked ``inline=True`` (see :func:`always_compiled`).  A compiled-on-request function may call
+always-compiled and compiled-on-request functions.  An always-compiled function may call only
+always-compiled functions, since it is compiled and cached by itself.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
 function of both kinds runs as ordinary Python, much more slowly.  :func:`always_compiled` then

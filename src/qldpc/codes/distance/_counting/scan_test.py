@@ -129,11 +129,11 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
 
 
 def test_counts_with_tiny_chunks_and_forced_tables(tune: Tune) -> None:
-    """Counts by every method are exact with tiny chunks and forced completion tables.
+    """Counts are exact with tiny chunks and forced completion tables.
 
-    Tiny chunks make every scan stop and resume repeatedly, and forcing completion tables makes
-    every step of two or more rows use them.  The counters include deformed ones, and a count of
-    full Paulis above the distance raises an error.
+    Tiny chunks make every scan stop and resume repeatedly, and scans use completion tables wherever
+    they can.  The counters include deformed ones, and a count of full Paulis above the distance
+    raises an error.
     """
     tune(scan_chunk_size=1, **FORCED_TABLES)
     code = get_random_css_code(np.random.default_rng(3), 14, 4, 4)
