@@ -56,27 +56,50 @@ def get_distance_brouwer_zimmermann_many(
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning | None = None,
 ) -> int:
-    """Advance nested-code searches round-robin while sharing their best upper bound.
+    """Compute the minimum distance across nested-code problems by BZ searches.
 
-    ``get_disjoint_basis_families``, if given, holds a function for each problem that returns a
-    disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the problem's
-    basis, with quotient labels of the problem, certified with this ``weight_divisor``.  The result
-    of ``information_sets.get_disjoint_family`` is one, and a caller that keeps such families saves
-    that first stage.  Each function is called only if its search needs it.
+    The searches advance round-robin, and share their best upper bound: the weight of the lightest
+    witness that any of them has found.
 
-    ``get_automorphisms``, if given, returns an array of generators of a group of column
-    permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.  Each
-    generator must map the searched space and the excluded subspace of every problem onto
-    themselves.  A search calls the function before a costly layer, verifies the generators for its
-    problem, and may then scan fewer information sets (see ``automorphism_families``).
+    Args:
+        problems: Nested-code bases and their quotient labels (see ``get_nested_code_basis``).  The
+            distance of a problem is the least weight of a word of its basis with nonzero labels, or
+            of any nonzero word if its labels have no columns.  Each problem must have such a word.
+        cutoff: Return once the best upper bound falls to or below this cutoff.
+        weight_divisor: A proven divisor of the weight of every word whose distance a problem
+            minimizes over, with which the certificates round their lower bounds up.  Default: 1.
+        upper_bound: A cap on the result, if any, such as the weight of a known witness that is
+            not in ``problems``, or ``max_weight + 1`` under a weight limit.  The searches stop
+            once they certify that every word is at least this heavy.
+        get_disjoint_basis_families: If given, holds a function for each problem that returns a
+            disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the
+            problem's basis, with quotient labels of the problem, certified with this
+            ``weight_divisor``.  The result of ``information_sets.get_disjoint_family`` is one,
+            and a caller that keeps such families saves that first stage.  Each function is called
+            only if its search needs it.
+        get_automorphisms: If given, returns an array of generators of a group of column
+            permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.
+            Each generator must map the searched space and the excluded subspace of every problem
+            onto themselves.  A search calls the function before a costly layer, verifies the
+            generators for its problem, and may then scan fewer information sets (see
+            ``automorphism_families``).
+        tuning: Sets the thresholds that choose the route of each search (see ``_tuning``), and
+            defaults to the active tuning, which every search then uses throughout.
 
-    ``tuning`` sets the thresholds that choose the route of each search (see ``_tuning``), and
-    defaults to the active tuning, which every search then uses throughout.
+    Returns:
+        The minimum of the distances of the problems and ``upper_bound``, or, after an early exit
+        at ``cutoff``, the weight of a witness or ``upper_bound``, whichever is at most
+        ``cutoff``.
 
     Raises:
-        ValueError: If a generator from ``get_automorphisms`` is not an automorphism of a problem
-            whose search uses it.
+        ValueError: If there are neither problems nor an upper bound, or if a generator from
+            ``get_automorphisms`` is not an automorphism of a problem whose search uses it.
     """
+    if not problems:
+        if upper_bound is None:
+            raise ValueError("Require at least one problem or an upper bound")
+        return upper_bound
+
     tuning = get_tuning() if tuning is None else tuning
     initial_upper_bounds = [
         _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
@@ -131,7 +154,7 @@ def get_distance_brouwer_zimmermann(
     upper_bound: int | None = None,
     tuning: SearchTuning | None = None,
 ) -> int:
-    """Compute an exact nested-code distance with the Brouwer-Zimmermann algorithm.
+    """Compute a nested-code distance with the Brouwer-Zimmermann algorithm.
 
     The disjoint and rank-deficient bound follows Algorithm 1 of https://arxiv.org/abs/1603.06757.
     The overlapping-set extension divides pivot occupancy by the maximum coordinate coverage.
@@ -141,7 +164,9 @@ def get_distance_brouwer_zimmermann(
 
     An ``upper_bound`` starts the search as though a witness of that weight were known, so the
     search returns ``min(distance, upper_bound)`` and stops once it certifies that no word is
-    lighter than ``upper_bound``.  ``tuning`` defaults to the active tuning.
+    lighter than ``upper_bound``.  ``tuning`` defaults to the active tuning.  As with
+    ``get_distance_brouwer_zimmermann_many``, the basis needs a nontrivial word, and an early exit
+    once a witness weighs at most ``cutoff`` returns its weight, which can exceed the distance.
     """
     return get_distance_brouwer_zimmermann_many(
         [(basis, labels)],

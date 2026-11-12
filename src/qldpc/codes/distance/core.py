@@ -97,7 +97,7 @@ def get_distance_classical(
 
     Args:
         generators: The generator matrix of the classical code whose distance we want to compute.
-            Both methods reduce redundant rows to a linearly independent basis.
+            Both available methods reduce redundant rows to a linearly independent basis.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Deprecated.  Use ``qldpc.codes.distance._tuning.use_tuning`` to set
             ``enumeration_batch_exponent`` and ``information_set_batch_exponent`` instead.
@@ -134,7 +134,7 @@ def get_distance_classical(
     _reject_connected_support(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     assert_binary(generators, "generators")
-    matrix = as_binary_matrix(generators)
+    matrix = as_binary_matrix(generators, "generators")
     basis = get_independent_rows(matrix)
     if not len(basis):
         return NO_DISTANCE
@@ -174,7 +174,8 @@ def get_distance_quantum(
 
     Args:
         logical_ops: Rows that generate the logical space together with the stabilizers.
-            Both methods remove redundant rows and exclude the stabilizer row space from witnesses.
+            Both available methods remove redundant rows and exclude the stabilizer row space from
+            witnesses.
         stabilizers: A matrix whose rows represent stabilizers of the code.
         cutoff: Exit early and return once an upper bound on distance falls to or below this cutoff.
         block_size: Deprecated.  Use ``qldpc.codes.distance._tuning.use_tuning`` to set
@@ -351,7 +352,7 @@ def _get_distance_css_brouwer_zimmermann(
             continue
 
         # A sector without nontrivial logical operators has no distance.  It contributes one more
-        # than its width, as get_distance_quantum returns, and no operator has that weight.
+        # than its width, which no operator has.
         sector_bound = logical_matrix.shape[1] + 1
         no_distance_bound = (
             sector_bound if no_distance_bound is None else min(no_distance_bound, sector_bound)
@@ -407,8 +408,10 @@ def _as_operator_matrices(
     """
     assert_binary(logical_ops, "logical_ops")
     assert_binary(stabilizers, "stabilizers")
-    logical_matrix = as_binary_matrix(logical_ops)
-    return logical_matrix, as_binary_matrix(stabilizers, num_cols=logical_matrix.shape[1])
+    logical_matrix = as_binary_matrix(logical_ops, "logical_ops")
+    return logical_matrix, as_binary_matrix(
+        stabilizers, "stabilizers", num_cols=logical_matrix.shape[1]
+    )
 
 
 def _get_weight_limit(cutoff: int, max_weight: SupportsIndex | None) -> tuple[int, int | None]:

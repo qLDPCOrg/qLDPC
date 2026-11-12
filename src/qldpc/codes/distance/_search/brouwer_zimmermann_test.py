@@ -1198,3 +1198,10 @@ def test_searches_take_completion_limits_from_their_tuning(
                 get_automorphisms=code._get_qudit_automorphisms,
             ) == code.get_distance(method="brute_force")
         assert block_bits == expected_block_bits
+
+
+def test_many_problems_need_a_problem_or_an_upper_bound() -> None:
+    """Without problems, the result is the known upper bound, which must then be given."""
+    with pytest.raises(ValueError, match="at least one problem or an upper bound"):
+        bz.get_distance_brouwer_zimmermann_many([], cutoff=0)
+    assert bz.get_distance_brouwer_zimmermann_many([], cutoff=0, upper_bound=3) == 3

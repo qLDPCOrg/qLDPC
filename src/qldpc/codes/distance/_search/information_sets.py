@@ -88,9 +88,13 @@ class Certificate:
     once the first sets in family order have completed it, in whatever order their words were
     visited.  A set that is interrupted within a layer does not advance either bound.  The bounds do
     not bound the weights of witnesses already found, and they do not transfer to another basis or
-    CSS sector.  Each bound is the coverage bound: the occupancy of the sets (see
-    ``get_step_lower_bounds``) divided by ``max_coverage``, rounded up, and then rounded up to a
-    multiple of ``weight_divisor``.  With ``pivot_blocks``, each bound is the larger of the coverage
+    CSS sector.  A search that skips supports by completion tables completes a layer without
+    visiting them, and then the bounds hold only for the eligible words lighter than its best weight
+    (Section 3.9 of ``brouwer_zimmermann.md``).
+
+    Each bound is the coverage bound: the occupancy of the sets (see ``get_step_lower_bounds``)
+    divided by ``max_coverage``, rounded up, and then rounded up to a multiple of
+    ``weight_divisor``.  With ``pivot_blocks``, each bound is the larger of the coverage
     bound and the bound of ``get_lp_lower_bound``, which can be larger when coverage is uneven.
 
     Attributes:

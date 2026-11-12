@@ -21,7 +21,8 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 - **Information set:** in the code, the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
   `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
 - **Basis family** (`BasisFamily`): the information sets that one Brouwer–Zimmermann search or count uses together, stacked into arrays.
-- **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer–Zimmermann search has not yet visited, which tells the search when it can stop.
+- **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer–Zimmermann search has neither visited nor skipped, which tells the search when it can stop.
+  With completion tables, it bounds only the words lighter than the best weight (see Section 3.9 of `brouwer_zimmermann.md`).
 - **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
   It is another exact method, selected by `method="connected_support"`, and it also finds light vectors with a given syndrome.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.

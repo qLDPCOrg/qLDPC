@@ -184,7 +184,7 @@ def test_brouwer_zimmermann_special_inputs() -> None:
     assert qldpc.codes.get_distance_quantum(no_logical_ops, [[1, 0, 0, 0]]) is no_distance
     assert qldpc.codes.get_distance_quantum([[1, 0, 0, 0]], [[1, 0, 0, 0]]) is no_distance
 
-    with pytest.raises(ValueError, match="incompatible widths"):
+    with pytest.raises(ValueError, match="The stabilizers have 2 columns"):
         qldpc.codes.get_distance_quantum([[1, 0, 0]], [[1, 0]], homogeneous=True)
     with pytest.raises(ValueError, match="even number of columns"):
         qldpc.codes.get_distance_quantum([[1, 0, 0]], [], homogeneous=False)
@@ -194,10 +194,14 @@ def test_brouwer_zimmermann_special_inputs() -> None:
             np.empty((0, 3), dtype=np.uint8),
             homogeneous=False,
         )
-    with pytest.raises(ValueError, match="two-dimensional"):
+    with pytest.raises(ValueError, match="The generators must be a two-dimensional"):
         qldpc.codes.get_distance_classical(np.zeros((1, 1, 1), dtype=np.uint8))
-    with pytest.raises(ValueError, match="infer the width"):
+    with pytest.raises(ValueError, match="infer the width of generators"):
         qldpc.codes.get_distance_classical([])
+    with pytest.raises(ValueError, match="The logical_ops must be a two-dimensional"):
+        qldpc.codes.get_distance_quantum(np.zeros((1, 1, 2), dtype=np.uint8), [[1, 0]])
+    with pytest.raises(ValueError, match="The stabilizers must be a two-dimensional"):
+        qldpc.codes.get_distance_quantum([[1, 0]], np.zeros((1, 1, 2), dtype=np.uint8))
 
 
 @pytest.mark.parametrize(
@@ -428,10 +432,10 @@ def test_distance_backend_validation() -> None:
 def test_no_distance_behaves_as_nan_and_survives_copies() -> None:
     """NO_DISTANCE is a float nan, and copies and pickles of it are the same member."""
     no_distance = core.NO_DISTANCE
-    assert isinstance(no_distance, float) and math.isnan(no_distance)
-    assert str(no_distance) == f"{no_distance}" == repr(no_distance) == "nan"
     assert qldpc.codes.NoDistance is qldpc.codes.distance.NoDistance is core.NoDistance
     assert qldpc.codes.NO_DISTANCE is qldpc.codes.distance.NO_DISTANCE is core.NoDistance.NAN
+    assert isinstance(no_distance, float) and math.isnan(no_distance)
+    assert str(no_distance) == f"{no_distance}" == repr(no_distance) == "nan"
     assert repr((2, 0, no_distance)) == "(2, 0, nan)"
     assert not no_distance >= 3 and no_distance != core.NO_DISTANCE
     restored = pickle.loads(pickle.dumps(no_distance))  # noqa: S301 - trusted in-memory round trip
