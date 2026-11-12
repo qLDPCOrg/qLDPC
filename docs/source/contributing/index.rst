@@ -87,9 +87,11 @@ CI's exact environments and commands are in ``.github/workflows/``.
      - mypy with the repository's typing settings, over source and tests
    * - ``python checks/coverage_.py``
      - Per-module tests and coverage, as in CI: each module under ``src/`` needs its own test file, which must pass and alone cover 100% of the module's statements.
-       It skips the tests marked ``compiled``.
-   * - ``python -m pytest src -m compiled``
-     - The tests marked ``compiled``
+       It runs compiled functions as plain Python.
+   * - ``python -m pytest src/qldpc --compiled-module-tests``
+     - Compiled run, as in CI: the test files of the modules that define compiled functions, with the always-compiled functions compiled
+   * - ``python -m pytest src/qldpc/codes/distance --compile-search-setup``
+     - Compiled run, as in CI: the distance tests, with the compiled-on-request functions compiled too
    * - ``python checks/build_docs.py``
      - Strict Sphinx and notebook documentation build
    * - ``python checks/all_.py``
@@ -105,11 +107,11 @@ The third tier is the extended checks.
 * **As needed:** when writing, reviewing, or verifying a change, run targeted tests that cover it.
   Select tests by function, or run the test file of a changed module, as in ``python -m pytest src/qldpc/codes/common_test.py::test_name``.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it largely repeats the test run of ``coverage_.py``.
-  When targeted tests do not settle a question, such as whether a module's own tests fully cover it, run ``coverage_.py`` on that module and its test file.
+  When targeted tests do not settle a question, such as whether a module's own tests fully cover it or run fast as plain Python, run ``coverage_.py`` on that module and its test file.
   For example, ``python checks/coverage_.py src/qldpc/codes/common.py src/qldpc/codes/common_test.py`` checks the coverage of one module and its test file.
 * **Extended:** the checks that CI runs on every pull request, other than the notebook runs.
   The extended checks are needed only when the maintainer asks for them by name, or has said that they will be away while a change is completed.
-  Run the anytime checks, ``coverage_.py`` over the whole repository, the tests marked ``compiled``, and ``build_docs.py``.
+  Run the anytime checks, ``coverage_.py`` over the whole repository, the two compiled runs, and ``build_docs.py``.
   After fixing a failure that the change causes, verify the fix with the drafting checks, and rerun the failed checks and every extended check that the fix could affect.
   Report any other failure, such as one that also occurs on the main branch, as an open decision.
   Report a failure whose fix needs a decision in the same way.
@@ -119,8 +121,9 @@ Refreshing the saved outputs of a changed notebook, as the :doc:`writing standar
 
 CI runs on pull requests that are ready for review, not on drafts.
 It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
-It also runs the tests marked ``compiled``, which ``coverage_.py`` skips.
+It also runs the two compiled runs, since ``coverage_.py`` runs compiled functions as plain Python.
 Run these locally only in the extended checks, or as targeted tests of a change to compiled code.
+Other ``pytest`` runs, such as of one focused test, compile the always-compiled functions, and compile the compiled-on-request functions only if given ``--compile-search-setup``.
 
 ``all_.py`` runs most checks in one command.
 It skips the per-module coverage gate and ``pyproject.toml`` formatting.

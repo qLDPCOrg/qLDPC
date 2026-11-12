@@ -1,7 +1,8 @@
 # This workflow checks every push to main and every pull request that is ready for review.  Its
 # jobs lint the code and check its formatting and types, build the documentation, run the fast
-# example notebooks, run the tests with the per-module coverage check, and run the tests marked
-# compiled.  build-changes.yaml runs further checks, such as the installation check, only when
+# example notebooks, run the tests with the per-module coverage check, and run tests with compiled
+# code.  The coverage check runs compiled functions as plain Python, so that coverage can trace
+# them.  build-changes.yaml runs further checks, such as the installation check, only when
 # pyproject.toml changes.
 
 name: Continuous integration
@@ -144,13 +145,23 @@ jobs:
           --jobs "$(nproc)" --shard "${{ matrix.shard }}/$SHARDS"
 
   compiled:
-    name: Compiled variants of tests
+    name: ${{ matrix.name }}
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       # Keep each test worker to one Numba thread, as checks/pytest_.py does.
       NUMBA_NUM_THREADS: 1
+    strategy:
+      # Let each run finish when the other fails, so that each reports its own failures.
+      fail-fast: false
+      matrix:
+        # See the options in src/qldpc/conftest.py.
+        include:
+          - name: "Compiled run: tests of modules with compiled functions"
+            args: src/qldpc --compiled-module-tests
+          - name: "Compiled run: distance tests with compiled set-up code"
+            args: src/qldpc/codes/distance --compile-search-setup
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -159,30 +170,30 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        # No other job runs the tests marked compiled.  Install the same extras as the coverage job,
-        # so that none of these tests is skipped for lack of an optional package.
+        # Install the same extras as the coverage job, so that no test here is skipped for lack of
+        # an optional package.
         run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
-      - name: Run the tests marked compiled
+      - name: Run the tests
         # Keep each test file's tests on one worker, so that fewer workers compile the same
         # functions.
         run: >-
-          uv run --extra bliss --extra decoders --extra gap --group ci-test python -m pytest src
-          -m compiled -n "$(nproc)" --dist=loadfile
+          uv run --extra bliss --extra decoders --extra gap --group ci-test python -m pytest
+          ${{ matrix.args }} -n "$(nproc)" --dist=loadfile
 
   coverage-result:
-    # Combine the results of the coverage shards and of the tests marked compiled into one check
-    # for branch protection to require.  Unlike the names of the shards, its name does not depend
-    # on their number.  It runs even when a job fails or the run is cancelled, since GitHub counts a
-    # skipped required check as passing.
+    # Combine the results of the coverage shards and of the compiled runs into one check for branch
+    # protection to require.  Unlike the names of the shards, its name does not depend on their
+    # number.  It runs even when a job fails or the run is cancelled, since GitHub counts a skipped
+    # required check as passing.
     name: Pytest and coverage check
     if: always() && github.event.pull_request.draft == false
     needs: [coverage, compiled]
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
-      - name: Check that the coverage shards and the tests marked compiled passed
+      - name: Check that the coverage shards and the compiled runs passed
         run: |
           echo "Result of the coverage shards: ${{ needs.coverage.result }}"
-          echo "Result of the tests marked compiled: ${{ needs.compiled.result }}"
+          echo "Result of the compiled runs: ${{ needs.compiled.result }}"
           test "${{ needs.coverage.result }}" = success
           test "${{ needs.compiled.result }}" = success
