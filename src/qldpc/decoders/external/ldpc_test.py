@@ -125,7 +125,8 @@ def test_ldpc_protocol_adapters() -> None:
         assert isinstance(decoder, decoders.DetailedErrorDecoder)
         detailed = decoder.decode_errors_detailed(np.array([1, 0], dtype=int))
         assert np.array_equal(detailed.error, decoder.decode(np.array([1, 0], dtype=int)))
-        assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301
+        pickled = pickle.dumps(adapter_type)
+        assert pickle.loads(pickled) is adapter_type  # noqa: S301 - trusted in-memory round trip
 
     class NumpyScalarDiagnostics(ldpc_integration._DetailedLdpcDecoderMixin):
         converge = np.bool_(True)

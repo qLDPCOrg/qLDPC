@@ -87,8 +87,8 @@ def _assert_decodes(
     *args: object,
 ) -> None:
     """Assert that a legacy decoder and its pickled copy decode syndromes to observable flips."""
-    pickled_decoder = pickle.loads(pickle.dumps(decoder))  # noqa: S301
-    for copied_decoder in [decoder, pickled_decoder]:
+    restored = pickle.loads(pickle.dumps(decoder))  # noqa: S301 - trusted in-memory round trip
+    for copied_decoder in [decoder, restored]:
         assert type(copied_decoder) is type(decoder)
         for syndrome, flip in zip(syndromes, flips):
             for method in [copied_decoder.decode, copied_decoder.decode_errors]:

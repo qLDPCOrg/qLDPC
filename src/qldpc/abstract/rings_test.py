@@ -408,23 +408,28 @@ def assert_primitive_central_idempotents(
     assert len(idempotents) == len(classes)
 
 
+# Each test builds its field from these parameters.  Building a field such as GF(9) compiles its
+# arithmetic, so building the fields here would slow down every collection of this file.
 @pytest.mark.parametrize(
-    "group, field",
+    "group, order, irreducible_poly",
     [
-        (abstract.DihedralGroup(3), galois.GF(7)),
-        (abstract.CyclicGroup(5), galois.GF(4)),
-        (abstract.CyclicGroup(5), galois.GF(9, irreducible_poly="x^2 + 1")),
+        (abstract.DihedralGroup(4), 5, None),
+        (abstract.CyclicGroup(4), 9, "x^2 + 1"),
     ],
+    ids=["D4-GF5", "C4-GF9"],
 )
 def test_computed_primitive_central_idempotents(
-    group: abstract.Group, field: type[galois.FieldArray]
+    group: abstract.Group, order: int, irreducible_poly: str | None
 ) -> None:
     """Computed idempotents are the primitive central idempotents, sorted by their coefficients.
 
-    D3 is not abelian, so conjugation by every generator matters.  Over GF(4), the F_4-conjugacy
-    classes of C5 differ from its F_2-conjugacy classes.  Over GF(9) with a non-default irreducible
-    polynomial, the idempotents of C5 have coefficients outside the prime field.
+    D4 is not abelian, so conjugation by every generator matters.  Over GF(5), each member of D4 is
+    its own 5th power, so the F_5-conjugacy classes of D4 are its conjugacy classes.  Over GF(9),
+    the F_9-conjugacy classes of C4 differ from its F_3-conjugacy classes.  The idempotents of C4
+    over GF(9) have coefficients outside the prime field, here written with a non-default
+    irreducible polynomial.
     """
+    field = galois.GF(order, irreducible_poly=irreducible_poly)
     ring = abstract.GroupRing(group, field)
     idempotents = rings._get_primitive_central_idempotents(ring)
     assert_primitive_central_idempotents(ring, idempotents)
@@ -647,7 +652,7 @@ def test_deprecated_argument_order() -> None:
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
-        rings.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+        _ = rings.not_a_real_export  # type: ignore[attr-defined]
 
 
 def test_ring_interface() -> None:

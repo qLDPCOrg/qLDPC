@@ -15,12 +15,24 @@ Example:
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING
 
 import diskcache
 import numpy as np
-from run_search import CACHE_NAME, NUM_TRIALS, add_results_dir_argument
 
 import qldpc.cache
+
+# Scripts in this directory import each other as top-level modules.  mypy knows these files only as
+# experiments.bivariate_bicycle.*.  With ignore_missing_imports in pyproject.toml, it would treat a
+# bare "from run_search import ..." as untyped without reporting an error.
+if TYPE_CHECKING:
+    from experiments.bivariate_bicycle.run_search import (
+        CACHE_NAME,
+        NUM_TRIALS,
+        add_results_dir_argument,
+    )
+else:
+    from run_search import CACHE_NAME, NUM_TRIALS, add_results_dir_argument
 
 OUTPUT_NAME = "codes.csv"  # name of the exported data file in the results directory
 

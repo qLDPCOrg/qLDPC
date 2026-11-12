@@ -14,6 +14,7 @@ import scipy.linalg
 import sympy.combinatorics as comb
 
 from qldpc import abstract, objects
+from qldpc.conftest import run_python
 from qldpc.objects import complexes
 
 
@@ -29,9 +30,23 @@ def test_cayley_complex() -> None:
         subset_a = [group.generators[0]]
         objects.CayleyComplex(subset_a, bipartite=True)
 
-    # quadripartite complex
+    # either generating subset may be empty, but not both
+    shift = abstract.CyclicGroup(2).generators[0]
+    for subsets in [([], [shift]), ([shift], [])]:
+        assert objects.CayleyComplex(*subsets).graph.number_of_nodes() == 2
+    with pytest.raises(ValueError, match="at least one generating member"):
+        objects.CayleyComplex([], [])
+    with pytest.raises(ValueError, match="at least one generating member"):
+        objects.CayleyComplex.build_cayley_graph([])
+
+    # subsets may be given as any iterables, such as arrays and iterators
     group = abstract.CyclicGroup(3)
     shift = group.generators[0]
+    members = np.array([shift, ~shift], dtype=object)
+    assert objects.CayleyComplex(members).subset_a == {shift, ~shift}
+    assert objects.CayleyComplex(iter([shift, ~shift])).subset_b == {shift, ~shift}
+
+    # quadripartite complex
     subset_a = [shift, ~shift]
     cayplex = objects.CayleyComplex(subset_a, bipartite=False)
     assert_valid_complex(cayplex)
@@ -53,6 +68,47 @@ def test_cayley_complex() -> None:
         subset_b = [shift_x * shift_y**2, ~(shift_x * shift_y**2)]
         cayplex = objects.CayleyComplex(subset_a, subset_b, bipartite=bipartite)
         assert_valid_complex(cayplex)
+
+
+def test_cayley_complex_reads_members_on_one_number_of_points() -> None:
+    """Members that differ only in trailing fixed points are one member of a Cayley complex."""
+    swap, padded_swap = abstract.GroupMember([1, 0]), abstract.GroupMember([1, 0, 2])
+    reflection = abstract.GroupMember([0, 2, 1])
+    sympy_swap = comb.Permutation(0, 1)  # in cycle notation, on two points
+    for subsets, padded_subsets in [
+        (([swap, reflection],), ([padded_swap, reflection],)),
+        (([swap], [reflection]), ([padded_swap], [reflection])),
+        (([sympy_swap, reflection],), ([padded_swap, reflection],)),
+    ]:
+        cayplex = objects.CayleyComplex(*subsets)
+        padded_cayplex = objects.CayleyComplex(*padded_subsets)
+        assert cayplex.graph.number_of_nodes() == padded_cayplex.graph.number_of_nodes()
+
+    # so are members of Cayley graphs that are built without a complex
+    graph = objects.CayleyComplex.build_cayley_graph([swap, padded_swap], [reflection])
+    padded_graph = objects.CayleyComplex.build_cayley_graph([padded_swap], [reflection])
+    assert list(graph.nodes) == list(padded_graph.nodes)
+    assert list(graph.edges(data=True)) == list(padded_graph.edges(data=True))
+
+
+def test_cayley_graph_is_independent_of_hash_seed() -> None:
+    """Cayley graphs list their nodes and edges in an order that does not depend on the hash seed.
+
+    The hash seed sets the iteration order of the sets of group members that graphs are built from.
+    Child interpreters with fixed hash seeds must reproduce the graph built here, under this
+    interpreter's hash seed.
+    """
+    script = (
+        "from qldpc import abstract, objects;"
+        "graph = objects.CayleyComplex.build_cayley_graph(set(abstract.SymmetricGroup(3).generators));"
+        "print([tuple(node.array_form) for node in graph.nodes]);"
+        "print([(tuple(u.array_form), tuple(v.array_form)) for u, v in graph.edges])"
+    )
+    outputs = {run_python(script, env={"PYTHONHASHSEED": hash_seed}) for hash_seed in ["0", "1"]}
+    graph = objects.CayleyComplex.build_cayley_graph(set(abstract.SymmetricGroup(3).generators))
+    nodes = [tuple(node.array_form) for node in graph.nodes]
+    edges = [(tuple(u.array_form), tuple(v.array_form)) for u, v in graph.edges]
+    assert outputs == {f"{nodes}\n{edges}\n"}
 
 
 def assert_valid_complex(cayplex: objects.CayleyComplex) -> None:

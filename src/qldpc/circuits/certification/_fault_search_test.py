@@ -19,28 +19,6 @@ import stim
 from . import _fault_search
 
 
-@pytest.fixture(params=[False, True], ids=["compiled", "python"])
-def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the compiled listing, or its Python version for coverage."""
-    if request.param:
-        names = (
-            "_list_class_codewords",
-            "_expand_class_tuples",
-            "_table_should_grow",
-            "_reduce_flags",
-            "_pauli_weight",
-            "_find_syndrome",
-            "_find_syndrome_slot",
-            "_get_key_slots",
-            "_get_light_pairs",
-            "_grow_syndrome_table",
-            "_get_closing_table",
-            "_sort_bucket",
-        )
-        for name in names:
-            monkeypatch.setattr(_fault_search, name, getattr(_fault_search, name).py_func)
-
-
 def _irreducible_faults(
     flags: Sequence[int], fault_weight: int, num_starts: int
 ) -> list[tuple[int, ...]]:
@@ -86,7 +64,6 @@ def _check_faults(
     return checked, lister.find_first(fault_weight, find_violation)
 
 
-@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("collide", [False, True])
 def test_listing_matches_brute_force(
     collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
@@ -144,7 +121,6 @@ def test_listing_matches_brute_force(
                     assert result == violation
 
 
-@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("size", [1, 2])
 def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest.Config) -> None:
     """A table lists the sets in lexicographic order, sorted stably by hash, as Python sorts them.
@@ -168,7 +144,6 @@ def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest
             assert sets.tolist() == [list(classes) for classes in expected_sets]
 
 
-@pytest.mark.usefixtures("kernels")
 def test_repeated_syndromes_are_checked_once() -> None:
     """The faults {0, 1} and {0, 2} on |000> leave X on all qubits, so only the first is checked.
 
@@ -178,7 +153,6 @@ def test_repeated_syndromes_are_checked_once() -> None:
     assert _check_faults(lister, 2, ()) == ([7], None)
 
 
-@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("collide", [False, True])
 def test_light_pairs_match_brute_force(
     collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
@@ -207,7 +181,6 @@ def test_light_pairs_match_brute_force(
             assert pair == expected
 
 
-@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest.Config) -> None:
     """Calls with increasing fault weights check each syndrome once, and find a violation.
@@ -265,7 +238,6 @@ def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest
             assert result is None or result in expected
 
 
-@pytest.mark.usefixtures("kernels")
 def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.MonkeyPatch) -> None:
     """A fault is not checked if an earlier listed fault of smaller fault weight has its syndrome.
 
@@ -310,12 +282,13 @@ def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.Monke
     The classes have distinct random hashes, so that no bucket of the table is merge sorted, and so
     that the pairs have distinct keys, which need the most slots.
 
-    The table is built by the Python versions of its compiled functions, since only allocations by
-    Python are traced.  A small table is built first, since loading the compiled code that the
-    Python versions call would add allocations of its own.
+    The table is built by the Python versions of its compiled functions, even when they are
+    compiled, since tracemalloc traces only allocations by Python.  A small table is built first,
+    since loading the compiled code that the Python versions call would add allocations of its own.
     """
     for name in ("_get_closing_table", "_sort_bucket", "_get_key_slots", "_find_syndrome_slot"):
-        monkeypatch.setattr(_fault_search, name, getattr(_fault_search, name).py_func)
+        function = getattr(_fault_search, name)
+        monkeypatch.setattr(_fault_search, name, getattr(function, "py_func", function))
     num_classes = 200
     hashes = np.random.default_rng(0).integers(2**64, size=num_classes, dtype=np.uint64)
     _fault_search._get_closing_map(hashes[:3], 2)
@@ -330,7 +303,6 @@ def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.Monke
     assert peak <= num_pairs * _fault_search._BYTES_PER_PAIR + 2**14
 
 
-@pytest.mark.usefixtures("kernels")
 def test_key_slots_find_the_first_entry_of_each_key(pytestconfig: pytest.Config) -> None:
     """A lookup in sorted keys finds the first entry of a key, or none for a key that is absent.
 

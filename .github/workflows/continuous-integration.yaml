@@ -1,5 +1,9 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+# This workflow checks every push to main and every pull request that is ready for review.  Its jobs
+# lint the code and check its formatting and types, build the documentation, run the fast example
+# notebooks, run the tests with the per-module coverage check, and make the compiled runs.  The
+# coverage check runs compiled functions as plain Python, so that coverage can trace them.
+# build-changes.yaml runs further checks, such as the installation check, only when pyproject.toml
+# changes.
 
 name: Continuous integration
 
@@ -20,27 +24,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  install:
-    name: Installation check
-    if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-      - name: Set up Python
-        uses: astral-sh/setup-uv@v7
-        with:
-          python-version: 3.14
-          enable-cache: true
-      - name: Install package and dependencies
-        run: uv sync --extra dev --extra gap
-
   format:
     name: Lint and type check
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    needs: install
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -84,7 +72,6 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: install
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -104,7 +91,6 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 7
-    needs: install
     env:
       PIP_NO_INDEX: "1"
     steps:
@@ -122,11 +108,60 @@ jobs:
           examples/decoders.ipynb examples/basics.ipynb examples/noise_models.ipynb
 
   coverage:
-    name: Pytest and coverage check
+    name: Pytest and coverage shard ${{ matrix.shard }}/${{ strategy.job-total }}
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: install
+    env:
+      # The number of shards.  The matrix lists the shards 1 to SHARDS in order, once each, and
+      # nothing else.  The job's first step checks this.
+      SHARDS: 3
+    strategy:
+      # Let every shard finish when one fails, so that each reports its own failures.
+      fail-fast: false
+      matrix:
+        # Each shard checks a share of the test files on its own runner, balanced by .test_durations
+        # (see checks/coverage_.py --shard), which the workflow test-durations.yaml measures.
+        shard: [1, 2, 3]
+    steps:
+      - name: Check that the matrix runs each shard once
+        run: |
+          test "${{ strategy.job-total }}" = "$SHARDS"
+          test "${{ matrix.shard }}" = "$(( ${{ strategy.job-index }} + 1 ))"
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          enable-cache: true
+      - name: Install package and dependencies
+        # Compile the dependencies to bytecode while installing them, in parallel, rather than in
+        # the test workers, which start together and would each compile what they import.
+        run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
+      - name: Run coverage
+        # Use every CPU of the dedicated runner (the check defaults to half of them).
+        run: >-
+          uv run --extra bliss --extra decoders --extra gap --group ci-test python checks/coverage_.py
+          --jobs "$(nproc)" --shard "${{ matrix.shard }}/$SHARDS"
+
+  compiled:
+    name: ${{ matrix.name }}
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # Keep each test worker to one Numba thread, as checks/pytest_.py does.
+      NUMBA_NUM_THREADS: 1
+    strategy:
+      # Let each run finish when the other fails, so that each reports its own failures.
+      fail-fast: false
+      matrix:
+        # See the options in src/qldpc/conftest.py.
+        include:
+          - name: "Compiled run: tests of modules with compiled functions"
+            args: src/qldpc --compiled-module-tests
+          - name: "Compiled run: distance tests with compiled set-up code"
+            args: src/qldpc/codes/distance --compile-search-setup
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python
@@ -135,26 +170,30 @@ jobs:
           python-version: 3.14
           enable-cache: true
       - name: Install package and dependencies
-        run: uv sync --extra bliss --extra decoders --extra gap --group ci-test
-      - name: Identify the target of compiled code
-        # Numba uses cached code only on the CPU model that compiled it, and runners vary.
-        id: numba-target
-        run: |
-          target=$(uv run --extra bliss --extra decoders --extra gap --group ci-test python -c \
-            "from numba.core.registry import cpu_target as t; print(t.target_context.codegen().magic_tuple())")
-          echo "hash=$(echo "$target" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
-      - name: Cache compiled code
-        # qLDPC keeps the code that numba compiles in a directory named by a hash of its source files
-        # other than tests, so code cached for the same source files is never outdated.  A run that
-        # misses saves the code that its tests compiled.
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/qldpc/numba
-          key: >-
-            numba-${{ runner.os }}-python3.14-${{ steps.numba-target.outputs.hash }}-${{
-            hashFiles('src/qldpc/**/*.py', '!src/qldpc/**/*_test.py', '!src/qldpc/**/conftest.py') }}
-      - name: Run coverage
-        # Use every CPU of the dedicated runner (the check defaults to half of them).
+        # Install the same extras as the coverage job, so that no test here is skipped for lack of
+        # an optional package.
+        run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
+      - name: Run the tests
+        # Keep each test file's tests on one worker, so that fewer workers compile the same
+        # functions.
         run: >-
-          uv run --extra bliss --extra decoders --extra gap --group ci-test python checks/coverage_.py
-          --jobs "$(nproc)"
+          uv run --extra bliss --extra decoders --extra gap --group ci-test python -m pytest
+          ${{ matrix.args }} -n "$(nproc)" --dist=loadfile
+
+  coverage-result:
+    # Combine the results of the coverage shards and of the compiled runs into one check for branch
+    # protection to require.  Unlike the names of the shards, its name does not depend on their
+    # number.  It runs even when a job fails or the run is cancelled, since GitHub counts a skipped
+    # required check as passing.
+    name: Pytest and coverage check
+    if: always() && github.event.pull_request.draft == false
+    needs: [coverage, compiled]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Check that the coverage shards and the compiled runs passed
+        run: |
+          echo "Result of the coverage shards: ${{ needs.coverage.result }}"
+          echo "Result of the compiled runs: ${{ needs.compiled.result }}"
+          test "${{ needs.coverage.result }}" = success
+          test "${{ needs.compiled.result }}" = success

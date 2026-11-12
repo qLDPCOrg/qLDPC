@@ -15,22 +15,6 @@ from qldpc.experimental.objects.conftest import get_random_pauli_string
 
 # Qubit counts with a partial word, a full word, and more than one word.
 _NUM_QUBITS = (1, 64, 65)
-_KERNELS = (
-    "count_y",
-    "is_scalar",
-    "anticommutes",
-    "left_multiply",
-    "conjugate_by_s_rotation",
-    "conjugate_by_local_gate",
-)
-
-
-@pytest.fixture(params=["compiled", "python"])
-def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the compiled kernels, or their Python versions for coverage."""
-    if request.param == "python":
-        for name in _KERNELS:
-            monkeypatch.setattr(packed, name, getattr(packed, name).py_func)
 
 
 def _random_string(rng: np.random.Generator, num_qubits: int) -> stim.PauliString:
@@ -69,7 +53,6 @@ def test_stim_round_trip(rng: np.random.Generator) -> None:
     assert packed.pack_axes([], 65)[0].shape == (0, 4)
 
 
-@pytest.mark.usefixtures("kernels")
 def test_products_and_commutation(rng: np.random.Generator) -> None:
     for num_qubits in _NUM_QUBITS:
         first, second = _random_string(rng, num_qubits), _random_string(rng, num_qubits)
@@ -86,7 +69,6 @@ def test_products_and_commutation(rng: np.random.Generator) -> None:
         assert packed.is_scalar(packed.from_stim(-stim.PauliString(num_qubits))[0])
 
 
-@pytest.mark.usefixtures("kernels")
 def test_conjugation_by_s_rotations(rng: np.random.Generator) -> None:
     """All one-qubit Pauli strings and axes, and random ones on more qubits."""
     pairs = [
@@ -126,7 +108,6 @@ def test_conjugation_tables() -> None:
             array[0, 0] = 0
 
 
-@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize(
     "name, qubits",
     [

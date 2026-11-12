@@ -6,7 +6,7 @@ See :class:`CSSLogicalCounter` for the conventions.
 
 Each X/Z sector uses a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
 ``brouwer_zimmermann.md``).  Words are enumerated in layers over Brouwer--Zimmermann (BZ)
-information sets, whose family and certificate come from the stages in ``information_sets.py`` that
+information sets, whose family and certificate come from the stages in ``_information_sets/`` that
 the distance search shares.  Unlike a distance search, the scan stops only when the BZ lower bound
 exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``), and a word visited by several information
 sets is counted by only one of them.  Full Pauli counts are derived from the homogeneous words of
@@ -40,11 +40,12 @@ from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import get_external_caller_stacklevel
 
 from ._binary import as_integer, get_nested_code_basis
+from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
+from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
-from ._search import information_sets
-from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
-from ._search.brute_force import get_nested_distance_brute_force
+from ._information_sets import basis_families
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
+from .core import NO_DISTANCE, NoDistance
 
 # codes.common imports this package, and codes.quantum imports codes.common, so code classes are
 # imported only where they are used.
@@ -78,25 +79,40 @@ _LOGICAL_COUNT_METHODS: dict[str, _CanonicalLogicalCountMethod] = {
 # results and entry points
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CSSLogicalCounts:
     """Counts of the nontrivial logical operators of one weight in a binary CSS code.
 
     Attributes:
         weight: The weight of the counted operators.  If no weight was requested, this is the
-            distance of the code, or the number of qubits if the code encodes no qubits, as with
-            :func:`qldpc.codes.distance.get_distance_quantum`.
+            distance of the code, or ``NO_DISTANCE`` (see :class:`~qldpc.codes.distance.NoDistance`)
+            if the code encodes no qubits, and so has no distance.
         count_x: The number of X-only nontrivial logical operators of weight ``weight``.
         count_z: The number of Z-only nontrivial logical operators of weight ``weight``.
         count_pauli: The number of nontrivial logical Pauli operators of weight ``weight``,
             ignoring phase, or None if it was not requested.  It includes the X-only and Z-only
             operators counted by ``count_x`` and ``count_z``, as well as Y and mixed operators.
+
+    Two counts of exactly the same class are equal if their attributes are, and ``NO_DISTANCE``
+    equals itself here, although as a ``nan`` it does not equal itself elsewhere.
     """
 
-    weight: int
+    weight: int | Literal[NoDistance.NAN]
     count_x: int
     count_z: int
     count_pauli: int | None
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+        # Tuples compare identical items as equal, so NO_DISTANCE equals itself.
+        return self._as_tuple() == other._as_tuple()
+
+    def __hash__(self) -> int:
+        return hash(self._as_tuple())
+
+    def _as_tuple(self) -> tuple[int | float | None, ...]:
+        return self.weight, self.count_x, self.count_z, self.count_pauli
 
 
 class CSSLogicalCounter:
@@ -223,6 +239,8 @@ class CSSLogicalCounter:
         Args:
             weight: Weight of the operators to count, between zero and the number of qubits.  If
                 None (the default), count the operators whose weight is the distance of the code.
+                A code that encodes no qubits has no distance, and its counts are then zero at the
+                weight ``NO_DISTANCE``.
             method: ``"brouwer_zimmermann"`` (the default), ``"macwilliams"``, or
                 ``"brute_force"``.  MacWilliams uses check-space weight distributions, cached on the
                 counter but not transferred through deformation.  It does not support subsystem
@@ -242,7 +260,7 @@ class CSSLogicalCounter:
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
-            qubits, the returned weight is the number of qubits and every count is zero.
+            qubits, the returned weight is ``NO_DISTANCE`` and every count is zero.
 
         Raises:
             TypeError: If the weight is not an integer, or is a bool.
@@ -277,7 +295,7 @@ class CSSLogicalCounter:
         if not self.dimension:
             empty_pauli = 0 if count_pauli else None
             return CSSLogicalCounts(
-                self.num_qubits if weight is None else int(weight), 0, 0, empty_pauli
+                NO_DISTANCE if weight is None else int(weight), 0, 0, empty_pauli
             )
         if method == "macwilliams":
             return self._count_with_macwilliams(
@@ -535,7 +553,7 @@ class CSSLogicalCounter:
         self._distances: dict[_CountDistanceMethod, int] = {}
         self._sectors: tuple[_Sector, _Sector] | None = None
         # Disjoint basis families, by sector and number of column orders.
-        self._disjoint_basis_families: dict[tuple[int, int], information_sets.BasisFamily] = {}
+        self._disjoint_basis_families: dict[tuple[int, int], basis_families.BasisFamily] = {}
         self._enumerators: macwilliams.CheckEnumerators | None = None
 
     def _validate_macwilliams_request(self, count_pauli: bool) -> None:
@@ -620,7 +638,7 @@ class CSSLogicalCounter:
 
     def _get_disjoint_basis_family(
         self, index: int, random_column_orders: int
-    ) -> information_sets.BasisFamily:
+    ) -> basis_families.BasisFamily:
         """The disjoint basis family of a sector, the first stage of its basis families, kept.
 
         This stage does not depend on the counted weight, so counting at another weight, as when a
@@ -629,7 +647,7 @@ class CSSLogicalCounter:
         """
         key = (index, random_column_orders)
         if key not in self._disjoint_basis_families:
-            self._disjoint_basis_families[key] = information_sets.get_disjoint_family(
+            self._disjoint_basis_families[key] = basis_families.get_disjoint_family(
                 *self._get_sectors()[index], random_column_orders=random_column_orders
             )
         return self._disjoint_basis_families[key]
@@ -681,7 +699,7 @@ def compile_search_setup() -> None:
     """Compile the code that sets up exact distance and logical-operator count searches.
 
     By default, the inner loops of these searches are compiled by numba, and cached on disk, the
-    first time that they are used.  The code that sets those loops up runs as ordinary Python.  It
+    first time that they are used.  The code that sets those loops up runs as plain Python.  It
     selects and bounds the information sets of a code, packs them for the scan of its words, and
     moves them through local gates.  This function compiles that code instead, for the rest of this
     process.  It does not change any result, and it does not affect the MacWilliams method or the
@@ -726,7 +744,11 @@ def _get_above_distance_error(weight: int) -> ValueError:
 
 
 def _warm_up_compiled_functions() -> None:
-    """Compile every function now, by counting on a small code, so that no later call compiles."""
+    """Compile the compiled-on-request functions by running them on a small code.
+
+    Later calls of these functions compile them again only for arguments of other types, such as
+    arrays in Fortran order.
+    """
     from ..quantum import SteaneCode
 
     counter = CSSLogicalCounter(SteaneCode())
@@ -739,18 +761,18 @@ def _warm_up_compiled_functions() -> None:
     # search, is their purpose.
     basis, labels = counter._get_sectors()[0]
     upper_bound = 4
-    basis_family = information_sets.prune_family(
-        information_sets.get_disjoint_family(
+    basis_family = basis_families.prune_family(
+        basis_families.get_disjoint_family(
             basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
         ),
         upper_bound,
     )
-    information_sets.get_overlapping_family(
+    basis_families.get_overlapping_family(
         basis,
         labels,
         basis_family,
         upper_bound,
-        *information_sets.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
+        basis_families.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
     )
 
 
@@ -761,7 +783,7 @@ def _warm_up_compiled_functions() -> None:
 def _get_distance(
     sectors: Sequence[_Sector],
     method: _CountDistanceMethod,
-    get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]],
+    get_disjoint_basis_families: Sequence[Callable[[], basis_families.BasisFamily]],
     tuning: SearchTuning,
 ) -> int:
     """Minimum weight of a nontrivial word in any of the given sectors.

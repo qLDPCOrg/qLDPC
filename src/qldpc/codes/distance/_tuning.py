@@ -21,9 +21,9 @@ What tuning can and cannot change:
 
 - Tuning changes only how long a search takes and how much memory it uses.  It never changes an
   exact distance, a distance limited by ``max_weight``, or a count of logical operators.
-- With an early exit (``cutoff`` of two or more), a distance search returns the weight of the first
-  nontrivial word that it finds at or below ``cutoff``, and which word comes first depends on
-  tuning.  The result is still an upper bound between the distance and ``cutoff``, as documented by
+- With an early exit (``cutoff`` of two or more), a distance search returns the weight of a
+  nontrivial word at or below ``cutoff`` that it finds, and which word that is depends on tuning.
+  The result is still an upper bound between the distance and ``cutoff``, as documented by
   :func:`~qldpc.codes.distance.get_distance_quantum`.
 - Under every tuning, a query of ``CosetLeaderSearch`` decides the same way whether a coset has a
   word of weight at most the query's maximum weight, and with the connected-support method it gives
@@ -83,9 +83,10 @@ Compare candidate values on warmed searches in new processes, single-threaded, i
 alternate their order, and record the time and peak memory of each run; repeat runs to measure
 their spread.  The comment of each field says what to measure to retune it.
 
-The fields of completion tables (Section 3.9 of ``brouwer_zimmermann.md``) were chosen on an Apple
-M3 Max, with layers of one information set of ``4 * 10**7`` to ``5 * 10**10`` supports from two
-data sets:
+The fields of the completion tables of distance searches and counts (Section 3.9 of
+``brouwer_zimmermann.md``) were chosen on an Apple M3 Max, with layers of one information set of
+``4 * 10**7`` to ``5 * 10**10`` supports from two data sets (the comment of
+``coset_completion_block_bits`` names its own data):
 
 - The width data set holds layers of weights 4 to 6 of both sectors of
   ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]] code, and of
@@ -98,15 +99,15 @@ data sets:
   five other layers, the cost model fitted to it predicted cost ratios at most 0.12 above, and 0.02
   below, the measured ones.
 
-To refit the cost model of completion tables, which ``select_completion_tables`` and
-``_estimate_build_cost`` in ``_search/completion_bounds.py`` compute:
+To refit the cost model of completion tables, which ``predict_completion_cost`` and
+``_estimate_build_cost`` in ``_information_sets/completion_bounds.py`` compute:
 
 1. Time layers of one information set with tables disabled
    (``completion_bound_max_table_bytes=0``), forced (``completion_bound_minimum_layer_work=0`` and
    ``completion_bound_max_cost_percent=MAX_VALUE``), and at the defaults.  For each layer, record
    the share of its supports that tables skipped and its number of lookups, which
-   ``scan_information_set`` in ``_search/affine_search.py`` returns for each call, and time
-   ``CompletionTables.build`` separately.
+   ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each call, and
+   time ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
 3. Fit the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
@@ -227,11 +228,11 @@ class SearchTuning:
     #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
     #: keeps its disjoint information sets.  It also gates the coset searches of
     #: ``CosetLeaderSearch``: a query with fewer predicted examinations keeps the disjoint sets and
-    #: weighs whole words.  Lowering it tries other families sooner, and words without their pivot
-    #: columns in searches by Hamming weight, which may not repay their setup; zero always tries,
-    #: and ``MAX_VALUE`` never does.  Defaults to 100,000, chosen for distances by unrecorded means,
-    #: and kept for cosets after replaying residual-weight estimates.  To retune it, time searches
-    #: near it with and without other families.
+    #: whole words.  Lowering it tries other families sooner, and, in searches by Hamming weight,
+    #: tails and completion tables, which may not repay setup; zero always tries, ``MAX_VALUE``
+    #: never.  Defaults to 100,000, chosen for distances by unrecorded means, and kept for cosets
+    #: after replaying residual-weight estimates of 37- to 95-qubit state preparations.  To retune
+    #: it, time searches near it with and without other families.
     overlapping_minimum_work: int = 100_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
@@ -262,8 +263,8 @@ class SearchTuning:
     #: ``k`` rows, in units of ``b * k**2 * n`` candidate/set evaluations.  An underestimate wastes
     #: time on partitioning that cannot repay itself; an overestimate skips families that would save
     #: time.  Defaults to 20, measured on bases of 85 to 156 rows and 127 to 432 columns, which are
-    #: not recorded.  To refit it, time ``matroid_partition.get_information_sets_with_coverage`` in
-    #: candidate/set evaluations.
+    #: not recorded.  To refit it, time ``get_information_sets_with_coverage`` of
+    #: ``_information_sets/matroid_partition.py`` in candidate/set evaluations.
     partition_cost_factor: int = 20
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
@@ -324,37 +325,38 @@ class SearchTuning:
 
     # Fields of completion tables.
 
-    #: The number of supports, choices of rows of an information set, from which a layer of one
-    #: information set considers completion tables, which skip supports that cannot complete a word
-    #: lighter than its best one, or, in a count, no heavier than the counted weight (Section 3.9 of
+    #: The number of supports (choices of rows) of an information set from which a distance search
+    #: or count considers completion tables for its layer, which skip supports that cannot complete
+    #: a word lighter than the best, or, in a count, within the counted weight (Section 3.9 of
     #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling.  Lowering it
     #: considers smaller layers; zero every layer, and ``MAX_VALUE`` none.  Defaults to 10**8, about
     #: 0.2 seconds of scanning on the calibration machine, so that sampling costs a few percent at
     #: most.  To retune it, time layers near the threshold with tables disabled and forced.
     completion_bound_minimum_layer_work: int = 100_000_000
 
-    #: A layer uses the completion tables that it considers only if their predicted cost, including
-    #: building them, is at most this percentage of the cost of scanning without them.  Lowering it
-    #: demands larger predicted savings; zero never uses tables, and ``MAX_VALUE`` uses them
-    #: wherever they are considered, even where they cost more.  Defaults to 90, a margin for the
-    #: error of the cost model.  To retune it, compare predicted and measured costs on the cost data
-    #: set.
+    #: A layer of a distance search or count uses the completion tables that it considers only if
+    #: their predicted cost, including building them, is at most this percentage of the cost of
+    #: scanning without them.  Lowering it demands larger predicted savings; zero never uses tables,
+    #: and ``MAX_VALUE`` uses them wherever they are considered, even where they cost more.
+    #: Defaults to 90, a margin for the error of the cost model.  To retune it, compare predicted
+    #: and measured costs on the cost data set.
     completion_bound_max_cost_percent: int = 90
 
-    #: The most bytes of completion tables that each problem of a distance search, or each sector of
-    #: a count, keeps, besides tables that a count is building; so a joint search of both sectors of
-    #: a CSS code can keep this much for each.  Tables use blocks of ``completion_bound_block_bits``
-    #: columns, or of ``completion_bound_fallback_block_bits`` if those do not fit, or none.  Zero
-    #: disables tables, and ``MAX_VALUE`` removes the limit.  Defaults to 256 MiB, which fits blocks
-    #: of 16 columns for bases of up to about 500 rows and 140 tail columns.  To retune it, choose
-    #: the memory that tables may use.
+    #: The most bytes of completion tables that a distance search keeps for each problem, a count
+    #: for each sector besides the tables that it is building, and a coset search of
+    #: ``CosetLeaderSearch`` for each set of a family.  Distance searches and counts use blocks of
+    #: ``completion_bound_block_bits`` columns, or of ``completion_bound_fallback_block_bits`` if
+    #: those do not fit, or none.  Zero disables tables, and ``MAX_VALUE`` removes the limit.
+    #: Defaults to 256 MiB, which fits blocks of 16 columns for bases of up to about 500 rows and
+    #: 140 tail columns.  To retune it, choose the memory that tables may use.
     completion_bound_max_table_bytes: int = 256 * 2**20
 
-    #: The number of tail columns in a block of completion tables, a power of two up to 16.  Wider
-    #: blocks skip more supports, but the table of a block has ``2**width`` bytes for each row of
-    #: the basis.  Defaults to 16, which on every layer of the width data set of at least ``5 *
-    #: 10**8`` supports skipped more supports, in less time, than 8.  To retune it, force each width
-    #: on that data set and keep the fastest.
+    #: The number of tail columns in a block of the completion tables of distance searches and
+    #: counts, a power of two up to 16.  Wider blocks skip more supports, but the table of a block
+    #: has ``2**width`` bytes for each row of the basis: 1 builds fastest and skips least, and 16
+    #: the reverse.  Defaults to 16, which on every layer of the width data set of at least
+    #: ``5 * 10**8`` supports skipped more supports, in less time, than 8.  To retune it, force each
+    #: width on that data set and keep the fastest.
     completion_bound_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The width of the blocks of completion tables when blocks of ``completion_bound_block_bits``
@@ -363,6 +365,16 @@ class SearchTuning:
     #: saved time on every layer of the width data set of at least ``10**9`` supports.  To retune
     #: it, lower the memory limit until that data set falls back, and compare narrower widths.
     completion_bound_fallback_block_bits: int = dataclasses.field(default=8, metadata=_BLOCK_WIDTHS)
+
+    #: The number of tail columns in a block of the completion tables of ``CosetLeaderSearch``, a
+    #: power of two up to 16.  Its searches by Hamming weight build tables for their costliest
+    #: queries, within ``completion_bound_max_table_bytes`` for each set.  Wider blocks skip more
+    #: completions but cost more memory and time, as for ``completion_bound_block_bits``: 1 builds
+    #: fastest and skips least, and 16 the reverse.  Defaults to 8: on residual-weight estimates of
+    #: state-preparation circuits of 37, 81, and 95 qubits, not in the repository, 16 columns took
+    #: longer to build than most estimates spent scanning.  To retune it, time such estimates with
+    #: each width.
+    coset_completion_block_bits: int = dataclasses.field(default=8, metadata=_BLOCK_WIDTHS)
 
     #: The number of random supports from which a search estimates the share of a layer that
     #: completion tables would skip, within the budget ``completion_bound_sampling_work``; drawing
@@ -433,10 +445,10 @@ class SearchTuning:
 
     #: The cost of building completion tables, in scanned supports for each step of the
     #: breadth-first searches that fill them, as ``_estimate_build_cost`` in
-    #: ``_search/completion_bounds.py`` counts steps.  Raising it makes searches decline tables that
-    #: are costly to build; lowering it lets them build tables that small layers do not repay.
-    #: Defaults to 0.2, chosen by hand with ``completion_bound_table_byte_cost``.  To refit it, see
-    #: :ref:`Retuning <tuning-retuning>`.
+    #: ``_information_sets/completion_bounds.py`` counts steps.  Raising it makes searches decline
+    #: tables that are costly to build; lowering it lets them build tables that small layers do not
+    #: repay.  Defaults to 0.2, chosen by hand with ``completion_bound_table_byte_cost``.  To refit
+    #: it, see :ref:`Retuning <tuning-retuning>`.
     completion_bound_build_step_cost: float = 0.2
 
     # Fields of batches and memory limits.
@@ -586,12 +598,13 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 #: typical workloads, and keep the smallest size past which it stops rising.
 BINOMIAL_CACHE_SIZE = 1024
 
-#: The number of entries that ``coset_leader_search._get_css_searches`` keeps, one for each CSS
-#: state and tuning of the setup of the searches, each a pair of classical searches, for the X and Z
-#: parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses more memory, and a
-#: smaller one repeats the setup of searches that a workload reuses.  Chosen by hand.  To retune it,
-#: record the hit rate, the setup time of a missed pair, and the memory of each pair on workloads
-#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
+#: The number of entries that ``get_css_searches`` in ``_brouwer_zimmermann/coset.py`` keeps, one
+#: for each CSS state and tuning of the setup of the searches, each a pair of classical searches,
+#: for the X and Z parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses
+#: more memory, and a smaller one repeats the setup of searches that a workload reuses.  Chosen by
+#: hand.  To retune it, record the hit rate, the setup time of a missed pair, and the memory of each
+#: pair on workloads such as certification, and keep the smallest size beyond which the hit rate
+#: stops growing.
 CSS_SEARCH_CACHE_SIZE = 8
 
 #: The number of results that each of two caches of the MacWilliams method keeps, one of single
@@ -610,10 +623,11 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
 
-#: The number of searches of Pauli errors that ``coset_leader_search._get_pauli_search`` keeps, one
-#: for each stabilizer matrix, measure of weight, and tuning of the setup of the search.  It takes
-#: effect when qLDPC is imported.  A larger cache uses more memory, a smaller one repeats setups,
-#: and zero disables the cache.  Only speed and memory depend on it.  Chosen by hand.  To retune it,
-#: record the hit rate, the setup time of a missed search, and the memory per search on workloads
-#: such as certification, and keep the smallest size beyond which the hit rate stops growing.
+#: The number of searches of Pauli errors that ``get_pauli_search`` in
+#: ``_brouwer_zimmermann/coset.py`` keeps, one for each stabilizer matrix, measure of weight, and
+#: tuning of the setup of the search.  It takes effect when qLDPC is imported.  A larger cache uses
+#: more memory, a smaller one repeats setups, and zero disables the cache.  Only speed and memory
+#: depend on it.  Chosen by hand.  To retune it, record the hit rate, the setup time of a missed
+#: search, and the memory per search on workloads such as certification, and keep the smallest size
+#: beyond which the hit rate stops growing.
 PAULI_SEARCH_CACHE_SIZE = 8

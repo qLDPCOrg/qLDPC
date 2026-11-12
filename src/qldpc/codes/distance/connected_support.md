@@ -153,7 +153,7 @@ Then `m` is the root of its orbit, since a variable of the orbit of lower rank t
 So it suffices to search from the roots.
 By the lemma, this witness is connected, so the completeness argument of [Section 3.3](#33-the-depth-first-search) applies to it.
 The lemma holds for every minimum-weight witness, so `Γ` need not map the rows of `H` to each other, and only has to map `ker(H)` and `rowspan(G)` to themselves.
-qLDPC verifies this with `verify_automorphisms` of `_search/automorphism_families.py`, as BZ does.
+qLDPC verifies this with `verify_automorphisms` of `_information_sets/automorphism_families.py`, as BZ does.
 
 The search from a root forbids the variables of lower rank, so the ranks decide how much each search is cut.
 qLDPC ranks the variables orbit by orbit, in the order of their least variables, so that the search from each root forbids every earlier orbit.
@@ -185,7 +185,7 @@ The search keeps these rows as packed columns, one 64-bit block per 64 rows, and
 
 **Weight divisor.**
 If every vector of `ker(H)` has even weight, as for the pair-partition codes, whose block rows of checks sum to the all-ones vector, weights are multiples of two.
-`infer_weight_divisor` of `_search/information_sets.py` finds this from a basis of `ker(H)`, as BZ does.
+`infer_weight_divisor` of `_information_sets/basis_families.py` finds this from a basis of `ker(H)`, as BZ does.
 
 **Exact distance.**
 Let `L` be the smallest weight that an unexamined witness can have, which is the divisor at first.
@@ -277,10 +277,11 @@ Four parts of a distance search do not carry over:
 - The weights of the vectors with a syndrome need not share a divisor, so the query has none.
 - Every vector with the syndrome counts, so the query has no logical test.
 
-The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `_search/coset_leader_search.py`.
+The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `_coset_leader_search.py`.
 When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries by a table lookup, or by such queries at one or more weight limits.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
+For the residual-weight estimator, it finds the minimum weight of each coset by trying increasing weight limits, and starts the search of a Z part at the weight of its X part ([Section 3.10 of brouwer_zimmermann.md](brouwer_zimmermann.md#310-minimum-weights-of-cosets)).
 
 The search is fast only if its checks are sparse.
 But the stabilizers that certification passes are row-reduced, and so are the X and Z parts that `CosetLeaderSearch` searches for the CSS weight.
@@ -329,7 +330,7 @@ A distance search, whose checks are usually sparse, computes them again each tim
 
 ## 4. Guide to the source code
 
-The names below are in `_search/connected_support.py`, unless the table says otherwise.
+The names below are in `_connected_support/search.py`, unless the table says otherwise.
 
 | Concept | Code |
 | --- | --- |
@@ -341,15 +342,15 @@ The names below are in `_search/connected_support.py`, unless the table says oth
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
-| Coset leaders of Pauli errors, and the sparser checks that their searches use | `_ConnectedSupportCosetSearch`, `_get_sparser_rows`, `_sparsify`, and `CosetLeaderSearch` in `_search/coset_leader_search.py` |
+| Coset leaders of Pauli errors, and the sparser checks that their searches use | `ConnectedSupportCosetSearch`, `_get_sparser_rows`, and `_sparsify` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `_coset_leader_search.py` |
 | How many rounds make the checks of a coset search sparser | `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches | `_ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`), and `CosetLeaderSearch._get_batch_support_bound`, in `_search/coset_leader_search.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_support/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `_coset_leader_search.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
-| Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_search/automorphism_families.py` |
+| Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches` |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
-| Weight divisor | `infer_weight_divisor` of `_search/information_sets.py` |
+| Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
 `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_connected_support` of `core.py`, which passes the active tuning to the search.
 `ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` call it with their problems, and `SupportSearch` validates every problem.

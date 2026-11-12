@@ -7,7 +7,7 @@ from __future__ import annotations
 import collections
 import itertools
 from collections.abc import Collection, Iterable, Sequence
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import galois
 import numpy as np
@@ -35,7 +35,7 @@ from ..classical import (
     SimplexCode,
 )
 from ..common import ClassicalCode, CSSCode
-from ..distance import DistanceMethod
+from ..distance import NO_DISTANCE, DistanceMethod, NoDistance
 
 ####################################################################################################
 # hypergraph product codes and their variants
@@ -378,7 +378,9 @@ class HGPCode(CSSCode):
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
         return logical_ops_x.view(field), logical_ops_z.view(field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
+    def _get_distance_exact(
+        self, pauli: PauliXZ | None, *, method: DistanceMethod
+    ) -> int | Literal[NoDistance.NAN]:
         """Exact distance calculation for hypergraph product codes.
 
         These calculations are based on arXiv:2308.15520, but additionally allow for the separate
@@ -401,15 +403,20 @@ class HGPCode(CSSCode):
 
         if pauli is Pauli.X:
             transpose_a = ClassicalCode(self.code_a.matrix.T)
-            dist_a = transpose_a.get_distance(method=method) if dependent_b else np.nan
-            dist_b = self.code_b.get_distance(method=method) if self.code_a.dimension else np.nan
+            dist_a = transpose_a.get_distance(method=method) if dependent_b else NO_DISTANCE
+            dist_b = (
+                self.code_b.get_distance(method=method) if self.code_a.dimension else NO_DISTANCE
+            )
         else:
             assert pauli is Pauli.Z
-            dist_a = self.code_a.get_distance(method=method) if self.code_b.dimension else np.nan
+            dist_a = (
+                self.code_a.get_distance(method=method) if self.code_b.dimension else NO_DISTANCE
+            )
             transpose_b = ClassicalCode(self.code_b.matrix.T)
-            dist_b = transpose_b.get_distance(method=method) if dependent_a else np.nan
+            dist_b = transpose_b.get_distance(method=method) if dependent_a else NO_DISTANCE
 
-        return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
+        distances = [distance for distance in (dist_a, dist_b) if distance is not NO_DISTANCE]
+        return min(distances, default=NO_DISTANCE)
 
 
 class CHGPCode(HGPCode):
@@ -462,7 +469,7 @@ class CRCode(HGPCode):
         """
         cyclic_code = CyclicCode(bits, poly, field)
         distance = cyclic_code.get_distance()
-        if np.isnan(distance):
+        if distance is NO_DISTANCE:
             raise ValueError(
                 "Cannot construct a CRCode from a cyclic code without a defined distance"
             )
@@ -558,7 +565,9 @@ class SHPCode(CSSCode):
         logical_ops_z = np.kron(generator_a, pivots_b)
         return logical_ops_x.view(field), logical_ops_z.view(field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
+    def _get_distance_exact(
+        self, pauli: PauliXZ | None, *, method: DistanceMethod
+    ) -> int | Literal[NoDistance.NAN]:
         """Exact distance calculation for subsystem hypergraph product codes."""
         match pauli:
             case Pauli.X:

@@ -182,40 +182,39 @@ def test_howell_dual_with_non_self_transpose_pivots(right: bool) -> None:
     assert_howell_pseudoinverse(multi_term, ring.get_transformer(seed=0), right)
 
 
-def build_alternating4_gf5_howell_generator(
+def build_right_howell_form_without_left_dual(
     ring: abstract.GroupRing,
 ) -> tuple[abstract.WedderburnArtinTransformer, abstract.RingArray]:
-    """Build a right-oriented null-space Howell generator over GF(5)[A₄], and its transformer.
+    """Build a right-oriented Howell form over GF(5)[D₃] that has no left dual (for right=False).
 
-    A₄ over GF(5) has a size-3 component, so the generator's pivots are blocks bigger than a single
-    number.  The transformer seed and coefficient RNG are fixed, to pin a matrix for which the dual
-    with the wrong orientation has no symmetric idempotent projector.  Only a minority of random
-    matrices have this property, which test_get_howell_dual_edge_cases needs.
+    The Howell form is a single entry, which lies in the size-2 component of the ring.  Its block
+    there, [[1, 0], [2, 0]], is a right-oriented pivot whose columns span the line through (1, 2).
+    This line is orthogonal to itself, since 1² + 2² = 0 in GF(5).  So it has no symmetric
+    idempotent projector, which the left dual needs.
+
+    Args:
+        ring: The ring GF(5)[D₃], as the ring_dihedral3_gf5 fixture builds it.
+
+    Returns:
+        The transformer that built the Howell form, and the Howell form.
     """
-    transformer = ring.get_transformer(seed=0)
-    coeffs = np.random.default_rng(2).integers(0, ring.field.order, size=(2, 5, ring.group.order))
-    matrix = abstract.RingArray.build(
-        [
-            [abstract.RingMember.from_vector(ring.field(coeffs[i, j]), ring) for j in range(5)]
-            for i in range(2)
-        ],
-        ring,
-    )
-    generator = matrix.null_space(right=True).howell_normal_form_semisimple(
+    transformer = ring.get_transformer()
+    component_transformer = next(ct for ct in transformer.transformers if ct.size == 2)
+    pivot = component_transformer.embed(component_transformer.extended_field([[1, 0], [2, 0]]))
+    generator = abstract.RingArray.build([[pivot]]).howell_normal_form_semisimple(
         transformer=transformer, right=True
     )
     return transformer, generator
 
 
-def test_howell_dual_requires_matching_right(ring_alternating4_gf5: abstract.GroupRing) -> None:
+def test_howell_dual_requires_matching_right(ring_dihedral3_gf5: abstract.GroupRing) -> None:
     """The dual depends on the orientation used to build the Howell form.
 
-    A₄ over GF(5) has a size-3 component, so this tests the dual for blocks bigger than a single
-    number.  Passing the same ``right`` used to build the Howell form gives a working dual.  The
-    Howell form records the orientation it was built with, so passing the wrong ``right`` is
-    rejected.
+    GF(5)[D₃] has a size-2 component, so this tests the dual for blocks bigger than a single number.
+    Passing the same ``right`` used to build the Howell form gives a working dual.  The Howell form
+    records the orientation it was built with, so passing the wrong ``right`` is rejected.
     """
-    transformer, generator = build_alternating4_gf5_howell_generator(ring_alternating4_gf5)
+    transformer, generator = build_right_howell_form_without_left_dual(ring_dihedral3_gf5)
 
     # with the matching orientation, the dual acts as a pseudoinverse: generator @ dual.T is a
     # diagonal that leaves both the generator and the dual unchanged, and is its own transpose
@@ -361,7 +360,7 @@ def test_commutative_howell_dual_needs_no_decomposition() -> None:
     assert np.array_equal(dual, abstract.RingArray.build([[1, 0]], ring))
 
 
-def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -> None:
+def test_get_howell_dual_edge_cases(ring_dihedral3_gf5: abstract.GroupRing) -> None:
     """Rejection of a non-Howell input, and of a mismatched orientation reaching the projector."""
     # a matrix that is not in Howell normal form (here a multi-term, non-idempotent pivot) has no
     # valid dual, so the default validation rejects it
@@ -373,7 +372,7 @@ def test_get_howell_dual_edge_cases(ring_alternating4_gf5: abstract.GroupRing) -
 
     # skip_validation bypasses the orientation check, so a mismatched `right` reaches the projector,
     # where a row's projected blocks span a space with no symmetric idempotent projector
-    transformer, generator = build_alternating4_gf5_howell_generator(ring_alternating4_gf5)
+    transformer, generator = build_right_howell_form_without_left_dual(ring_dihedral3_gf5)
     with pytest.raises(ValueError, match="Cannot build a Howell dual"):
         get_howell_dual(generator, transformer=transformer, right=False, skip_validation=True)
 

@@ -421,6 +421,31 @@ def test_members_on_other_numbers_of_points() -> None:
     assert sympy.combinatorics.Permutation(0, 1) in abstract.SymmetricGroup(3)
 
 
+def test_member_order() -> None:
+    """Group members are ordered lexicographically, read on the same number of points."""
+    # on the same number of points, the order is that of SymPy ranks
+    members = [abstract.GroupMember(list(perm)) for perm in itertools.permutations(range(4))]
+    random.Random(0).shuffle(members)
+    assert sorted(members) == sorted(members, key=lambda member: member.rank())
+
+    # a permutation on fewer points reads as one with extra fixed points
+    swap, padded_swap = abstract.GroupMember([1, 0]), abstract.GroupMember([1, 0, 2])
+    assert not swap < padded_swap and not padded_swap < swap
+    assert abstract.GroupMember([0, 2, 1]) < swap < abstract.GroupMember([1, 2, 0])
+
+    # the identity of the trivial group, on no points, is padded like other permutations
+    identity = next(abstract.TrivialGroup().generate())
+    padded_identity = abstract.GroupMember([0, 1])
+    assert identity.size == 0
+    assert not identity < padded_identity and not padded_identity < identity and identity < swap
+
+    # SymPy permutations compare with members on either side, and other objects do not compare
+    assert sympy.combinatorics.Permutation([0, 2, 1]) < swap
+    for compare in [operator.lt, operator.gt]:
+        with pytest.raises(TypeError):
+            compare(swap, "swap")
+
+
 def test_group_product() -> None:
     """Direct product of groups."""
     cycle = abstract.CyclicGroup(2)
@@ -487,13 +512,14 @@ def test_group_tensor_product() -> None:
 
 def test_wreath_product_group() -> None:
     """Permutational wreath product of top and bottom groups."""
-    top = abstract.SymmetricGroup(3).with_natural_lift()
+    # a top group of order 2 that acts on 3 points, so that the wreath product is small
+    top = abstract.Group(abstract.GroupMember(0, 1, size=3)).with_natural_lift()
     bottom = abstract.CyclicGroup(2)
     group = abstract.WreathProductGroup(top, bottom)
 
     assert group.top is top and group.bottom is bottom
     assert group.top_degree == 3 and group.bottom_degree == 2
-    assert group.order == top.order * bottom.order**group.top_degree == 48
+    assert group.order == top.order * bottom.order**group.top_degree == 16
     assert group.lift_dim == group.top_degree * group.bottom_degree == 6
 
     top_member = top.generators[0]
@@ -509,17 +535,35 @@ def test_wreath_product_group() -> None:
         padded_member, bottom_members
     )
     other_group = abstract.WreathProductGroup(abstract.CyclicGroup(2), abstract.SymmetricGroup(3))
+    # these orders are right only if the generators of a wreath product include every generator of
+    # its top group and of its bottom group, here of S3, which has two
+    assert other_group.order == 2 * 6**2
+    assert abstract.WreathProductGroup(abstract.SymmetricGroup(3), bottom).order == 6 * 2**3
     assert other_group.element(other_group.top.identity, [short_member] * 2) == other_group.element(
         other_group.top.identity, [padded_member] * 2
     )
     assert member in group
-    assert all(
-        member.apply(row * group.bottom_degree + col)
-        == top_member.apply(row) * group.bottom_degree + bottom_members[row].apply(col)
-        for row in range(group.top_degree)
-        for col in range(group.bottom_degree)
-    )
     assert np.array_equal(group.lift(member), member.to_matrix())
+
+    # A member maps point col of block row to point bottom_components[row](col) of block
+    # top_component(row).  Every component of the member above is its own inverse, so a wreath
+    # product of C3 by C3, whose members of order 3 differ from their inverses, also checks that no
+    # component acts by its inverse.
+    cyclic_wreath = abstract.WreathProductGroup(abstract.CyclicGroup(3), abstract.CyclicGroup(3))
+    cyclic_top_member = cyclic_wreath.top.generators[0]
+    cyclic_shift = cyclic_wreath.bottom.generators[0]
+    cyclic_bottom_members = [cyclic_shift, cyclic_wreath.bottom.identity, ~cyclic_shift]
+    for wreath, top_component, bottom_components in [
+        (group, top_member, bottom_members),
+        (cyclic_wreath, cyclic_top_member, cyclic_bottom_members),
+    ]:
+        wreath_member = wreath.element(top_component, bottom_components)
+        assert all(
+            wreath_member.apply(row * wreath.bottom_degree + col)
+            == top_component.apply(row) * wreath.bottom_degree + bottom_components[row].apply(col)
+            for row in range(wreath.top_degree)
+            for col in range(wreath.bottom_degree)
+        )
     assert_valid_lifts(group)
 
     direct_product = abstract.Group.tensor_product(top, bottom)
@@ -568,6 +612,16 @@ def test_random_symmetric_subset() -> None:
     for size in [0, group.order + 1]:
         with pytest.raises(ValueError, match="must have a size between"):
             group.random_symmetric_subset(size=size)
+
+    # subsets without the identity have at most order - 1 members, and odd sizes need a group of
+    # even order
+    for subset_group, size in [(group, group.order - 1), (abstract.CyclicGroup(3), 2)]:
+        subset = subset_group.random_symmetric_subset(size=size, exclude_identity=True)
+        assert len(subset) == size and subset_group.identity not in subset
+    with pytest.raises(ValueError, match="must have a size between"):
+        group.random_symmetric_subset(size=group.order, exclude_identity=True)
+    with pytest.raises(ValueError, match="no symmetric subset of odd size"):
+        abstract.CyclicGroup(3).random_symmetric_subset(size=1, exclude_identity=True)
 
     # groups of order 1 have random members
     for group in [abstract.CyclicGroup(1), abstract.Group.from_generating_mats([[1]])]:

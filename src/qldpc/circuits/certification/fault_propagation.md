@@ -113,7 +113,9 @@ When a high threshold makes a search costly, the oracle may search with another 
 Section 4.4 of [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models) says when, from the expected work that the field `overlapping_minimum_work` of the search tuning sets.
 The oracle builds these families once for each cached search (see `CSS_SEARCH_CACHE_SIZE` and `PAULI_SEARCH_CACHE_SIZE` in `qldpc.codes.distance._tuning`).
 Another family can change the error that the oracle returns, and the lower bound that it gives, but never whether it finds an error of weight at most the threshold.
-The thresholds of certifications are usually small, so their searches rarely cost that much, but those of the residual-weight estimates of `qldpc.experimental` often do.
+The costliest of these searches also skip errors that tables of bounds prove to weigh more than the threshold ([Section 3.9](../../codes/distance/brouwer_zimmermann.md#39-skipping-completions-by-completion-tables)), which can change the error and the lower bound in the same way.
+So the `output_pauli` and `residual_weight_lower_bound` of a counterexample can change between versions of qLDPC when the queries that find it are costly, while the verdict and the smallest violating fault do not.
+The thresholds of certifications are usually small, so their searches rarely cost that much, but the maximum weights of the residual-weight estimates of `qldpc.experimental` often are not.
 
 The search skips the oracle for a fault `F` in two cases, each of which cannot hide a violation.
 

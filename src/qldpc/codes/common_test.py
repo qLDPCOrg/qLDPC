@@ -49,6 +49,11 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
     code = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**31))
     assert "GF(3)" in str(code)
 
+    # random codes without checks, or without bits, would all have unchecked bits or trivial checks
+    for bits, checks in [(4, 0), (0, 2)]:
+        with pytest.raises(ValueError, match="needs both bits and checks"):
+            codes.ClassicalCode.random(bits, checks)
+
     code = codes.RepetitionCode(2, field=3)
     assert len(code) == 2
     assert code.dimension == 1
@@ -206,8 +211,8 @@ def test_distance_classical(bits: int = 3) -> None:
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     random_vector = np.random.randint(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
-    assert np.isnan(trivial_code.get_distance_exact())
-    assert np.isnan(trivial_code.get_distance_bound())
+    assert trivial_code.get_distance_exact() is codes.NO_DISTANCE
+    assert trivial_code.get_distance_bound() is codes.NO_DISTANCE
     assert (
         np.count_nonzero(random_vector)
         == trivial_code.get_distance_exact(vector=random_vector)
@@ -276,9 +281,8 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     ):
         codes.RepetitionCode(2).get_automorphism_group()
 
-    # otherwise, check that automorphisms do indeed preserve the code space this pytest.warns block
-    # intentionally wraps a loop of warning-emitting calls
-    with (  # noqa: PT031
+    # otherwise, check that automorphisms do indeed preserve the code space
+    with (  # noqa: PT031 - wraps several calls that warn
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
         unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
         unittest.mock.patch(
@@ -587,7 +591,7 @@ def test_distance_qudit() -> None:
         assert code.get_distance(bound=True) == -1
 
     # the distance of dimension-0 codes is undefined
-    assert np.isnan(codes.QuditCode([[0, 1]]).get_distance())
+    assert codes.QuditCode([[0, 1]]).get_distance() is codes.NO_DISTANCE
 
     # fallback pythonic brute-force distance calculation
     code = codes.QuditCode(codes.SurfaceCode(2, field=3).matrix)
@@ -1707,8 +1711,10 @@ def test_distance_css() -> None:
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     code = codes.HGPCode(trivial_code)
     assert code.dimension == 0
-    assert np.isnan(code.get_distance(bound=True))
-    assert np.isnan(code.get_distance(bound=False))
+    assert code.get_distance(bound=True) is codes.NO_DISTANCE
+    assert code.get_distance(bound=False) is codes.NO_DISTANCE
+    with unittest.mock.patch("qldpc.codes.common.build_error_decoder", side_effect=AssertionError):
+        assert code.get_distance_bound_with_decoder(Pauli.X) is codes.NO_DISTANCE
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:

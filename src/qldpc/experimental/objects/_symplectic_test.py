@@ -15,26 +15,6 @@ from qldpc.experimental.objects import _packed_paulis as packed
 from qldpc.experimental.objects import _symplectic as symplectic
 from qldpc.experimental.objects.conftest import get_random_pauli_string
 
-_KERNELS = (
-    "canonicalize",
-    "_row_reduce",
-    "_get_bit",
-    "_set_dual",
-    "_get_image_of_dual",
-    "_triangularize",
-    "_restricted_entry",
-    "_choose_vector",
-    "_is_continuable",
-)
-
-
-@pytest.fixture(params=["compiled", "python"])
-def kernels(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the compiled kernels, or their Python versions for coverage."""
-    if request.param == "python":
-        for name in _KERNELS:
-            monkeypatch.setattr(symplectic, name, getattr(symplectic, name).py_func)
-
 
 def _pack_axes(
     axes: list[stim.PauliString], num_qubits: int
@@ -91,7 +71,6 @@ def _get_rank(matrix: npt.NDArray[np.uint8]) -> int:
     return rank
 
 
-@pytest.mark.usefixtures("kernels")
 def test_canonical_forms(rng: np.random.Generator) -> None:
     """Canonical forms equal their inputs, use at most rank(M - I) + 1 axes, and are canonical."""
     for num_qubits in (1, 2, 3, 65):
@@ -120,7 +99,6 @@ def test_canonical_forms(rng: np.random.Generator) -> None:
             np.testing.assert_array_equal(result[2], new_phases)
 
 
-@pytest.mark.usefixtures("kernels")
 def test_rotations_about_the_identity() -> None:
     """Rotations about the identity are global phases, so they do not change canonical forms."""
     axes = [stim.PauliString(axis) for axis in ("+XZ", "-YY")]
@@ -173,7 +151,6 @@ def test_controlled_z_needs_an_extra_rotation() -> None:
     assert _get_tableau(new_core, new_words, new_phases, 2) == expected
 
 
-@pytest.mark.usefixtures("kernels")
 @pytest.mark.parametrize(
     "letters", [("YY", "Y_", "XX"), ("XY_", "ZZY", "YZ_", "Y_X")], ids=["pair", "pair-lookahead"]
 )
@@ -186,7 +163,6 @@ def test_choices_of_sums_of_basis_vectors(letters: tuple[str, ...]) -> None:
     assert _get_tableau(*symplectic.canonicalize(core, words, phases), num_qubits) == tableau
 
 
-@pytest.mark.usefixtures("kernels")
 def test_lookahead_avoids_an_extra_rotation() -> None:
     """An input found by search, for which choices without lookahead need an extra rotation.
 
@@ -202,7 +178,6 @@ def test_lookahead_avoids_an_extra_rotation() -> None:
     assert len(new_words) == 3
 
 
-@pytest.mark.usefixtures("kernels")
 def test_steps_without_continuable_choices() -> None:
     """An input found by search, whose decomposition reaches steps without continuable choices.
 

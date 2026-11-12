@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for compiled functions: the disk cache, the registry, and the rules that make them safe."""
+"""Tests for compiled functions, and for running their tests compiled or as plain Python.
+
+They cover the disk cache, the registry of compiled-on-request functions, the switch to plain
+Python, the options of the compiled runs, and the rules for compiled functions.
+"""
 
 from __future__ import annotations
 
 import ast
 import os
+import pickle
 import time
 import types
 from collections.abc import Iterator
@@ -19,9 +24,16 @@ import platformdirs
 import pytest
 
 import qldpc
+from qldpc import conftest
 from qldpc.conftest import run_python
 
 from . import _compilation
+
+
+@pytest.fixture(autouse=True)
+def enable_compilation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compile by default in each test here, even in a run with ``QLDPC_DISABLE_COMPILATION``."""
+    monkeypatch.setattr(_compilation, "_DISABLED_BY_VARIABLE", False)
 
 
 def test_registered_functions_switch_between_plain_and_compiled(
@@ -111,7 +123,7 @@ def test_there_is_no_cache_directory_if_the_source_files_cannot_be_read(
         raise PermissionError("unreadable")
 
     monkeypatch.setattr(Path, "read_bytes", refuse)
-    with pytest.warns(RuntimeWarning, match="cannot be read"):
+    with pytest.warns(RuntimeWarning, match="cannot be read.*reinstall qLDPC"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -190,7 +202,7 @@ def test_errors_while_deleting_outdated_cache_directories_are_ignored(tmp_path: 
 
 
 def test_there_is_no_cache_directory_without_source_files(tmp_path: Path) -> None:
-    with pytest.warns(RuntimeWarning, match="no source files"):
+    with pytest.warns(RuntimeWarning, match="no source files.*with its .py source files"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -201,7 +213,7 @@ def test_an_unwritable_cache_directory_is_not_used(
     not_a_directory = tmp_path / "file"
     not_a_directory.write_text("a file, so that no directory can be made inside it")
     monkeypatch.setattr(_compilation._numba_config, "CACHE_DIR", str(not_a_directory))
-    with pytest.warns(RuntimeWarning, match="cannot be written"):
+    with pytest.warns(RuntimeWarning, match="cannot be written.*NUMBA_CACHE_DIR"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -217,7 +229,7 @@ def test_a_read_only_cache_directory_is_not_used(
         raise PermissionError("read-only")
 
     monkeypatch.setattr(_compilation.tempfile, "TemporaryFile", refuse)
-    with pytest.warns(RuntimeWarning, match="cannot be written"):
+    with pytest.warns(RuntimeWarning, match="cannot be written.*NUMBA_CACHE_DIR"):
         assert _compilation._get_cache_directory(tmp_path) is None
 
 
@@ -244,19 +256,135 @@ def test_a_function_is_not_cached_if_numba_does_not_use_the_directory(
         return njit(inline=inline)
 
     monkeypatch.setattr(_compilation.numba, "njit", cache_elsewhere)
-    with pytest.warns(RuntimeWarning, match="numba does not use"):
+    with pytest.warns(RuntimeWarning, match="numba does not use.*NUMBA_CACHE_DIR"):
         compiled = _compilation.always_compiled(_add_one)
     assert compiled.stats.cache_path is None
     assert compiled(1) == 2
 
 
-def test_always_compiled_functions_are_plain_python_if_numba_is_disabled(
-    monkeypatch: pytest.MonkeyPatch,
+def test_versions_compiled_at_the_same_time_are_loaded_only_for_their_argument_types(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(_compilation._numba_config, "DISABLE_JIT", True)
-    compiled = _compilation.always_compiled(_add_one)
+    """A version compiled for some argument types is never loaded for others.
+
+    The docstring of ``_compilation`` explains how processes that compile a function at once can
+    leave numba's index pointing at code compiled for other argument types.  Without the check of
+    keys, a later process here would run code compiled for F-ordered arrays on a C-ordered array and
+    return a wrong entry.  Each new dispatcher stands for a process, and replacing the index file
+    stages the order of the writes.
+    """
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    matrix = np.array([[0, 1], [2, 3]], dtype=np.uint8)
+
+    # Two processes read the empty index before either writes it.  The first compiles for C-ordered
+    # arrays, and the second for F-ordered arrays.  The second writes the data file last, and the
+    # first writes the index last.
+    assert _compilation.always_compiled(_get_top_right_entry)(matrix) == 1
+    (index,) = (tmp_path / "cache").rglob("*.nbi")
+    first_index = index.read_bytes()
+    index.unlink()
+    assert _compilation.always_compiled(_get_top_right_entry)(np.asfortranarray(matrix)) == 1
+    index.write_bytes(first_index)
+
+    # A later process compiles for C-ordered arrays again, and saves that code in place of the
+    # other, which the process after it loads.
+    later_process = _compilation.always_compiled(_get_top_right_entry)
+    assert later_process(matrix) == _get_top_right_entry(matrix) == 1
+    assert later_process.stats.cache_misses
+    next_process = _compilation.always_compiled(_get_top_right_entry)
+    assert next_process(matrix) == 1
+    assert next_process.stats.cache_hits
+
+
+@pytest.mark.parametrize("missing_module", [False, True], ids=["loadable", "missing_module"])
+def test_code_saved_by_another_version_of_numba_is_compiled_again(
+    missing_module: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Code that another version of numba saved for the same key is compiled again, not loaded.
+
+    ``_KeyCheckedCacheFile`` explains how the index of this version can name a data file that
+    another version of numba wrote, and why its code is not unpickled.  In one case, this version
+    can unpickle that code.  In the other, the code refers to a module that this version lacks, as
+    code that numba 0.61.2 saved does for numba 0.67.0.
+    """
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+
+    # A process with another version of numba writes the data file last, and a process with this
+    # version writes the index last.
+    assert _compilation.always_compiled(_add_one)(1) == 2
+    (index,) = (tmp_path / "cache").rglob("*.nbi")
+    first_index = index.read_bytes()
+    with monkeypatch.context() as other_numba:
+        other_numba.setattr(numba, "__version__", "other")
+        assert _compilation.always_compiled(_add_one)(1) == 2
+    if missing_module:
+        # A pickle that refers to the global ``name`` of a module that does not exist.
+        (data_file,) = (tmp_path / "cache").rglob("*.nbc")
+        data_file.write_bytes(pickle.dumps(("other", b"cno_such_module\nname\n.")))
+    index.write_bytes(first_index)
+
+    # A later process with this version compiles again.
+    later_process = _compilation.always_compiled(_add_one)
+    assert later_process(1) == 2
+    assert later_process.stats.cache_misses
+
+
+def test_a_function_is_not_cached_if_numba_reads_its_files_through_another_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """qLDPC caches only through a cache-file object exactly of the class that qLDPC extends.
+
+    Here ``object`` stands for the class that qLDPC extends, so numba's cache-file object is of a
+    subclass of it.
+    """
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
+    monkeypatch.setattr(_compilation, "caching", types.SimpleNamespace(IndexDataCacheFile=object))
+    with pytest.warns(RuntimeWarning, match="class that qLDPC extends.*earlier version"):
+        compiled = _compilation.always_compiled(_add_one)
+    assert compiled.stats.cache_path is None
     assert compiled(1) == 2
-    assert not hasattr(compiled, "stats")
+
+
+@pytest.mark.parametrize("switch", ["qldpc", "numba"])
+def test_functions_run_as_plain_python_if_compilation_is_disabled(
+    switch: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Either qLDPC's switch or numba's leaves functions of both kinds as they are.
+
+    qLDPC never looks up its directory of compiled code, so it neither uses nor cleans up its
+    directories.
+    """
+    monkeypatch.setattr(
+        _compilation,
+        "_get_cache_directory",
+        lambda package: pytest.fail("looked up the cache directory"),
+    )
+    if switch == "qldpc":
+        monkeypatch.setattr(_compilation, "_DISABLED_BY_VARIABLE", True)
+    else:
+        monkeypatch.setattr(_compilation._numba_config, "DISABLE_JIT", 1)
+    assert _compilation.always_compiled(_add_one) is _add_one
+    assert _compilation.always_compiled(inline=True)(_add_one) is _add_one
+
+    monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", [])
+    plain = _compilation.compiled_on_request(_scaled_sum)
+    try:
+        _compilation.set_on_request_functions_compiled(True)
+        assert globals()["_scaled_sum"] is plain
+    finally:
+        _compilation.set_on_request_functions_compiled(False)
+
+
+def test_the_environment_variable_disables_compilation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``QLDPC_DISABLE_COMPILATION`` disables compilation if it is 1 when qLDPC is imported.
+
+    The interpreters that ``run_python`` starts do not inherit it, so they compile as a user's does.
+    """
+    code = "from qldpc import _binary\nprint(type(_binary.pack_bits).__name__)"
+    monkeypatch.setenv("QLDPC_DISABLE_COMPILATION", "1")
+    assert run_python(code).strip() == "CPUDispatcher"
+    assert run_python(code, env={"QLDPC_DISABLE_COMPILATION": "0"}).strip() == "CPUDispatcher"
+    assert run_python(code, env={"QLDPC_DISABLE_COMPILATION": "1"}).strip() == "function"
 
 
 def test_editing_a_callee_in_another_subpackage_recompiles_its_caller(tmp_path: Path) -> None:
@@ -297,19 +425,14 @@ def test_always_compiled_functions_do_not_call_compiled_on_request_functions() -
     registered = _get_names_decorated_by(trees, "compiled_on_request")
     assert registered
     for path, tree in trees:
-        for function in ast.walk(tree):
-            if isinstance(function, ast.FunctionDef) and _is_decorated_by(
-                function, "always_compiled"
-            ):
-                used = {
-                    node.id if isinstance(node, ast.Name) else node.attr
-                    for statement in function.body
-                    for node in ast.walk(statement)
-                    if isinstance(node, ast.Name | ast.Attribute)
-                }
-                assert not used & registered, (
-                    f"{path.name}: {function.name} calls {used & registered}"
-                )
+        for function in _get_functions_decorated_by(tree, "always_compiled"):
+            used = {
+                node.id if isinstance(node, ast.Name) else node.attr
+                for statement in function.body
+                for node in ast.walk(statement)
+                if isinstance(node, ast.Name | ast.Attribute)
+            }
+            assert not used & registered, f"{path.name}: {function.name} calls {used & registered}"
 
 
 def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
@@ -324,21 +447,30 @@ def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
                 assert not imported, f"{path.name} imports {imported} by name"
 
 
+def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> None:
+    """CI runs only the distance tests with compiled-on-request functions compiled."""
+    modules = run_python(_FIND_ON_REQUEST_MODULES).split()
+    assert modules
+    outside = [
+        name
+        for name in modules
+        if name != "qldpc.codes.distance" and not name.startswith("qldpc.codes.distance.")
+    ]
+    assert not outside, outside
+
+
 def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:
     """Only qLDPC's source is hashed, but numba checks its version and implements NumPy itself."""
     for path, tree in _get_source_trees():
         outside = _get_names_imported_from_outside_qldpc(tree)
-        for function in ast.walk(tree):
-            if isinstance(function, ast.FunctionDef) and _is_decorated_by(
-                function, "always_compiled"
-            ):
-                names = {
-                    node.id
-                    for statement in function.body
-                    for node in ast.walk(statement)
-                    if isinstance(node, ast.Name)
-                }
-                assert not names & outside, f"{path.name}: {function.name} uses {names & outside}"
+        for function in _get_functions_decorated_by(tree, "always_compiled"):
+            names = {
+                node.id
+                for statement in function.body
+                for node in ast.walk(statement)
+                if isinstance(node, ast.Name)
+            }
+            assert not names & outside, f"{path.name}: {function.name} uses {names & outside}"
 
 
 def test_names_imported_from_outside_qldpc_are_found() -> None:
@@ -353,8 +485,168 @@ def test_names_imported_from_outside_qldpc_are_found() -> None:
     assert _get_names_imported_from_outside_qldpc(tree) == {"scipy", "renamed"}
 
 
+def test_compiled_module_tests_are_those_of_modules_with_compiled_functions(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--compiled-module-tests`` collects just the test files of modules with compiled functions.
+
+    An independent program imports every module of qLDPC, and lists those that hold compiled
+    functions of their own or register compiled-on-request functions.  The selection counts only
+    functions with ``always_compiled`` or ``compiled_on_request``.  So this fails if a module's only
+    compiled functions have neither, such as functions compiled by a module-level ``numba.njit``
+    call, since the selection would then skip its test file.
+    """
+    # Every test file of qLDPC is collected if and only if the program lists its module.
+    compiled_modules = run_python(_FIND_COMPILED_MODULES).split()
+    assert "qldpc._binary" in compiled_modules
+    package = Path(qldpc.__file__).parent
+    monkeypatch.setattr(pytestconfig.option, "compiled_module_tests", True)
+    for test_file in package.rglob("*_test.py"):
+        module = ".".join(("qldpc", *test_file.relative_to(package).with_suffix("").parts))
+        ignored = module.removesuffix("_test") not in compiled_modules
+        assert conftest.pytest_ignore_collect(test_file, pytestconfig) is (
+            True if ignored else None
+        )
+
+    # Directories are never skipped, and nothing is skipped without the option.
+    assert conftest.pytest_ignore_collect(package / "codes", pytestconfig) is None
+    monkeypatch.setattr(pytestconfig.option, "compiled_module_tests", False)
+    assert conftest.pytest_ignore_collect(package / "codes/common_test.py", pytestconfig) is None
+
+    # The decorators count however they are imported, but a function with their name does not.
+    functions = conftest.get_compiled_functions(ast.parse(_DECORATED_SOURCE))
+    assert {name: [function.name for function in found] for name, found in functions.items()} == {
+        "always_compiled": ["bare", "qualified"],
+        "compiled_on_request": ["aliased"],
+    }
+
+
+def test_the_compile_search_setup_option_compiles_once_and_switches_on_before_each_test(
+    request: pytest.FixtureRequest, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With ``--compile-search-setup``, each process compiles the set-up code of searches once.
+
+    Before each test, the compiled-on-request functions are switched to their compiled versions.
+    Without the option, nothing is compiled.
+    """
+    calls: list[None] = []
+    monkeypatch.setattr(qldpc.codes.distance, "compile_search_setup", lambda: calls.append(None))
+    # Start from an empty cache, as a new process does.
+    conftest.compile_search_setup_once.cache_clear()
+    monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", [])
+    plain = _compilation.compiled_on_request(_scaled_sum)
+
+    # Without the option, nothing is compiled.
+    monkeypatch.setattr(pytestconfig.option, "compile_search_setup", False)
+    conftest.pytest_runtest_setup(request.node)
+    assert globals()["_scaled_sum"] is plain and not calls
+
+    # Two tests in a row, each of which switches the functions back to plain Python.
+    monkeypatch.setattr(pytestconfig.option, "compile_search_setup", True)
+    try:
+        for _ in range(2):
+            conftest.pytest_runtest_setup(request.node)
+            assert isinstance(globals()["_scaled_sum"], numba.core.registry.CPUDispatcher)
+            _compilation.set_on_request_functions_compiled(False)
+            assert globals()["_scaled_sum"] is plain
+    finally:
+        _compilation.set_on_request_functions_compiled(False)
+        conftest.compile_search_setup_once.cache_clear()
+    assert calls == [None]
+
+
+@pytest.mark.parametrize(
+    "switch, option", [("qldpc", "compiled_module_tests"), ("numba", "compile_search_setup")]
+)
+def test_options_of_compiled_runs_are_refused_while_compilation_is_disabled(
+    switch: str, option: str, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each option is refused while either switch disables compilation, and accepted otherwise.
+
+    Each case pairs one option with one switch, so that dropping the check of any one option or
+    switch fails a case.
+    """
+    monkeypatch.setattr(pytestconfig.option, "compiled_module_tests", False)
+    monkeypatch.setattr(pytestconfig.option, "compile_search_setup", False)
+    monkeypatch.setattr(pytestconfig.option, option, True)
+    conftest.pytest_configure(pytestconfig)
+    if switch == "qldpc":
+        monkeypatch.setattr(_compilation, "_DISABLED_BY_VARIABLE", True)
+    else:
+        monkeypatch.setattr(_compilation._numba_config, "DISABLE_JIT", True)
+    with pytest.raises(pytest.UsageError) as error:
+        conftest.pytest_configure(pytestconfig)
+    names = ("compiled_module_tests", "compile_search_setup")
+    named = [f"--{name.replace('_', '-')}" in str(error.value) for name in names]
+    assert named == [name == option for name in names]
+
+    # Without the options, disabled compilation is accepted.
+    monkeypatch.setattr(pytestconfig.option, option, False)
+    conftest.pytest_configure(pytestconfig)
+
+
 # The packages whose functions always-compiled code may use.
 _COMPILABLE_PACKAGES = {"qldpc", "numpy", "numba"}
+
+# Code that imports every module of qLDPC other than tests, which registers every compiled function.
+_IMPORT_EVERY_MODULE = """
+import importlib, pkgutil, sys
+import numba
+import qldpc
+from qldpc import _compilation
+
+for info in pkgutil.walk_packages(qldpc.__path__, "qldpc."):
+    if not info.name.endswith(("_test", "conftest")):
+        importlib.import_module(info.name)
+"""
+
+# A program that prints the modules that register compiled-on-request functions.
+_FIND_ON_REQUEST_MODULES = (
+    _IMPORT_EVERY_MODULE
+    + """
+print(*sorted({item.namespace["__name__"] for item in _compilation._ON_REQUEST_FUNCTIONS}))
+"""
+)
+
+# A program that prints the modules that hold compiled functions of their own or register
+# compiled-on-request functions.
+_FIND_COMPILED_MODULES = (
+    _IMPORT_EVERY_MODULE
+    + """
+modules = {item.namespace["__name__"] for item in _compilation._ON_REQUEST_FUNCTIONS}
+for name, module in list(sys.modules.items()):
+    if module is None or not name.startswith("qldpc."):
+        continue
+    for value in vars(module).values():
+        is_dispatcher = isinstance(value, numba.core.registry.CPUDispatcher)
+        if is_dispatcher and value.py_func.__module__ == name:
+            modules.add(name)
+print(*sorted(modules))
+"""
+)
+
+# A module whose functions ``bare`` and ``qualified`` are always compiled, and ``aliased`` is
+# compiled on request, beside two functions that are neither.  Each name says how its decorator is
+# written.
+_DECORATED_SOURCE = """
+import functools
+from qldpc import _compilation
+from qldpc._compilation import always_compiled, compiled_on_request as on_request
+
+@always_compiled
+def bare(): ...
+
+@_compilation.always_compiled(inline=True)
+def qualified(): ...
+
+@on_request
+def aliased(): ...
+
+@functools.cache
+def always_compiled(): ...
+
+def undecorated(): ...
+"""
 
 _CALLEE = """
 import numba
@@ -385,6 +677,10 @@ def _add_one(value: int) -> int:
     return value + 1
 
 
+def _get_top_right_entry(matrix: npt.NDArray[np.uint8]) -> int:
+    return matrix[0, -1]
+
+
 def _get_source_trees() -> Iterator[tuple[Path, ast.Module]]:
     """The syntax tree of every source file of the library that is not a test."""
     for path in _compilation._get_source_paths(Path(qldpc.__file__).parent):
@@ -396,26 +692,15 @@ def _is_njit(function: ast.expr) -> bool:
     return getattr(function, "attr", getattr(function, "id", "")) in ("njit", "jit")
 
 
-def _is_decorated_by(function: ast.FunctionDef, name: str) -> bool:
-    """Whether a function has the decorator of the given name, however it was imported."""
-    for decorator in function.decorator_list:
-        if isinstance(decorator, ast.Call):  # a decorator with options, such as ``inline=True``
-            decorator = decorator.func
-        decorator_name = (
-            decorator.attr if isinstance(decorator, ast.Attribute) else getattr(decorator, "id", "")
-        )
-        if decorator_name == name:
-            return True
-    return False
+def _get_functions_decorated_by(tree: ast.Module, name: str) -> list[ast.FunctionDef]:
+    """The functions of a module with the decorator ``name``: one of the two of ``_compilation``."""
+    return conftest.get_compiled_functions(tree)[name]
 
 
 def _get_names_decorated_by(trees: list[tuple[Path, ast.Module]], name: str) -> set[str]:
     """The names of the functions in the given syntax trees that have the decorator ``name``."""
     return {
-        function.name
-        for _, tree in trees
-        for function in ast.walk(tree)
-        if isinstance(function, ast.FunctionDef) and _is_decorated_by(function, name)
+        function.name for _, tree in trees for function in _get_functions_decorated_by(tree, name)
     }
 
 

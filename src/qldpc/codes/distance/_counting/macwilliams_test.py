@@ -14,17 +14,13 @@ from .._tuning import DEFAULT_TUNING
 from . import macwilliams as mw
 
 
-@pytest.mark.parametrize("compiled", [True, False])
 @pytest.mark.parametrize("num_bits", [8, 70])
-def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int, compiled: bool) -> None:
+def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int) -> None:
     """Count two disjoint four-qubit blocks, with any remaining qubits free, at every weight.
 
     A logical has even weight on each block, and the checks are the words of weights 0, 4 and 8 that
     are constant on each block.  At length 70, middle weights exceed 64-bit integers.
     """
-    if not compiled:
-        monkeypatch.setattr(mw, "_add_span_weights", mw._add_span_weights.py_func)
-        monkeypatch.setattr(mw, "_transform_weights", mw._transform_weights.py_func)
     add_span_weights = mw._add_span_weights
     chunk_sizes = []
 
@@ -45,7 +41,7 @@ def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int, compiled
         )
         expected = kernel - {0: 1, 4: 2, 8: 1}.get(weight, 0)
         assert enumerators.count_logical_ops(weight) == (expected, expected)
-    # Each native call of the walk visits one Gray-code step, the given chunk size.
+    # Each call of the walk visits one Gray-code step, the given chunk size.
     assert chunk_sizes and set(chunk_sizes) == {1}
 
 

@@ -64,7 +64,7 @@ These requirements apply when changing how qLDPC builds, coerces, or resolves de
 
 * Coerce user-supplied error decoders with ``_as_error_decoder`` from ``decoders/protocols.py`` inside ``qldpc.decoders``, or ``build_error_decoder`` from ``decoders/_resolution.py`` outside it, and call ``decode_errors``.
 * Reject prebuilt decoders with ``reject_prebuilt_decoder`` from ``decoders/_resolution.py`` when a method constructs the matrix that it decodes.
-* Keep the import layers of ``qldpc.decoders`` that ``_LAYERS`` in ``decoders/layering_test.py`` lists, and add a new top-level module or subpackage to a layer there; the :doc:`code standard <code>` describes the rule and its exceptions.
+* Keep the import layers of ``qldpc.decoders`` that ``_LAYERS`` in ``decoders/_layering_test.py`` lists, and add a new top-level module or subpackage to a layer there; the :doc:`code standard <code>` describes the rule and its exceptions.
 * Keep ``build_error_decoder`` specific to error decoders.
   Dispatch on explicit capabilities such as ``compile_decoder_for_dem``, ``decode_observables``, and ``ErrorDecoder``, never on output length.
 * In code-capacity callers under ``qldpc.codes``, resolve decoder inputs with ``get_code_capacity_decoder`` from ``codes/_code_capacity.py``.

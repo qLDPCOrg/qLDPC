@@ -264,7 +264,7 @@ def test_matmul_fallbacks() -> None:
 
     # a RingArray without a base ring says so, rather than returning None
     with pytest.raises(ValueError, match="no base ring"):
-        unknown_ring.ring  # noqa: B018
+        _ = unknown_ring.ring
 
     # an empty inner dimension gives zeros, which are integers without a base ring
     empty_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
@@ -481,22 +481,18 @@ def test_ufunc_outputs() -> None:
     assert np.dot(matrix, operand, out=np.zeros((1, 1), dtype=object)) == "function"
 
 
-def test_ring_row_reduction() -> None:
+def test_ring_row_reduction(ring_cyclic3_gf2: abstract.GroupRing) -> None:
     """RingArrays can be row reduced in various ways."""
-    matrix: list[list[int | abstract.RingMember]] | abstract.RingArray
-
-    # we can row-reduce a RingArray over a cyclic group algebra
-    ring = abstract.GroupRing(abstract.CyclicGroup(5), field=3)
+    # we can row-reduce a RingArray over a cyclic group algebra, here with a second row that is the
+    # first times 1 + gen, which is not a unit
+    ring = ring_cyclic3_gf2
     one = ring.one
     gen = ring.generators[0]
-    gen_inverse = gen.inverse()
-    assert gen_inverse is not None
-
     matrix = abstract.RingArray.build(
         [
-            [one + gen, 0, gen],
-            [gen + gen**2, 0, gen**2],
-            [0, 0, one + gen],
+            [gen, 0, one],
+            [gen + gen**2, 0, one + gen],
+            [0, 0, gen],
         ]
     )
     matrix_row_reduced = abstract.RingArray.build([[1, 0, 0], [0, 0, 1], [0, 0, 0]], ring)
@@ -544,7 +540,7 @@ def test_deprecated_argument_order() -> None:
 def test_deprecated_attribute_lookup() -> None:
     """The module-level lookup of deprecated names rejects other names."""
     with pytest.raises(AttributeError, match="has no attribute 'not_a_real_export'"):
-        ring_array_module.not_a_real_export  # type: ignore[attr-defined]  # noqa: B018
+        _ = ring_array_module.not_a_real_export  # type: ignore[attr-defined]
 
 
 def test_ring_array_over_matrix_ring() -> None:

@@ -46,7 +46,7 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     # raise error if seed codes are over different fields
     subcode_b = codes.RepetitionCode(2, field=3)
     with pytest.raises(ValueError, match="different fields"):
-        codes.QTCode([], [], subcode_a, subcode_b)
+        codes.QTCode(subset_a, subset_a, subcode_a, subcode_b)
 
     # saving and loading a QTCode, creating a missing directory along the way
     path = tmp_path / "subdirectory" / "code.txt"
@@ -54,6 +54,85 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     assert codes.QTCode.load(str(path)) == code
     with pytest.raises(ValueError, match="Path does not exist"):
         codes.QTCode.load(str(tmp_path / "missing.txt"))
+
+    # saved files do not depend on the iteration order of subsets, which varies between sessions
+    saved_files = []
+    for reverse in [False, True]:
+        ordered_a = sorted(code.complex.subset_a, reverse=reverse)
+        ordered_b = sorted(code.complex.subset_b, reverse=reverse)
+        with (
+            unittest.mock.patch.object(code.complex, "subset_a", ordered_a),
+            unittest.mock.patch.object(code.complex, "subset_b", ordered_b),
+        ):
+            code.save(str(path))
+        saved_files.append(path.read_text())
+    assert saved_files[0] == saved_files[1]
+
+    # codes whose saved data has empty rows or sections, such as members of the trivial group or
+    # seed codes without parity checks, load back too, even with headers that mimic section names
+    generator = abstract.CyclicGroup(2).generators[0]
+    for saved_code in [
+        codes.QTCode.random(abstract.TrivialGroup(), codes.ClassicalCode([[1]])),
+        codes.QTCode([generator], [generator], np.zeros((0, 1), dtype=int), [[1]]),
+    ]:
+        saved_code.save(str(path), "subset_a:\nsubset_b:")
+        assert codes.QTCode.load(str(path)) == saved_code
+
+    # loading fails clearly if a section is missing
+    path.write_text("# subset_a:\n")
+    with pytest.raises(ValueError, match="Saved code has no"):
+        codes.QTCode.load(str(path))
+
+    # Random subsets can exclude the identity element.  Without that exclusion, about a third of
+    # random symmetric subsets of size 3 in this group contain it, so several seeds would catch it.
+    symmetric_group = abstract.SymmetricGroup(3)
+    first_seed = np.random.randint(2**31)
+    for seed in range(first_seed, first_seed + 10):
+        code = codes.QTCode.random(
+            symmetric_group, codes.HammingCode(2), exclude_identity=True, seed=seed
+        )
+        assert not any(
+            member.is_Identity for member in code.complex.subset_a | code.complex.subset_b
+        )
+
+
+def test_quantum_tanner_generating_data() -> None:
+    """Quantum Tanner codes validate and compare their generating data."""
+    shift = abstract.CyclicGroup(6).generators[0]
+    members = [shift, ~shift]
+    subcode = codes.RepetitionCode(2)
+    code = codes.QTCode(members, members, subcode)
+
+    # repeated members are merged before the sizes of the subsets are compared
+    assert codes.QTCode(members * 2, members, subcode) == code
+
+    # codes are equal if their members are equal after adding fixed points to the end of them
+    padded_members = [
+        abstract.GroupMember(member.array_form, size=member.size + 1) for member in members
+    ]
+    padded_code = codes.QTCode(padded_members, padded_members, subcode)
+    assert padded_code.complex.subset_a != code.complex.subset_a
+    assert padded_code == code
+    assert code == padded_code
+    assert code != code.complex
+
+    # raise error if a seed code does not have one bit per distinct member of its subset, even if
+    # the product of the block lengths of the seed codes is right
+    other_members = [shift**2, shift**3, ~(shift**2)]
+    for code_a, code_b, wrong_code in [
+        (codes.RepetitionCode(3), codes.RepetitionCode(3), "C_A"),
+        (codes.RepetitionCode(2), codes.RepetitionCode(2), "C_B"),
+        (codes.RepetitionCode(3), codes.RepetitionCode(2), "C_[AB]"),
+    ]:
+        with pytest.raises(ValueError, match=f"seed code {wrong_code} has block length"):
+            codes.QTCode(members, other_members, code_a, code_b)
+
+    # one generating subset may be empty, which leaves a complex without faces, but not both
+    no_bits = np.zeros((0, 0), dtype=int)
+    assert codes.QTCode([], members, no_bits, subcode).num_qudits == 0
+    assert codes.QTCode(members, [], subcode, no_bits).num_qudits == 0
+    with pytest.raises(ValueError, match="at least one generating member"):
+        codes.QTCode([], [], no_bits)
 
 
 def test_quantum_tanner_nonabelian_faces() -> None:
@@ -97,8 +176,19 @@ def test_quantum_tanner_nonabelian_faces() -> None:
 
     def matrix_supports(matrix: np.ndarray, graph: nx.DiGraph) -> list[frozenset[object]]:
         """Matrix-row supports expressed using the graph's face nodes."""
-        faces = sorted(node for node in graph if graph.out_degree(node) == 0)
+        faces = sorted(
+            (node for node in graph if graph.out_degree(node) == 0),
+            key=lambda face: graph.nodes[face]["sort"],
+        )
         return [frozenset(faces[col] for col in np.flatnonzero(row)) for row in matrix]
+
+    # the faces of both subgraphs are numbered in one order, from zero
+    face_labels_x, face_labels_z = [
+        {node: label for node, label in graph.nodes(data="sort") if graph.out_degree(node) == 0}
+        for graph in [subgraph_x, subgraph_z]
+    ]
+    assert face_labels_x == face_labels_z
+    assert sorted(face_labels_x.values()) == list(range(code.num_qudits))
 
     for matrix, graph in [(code.matrix_x, subgraph_x), (code.matrix_z, subgraph_z)]:
         expected = {
@@ -109,6 +199,55 @@ def test_quantum_tanner_nonabelian_faces() -> None:
         assert set(actual) == expected
 
     assert not np.any(code.matrix_x @ code.matrix_z.T)
+
+
+def test_quantum_tanner_qudit_order() -> None:
+    """Quantum Tanner codes have a fixed qudit order.
+
+    A code that is saved and loaded is rebuilt from its generating data, so changing the order of
+    its qudits would invalidate anything that refers to them by index.
+    """
+
+    def get_supports(code: codes.QTCode) -> list[tuple[int, ...]]:
+        """Supports of the X-type parity checks of a code."""
+        return [tuple(np.flatnonzero(row)) for row in code.matrix_x.view(np.ndarray)]
+
+    shift = abstract.CyclicGroup(3).generators[0]
+    code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
+    assert get_supports(code) == [
+        (0, 1, 2, 3),
+        (1, 2, 4, 5),
+        (5, 6, 7, 8),
+        (3, 6, 7, 9),
+        (4, 9, 10, 11),
+        (0, 8, 10, 11),
+    ]
+
+    # a bipartite complex of the symmetric group S_3, generated by 3-cycles and by transpositions
+    cycle = abstract.GroupMember([1, 2, 0])
+    swaps = [abstract.GroupMember([1, 0, 2]), abstract.GroupMember([2, 1, 0])]
+    code = codes.QTCode([cycle, ~cycle], swaps, codes.RepetitionCode(2), bipartite=True)
+    assert get_supports(code) == [
+        (0, 1, 2, 3),
+        (0, 3, 4, 5),
+        (1, 6, 7, 8),
+        (5, 6, 9, 10),
+        (4, 7, 8, 11),
+        (2, 9, 10, 11),
+    ]
+
+    # a code in which visiting the least node first and visiting nodes in the order in which they
+    # are found give different orders of faces
+    shift = abstract.CyclicGroup(6).generators[0]
+    code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
+    assert get_supports(code) == [
+        (0, 1, 2, 3),
+        (1, 2, 4, 5),
+        (4, 6, 7, 8),
+        (0, 7, 8, 9),
+        (5, 9, 10, 11),
+        (3, 6, 10, 11),
+    ]
 
 
 def test_random_quantum_tanner_code_is_reproducible() -> None:

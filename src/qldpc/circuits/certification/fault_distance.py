@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import galois
 import numpy as np
 import stim
 
 from qldpc import codes, decoders
-from qldpc.codes.distance import DistanceMethod
+from qldpc.codes.distance import DistanceMethod, NoDistance
 from qldpc.objects import Pauli
 
 ####################################################################################################
@@ -18,7 +20,7 @@ from qldpc.objects import Pauli
 
 def get_fault_distance(
     circuit: stim.Circuit, *, method: DistanceMethod = "brouwer_zimmermann"
-) -> int | float:
+) -> int | Literal[NoDistance.NAN]:
     r"""Compute the exact fault distance of a noisy circuit.
 
     Consider a noisy Stim circuit annotated with detectors and logical observables.  Calling
@@ -71,8 +73,8 @@ def get_fault_distance(
             detectors (see :meth:`qldpc.codes.CSSCode.get_distance_exact`).
 
     Returns:
-        The minimum number of DEM error mechanisms causing an undetected observable flip, or np.nan
-        if no such fault exists.
+        The minimum number of DEM error mechanisms causing an undetected observable flip, or
+        ``NO_DISTANCE`` (see :class:`~qldpc.codes.distance.NoDistance`) if no such fault exists.
     """
     dem_arrays = decoders.DetectorErrorModelArrays(circuit)
     detectors = galois.GF2(dem_arrays.detector_flip_matrix.toarray())

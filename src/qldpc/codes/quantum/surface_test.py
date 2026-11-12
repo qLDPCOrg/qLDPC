@@ -9,7 +9,7 @@ import unittest.mock
 import numpy as np
 import pytest
 
-from qldpc import abstract, codes, decoders
+from qldpc import abstract, codes
 from qldpc.objects import Pauli
 
 from ..conftest import assert_cached_parameters_are_genuine, assert_valid_subgraphs
@@ -55,17 +55,11 @@ def test_toric_codes() -> None:
     # "ordinary"/original toric code
     distance = 3
     code = codes.ToricCode(distance, rotated=False)
-    assert codes.CSSCode(code.matrix_x, code.matrix_z).dimension == 2
+    plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+    assert plain.dimension == 2
+    assert plain.get_distance(Pauli.X) == plain.get_distance(Pauli.Z) == distance
     assert code.num_qudits == 2 * distance**2
     assert_valid_subgraphs(code)
-
-    # check minimal logical operator weights
-    code.reduce_logical_ops(decoder=decoders.ilp())
-    assert (
-        {distance}
-        == {sum(op) for op in code.get_logical_ops(Pauli.X).view(np.ndarray)}
-        == {sum(op) for op in code.get_logical_ops(Pauli.Z).view(np.ndarray)}
-    )
 
     # rotated toric code
     distance = 4

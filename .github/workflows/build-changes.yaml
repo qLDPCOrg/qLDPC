@@ -23,8 +23,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ubuntu:
-    name: Ubuntu check of minimum dependency versions (Python 3.11)
+  install:
+    name: Installation check (Python 3.14)
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -33,14 +33,54 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
+          python-version: 3.14
+          # Install from scratch, as a new user would.
+          enable-cache: false
+      # Install what a development installation (pip install -e '.[dev]') does, which no other job
+      # installs together.
+      - name: Install package and dependencies
+        run: uv sync --extra dev
+
+  ubuntu:
+    name: Ubuntu check of minimum dependency versions (Python 3.11)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
           python-version: "3.11"
           activate-environment: true
-          # setup-uv's cache key hashes pyproject.toml, so runs that change that file cannot reuse it
+          # The steps below manage the uv cache, because relay-bp 0.2.2 has no wheel for Python
+          # 3.11, so an uncached install spends about a minute compiling it.  setup-uv's own cache
+          # would miss whenever pyproject.toml changes, because its key hashes that file.
           enable-cache: false
+          cache-local-path: ${{ runner.temp }}/uv-cache
+      - name: Restore uv cache
+        id: restore-uv-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-ubuntu-lowest-py3.11-${{ hashFiles('pyproject.toml') }}
+          restore-keys: uv-ubuntu-lowest-py3.11-
       # Install the lowest versions that pyproject.toml allows for the direct dependencies of the
-      # package and its decoders extra, which tests the declared minimum versions.
+      # package and its decoders extra, which tests the declared minimum versions.  uv resolves
+      # them anew in every run, so the cache affects only what uv builds, not which versions it
+      # installs.
       - name: Install package and minimum versions of its dependencies
         run: uv pip install --resolution lowest-direct '.[decoders]' --group ci-test
+      # save the cache now, so that it survives a later timeout
+      - name: Prune uv cache
+        if: steps.restore-uv-cache.outputs.cache-hit != 'true'
+        run: uv cache prune --ci  # keeps the wheels that uv built from source
+      - name: Save uv cache
+        if: steps.restore-uv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: ${{ steps.restore-uv-cache.outputs.cache-primary-key }}
       - name: Run pytest
         run: python checks/pytest_.py
 

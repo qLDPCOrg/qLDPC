@@ -133,6 +133,10 @@ def test_get_qdistrnd_distance_bound() -> None:
                 == 3
             )
 
+        # QDistRnd negates a bound at or below the cutoff when it stops early
+        with unittest.mock.patch("qldpc.external.gap.get_output", return_value="-2"):
+            assert _codes.get_qdistrnd_distance_bound(matrix, cutoff=2) == 2
+
         # QDistRnd produced no output at all
         with (
             unittest.mock.patch("qldpc.external.gap.get_output", return_value=""),

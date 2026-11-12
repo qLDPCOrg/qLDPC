@@ -50,7 +50,8 @@ NestedSequence = Sequence[object | Sequence["NestedSequence"]]
 class GroupMember(comb.Permutation):
     """Wrapper for SymPy Permutation class.
 
-    Supports sorting permutations (by their rank), and taking their tensor product.
+    Supports sorting permutations (lexicographically, padding with fixed points), and taking their
+    tensor product.
     """
 
     @staticmethod
@@ -86,8 +87,28 @@ class GroupMember(comb.Permutation):
         """
         return NotImplemented
 
-    def __lt__(self, other: GroupMember) -> bool:
-        return self.rank() < other.rank()
+    def __lt__(self, other: comb.Permutation) -> bool:
+        """Compare array forms lexicographically, padding the shorter one with fixed points.
+
+        Permutations that differ only in trailing fixed points are therefore neither smaller nor
+        larger than each other.  Sorting keeps them in their input order, although they are not
+        equal (==).  On permutations of the same size, this is the order of SymPy ranks.  It also
+        covers the identity of the trivial group, which acts on no points.
+        """
+        if not isinstance(other, comb.Permutation):
+            return NotImplemented
+        self_form, other_form = GroupMember._get_padded_array_forms(self, other)
+        return self_form < other_form
+
+    def __gt__(self, other: comb.Permutation) -> bool:
+        """Compare permutations in the order of __lt__.
+
+        Python also calls this method for ``p < member`` when p is a SymPy permutation.
+        """
+        if not isinstance(other, comb.Permutation):
+            return NotImplemented
+        self_form, other_form = GroupMember._get_padded_array_forms(self, other)
+        return self_form > other_form
 
     def __matmul__(self, other: GroupMember) -> GroupMember:
         """Take the "tensor product" of two group members.
@@ -121,6 +142,17 @@ class GroupMember(comb.Permutation):
 
         cycles = [to_gap_cycle(cycle) for cycle in self.cyclic_form]
         return "".join(cycles) if cycles else "()"
+
+    @staticmethod
+    def _get_padded_array_forms(
+        first: comb.Permutation, second: comb.Permutation
+    ) -> tuple[list[int], list[int]]:
+        """Get the array forms of two permutations, padding the shorter one with fixed points."""
+        size = max(first.size, second.size)
+        return (
+            first.array_form + list(range(first.size, size)),
+            second.array_form + list(range(second.size, size)),
+        )
 
 
 Lift = Callable[[GroupMember], npt.NDArray[np.int_]]
@@ -533,20 +565,28 @@ class Group:
         .. note::
             This is not a uniformly random subset, only a "sufficiently random" one.
 
-        .. warning::
-            If excluding the identity element, not all groups have symmetric subsets of arbitrary
-            size.  If called with a poor choice of group and subset size, this method may never
-            terminate.
+        If exclude_identity is True, the subset excludes the identity element.  Such a subset of a
+        given size exists exactly if the size is at most the order of the group minus one, and the
+        size or the order is even.  A symmetric subset of odd size needs a member other than the
+        identity that is its own inverse, and only groups of even order have one.
+
+        Raises:
+            ValueError: If size is not positive, or no symmetric subset of that size exists.
         """
-        if not 0 < size <= self.order:
+        max_size = self.order - 1 if exclude_identity else self.order
+        if not 0 < size <= max_size:
             raise ValueError(
                 "A random symmetric subset of this group must have a size between 1 and"
-                f" {self.order} (provided: {size})"
+                f" {max_size} (provided: {size})"
+            )
+        if exclude_identity and size % 2 and self.order % 2:
+            raise ValueError(
+                "A group of odd order has no symmetric subset of odd size without the identity"
             )
         rng = _get_rng(seed)
         singles = set()  # group members equal to their own inverse
         doubles = set()  # pairs of group members and their inverses
-        # loop until the members collected have the requested size; see the warning above
+        # loop until the members collected have the requested size, which the checks above allow
         while True:
             member = self._random_member(rng)
             if exclude_identity and member == self.identity:

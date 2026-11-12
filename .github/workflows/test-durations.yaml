@@ -1,0 +1,38 @@
+# This workflow measures how long each test file takes in the per-module coverage check on a CI
+# runner, and uploads the result as .test_durations, which balances the coverage shards (see
+# checks/coverage_.py --shard).  Run it from the Actions tab, and commit the file that it uploads.
+# Keep its set-up in step with the coverage job of continuous-integration.yaml.
+
+name: Store test durations
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  durations:
+    name: Store test durations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          enable-cache: true
+      - name: Install package and dependencies
+        run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
+      - name: Run the whole coverage check, and store how long each test file takes
+        run: >-
+          uv run --extra bliss --extra decoders --extra gap --group ci-test
+          python checks/coverage_.py --jobs "$(nproc)" --store-durations --clean-durations
+      - name: Upload the durations
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-durations
+          path: .test_durations
+          # The action skips files whose names start with a dot unless told otherwise.
+          include-hidden-files: true
