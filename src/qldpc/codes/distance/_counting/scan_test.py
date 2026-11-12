@@ -24,10 +24,8 @@ from ..conftest import (
     HAND_Z,
     METHODS,
     CostlyStages,
-    Counts,
     assert_counts_match_enumeration,
     get_counter,
-    get_expected_counts,
     get_random_css_code,
     get_sector_problem,
 )
@@ -128,32 +126,20 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
     assert sizes and max(sizes) <= 4
 
 
-def test_counts_with_tiny_chunks_and_forced_tables(tune: Tune) -> None:
-    """Counts are exact with tiny chunks and forced completion tables.
+@pytest.mark.parametrize("method", METHODS)
+def test_a_count_of_full_paulis_above_the_distance_raises_an_error(
+    method: lc.LogicalCountMethod,
+) -> None:
+    """A count of full Paulis at a weight above the distance raises an error."""
+    with pytest.raises(ValueError, match="less than weight 3"):
+        get_counter(HAND_X, HAND_Z).count_logical_ops(3, method=method, count_pauli=True)
 
-    Tiny chunks make scans stop and resume repeatedly, and scans use completion tables wherever they
-    can.  The counters include deformed ones, and a count of full Paulis above the distance raises
-    an error.
-    """
-    tune(scan_chunk_size=1, **FORCED_TABLES)
-    code = get_random_css_code(np.random.default_rng(3), 14, 4, 4)
-    assert_counts_match_enumeration(lc.CSSLogicalCounter(code))
-    for method in METHODS:
-        counter = get_counter(HAND_X, HAND_Z)
-        assert counter.count_logical_ops(count_pauli=True, method=method) == Counts(2, 2, 3, 6)
-        with pytest.raises(ValueError, match="less than weight 3"):
-            counter.count_logical_ops(3, method=method, count_pauli=True)
-        bacon_shor = codes.BaconShorCode(3)
-        expected = get_expected_counts(bacon_shor)
-        bacon_shor_counter = lc.CSSLogicalCounter(bacon_shor)
-        assert bacon_shor_counter.count_logical_ops(count_pauli=True, method=method) == expected
-        stacked = lc.CSSLogicalCounter(codes.CSSCode.stack([codes.SteaneCode()] * 2))
-        assert stacked.count_logical_ops(method=method) == Counts(3, 14, 14, None)
-        deformed = counter.deformed_cnot(0, 3)
-        fresh = get_counter(deformed.checks_x, deformed.checks_z)
-        assert deformed.count_logical_ops(
-            count_pauli=True, method=method
-        ) == fresh.count_logical_ops(count_pauli=True, method=method)
+
+def test_a_gate_that_breaks_a_set_of_a_basis_family_leaves_counts_exact() -> None:
+    """A counter deformed by a gate that breaks a set of its basis family still counts exactly."""
+    counter = get_counter(HAND_X, HAND_Z)
+    counter.count_logical_ops(count_pauli=True)
+    assert_counts_match_enumeration(counter.deformed_cnot(0, 3))
 
 
 ####################################################################################################

@@ -51,7 +51,7 @@ Leave notebook runs and the GAP integration tests to CI.
 
 ## Handing off a change
 
-Hand a change to the maintainer to push only once it has passed its review.
+Hand a change to the maintainer to push only once it has passed its review and all repository changes for it, including new files, are committed.
 When handing off a change, give the following for each of its pull requests:
 
 1. Its review status, as [reviews](#reviews) describes.
@@ -82,6 +82,7 @@ They change only through a patch that a maintainer approves, including changes t
 The exception is a change that the maintainer explicitly says to apply directly.
 
 1. Write the changes to protected files as a `.patch` file outside the repository, such as in a session directory, and give the maintainer a link to it.
+   Say whether a review has seen the patch as it stands, and name any part that none has.
 2. If the maintainer asks for revisions, write a new patch, which may replace the old one, and link it again.
 3. Once the maintainer approves a patch, apply exactly that patch with `git apply`, and commit it.
    If it no longer applies, regenerate it and ask for approval again, rather than editing protected files by hand.
