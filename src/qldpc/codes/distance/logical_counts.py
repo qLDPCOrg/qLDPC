@@ -772,7 +772,7 @@ def _warm_up_compiled_functions() -> None:
         labels,
         basis_family,
         upper_bound,
-        *information_sets.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
+        information_sets.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
     )
 
 

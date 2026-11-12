@@ -283,7 +283,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
 
     record(bz, "enumeration_is_cheaper_than_setup", "max_dimension", "setup_cost_factor")
     record(information_sets, "_get_disjoint_sets", "random_column_orders")
-    record(information_sets, "get_overlapping_family", "attempts_per_set")
+    record(information_sets, "get_overlapping_family_policy", "tuning", prefix="overlapping ")
     record(information_sets, "get_partitioned_family", "tuning")
     record(information_sets.BasisFamily, "get_search_certificate", "lp_max_denominator")
     record(bz, "get_nested_distance_brute_force", "batch_exponent", prefix="bz ")
@@ -338,7 +338,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "max_dimension": {3},
         "setup_cost_factor": {1},
         "random_column_orders": {5},
-        "attempts_per_set": {3},
+        "overlapping tuning": {tuning},
         "tuning": {tuning},
         "lp_max_denominator": {97},
         "bz batch_exponent": {6},

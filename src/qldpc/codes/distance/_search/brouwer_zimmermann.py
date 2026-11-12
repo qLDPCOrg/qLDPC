@@ -620,7 +620,7 @@ def _prepare_brouwer_zimmermann_search(
             labels,
             family,
             best,
-            *information_sets.get_overlapping_family_policy(tuning, dimension),
+            information_sets.get_overlapping_family_policy(tuning, dimension),
         ),
         lambda family, best: information_sets.get_partitioned_family(
             basis,

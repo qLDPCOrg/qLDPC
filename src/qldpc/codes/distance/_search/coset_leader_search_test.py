@@ -786,8 +786,8 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     signature = inspect.signature(get_overlapping_family)
 
     def record(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
-        arguments = signature.bind(*args, **kwargs).arguments
-        calls.append((arguments["max_sets"], arguments["attempts_per_set"]))
+        policy = signature.bind(*args, **kwargs).arguments["policy"]
+        calls.append((policy.max_sets, policy.attempts_per_set))
         return get_overlapping_family(*args, **kwargs)
 
     def record_tables(

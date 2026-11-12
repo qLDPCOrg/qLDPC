@@ -379,33 +379,49 @@ def prune_family(basis_family: BasisFamily, upper_bound: int) -> BasisFamily:
     )
 
 
+class OverlappingFamilyPolicy(NamedTuple):
+    """How stage three builds a replacement basis family (see ``get_overlapping_family``).
+
+    Searches take it from :func:`get_overlapping_family_policy`.
+
+    Attributes:
+        max_sets: The most sets of a replacement.
+        minimum_work: The estimated work below which a basis family is not replaced.
+        attempts_per_set: The column orders that the construction tries for each set that it may
+            add.
+        binomials: ``get_capped_binomials(dimension)``, for the dimension of the basis.
+        rng: The generator that breaks ties between equally used columns.
+    """
+
+    max_sets: int
+    minimum_work: int
+    attempts_per_set: int
+    binomials: npt.NDArray[np.int64]
+    rng: np.random.Generator
+
+
 @compiled_on_request
 def get_overlapping_family(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     basis_family: BasisFamily,
     upper_bound: int,
-    max_sets: int,
-    minimum_work: int,
-    attempts_per_set: int,
-    binomials: npt.NDArray[np.int64],
-    rng: np.random.Generator,
+    policy: OverlappingFamilyPolicy,
 ) -> BasisFamily:
     """Stage three: build a replacement basis family of overlapping full sets that does less work.
 
     ``basis_family`` holds the full and partial sets of one independent binary basis, whose quotient
     labels ``labels`` have no columns if it has none.  A replacement holds only full sets, with
     their labels transformed alongside their rows, and is certified with its maximum coverage of a
-    Hamming coordinate.  ``max_sets`` bounds its size and the effort spent building it: more sets
-    can avoid costly coefficient layers in hard searches, while fewer reduce set-up work.  No
-    replacement is built if the estimated work of ``basis_family`` is below ``minimum_work``.  The
-    construction tries ``attempts_per_set`` column orders for each set that it may add.
+    Hamming coordinate.  ``max_sets`` of ``policy`` bounds its size and the effort spent building
+    it: more sets can avoid costly coefficient layers in hard searches, while fewer reduce set-up
+    work.  No replacement is built if the estimated work of ``basis_family`` is below
+    ``minimum_work``.  The construction tries ``attempts_per_set`` column orders for each set that
+    it may add.
 
-    Returns the replacement, which has no sets if no replacement does less work.  ``binomials`` are
-    ``get_capped_binomials(dimension)``, and ``rng`` breaks ties between equally used columns.
-    Searches take ``max_sets``, ``minimum_work``, ``attempts_per_set``, ``binomials``, and ``rng``
-    from :func:`get_overlapping_family_policy`.
+    Returns the replacement, which has no sets if no replacement does less work.
     """
+    max_sets, minimum_work, attempts_per_set, binomials, rng = policy
     dimension = basis.shape[0]
     columns = np.flatnonzero(basis.sum(axis=0))
     num_columns = len(columns)
@@ -511,17 +527,15 @@ def get_overlapping_family(
     )
 
 
-def get_overlapping_family_policy(
-    tuning: SearchTuning, dimension: int
-) -> tuple[int, int, int, npt.NDArray[np.int64], np.random.Generator]:
-    """The arguments of stage three after ``upper_bound``, from ``max_sets`` on, for a search.
+def get_overlapping_family_policy(tuning: SearchTuning, dimension: int) -> OverlappingFamilyPolicy:
+    """The policy of stage three for a search of a basis of a given dimension.
 
-    They are the limit, the minimum work, and the attempts of ``tuning``, the capped binomials of
+    It holds the limit, the minimum work, and the attempts of ``tuning``, the capped binomials of
     the dimension, and a new generator with a fixed seed.  So every search, of the distance, of the
     counts, or of cosets (see ``coset_routes.py``), chooses the same replacement for the same basis
     family and tuning.
     """
-    return (
+    return OverlappingFamilyPolicy(
         tuning.max_information_sets,
         tuning.overlapping_minimum_work,
         tuning.overlapping_attempts_per_set,

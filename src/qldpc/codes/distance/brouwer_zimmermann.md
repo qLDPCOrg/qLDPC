@@ -982,7 +982,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   A search basis whose block has rank deficiency `d = r - r_i` has a term `b_i(t)` that is zero for `t < d`.
   The function removes such a search basis when the blocks that are information sets reach `U` by layer `d`, so the removal leaves the result unchanged and saves enumeration.
   It removes nothing if no block is an information set.
-- **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as `max_sets` and `minimum_work`.
+- **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as the fields `max_sets` and `minimum_work` of its `OverlappingFamilyPolicy`.
   It returns a basis family with no sets if no block is an information set, if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.

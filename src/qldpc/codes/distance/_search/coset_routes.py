@@ -330,7 +330,7 @@ class CosetRoutes(Generic[_Tables, _Tails]):
             np.empty((len(self._basis), 0), dtype=np.uint8),
             maximum if len(maximum.ranks) else disjoint,
             weight_factor * target_weight + 1,
-            *information_sets.get_overlapping_family_policy(
+            information_sets.get_overlapping_family_policy(
                 self._overlapping_tuning, len(self._basis)
             ),
         )
