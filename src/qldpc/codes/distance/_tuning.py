@@ -416,15 +416,16 @@ class SearchTuning:
     #: their predicted cost, including building them, is at most this percentage of the cost of
     #: scanning without them.  Lowering it demands larger predicted savings; zero never uses tables,
     #: and ``MAX_VALUE`` uses them wherever they are considered, even where they cost more.
-    #: Defaults to 90, a margin for the error of the cost model, which errs both ways: on layer 5
-    #: of ``distance/pp232/X`` it predicted 0.65, and with tables the layer took 0.86 of its time
-    #: without them, while on layer 9 of ``distance/classical:150:100:1/-``, of 50 rows, it
-    #: predicted 1.03, and the layer would have taken 0.64.  No candidate was faster on every
-    #: workload: 90 and 100 measured alike, and 200 made ``distance/classical:140:90:1/-``,
-    #: ``distance/classical:150:100:1/-``, and ``distance/classical:160:110:1/-`` 1.2 to 1.6 times
-    #: faster one search at a time, but ``distance/classical:140:90:1/-`` 1.3 times slower three at
-    #: a time.  To retune it, compare predicted and measured costs with ``fit_completion_costs.py``,
-    #: and time searches one and several at a time.
+    #: Defaults to 90, a margin for the error of the cost model, which errs both ways.  It predicted
+    #: 0.67 for layer 5 of ``distance/pp232/X``, which took 0.86 of its time without tables when it
+    #: used them, but 1.41 for layer 9 of ``distance/classical:150:100:1/-``, of 50 rows, which
+    #: would have taken 0.64, and 0.90 for layer 6 of ``hadamard/gross``, which took 0.38.  No
+    #: candidate was faster on every workload: 90 and 100 measured alike, and 200 made
+    #: ``distance/classical:140:90:1/-``, ``distance/classical:150:100:1/-``, and
+    #: ``distance/classical:160:110:1/-`` 1.2 to 1.6 times faster one search at a time, but
+    #: ``distance/classical:140:90:1/-`` 1.3 times slower three at a time.  To retune it, compare
+    #: predicted and measured costs with ``fit_completion_costs.py``, and time searches one and
+    #: several at a time.
     completion_bound_max_cost_percent: int = 90
 
     #: The most bytes of completion tables that a distance search keeps for each problem, a count
@@ -510,21 +511,24 @@ class SearchTuning:
     #: The cost of one lookup of completion tables for each block of the tables, in scanned
     #: supports, the unit of their cost model: the time to scan one support without tables.  An
     #: underestimate makes searches use tables that cost more than they save; an overestimate makes
-    #: them decline tables that would save time.  Defaults to 0.9, a direct measurement: on the
-    #: layers of one set of 9 workloads of ``experiments/distance_tuning``, a fit by
-    #: ``fit_completion_costs.py`` gave ``0.88 + 0.051`` scanned supports per block for each MiB of
-    #: tables.  Lookups cost 0.5 to 0.9 scanned supports per block in tables of under 1 MiB, and
-    #: 1.5 to 10 in tables of 18 to 113 MiB.  An earlier fit to the cost data set gave 2.0 and
-    #: 0.04; both choose the same tables on every workload of ``experiments/distance_tuning``.  To
-    #: refit it, see :ref:`Retuning <tuning-retuning>`.
-    completion_bound_lookup_block_cost: float = 0.9
+    #: them decline tables that would save time.  Defaults to 2.0, fitted to the cost data set, in
+    #: which lookups cost 2 to 8 scanned supports per block.  A refit by ``fit_completion_costs.py``
+    #: on the layers of one set of 9 workloads of ``experiments/distance_tuning`` gave ``0.88 +
+    #: 0.051`` scanned supports per block for each MiB of tables: lookups cost 0.5 to 0.9 in tables
+    #: of under 1 MiB, and 1.5 to 10 in tables of 18 to 113 MiB.  But extrapolated to the 165 MiB
+    #: tables of layer 6 of ``hadamard/gross``, the refit predicts 0.94 and declines them, though
+    #: with them that layer took 0.38 of its time without them, while 2.0 and 0.04 predict 0.90 and
+    #: use them; on the other workloads that were traced or timed with both, they chose the same
+    #: tables.  So the values of the cost data set stand.  To refit it, see :ref:`Retuning
+    #: <tuning-retuning>`.
+    completion_bound_lookup_block_cost: float = 2.0
 
     #: The additional cost of a lookup of completion tables, in scanned supports for each block and
     #: each MiB of tables, since lookups in larger tables cost more.  Raising it makes searches
     #: decline more large tables; lowering it lets them use large tables that may cost more than
-    #: they save.  Defaults to 0.05, from the same fit as ``completion_bound_lookup_block_cost``.
-    #: To refit it, see :ref:`Retuning <tuning-retuning>`.
-    completion_bound_lookup_block_cost_per_mib: float = 0.05
+    #: they save.  Defaults to 0.04, fitted with ``completion_bound_lookup_block_cost`` to the cost
+    #: data set (see there for a refit).  To refit it, see :ref:`Retuning <tuning-retuning>`.
+    completion_bound_lookup_block_cost_per_mib: float = 0.04
 
     #: A multiplier of the predicted number of lookups of completion tables, which is the share of
     #: pairs of a prefix and the first row of its last pair that a scan with tables keeps, divided
