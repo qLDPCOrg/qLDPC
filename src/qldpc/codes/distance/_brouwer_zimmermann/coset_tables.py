@@ -13,17 +13,17 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, unpack_bits
 from qldpc._compilation import always_compiled
 
-from .._cosets import _int_to_words
+from .._cosets import int_to_words
 from .._information_sets import certificates, completion_bounds
 from . import affine_instance
 
 # The planning buffer of a coset search: its tables of the bounds of its steps, each with one more
 # row that caches a stopping step (see ``_get_planning``).
-_PlanningBuffer = npt.NDArray[np.int64]
+PlanningBuffer = npt.NDArray[np.int64]
 
-# The fields of a ``_CosetTails`` record, which the compiled searches take as the record itself or
+# The fields of a ``CosetTails`` record, which the compiled searches take as the record itself or
 # as a plain tuple.
-_TailFields = tuple[
+TailFields = tuple[
     npt.NDArray[np.uint64],
     npt.NDArray[np.uint64],
     npt.NDArray[np.uint8],
@@ -32,7 +32,7 @@ _TailFields = tuple[
 ]
 
 
-class _CosetSearchTables(NamedTuple):
+class CosetSearchTables(NamedTuple):
     """The tables of ``_search_coset`` for one coset search of a ``CosetLeaderSearch``.
 
     The search runs on embedded words.  For a search of Pauli errors, the embedded word of an error
@@ -49,7 +49,7 @@ class _CosetSearchTables(NamedTuple):
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family: its tables of the bounds of
             its steps, each with one more row that caches a stopping step (see ``_get_planning``).
-            For a nonnegative maximum weight, ``_get_stopping_step`` reuses the cached step of a
+            For a nonnegative maximum weight, ``get_stopping_step`` reuses the cached step of a
             table exactly while it stays the first step whose bound exceeds that weight, and
             replaces it otherwise.  Queries write only the rows of cached steps, and oracles that
             share a cached search share them.
@@ -63,11 +63,11 @@ class _CosetSearchTables(NamedTuple):
     inverse: npt.NDArray[np.uint64]
     generators: npt.NDArray[np.uint64]
     pivots: npt.NDArray[np.int64]
-    planning: _PlanningBuffer
+    planning: PlanningBuffer
     x_mask: npt.NDArray[np.uint64]
 
 
-class _CosetTails(NamedTuple):
+class CosetTails(NamedTuple):
     """The tails with which ``_search_coset`` weighs the words of a family by tails, and its tables.
 
     The tail of an embedded word on a set of the family holds every column of the word but the
@@ -80,7 +80,7 @@ class _CosetTails(NamedTuple):
 
     Attributes:
         tails: The tails of the rows of each set, with shape ``(num_sets, num_rows, num_words)``.
-        inverse_tails: The tails of the rows of ``inverse`` of ``_CosetSearchTables`` on each set,
+        inverse_tails: The tails of the rows of ``inverse`` of ``CosetSearchTables`` on each set,
             with shape ``(num_sets, num_syndrome_bits, num_words)``.  The tail of the word of a
             syndrome on a set is the sum of the rows for the set bits of the syndrome.  These rows
             can be derived from ``inverse``, but a query that sums them directly finds the tails of
@@ -102,9 +102,9 @@ class _CosetTails(NamedTuple):
     block_bits: int
 
 
-def _get_search_tables(
+def get_search_tables(
     instance: affine_instance.AffineInstance, inverse: npt.NDArray[np.uint8], num_x_columns: int
-) -> _CosetSearchTables:
+) -> CosetSearchTables:
     """Build the tables of ``_search_coset`` for the cosets of the code of a coset instance.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, and the first
@@ -118,14 +118,14 @@ def _get_search_tables(
     halved, so that rounding them up to even would change none.
     """
     width = instance.generators.shape[2]
-    x_mask = _int_to_words((1 << num_x_columns) - 1, width)
+    x_mask = int_to_words((1 << num_x_columns) - 1, width)
 
     # Round to the parity of each coset if the code is even and some coset is odd.  The rows of any
     # one information set span the code.
     even_code = not np.any(np.bitwise_count(instance.generators[0]).sum(axis=1) % 2)
     has_odd_coset = bool(np.any(np.count_nonzero(inverse, axis=1) % 2))
     parities = (0, 1) if even_code and has_odd_coset else (None,)
-    return _CosetSearchTables(
+    return CosetSearchTables(
         pack_bits(inverse),
         instance.generators,
         instance.pivots,
@@ -134,15 +134,15 @@ def _get_search_tables(
     )
 
 
-def _get_coset_tails(
+def get_coset_tails(
     instance: affine_instance.AffineInstance,
     sets: list[int],
-    record: _CosetTails | None,
+    record: CosetTails | None,
     *,
     inverse: npt.NDArray[np.uint8],
     block_bits: int,
     max_table_bytes: int,
-) -> _CosetTails:
+) -> CosetTails:
     """Build the record of the tails of the family of a coset instance, with tables of some sets.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, with every column of the
@@ -174,7 +174,7 @@ def _get_coset_tails(
         # block_bits divides the 64 bits of a word.
         max_blocks = 64 * tail_width // block_bits
         layout = np.zeros((num_sets, max_blocks + 3), dtype=np.int64)
-        record = _CosetTails(tails, inverse_tails, np.zeros(0, np.uint8), layout, block_bits)
+        record = CosetTails(tails, inverse_tails, np.zeros(0, np.uint8), layout, block_bits)
 
     # Append the tables of each set that has none yet, if they fit, and lay them out.  The routes
     # keep only the latest record of a family, so the earlier tables are held once.
@@ -199,36 +199,8 @@ def _get_coset_tails(
     )
 
 
-def _get_planning(bound_tables: Sequence[npt.NDArray[np.int64]]) -> _PlanningBuffer:
-    """Build the planning buffer of a coset search from tables of the bounds of its steps.
-
-    The compiled search takes the bounds and its cached stopping steps in this one array, since each
-    argument of a compiled call adds to the time of every query.  The buffer stacks one table for
-    each given table of bounds.  A search that rounds its bounds to parity (see
-    ``_get_search_tables``) gives two tables: table ``p`` holds the bounds of the cosets whose words
-    have Hamming weights of parity ``p`` (see ``_get_planning_table``).  Other searches give one
-    table, for every coset.  Each table of the buffer has one more row than the bounds:
-
-    - Every row but the last holds the bounds of ``AffineInstance.get_weight_bounds``: entry
-      ``[w, j]`` bounds the weight of every word that the search has not visited once the first
-      ``j`` sets have completed layer ``w`` and the others layer ``w - 1``.  So column zero of each
-      row holds the bound before the first step of that row.  These rows never change, and code
-      reads them as the view ``table[:-1]``.
-    - The last row holds no bounds.  Its first two entries are the layer and the number of completed
-      sets of the stopping step that ``_get_stopping_step`` returned last for this table, or of the
-      first step, ``(0, 1)``, before its first call, and its other entries are zero.  Only
-      ``_get_stopping_step`` reads and writes this row.
-    """
-    planning = np.zeros(
-        (len(bound_tables), len(bound_tables[0]) + 1, bound_tables[0].shape[1]), dtype=np.int64
-    )
-    planning[:, :-1] = bound_tables
-    planning[:, -1, 1] = 1
-    return planning
-
-
 @always_compiled
-def _get_planning_table(planning: _PlanningBuffer, parity: int) -> npt.NDArray[np.int64]:
+def get_planning_table(planning: PlanningBuffer, parity: int) -> npt.NDArray[np.int64]:
     """The table of a planning buffer for a coset whose Hamming weights have parity ``parity``.
 
     The Hamming weights are those of the embedded words of the coset.  A buffer with a table for
@@ -240,7 +212,7 @@ def _get_planning_table(planning: _PlanningBuffer, parity: int) -> npt.NDArray[n
 
 
 @always_compiled
-def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[int, int, int]:
+def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[int, int, int]:
     """Find the step at which a coset query stops, and cache it in a table of the planning buffer.
 
     The stopping step is the first step whose bound in the table exceeds the maximum weight: the
@@ -280,11 +252,39 @@ def _get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[i
 
 
 @always_compiled(inline=True)
-def _get_first_step_reaching(bounds: npt.NDArray[np.int64], target: int) -> tuple[int, int]:
+def get_first_step_reaching(bounds: npt.NDArray[np.int64], target: int) -> tuple[int, int]:
     """The first step whose bound in a table of bounds of steps reaches ``target``.
 
     It is the stopping step of ``certificates.find_stopping_step`` for the limit ``target - 1``.
-    Unlike ``_get_stopping_step``, this function caches no step, so the cached steps of the planning
+    Unlike ``get_stopping_step``, this function caches no step, so the cached steps of the planning
     buffer serve only the queries of ``_search_coset``.
     """
     return certificates.find_stopping_step(bounds, target - 1, 0, len(bounds) - 1)
+
+
+def _get_planning(bound_tables: Sequence[npt.NDArray[np.int64]]) -> PlanningBuffer:
+    """Build the planning buffer of a coset search from tables of the bounds of its steps.
+
+    The compiled search takes the bounds and its cached stopping steps in this one array, since each
+    argument of a compiled call adds to the time of every query.  The buffer stacks one table for
+    each given table of bounds.  A search that rounds its bounds to parity (see
+    ``get_search_tables``) gives two tables: table ``p`` holds the bounds of the cosets whose words
+    have Hamming weights of parity ``p`` (see ``get_planning_table``).  Other searches give one
+    table, for every coset.  Each table of the buffer has one more row than the bounds:
+
+    - Every row but the last holds the bounds of ``AffineInstance.get_weight_bounds``: entry
+      ``[w, j]`` bounds the weight of every word that the search has not visited once the first
+      ``j`` sets have completed layer ``w`` and the others layer ``w - 1``.  So column zero of each
+      row holds the bound before the first step of that row.  These rows never change, and code
+      reads them as the view ``table[:-1]``.
+    - The last row holds no bounds.  Its first two entries are the layer and the number of completed
+      sets of the stopping step that ``get_stopping_step`` returned last for this table, or of the
+      first step, ``(0, 1)``, before its first call, and its other entries are zero.  Only
+      ``get_stopping_step`` reads and writes this row.
+    """
+    planning = np.zeros(
+        (len(bound_tables), len(bound_tables[0]) + 1, bound_tables[0].shape[1]), dtype=np.int64
+    )
+    planning[:, :-1] = bound_tables
+    planning[:, -1, 1] = 1
+    return planning

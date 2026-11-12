@@ -107,9 +107,9 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it only if their callers pass none.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
-  A value that the code keeps in a cache that outlives a search also keys that cache, as the fields of `_CosetTuning` key the cached searches of `CosetLeaderSearch`.
+  A value that the code keeps in a cache that outlives a search also keys that cache, as the fields of `CosetTuning` key the cached searches of `CosetLeaderSearch`.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
-  Constants fixed by the algorithm or by native integer widths, such as `_WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
+  Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
 - Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
   Say, in this order, what it decides and in what unit; how a smaller or larger value changes a search, including the effects of its smallest and largest values; how its default was chosen and on what data, or that this is not recorded, in one clause; and what to measure to retune it.
   Keep each comment readable without knowing the method that uses the value, and within a hundred words.

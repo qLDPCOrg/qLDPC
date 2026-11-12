@@ -317,7 +317,7 @@ class _BrouwerZimmermannSearch:
         # Before a costly layer, consider scanning one set and certifying with its images.  Like
         # the work estimates of certificates, this estimate saturates at their cap, so that the
         # largest threshold of a tuning forbids the switch.
-        layer_work = min(num_scanned * math.comb(self.dimension, weight), certificates._WORK_CAP)
+        layer_work = min(num_scanned * math.comb(self.dimension, weight), certificates.WORK_CAP)
         if (
             self.get_automorphism_family is not None
             and layer_work >= self.tuning.automorphism_minimum_layer_work

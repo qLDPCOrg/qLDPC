@@ -2,9 +2,9 @@
 
 """Parts that the coset searches of ``CosetLeaderSearch`` share.
 
-They are the answers of coset queries (:class:`MinWeightBound`), the inverses of checks that turn
-syndromes into words, the packing of binary rows into integers and back, the sums of the rows that
-a support selects, and the tables of the errors of weight zero or one by syndrome.
+They are the answers of coset queries (:class:`MinWeightBound`), the words with unit syndromes that
+turn syndromes into words, the packing of binary rows into integers and back, the sums of the rows
+that a support selects, and the tables of the errors of weight zero or one by syndrome.
 """
 
 from __future__ import annotations
@@ -44,8 +44,11 @@ class MinWeightBound:
     lower_bound: int
 
 
-def _get_inverse(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-    """A right inverse of independent checks: row ``j`` has a syndrome of only bit ``j``."""
+def get_unit_syndrome_words(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Words with unit syndromes for independent checks: row ``j`` has a syndrome of only bit ``j``.
+
+    As columns, these words form a right inverse of the checks.
+    """
     _, labels, pivots = row_reduce_binary(checks, np.eye(len(checks), dtype=np.uint8))
     assert labels is not None
     inverse = np.zeros(checks.shape, dtype=np.uint8)
@@ -53,22 +56,22 @@ def _get_inverse(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     return inverse
 
 
-def _row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
+def row_ints(matrix: npt.NDArray[np.uint8]) -> tuple[int, ...]:
     """Pack each row of a binary matrix into an integer, with entry ``j`` in bit ``j``."""
-    return tuple(map(_packed_row_int, pack_bits(matrix)))
+    return tuple(map(words_to_int, pack_bits(matrix)))
 
 
-def _packed_row_int(row: npt.NDArray[np.uint64]) -> int:
+def words_to_int(row: npt.NDArray[np.uint64]) -> int:
     """Convert a row of 64-bit words into an integer, with word ``j`` in bits ``64 j`` and up."""
     return sum(int(word) << (64 * jj) for jj, word in enumerate(row))
 
 
-def _int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
+def int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
     """Split an integer into ``width`` 64-bit words, with word ``j`` in bits ``64 j`` and up."""
     return np.frombuffer(value.to_bytes(8 * width, "little"), dtype="<u8").astype(np.uint64)
 
 
-def _tabulate_singles(
+def tabulate_singles(
     check_columns: Sequence[int], num_qubits: int, *, is_pauli: bool
 ) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
     """Tabulate the words of weight zero or one by syndrome, and the single-qubit X and Z errors.
@@ -106,7 +109,7 @@ def _tabulate_singles(
     return singles, x_singles, z_singles
 
 
-def _xor_selected(rows: Sequence[int], support: int) -> int:
+def xor_selected(rows: Sequence[int], support: int) -> int:
     """XOR together the rows whose indices are the set bits of ``support``."""
     word = 0
     while support:
@@ -118,7 +121,7 @@ def _xor_selected(rows: Sequence[int], support: int) -> int:
 
 
 @always_compiled(inline=True)
-def _xor_selected_rows(
+def xor_selected_rows(
     packed_bits: npt.NDArray[np.uint64], rows: npt.NDArray[np.uint64], word: npt.NDArray[np.uint64]
 ) -> None:
     """Add to ``word`` row ``b`` of ``rows`` for each set bit ``b`` of ``packed_bits``.

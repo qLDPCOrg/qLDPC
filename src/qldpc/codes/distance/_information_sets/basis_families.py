@@ -51,7 +51,7 @@ from .. import _tuning
 from .._tuning import SearchTuning
 from . import matroid_partition
 from .certificates import (
-    _WORK_CAP,
+    WORK_CAP,
     Certificate,
     estimate_certificate_work,
     get_capped_binomials,
@@ -637,9 +637,9 @@ def _estimate_optimistic_work(
     The basis has ``dimension`` rows and ``num_columns`` nonzero columns, and ``binomials`` are
     ``get_capped_binomials(dimension)``.  Some column of ``m`` full sets is in at least ``ceil(m *
     dimension / num_columns)`` of them, so no such family is certified with a smaller maximum
-    coverage.  Returns ``_WORK_CAP`` if ``max_sets`` is zero.
+    coverage.  Returns ``WORK_CAP`` if ``max_sets`` is zero.
     """
-    optimistic_work = _WORK_CAP
+    optimistic_work = WORK_CAP
     for num_sets in range(1, max_sets + 1):
         coverage = (num_sets * dimension + num_columns - 1) // num_columns
         full_ranks = np.full(num_sets, dimension, dtype=np.int64)

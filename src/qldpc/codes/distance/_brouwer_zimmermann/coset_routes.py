@@ -48,7 +48,7 @@ The gate tests the predicted examinations with the disjoint family against its t
 whether a query may take another family.  A route is a route by tails if those with the route's own
 family, which can do less work, also reach the threshold.  The queries of a route by tails weigh the
 words of its family by their tails, which hold the columns other than the pivot columns of each set
-(see ``coset_tables._CosetTails``).  They also skip the completions that completion tables of the
+(see ``coset_tables.CosetTails``).  They also skip the completions that completion tables of the
 tails show to lie beyond their maximum weight (Section 3.9 of ``brouwer_zimmermann.md``).  So the
 routes also give the record of the tails and tables of the family of each route by tails, with a
 builder that the search gives them.  A search that gives none, such as the search of Pauli errors by

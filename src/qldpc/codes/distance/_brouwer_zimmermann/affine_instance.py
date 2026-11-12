@@ -19,7 +19,7 @@ space restores their weight arithmetically.  Its certificate is the one that the
 selects, with the proven divisor of eligible weights.  A coset instance packs the full rows of the
 sets of a family of information sets of its code, disjoint or overlapping, which a coset search
 weighs whole or, in a search that weighs Hamming weights, on its routes by tails, by tails derived
-from them (see ``coset_tables._CosetTails``).  Its certificate takes the maximum coverage of the
+from them (see ``coset_tables.CosetTails``).  Its certificate takes the maximum coverage of the
 family, and no divisor, since the words of a coset need not share the divisibility of the code.  If
 every word of the code has even Hamming weight, the Hamming weights of the words of each coset all
 have one parity instead, and the bounds of a coset may be rounded up to its parity.
@@ -142,7 +142,7 @@ def get_coset_instance(
     one, since the sets are disjoint.  ``random_column_orders`` is passed to
     ``basis_families.get_disjoint_family``.  ``weight_factor`` is the weight factor of the instance.
     It is two for a search of Pauli errors, since an error weighs at least half the Hamming weight
-    of the binary word that represents it in the search (see ``_get_pauli_search`` in ``coset.py``).
+    of the binary word that represents it in the search (see ``get_pauli_search`` in ``coset.py``).
     It is one for a search of X or Z parts.  Without generators, each coset is a single word, which
     the search visits on layer zero of one empty set.
 
@@ -150,7 +150,7 @@ def get_coset_instance(
     ``u + v`` of a coset has the parity of ``|u|``, since ``|u + v| = |u| + |v| - 2 |u ∩ v|``.  The
     bounds of each coset may then be rounded up to its parity (see ``get_weight_bounds``).  The
     coset search decides whether to, since only it knows whether some coset is odd (see
-    ``coset_tables._get_search_tables``).
+    ``coset_tables.get_search_tables``).
     """
     num_generators, num_columns = generators.shape
     if not num_generators:

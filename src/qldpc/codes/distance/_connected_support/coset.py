@@ -12,11 +12,11 @@ from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 from .. import _tuning
 from .._cosets import (
     MinWeightBound,
-    _get_inverse,
-    _int_to_words,
-    _row_ints,
-    _tabulate_singles,
-    _xor_selected,
+    get_unit_syndrome_words,
+    int_to_words,
+    row_ints,
+    tabulate_singles,
+    xor_selected,
 )
 from .search import SupportSearch
 
@@ -25,22 +25,22 @@ from .search import SupportSearch
 _SPARSIFYING_SEED = 0
 
 
-class _ConnectedSupportCosetSearch:
+class ConnectedSupportCosetSearch:
     """A coset search of a ``CosetLeaderSearch`` by the connected-support search of its checks.
 
-    The words, checks, and syndromes are those of a BZ ``_CosetSearch``
+    The words, checks, and syndromes are those of a ``BrouwerZimmermannCosetSearch``
     (``_brouwer_zimmermann/coset.py``): packed Paulis, whose syndrome for the stabilizers is that of
     the symplectic search of ``SupportSearch``, or the X or Z parts of Paulis, whose syndrome is
     that of a binary search of the checks.  The search starts from the syndrome of a query, and
     grows supports through its unsatisfied checks (Section 3.8 of ``connected_support.md``).
 
-    Like a ``_CosetSearch``, it first looks up a word of weight zero or one by its syndrome: a
-    single variable, or a single-qubit Pauli.  It searches only cosets with no such word, so a coset
-    with such a word gets the weight of that word as a lower bound.  Any other coset gets two if it
-    has a word within ``max_weight``.  With increasing weight limits from two (see
-    ``get_min_weight_bound``), it instead gets the weight of its lightest words.  Without a word
-    within ``max_weight``, it gets the larger of two and ``max_weight + 1``.  These bounds are often
-    weaker than those of a ``_CosetSearch``.
+    Like a ``BrouwerZimmermannCosetSearch``, it first looks up a word of weight zero or one by its
+    syndrome: a single variable, or a single-qubit Pauli.  It searches only cosets with no such
+    word, so a coset with such a word gets the weight of that word as a lower bound.  Any other
+    coset gets two if it has a word within ``max_weight``.  With increasing weight limits from two
+    (see ``get_min_weight_bound``), it instead gets the weight of its lightest words.  Without a
+    word within ``max_weight``, it gets the larger of two and ``max_weight + 1``.  These bounds are
+    often weaker than those of a ``BrouwerZimmermannCosetSearch``.
 
     The search is fast only if its checks are sparse, but the given checks, such as row-reduced
     stabilizers, can be dense.  So it searches the sparser checks of ``_get_sparser_rows``, which
@@ -68,8 +68,8 @@ class _ConnectedSupportCosetSearch:
         # swapped.
         num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
         syndrome_matrix = matrix if homogeneous else np.roll(matrix, num_variables, axis=1)
-        columns = _row_ints(np.ascontiguousarray(syndrome_matrix.T))
-        self._singles, _, _ = _tabulate_singles(columns, num_variables, is_pauli=not homogeneous)
+        columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
+        self._singles, _, _ = tabulate_singles(columns, num_variables, is_pauli=not homogeneous)
 
         rows, transform = _get_sparser_rows(
             matrix,
@@ -81,7 +81,7 @@ class _ConnectedSupportCosetSearch:
         # Row ``i`` of the sparse rows sums the given rows that row ``i`` of the transform selects,
         # so bit ``i`` of a syndrome for them is the parity of those bits of the given syndrome.
         # Entry ``j`` of the map is column ``j`` of the transform, which a given syndrome bit adds.
-        self._syndrome_map_columns = _row_ints(np.ascontiguousarray(transform.T))
+        self._syndrome_map_columns = row_ints(np.ascontiguousarray(transform.T))
         # Without a function that finds automorphisms, the search never asks for them.
         self._search = SupportSearch(
             rows,
@@ -92,7 +92,7 @@ class _ConnectedSupportCosetSearch:
         # Row ``j`` of the inverse is a word whose syndrome has only bit ``j`` set, so the words of
         # the set bits of a syndrome sum to a representative of its coset.
         syndrome_rows = rows if homogeneous else np.roll(rows, num_variables, axis=1)
-        self._inverse_rows = _row_ints(_get_inverse(syndrome_rows))
+        self._inverse_rows = row_ints(get_unit_syndrome_words(syndrome_rows))
 
     def get_min_weight_bound(
         self,
@@ -103,7 +103,7 @@ class _ConnectedSupportCosetSearch:
     ) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
 
-        A negative ``max_weight`` admits no word, as for a ``_CosetSearch``.
+        A negative ``max_weight`` admits no word, as for a ``BrouwerZimmermannCosetSearch``.
 
         A search with weight limit ``max_weight`` can visit many heavy supports before it finds a
         word that is much lighter.  Given ``first_limit``, the search instead tries every limit from
@@ -128,8 +128,8 @@ class _ConnectedSupportCosetSearch:
         # bit for each check that it keeps.  So the search can start from the packed syndrome,
         # without the validation of ``find_vector_with_syndrome``, which would cost more than the
         # search itself in many queries.
-        syndrome = _xor_selected(self._syndrome_map_columns, syndrome)
-        packed_syndrome = _int_to_words(syndrome, (self._num_checks + 63) // 64)
+        syndrome = xor_selected(self._syndrome_map_columns, syndrome)
+        packed_syndrome = int_to_words(syndrome, (self._num_checks + 63) // 64)
 
         # The lookup leaves only cosets without a word below weight two, so no limit below two is
         # searched, and a single query searches only at ``max_weight``.  Each limit within which the
@@ -141,7 +141,7 @@ class _ConnectedSupportCosetSearch:
             if symbols is not None:
                 return MinWeightBound(True, self._get_word(symbols), lower_bound)
             lower_bound = limit + 1
-        representative = _xor_selected(self._inverse_rows, syndrome)
+        representative = xor_selected(self._inverse_rows, syndrome)
         return MinWeightBound(False, representative, lower_bound)
 
     def _get_word(self, symbols: npt.NDArray[np.int64]) -> int:
@@ -224,7 +224,7 @@ def _get_sparser_rows(
     # so their product with it is the transform.  Products of binary matrices in float32 are exact
     # while their inner dimension is below ``2**24``, and faster than in integers.
     rows, _ = _sparsify(rows, homogeneous=homogeneous)
-    inverse = _get_inverse(matrix)
+    inverse = get_unit_syndrome_words(matrix)
     product = rows.astype(np.float32) @ inverse.T.astype(np.float32)
     return rows, (product % 2).astype(np.uint8)
 

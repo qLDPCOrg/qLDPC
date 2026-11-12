@@ -15,7 +15,7 @@ from qldpc._binary import get_kernel
 from .. import _cosets
 from .._information_sets import certificates as certificates_module
 from .._information_sets import completion_bounds
-from ..conftest import _RANK_DEFICIENT_CODE, EVEN_ROUTES_CODE
+from ..conftest import EVEN_ROUTES_CODE, RANK_DEFICIENT_CODE
 from . import affine_instance, coset_tables
 
 
@@ -25,7 +25,7 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     """For nonnegative weights, a cached stopping step is reused exactly while it stays first.
 
     The stopping step of a maximum weight is the first step whose bound exceeds it.
-    ``_get_stopping_step`` reuses the step that a planning buffer caches if that step is the
+    ``get_stopping_step`` reuses the step that a planning buffer caches if that step is the
     stopping step.  Otherwise, it plans the stopping step, which a binary search finds, and caches
     it.  A reuse is observable only as a skipped plan, so the test records the plans.
 
@@ -50,7 +50,7 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     monkeypatch.setattr(certificates_module, "find_stopping_step", record)
     # Take the Python version even when the function is compiled, since only it calls the recording
     # function.
-    function = coset_tables._get_stopping_step
+    function = coset_tables.get_stopping_step
     get_stopping_step = getattr(function, "py_func", function)
     certificates = [
         certificates_module.Certificate(0, (0,)),
@@ -87,26 +87,26 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
     built under that limit gets the tables of both sets at once.  Each record holds the tables of
     each set once.
     """
-    checks = get_kernel(_RANK_DEFICIENT_CODE)
+    checks = get_kernel(RANK_DEFICIENT_CODE)
     instance = affine_instance.get_coset_instance(
-        _RANK_DEFICIENT_CODE, random_column_orders=0, weight_factor=1
+        RANK_DEFICIENT_CODE, random_column_orders=0, weight_factor=1
     )
     assert instance.ranks.tolist() == [5, 4]
-    inverse = _cosets._get_inverse(checks)
+    inverse = _cosets.get_unit_syndrome_words(checks)
 
     def get_record(
-        sets: list[int], record: coset_tables._CosetTails | None, max_table_bytes: int
-    ) -> coset_tables._CosetTails:
+        sets: list[int], record: coset_tables.CosetTails | None, max_table_bytes: int
+    ) -> coset_tables.CosetTails:
         """The record of the tails of the family, with the tables of the sets that fit."""
-        return coset_tables._get_coset_tails(
+        return coset_tables.get_coset_tails(
             instance, sets, record, inverse=inverse, block_bits=8, max_table_bytes=max_table_bytes
         )
 
-    def get_set_tables(record: coset_tables._CosetTails, set_index: int) -> list[int]:
+    def get_set_tables(record: coset_tables.CosetTails, set_index: int) -> list[int]:
         """The tables of a set, as its layout places them in the record."""
         start, num_blocks = record.layout[set_index, :2]
         offsets = record.layout[set_index, 2 : num_blocks + 3]
-        size = (len(_RANK_DEFICIENT_CODE) - 1) * offsets[-1] if num_blocks else 0
+        size = (len(RANK_DEFICIENT_CODE) - 1) * offsets[-1] if num_blocks else 0
         assert start + size <= len(record.completion_tables)
         return record.completion_tables[start : start + size].tolist()
 
@@ -135,21 +135,21 @@ def test_search_tables_plan_by_parity_exactly_when_cosets_of_an_even_code_differ
     of even rows, it plans with one table, and so does the rank-deficient code, which is not even.
     That table serves cosets of either parity.
     """
-    even_inverse = _cosets._get_inverse(get_kernel(EVEN_ROUTES_CODE))
+    even_inverse = _cosets.get_unit_syndrome_words(get_kernel(EVEN_ROUTES_CODE))
     assert np.any(even_inverse.sum(axis=1) % 2)
-    rank_deficient_inverse = _cosets._get_inverse(get_kernel(_RANK_DEFICIENT_CODE))
-    assert np.any(_RANK_DEFICIENT_CODE.sum(axis=1) % 2)
+    rank_deficient_inverse = _cosets.get_unit_syndrome_words(get_kernel(RANK_DEFICIENT_CODE))
+    assert np.any(RANK_DEFICIENT_CODE.sum(axis=1) % 2)
     for code, inverse, parities in [
         (EVEN_ROUTES_CODE, even_inverse, (0, 1)),
         (EVEN_ROUTES_CODE, np.zeros_like(even_inverse), (None,)),
-        (_RANK_DEFICIENT_CODE, rank_deficient_inverse, (None,)),
+        (RANK_DEFICIENT_CODE, rank_deficient_inverse, (None,)),
     ]:
         instance = affine_instance.get_coset_instance(code, random_column_orders=0, weight_factor=1)
-        tables = coset_tables._get_search_tables(instance, inverse, 0)
+        tables = coset_tables.get_search_tables(instance, inverse, 0)
         expected = [instance.get_weight_bounds(parity).tolist() for parity in parities]
         assert [table[:-1].tolist() for table in tables.planning] == expected
         for parity in (0, 1):
-            table = coset_tables._get_planning_table(tables.planning, parity)
+            table = coset_tables.get_planning_table(tables.planning, parity)
             assert table[:-1].tolist() == expected[parity if len(expected) == 2 else 0]
 
 
@@ -170,4 +170,4 @@ def test_first_steps_reaching_a_target_follow_their_definition() -> None:
         largest = int(bounds[bounds < certificates_module.NO_WORD_BOUND].max())
         for target in range(largest + 2):
             expected = next(step for step in steps if bounds[step] >= target)
-            assert coset_tables._get_first_step_reaching(bounds, target) == expected
+            assert coset_tables.get_first_step_reaching(bounds, target) == expected

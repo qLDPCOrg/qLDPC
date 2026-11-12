@@ -26,11 +26,11 @@ from .. import _tuning
 NO_WORD_BOUND = np.iinfo(np.int64).max
 
 # Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
-# the cap, and a sum saturates at _WORK_CAP, so an estimate is exact only if it reaches neither cap.
+# the cap, and a sum saturates at WORK_CAP, so an estimate is exact only if it reaches neither cap.
 # Searches that reach a cap are infeasible, so their order, against other basis families or
 # exhaustive enumeration, does not matter.
 _BINOMIAL_CAP = 1 << 50
-_WORK_CAP = 1 << 61
+WORK_CAP = 1 << 61
 
 
 @dataclass(frozen=True)
@@ -188,7 +188,7 @@ class Certificate:
         if parity is not None:
             # Round each finite entry up to the parity.  The entry before the first step bounds no
             # step, and stays zero so that every nonnegative maximum weight passes it, as a check of
-            # a cached stopping step requires (see ``_get_stopping_step`` of a coset search).
+            # a cached stopping step requires (see ``get_stopping_step`` of a coset search).
             bounds = bounds + (bounds - parity) % 2 * (bounds < NO_WORD_BOUND)
             bounds[0, 0] = 0
 
@@ -396,8 +396,8 @@ def plan_steps(
 
     The work adds ``binomials[w]`` candidate/set evaluations for each set that the plan keeps and
     each layer ``w`` from ``first_layer`` to ``w_i``.  Empty ``binomials`` give zero work.  The work
-    saturates at ``_WORK_CAP``: it is the cap once a layer up to ``w*`` has a binomial above
-    ``_WORK_CAP // num_sets``, or once the sum reaches the cap after a layer.  With the binomials of
+    saturates at ``WORK_CAP``: it is the cap once a layer up to ``w*`` has a binomial above
+    ``WORK_CAP // num_sets``, or once the sum reaches the cap after a layer.  With the binomials of
     ``get_capped_binomials``, a plan from layer one for the limit ``U - 1`` gives the work estimate
     of a distance search (Section 3.6 of ``brouwer_zimmermann.md``).  A plan from layer zero for a
     maximum weight ``max_weight`` that skips unused sets gives the number of words that a coset
@@ -505,8 +505,8 @@ def _get_steps_work(
     work = 0
     for weight in range(first_layer, layer + 1):
         # Saturate before adding, so that no sum can overflow: a layer adds at most the cap.
-        if binomials[weight] > _WORK_CAP // max(num_sets, 1):
-            return _WORK_CAP
+        if binomials[weight] > WORK_CAP // max(num_sets, 1):
+            return WORK_CAP
         for index in range(num_sets):
             # Skip the layers that the set has not completed, and the sets that the plan leaves out.
             completed_layer = get_completed_layer(index, layer, num_completed)
@@ -515,6 +515,6 @@ def _get_steps_work(
             ):
                 continue
             work += binomials[weight]
-        if work >= _WORK_CAP:
-            return _WORK_CAP
+        if work >= WORK_CAP:
+            return WORK_CAP
     return work

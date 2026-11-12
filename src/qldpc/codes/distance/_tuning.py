@@ -598,7 +598,7 @@ _ACTIVE_TUNING: contextvars.ContextVar[SearchTuning] = contextvars.ContextVar(
 #: typical workloads, and keep the smallest size past which it stops rising.
 BINOMIAL_CACHE_SIZE = 1024
 
-#: The number of entries that ``_get_css_searches`` in ``_brouwer_zimmermann/coset.py`` keeps, one
+#: The number of entries that ``get_css_searches`` in ``_brouwer_zimmermann/coset.py`` keeps, one
 #: for each CSS state and tuning of the setup of the searches, each a pair of classical searches,
 #: for the X and Z parts of errors.  It takes effect when qLDPC is imported.  A larger cache uses
 #: more memory, and a smaller one repeats the setup of searches that a workload reuses.  Chosen by
@@ -623,7 +623,7 @@ KRAWTCHOUK_CACHE_SIZE = 1024
 #: and keep the smallest size beyond which the hit rate stops growing.
 LOCAL_CLIFFORD_CACHE_SIZE = 1024
 
-#: The number of searches of Pauli errors that ``_get_pauli_search`` in
+#: The number of searches of Pauli errors that ``get_pauli_search`` in
 #: ``_brouwer_zimmermann/coset.py`` keeps, one for each stabilizer matrix, measure of weight, and
 #: tuning of the setup of the search.  It takes effect when qLDPC is imported.  A larger cache uses
 #: more memory, a smaller one repeats setups, and zero disables the cache.  Only speed and memory

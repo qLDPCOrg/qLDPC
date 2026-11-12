@@ -246,12 +246,16 @@ def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: An
 HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
 
 
-def _stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
+####################################################################################################
+# helpers for the tests of coset-leader searches
+
+
+def get_stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
     """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
     return np.array([np.concatenate(gg.to_numpy()) for gg in generators], dtype=np.uint8)
 
 
-def _graph_state(
+def get_graph_state(
     num_qubits: int, edges: Sequence[tuple[int, int]], phase: bool = False
 ) -> npt.NDArray[np.uint8]:
     """Stabilizer matrix [X|Z] of a graph state, with S gates on every qubit if ``phase``.
@@ -264,23 +268,23 @@ def _graph_state(
         circuit.append("CZ", edge)
     if phase:
         circuit.append("S", range(num_qubits))
-    return _stabilizer_matrix(stim.Tableau.from_circuit(circuit).to_stabilizers())
+    return get_stabilizer_matrix(stim.Tableau.from_circuit(circuit).to_stabilizers())
 
 
-def _pauli_weight(pauli: int, num_qubits: int, css_weight: bool) -> int:
+def get_pauli_weight(pauli: int, num_qubits: int, css_weight: bool) -> int:
     """Weight of a packed Pauli, with X in the low bits and Z in the next block."""
     x, z = pauli & ((1 << num_qubits) - 1), pauli >> num_qubits
     return (x | z).bit_count() if not css_weight else max(x.bit_count(), z.bit_count())
 
 
-def _get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
+def get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
     """Syndrome of a packed Pauli: its symplectic product with each row of the stabilizer matrix."""
     bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
     products = matrix @ math.symplectic_conjugate(bits) % 2
     return sum(int(bit) << jj for jj, bit in enumerate(products))
 
 
-def _pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
+def pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
     """Split packed syndromes into rows of 64-bit words, with word ``j`` in bits ``64 j`` and up."""
     width = (num_qubits + 63) // 64
     words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
@@ -294,15 +298,15 @@ def _pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np
 # have a larger partial set.  The two states for the physical weight differ in the answers that this
 # family changes.  On the second, it returns other errors for some classes without a light enough
 # error.
-_ROUTED_PHYSICAL_STATES = (
-    _graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
-    _graph_state(5, [(0, 4), (2, 3)]),
+ROUTED_PHYSICAL_STATES = (
+    get_graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
+    get_graph_state(5, [(0, 4), (2, 3)]),
 )
 
-_ROUTED_CSS_WEIGHT_STATE = _graph_state(5, [(0, 1), (0, 4), (1, 4)])
+ROUTED_CSS_WEIGHT_STATE = get_graph_state(5, [(0, 1), (0, 4), (1, 4)])
 
 
-def _random_css_state(
+def get_random_css_state(
     num_qubits: int, num_x_stabilizers: int, rng: np.random.Generator
 ) -> npt.NDArray[np.uint8]:
     """Stabilizer matrix [X|Z] of a random CSS state, with generators that mix pure-X and pure-Z.
@@ -318,10 +322,10 @@ def _random_css_state(
     pure = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
     pure[:num_x_stabilizers, :num_qubits] = x_rows
     pure[num_x_stabilizers:, num_qubits:] = get_kernel(x_rows)
-    return _scramble(pure, rng)
+    return scramble(pure, rng)
 
 
-def _scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDArray[np.uint8]:
+def scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDArray[np.uint8]:
     """Random invertible combinations of the rows of a stabilizer matrix, which generate its group.
 
     The combinations are a random permutation of an upper triangular matrix with ones on its
@@ -334,7 +338,7 @@ def _scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.ND
     return (upper[rng.permutation(size)] @ matrix) % 2
 
 
-def _css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.NDArray[np.int_]:
+def get_css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.NDArray[np.int_]:
     """The smallest CSS (or physical) weight of an error with each packed syndrome.
 
     The minima come from all ``4**n`` Paulis.
@@ -351,7 +355,7 @@ def _css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.N
 
 
 # A code whose disjoint information sets have ranks five and four.
-_RANK_DEFICIENT_CODE = np.array(
+RANK_DEFICIENT_CODE = np.array(
     [
         [0, 0, 1, 1, 0, 1, 1, 1, 0, 0],
         [0, 0, 1, 1, 0, 0, 1, 1, 1, 1],
@@ -363,21 +367,21 @@ _RANK_DEFICIENT_CODE = np.array(
 )
 
 
-def _product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:
+def get_product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:
     """Stabilizer matrix [X|Z] of the given Pauli strings."""
-    return _stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
+    return get_stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
 
 
-def _assert_exact_answers(
+def assert_exact_answers(
     oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
 ) -> None:
     """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
     num_qubits = len(matrix)
-    minima = _css_minima(matrix, css_weight)
+    minima = get_css_minima(matrix, css_weight)
     for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
         bound = oracle.get_min_weight_bound(syndrome, max_weight)
-        weight = _pauli_weight(bound.representative, num_qubits, css_weight)
+        weight = get_pauli_weight(bound.representative, num_qubits, css_weight)
         assert bound.within_max_weight == (minima[syndrome] <= max_weight)
-        assert _get_syndrome(matrix, bound.representative) == syndrome
+        assert get_syndrome(matrix, bound.representative) == syndrome
         assert bound.lower_bound <= minima[syndrome] <= weight
         assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight

@@ -143,7 +143,7 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
     set of a layer whose binomial exceeds the share, while the sum stays below the cap.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    work_cap = certificates._WORK_CAP
+    work_cap = certificates.WORK_CAP
     cases: list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]] = [
         (np.zeros((3, 1), dtype=np.int64), np.empty(0, dtype=np.int64))
     ]

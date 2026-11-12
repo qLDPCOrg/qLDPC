@@ -28,14 +28,14 @@ from qldpc._compilation import always_compiled
 
 from ._binary import as_binary_matrix, assert_binary
 from ._brouwer_zimmermann.coset import (
-    _CosetSearch,
-    _CosetTuning,
-    _get_css_searches,
-    _get_pauli_search,
-    _StabilizerKey,
+    BrouwerZimmermannCosetSearch,
+    CosetTuning,
+    StabilizerKey,
+    get_css_searches,
+    get_pauli_search,
 )
-from ._connected_support.coset import _ConnectedSupportCosetSearch
-from ._cosets import MinWeightBound, _packed_row_int, _row_ints, _xor_selected, _xor_selected_rows
+from ._connected_support.coset import ConnectedSupportCosetSearch
+from ._cosets import MinWeightBound, row_ints, words_to_int, xor_selected, xor_selected_rows
 from ._tuning import get_tuning
 
 # The method of a coset-leader search.
@@ -147,13 +147,13 @@ class CosetLeaderSearch:
         tuning = get_tuning()
         # The connected-support searches make their checks sparser in rounds that the tuning bounds.
         support_search = functools.partial(
-            _ConnectedSupportCosetSearch,
+            ConnectedSupportCosetSearch,
             max_rounds=tuning.max_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
         )
         # Exactly one of the BZ searches and the connected-support searches is nonempty.
-        self._searches: tuple[_CosetSearch, ...] = ()
-        self._support_searches: tuple[_ConnectedSupportCosetSearch, ...] = ()
+        self._searches: tuple[BrouwerZimmermannCosetSearch, ...] = ()
+        self._support_searches: tuple[ConnectedSupportCosetSearch, ...] = ()
         self.css_weight = css_weight
         assert_binary(stabilizers, "stabilizers")
         matrix = as_binary_matrix(stabilizers, "stabilizers")
@@ -174,10 +174,10 @@ class CosetLeaderSearch:
         if combinations is None:
             if method == "brouwer_zimmermann":
                 self._searches = (
-                    _get_pauli_search(
-                        _StabilizerKey(matrix, checks),
+                    get_pauli_search(
+                        StabilizerKey(matrix, checks),
                         css_weight,
-                        _CosetTuning.from_tuning(tuning, paulis_by_css_weight=css_weight),
+                        CosetTuning.from_tuning(tuning, paulis_by_css_weight=css_weight),
                     ),
                 )
             elif css_weight:
@@ -208,12 +208,12 @@ class CosetLeaderSearch:
                 support_search(x_rows, homogeneous=True),
             )
         else:
-            self._searches = _get_css_searches(
+            self._searches = get_css_searches(
                 n,
                 len(x_rows),
                 pack_bits(x_rows).tobytes(),
                 pack_bits(z_rows).tobytes(),
-                _CosetTuning.from_tuning(tuning, paulis_by_css_weight=False),
+                CosetTuning.from_tuning(tuning, paulis_by_css_weight=False),
             )
 
         # Row ``j`` of ``z_rows`` is the Z part of a pure-Z stabilizer, the product of the given
@@ -235,7 +235,7 @@ class CosetLeaderSearch:
         # holds column ``i`` of the X map in its low ``_num_x_syndrome_bits`` bits, and column ``i``
         # of the Z map above them.
         self._num_x_syndrome_bits = len(z_rows)
-        self._joint_map_columns = _row_ints(
+        self._joint_map_columns = row_ints(
             np.ascontiguousarray(np.vstack([x_syndrome_map, z_syndrome_map]).T)
         )
 
@@ -293,7 +293,7 @@ class CosetLeaderSearch:
         # The connected-support searches answer one syndrome at a time.
         if self._support_searches:
             for index, row in enumerate(syndromes):
-                bound = self._get_batch_support_bound(_packed_row_int(row), max_weight)
+                bound = self._get_batch_support_bound(words_to_int(row), max_weight)
                 if not bound.within_max_weight:
                     return index, bound
             return len(syndromes), None
@@ -313,7 +313,7 @@ class CosetLeaderSearch:
             index, _ = search.find_first_not_within_max_weight(part_syndromes, max_weight)
         if index == len(syndromes):
             return index, None
-        return index, self.get_min_weight_bound(_packed_row_int(syndromes[index]), max_weight)
+        return index, self.get_min_weight_bound(words_to_int(syndromes[index]), max_weight)
 
     def _get_min_weights(
         self, syndromes: npt.NDArray[np.uint64], max_weight: int
@@ -322,9 +322,10 @@ class CosetLeaderSearch:
 
         The residual-weight estimator of ``qldpc.experimental`` asks for these weights.  The BZ
         searches find the minimum weight of each coset in one search, and answer the syndromes in
-        one compiled loop for each coset search (see ``_CosetSearch.get_min_weights``).  The
-        connected-support searches answer one syndrome at a time, by trying increasing weight
-        limits (see ``_get_min_support_weight``).
+        one compiled loop for each coset search (see
+        ``BrouwerZimmermannCosetSearch.get_min_weights``).  The connected-support searches answer
+        one syndrome at a time, by trying increasing weight limits (see
+        ``_get_min_support_weight``).
 
         Args:
             syndromes: Packed syndromes, as for ``find_first_not_within_max_weight``.
@@ -346,10 +347,7 @@ class CosetLeaderSearch:
         # The connected-support searches answer one syndrome at a time.
         if self._support_searches:
             return np.array(
-                [
-                    self._get_min_support_weight(_packed_row_int(row), max_weight)
-                    for row in syndromes
-                ],
+                [self._get_min_support_weight(words_to_int(row), max_weight) for row in syndromes],
                 dtype=np.int64,
             )
 
@@ -376,7 +374,7 @@ class CosetLeaderSearch:
 
         The search of the Pauli errors or of the X part tries increasing weight limits from two, so
         it finds a lightest word of its coset, if within ``max_weight``, and gets its weight as its
-        lower bound (see ``_ConnectedSupportCosetSearch.get_min_weight_bound``).  With two searches,
+        lower bound (see ``ConnectedSupportCosetSearch.get_min_weight_bound``).  With two searches,
         the search of the Z part starts at a weight limit equal to the weight of the X part, within
         which any Z part gives the CSS weight of the class.
 
@@ -402,7 +400,7 @@ class CosetLeaderSearch:
         """Answer a query of a batch with the connected-support searches, by increasing limits.
 
         Most syndromes of a batch have an error within ``max_weight``, which a search at a lower
-        weight limit finds sooner (see ``_ConnectedSupportCosetSearch.get_min_weight_bound``).
+        weight limit finds sooner (see ``ConnectedSupportCosetSearch.get_min_weight_bound``).
         ``find_first_not_within_max_weight`` checks the range of every syndrome first
         (``_check_syndromes``).
         """
@@ -431,7 +429,7 @@ class CosetLeaderSearch:
 
     def _split_syndrome(self, syndrome: int) -> tuple[int, int]:
         """Map a syndrome for the given stabilizers to the syndromes of the parts of its errors."""
-        part_syndromes = _xor_selected(self._joint_map_columns, syndrome)
+        part_syndromes = xor_selected(self._joint_map_columns, syndrome)
         x_syndrome = part_syndromes & ((1 << self._num_x_syndrome_bits) - 1)
         return x_syndrome, part_syndromes >> self._num_x_syndrome_bits
 
@@ -487,5 +485,5 @@ def _map_syndromes(
     """
     mapped = np.zeros((len(syndromes), map_columns.shape[1]), dtype=np.uint64)
     for row in range(len(syndromes)):
-        _xor_selected_rows(syndromes[row], map_columns, mapped[row])
+        xor_selected_rows(syndromes[row], map_columns, mapped[row])
     return mapped
