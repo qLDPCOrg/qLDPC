@@ -116,10 +116,8 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–
 - [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the fields and constants from their comments, after hand-written tables that lead from symptoms and routes to their names.
   When you add, rename, or remove a field or constant, update that map, and for a constant the list of constants on the page.
   `_tuning_test.py` checks that the map names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each field and constant has its own `#:` comment, and the documentation build fails on a broken reference into `_tuning`.
-- A tuning changes only how long a search takes and how much memory it uses, never a result that the search guarantees.
-  With an early exit, it can change which word a search finds first, and so the upper bound that it returns (see the module docstring of `_tuning.py`).
-  For a coset query of `CosetLeaderSearch`, it can change the representative of the answer, and with the Brouwer–Zimmermann method its lower bound, within the contract of `MinWeightBound`, but not whether the answer is within the maximum weight.
-  A new heuristic whose value could change a guaranteed result does not belong in `SearchTuning`.
+- A new heuristic whose value could change a result that a search guarantees does not belong in `SearchTuning`.
+  The module docstring of `_tuning.py` says which results a tuning can change, and how.
 - To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
 - For a field whose full range the implementation cannot safely support, narrow its range in its metadata rather than adding code for unsupported values.
 

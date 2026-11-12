@@ -6,14 +6,9 @@ Exact-search performance and tuning
 Exact distance searches and logical-operator counts choose between routes, such as exhaustive enumeration and searches of overlapping information sets, by cost models, and they bound their batches, memory, and caches.
 This page leads from symptoms and routes to the values that control them, and renders the documentation of each from the private module ``qldpc.codes.distance._tuning``.
 
-That module is an unsupported escape hatch for contributors, benchmarks, and measured investigations of very costly searches, not part of the API of qLDPC.
-Its names, fields, defaults, and constants can change in any release, without a deprecation period or any other warning, so code that uses it should pin the exact version of qLDPC that it was written for.
-No value changes an exact result; the defaults suit typical searches.
-
-Every value that changes only how long a search takes or how much memory it uses is a field of :class:`SearchTuning`, which :func:`use_tuning` changes for the searches that start within a ``with`` block.
-The arguments of the public search functions say instead what to compute and by which method, such as ``cutoff``, ``max_weight``, and ``method``.
+Before you change a value, read :ref:`the documentation of that module <tuning-module>` at the bottom of this page.
+It says what its privacy means for code that uses it, what tuning can and cannot change, how to change it, and which values are fields of :class:`SearchTuning` and which are constants.
 Each field says what it decides, what raising or lowering it does, and how to retune it.
-The constants, :data:`MAX_VALUE` and the sizes of caches, are fixed when qLDPC is imported.
 The `Brouwer--Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-support guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_ explain the methods.
 
 Start from a symptom
@@ -166,6 +161,8 @@ Constants
 .. autodata:: KRAWTCHOUK_CACHE_SIZE
 .. autodata:: LOCAL_CLIFFORD_CACHE_SIZE
 .. autodata:: PAULI_SEARCH_CACHE_SIZE
+
+.. _tuning-module:
 
 The module
 ----------

@@ -1031,20 +1031,16 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 ### 4.5 Behavior spanning files
 
 - **Cutoff.**
-  `get_distance_classical` and `get_distance_quantum` default to `cutoff=1`, and `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
-  If a witness reaches `cutoff`, the computation can return its weight immediately as an upper bound, which can exceed the exact distance.
-  Otherwise, the search continues and returns the exact distance, which may be larger than `cutoff`.
-  The default of one is still exact for a valid nontrivial binary problem, because a distance is at least one.
+  The docstrings of `get_distance_classical` and `get_distance_quantum` in [core.py](core.py) state the contract of `cutoff`, which both default to one, and of an early exit.
+  `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
+  The default of one is exact for a valid nontrivial binary problem, because a distance is at least one.
   A `cutoff` of zero or less never triggers an early exit for such a problem, and `advance` clamps negative values to `-1` before it calls the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
 - **Weight limit.**
-  `get_distance_classical` and `get_distance_quantum` accept `max_weight`, which limits the search to weights at most `max_weight`: the result is `min(distance, max_weight+1)`.
-  They pass `upper_bound=max_weight+1` to the BZ route, as though a witness of that weight were known, so the search stops once its certificate reaches that bound, and they clamp the results of the other routes to it.
+  The same docstrings state the contract of `max_weight`, and what inputs without nontrivial words give.
+  The functions pass `upper_bound=max_weight+1` to the BZ route, as though a witness of that weight were known, so the search stops once its certificate reaches that bound, and they clamp the results of the other routes to it.
   A limit below the distance therefore avoids the cost of certifying the distance itself.
-  The limit also caps `cutoff` at `max_weight`.
-  Without that cap, a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
-  Passing `cutoff=max_weight` as well stops the search at the first word within the limit.
-  Inputs without nontrivial words have no distance and give `NO_DISTANCE`, a float `nan` (see `NoDistance` in `core.py`), whatever `max_weight` is.
+  The limit also caps `cutoff` at `max_weight`, since a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
   Inside the searches, a problem without nontrivial words counts as `n+1`, which no word on `n` bits or qubits weighs, so that it never lowers the minimum over problems.
   For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
@@ -1127,9 +1123,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   `test_answers_do_not_depend_on_earlier_queries` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks this.
   The tests of routes by tails in [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py) check that a route asks for the tables of the search bases that its queries scan in layers of two or more rows, and that the latest record of its family holds them, even when threads choose routes at once.
 - **Preserve the return contract.**
-  Return the exact minimum unless taking an early exit permitted by `cutoff`.
-  Such an early exit returns the weight of a known eligible witness, an upper bound between the distance and `cutoff` ([Section 4.5](#45-behavior-spanning-files)).
-  Under a weight limit, return the smaller of the distance and `max_weight+1`; an early exit must still return a witness within the limit.
+  Return the exact minimum, or after an early exit the weight of a known eligible witness, as the contracts of `cutoff` and `max_weight` allow ([Section 4.5](#45-behavior-spanning-files)).
 
 Representative correctness tests check certificate validity against exhaustive words, including rank-deficient blocks, inferred parity, and overlapping coverage (`test_family_certificates` and `test_overlapping_family_certificates` in [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py)), and joint-search results with distinct sector certificates (`test_brouwer_zimmermann_sector_certificates` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py)).
 `test_counting_continues_at_an_equal_lower_bound` in [logical_counts_test.py](logical_counts_test.py) checks the strict counting stop with a count that a stop at `L(t) = w` would miss, and `test_counts_with_completion_tables_match_enumeration` in [_counting/scan_test.py](_counting/scan_test.py) checks counts with completion tables forced against enumeration, which counts that skipped at equality would miss.

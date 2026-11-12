@@ -88,32 +88,28 @@ class CosetLeaderSearch:
     stabilizers for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are
     sparse.  Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its
     checks with sparser ones that span the same space, which can fall short of the sparsest
-    generators.  Which checks it finds depends on the tuning, and can change which error a query
-    returns, but not its answer or its lower bound.  The CSS weight is not a sum over qubits, so it
-    weighs errors by CSS weight only on CSS states, whose X and Z parts it searches separately.
-    Like the BZ searches, it first looks up errors of weight at most one, so a syndrome with such an
-    error gets the weight of its lightest errors as a lower bound.  For any other syndrome, a query
-    with an error within ``max_weight`` gives two, and a query with none gives the larger of two and
-    ``max_weight + 1``.  ``find_first_not_within_max_weight`` searches each syndrome that the table
-    lacks with increasing weight limits, which can find light errors sooner than one search at
-    ``max_weight``.  The BZ searches often give higher bounds.
+    generators.  Which checks it finds depends on the tuning.  The CSS weight is not a sum over
+    qubits, so it weighs errors by CSS weight only on CSS states, whose X and Z parts it searches
+    separately.  Like the BZ searches, it first looks up errors of weight at most one, so a syndrome
+    with such an error gets the weight of its lightest errors as a lower bound.  For any other
+    syndrome, a query with an error within ``max_weight`` gives two, and a query with none gives the
+    larger of two and ``max_weight + 1``.  ``find_first_not_within_max_weight`` searches each
+    syndrome that the table lacks with increasing weight limits, which can find light errors sooner
+    than one search at ``max_weight``.  The BZ searches often give higher bounds.
 
-    The oracle reads the active tuning (see ``_tuning``) when it is built.  Its field
-    ``disjoint_random_column_orders`` configures every BZ search of the oracle.  The field
-    ``max_css_single_pairs`` configures the BZ searches by CSS weight that are not split into two
-    classical searches.  The fields ``overlapping_minimum_work``, ``max_information_sets``, and
-    ``overlapping_attempts_per_set`` configure the families of information sets with which a BZ
-    search answers costly queries (see ``_brouwer_zimmermann/coset_routes.py``).  These families can
-    change the representatives and lower bounds of the answers, but never whether an answer is
-    within ``max_weight``.  The threshold ``overlapping_minimum_work`` also decides which queries of
-    the BZ searches by physical weight, and of the classical searches, weigh words without the pivot
-    columns of each set of their family, and skip the words that tables of bounds prove to weigh
-    more than ``max_weight``.  The fields ``coset_completion_block_bits`` and
-    ``completion_bound_max_table_bytes`` configure these tables.  Skipping words can change the
-    representatives and lower bounds of the answers without a word within ``max_weight``, but never
-    whether an answer is within it.  The fields ``max_sparsifying_rounds`` and
-    ``sparsifying_rounds_without_improvement`` configure how the connected-support searches make
-    their checks sparser.
+    The oracle reads the active tuning when it is built, and the module docstring of ``_tuning``
+    says what a tuning can change about its answers.  The field ``disjoint_random_column_orders``
+    configures every BZ search of the oracle.  The field ``max_css_single_pairs`` configures the BZ
+    searches by CSS weight that are not split into two classical searches.  The fields
+    ``overlapping_minimum_work``, ``max_information_sets``, and ``overlapping_attempts_per_set``
+    configure the families of information sets with which a BZ search answers costly queries (see
+    ``_brouwer_zimmermann/coset_routes.py``).  The threshold ``overlapping_minimum_work`` also
+    decides which queries of the BZ searches by physical weight, and of the classical searches,
+    weigh words without the pivot columns of each set of their family, and skip the words that
+    tables of bounds prove to weigh more than ``max_weight``.  The fields
+    ``coset_completion_block_bits`` and ``completion_bound_max_table_bytes`` configure these tables.
+    The fields ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` configure
+    how the connected-support searches make their checks sparser.
 
     Args:
         stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent

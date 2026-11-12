@@ -17,13 +17,10 @@ in the current process only, for programs that count the logical operators of ve
 codes.
 
 Exact distance searches and logical-operator counts choose between routes, such as exhaustive
-enumeration and searches of overlapping information sets, by cost models.  Their settings affect
-how long a search takes, but not its exact result, and the defaults suit typical searches.  The page
-:doc:`/exact_search_tuning` of the documentation leads from symptoms and routes to these settings,
-which experienced users of very costly searches can change within a ``with`` block.  They are the
-fields of a record in the private module ``qldpc.codes.distance._tuning``, which can change in any
-release without a deprecation period or any other warning, so code that uses it should pin the
-exact version of qLDPC that it was written for.
+enumeration and searches of overlapping information sets, by cost models whose defaults suit
+typical searches.  For very costly searches, the page :doc:`/exact_search_tuning` of the
+documentation leads from symptoms and routes to the settings of these models, and says how to
+change them and what that can and cannot change.
 
 Contributors can find a map of the modules in the README.md of this directory.
 """
