@@ -11,6 +11,8 @@ Sweeps write their trials to `results/`, which Git ignores, so this page keeps t
 - Completion tables save less when several searches run at once, so time their fields one search at a time (`--jobs 1`), and screen other fields at a few at a time.
 - Record the commit: `sweep.py` keys trials by it, and by a hash of any uncommitted change to `src/`.
 - Do not edit `src/` while a sweep runs, since each trial imports it anew.
+- A trial of one repetition also times work that a search caches on its code, such as the generator matrix of a classical code given by checks, which is the same in every arm: under a second for most workloads, but about 50 seconds for the 4000-bit classical codes and 370 for the 8000-bit ones.
+  It shrinks ratios toward 1 without reversing them; time such workloads with `--repeat 2`, whose second repetition leaves it out.
 
 ## 1. Measure the noise floor
 
@@ -35,6 +37,7 @@ Earlier fields change what later fields see, so take them in this order:
 7. Caches, with `cache_stats.py`.
 
 Before timing a stage, trace a few searches with `trace.py` to see which decisions its fields can change; a threshold that no workload reaches cannot be tuned on them.
+Then, as in section 5, check how much the values matter on long runs.
 
 ## 3. Choose workloads that exercise each field
 
@@ -51,7 +54,8 @@ Several fields are shared by distance searches, counts, and coset searches, so c
 
 ## 4. Choose values, and verify mechanisms
 
-Choose each value by the rule of the Retuning section: a verified mechanism or a direct measurement first, then a large gain with no regressions, and otherwise the simplest reason, with a note that the candidates measured alike.
+Choose each value by the rule of the Retuning section: a verified mechanism or a direct measurement first, then a large gain on long runs, of a minute or more one search at a time, with any loss on quick runs stated in absolute time, and otherwise the simplest reason, with a note that the candidates measured alike.
+Report effects of running several searches at once, but do not let them decide a value.
 A mechanism justifies a choice only once it is verified:
 
 - Before each trace or measurement, write down the prediction, and the result that would refute it.
@@ -62,7 +66,15 @@ A mechanism justifies a choice only once it is verified:
 For example, the factor `enumeration_setup_cost_factor` was meant to be the ratio of setup time to the time per enumerated word, but that ratio was 0.35 to 97 across codes.
 The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_brute_force.py` and confirmed by raising `enumeration_batch_exponent`, which made that enumeration about 100 to 300 times faster.
 
-## 5. Reproduce the numbers in the comments
+## 5. Check the sensitivity of long runs
+
+Trace the long runs, and a set of quick ones, at the defaults, and give the traces to `windows.py`, which prints, for each threshold, the nearest decision on either side of it, for the workloads named by `--long` and for all.
+A threshold whose window on long runs is wide, or whose candidates measured alike on long runs, is robust there, and its precise value matters only for quick runs.
+A narrow window, or an effect of more than 1.2 times on a long run, makes it sensitive; trace the long runs just past each edge to see what changes.
+To compare two tunings on a long run without timing it, trace it under both and run `windows.py --compare` on the two traces: if every decision is the same, so is the search, apart from the time of the decisions themselves.
+Time a long run, one search at a time and in 4 or more paired rounds, only where a decision differs.
+
+## 6. Reproduce the numbers in the comments
 
 Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`:
 
@@ -75,9 +87,14 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Sampling of `completion_bound_minimum_layer_work` | `trace.py <workload> --output <file>` at the defaults, and with automorphisms off, summing the `seconds` of the `predict` events before each `layer` event |
 | Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X` for the predictions, and `fit_completion_costs.py collect --repeats 3 --workloads distance/pp232/X 'distance/classical:150:100:1/-'`, then `fit_completion_costs.py fit`, for the measured costs; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
+| Windows of the thresholds | `trace.py <w> --output <dir>/<w>.json` at the defaults for every `distance`, `hadamard`, `count`, and `ccount` workload of section 3 and the long runs, with `--setup-only` for the classical codes of 1000 to 8000 bits that enumerate; then `windows.py <dir>/*.json --long distance/bb288/X distance/pp170/X hadamard/gross hadamard/pp110 distance/classical:160:110:1/- distance/classical:1000:976:2/- distance/classical:8000:7977:2/- distance/sparse:4000:21:200:2/- distance/sparse:4000:22:200:2/- distance/sparse:4000:23:200:2/-` |
+| Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'` and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each compared with its trace at the defaults by `windows.py --compare` |
+| Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the defaults |
 | The refit lookup costs on `hadamard/gross` | `trace.py hadamard/gross` at the defaults, and with `--tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05}'`, comparing the `predict` event and the seconds of the `layer` event of weight 6 |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |
+
+Searches without information sets: `trial.py 'distance/classical:<n>:<checks>:2/-' --repeat 2` with and without `--tuning '{"allow_enumeration_by_work": false}'`, reading the second repetition.
 
 These sweeps produced the ratios that the comments cite, and `collect_results.py --tags <tag>` summarizes each.
 `p2-confirm` ran its two workloads `distance/sparse:8000:...` two at a time, since each takes about 7.5 GiB.
@@ -419,4 +436,28 @@ python experiments/distance_tuning/sweep.py \
     --timeout 3600 \
     --workloads distance/lp13s8/X distance/lp13s5/X distance/classical:128:80:1/- distance/classical:140:90:1/- \
     --arms '[{}, {"partition_work_ratio": 4611686018427387904}]'
+```
+
+### costlimit-j1-f
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag costlimit-j1-f \
+    --rounds 4 \
+    --jobs 1 \
+    --timeout 1800 \
+    --workloads distance/classical:160:110:1/- distance/classical:150:100:1/- distance/classical:140:90:1/- \
+    --arms '[{}, {"completion_bound_max_cost_percent": 150}, {"completion_bound_max_cost_percent": 200}]'
+```
+
+### costlimit-quick-f
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag costlimit-quick-f \
+    --rounds 4 \
+    --jobs 1 \
+    --timeout 600 \
+    --workloads distance/lp13s5/X distance/lp13s5/Z distance/lp13s8/X distance/qt7/X distance/qt7/Z \
+    --arms '[{}, {"completion_bound_max_cost_percent": 200}]'
 ```
