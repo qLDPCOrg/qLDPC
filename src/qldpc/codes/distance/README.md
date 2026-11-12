@@ -90,7 +90,8 @@ A top-level module or subpackage imports only from lower levels, and a module al
 `_layering_test.py` checks this.
 Within a subpackage, the order is a convention.
 In `_information_sets/`, `basis_families` builds on `certificates` and `matroid_partition`, `automorphism_families` on `basis_families` and `certificates`, and `completion_bounds` on `certificates`.
-In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, `coset` also on `coset_routes` and `coset_tables`, and those two on `affine_instance`.
+In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, and `coset` also on `coset_routes` and `coset_tables`.
+`coset_routes` builds on `coset_tables`, and both build on `affine_instance`.
 In `_connected_support/`, `coset` builds on `search`, and in `_counting/`, `scan` on `local_cliffords`.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` and `codes.quantum` inside the functions that use them.

@@ -820,7 +820,8 @@ It builds its families and certificates with the same stages of [_information_se
 It runs the stages in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and its distance search starts from the disjoint basis families that it keeps for counting.
 The set-up functions of both searches can be compiled on request, through [_compilation.py](../../_compilation.py).
 The code that only counting uses is in the `_counting` package.
-`get_overlapping_family_policy` in [_information_sets/basis_families.py](_information_sets/basis_families.py) gives every caller of the overlapping stage its thresholds and its fixed-seed generator, so a change to either applies to the distance search, the counts, and the coset routes of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
+`build_overlapping_family_policy` in [_information_sets/basis_families.py](_information_sets/basis_families.py) builds the policy of every caller of the overlapping stage, with its fixed-seed generator, so a change to it applies to the distance search, the counts, and the coset routes of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
+The distance search and the counts call it through `get_overlapping_family_policy`, which reads its thresholds from the tuning.
 [core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_support/search.py](_connected_support/search.py), which [connected_support.md](connected_support.md) describes, and [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
@@ -883,7 +884,7 @@ Numba compiles each search separately for None and for a record of tails, so the
 Every route by tails of a family gives the latest record `CosetTails` of the family.
 The record holds the tails of the rows of each search basis, and of the words with unit syndromes, from which a query adds up the tail of each offset.
 It also holds the completion tables of the search bases that the queries of the route scan in layers of two or more rows, if they fit in `completion_bound_max_table_bytes`.
-The routes build the tails of a family once, and the tables of each of its search bases once, for the first route that needs them (`get_coset_tails`, `completion_bounds.considers_tables`, and `completion_bounds.build_tables_within`).
+The routes build the tails of a family once, and the tables of each of its search bases once, for the first route that needs them (`get_coset_tails` and `completion_bounds.build_tables_within`).
 They keep only the latest record of a family, so they hold the tables of each search basis once.
 A query by tails scans each layer of two or more rows of a search basis that has tables with `scan_coset_layer_by_tails_with_tables`.
 It scans the other layers with `scan_coset_layer_by_tails`.
@@ -988,7 +989,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   It removes nothing if no block is an information set.
 - **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as the fields `max_sets` and `minimum_work` of its `OverlappingFamilyPolicy`.
   It returns a basis family with no sets if no block is an information set, if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
-  Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `get_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
+  Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
 - **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to `max_partition_coverage`.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
@@ -1013,8 +1014,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   In a search that weighs Hamming weights, the route of `ω` is a route by tails if the predicted examinations with its own family at `ω`, rather than with the disjoint family, reach the threshold too, and its queries then weigh words by their tails ([Section 4.1](#41-module-map-and-layering)).
   They also skip completions by tables on blocks of `coset_completion_block_bits` columns ([Section 3.9](#39-skipping-completions-by-completion-tables)).
   The gate of routes by tails replaces the minimum layer work and the cost model of `select_completion_tables`.
-  So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, which `considers_tables` considers with the minimum layer work at zero and the cost and bytes limits at `MAX_VALUE`.
-  The builder of the record of tails gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
+  So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, whatever the work of those layers.
+  `get_coset_tails` gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
   The comment of `coset_completion_block_bits` says why its blocks are narrower than those of distance searches.
 - **`select_completion_tables`** decides whether a layer of one information set, or a step of a count, uses completion tables, as [Section 3.9](#39-skipping-completions-by-completion-tables) explains; a count passes its target weight plus one in place of `U`.
   It considers the layers that `considers_tables` allows: layers of two to `r` rows with at least `completion_bound_minimum_layer_work` supports, under a tuning whose `completion_bound_max_cost_percent` and `completion_bound_max_table_bytes` are not zero.

@@ -950,7 +950,7 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
             tails=np.zeros_like(record.tails), inverse_tails=np.zeros_like(record.inverse_tails)
         )
 
-    monkeypatch.setattr(coset, "get_coset_tails", get_zero_tails)
+    monkeypatch.setattr(coset_tables, "get_coset_tails", get_zero_tails)
     generators = np.ones((1, 7), dtype=np.uint8)
     checks = get_kernel(generators)
     tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
@@ -985,7 +985,7 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
         record = get_coset_tails(*args, **kwargs)
         return record._replace(completion_tables=np.full_like(record.completion_tables, 255))
 
-    monkeypatch.setattr(coset, "get_coset_tails", get_skipping_tails)
+    monkeypatch.setattr(coset_tables, "get_coset_tails", get_skipping_tails)
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
     tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     search = coset._get_classical_search(

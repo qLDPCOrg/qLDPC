@@ -30,13 +30,10 @@ from .._tuning import SearchTuning
 from . import affine_instance, affine_search, coset_routes
 from .coset_tables import (
     CosetSearchTables,
-    CosetTails,
     PlanningBuffer,
     TailFields,
-    get_coset_tails,
     get_first_step_reaching,
     get_planning_table,
-    get_search_tables,
     get_stopping_step,
 )
 
@@ -76,7 +73,7 @@ class BrouwerZimmermannCosetSearch:
 
     def __init__(
         self,
-        routes: coset_routes.CosetRoutes[CosetSearchTables, CosetTails],
+        routes: coset_routes.CosetRoutes,
         css_weight: bool,
         num_qubits: int,
         inverse_rows: tuple[int, ...],
@@ -439,15 +436,15 @@ def _get_routes(
     weight_factor: int,
     tuning: _CosetTuning,
     by_tails: bool,
-) -> coset_routes.CosetRoutes[CosetSearchTables, CosetTails]:
+) -> coset_routes.CosetRoutes:
     """The routes of a coset search of the code of independent embedded generators.
 
     The routes start from the coset instance of the disjoint information sets of the generators,
-    with the weight factor ``weight_factor`` (see ``affine_instance.get_coset_instance``).  The
-    tables of every family of the routes come from ``get_search_tables``, with ``inverse`` and
-    ``num_x_columns``.  If ``by_tails`` is True, the routes whose queries are predicted to examine
-    at least ``tuning.overlapping_minimum_work`` words with their own family are routes by tails,
-    with records of tails and tables from ``get_coset_tails``, and otherwise no route is.
+    with the weight factor ``weight_factor`` (see ``affine_instance.get_coset_instance``).  They
+    build the tables of every family with ``inverse`` and ``num_x_columns`` (see
+    ``coset_tables.get_search_tables``).  If ``by_tails`` is True, the routes whose queries are
+    predicted to examine at least ``tuning.overlapping_minimum_work`` words with their own family
+    are routes by tails, and otherwise no route is.
     """
     instance = affine_instance.get_coset_instance(
         generators,
@@ -457,18 +454,14 @@ def _get_routes(
     return coset_routes.CosetRoutes(
         generators,
         instance,
-        functools.partial(get_search_tables, inverse=inverse, num_x_columns=num_x_columns),
-        functools.partial(
-            get_coset_tails,
-            inverse=inverse,
-            block_bits=tuning.coset_completion_block_bits,
-            max_table_bytes=tuning.completion_bound_max_table_bytes,
-        )
-        if by_tails
-        else None,
+        inverse,
+        num_x_columns,
         minimum_work=tuning.overlapping_minimum_work,
         max_sets=tuning.max_information_sets,
         attempts_per_set=tuning.overlapping_attempts_per_set,
+        by_tails=by_tails,
+        block_bits=tuning.coset_completion_block_bits,
+        max_table_bytes=tuning.completion_bound_max_table_bytes,
     )
 
 
