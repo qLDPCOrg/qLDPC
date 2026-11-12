@@ -104,6 +104,7 @@ def test_counts_through_the_costly_stages_count_every_word_once(
     assert any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
 
 
+@pytest.mark.usefixtures("plain_search_setup")
 def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
@@ -231,6 +232,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
     assert len(sets_with_tables) > 1
 
 
+@pytest.mark.usefixtures("plain_search_setup")
 def test_counts_return_to_python_only_around_steps_that_may_use_tables(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:

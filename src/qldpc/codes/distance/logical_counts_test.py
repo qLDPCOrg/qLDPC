@@ -191,6 +191,7 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
 @pytest.mark.parametrize(
     "compiled", [False, pytest.param(True, marks=pytest.mark.compiled)], ids=["python", "compiled"]
 )
+@pytest.mark.usefixtures("plain_search_setup")
 def test_compile_search_setup(compiled: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     """Calling ``compile_search_setup`` up front leaves the counts and distances unchanged.
 
@@ -246,6 +247,7 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
     assert not isinstance(select, numba.core.registry.CPUDispatcher)
 
 
+@pytest.mark.usefixtures("plain_search_setup")
 def test_deprecated_max_information_sets_argument(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
@@ -308,6 +310,7 @@ def test_deprecated_max_information_sets_argument(
     assert sizes and max(sizes) <= 4
 
 
+@pytest.mark.usefixtures("plain_search_setup")
 def test_the_information_set_limit_reaches_every_search_of_a_count(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:

@@ -251,6 +251,7 @@ def test_the_tuning_page_documents_every_field_and_constant() -> None:
     assert sorted(declared) == sorted(fields)
 
 
+@pytest.mark.usefixtures("plain_search_setup")
 def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPatch) -> None:
     """Distance searches and counts pass the values of their tuning to the code that uses them.
 

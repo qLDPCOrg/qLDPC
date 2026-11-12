@@ -33,6 +33,19 @@ def force_information_sets(tune: Tune) -> None:
     tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
 
 
+@pytest.fixture
+def plain_search_setup() -> None:
+    """Run the set-up code of searches as plain Python, even with ``--compile-search-setup``.
+
+    A test needs this if it replaces a compiled-on-request function, or a function that such a
+    function calls, such as to record its calls.  Compiled callers would not call the replacement.
+    A test that compares the plain Python set-up code with its compiled version needs it too.  This
+    resets every compiled-on-request function, which would undo an earlier replacement, so a
+    fixture that replaces one must request this fixture, to run after it.
+    """
+    _compilation.set_on_request_functions_compiled(False)
+
+
 class CostlyStages(NamedTuple):
     """The results of the costly stages of searches, which the costly_stages fixture records."""
 
@@ -82,6 +95,7 @@ def compilation_mode(
     compiled-on-request functions once per session, and restores plain Python afterwards.
     """
     if request.param == "python":
+        _compilation.set_on_request_functions_compiled(False)
         package = __name__.rpartition(".")[0]
         for module in (
             affine_search,
