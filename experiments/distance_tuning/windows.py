@@ -29,8 +29,8 @@ are compared with are:
 
 With ``--compare``, it instead compares the decisions of two traces of one workload under two
 tunings: enumeration tests, families and their gates, certificates, switches, the tables of each
-layer, and each comparison of a predicted cost with the limit.  Either way, it warns of traces from
-several sources of the library code, or that do not record theirs.
+layer, and each comparison of a predicted cost with the limit.  Either way, it warns of traces that
+do not record their source (see ``sweep.get_source_fingerprint``), or that record several.
 
 Example:
 
@@ -121,12 +121,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def warn_of_sources(traces: list[dict[str, Any]]) -> None:
-    """Warn of traces from several sources of the library code, or of unknown source."""
+    """Warn of traces that do not record their source, or that record several."""
     if any(trace.get("source") is None for trace in traces):
         print("WARNING: some traces do not record their source")
-    sources = {json.dumps(trace.get("source"), sort_keys=True) for trace in traces}
+    sources = {
+        json.dumps(trace["source"], sort_keys=True)
+        for trace in traces
+        if trace.get("source") is not None
+    }
     if len(sources) > 1:
-        print(f"WARNING: the traces come from {len(sources)} sources")
+        print(f"WARNING: the traces record {len(sources)} sources")
 
 
 def get_tuning(traces: list[dict[str, Any]]) -> _tuning.SearchTuning:

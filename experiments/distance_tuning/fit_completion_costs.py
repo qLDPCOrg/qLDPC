@@ -201,6 +201,7 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
     # The measurements of each aligned layer, and of each build, over repeats.
     layers: dict[tuple[str, int], list[dict[str, Any]]] = collections.defaultdict(list)
     builds: dict[tuple[str, int], list[dict[str, Any]]] = collections.defaultdict(list)
+    lacking_set_evaluations: set[str] = set()
     for (workload, _), arms in sorted(traces.items()):
         if set(arms) != set(ARMS):
             print(f"WARNING: {workload} lacks the traces of {sorted(set(ARMS) - set(arms))}")
@@ -213,8 +214,8 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
             print(f"WARNING: the layers of {workload} differ between tunings; skipping it")
             continue
         large = [layer for layer in sequences["disabled"] if layer["evaluated"] >= min_supports]
-        if large and any("set_evaluations" not in layer for layer in large):
-            print(f"WARNING: {workload} lacks set_evaluations; builds use supports")
+        if any("set_evaluations" not in layer for layer in large):
+            lacking_set_evaluations.add(workload)
         for arm in ("forced", "forced8"):
             predictions = get_predictions(arms[arm])
             if large:
@@ -233,6 +234,8 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
                     continue
                 measured = measure(layer, disabled, default, predictions)
                 layers[f"{workload} {arm}", index].append(measured)
+    for workload in sorted(lacking_set_evaluations):
+        print(f"WARNING: {workload} lacks set_evaluations; builds use supports")
 
     rows = [summarize(workload, index, group) for (workload, index), group in layers.items()]
     build_rows = [summarize(workload, index, group) for (workload, index), group in builds.items()]
