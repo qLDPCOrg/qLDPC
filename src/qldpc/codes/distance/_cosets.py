@@ -2,9 +2,10 @@
 
 """Parts that the coset searches of ``CosetLeaderSearch`` share.
 
-They are the answers of coset queries (:class:`MinWeightBound`), the words with unit syndromes that
-turn syndromes into words, the packing of binary rows into integers and back, the sums of the rows
-that a support selects, and the tables of the errors of weight zero or one by syndrome.
+They are the answers of coset queries (:class:`MinWeightBound`), the words with unit syndromes
+(whose sums give a word of each syndrome), the packing of binary rows into integers and back, the
+sums of the rows that a support selects, and the tables of the errors of weight zero or one by
+syndrome.
 """
 
 from __future__ import annotations
@@ -31,10 +32,10 @@ class MinWeightBound:
 
     Attributes:
         within_max_weight: Whether the coset has an element of weight at most ``max_weight``.
-        representative: An element of the coset: a packed Pauli (see ``CosetLeaderSearch``) for a
-            query of the oracle, and a word of the search (a packed Pauli, or an X or Z part) for a
-            query of a coset search.  If ``within_max_weight`` is True, its weight is at most
-            ``max_weight``.
+        representative: An element of the coset.  For a query of ``CosetLeaderSearch``
+            (``_coset_leader_search.py``), it is a packed Pauli, as that class packs it.  For a
+            query of a coset search, it is a word of that search (a packed Pauli, or an X or Z
+            part).  If ``within_max_weight`` is True, its weight is at most ``max_weight``.
         lower_bound: A lower bound on the minimum weight of the coset.  If ``within_max_weight`` is
             False, it exceeds ``max_weight``.
     """
@@ -78,8 +79,9 @@ def tabulate_singles(
 
     The words are the identity and, for packed Paulis, X, Z, and Y on each qubit, and for X or Z
     parts, the single bits.  The syndrome of Y on a qubit is the sum of those of X and Z there.
-    Each table maps each syndrome of its words to the first of them, in the order of the identity,
-    and then of the qubits, with X before Z before Y on each, or of the bits.
+    Each table maps each syndrome of its words to the first word with that syndrome.  The words
+    come in this order: the identity, and then X, Z, and Y on each qubit in turn for packed Paulis,
+    or each bit in turn for X or Z parts.
 
     Args:
         check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only

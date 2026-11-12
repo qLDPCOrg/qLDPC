@@ -13,7 +13,6 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pytest
-import stim
 
 from qldpc import math
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
@@ -35,9 +34,8 @@ from ..conftest import (
     TWO_FAMILIES_CODE,
     assert_exact_answers,
     get_binary_matrix,
-    get_css_minima,
+    get_exhaustive_minima,
     get_graph_state,
-    get_product_state,
     get_random_full_rank_matrix,
     get_stabilizer_matrix,
     get_syndrome,
@@ -88,7 +86,7 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     parity.
     """
     generators = ("Y______", "_XZ____", "_ZX__ZZ", "___Y___", "____Y__", "__Z__YZ", "__Z__ZY")
-    matrix = get_stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
+    matrix = get_stabilizer_matrix(generators)
     assert_exact_answers(CosetLeaderSearch(matrix, css_weight=True), matrix, True)
 
     # Read the parity of each syndrome class from every error, and check that the class shares it.
@@ -141,7 +139,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
     coset.get_css_searches.cache_clear()
     oracles = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices]
     for oracle, matrix in zip(oracles, matrices, strict=True):
-        minima = get_css_minima(matrix)
+        minima = get_exhaustive_minima(matrix, css_weight=True)
         for syndrome, max_weight in itertools.product(range(1 << 6), range(4)):
             bound = oracle.get_min_weight_bound(syndrome, max_weight)
             assert bound.within_max_weight == (minima[syndrome] <= max_weight)
@@ -294,7 +292,7 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
     answers after every search is cached.
     """
     states = [
-        get_product_state(generators)
+        get_stabilizer_matrix(generators)
         for generators in (("Y__", "_Z_", "__X"), ("Y__", "YZ_", "__X"), ("X__", "_Y_", "__Z"))
     ]
     coset.get_pauli_search.cache_clear()
@@ -921,7 +919,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
                 (2, 1) if block_bits else (4, 3),
                 range(-1, 6),
                 range(16),
-                get_css_minima(matrix, css_weight=False),
+                get_exhaustive_minima(matrix, css_weight=False),
             ),
             True,
         )
@@ -1010,9 +1008,9 @@ def _coset_minima(
 ) -> npt.NDArray[np.int_]:
     """The least weight of the words of the coset of each syndrome, from every word of the coset.
 
-    A word with the syndrome sums rows of a right inverse of the checks, from ``_cosets``, so the
-    helper checks the syndromes of these words.  The coset adds to such a word every word of
-    the code of ``generators``.
+    A word with the syndrome sums words with unit syndromes, from
+    ``_cosets.get_unit_syndrome_words``, so the helper checks the syndromes of these words.  The
+    coset adds to such a word every word of the code of ``generators``.
     """
     code = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators % 2
     bits = (np.array(syndromes)[:, None] >> np.arange(len(checks))) & 1
@@ -1099,7 +1097,7 @@ def test_min_weights_of_cosets_match_brute_force(
     search = coset.get_pauli_search(coset.StabilizerKey(matrix, checks), True, css_fields)
     syndromes = range(1 << len(matrix))
     _assert_min_weights_match_brute_force(
-        search, syndromes, get_css_minima(matrix), len(matrix), rng
+        search, syndromes, get_exhaustive_minima(matrix, css_weight=True), len(matrix), rng
     )
 
 
@@ -1136,7 +1134,9 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
     checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
     search = coset.get_pauli_search(coset.StabilizerKey(matrix, checks), False, tuning_fields)
     syndromes = list(range(1 << len(matrix)))
-    cases.append((search, len(matrix), syndromes, get_css_minima(matrix, css_weight=False), False))
+    cases.append(
+        (search, len(matrix), syndromes, get_exhaustive_minima(matrix, css_weight=False), False)
+    )
 
     for search, num_syndrome_bits, syndromes, minima, must_skip in cases:
         skipped = 0

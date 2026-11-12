@@ -34,13 +34,14 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 - `core.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
 - `_coset_leader_search.py` is the entry module of the coset-leader search, which modules elsewhere in qLDPC import.
-- `_brouwer_zimmermann/` and `_connected_support/` hold the two searches over information sets and over connected supports.
+- `_brouwer_zimmermann/` holds the Brouwer–Zimmermann searches, which scan information sets, and `_connected_support/` the searches over connected supports.
   Each holds its distance search, and the coset searches with which the coset-leader search answers its queries by that method.
   Exhaustive enumeration fits in one module, `_brute_force.py`.
-- `_counting/` holds the methods of the counts.
+- `_counting/` holds the word scan of the counts, the local Clifford gates of deformed counters, and the MacWilliams method.
 - `_information_sets/` holds the families of information sets and their certificates, which the Brouwer–Zimmermann searches and the counts share.
+  The method name `"information_sets"` is an alias of `"brouwer_zimmermann"`, for distances and counts alike.
 - `_cosets.py` holds what the coset searches of both methods share.
-- `_tuning.py` holds the settings of the searches, and `_binary.py` the binary input checks.
+- `_tuning.py` holds the settings of the searches, and `_binary.py` the binary input checks, nested bases, and the symplectic-to-Hamming map.
 
 ## Where to look
 
@@ -48,7 +49,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | --- | --- |
 | A distance method, or the validation of method and backend names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
-| Minimum weights of syndrome classes of Pauli errors (coset-leader weights), by BZ or by connected-support searches, with two classical searches for the CSS weight on CSS states, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_coset_leader_search.py` |
+| The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_coset_leader_search.py` |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
 | The compiled scans of layers that the BZ distance search and the BZ coset-leader search share, one body specialized by constant flags | `_brouwer_zimmermann/affine_search.py` |
 | The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_brouwer_zimmermann/affine_instance.py` |
@@ -61,7 +62,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The parts that the coset searches of both methods share: their answers (`MinWeightBound`), inverses of checks, packed rows, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
+| The parts that the coset searches of both methods share: their answers (`MinWeightBound`), words with unit syndromes, packed rows, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
 | How basis families are built | `_information_sets/basis_families.py` |
 | Certificates, and how searches plan their steps: where they stop, and the work of the steps up to there | `_information_sets/certificates.py` |
 | The step from one support of a layer to the next, which every scan of layers shares | `_information_sets/support_stepping.py` |
@@ -69,7 +70,7 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 | Completion tables, which bound the words that complete the first rows of a BZ support with two more rows: a distance search skips the supports whose words cannot be lighter than its best word, a count those whose words all weigh more than its target weight, and a BZ coset query on a route by tails those whose words all weigh more than its maximum weight. A BZ search for the minimum weight of a coset skips those too, and those whose words cannot be lighter than its lightest word so far. Also the choice of whether to build them | `_information_sets/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
 | The settings that a search reads when it starts, such as the thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the threshold of states before which a connected-support search asks for automorphisms, the coefficients of cost models, memory limits, and batch sizes (`SearchTuning`, `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
-| Binary input checks, nested bases, or the map that turns symplectic weights into Hamming weights | `_binary.py` |
+| Binary input checks, nested bases, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
@@ -77,16 +78,13 @@ Users reach it through the `get_distance_exact` method of binary codes in `src/q
 
 From the top:
 
-1. `logical_counts.py`, the public interface of the counts, which takes `NoDistance` from `core.py`.
-2. `core.py`, the public interface of the distances, and `_coset_leader_search.py`, the entry module of the coset-leader search.
+1. `logical_counts.py`, which takes `NoDistance` from `core.py`.
+2. `core.py` and `_coset_leader_search.py`.
 3. The methods `_brouwer_zimmermann/`, `_connected_support/`, and `_counting/`.
-4. What the methods share.
-   `_information_sets/` holds the information sets that the Brouwer–Zimmermann searches and the counts build on.
-   The connected-support search uses its weight divisors, and its checks and orbits of automorphisms.
-   `_cosets.py` holds what the coset searches of both methods share.
-   `_brute_force.py` is the exhaustive method, which the Brouwer–Zimmermann distance search also uses for its exhaustive routes.
-5. `_tuning.py`, the settings of the searches and counts, and the sizes of their caches.
-6. `_binary.py`, the foundation.
+4. `_information_sets/`, `_cosets.py`, and `_brute_force.py`, which the methods build on.
+   The connected-support search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`, and the Brouwer–Zimmermann distance search uses `_brute_force.py` for its exhaustive routes.
+5. `_tuning.py`.
+6. `_binary.py`.
 
 A top-level module or subpackage imports only from lower levels, and a module also from its own subpackage.
 `layering_test.py` checks this.

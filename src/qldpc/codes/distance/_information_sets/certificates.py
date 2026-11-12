@@ -188,7 +188,8 @@ class Certificate:
         if parity is not None:
             # Round each finite entry up to the parity.  The entry before the first step bounds no
             # step, and stays zero so that every nonnegative maximum weight passes it, as a check of
-            # a cached stopping step requires (see ``get_stopping_step`` of a coset search).
+            # a cached stopping step requires (see ``get_stopping_step`` in
+            # ``_brouwer_zimmermann/coset_tables.py``).
             bounds = bounds + (bounds - parity) % 2 * (bounds < NO_WORD_BOUND)
             bounds[0, 0] = 0
 

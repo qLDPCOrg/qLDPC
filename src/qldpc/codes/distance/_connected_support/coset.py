@@ -89,8 +89,8 @@ class ConnectedSupportCosetSearch:
             homogeneous=homogeneous,
             automorphism_minimum_states=_tuning.MAX_VALUE,
         )
-        # Row ``j`` of the inverse is a word whose syndrome has only bit ``j`` set, so the words of
-        # the set bits of a syndrome sum to a representative of its coset.
+        # Word ``j`` of ``get_unit_syndrome_words`` of the sparser rows has a syndrome of only bit
+        # ``j``, so the words of the set bits of a syndrome sum to a representative of its coset.
         syndrome_rows = rows if homogeneous else np.roll(rows, num_variables, axis=1)
         self._inverse_rows = row_ints(get_unit_syndrome_words(syndrome_rows))
 
@@ -219,10 +219,11 @@ def _get_sparser_rows(
         if rounds_unchanged >= rounds_without_improvement:
             break
 
-    # Add rows to each other where that helps, and find the transform from the given rows.  The
-    # rows are in the span of ``matrix``, whose product with the transposed inverse is the identity,
-    # so their product with it is the transform.  Products of binary matrices in float32 are exact
-    # while their inner dimension is below ``2**24``, and faster than in integers.
+    # Add rows to each other where that helps, and find the transform from the given rows.  The rows
+    # are in the span of ``matrix``, whose product with the transpose of ``get_unit_syndrome_words``
+    # of ``matrix`` is the identity, so their product with it is the transform.  Products of binary
+    # matrices in float32 are exact while their inner dimension is below ``2**24``, and faster than
+    # in integers.
     rows, _ = _sparsify(rows, homogeneous=homogeneous)
     inverse = get_unit_syndrome_words(matrix)
     product = rows.astype(np.float32) @ inverse.T.astype(np.float32)

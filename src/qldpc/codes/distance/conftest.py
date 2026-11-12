@@ -250,9 +250,11 @@ HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
 # helpers for the tests of coset-leader searches
 
 
-def get_stabilizer_matrix(generators: Sequence[stim.PauliString]) -> npt.NDArray[np.uint8]:
+def get_stabilizer_matrix(generators: Sequence[stim.PauliString | str]) -> npt.NDArray[np.uint8]:
     """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
-    return np.array([np.concatenate(gg.to_numpy()) for gg in generators], dtype=np.uint8)
+    return np.array(
+        [np.concatenate(stim.PauliString(gg).to_numpy()) for gg in generators], dtype=np.uint8
+    )
 
 
 def get_graph_state(
@@ -338,7 +340,7 @@ def scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDA
     return (upper[rng.permutation(size)] @ matrix) % 2
 
 
-def get_css_minima(matrix: npt.NDArray[np.uint8], css_weight: bool = True) -> npt.NDArray[np.int_]:
+def get_exhaustive_minima(matrix: npt.NDArray[np.uint8], css_weight: bool) -> npt.NDArray[np.int_]:
     """The smallest CSS (or physical) weight of an error with each packed syndrome.
 
     The minima come from all ``4**n`` Paulis.
@@ -367,17 +369,12 @@ RANK_DEFICIENT_CODE = np.array(
 )
 
 
-def get_product_state(generators: Sequence[str]) -> npt.NDArray[np.uint8]:
-    """Stabilizer matrix [X|Z] of the given Pauli strings."""
-    return get_stabilizer_matrix([stim.PauliString(pauli) for pauli in generators])
-
-
 def assert_exact_answers(
     oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
 ) -> None:
     """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
     num_qubits = len(matrix)
-    minima = get_css_minima(matrix, css_weight)
+    minima = get_exhaustive_minima(matrix, css_weight)
     for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
         bound = oracle.get_min_weight_bound(syndrome, max_weight)
         weight = get_pauli_weight(bound.representative, num_qubits, css_weight)

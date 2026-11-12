@@ -15,8 +15,8 @@ than in the number of logical qubits.  The transforms use 64-bit integers at the
 bound rules out overflow, and exact Python integers at the others.
 
 The walk visits the words of a span in reflected Gray-code order, as the brute-force distance search
-in ``_brute_force.py`` does, but it reduces every word to a weight histogram in one compiled
-loop instead of to a minimum weight over vectorized blocks.
+in ``_brute_force.py`` does, but it reduces every word to a weight histogram in one compiled loop
+instead of to a minimum weight over vectorized blocks.
 
 References:
 

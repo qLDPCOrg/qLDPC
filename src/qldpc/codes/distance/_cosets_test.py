@@ -12,8 +12,8 @@ from qldpc._binary import pack_bits
 from . import _cosets
 
 
-def test_inverses_of_checks_have_one_syndrome_bit_in_each_row(pytestconfig: pytest.Config) -> None:
-    """Row ``j`` of the inverse of independent checks has a syndrome of only bit ``j``."""
+def test_unit_syndrome_words_have_one_syndrome_bit_each(pytestconfig: pytest.Config) -> None:
+    """Row ``j`` of the unit-syndrome words of independent checks has only syndrome bit ``j``."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_checks, num_bits in [(1, 1), (3, 7), (5, 12)]:
         identity = np.eye(num_checks, dtype=np.uint8)
@@ -55,20 +55,37 @@ def test_sums_of_selected_rows_follow_their_definition(pytestconfig: pytest.Conf
 
 
 def test_tables_of_single_errors_keep_the_first_word_of_each_syndrome() -> None:
-    """Tables of the words of weight zero or one map each syndrome to its first word.
+    """Each table of the words of weight zero or one keeps the first word with each syndrome.
 
-    For packed Paulis on two qubits, the words are tried qubit by qubit, X before Z before Y.  So
-    the Z error on qubit zero, at bit two, takes the syndrome 0b10 before the X error on qubit one,
-    and the Y error on qubit zero takes 0b11 before the Z error on qubit one.  For X or Z parts, the
-    two bits with the syndrome 0b01 keep the first, and the tables of X and Z errors hold only the
-    identity.
+    On two qubits, Z on qubit zero has the syndrome 0b11 of X on qubit one, and Y on qubit zero has
+    the syndrome 0b10, the sum of 0b01 and 0b11, of Z on qubit one.  The table of all words keeps
+    the words on qubit zero, since it takes the words of one qubit at a time.  On three qubits, X
+    and Z on qubit zero and X on qubit two have the syndrome 0b01, so the table of all words and
+    that of X errors keep X on qubit zero.  Y on qubit zero has the trivial syndrome, so the table
+    of all words keeps the identity, and Y on qubit one has the syndrome of X there, so it keeps
+    that X.  Z on qubit one has the trivial syndrome, so the table of Z errors keeps the identity.
+    On two qubits whose X errors have the trivial syndrome, the tables keep the identity rather than
+    those X errors, and Z on qubit zero rather than Y there or Z and Y on qubit one, so Z comes
+    before Y.  For X or Z parts, the table keeps the first of the two bits with the syndrome 0b01,
+    and the identity rather than the third bit, whose syndrome is trivial.  The tables of X and Z
+    errors hold only the identity.
     """
     singles, x_singles, z_singles = _cosets.tabulate_singles(
-        [0b01, 0b10, 0b10, 0b11], 2, is_pauli=True
+        [0b01, 0b11, 0b11, 0b10], 2, is_pauli=True
     )
-    assert singles == {0: 0, 0b01: 0b0001, 0b10: 0b0100, 0b11: 0b0101}
-    assert x_singles == {0: 0, 0b01: 0b0001, 0b10: 0b0010}
-    assert z_singles == {0: 0, 0b10: 0b0100, 0b11: 0b1000}
-    singles, x_singles, z_singles = _cosets.tabulate_singles([0b01, 0b01, 0b10], 0, is_pauli=False)
-    assert singles == {0: 0, 0b01: 0b001, 0b10: 0b100}
+    assert singles == {0: 0, 0b01: 0b0001, 0b11: 0b0100, 0b10: 0b0101}
+    assert x_singles == {0: 0, 0b01: 0b0001, 0b11: 0b0010}
+    assert z_singles == {0: 0, 0b11: 0b0100, 0b10: 0b1000}
+    singles, x_singles, z_singles = _cosets.tabulate_singles(
+        [0b01, 0b10, 0b01, 0b01, 0, 0b11], 3, is_pauli=True
+    )
+    assert singles == {0: 0, 0b01: 0b000001, 0b10: 0b000010, 0b11: 0b100000}
+    assert x_singles == {0: 0, 0b01: 0b000001, 0b10: 0b000010}
+    assert z_singles == {0: 0, 0b01: 0b001000, 0b11: 0b100000}
+    singles, x_singles, z_singles = _cosets.tabulate_singles([0, 0, 0b1, 0b1], 2, is_pauli=True)
+    assert singles == {0: 0, 0b1: 0b0100}
+    assert x_singles == {0: 0}
+    assert z_singles == {0: 0, 0b1: 0b0100}
+    singles, x_singles, z_singles = _cosets.tabulate_singles([0b01, 0b01, 0], 0, is_pauli=False)
+    assert singles == {0: 0, 0b01: 0b001}
     assert x_singles == z_singles == {0: 0}

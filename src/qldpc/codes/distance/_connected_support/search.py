@@ -15,10 +15,10 @@ on a stabilizer state.
 
 ``connected_support.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
 correctness requirements.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py``
-solves the same problem for any binary code.  This module reuses the weight divisors of
-``_information_sets/basis_families.py``, and the verification and orbits of automorphisms of
+solves the same problem for any binary code.  This module reuses ``infer_weight_divisor`` of
+``_information_sets/basis_families.py``, and ``verify_automorphisms`` and ``get_orbits`` of
 ``_information_sets/automorphism_families.py``.  The coset searches of ``CosetLeaderSearch`` that
-start from a syndrome are in ``coset.py`` beside it.
+start from a syndrome are in ``coset.py`` beside this module.
 """
 
 from __future__ import annotations

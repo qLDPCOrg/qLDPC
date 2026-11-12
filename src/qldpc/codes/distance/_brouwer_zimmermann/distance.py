@@ -13,8 +13,8 @@ fixed-weight logical counting shares.  Its ``basis_families.py`` builds the fami
 images of one information set under automorphisms, and ``completion_bounds.py`` the tables that let
 a scan skip hopeless supports.  Beside this module, ``affine_search.py`` holds the compiled scans of
 layers, and ``affine_instance.py`` packs the sets of a search with their certificate.  The coset
-searches share both.  This module owns witness discovery, early
-exits, exhaustive dispatch, and the resumable scans of layers in chunks.
+searches share both.  This module owns witness discovery, early exits, exhaustive dispatch, and the
+resumable scans of layers in chunks.
 """
 
 from __future__ import annotations

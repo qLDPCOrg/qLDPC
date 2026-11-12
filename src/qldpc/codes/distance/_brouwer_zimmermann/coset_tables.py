@@ -33,12 +33,12 @@ TailFields = tuple[
 
 
 class CosetSearchTables(NamedTuple):
-    """The tables of ``_search_coset`` for one coset search of a ``CosetLeaderSearch``.
+    """The tables of ``_search_coset`` in ``coset.py`` for one BZ coset search.
 
     The search runs on embedded words.  For a search of Pauli errors, the embedded word of an error
     is its packed Pauli for the CSS weight, and its packed Pauli followed by ``x xor z`` for the
-    physical weight (see ``symplectic_to_hamming``).  For a search of X or Z parts, the embedded
-    word of a part is the part itself.
+    physical weight (see ``symplectic_to_hamming`` in ``_binary.py`` of this package).  For a search
+    of X or Z parts, the embedded word of a part is the part itself.
 
     Attributes:
         inverse: Row ``j`` is the packed embedded word of a word whose syndrome has only bit ``j``
@@ -68,7 +68,7 @@ class CosetSearchTables(NamedTuple):
 
 
 class CosetTails(NamedTuple):
-    """The tails with which ``_search_coset`` weighs the words of a family by tails, and its tables.
+    """The tails with which a BZ coset search weighs the words of a family by tails, and its tables.
 
     The tail of an embedded word on a set of the family holds every column of the word but the
     pivot columns of the set, including columns on which no row of the set has a one.  The tails are
@@ -105,17 +105,17 @@ class CosetTails(NamedTuple):
 def get_search_tables(
     instance: affine_instance.AffineInstance, inverse: npt.NDArray[np.uint8], num_x_columns: int
 ) -> CosetSearchTables:
-    """Build the tables of ``_search_coset`` for the cosets of the code of a coset instance.
+    """Build the tables of a BZ coset search for the cosets of the code of a coset instance.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, and the first
     ``num_x_columns`` columns count as the X part of an embedded word.
 
     The search rounds its bounds to the parity of each coset if every word of the code has even
     Hamming weight and some coset is odd.  Then the words of each coset share a parity (see
-    ``get_coset_instance``).  The word of a syndrome sums rows of ``inverse``, so some coset is odd
-    exactly when some row is.  If the code and every row of ``inverse`` are even, every coset is
-    even.  This happens only in the search of Pauli errors by physical weight, whose bounds are
-    halved, so that rounding them up to even would change none.
+    ``affine_instance.get_coset_instance``).  The word of a syndrome sums rows of ``inverse``, so
+    some coset is odd exactly when some row is.  If the code and every row of ``inverse`` are even,
+    every coset is even.  This happens only in the search of Pauli errors by physical weight, whose
+    bounds are halved, so that rounding them up to even would change none.
     """
     width = instance.generators.shape[2]
     x_mask = int_to_words((1 << num_x_columns) - 1, width)
@@ -257,7 +257,7 @@ def get_first_step_reaching(bounds: npt.NDArray[np.int64], target: int) -> tuple
 
     It is the stopping step of ``certificates.find_stopping_step`` for the limit ``target - 1``.
     Unlike ``get_stopping_step``, this function caches no step, so the cached steps of the planning
-    buffer serve only the queries of ``_search_coset``.
+    buffer serve only the queries of ``_search_coset`` in ``coset.py``.
     """
     return certificates.find_stopping_step(bounds, target - 1, 0, len(bounds) - 1)
 

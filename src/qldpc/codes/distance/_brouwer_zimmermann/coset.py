@@ -10,10 +10,7 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from qldpc._binary import (
-    popcount_word,
-    unpack_bits,
-)
+from qldpc._binary import popcount_word, unpack_bits
 from qldpc._compilation import always_compiled
 
 from .. import _tuning
@@ -48,7 +45,7 @@ from .coset_tables import (
 
 
 class BrouwerZimmermannCosetSearch:
-    """One coset search of a ``CosetLeaderSearch``: a search of the cosets of one binary code.
+    """A BZ coset search of a ``CosetLeaderSearch``: a search of the cosets of one binary code.
 
     The words of a search are either packed Paulis on ``n`` qubits, in which case the code is
     spanned by the packed stabilizers, or the X parts (or Z parts) of Paulis, in which case the code
@@ -67,8 +64,8 @@ class BrouwerZimmermannCosetSearch:
         css_weight: True to weigh words by their CSS weight, which is the Hamming weight of an X
             or Z part, or False to weigh them by their physical weight.
         num_qubits: The number of qubits ``n``.
-        inverse_rows: Row ``j`` of a right inverse of the checks, not embedded, as an integer: a
-            word whose syndrome has only bit ``j`` set.
+        inverse_rows: Row ``j`` of ``get_unit_syndrome_words`` of the checks, not embedded, as an
+            integer: a word whose syndrome has only bit ``j`` set.
         check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
             bit ``c`` set.
         is_pauli: Whether the words are packed Paulis of ``2 n`` bits, rather than X or Z parts of
@@ -883,7 +880,7 @@ def _search_coset_for_min_weight(
 
     # Visit each layer one information set at a time, up to the stopping step.  The scans take work
     # space for one set.  The search reaches a stopping step by the last layer, whose bounds are
-    # ``NO_WORD_BOUND``, since its upper bound is at most ``max_weight + 1``, which
+    # ``certificates.NO_WORD_BOUND``, since its upper bound is at most ``max_weight + 1``, which
     # ``BrouwerZimmermannCosetSearch.get_min_weights`` keeps at most ``n + 1``.  The scans keep each
     # lighter word in ``best``, or its support in ``best_support`` by tails, which are only work
     # space, since the search returns no word.
@@ -1011,10 +1008,10 @@ def _get_offset_tails(
     """Find the rank of each information set and the tail of its offset.
 
     ``word`` is the word of the syndrome ``packed_syndrome``, ``pivots`` are those of
-    ``_search_coset``, and ``tails`` and ``inverse_tails`` are those of ``CosetTails``.  The rows
-    of a set with pivots on which the word has ones reduce the word to the offset, since every row
-    is zero on the pivots of the other rows.  The tail of the word sums the tails of the rows of the
-    inverse for the set bits of the syndrome.
+    ``_search_coset``, and ``tails`` and ``inverse_tails`` are those of ``CosetTails``.  The rows of
+    a set with pivots on which the word has ones reduce the word to the offset, since every row is
+    zero on the pivots of the other rows.  The tail of the word sums the tails of the words with
+    unit syndromes (``CosetTails.inverse_tails``) for the set bits of the syndrome.
     """
     num_sets, num_rows, tail_width = tails.shape
     ranks = np.zeros(num_sets, dtype=np.int64)

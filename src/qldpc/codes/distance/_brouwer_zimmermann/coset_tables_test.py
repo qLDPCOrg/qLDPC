@@ -129,11 +129,11 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
 def test_search_tables_plan_by_parity_exactly_when_cosets_of_an_even_code_differ() -> None:
     """A search plans with a table of bounds for each parity if its code is even and a coset odd.
 
-    The words of a coset of an even code share a parity, and a word of each syndrome bit is a row
-    of the inverse, so some coset is odd exactly when one of those rows is.  The even code with the
-    inverse of its checks has odd cosets, and plans with a table for each parity.  With an inverse
-    of even rows, it plans with one table, and so does the rank-deficient code, which is not even.
-    That table serves cosets of either parity.
+    The words of a coset of an even code share a parity, and the word of a syndrome sums words with
+    unit syndromes, so some coset is odd exactly when one of those words is.  Some word with a unit
+    syndrome for the checks of the even code is odd, so it has odd cosets, and plans with a table
+    for each parity.  With even words in their place, it plans with one table, and so does the
+    rank-deficient code, which is not even.  That table serves cosets of either parity.
     """
     even_inverse = _cosets.get_unit_syndrome_words(get_kernel(EVEN_ROUTES_CODE))
     assert np.any(even_inverse.sum(axis=1) % 2)
