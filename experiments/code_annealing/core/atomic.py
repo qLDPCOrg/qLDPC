@@ -9,6 +9,7 @@ An atomic replacement means that a failure or an interruption never leaves half 
 from __future__ import annotations
 
 import contextlib
+import io
 import os
 import stat
 import tempfile
@@ -23,29 +24,22 @@ def write_atomic(destination: Path, write: Callable[[IO[str]], None]) -> None:
     Temporary files are removed on every exit, so a failure leaves the previous file untouched.  The
     stream translates no newlines, as the CSV writer of ``saved_runs`` requires.
 
+    On a network file system, such as NFS, a client can send a rename again after the first attempt
+    succeeded, and the second attempt then fails because the temporary file is gone.  So after such
+    a failure, the text is written and renamed once more, which is harmless if the first rename took
+    effect.
+
     Args:
         destination: The file to replace, whose directory is created if needed.
-        write: Writes the complete contents of the file to the stream that it is given.
+        write: Writes the complete contents of the file to the stream that it is given, once.
     """
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    mode = _get_file_mode(destination)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        newline="",
-        dir=destination.parent,
-        prefix=f".{destination.name}.",
-        delete=False,
-    ) as stream:
-        temporary = Path(stream.name)
-        try:
-            write(stream)
-            stream.flush()
-            os.fsync(stream.fileno())
-            stream.close()
-            os.chmod(temporary, mode)
-            os.replace(temporary, destination)
-        finally:
-            temporary.unlink(missing_ok=True)
+    buffer = io.StringIO(newline="")
+    write(buffer)
+    text = buffer.getvalue()
+    try:
+        _replace_with_text(destination, text)
+    except FileNotFoundError:
+        _replace_with_text(destination, text)
 
 
 @contextlib.contextmanager
@@ -78,6 +72,29 @@ def write_text_atomic(destination: str | Path, text: str) -> None:
 
 ####################################################################################################
 # helper methods
+
+
+def _replace_with_text(destination: Path, text: str) -> None:
+    """Write text to a temporary file beside a file, flush it, and rename it over the file."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    mode = _get_file_mode(destination)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        newline="",
+        dir=destination.parent,
+        prefix=f".{destination.name}.",
+        delete=False,
+    ) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+            stream.close()
+            os.chmod(temporary, mode)
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _get_file_mode(destination: Path) -> int:
