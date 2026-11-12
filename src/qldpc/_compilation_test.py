@@ -451,7 +451,11 @@ def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> 
     """CI runs only the distance tests with compiled-on-request functions compiled."""
     modules = run_python(_FIND_ON_REQUEST_MODULES).split()
     assert modules
-    outside = [name for name in modules if not name.startswith("qldpc.codes.distance.")]
+    outside = [
+        name
+        for name in modules
+        if name != "qldpc.codes.distance" and not name.startswith("qldpc.codes.distance.")
+    ]
     assert not outside, outside
 
 
@@ -584,8 +588,6 @@ def test_options_of_compiled_runs_are_refused_while_compilation_is_disabled(
 # The packages whose functions always-compiled code may use.
 _COMPILABLE_PACKAGES = {"qldpc", "numpy", "numba"}
 
-# A program that imports every module of qLDPC, and prints those that hold compiled functions of
-# their own or register compiled-on-request functions.
 # Code that imports every module of qLDPC other than tests, which registers every compiled function.
 _IMPORT_EVERY_MODULE = """
 import importlib, pkgutil, sys
@@ -598,6 +600,7 @@ for info in pkgutil.walk_packages(qldpc.__path__, "qldpc."):
         importlib.import_module(info.name)
 """
 
+# A program that prints the modules that register compiled-on-request functions.
 _FIND_ON_REQUEST_MODULES = (
     _IMPORT_EVERY_MODULE
     + """
@@ -605,6 +608,8 @@ print(*sorted({item.namespace["__name__"] for item in _compilation._ON_REQUEST_F
 """
 )
 
+# A program that prints the modules that hold compiled functions of their own or register
+# compiled-on-request functions.
 _FIND_COMPILED_MODULES = (
     _IMPORT_EVERY_MODULE
     + """
