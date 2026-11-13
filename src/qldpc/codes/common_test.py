@@ -149,6 +149,17 @@ def test_field_array_construction() -> None:
             codes.ClassicalCode(list(matrix), field=field)
 
 
+def test_check_matrix_shapes() -> None:
+    """CSS codes take an empty list of checks of one type, and matrices must be two-dimensional."""
+    checks = galois.GF(3)([[1, 2, 0], [0, 1, 1]])
+    assert codes.CSSCode([], checks) == codes.CSSCode.classical(checks, Pauli.Z)
+    assert codes.CSSCode(checks, []) == codes.CSSCode.classical(checks, Pauli.X)
+    one_dimensional: list[Any] = [[], galois.GF(2)([1, 0, 1])]
+    for matrix in one_dimensional:
+        with pytest.raises(ValueError, match="must be two-dimensional"):
+            codes.ClassicalCode(matrix)
+
+
 def test_named_codes(order: int = 2) -> None:
     """Named codes from the GAP computer algebra system."""
     code = codes.RepetitionCode(order)

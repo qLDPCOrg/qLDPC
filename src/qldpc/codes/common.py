@@ -181,10 +181,17 @@ class AbstractCode(abc.ABC):
             if scipy.sparse.issparse(matrix):
                 matrix = matrix.todense()  # type:ignore[union-attr]  # issparse does not narrow
             array = np.asanyarray(matrix)
-            if array.dtype == bool:
-                # galois rejects bool dtypes, so treat booleans as 0/1 integers
+            if array.dtype == bool or not array.size:
+                # galois rejects bool dtypes, and the float dtype of empty lists, so treat these as
+                # 0/1 integers
                 array = array.astype(np.uint8)
             self._matrix = array.view(self.field)
+
+        if self._matrix.ndim != 2:
+            raise ValueError(
+                f"A parity check matrix must be two-dimensional, not of shape {self._matrix.shape};"
+                " for no checks, pass an array with no rows"
+            )
 
     @property
     def name(self) -> str:
@@ -2809,7 +2816,14 @@ class CSSCode(QuditCode):
         assumed to have equal minimum weight, which lets the code distance be computed from one type
         alone.  This promise is trusted rather than verified: passing ``True`` when it does not hold
         makes get_distance return an incorrect (and compute-order-dependent) distance.
+
+        The checks of one type may be an empty list, which takes the width and field of the checks
+        of the other type.
         """
+        if isinstance(code_x, list | tuple) and not code_x:
+            code_x = ClassicalCode(code_z, field).matrix[:0]
+        if isinstance(code_z, list | tuple) and not code_z:
+            code_z = ClassicalCode(code_x, field).matrix[:0]
         self._code_x = ClassicalCode(code_x, field)  # X-type parity checks, measuring Z-type errors
         self._code_z = ClassicalCode(code_z, field)  # Z-type parity checks, measuring X-type errors
         self._field = self.code_x.field
