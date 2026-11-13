@@ -96,7 +96,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/build_docs.py``
      - Strict Sphinx and notebook documentation build
    * - ``python checks/all_.py``
-     - Most of these checks in one command, for advanced use
+     - Formatting, lint, mypy, ``coverage_.py``, and (on full runs) the docs build
 
 Checks come in three tiers by cost.
 The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`review <reviewing>` and in a draft pull request.
