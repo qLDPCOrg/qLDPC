@@ -41,7 +41,8 @@ def test_fault_distance_without_logical_faults() -> None:
 def test_fault_distance_errors() -> None:
     """Circuits that Stim cannot convert to a DEM, and unknown methods, raise errors.
 
-    The method is checked first, before the costly analysis of the circuit.
+    The method is checked first, before the costly analysis of the circuit, so an unknown method is
+    reported even for a circuit that Stim cannot convert.
     """
     circuit = stim.Circuit("H 0\nM 0\nDETECTOR rec[-1]")
     with pytest.raises(ValueError):

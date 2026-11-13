@@ -427,14 +427,10 @@ def get_distance_quantum(
         " symplectic=not homogeneous) instead",
         stacklevel=get_external_caller_stacklevel(),
     )
-    # Unlike ``excluded``, the stabilizers have no default, so None is an error, not "no rows".
-    if stabilizers is None:
-        raise TypeError("stabilizers must be an array of binary entries, not None")
     with _use_block_size(block_size):
-        # Check the rows here, so that errors name the arguments of this function.
-        logical_ops, stabilizers = as_binary_matrix_pair(
-            logical_ops, stabilizers, ("logical_ops", "stabilizers")
-        )
+        # Check the rows here, so that errors name the arguments of this function.  This also
+        # rejects None as the stabilizers, which have no default, unlike ``excluded``.
+        as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
         return get_distance_from_generators(
             logical_ops,
             stabilizers,

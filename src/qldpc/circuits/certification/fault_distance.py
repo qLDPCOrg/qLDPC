@@ -4,8 +4,7 @@
 
 from __future__ import annotations
 
-import typing
-from typing import Literal
+from typing import Literal, get_args
 
 import numpy as np
 import stim
@@ -67,7 +66,7 @@ def get_fault_distance(
         ValueError: If the method is unknown, or if Stim cannot convert the circuit to a DEM.
     """
     # Check the method before the costly analysis of the circuit.
-    if method not in typing.get_args(DistanceMethod):
+    if method not in get_args(DistanceMethod):
         raise ValueError(
             f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
             " 'information_sets'), 'brute_force', or 'connected_support'."

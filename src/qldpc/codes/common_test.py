@@ -150,10 +150,11 @@ def test_field_array_construction() -> None:
 
 
 def test_check_matrix_shapes() -> None:
-    """CSS codes take an empty list of checks of one type, and matrices must be two-dimensional."""
+    """CSS codes take no checks of one type, and matrices must be two-dimensional."""
     checks = galois.GF(3)([[1, 2, 0], [0, 1, 1]])
     assert codes.CSSCode([], checks) == codes.CSSCode.classical(checks, Pauli.Z)
-    assert codes.CSSCode(checks, []) == codes.CSSCode.classical(checks, Pauli.X)
+    assert codes.CSSCode(checks, ()) == codes.CSSCode.classical(checks, Pauli.X)
+    assert codes.ClassicalCode(np.zeros((0, 3), dtype=int), field=257).num_checks == 0
     one_dimensional: list[Any] = [[], galois.GF(2)([1, 0, 1])]
     for matrix in one_dimensional:
         with pytest.raises(ValueError, match="must be two-dimensional"):

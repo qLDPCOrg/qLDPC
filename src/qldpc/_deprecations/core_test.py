@@ -257,7 +257,7 @@ def test_deprecated_distance_functions() -> None:
 
     # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
     # arguments.
-    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="not None"):
+    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="stabilizers"):
         get_distance_quantum(generator[:1], None, homogeneous=True)
     nonbinary = [[2] + [0] * 6]
     for logical_ops, stabilizers, name in (

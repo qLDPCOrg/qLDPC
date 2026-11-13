@@ -78,8 +78,8 @@ class CosetLeaderSearch:
         css_weight: True to weigh an error by its CSS weight, or False to weigh it by its physical
             weight.  Default: False.
         method: The search of the syndrome classes.  ``"brouwer_zimmermann"``, with alias
-            ``"information_sets"``, searches the cosets of binary codes by information sets (see
-            the `Brouwer-Zimmermann guide
+            ``"information_sets"``, searches the cosets of binary codes by information sets (see the
+            `Brouwer-Zimmermann guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
             ``"connected_support"`` grows errors from the syndrome through generators of the
             stabilizer group, which it first makes sparser, and is fast if they are sparse (see the

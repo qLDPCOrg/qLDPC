@@ -37,12 +37,13 @@ def as_integer(value: SupportsIndex, name: str) -> int:
 
 
 def infer_field(vectors: object) -> type[galois.FieldArray] | None:
-    """Return the finite field of an array, or of the arrays in nested lists or tuples.
+    """Return the finite field of a field array, or of the field arrays in nested lists or tuples.
 
-    NumPy drops the field of the arrays in a list, such as the rows of a field array, so a list of
-    rows over GF(3) with entries 0 and 1 would pass as a binary matrix.  In lists and tuples, this
-    function reads the field of the first item at each level of nesting, and no other items, so that
-    its cost does not grow with the size of the input.  It returns None if it finds no field.
+    NumPy drops the field of the field arrays in a list or tuple, such as the rows of a field array,
+    so a list of rows over GF(3) with entries 0 and 1 would pass as a binary matrix.  The binary
+    checks of the exact searches and the code constructors therefore read the field with this
+    function.  It follows only the first item at each level of nesting, so its cost grows only with
+    the depth of nesting.  It returns None if it finds no field.
     """
     while not isinstance(vectors, galois.FieldArray):
         if not isinstance(vectors, list | tuple) or not vectors:

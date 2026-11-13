@@ -128,10 +128,10 @@ class AbstractCode(abc.ABC):
     ) -> None:
         """Construct a code from a parity check matrix over a finite field.
 
-        The base field is taken to be ``F_2`` by default.  If ``matrix`` is a finite-field array, an
-        explicit field may either match its field or canonically extend its prime field.  If
-        ``matrix`` is a list of rows over a finite field, the base field must likewise match the
-        field of the rows, as read from the first row, or canonically extend its prime field.
+        The base field is ``F_2`` by default, or the field of ``matrix`` if it is a finite-field
+        array.  An explicit field must match the field of a finite-field array or, if that is a
+        prime field, extend it.  Rows listed or nested in lists or tuples over a finite field, as
+        read from the first row, follow the same rule, but do not set the base field.
         """
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
@@ -182,9 +182,9 @@ class AbstractCode(abc.ABC):
                 matrix = matrix.todense()  # type:ignore[union-attr]  # issparse does not narrow
             array = np.asanyarray(matrix)
             if array.dtype == bool or not array.size:
-                # galois rejects bool dtypes, and the float dtype of empty lists, so treat these as
-                # 0/1 integers
-                array = array.astype(np.uint8)
+                # galois rejects bool dtypes and the float dtype that NumPy gives empty lists, so
+                # cast booleans and empty arrays to an integer dtype of the field
+                array = array.astype(self._field.dtypes[0])
             self._matrix = array.view(self.field)
 
         if self._matrix.ndim != 2:
@@ -2817,8 +2817,8 @@ class CSSCode(QuditCode):
         alone.  This promise is trusted rather than verified: passing ``True`` when it does not hold
         makes get_distance return an incorrect (and compute-order-dependent) distance.
 
-        The checks of one type may be an empty list, which takes the width and field of the checks
-        of the other type.
+        The checks of one type may be an empty list or tuple, which takes the number of qudits and
+        the field of the checks of the other type.
         """
         if isinstance(code_x, list | tuple) and not code_x:
             code_x = ClassicalCode(code_z, field).matrix[:0]

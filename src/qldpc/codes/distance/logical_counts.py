@@ -477,8 +477,9 @@ class CSSLogicalCounter:
 
         The Clifford applies the same binary matrix, whose rows have weight three, to X and Z
         supports on the four targets.  It therefore maps self-dual codes to self-dual codes, and
-        preserves the self-dual-with-equivalent-logicals (SWEL) property of
-        :meth:`~qldpc.codes.common.CSSCode.is_swel`.  It is valid for any CSS code.
+        preserves the self-dual-with-equivalent-logicals (SWEL) property that
+        :attr:`CSSCode.is_swel <qldpc.codes.common.CSSCode.is_swel>` tests.  It is valid for any CSS
+        code.
 
         Args:
             qubit_0: The qubit of the first matrix row.
