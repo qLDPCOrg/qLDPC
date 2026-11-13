@@ -140,9 +140,9 @@ A code that encodes nothing, or a circuit with no undetected logical fault, has 
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
 Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a ``QuditCode`` that is not a ``CSSCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
-A subsystem ``QuditCode`` is bounded as a ``CSSCode`` if X-type and Z-type operators generate its gauge group, even if its checks mix X and Z, and otherwise no backend supports it.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.
+A subsystem ``QuditCode`` is bounded as a ``CSSCode`` if X-type and Z-type operators generate its gauge group, even if its checks mix X and Z, and otherwise no backend supports it.
 Codes remember the best distance bound that they have computed or been given, and CSS codes remember X and Z bounds separately.
 With ``num_trials=None``, ``get_distance_bound`` returns the exact distance or best known bound if there is one, and otherwise computes one bound.
 An explicit ``num_trials`` runs that many trials, and never returns a worse bound than the best known one.

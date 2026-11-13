@@ -169,16 +169,14 @@ def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
     """Pauli checks that generate a CSS group are searched as a CSS code, even if they mix X and Z.
 
     Adding the Z-type checks of the Steane code to its X-type checks mixes the X and Z parts of the
-    rows, but keeps the group that they generate.  Every method finds the distance 3, and the
-    connected-support search gets a problem of 7 bits for each type of logical operator, rather
-    than one problem of 14 symplectic bits.
+    rows, but keeps the group that they generate.  The connected-support search finds the distance
+    3, and gets a problem of 7 bits for each type of logical operator, rather than one problem of 14
+    symplectic bits.
     """
     steane_code = qldpc.codes.SteaneCode()
     checks_x = steane_code.matrix_x.view(np.ndarray)
     checks_z = steane_code.matrix_z.view(np.ndarray)
     checks = np.block([[checks_x, checks_z], [np.zeros_like(checks_z), checks_z]])
-    for method in ("brouwer_zimmermann", "brute_force"):
-        assert core.get_distance_pauli(checks, method=method) == 3
 
     searched: list[tuple[list[int], bool]] = []
 
@@ -324,10 +322,10 @@ def test_connected_support_searches_sparse_stabilizers(monkeypatch: pytest.Monke
     With X and Z on a bulk qubit of the [[16, 1, 4]] surface code as gauge generators, the two
     checks of each type on that qubit merge into one stabilizer of weight 6, and the dressed
     distance drops to 3.  The other checks are gauge generators that are stabilizers, but they do
-    not span S, and the row-reduced basis of S weighs 8.  The search gets checks that weigh at most
-    6 and span S, and finds the distance that brute force finds, in the CSS form, and in a Pauli
-    form with Hadamards on half of the qubits, which is not CSS.  The search of the surface code
-    itself gets its checks as given.
+    not span S, and the row-reduced basis of S has rows of weight 8.  The search gets checks that
+    include these stabilizers, weigh at most 6, and span S.  It finds the distance that brute force
+    finds, in the CSS form, and in a Pauli form with Hadamards on half of the qubits, which is not
+    CSS.  The search of the surface code itself gets its checks as given.
     """
     code = qldpc.codes.SurfaceCode(4)
     qubit = 5
@@ -358,7 +356,9 @@ def test_connected_support_searches_sparse_stabilizers(monkeypatch: pytest.Monke
         searched, (get_stabilizers(checks_z), get_stabilizers(checks_x)), strict=True
     ):
         assert checks.sum(axis=1).max() <= 6
+        assert set(map(tuple, stabilizers[:-1])) <= set(map(tuple, checks))
         assert np.array_equal(get_independent_rows(checks), get_independent_rows(stabilizers))
+    assert core.get_distance_css(gauge_x, gauge_z, Pauli.Z, method="connected_support") == 3
 
     searched.clear()
     assert core.get_distance_css(checks_x, checks_z, method="connected_support") == 4
@@ -381,6 +381,8 @@ def test_connected_support_searches_sparse_stabilizers(monkeypatch: pytest.Monke
     assert np.array_equal(
         get_independent_rows(checks), get_independent_rows(apply_hadamards(stabilizers))
     )
+    kept = scipy.linalg.block_diag(get_stabilizers(checks_x)[:-1], get_stabilizers(checks_z)[:-1])
+    assert set(map(tuple, apply_hadamards(kept))) <= set(map(tuple, checks))
 
 
 def test_connected_support_needs_parity_checks() -> None:

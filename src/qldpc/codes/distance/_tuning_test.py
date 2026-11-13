@@ -264,12 +264,13 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     the tuning that it receives, and their tests in ``_information_sets/completion_bounds_test.py``
     and ``_information_sets/basis_families_test.py`` change them there.  Others are read once by
     ``CosetLeaderSearch``, which passes their values down to its coset searches:
-    ``max_css_single_pairs``, ``max_sparsifying_rounds``, and
-    ``sparsifying_rounds_without_improvement``.  Tests in ``coset_leaders_test.py``,
-    ``_brouwer_zimmermann/coset_test.py``, and ``_connected_support/coset_test.py`` change or
-    record these, and the fields that the oracle passes down to the routes of its BZ searches.  The
+    ``max_css_single_pairs`` and ``max_sparsifying_rounds``.  Tests in ``coset_leaders_test.py``,
+    ``_brouwer_zimmermann/coset_test.py``, and ``_connected_support/coset_test.py`` change or record
+    these, and the fields that the oracle passes down to the routes of its BZ searches.  The
     connected-support distance search of the subsystem code with X-type gauge generator [1, 1, 0]
-    and Z-type gauge generators [0, 1, 1] and [1, 0, 0] makes its stabilizers sparser.
+    and Z-type gauge generators [0, 1, 1] and [1, 0, 0] shows that
+    ``max_distance_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` reach
+    ``get_sparser_rows``.
     """
     seen: dict[str, list[Any]] = collections.defaultdict(list)
 

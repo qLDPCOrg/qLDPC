@@ -133,7 +133,10 @@ def parse_args() -> argparse.Namespace:
         metavar="K",
         help="make the first K logical qubits gauge qubits (default: %(default)s)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.gauge < 0:
+        parser.error("--gauge K must be nonnegative")
+    return args
 
 
 ####################################################################################################

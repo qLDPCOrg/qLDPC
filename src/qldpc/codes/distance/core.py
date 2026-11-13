@@ -421,11 +421,11 @@ def get_distance_pauli(
     sure that the checks define a stabilizer code, build a code with
     ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if they do not commute.
 
-    If X-type and Z-type operators generate the group that the rows generate, the code is CSS,
-    even if its rows mix X and Z.  Its distance is then that of the CSS code whose checks are the X
-    parts and the Z parts of the rows.  This function then searches that code as
-    :func:`get_distance_css` does, in ``n`` bits for each type of logical operator rather than in
-    ``2 n`` bits for both, which is faster.
+    If X-type and Z-type operators generate the group that the rows generate, the code is CSS, even
+    if its rows mix X and Z.  Its distance is then that of the CSS code whose checks are the X parts
+    and the Z parts of the rows.  This function then searches that code as :func:`get_distance_css`
+    does, in ``n`` bits for each type of logical operator rather than in ``2 n`` bits for both,
+    which is faster.
 
     Args:
         checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
@@ -549,7 +549,7 @@ def _search_css(
             }
             problems = [
                 (
-                    _get_sparse_stabilizers(
+                    _get_sparser_stabilizers(
                         checks, kept_stabilizers[sector_pauli], homogeneous=True, tuning=tuning
                     ),
                     excluded,
@@ -603,7 +603,7 @@ def _search_checks(
     ``_get_automorphism_getter``).  The other arguments are those of the public distance functions,
     validated.  If ``kept_stabilizers`` is given, the checks are the stabilizers that
     ``get_pauli_stabilizers`` derives for a subsystem code, and the connected-support method
-    searches sparser checks instead (see ``_get_sparse_stabilizers``).
+    searches sparser checks instead (see ``_get_sparser_stabilizers``).
     """
     if method != "connected_support":
         kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
@@ -624,7 +624,7 @@ def _search_checks(
         return NO_DISTANCE
     tuning = get_tuning()
     if kept_stabilizers is not None:
-        checks = _get_sparse_stabilizers(
+        checks = _get_sparser_stabilizers(
             checks, kept_stabilizers, homogeneous=not symplectic, tuning=tuning
         )
     return get_distance_connected_support(
@@ -637,27 +637,30 @@ def _search_checks(
     )
 
 
-def _get_sparse_stabilizers(
+def _get_sparser_stabilizers(
     stabilizers: npt.NDArray[np.uint8],
     kept_stabilizers: npt.NDArray[np.uint8],
     *,
     homogeneous: bool,
     tuning: SearchTuning,
 ) -> npt.NDArray[np.uint8]:
-    """Sparse checks that span the stabilizers of a subsystem code, for a connected-support search.
+    """Checks that span the stabilizers of a subsystem code, for a connected-support search.
 
     ``stabilizers`` is the independent basis that ``get_css_stabilizers`` or
     ``get_pauli_stabilizers`` derives, and ``kept_stabilizers`` holds the gauge generators that are
     stabilizers.  The checks are ``kept_stabilizers``, as given, with any redundant rows, which can
-    strengthen the search, and the sparser rows that ``get_sparser_rows`` finds from
-    ``stabilizers``, which span them (Section 3.9 of ``connected_support.md``).
+    strengthen the search.  They also include the sparser rows that ``get_sparser_rows`` finds with
+    the span of ``stabilizers`` (Section 3.9 of ``connected_support.md``), or ``stabilizers`` itself
+    if ``max_distance_sparsifying_rounds`` is zero.
     """
-    rows, _ = get_sparser_rows(
-        stabilizers,
-        homogeneous=homogeneous,
-        max_rounds=tuning.max_distance_sparsifying_rounds,
-        rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
-    )
+    rows = stabilizers
+    if tuning.max_distance_sparsifying_rounds:
+        rows, _ = get_sparser_rows(
+            stabilizers,
+            homogeneous=homogeneous,
+            max_rounds=tuning.max_distance_sparsifying_rounds,
+            rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
+        )
     return np.vstack([kept_stabilizers, rows])
 
 

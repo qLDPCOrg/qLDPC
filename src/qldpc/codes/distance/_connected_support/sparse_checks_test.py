@@ -72,7 +72,7 @@ def test_rounds_stop_once_they_leave_the_weight_unchanged() -> None:
     """Rounds stop after the given number of rounds without a lighter total weight.
 
     The rows of an identity matrix weigh one each, so no round makes them lighter, and the first
-    round ends the rounds, long before the most rounds.  No rows give no rows.
+    round ends the rounds, long before ``max_rounds`` would.  No rows give no rows.
     """
     for matrix in (np.eye(3, dtype=np.uint8), np.zeros((0, 3), dtype=np.uint8)):
         rows, transform = sparse_checks.get_sparser_rows(

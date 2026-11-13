@@ -540,9 +540,8 @@ class ClassicalCode(AbstractCode):
                 ``"brute_force"`` enumerates code words.  ``"connected_support"`` searches supports
                 that are connected in the Tanner graph of the parity checks, which is fast for
                 sparse parity checks.  Its guide, ``connected_support.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.
-                Nonbinary calculations use exhaustive enumeration, and reject
-                ``"connected_support"``.
+                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.  Nonbinary
+                calculations use exhaustive enumeration, and reject ``"connected_support"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
@@ -1130,8 +1129,8 @@ class QuditCode(AbstractCode):
         subsystem code.  If omitted, it is computed when first needed.  An explicit ``True`` is a
         trusted hint, not verified.  A stabilizer code treated as a subsystem code has no gauge
         qudits and the same distances, but functions and methods that reject subsystem codes, such
-        as memory experiments, and get_distance_bound for codes that are not CSS, reject it too.
-        An explicit ``False`` is verified, and raises a ValueError if some parity checks do not
+        as memory experiments, and get_distance_bound for codes that are not CSS, reject it too.  An
+        explicit ``False`` is verified, and raises a ValueError if some parity checks do not
         commute.
         """
         super().__init__(matrix, field)
@@ -1748,20 +1747,23 @@ class QuditCode(AbstractCode):
         if not self.is_subsystem_code:
             return self.canonicalized.matrix if canonicalized else self.matrix
 
-        if (self._stabilizer_ops is None or recompute) and self.field.order == 2:
-            # the bit-packed GF(2) routines are much faster than galois
-            matrix = self.matrix
-            stabilizers = get_pauli_stabilizers(matrix.view(np.ndarray).astype(np.uint8))
-            self._stabilizer_ops = (
-                get_independent_rows(stabilizers).astype(matrix.dtype).view(self.field)
-            )
-        elif self._stabilizer_ops is None or recompute:
-            # keep gauge combinations that commute with every gauge as stabilizers
-            stabs_and_gauges = self.canonicalized.matrix
-            stabs_and_logs = math.symplectic_conjugate(stabs_and_gauges).null_space()
-            stabs_and_gauges_and_logs = np.vstack([stabs_and_gauges, stabs_and_logs])
-            assert isinstance(stabs_and_gauges_and_logs, galois.FieldArray)
-            self._stabilizer_ops = math.symplectic_conjugate(stabs_and_gauges_and_logs).null_space()
+        if self._stabilizer_ops is None or recompute:
+            if self.field.order == 2:
+                # the bit-packed GF(2) routines are much faster than galois
+                matrix = self.matrix
+                stabilizers = get_pauli_stabilizers(matrix.view(np.ndarray).astype(np.uint8))
+                self._stabilizer_ops = (
+                    get_independent_rows(stabilizers).astype(matrix.dtype).view(self.field)
+                )
+            else:
+                # keep gauge combinations that commute with every gauge as stabilizers
+                stabs_and_gauges = self.canonicalized.matrix
+                stabs_and_logs = math.symplectic_conjugate(stabs_and_gauges).null_space()
+                stabs_and_gauges_and_logs = np.vstack([stabs_and_gauges, stabs_and_logs])
+                assert isinstance(stabs_and_gauges_and_logs, galois.FieldArray)
+                self._stabilizer_ops = math.symplectic_conjugate(
+                    stabs_and_gauges_and_logs
+                ).null_space()
 
         if canonicalized and not _is_row_reduced(self._stabilizer_ops):
             self._stabilizer_ops = self.get_stabilizer_ops(recompute=True)
@@ -2009,8 +2011,7 @@ class QuditCode(AbstractCode):
                 generate the group of the checks (see
                 :func:`~qldpc.codes.distance.get_distance_pauli`).  Its guide,
                 ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
-                explains it.
-                Nonbinary calculations use exhaustive enumeration, and reject
+                explains it.  Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_support"``.
 
         Returns:
@@ -2094,17 +2095,18 @@ class QuditCode(AbstractCode):
         the X-type and Z-type operators of its gauge group generate the group, even if its checks
         mix X and Z.  Its distance is then that of the CSS code whose checks are the X parts and the
         Z parts of its checks, which this method bounds with
-        :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>` instead.
-        With ``backend="auto"``, that method falls back to a decoder if GAP cannot be called.
+        :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>` instead,
+        passing on backend and bound_kwargs.  With ``backend="auto"``, that method chooses among
+        sqetch, GAP, and a decoder, as it documents.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
                 default), return the best known upper bound on distance, or compute a single upper
                 bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
-            backend: Distance-bound backend.  ``"auto"`` (the default) and ``"gap"`` use
-                GAP/QDistRnd as described above; ``"decoder"`` and ``"sqetch"`` require a CSSCode
-                and are rejected here.
+            backend: Distance-bound backend.  ``"auto"`` (the default) and ``"gap"`` work as
+                described above; ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected
+                here.
             **bound_kwargs: Keyword arguments to pass to GAP/QDistRnd.  Recognized options are
                 {gap_options}; see https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
@@ -2139,9 +2141,12 @@ class QuditCode(AbstractCode):
         if num_trials == 0 or (cutoff is not None and best_bound <= cutoff):
             return best_bound
 
-        # The backends support only CSS subsystem codes.  The X and Z parts of the checks generate a
-        # CSS group exactly if their ranks add up to the rank of the checks, and the CSS code with
-        # these parts as checks then has the same gauge group and distances.
+        if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
+            raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
+
+        # Of subsystem codes, the backends support only CSS ones.  The X and Z parts of the checks
+        # generate a CSS group exactly if their ranks add up to the rank of the checks, and the CSS
+        # code with these parts as checks then has the same gauge group and distances.
         if self.is_subsystem_code:
             matrix_x, matrix_z = self.matrix[:, : len(self)], self.matrix[:, len(self) :]
             rank = np.linalg.matrix_rank(self.matrix)
@@ -2150,20 +2155,13 @@ class QuditCode(AbstractCode):
                     "No distance-bound backend supports a subsystem code whose gauge group is not"
                     " CSS; get_distance_exact computes its exact distance"
                 )
-            css_code = CSSCode(
-                matrix_x[np.any(matrix_x, axis=1)],
-                matrix_z[np.any(matrix_z, axis=1)],
-                self.field,
-                is_subsystem_code=True,
-            )
+            css_code = CSSCode(matrix_x, matrix_z, self.field, is_subsystem_code=True)
             bound = css_code.get_distance_bound(
                 num_trials, cutoff=cutoff, backend=backend, **bound_kwargs
             )
             self._distance_bound = min(best_bound, bound)
             return self._distance_bound
 
-        if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
-            raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
         if _resolve_distance_backend(backend, bound_kwargs, is_binary=False) != "gap":
             raise NotImplementedError(
                 "Bounding the distance of a QuditCode that is not a CSSCode requires GAP/QDistRnd,"
@@ -3462,31 +3460,32 @@ class CSSCode(QuditCode):
         row-reduced) such that its rows are a minimal generating set for the stabilizer group.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-        if self._stabilizer_ops is None and self.is_subsystem_code and self.field.order == 2:
-            # the bit-packed GF(2) routines are much faster than galois
-            stabs_x, stabs_z = get_css_stabilizers(
-                self.matrix_x.view(np.ndarray).astype(np.uint8),
-                self.matrix_z.view(np.ndarray).astype(np.uint8),
-            )
-            stabilizer_ops = scipy.linalg.block_diag(
-                get_independent_rows(stabs_x), get_independent_rows(stabs_z)
-            )
-            dtype = np.result_type(self.matrix_x.dtype, self.matrix_z.dtype)
-            self._stabilizer_ops = stabilizer_ops.astype(dtype).view(self.field)
-        elif self._stabilizer_ops is None and self.is_subsystem_code:
-            # keep gauge combinations in each sector that commute with the opposite sector
-            stabs_and_gauges_x = self.canonicalized.get_matrix(Pauli.X)
-            stabs_and_gauges_z = self.canonicalized.get_matrix(Pauli.Z)
-            stabs_and_logs_x = stabs_and_gauges_z.null_space()
-            stabs_and_logs_z = stabs_and_gauges_x.null_space()
-            stabs_and_gauges_and_logs_x = np.vstack([stabs_and_gauges_x, stabs_and_logs_x])
-            stabs_and_gauges_and_logs_z = np.vstack([stabs_and_gauges_z, stabs_and_logs_z])
-            assert isinstance(stabs_and_gauges_and_logs_x, galois.FieldArray)
-            assert isinstance(stabs_and_gauges_and_logs_z, galois.FieldArray)
+        if self._stabilizer_ops is None and self.is_subsystem_code:
+            if self.field.order == 2:
+                # the bit-packed GF(2) routines are much faster than galois
+                stabs_x, stabs_z = get_css_stabilizers(
+                    self.matrix_x.view(np.ndarray).astype(np.uint8),
+                    self.matrix_z.view(np.ndarray).astype(np.uint8),
+                )
+                stabilizer_ops = scipy.linalg.block_diag(
+                    get_independent_rows(stabs_x), get_independent_rows(stabs_z)
+                )
+                dtype = np.result_type(self.matrix_x.dtype, self.matrix_z.dtype)
+                self._stabilizer_ops = stabilizer_ops.astype(dtype).view(self.field)
+            else:
+                # keep gauge combinations in each sector that commute with the opposite sector
+                stabs_and_gauges_x = self.canonicalized.get_matrix(Pauli.X)
+                stabs_and_gauges_z = self.canonicalized.get_matrix(Pauli.Z)
+                stabs_and_logs_x = stabs_and_gauges_z.null_space()
+                stabs_and_logs_z = stabs_and_gauges_x.null_space()
+                stabs_and_gauges_and_logs_x = np.vstack([stabs_and_gauges_x, stabs_and_logs_x])
+                stabs_and_gauges_and_logs_z = np.vstack([stabs_and_gauges_z, stabs_and_logs_z])
+                assert isinstance(stabs_and_gauges_and_logs_x, galois.FieldArray)
+                assert isinstance(stabs_and_gauges_and_logs_z, galois.FieldArray)
 
-            stabs_x = stabs_and_gauges_and_logs_z.null_space()
-            stabs_z = stabs_and_gauges_and_logs_x.null_space()
-            self._stabilizer_ops = scipy.linalg.block_diag(stabs_x, stabs_z).view(self.field)
+                stabs_x = stabs_and_gauges_and_logs_z.null_space()
+                stabs_z = stabs_and_gauges_and_logs_x.null_space()
+                self._stabilizer_ops = scipy.linalg.block_diag(stabs_x, stabs_z).view(self.field)
 
         stabilizer_ops = QuditCode.get_stabilizer_ops(
             self, pauli, recompute=recompute, canonicalized=canonicalized
@@ -3784,7 +3783,9 @@ class CSSCode(QuditCode):
         GUAVA or QDistRnd package.
 
         Every backend gives an upper bound on the distance, which is dressed for a subsystem code:
-        the backends search logical operators that may be multiplied by gauge operators.
+        the backends search logical operators that may be multiplied by gauge operators.  The
+        decoder-based algorithm may need more trials for subsystem codes whose stabilizers are much
+        heavier than their gauge generators, such as subsystem hypergraph product codes.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
@@ -3913,7 +3914,8 @@ class CSSCode(QuditCode):
 
         Specifically, use the algorithm described in arXiv:2308.07915, also explained below.  For a
         subsystem code, it finds dressed logical operators, which may be multiplied by gauge
-        operators (see get_distance).
+        operators (see get_distance).  Subsystem codes whose stabilizers are much heavier than their
+        gauge generators, such as subsystem hypergraph product codes, may need more trials.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -4564,12 +4566,13 @@ def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
     """Is the provided matrix in reduced row echelon form, with no zero rows?
 
     The pivots, or first nonzero entries, of its rows must lie in increasing columns, and each must
-    be the only nonzero entry of its column.
+    equal 1 and be the only nonzero entry of its column.
     """
     pivots = math.first_nonzero_cols(matrix)
     return bool(
         np.all(pivots < matrix.shape[1])
         and np.all(np.diff(pivots) > 0)
+        and np.all(matrix[np.arange(len(pivots)), pivots] == 1)
         and np.all(np.sum(matrix[:, pivots] != 0, axis=0) == 1)
     )
 

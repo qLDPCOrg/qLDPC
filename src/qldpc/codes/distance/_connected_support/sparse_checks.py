@@ -92,10 +92,10 @@ def _sparsify(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Rows with the span of the given rows, made sparser by adding rows to each other.
 
-    The weight of a row is its number of nonzero entries, or, if the rows are symplectic, the
-    number of qubits on which its X part ``[:n]`` or its Z part ``[n:]`` is nonzero.  While adding
-    another row to a row lowers its weight, the row takes the sum that is lightest.  Every addition
-    lowers the total weight, so this ends.
+    The weight of a row is its number of nonzero entries, or, if the rows are symplectic, the number
+    of qubits on which its X part ``[:n]`` or its Z part ``[n:]`` is nonzero.  While adding another
+    row to a row lowers its weight, the row takes the sum that is lightest.  Every addition lowers
+    the total weight, so this ends.
 
     Args:
         matrix: The rows.
