@@ -18,10 +18,10 @@ Public API and private code
   Each top-level module, such as ``qldpc.math``, is its own scope.
 * Private modules, with an underscore anywhere in their import path, exist only for plumbing shared across subpackages or for a substantial standalone topic.
   Name them by topic, never ``_common``, ``_util``, ``_helpers``, or ``_misc``, and use plain names for what other modules use.
-  A private subpackage is imported only from within its parent package, apart from tests and ``conftest.py`` files.
+  A private subpackage is imported only from within its parent package, apart from tests, ``conftest.py`` files, and the research scripts in ``experiments/``.
 * ``qldpc/_utils.py`` holds Python-level plumbing only: lazy imports, warning stack levels, and docstring formatting.
 * Public objects are defined in public modules; never re-export a private module's object as public API.
-* Everything under ``src/qldpc/experimental/`` is unstable, can change without a deprecation period, and is exempt from these private-name rules.
+* Everything under ``src/qldpc/experimental/`` is unstable, can change without a deprecation period, and is exempt from these private-name rules, as are the research scripts in ``experiments/``.
 
 Code style and organization
 ---------------------------
@@ -38,7 +38,7 @@ Code style and organization
 * Do not copy transient project history, machine-specific paths, or local-session instructions into any committed file, including code, tests, configuration, and documentation.
 * Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compilation_test.py`` enforces its rules.
 * ``src/qldpc/_code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
-* Give each feature that users or other packages use one home, a module or subpackage that is named for it and holds its entry points, such as ``qldpc.codes.distance`` for exact distances.
+* Give each feature that users or other packages use one home, a module or subpackage that is named for it and holds its entry points, such as ``qldpc.codes.distance`` for exact distances of binary codes.
   Code elsewhere that offers the feature, such as a method of a code class, calls into its home rather than reimplementing it.
 * In each package that has a ``_layering_test.py``, such as ``qldpc.circuits``, ``qldpc.codes.distance``, and ``qldpc.decoders``, the top-level modules and subpackages import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
   ``_LAYERS`` in the package's ``_layering_test.py`` lists the layers; add each new top-level module or subpackage to a layer there, and changes inside a subpackage need no edits.
