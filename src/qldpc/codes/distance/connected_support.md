@@ -351,7 +351,6 @@ So with `method="connected_support"`, the search of a subsystem code gets two se
   `max_distance_sparsifying_rounds`, a field of `SearchTuning`, limits the rounds.
 
 The second set spans `S`, and the first lies in `S`, so together they span `S`.
-If the first set already spans `S`, the search uses it alone.
 The kernel of the checks is that of the derived basis, so the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
 A coset search maps the syndrome of each query to its sparser checks, but a distance search needs only their span.
 Redundant checks can strengthen the search, since each unsatisfied check can prune a state or offer fewer branches.
@@ -370,7 +369,7 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
-| Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, with `get_css_stabilizers` of `_binary.py` |
+| Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `_search_css` of `core.py` calls |

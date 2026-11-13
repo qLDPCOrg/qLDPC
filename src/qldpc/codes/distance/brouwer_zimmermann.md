@@ -829,7 +829,7 @@ The distance functions of [core.py](core.py) build an adapted basis ([Section 3.
 They pass the automorphisms that their caller gives to the search as a function, which calls any function that the caller gives at most once.
 `get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` gives a function that returns the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method.
 `get_distance_exact` of `QuditCode` gives the same function to `get_distance_pauli`.
-For Pauli strings that do not generate a CSS group, the functions lift the automorphisms to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`.
+For Pauli strings, except those that `get_distance_pauli` searches as a CSS code, the functions lift the automorphisms to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`.
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
 Distance searches and counts use [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py) to choose and build the tables of [Section 3.9](#39-skipping-completions-by-completion-tables), and coset searches use it to choose and build the tables of their routes by tails.
 The distance search and `CosetLeaderSearch` scan their layers with the compiled entry points of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which run one body, `_scan`, with constant flags.

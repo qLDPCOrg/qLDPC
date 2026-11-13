@@ -327,7 +327,8 @@ class SearchTuning:
     #: Making checks sparser stops early after this many rounds in a row that leave the total
     #: weight of the checks unchanged (see ``max_sparsifying_rounds`` and
     #: ``max_distance_sparsifying_rounds``).  Raising it spends more rounds on checks that rarely
-    #: get lighter; zero stops after the first round, and ``MAX_VALUE`` never stops early.  Defaults
+    #: get lighter; zero stops after the first round, and ``MAX_VALUE`` never stops early, so with
+    #: both this field and the limit of the rounds at ``MAX_VALUE`` the rounds never end.  Defaults
     #: to 200, chosen by hand from the rounds between improvements on the pair-partition codes of
     #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record the rounds
     #: between improvements.

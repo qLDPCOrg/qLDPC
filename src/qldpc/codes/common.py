@@ -2111,8 +2111,9 @@ class QuditCode(AbstractCode):
         before installing a missing GUAVA or QDistRnd package.
 
         A subsystem code is CSS if X-type and Z-type operators generate its gauge group, even if its
-        checks mix X and Z.  This method bounds it as a CSS code, with
-        :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>`.
+        checks mix X and Z.  This method bounds a CSS subsystem code with
+        :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>`, whose
+        ``backend="auto"`` can also choose sqetch or a decoder.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
@@ -2157,8 +2158,8 @@ class QuditCode(AbstractCode):
         if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
 
-        # The backends support only CSS subsystem codes.  The checks generate the same group as
-        # their X and Z parts exactly if the ranks of the parts add up to theirs.
+        # Of subsystem codes, the backends support only CSS ones.  The checks generate the same
+        # group as their X and Z parts exactly if the ranks of the parts add up to theirs.
         if self.is_subsystem_code:
             matrix_x, matrix_z = self.matrix[:, : len(self)], self.matrix[:, len(self) :]
             if self.rank != np.linalg.matrix_rank(matrix_x) + np.linalg.matrix_rank(matrix_z):

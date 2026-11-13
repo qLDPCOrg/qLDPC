@@ -624,7 +624,8 @@ def test_distance_qudit() -> None:
 
     # A subsystem code is bounded as a CSS code, here with a decoder, if X-type and Z-type operators
     # generate its gauge group, even if its checks mix X and Z.  Here the Z parts of the checks are
-    # proportional over GF(3), but not over the reals or GF(2).
+    # proportional over GF(3), but not over the reals or GF(2).  Options that GAP does not recognize
+    # are still rejected.
     with unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False):
         assert codes.QuditCode([[1, 2, 2, 1], [0, 0, 1, 2]], field=3).get_distance_bound() == 1
         with pytest.raises(ValueError, match="not recognized by GAP/QDistRnd"):
@@ -1830,8 +1831,7 @@ def test_decoder_distance_bounds_exclude_gauge_operators() -> None:
     """Gauge operators lighter than the distance of a subsystem code do not bound it.
 
     The X-type gauge generators of the 2x3 Bacon-Shor code have weight 2 and commute with its
-    stabilizers, but they are not logical operators, and its X-distance is 3.  Its Z-distance is 2,
-    so bounds that used the stabilizers of the wrong type would swap the two distances.
+    stabilizers, but they are not logical operators, and its X-distance is 3.  Its Z-distance is 2.
     """
     code = codes.BaconShorCode(2, 3)
     assert code.get_distance_bound_with_decoder(Pauli.X) == 3

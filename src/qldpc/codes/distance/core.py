@@ -419,9 +419,9 @@ def get_distance_pauli(
     sure that the checks define a stabilizer code, build a code with
     ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if they do not commute.
 
-    If X-type and Z-type operators generate the group that the rows generate, even if the rows mix
-    X and Z, the code is CSS.  This function then searches it as :func:`get_distance_css` does,
-    which is faster.
+    If X-type and Z-type operators generate the group that the rows generate, the code is CSS, even
+    if the rows mix X and Z.  This function then searches it as :func:`get_distance_css` does, which
+    is faster.
 
     Args:
         checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
@@ -596,7 +596,8 @@ def _search_checks(
     the result does not exceed, and ``get_automorphisms`` returns checked permutations or None (see
     ``_get_automorphism_getter``).  The other arguments are those of the public distance functions,
     validated.  If ``kept_stabilizers`` is given, the checks are the derived stabilizers of a
-    subsystem code, and the connected-support method searches those of ``_get_sparser_stabilizers``.
+    subsystem code, and the connected-support method searches the checks that
+    ``_get_sparser_stabilizers`` returns instead.
     """
     if method != "connected_support":
         kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
@@ -641,12 +642,10 @@ def _get_sparser_stabilizers(
 
     ``stabilizers`` is the independent basis that ``get_css_stabilizers`` or
     ``get_pauli_stabilizers`` derives, and ``kept_stabilizers`` holds the gauge generators that are
-    stabilizers.  The checks start with ``kept_stabilizers``, as given.  Unless these span the
-    stabilizers, sparser rows with the span of ``stabilizers`` follow them (Section 3.9 of
+    stabilizers.  The checks are ``kept_stabilizers``, as given, followed by ``stabilizers`` made
+    sparser in up to ``max_distance_sparsifying_rounds`` rounds (Section 3.9 of
     ``connected_support.md``).
     """
-    if len(get_independent_rows(kept_stabilizers)) == len(stabilizers):
-        return kept_stabilizers
     rows = stabilizers
     if tuning.max_distance_sparsifying_rounds:
         rows, _ = get_sparser_rows(
