@@ -79,7 +79,7 @@ def main() -> None:
         coset._get_pauli_search.cache_clear()
 
 
-def print_route(part: str, threshold: int, routes: CosetRoutes, max_weight: int) -> None:
+def print_route(label: str, threshold: int, routes: CosetRoutes, max_weight: int) -> None:
     """Choose the route of the maximum weight of one search, and print it."""
     disjoint = (routes._disjoint, routes.disjoint_tables)
     examinations = {
@@ -96,7 +96,7 @@ def print_route(part: str, threshold: int, routes: CosetRoutes, max_weight: int)
     work = sum(routes._get_works(instance, tables, max_weight))
     fingerprint = hashlib.sha256(instance.pivots.tobytes() + instance.generators.tobytes())
     print(
-        f"{part} threshold {threshold}: target weight {target}, {len(instance.ranks)} sets,"
+        f"{label} threshold {threshold}: target weight {target}, {len(instance.ranks)} sets,"
         f" work {work:.3g}, by tails {by_tails}, family {fingerprint.hexdigest()[:12]}"
     )
     print("    examinations:", ", ".join(f"{w}: {e:.3g}" for w, e in examinations.items()))

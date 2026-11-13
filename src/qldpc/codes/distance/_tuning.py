@@ -88,19 +88,21 @@ The scripts of ``experiments/distance_tuning`` do this.  Its README walks throug
 retuning, gives the commands of the sweeps behind the current values, and says what guards those
 values against over-fitting and where the guards fall short.
 
-Those sweeps chose each value among candidates, none of which had a special standing: by a
-verified mechanism or, for a coefficient, a direct measurement of what it stands for; otherwise
-by a large gain on long runs, those of a minute or more one search at a time, with only small
-losses on quick runs; otherwise by the simplest reason, where no candidate gained clearly.  A
-comment calls a value a judgement call where it trades one kind of search against another.
-Timings of the same work varied up to two- or threefold between sessions on the machine used, so
-comments state outcomes roughly.  A comment that says a value was chosen by hand, or that how it
-was chosen is not recorded, marks a field that these sweeps did not choose.
+Those sweeps chose the values whose comments say how they were chosen, each among candidates,
+none of which had a special standing.  A value rests on a verified mechanism or, for a
+coefficient, on a direct measurement of what it stands for, where there is one.  Otherwise it
+rests on a large gain on long runs, those of a minute or more one search at a time, with only
+small losses on quick runs, those of a few seconds or less.  Otherwise it is the simplest choice,
+such as a round value among candidates that made no clear difference; some of those candidates
+made the same decisions on every search timed, so their timings could not differ.  A comment
+calls a value a judgment call where it trades one kind of search against another.  Timings of the
+same work varied up to two- or threefold between sessions on the one machine used, so comments
+state outcomes roughly.  A comment that says a value was chosen by hand, or that how it was
+chosen is not recorded, marks a field that these sweeps did not choose.
 
-The fields of the completion tables of distance searches and counts (Section 3.9 of
-``brouwer_zimmermann.md``) were chosen on an Apple M3 Max, with layers of one information set of
-``4 * 10**7`` to ``5 * 10**10`` supports from two data sets (the comment of
-``coset_completion_block_bits`` names its own data):
+The cost model and the block widths of the completion tables of distance searches and counts
+(Section 3.9 of ``brouwer_zimmermann.md``) were chosen on an Apple M3 Max, with layers of one
+information set of ``4 * 10**7`` to ``5 * 10**10`` supports from two data sets:
 
 - The width data set holds layers of weights 4 to 6 of both sectors of
   ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]] code, and of
@@ -108,10 +110,8 @@ The fields of the completion tables of distance searches and counts (Section 3.9
   3 x 4 random monomials of ``CyclicGroup(13)``, drawn with NumPy's default generator from seeds 5
   and 8.
 - The cost data set holds nine layers of the X sector of that bivariate bicycle code and of the
-  [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]] pair-partition codes, which qLDPC does not
-  construct; layers of similar size from codes that qLDPC constructs can stand in for them.  On
-  five other layers, the cost model fitted to it predicted cost ratios at most 0.12 above, and 0.02
-  below, the measured ones.
+  [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]] pair-partition codes, ``pp232``, ``pp170``,
+  and ``pp276`` of ``experiments/distance_tuning/workloads.py``.
 
 To refit the cost model of completion tables, which ``predict_completion_cost`` and
 ``_estimate_build_cost`` in ``_information_sets/completion_bounds.py`` compute:
@@ -209,10 +209,10 @@ class SearchTuning:
     #: also enumerates every word if ``2**rows`` is at most this factor times its numbers of rows
     #: and columns, an estimate of the cost of setting up its information sets.  Raising it
     #: enumerates more long codes of low dimension; lowering it builds information sets for more of
-    #: them.  Defaults to 16, a judgement call: against 128, it made sparse codes of low dimension
-    #: much faster, at a small cost to random ones.  Time it again once enumeration vectorizes long
-    #: rows (see ``enumeration_batch_exponent``).  To retune it, time both routes on long codes near
-    #: the crossover.
+    #: them.  Defaults to 16, a judgment call: against 128, it made searches of most of the sparse
+    #: codes of low dimension measured much faster, at a small cost to those of random ones.  Time
+    #: it again once enumeration vectorizes long rows (see ``enumeration_batch_exponent``).  To
+    #: retune it, time both routes on long codes near the crossover.
     enumeration_setup_cost_factor: int = 16
 
     #: The exponent of the batches of exhaustive enumeration, which handles at most
@@ -232,17 +232,18 @@ class SearchTuning:
     #: coset searches build overlapping ones for costly queries.  More sets can skip costly layers,
     #: but setup grows roughly with the square of this limit and dominates cheap searches.  Zero
     #: disables both, but not the maximum disjoint family that a coset search finds by matroid
-    #: partitioning with coverage one.  Defaults to 16; 32 gained nothing on quick searches.  To
-    #: retune it, compare the total times of hard searches.
+    #: partitioning with coverage one.  Defaults to 16; how it was chosen is not recorded, and the
+    #: quick searches timed build the same families under 32.  To retune it, compare the total times
+    #: of hard searches.
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
     #: packs fewer full disjoint information sets than the nonzero columns divided by the rows; it
     #: keeps the best packing.  More orders can find more full sets, which certify sooner, but each
-    #: costs a packing of the basis; zero keeps the natural order.  Defaults to 8; 0 to 16 made no
-    #: clear difference on quick searches, and 32 and 64 slowed a few.  To retune it, record after
-    #: how many orders the best packing stops improving, and weigh setup time against the search
-    #: time saved.
+    #: costs a packing of the basis; zero keeps the natural order.  Defaults to 8, chosen by hand;
+    #: on the quick distance searches timed, the natural order already packs the most sets, so no
+    #: value changed them, while 64 slowed one coset search.  To retune it, record after how many
+    #: orders the best packing stops improving, and weigh setup time against the search time saved.
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
@@ -251,28 +252,29 @@ class SearchTuning:
     #: whole words, and a search builds other families for the smallest weight whose queries reach
     #: it.  Lowering it tries other families sooner, and, in searches by Hamming weight, tails and
     #: completion tables, which may not repay setup; zero always tries, ``MAX_VALUE`` never.
-    #: Defaults to ``2 * 10**4``, chosen on CSS coset searches of a few codes; values a few times
-    #: lower or higher slowed them.  To retune it, time searches near it with and without other
-    #: families.
+    #: Defaults to ``2 * 10**4``, chosen on CSS coset searches of a few codes with 8-column coset
+    #: tables, which values a few times lower or higher slowed; with 16-column tables, ``10**5`` was
+    #: a little faster on the one search timed again.  To retune it, time searches near it with and
+    #: without other families.
     overlapping_minimum_work: int = 20_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
     #: that it may add; an order that repeats an existing set still counts.  Distance searches and
     #: counts build such families, and coset searches of ``CosetLeaderSearch`` build them for costly
     #: queries.  More attempts can reach a cheaper family, but lengthen setup; zero builds no
-    #: family.  Defaults to 2, chosen by hand; 1 and 4 made no clear difference on quick searches.
-    #: To retune it, record how the estimated work of the family falls with more attempts, and weigh
-    #: setup time against the search time saved.
+    #: family.  Defaults to 2, chosen by hand; the quick searches timed build the same families
+    #: under 1 and 4.  To retune it, record how the estimated work of the family falls with more
+    #: attempts, and weigh setup time against the search time saved.
     overlapping_attempts_per_set: int = 2
 
     #: A search builds families by matroid partitioning only if its estimated work is at least this
     #: multiple of the estimated cost of partitioning (see ``partition_cost_factor``).  Lowering it
-    #: tries partitioning on cheaper searches; zero always tries, and ``MAX_VALUE`` never does.  The
-    #: estimated work can exceed the work done many times over, so the ratio does not bound the time
-    #: that an attempt wastes.  Defaults to 500, a judgement call: no value separated the timed
-    #: searches that partitioning slows, which switch to automorphism images, from those that it
-    #: speeds up; 500 misclassified the fewest.  To retune it, time searches with and without
-    #: partitioning, on codes with and without automorphisms.
+    #: tries partitioning on cheaper searches; zero always tries, and ``MAX_VALUE`` never does
+    #: unless ``partition_cost_factor`` is zero.  The estimated work can exceed the work done many
+    #: times over, so the ratio does not bound the time that an attempt wastes.  Defaults to 500, a
+    #: judgment call: no value separated the timed searches that partitioning slows, which switch to
+    #: automorphism images, from those that it speeds up; 500 misclassified the fewest.  To retune
+    #: it, time searches with and without partitioning, on codes with and without automorphisms.
     partition_work_ratio: int = 500
 
     #: The largest coverage, the most information sets that contain any one column, that matroid
@@ -286,8 +288,8 @@ class SearchTuning:
     #: The estimated cost of partitioning ``b`` copies of the ``n`` nonzero columns of a basis of
     #: ``k`` rows, in units of ``b * k**2 * n`` candidate/set evaluations.  An underestimate wastes
     #: time on partitioning that cannot repay itself; an overestimate skips families that would save
-    #: time.  Defaults to 10, the higher end of what partitioning took on the searches traced.  To
-    #: refit it, time ``get_information_sets_with_coverage`` of
+    #: time.  Defaults to 10, the higher end of what partitioning took on the two searches whose
+    #: partitioning was timed.  To refit it, time ``get_information_sets_with_coverage`` of
     #: ``_information_sets/matroid_partition.py`` in candidate/set evaluations.
     partition_cost_factor: int = 10
 
@@ -295,9 +297,9 @@ class SearchTuning:
     #: information sets also bounds unvisited words by linear programming (Section 3.1 of
     #: ``brouwer_zimmermann.md``).  Each linear program takes milliseconds, which only costly
     #: searches recover.  Lowering it uses them on cheaper searches; zero on every search of
-    #: overlapping sets, and ``MAX_VALUE`` on none.  Defaults to 10**9; few of the searches timed
-    #: reach this range, and 10**8 to 10**10 made no clear difference on them.  To retune it, time
-    #: searches near the threshold with and without them.
+    #: overlapping sets, and ``MAX_VALUE`` on none.  Defaults to 10**9, chosen by hand; few of the
+    #: searches timed reach the range from 10**8 to 10**10.  To retune it, time searches near the
+    #: threshold with and without them.
     lp_minimum_work: int = 1_000_000_000
 
     #: The largest denominator of the rational dual weights that the certificate from linear
@@ -313,9 +315,9 @@ class SearchTuning:
     #: less work (Section 3.7 of ``brouwer_zimmermann.md``).  Finding them, as the
     #: ``get_distance_exact`` methods of binary quantum codes do, takes milliseconds.  Lowering this
     #: threshold pays that cost on cheaper searches.  A threshold of zero asks before the first
-    #: layer, and ``MAX_VALUE`` never asks.  Defaults to 10**8; ``3 * 10**7`` and ``3 * 10**8`` made
-    #: no clear difference on quick searches.  To retune it, time searches with and without
-    #: automorphisms.
+    #: layer, and ``MAX_VALUE`` never asks.  Defaults to 10**8, between ``3 * 10**7`` and
+    #: ``3 * 10**8``, over which the quick searches timed decide alike.  To retune it, time searches
+    #: with and without automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
 
     # Fields of connected-support searches.
@@ -355,8 +357,9 @@ class SearchTuning:
     #: a word lighter than the best, or, in a count, within the counted weight (Section 3.9 of
     #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling.  Lowering it
     #: considers smaller layers; zero every layer, and ``MAX_VALUE`` none.  Defaults to
-    #: ``3 * 10**7``, so that a timed count of a moderate code uses tables, which made it several
-    #: times faster.  To retune it, time layers near the threshold with tables disabled and forced.
+    #: ``3 * 10**7``, so that a timed count of a code of moderate size uses tables, which made it
+    #: several times faster.  To retune it, time layers near the threshold with tables disabled and
+    #: forced.
     completion_bound_minimum_layer_work: int = 30_000_000
 
     #: A layer of a distance search or count uses the completion tables that it considers only if
@@ -396,10 +399,11 @@ class SearchTuning:
     #: power of two up to 16.  Its searches by Hamming weight build tables for their costliest
     #: queries, within ``completion_bound_max_table_bytes`` for each set.  Wider blocks skip more
     #: completions but cost more memory and time (see ``completion_bound_block_bits``).  Defaults to
-    #: 16, a judgement call: it made most CSS coset searches several times faster but searches by
-    #: physical weight slower on two of three codes, at more memory; on residual-weight estimates of
-    #: state preparations, not in the repository, it took longer to build than most estimates spent
-    #: scanning.  To retune it, time such estimates with each width.
+    #: 16, a judgment call: it made most CSS coset searches several times faster, but searches by
+    #: physical weight slower on two of three codes, and it uses more memory.  On residual-weight
+    #: estimates of state preparations, not in the repository, its tables took longer to build than
+    #: most estimates spent scanning.  To retune it, time coset searches by CSS and by physical
+    #: weight, and such estimates, with each width.
     coset_completion_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The number of random supports from which a search estimates the share of a layer that
@@ -407,15 +411,18 @@ class SearchTuning:
     #: them takes about 16 bytes for each sample and each row of the basis.  More samples narrow the
     #: estimate, so that tables pay on more of the layers that accept them, but take longer.
     #: Between 1 and ``2**12``.  Defaults to 1024, enough that the long-run layers traced near the
-    #: cost limit decided alike under every draw tried.  To retune it, raise it while sampling stays
-    #: under a tenth of the time of the smallest layer considered.
+    #: limit of ``completion_bound_max_cost_percent`` decided alike under every sampling draw tried;
+    #: then choosing tables for a layer near ``completion_bound_minimum_layer_work`` can take about
+    #: a third of the time of its scan.  To retune it, raise it until layers near the limit decide
+    #: alike under different draws, while sampling stays a small part of quick runs.
     completion_bound_samples: int = dataclasses.field(
         default=1024, metadata={"minimum": 1, "maximum": 2**12}
     )
 
     #: The fewest samples with which a search trusts its estimate of the share that completion
-    #: tables would skip; with fewer within the budget, it declines tables.  At least 1.  Defaults
-    #: to 64, so that when every sample skips, the lower end of the confidence interval (see
+    #: tables would skip; with fewer within the budget, it takes the skipped share to be zero, so
+    #: that tables must pay without skipping.  At least 1.  Defaults to 64, so that when every
+    #: sample skips, the lower end of the confidence interval (see
     #: ``completion_bound_confidence_z``) is 0.94.  To retune it, keep the fewest samples that still
     #: accept tables on the layers of the cost data set that they speed up.
     completion_bound_min_samples: int = dataclasses.field(default=64, metadata={"minimum": 1})
@@ -483,8 +490,8 @@ class SearchTuning:
     #: ``2**information_set_batch_exponent`` supports and lookups of completion tables, counted
     #: together, in one call of compiled code, which cannot be interrupted.  Lowering it lets a
     #: keyboard interrupt take effect sooner, but returns to Python more often.  At most 62.
-    #: Defaults to 15: one search at a time, smaller values were slower, and larger ones gained
-    #: nothing.  To retune it, time large layers and the delay of an interrupt, and keep the
+    #: Defaults to 15; timed one search at a time, smaller values were slower and larger ones not
+    #: clearly faster.  To retune it, time large layers and the delay of an interrupt, and keep the
     #: smallest value whose overhead is negligible.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
