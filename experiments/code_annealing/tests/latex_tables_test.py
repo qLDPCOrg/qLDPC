@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""A table compares each code with the oldest scrape of qecdb.org that lists its parameters."""
+"""A table compares each code with the oldest scrape that lists it, and marks what changed since."""
 
 from __future__ import annotations
 
@@ -24,16 +24,18 @@ def test_each_row_uses_the_oldest_scrape_that_lists_its_exact_parameters(tmp_pat
         ],
     )
     # The old scrape lists the Steane code, and a code of the size of [[4, 2, 2]] with another
-    # distance, whose neighbors do not apply.  The new scrape lists both codes.
+    # distance, whose neighbors do not apply.  The new scrape lists both codes, and a code that is
+    # at least as good as the Steane code.  Each scrape has a block for each code type, CSS first.
     old, new = tmp_path / "scrape_qecdb_2000-01-01.txt", tmp_path / "scrape_qecdb_2000-02-02.txt"
-    old.write_text("(7, 1, 3) None None None\n(4, 2, 1) 2 2 1\n")
-    new.write_text("(7, 1, 3) 7 1 3\n(4, 2, 2) 4 2 2\n")
+    old.write_text("(7, 1, 3) None None None\n(4, 2, 1) 2 2 1\n\n(7, 1, 3) 7 1 3\n")
+    new.write_text("(7, 1, 3) 7 1 3\n(4, 2, 2) 4 2 2\n\n(7, 1, 3) 7 1 3\n")
     latex_tables.main(["--results-dir", str(tmp_path), "--data-file", str(old), str(new)])
     table = get_table_file(tmp_path, "css").read_text()
     rows = [line.split(r"\\")[0] for line in table.splitlines() if line.count("&") == 10][1:]
     cells = [[cell.strip() for cell in row.split("&")] for row in rows]
-    # The Steane code beats the old scrape's empty neighbors; [[4, 2, 2]] uses the new scrape.
-    assert cells[0][:3] == [r"\hlgreen{7}", r"\hlgreen{1}", r"\hlgreen{3}"]
+    # The Steane code beats the old scrape's empty neighbors, but not the new scrape; [[4, 2, 2]]
+    # uses the new scrape.
+    assert cells[0][:3] == [r"\hlgreen{7}$^\ddagger$", r"\hlgreen{1}", r"\hlgreen{3}"]
     assert cells[0][8:] == [r"\hlred{--}", r"\hlred{--}", r"\hlred{--}"]
     assert cells[1][:3] == [r"4$^\dagger$", "2", "2"]
     assert cells[1][8:] == ["4", "2", "2"]

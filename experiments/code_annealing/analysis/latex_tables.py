@@ -18,15 +18,19 @@ the code files, in their order, with:
   and ``d``, the code beats its three neighbors: its parameters are highlighted in green, and those
   of the neighbors in red.
 
-``--data-file`` can name several scrapes, oldest first, to keep the comparisons of an older scrape,
-such as the one before a paper, for the codes that it lists.  Each row then takes its neighbors from
-the first scrape that has a line for its exact ``(n, k, d)``, since its neighbors depend on all
-three, and a row from a later scrape gets a dagger on its ``n``.  The header comment of a table
-names the scrapes that its rows use.
+One scrape must list exactly the current codes, in order: run ``collect_data --scrape`` to update
+it.  ``--data-file`` can instead name several scrapes, oldest first, to keep the comparisons of an
+older scrape, such as the one before a paper, for the codes that it lists.  Each row then takes its
+neighbors from the first scrape that has a line for its exact ``(n, k, d)``, since its neighbors
+depend on all three, and a row from a later scrape gets a dagger on its ``n``.  A row whose code
+beats its scrape, but not the newest scrape, keeps the comparison with its scrape and gets a double
+dagger; if the newest scrape does not list the code, the row gets none.  A scrape names no
+code types, so each of several scrapes must have one block for each code type, as the scrape of a
+results directory with codes of every code type has.  It is an error if no scrape lists a code.
+The header comment of a table names the scrapes that its rows use.
 
 Every distance and count is recomputed exactly, and a code whose distance or count differs from the
-claims of its code file is an error.  So is a code that no scrape lists: run ``collect_data
---scrape`` to scrape the current codes.
+claims of its code file is an error.
 
 The tables go to ``data/table_css.tex`` and ``data/table_swel.tex`` of the results directory, and a
 document includes one with ``\\input{table_css.tex}``.  Each file defines the commands of its
@@ -41,7 +45,8 @@ verbatim, for example with ``\\lstinputlisting``.  They are the code files with 
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.atomic import write_text_atomic
@@ -57,7 +62,7 @@ from ..core.code_files import (
 from ..core.paths import find_code_files, get_data_dir, get_listing_file, get_table_file
 from ..core.proposals import CodeType
 from .gv_bounds import get_css_gv_distance, get_qgv_distance
-from .scrape_qecdb import BestKnown, find_data_file, read_data_file
+from .scrape_qecdb import BestKnown, find_data_file, read_best_known, read_data_file
 
 _HEADER = (
     r"$n$ & $k$ & $d$ & $\delta_{\mathrm{QGV}}$ & $\delta_{\mathrm{CSS}}$"
@@ -103,7 +108,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         type=Path,
         nargs="+",
         help="the scrapes of qecdb.org to compare with, oldest first; each code uses the first that"
-        " lists it (default: the newest in the data directory)",
+        " has a line for its exact (n, k, d); a code from a later scrape gets a dagger, and a code"
+        " that beats its scrape but not the newest a double dagger (default: the newest in the"
+        " data directory)",
     )
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
@@ -116,20 +123,29 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"No scrape of qecdb.org in {get_data_dir(args.results_dir)}: run collect_data --scrape"
         )
     try:
-        scrapes = [read_data_file(code_files, data_file) for data_file in data_files]
-    except ValueError as error:
+        if len(data_files) == 1:
+            # One scrape describes exactly the current codes, in order, as it always has.
+            best_known = read_best_known(code_files, data_files[0])
+            scrapes = [
+                {
+                    code_type: {row.params: row for row in rows}
+                    for code_type, rows in best_known.items()
+                }
+            ]
+        else:
+            scrapes = [read_data_file(data_file) for data_file in data_files]
+    except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from error
     for code_type, code_file in code_files.items():
         entries = read_code_file(code_file)
-        rows = [
+        comparisons = [
             _find_neighbors(entry, [scrape[code_type] for scrape in scrapes]) for entry in entries
         ]
-        table = _format_table(entries, rows, args.few_logicals)
-        used = {index for _, index in rows}
+        table = _format_table(entries, comparisons, args.few_logicals)
         preamble = _PREAMBLE.format(
             code_type=code_type.upper(),
             code_file=code_file.name,
-            data_files=_describe_data_files(data_files, used),
+            data_files=_describe_data_files(data_files, comparisons),
         )
         path = get_table_file(args.results_dir, code_type)
         write_text_atomic(path, preamble + table + "\n" + _END)
@@ -143,42 +159,73 @@ def main(argv: Sequence[str] | None = None) -> None:
 # helper methods
 
 
+@dataclass(frozen=True)
+class _Comparison:
+    """The neighbors of a code in the scrape that its row uses, and the markers of the row."""
+
+    best_known: BestKnown
+    scrape_index: int
+    """The index of the scrape, among those given, oldest first."""
+    dominated_since: bool
+    """Whether the newest scrape lists a code at least as good, although this scrape does not."""
+
+
 def _find_neighbors(
     entry: CodeEntry, scrapes: Sequence[Mapping[CodeParams, BestKnown]]
-) -> tuple[BestKnown, int]:
-    """The neighbors of a code in the first scrape that lists it, and the index of that scrape.
+) -> _Comparison:
+    """The neighbors of a code in the first scrape that lists it, compared with the newest scrape.
 
     Raises:
         SystemExit: If no scrape lists the code.
     """
+    newest = scrapes[-1].get(entry.params)
     for index, scrape in enumerate(scrapes):
         if entry.params in scrape:
-            return scrape[entry.params], index
+            best_known = scrape[entry.params]
+            dominated_since = (
+                best_known.undominated and newest is not None and not newest.undominated
+            )
+            return _Comparison(best_known, index, dominated_since)
     raise SystemExit(
         f"No scrape of qecdb.org lists the code {entry.params} of {entry.path.name}: run"
         " collect_data --scrape"
     )
 
 
-def _describe_data_files(data_files: Sequence[Path], used: Collection[int]) -> str:
-    """The scrapes that the rows of a table use, for its header comment."""
-    parts = [data_files[0].name] if 0 in used else []
-    later = [path.name for index, path in enumerate(data_files) if index and index in used]
-    if later:
-        parts.append(f"for the rows marked $^\\dagger$,\n% {', '.join(later)}")
-    return ", or ".join(parts)
+def _describe_data_files(data_files: Sequence[Path], comparisons: Sequence[_Comparison]) -> str:
+    """The scrapes that the rows of a table use, and what its markers mean, for its header comment.
+
+    The rows without a dagger use the first scrape, and the rows with one use later scrapes.
+    """
+    used = {comparison.scrape_index for comparison in comparisons}
+    later = ", ".join(
+        path.name for index, path in enumerate(data_files) if index > 0 and index in used
+    )
+    if 0 not in used:
+        text = f"{later}, which all rows use and which mark them $^\\dagger$"
+    elif not later:
+        text = data_files[0].name
+    else:
+        text = f"{data_files[0].name}, or for the rows marked $^\\dagger$,\n% {later}"
+    if any(comparison.dominated_since for comparison in comparisons):
+        text += (
+            ".  The codes of the rows marked $^\\ddagger$ beat their scrape, but not\n%"
+            f" {data_files[-1].name}"
+        )
+    return text
 
 
 def _format_table(
-    entries: Sequence[CodeEntry], neighbors: Sequence[tuple[BestKnown, int]], few_logicals: int
+    entries: Sequence[CodeEntry], comparisons: Sequence[_Comparison], few_logicals: int
 ) -> str:
     """The ``tabular`` environment of the codes of one code file, with aligned columns.
 
-    A row whose neighbors come from a scrape other than the first gets a dagger on its ``n``.
+    A row whose neighbors come from a scrape other than the first gets a dagger on its ``n``, and a
+    row whose code beats its scrape but not the newest scrape gets a double dagger.
     """
     rows = [
-        _get_cells(entry, best_known, few_logicals, dagger=index > 0)
-        for entry, (best_known, index) in zip(entries, neighbors, strict=True)
+        _get_cells(entry, comparison, few_logicals)
+        for entry, comparison in zip(entries, comparisons, strict=True)
     ]
     widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
     lines = [
@@ -208,9 +255,7 @@ def _format_listing(entries: Sequence[CodeEntry], code_type: CodeType) -> str:
     )
 
 
-def _get_cells(
-    entry: CodeEntry, best_known: BestKnown, few_logicals: int, *, dagger: bool
-) -> list[str]:
+def _get_cells(entry: CodeEntry, comparison: _Comparison, few_logicals: int) -> list[str]:
     """The cells of the row of a code, unpadded except for the decimal point of the mean weight."""
     nn, kk, dd = entry.params
     counts = recount(entry)
@@ -218,14 +263,17 @@ def _get_cells(
     if max(counts.count_x, counts.count_z) <= few_logicals:
         logicals = rf"\textbf{{{logicals}}}"
     weights = get_reduced_weights(entry.code)
+    best_known = comparison.best_known
     best = [
         "--" if value is None else str(value)
         for value in (best_known.n_best, best_known.k_best, best_known.d_best)
     ]
     undominated = best_known.undominated
     params = [_highlight("hlgreen", str(value), undominated) for value in (nn, kk, dd)]
-    if dagger:
+    if comparison.scrape_index > 0:
         params[0] += r"$^\dagger$"
+    if comparison.dominated_since:
+        params[0] += r"$^\ddagger$"
     return [
         *params,
         _format_excess(dd - get_qgv_distance(nn, kk)),

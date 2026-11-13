@@ -16,9 +16,9 @@ claims, and that of a database code is the one that the database lists.
 
 The database grows, and may come to list the annealed codes themselves, so a data file records the
 database on the date of its scrape (in UTC), which its name carries.  ``latex_tables.py`` reads the
-newest data file, or the one that its ``--data-file`` names, and earlier ones are kept, so that a
-table can be rebuilt from the snapshot behind it.  The snapshot behind the paper's table is in
-``paper_data/``.
+newest data file, or those that its ``--data-file`` names, oldest first, and earlier ones are kept,
+so that a table can be rebuilt from the snapshots behind it.  The snapshot behind the paper's table
+is in ``paper_data/``.
 
 Scraping uses only the standard library, makes three paced requests to the database for each
 annealed code, tries a request again if it fails in transit or the server is busy or failing, and
@@ -146,28 +146,28 @@ def read_best_known(
     return dict(zip(_sorted_code_types(code_files), _read_blocks(data_file), strict=True))
 
 
-def read_data_file(
-    code_files: Mapping[CodeType, Path], data_file: Path
-) -> dict[CodeType, dict[CodeParams, BestKnown]]:
-    """The lines of a data file, by code type and by the parameters ``(n, k, d)`` of their codes.
+def read_data_file(data_file: Path) -> dict[CodeType, dict[CodeParams, BestKnown]]:
+    """The lines of a data file of every code type, by code type and by the ``(n, k, d)`` of a code.
 
-    Unlike ``read_best_known``, this accepts a data file of other codes, such as an older scrape, to
-    read the lines of the codes that it shares with the code files.  Its blocks are taken to be
-    those of the code types of the code files, in the same order.
+    Unlike ``read_best_known``, this reads a data file of any codes, such as an older scrape, to
+    look up the codes that it shares with the code files.  A data file names no code types, so this
+    requires one block for each code type, in the order of ``CODE_TYPES``, as the scrape of a
+    results directory with codes of every code type writes it; a data file of fewer code types
+    could pair a block with the wrong code type.
 
     Raises:
-        ValueError: If a line is malformed, or the data file has a block for each of another number
-            of code types than the code files.
+        ValueError: If a line is malformed, or the data file does not have one block for each code
+            type.
     """
-    code_types, blocks = _sorted_code_types(code_files), _read_blocks(data_file)
-    if len(blocks) != len(code_types):
+    blocks = _read_blocks(data_file)
+    if len(blocks) != len(CODE_TYPES):
         raise ValueError(
-            f"{data_file} has {len(blocks)} blocks, but the code files have {len(code_types)} code"
-            " types"
+            f"{data_file} has {len(blocks)} block(s), not one for each of the {len(CODE_TYPES)} code"
+            " types, so its blocks cannot be matched to code types"
         )
     return {
         code_type: {best_known.params: best_known for best_known in block}
-        for code_type, block in zip(code_types, blocks, strict=True)
+        for code_type, block in zip(CODE_TYPES, blocks, strict=True)
     }
 
 

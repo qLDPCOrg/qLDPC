@@ -4,8 +4,9 @@
 
 Run with ``python -m experiments.code_annealing.reproduce_paper [--skip-figures]``.  The paper's
 best codes and its snapshot of qecdb.org, taken before the paper, are kept in ``paper_data/``,
-which no script writes.  The script copies them to the ``paper/data/`` subdirectory of the results
-directory, and runs three scripts on that subdirectory, in order:
+which no script writes, beside a later scrape for a revised table.  The script copies the paper's
+data, which leaves out that scrape, to the ``paper/data/`` subdirectory of the results directory,
+and runs three scripts on that subdirectory, in order:
 
 1. ``analysis/half_supports`` recounts every code exactly, which checks the distance and the number
    of minimum-weight logical operators that the paper reports, and counts the half supports that
@@ -47,7 +48,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     data_dir = get_data_dir(results_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     for path in sorted(PAPER_DATA_DIR.glob("*.txt")):
-        shutil.copyfile(path, data_dir / path.name)
+        if not path.name.startswith("scrape_qecdb_") or path == PAPER_SNAPSHOT_FILE:
+            shutil.copyfile(path, data_dir / path.name)
     print(f"Copied the data of the paper from {PAPER_DATA_DIR} to {data_dir}")
 
     options = ["--results-dir", str(results_dir)]

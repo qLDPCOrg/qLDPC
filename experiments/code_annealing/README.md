@@ -38,6 +38,7 @@ python -m pip install . matplotlib
 ### The table and figures, from the paper's codes
 
 [`paper_data/`](paper_data/) keeps the codes of the paper, and the parameters of the best codes that a scrape of [qecdb.org](https://qecdb.org) found on 2026-05-21, before the paper.
+It also keeps a scrape of 2026-11-13 for a revised table, which the commands below do not use.
 No script writes that directory.
 One command checks every code of the paper, and rebuilds the table and figures of the paper from them:
 
@@ -97,6 +98,7 @@ python -m experiments.code_annealing.make_figures
 `collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access.
 It saves the comparison in a file named by the date of the scrape, and writes the tables in the format of the paper's.
 Without `--scrape`, it writes the table from the newest earlier scrape, if that scrape covered the same codes.
+To keep the comparisons of an older scrape, such as the paper's, for the codes that it lists, pass several scrapes to `analysis/latex_tables.py`, oldest first, with `--data-file`; its docstring describes how rows choose a scrape.
 qecdb.org may list codes that were published after the paper, including those of the paper itself, so this comparison can differ from that of the paper.
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
 
@@ -173,7 +175,7 @@ experiments/code_annealing/
 ├── progress_report.py    check the progress of a campaign
 ├── collect_data.py       step 2: collect the best codes and compute tables
 ├── make_figures.py       step 3: plot figures
-├── paper_data/           the codes of the paper, qecdb.org before the paper, and automorphisms
+├── paper_data/           the codes of the paper, scrapes of qecdb.org, and automorphisms
 ├── core/                 the search, its command line, and the files and paths that all steps share
 ├── analysis/             what collect_data.py runs, and other tools for saved runs
 ├── figures/              what make_figures.py runs
