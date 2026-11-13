@@ -100,7 +100,7 @@ These measures reach only so far:
 - The judgment calls, `enumeration_setup_cost_factor`, `partition_work_ratio`, and `coset_completion_block_bits`, trade one kind of search against another, and the first two rest on where the measurements of a few codes happened to fall.
 - `overlapping_minimum_work` was chosen with 8-column coset tables, on the query costs of a few CSS codes.
   With the 16-column tables now used, a higher value was a little faster on the one CSS coset search timed again.
-- The fields of enumeration were measured before a fix gave long rows larger enumeration batches, which made enumerating rows of several hundred bits or more much faster (section 4).
+- The fields of enumeration were measured before a fix gave long rows larger enumeration batches, which made enumerating rows of about 600 bits or more much faster (section 4).
 - The cost limit and the number of samples of completion tables rest on a few long-run layers and searches, and the cost model errs in both directions.
 - Two workloads of fault-propagation certificates, used to choose no value, ran no slower with the values decided last, with the cost limit then at 100, but their queries are too cheap to test the values that changed.
 - The final set of values was not timed as a whole.
