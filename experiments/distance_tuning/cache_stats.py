@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Report the hit rates of three caches of exact searches over a sequence of workloads.
+
+The caches are those whose sizes ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, and
+``PAULI_SEARCH_CACHE_SIZE`` of ``qldpc.codes.distance._tuning`` fix when qLDPC is imported.  The
+script warms up as ``trial.py`` does for each kind of workload, runs each workload once, so that it
+builds its codes and states and loads their compiled code, empties the three caches, and then runs
+the workloads one after another in this process, ``--cycles`` times over, and prints
+``cache_info()`` of each cache.  If the workloads need no more entries than a cache holds, each
+cycle after the first hits it, and the time of a workload in the first cycle less that in the
+second is the setup of the searches that it missed.  If they need more, misses continue in later
+cycles; a cache whose misses stop falling as its size grows is large enough.
+
+Example:
+
+    python experiments/distance_tuning/cache_stats.py --cycles 2 \\
+        coset/gross/css/6/6/100 coset/pp110/css/6/6/100 hbound/pp232/2/100
+"""
+
+from __future__ import annotations
+
+import argparse
+import time
+from typing import TYPE_CHECKING, Any
+
+from qldpc.codes.distance._brouwer_zimmermann import coset
+from qldpc.codes.distance._information_sets import certificates
+
+# Scripts in this directory import each other as top-level modules.  mypy knows these files only as
+# experiments.distance_tuning.*, and would silently treat a bare "import workloads" as untyped.
+if TYPE_CHECKING:
+    from experiments.distance_tuning import trial, workloads
+else:
+    import trial
+    import workloads
+
+
+def main() -> None:
+    """Run the workloads, and print the statistics of the caches."""
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("workloads", nargs="+", help="workload names")
+    parser.add_argument(
+        "--cycles", type=int, default=2, help="passes over the workloads (default: %(default)s)"
+    )
+    args = parser.parse_args()
+    caches: dict[str, Any] = {
+        "BINOMIAL_CACHE_SIZE": certificates.get_capped_binomials,
+        "CSS_SEARCH_CACHE_SIZE": coset._get_css_searches,
+        "PAULI_SEARCH_CACHE_SIZE": coset._get_pauli_search,
+    }
+    for name in args.workloads:
+        trial.check_workload(name)
+    for kind in sorted({name.split("/")[0] for name in args.workloads}):
+        trial.warm_up(kind)
+    for name in args.workloads:
+        workloads.run_workload(name)
+    for cache in caches.values():
+        cache.cache_clear()
+    for cycle in range(args.cycles):
+        for name in args.workloads:
+            start = time.perf_counter()
+            workloads.run_workload(name)
+            print(f"cycle {cycle} {name}: {time.perf_counter() - start:.3f} s", flush=True)
+    for name, cache in caches.items():
+        print(f"{name}: {cache.cache_info()}")
+
+
+if __name__ == "__main__":
+    main()

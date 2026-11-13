@@ -7,7 +7,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
-| [`connected_support_distance/`](connected_support_distance/) | Timings of the connected-support and Brouwer-Zimmermann exact distance searches on pair-partition and other codes | `benchmark.py` |
+| [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and paired comparisons of their tunings on distance, count, and coset workloads | `benchmark.py`; `sweep.py`, then `collect_results.py`; `trace.py`, `windows.py`, `coset_families.py`, `resample.py`, `fit_completion_costs.py`, and `cache_stats.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
@@ -31,6 +31,7 @@ Each results directory holds a CSV summary, together with the resumable intermed
 | --- | --- | --- |
 | Bivariate bicycle | `results/cache/`: disk cache of code parameters | `results/codes.csv`: codes with `k d^2 / n > 1` |
 | Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
+| Distance tuning | `results/trials.jsonl`: one line per trial of a sweep | `results/summary.csv`: times of each arm of each sweep and workload, and their ratios to the first arm |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
 ## Bivariate bicycle codes
@@ -190,23 +191,43 @@ It has 252 qubits and distance 16, whereas single runs with `--num-trials 100` b
 
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, enumerated subsets to be listed in the same order (see `saved_codes.get_symmetric_subsets`), and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
 
-## Connected-support distance
+## Distance tuning
 
-[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-support guide](../src/qldpc/codes/distance/connected_support.md)), and on a few other codes.
-It prints its results and saves nothing, so it takes no `--results-dir`.
+[`distance_tuning/benchmark.py`](distance_tuning/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-support guide](../src/qldpc/codes/distance/connected_support.md)), and on a few other codes.
+It prints its results and saves nothing.
 For example:
 
 ```bash
-python experiments/connected_support_distance/benchmark.py 110 232 276
-python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
-python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
-python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
+python experiments/distance_tuning/benchmark.py 110 232 276
+python experiments/distance_tuning/benchmark.py 232 --methods brouwer_zimmermann
+python experiments/distance_tuning/benchmark.py gross surface:11 surface:15
+python experiments/distance_tuning/benchmark.py 110 232 --hadamards
 ```
 
 The option `--hadamards` applies Hadamards to the second half of the qubits of each code, and times the resulting code, which is not CSS.
 
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
+
+[`distance_tuning/sweep.py`](distance_tuning/sweep.py) compares tunings of the Brouwer-Zimmermann searches (see the [tuning page](../docs/source/exact_search_tuning.rst)), as the Retuning section of `qldpc.codes.distance._tuning` describes.
+Each arm of a sweep is a set of changes to the fields of `SearchTuning`, and each trial times one workload of [`workloads.py`](distance_tuning/workloads.py), such as a distance, a count of logical operators, or queries of `CosetLeaderSearch`, under one arm, in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)).
+Rounds alternate the order of the arms, and an interrupted sweep resumes where it stopped.
+[`collect_results.py`](distance_tuning/collect_results.py) summarizes the ratio of each arm's time to the first arm's in the same round, and flags arms that disagree on a result.
+For example:
+
+```bash
+python experiments/distance_tuning/sweep.py --tag max-sets --rounds 6 \
+    --workloads distance/pp232/X distance/lp13s5/X --field max_information_sets --values 16 8 24
+python experiments/distance_tuning/collect_results.py --tags max-sets
+```
+
+Six more scripts explain what a tuning changes.
+[`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of one distance search or count, such as the families of information sets that it builds and the completion tables of each layer.
+[`windows.py`](distance_tuning/windows.py) reads traces and finds the interval of each threshold over which their decisions stay the same, or compares the decisions of two traces.
+[`coset_families.py`](distance_tuning/coset_families.py) prints the families that `overlapping_minimum_work` gives the BZ searches of a coset workload, and [`resample.py`](distance_tuning/resample.py) recomputes the predicted costs of completion tables of a search's layers under other samplings.
+[`fit_completion_costs.py`](distance_tuning/fit_completion_costs.py) traces searches with completion tables disabled, forced, and at the defaults, and refits the cost model that chooses them.
+[`cache_stats.py`](distance_tuning/cache_stats.py) reports the hit rates of the caches of exact searches over a sequence of workloads.
+Completion tables save less when several searches run at once (see "Before measuring" in [`distance_tuning/README.md`](distance_tuning/README.md)), so time them one search at a time.
 
 ## Lattice surgery
 

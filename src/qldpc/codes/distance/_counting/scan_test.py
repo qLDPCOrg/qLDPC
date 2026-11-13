@@ -18,7 +18,7 @@ from qldpc.objects import Pauli
 from ...conftest import Tune
 from .. import logical_counts as lc
 from .._information_sets import basis_families, completion_bounds
-from .._tuning import MAX_VALUE
+from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from ..conftest import (
     HAND_X,
     HAND_Z,
@@ -144,10 +144,12 @@ def test_a_gate_that_breaks_a_set_of_a_basis_family_leaves_counts_exact() -> Non
 ####################################################################################################
 # skipping completions with completion tables
 
-# Tuning that makes every step of two or more rows of an information set use completion tables.
+# Tuning that makes every step of two or more rows of an information set use completion tables.  The
+# fewest samples that the cost model accepts keep its predictions quick as plain Python.
 FORCED_TABLES: dict[str, Any] = {
     "completion_bound_minimum_layer_work": 0,
     "completion_bound_max_cost_percent": MAX_VALUE,
+    "completion_bound_samples": DEFAULT_TUNING.completion_bound_min_samples,
 }
 
 
