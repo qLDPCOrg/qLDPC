@@ -131,7 +131,9 @@ class AbstractCode(abc.ABC):
         The base field is ``F_2`` by default, or the field of ``matrix`` if it is a finite-field
         array.  An explicit field must match the field of a finite-field array or, if that is a
         prime field, extend it.  Rows listed or nested in lists or tuples over a finite field, as
-        read from the first row, follow the same rule, but do not set the base field.
+        read from the first row, follow the same rule, but do not set the base field.  The code
+        keeps a copy of an array that it is given, so later changes to the array do not change the
+        code.
         """
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
@@ -153,7 +155,7 @@ class AbstractCode(abc.ABC):
             matrix_field = type(matrix)
             self._field = resolve_field(field) if field is not None else type(matrix)
             if self._field is matrix_field:
-                self._matrix = matrix.view(self._field)
+                self._matrix = matrix.copy()
             elif (
                 matrix_field.degree == 1
                 and matrix_field.characteristic == self._field.characteristic
@@ -180,7 +182,7 @@ class AbstractCode(abc.ABC):
                 )
             if scipy.sparse.issparse(matrix):
                 matrix = matrix.todense()  # type:ignore[union-attr]  # issparse does not narrow
-            array = np.asanyarray(matrix)
+            array = np.array(matrix)
             if array.dtype == bool or not array.size:
                 # galois rejects bool dtypes and the float dtype that NumPy gives empty lists, so
                 # cast booleans and empty arrays to an integer dtype of the field

@@ -149,6 +149,14 @@ def test_field_array_construction() -> None:
             codes.ClassicalCode(list(matrix), field=field)
 
 
+def test_codes_copy_their_matrices() -> None:
+    """Changing the array that built a code does not change the code."""
+    for matrix in (np.array([[1, 1, 0], [0, 1, 1]]), galois.GF(2)([[1, 1, 0], [0, 1, 1]])):
+        code = codes.ClassicalCode(matrix)
+        matrix[0, 0] = 0
+        assert code.matrix[0, 0] == 1
+
+
 def test_check_matrix_shapes() -> None:
     """CSS codes take no checks of one type, and matrices must be two-dimensional."""
     checks = galois.GF(3)([[1, 2, 0], [0, 1, 1]])
