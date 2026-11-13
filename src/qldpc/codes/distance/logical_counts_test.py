@@ -280,7 +280,7 @@ def test_deprecated_max_information_sets_argument(
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     checks = code.matrix_x, code.matrix_z
     expected = lc.CSSLogicalCounter(*checks).count_logical_ops()
-    with pytest.warns(DeprecationWarning, match="use_tuning") as records:
+    with pytest.warns(DeprecationWarning, match="Exact-search performance and tuning") as records:
         counts = [
             lc.CSSLogicalCounter(*checks).count_logical_ops(max_information_sets=np.int32(3)),
             lc.count_logical_ops_css(*checks, max_information_sets=3),

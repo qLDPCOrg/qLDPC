@@ -39,7 +39,7 @@ DistanceMethod = Literal[
 """The methods of exact distance searches.
 
 - ``"brouwer_zimmermann"``, the default of every search, and its alias ``"information_sets"``: the
-  Brouwer--Zimmermann algorithm, which enumerates words of increasing weight in several information
+  Brouwer-Zimmermann algorithm, which enumerates words of increasing weight in several information
   sets, and stops once a lower bound that the sets prove meets the lightest word found.
 - ``"connected_support"``: a search of the words whose supports the parity checks of a code connect,
   which is fast for codes with sparse checks.  Functions that take generators rather than checks
@@ -154,7 +154,7 @@ def get_distance_from_generators(
             onto themselves.  Pass them as an array whose row ``p`` maps bit or qubit ``j`` to
             ``p[j]``, or as a function that returns such an array or None.  A search asks for them
             at most once, when it reaches a costly stage (see :doc:`/exact_search_tuning`), and only
-            then calls a function.  The Brouwer--Zimmermann method then verifies that the
+            then calls a function.  The Brouwer-Zimmermann method then verifies that the
             permutations are automorphisms, and uses them to search fewer information sets.  The
             brute-force method does not use them.
 
@@ -249,7 +249,7 @@ def get_distance_from_checks(
             "Returns").
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
             ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  The
-            Brouwer--Zimmermann and brute-force methods search among the words that satisfy the
+            Brouwer-Zimmermann and brute-force methods search among the words that satisfy the
             checks, and the connected-support method searches the words whose supports the checks
             connect.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
@@ -263,7 +263,7 @@ def get_distance_from_checks(
             as an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or as a function that
             returns such an array or None.  A search asks for them at most once, when it reaches a
             costly stage (see :doc:`/exact_search_tuning`), and only then calls a function.  The
-            Brouwer--Zimmermann and connected-support methods then verify that the permutations are
+            Brouwer-Zimmermann and connected-support methods then verify that the permutations are
             automorphisms, and use them to search less.  The brute-force method does not use them.
 
     Returns:
@@ -349,7 +349,7 @@ def get_distance_css(
         pauli: ``Pauli.X`` (or ``"X"``) for the X-distance, the minimum weight of a nontrivial X
             logical operator, or ``Pauli.Z`` (or ``"Z"``) for the Z-distance.  If None (the
             default), the result is the distance of the code, the smaller of the two.  The
-            Brouwer--Zimmermann and connected-support methods then search both types at once, which
+            Brouwer-Zimmermann and connected-support methods then search both types at once, which
             is faster than two calls.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
@@ -363,7 +363,7 @@ def get_distance_css(
             of ``checks_z``, onto themselves.  Pass them as an array whose row ``p`` maps qubit
             ``j`` to ``p[j]``, or as a function that returns such an array or None.  A search asks
             for them at most once, when it reaches a costly stage (see :doc:`/exact_search_tuning`),
-            and only then calls a function.  The Brouwer--Zimmermann and connected-support methods
+            and only then calls a function.  The Brouwer-Zimmermann and connected-support methods
             then verify that the permutations are automorphisms, and use them to search less.  The
             brute-force method does not use them.
 
@@ -441,7 +441,7 @@ def get_distance_pauli(
             Pass them as an array whose row ``p`` maps qubit ``j`` to ``p[j]``, or as a function
             that returns such an array or None.  A search asks for them at most once, when it
             reaches a costly stage (see :doc:`/exact_search_tuning`), and only then calls a
-            function.  The Brouwer--Zimmermann and connected-support methods then verify that the
+            function.  The Brouwer-Zimmermann and connected-support methods then verify that the
             permutations are automorphisms, and use them to search less.  The brute-force method
             does not use them.
 

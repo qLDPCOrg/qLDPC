@@ -28,7 +28,7 @@ What tuning can and cannot change:
 - Under every tuning, a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` decides the same
   way whether a coset has a word of weight at most the query's maximum weight, and with the
   connected-support method it gives the same lower bound.  The word that it returns, and with the
-  Brouwer--Zimmermann method its lower bound, can depend on tuning, within the contract of
+  Brouwer-Zimmermann method its lower bound, can depend on tuning, within the contract of
   :class:`~qldpc.codes.distance.MinWeightBound`.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
   process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
