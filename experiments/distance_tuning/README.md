@@ -3,7 +3,7 @@
 This page walks through a retuning of the fields of `SearchTuning` that Brouwer–Zimmermann (BZ) searches read, like the retuning that set their current values.
 The Retuning section of the module docstring of [`qldpc.codes.distance._tuning`](../../src/qldpc/codes/distance/_tuning.py) states how a value is chosen among candidates, and the comment of each field says what to measure to retune it.
 The [experiments README](../README.md#distance-tuning) introduces the scripts.
-Sweeps write their trials to `results/`, which Git ignores, so this page keeps the command behind each number that the comments cite.
+Sweeps write their trials to `results/`, which Git ignores, so this page keeps the command behind each measurement that [`evidence.md`](evidence.md) cites.
 
 ## Before measuring
 
@@ -68,7 +68,7 @@ The cause, a sizing of enumeration batches that does not vectorize rows of more 
 ## 5. Check the sensitivity of long runs
 
 The long runs, of a minute or more one search at a time, are `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, `distance/classical:160:110:1/-`, `distance/classical:1000:976:2/-`, the classical codes of 4000 and 8000 bits with 21 to 23 rows, the sparse codes of 4000 bits with 21 to 23 rows when they enumerate, and the coset searches `coset/pp232/css/10/10/3000`, `coset/qt7/css/10/10/3000`, and `coset/lp13s5/physical/7/7/1000`.
-The last checks found two more, `distance/lp13s6/X` and `distance/lp13s6/Z`, which the windows do not cover.
+The check `c1-gate` (section 7) found two more, `distance/lp13s6/X` and `distance/lp13s6/Z`, which the windows do not cover.
 The classical codes of 4000 and 8000 bits spend about 50 and 370 seconds of that in work that does not depend on the tuning (see "Before measuring").
 Coset searches read none of the thresholds that `windows.py` covers but `overlapping_minimum_work`, whose families on coset searches `coset_families.py` prints; `resample.py` shows whether a layer near the cost limit decides by its sampling draw.
 
@@ -83,84 +83,89 @@ Time a long run, one search at a time and in 4 or more paired rounds, only where
 ## 6. Guard against over-fitting
 
 A value over-fits when it suits the workloads, the machine, and the conditions that chose it, but not others.
-This section says what guards the current values against over-fitting, how far each guard reaches, and which values are most at risk; the comments of the fields give the measurements behind each value.
+This section says what guards the values against over-fitting, how far each guard reaches, and which values are most at risk.
+[`evidence.md`](evidence.md) gives the measurements behind each value.
 
 ### Guards, and how far they reach
 
 - **Windows on long runs.**
-  Within the window of a threshold on long runs (section 5), every traced decision of those runs stays the same, so their time depends on the precise value only through the cost of making those decisions.
-  The windows on long runs are wide for:
-  - the product of `partition_work_ratio` and `partition_cost_factor`: 33 to `1.4 * 10**5`;
-  - `lp_minimum_work`: every value up to `1.17 * 10**13`;
-  - whether `completion_bound_minimum_layer_work` lets a layer use tables: `10**6` to `5.9 * 10**8` supports, though which layers it samples changes outside `2.4 * 10**7` to `4.1 * 10**7`, at a cost of milliseconds;
-  - `overlapping_minimum_work` on distance searches, whose long runs estimate their work at `5 * 10**11` or more.
-
-  The windows of the other thresholds on long runs are narrow (see "Values most at risk").
-- **Decisions compared across candidates.**
-  Five long runs, `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, and `distance/classical:160:110:1/-`, made the same decisions in traces under the current values and under the previous defaults, the first arm of the final comparison `final-short-f` (section 7), except that two of them sampled one more layer each, at a cost of 1.3 and 1.4 milliseconds.
-  But the fields that differ between the two sets can change few decisions of these runs, so this shows that neither set is slower than the other on them, not that either is best.
+  Within the window of a threshold (section 5), every decision of the traced long runs stays the same, so their time depends on the precise value only through the cost of making those decisions.
+  The windows are wide for the product of `partition_work_ratio` and `partition_cost_factor` (33 to `1.4 * 10**5`), for `lp_minimum_work` (every value up to `1.17 * 10**13`), for whether `completion_bound_minimum_layer_work` lets a layer use tables (`10**6` to `5.9 * 10**8` supports), and for `overlapping_minimum_work` on distance searches.
+  There, quick runs placed the value, and a wrong value costs quick runs only.
+  The windows of `enumeration_setup_cost_factor`, `automorphism_minimum_layer_work`, `completion_bound_max_cost_percent`, and `overlapping_minimum_work` on coset searches are narrow (see "Values most at risk").
+  No window covers `distance/lp13s6/X` and `distance/lp13s6/Z`, two long runs found after the windows were traced (section 5).
+- **Round values inside windows.**
+  Where a window holds several candidates that make the same decisions, the value is a round number inside it, not the candidate that happened to time fastest.
+  For example, `overlapping_minimum_work` is `2 * 10**4`, inside the window from 16,473 to 34,300 in which every traced coset search builds the same families.
 - **Mechanisms checked by intervention.**
   Where a value rests on a mechanism, a trace or the code shows it, and changing the quantity that it names moved the outcome as the mechanism implies.
   But most mechanisms were proposed after the sweeps whose effects they explain.
-  The last checks, the sweeps of section 7 from `c2-coverage` on, had their predictions written down first; four of those predictions were refuted, and the comments report what was found instead.
+  The last checks, the sweeps of section 7 from `c2-coverage` on, had their predictions written down first.
+  Of those predictions, five were refuted, in whole or in part, by their written criteria, one by the families that it predicted, and one only in its wording; `evidence.md` reports what was found instead.
 - **Coefficients measured directly.**
-  `partition_cost_factor`, the build costs of completion tables, and `completion_bound_kept_first_row_ratio` rest on direct measurements of the quantities that they stand for, rather than on fits to the total times of searches.
-  But the measurements spread: partitioning took 4.3 to 10.5 units, of which the value takes the higher; the build costs fit blocks of 16 columns on quantum codes, not blocks of 8 columns or classical codes; and the kept ratio ranged from 0.04 to 0.50.
+  `partition_cost_factor`, the build costs of completion tables, and `completion_bound_kept_first_row_ratio` agree with direct measurements of the quantities that they stand for, rather than with fits to the total times of searches.
+  But the measurements spread.
+  Partitioning took 4.3 to 10.5 of the units of `partition_cost_factor`, whose value, 10, lies near the top.
+  The build costs fit blocks of 16 columns on quantum codes, not blocks of 8 columns or classical codes.
+  The kept ratio ranged from 0.04 to 0.50.
 - **A noise floor.**
   Speed does not choose between candidates that measured alike (see the Retuning section, and section 1 for the size of the noise).
-  But candidates that make the same decisions on every timed workload, such as 90 and 100 for `completion_bound_max_cost_percent`, measure alike by construction; for those, as their comments say, the windows locate the value.
-  And of the 817 comparisons with 95% intervals, about 13 would exclude 1 by chance if their rounds were independent and their candidates equal, while comparisons of a tuning with itself excluded 1 in 2 of 33, so a candidate set aside by one small difference may have been set aside by chance.
-  Of such candidates, 12 for `information_set_batch_exponent` and 16,384 for `scan_chunk_size` were slower again one search at a time, and 512 for `completion_bound_samples` measured alike one search at a time.
+  But candidates that make the same decisions on every timed workload measure alike by construction; for those, the windows locate the value.
+  Of the 817 comparisons with 95% intervals, about 13 would exclude 1 by chance if their rounds were independent and their candidates equal, and of the 49 compared by their ranges, about 10.
+  But 2 of the 33 comparisons of a tuning with itself (section 1) excluded 1, so a candidate set aside by one small difference may have been set aside by chance.
+  Rechecked one search at a time, 12 for `information_set_batch_exponent` and 16,384 for `scan_chunk_size` were slower again, and 512 for `completion_bound_samples` measured alike.
+- **Checks on workloads that chose nothing.**
+  `certify/gross/css/2` and `faultdist/toric:6/Z`, which call the APIs of fault-propagation certificates, chose no value.
+  Held out for `overlapping_minimum_work`, they measured alike at `10**4`, `2 * 10**4`, and `10**5` (`c8-usecase`), so the value does them no harm, though they cannot show that it is best.
+  The values of the five fields that the last decisions set were timed together, against their values before, on 18 workloads (`c9-decided`), with predictions written first.
+  No result differed, and the slowdowns that they found, of two quick searches, are explained in `evidence.md`; one of them led to the cost limit of 90, which was then timed only on those two.
 
 ### Values most at risk
 
-These values lie near an edge of a window, or rest on a few workloads:
+These values lie near an edge of a window, rest on a few workloads, or trade one kind of search against another, roughly in order of risk:
 
-- **The partition gate, and `max_partition_coverage`.**
-  A search partitions only if its gate value, its estimated work in units of the cost of partitioning, reaches the product of `partition_work_ratio` and `partition_cost_factor`.
-  That product, 1000, lies just above 571.7, the gate value of 8 of 20 searches of `lp13s<seed>` codes, which share their parameters, so one point of quick runs placed it; it keeps those 8 from partitioning.
-  Partitioning made the searches of these codes, which switch to automorphism images, up to 4 times slower, and those of six random classical codes up to 1.7 times faster; their gate values overlap, so no product separates them.
-  Among the traced gate values, any product above 3022 and up to 7227 would also skip a wasted attempt of `distance/lp13s1/X`.
-  Coverage 3 made two of four searches faster, but raised the gate value of `distance/lp13s5/X` past 1000, so that it partitioned and ran 2.1 times slower.
+- **The partition gate.**
+  A search partitions only if its gate value, its estimated work in units of the cost of partitioning, reaches the product of `partition_work_ratio` and `partition_cost_factor`, 5000.
+  Partitioning slows searches that switch to automorphism images, such as those of `lp13s<seed>` codes, about 3 to 4 times, and speeds random classical codes up to 1.7 times, but their gate values overlap, so no product separates them.
+  5000 lies in the window, from 3022 to 7227, that misclassifies the fewest traced searches, but the gate values of codes with the same parameters scatter from 0 to 24,375, so where they fall is partly chance.
+  Deciding on automorphisms before partitioning, a follow-up, would remove the need to fit this product.
+- **The width of coset tables.**
+  16-column tables make CSS coset searches 2.8 to 29 times faster, and add about 1.5 GiB of memory to the long ones.
+  But they make two of three searches of Pauli errors by physical weight 2.7 to 4 times slower, and, with `overlapping_minimum_work` at `2 * 10**4`, a quick search of the moderate code `pp110` 63 milliseconds slower.
+  On residual-weight estimates of state-preparation circuits, not in this repository, 16-column tables took longer to build than most estimates spent scanning.
+  A width for each kind of search is a follow-up.
+- **`overlapping_minimum_work` on coset searches.**
+  Its window, from 16,473 to 34,300, comes from the costs of queries of weights 2 and 3 on four codes: the lower edge from `qt7`, and the upper edge from `pp110`.
+  Other codes have other edges, so the value suits codes like these, not every code.
+  Below the window, the long coset searches took 2.1 to 3.2 times as long; above it, two quick ones 1.5 to 1.75 times as long, four searches at a time.
 - **The fields of enumeration.**
-  `enumeration_setup_cost_factor`, `enumeration_max_dimension`, and `allow_enumeration_by_work` depend on enumeration not vectorizing rows of more than 960 bits (section 4).
-  The window of the factor on long runs is 12.5 to 23.8, and past either edge a value helps some codes and slows others: at 8, `distance/sparse:8000:21:400:2/-` took 0.59 of its time, while `distance/classical:8000:7979:2/-` builds its disjoint family before it enumerates.
-  The window of `enumeration_max_dimension` is 20 alone: at 21, `distance/sparse:4000:21:200:2/-` took 2.1 times as long.
-  `allow_enumeration_by_work`, a switch rather than a threshold, decides the slowest long run of the workloads: with it off, `distance/classical:1000:976:2/-` took 1.6 seconds instead of 70.6.
-- **`overlapping_minimum_work` on the long coset searches.**
-  Long runs chose it: every value above `1.65 * 10**4` and up to `2.0 * 10**5` gives the long coset searches the same families (`coset_families.py`), and their costliest searches, of Z parts, keep theirs up to `5.3 * 10**5`.
-  At 10,000, those searches take other families, which made the runs 2.1 and 3.2 times slower four searches at a time on earlier library code, and versions of them with a tenth of the queries 2.4 and 3.2 times slower one search at a time.
-  30,000, inside that window, made two quick coset searches take 0.58 and 0.67 of their time.
-- **`automorphism_minimum_layer_work`.**
-  Its window on long runs is `8.5 * 10**7` to `1.8 * 10**8`; just past either edge, a long search switches to automorphism images one layer sooner or later, a layer of at most 0.22 seconds.
+  Their measurements were taken while enumeration handled rows of more than 960 bits one codeword at a time (section 4), so their best values will change once that is fixed.
+  The window of `enumeration_setup_cost_factor` on long runs is 12.5 to 23.8, and on all traced workloads the window of `enumeration_max_dimension` is 20 alone.
+  `allow_enumeration_by_work` is a switch for tests: with it off, `distance/classical:1000:976:2/-` took 1.6 seconds instead of 70.6.
 - **The cost limit, and the sampling and costs of completion tables.**
-  `completion_bound_max_cost_percent` makes every traced decision the same from 90 to 103, but its lower edge rests on a sampling draw.
-  Layer 6 of `hadamard/gross`, 14 seconds with completion tables and 31 without, predicts their cost at 0.898 of the cost without them, just within the limit of 0.90.
-  Under 40 seeds of the sampler, it predicts 0.71 to 1.06, and uses its tables under 24 of them (`resample.py`).
-  `completion_bound_confidence_z` of 3 or `completion_bound_samples` of 128, which measured alike on quick runs, or `completion_bound_kept_first_row_ratio` of 0.38, within its measured range, each make it decline them.
-  With 1024 samples, every traced long-run layer near the limit decides the same under all 40 seeds, at a cost of up to 46 milliseconds on quick runs.
-  The lookup costs, 2.0 and 0.04, were kept over 0.9 and 0.05, which make this layer decline its tables, after one run, and the measured costs of the same lookups varied two- to threefold between sessions.
+  With 1024 samples, the predictions of the traced long-run layers near the limit leave a gap from 86.1 to 93.9 percent under 40 sampling seeds, and the limit, 90, lies in it, so none of those layers decides by its draw.
+  But five layers make that gap, and the cost model errs both ways, by more than two times on some traced layers.
+  100, chosen first as a break-even point, made a quick search 1.19 times slower, since a layer of several sets compares the tables of each set with a scan of that set alone, not with their scan in lockstep.
+  The lookup costs were kept after one run, and the measured costs of the same lookups varied two- to threefold between sessions.
+- **`automorphism_minimum_layer_work`.**
+  Its window on long runs is `8.5 * 10**7` to `1.8 * 10**8`, but just past either edge a long search switches to automorphism images one layer sooner or later, a layer of at most 0.22 seconds.
 - **`max_css_single_pairs`.**
   It is the smallest power of two that fits the one workload that reads it on a state of more than 255 qubits.
 
 ### Other limits
 
-- **No held-out test.**
-  Every workload whose decisions differ under the previous defaults and the current values helped choose the values.
-  The two workloads of `final-short-f` that chose no value, `certify/gross/css/2` and `faultdist/toric:6/Z`, make the same decisions under both sets, so they test nothing.
-- **A revised comparison.**
-  `final-short-f` is the fourth run of the final comparison, and its second candidate set changed twice after a workload ran slower under it, so the absence of slower workloads under the last set is partly by construction.
 - **One machine, under load.**
   Every timing comes from one Apple M3 Max.
   Most sweeps ran three to eight searches at a time, and the sweeps of one search at a time, including the last checks, ran beside other work, at load averages of up to 19.
 - **Older library code.**
   Most sweeps ran on earlier library code, at the commits that `trials.jsonl` records.
-  The windows, the traces under both sets, the refit data set, and the last checks used the library code of the current values; the comparisons of the sampling fields, of the block widths, and of the cost limit three searches at a time did not.
+  The windows, the refit data set, and the last checks used the current library code.
+  The comparisons of the sampling fields and of the block widths, and the comparison of the cost limit three searches at a time, did not.
 - **Fields not timed on long runs.**
-  `max_information_sets`, `disjoint_random_column_orders`, `overlapping_attempts_per_set`, `max_partition_coverage`, `max_css_single_pairs`, the batch and chunk sizes, the block widths, `completion_bound_max_table_bytes`, the sampling fields, and the coefficients of the cost model were measured only on runs of seconds, if at all.
+  `max_information_sets`, `disjoint_random_column_orders`, `overlapping_attempts_per_set`, `max_partition_coverage`, `max_css_single_pairs`, the batch and chunk sizes, the block widths of distance tables, `completion_bound_max_table_bytes`, and the coefficients of the cost model were timed only on runs of seconds, apart from one run of `hadamard/gross` behind the lookup costs.
   The cache sizes, and the fields whose comments say they were chosen by hand, were not chosen by these measurements.
 
-## 7. Reproduce the numbers in the comments
+## 7. Reproduce the measurements
 
 The commands below ran on the library code of their time, at the commits that `trials.jsonl` records, and each compares its arms with its first arm, as its command gives it.
 That arm is usually the defaults of its time, in some sweeps with `completion_bound_minimum_layer_work` at `3 * 10**7`.
@@ -171,7 +176,7 @@ The refit data set of the Retuning section is that of the row "Cost coefficients
 
 Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`:
 
-| Comment | Command |
+| Measurement | Command |
 | --- | --- |
 | Partitioning: estimates, costs, and gates | `trace.py distance/lp13s5/X --tuning '{"partition_work_ratio": 10}' --output R1.json`, the same with `"automorphism_minimum_layer_work": 4611686018427387904`, and `trace.py hadamard/gross --output R3.json`; `trace.py <workload> --setup-only` for the gates of other workloads |
 | `enumeration_setup_cost_factor` | `trace.py <workload> --setup-only --tuning '{"allow_enumeration_by_size": false, "allow_enumeration_by_work": false}'` for the time of the disjoint family, and `trial.py <workload> --repeat 3 --tuning '{"enumeration_max_dimension": 62}'` for the time per word, for `distance/classical:<n>:<n - k>:2/-` and `distance/sparse:<n>:<k>:<n / 20>:2/-` with `n` of 200, 1000, and 4000 and `k` of 16 and 20 |
@@ -182,17 +187,18 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
 | Windows of the thresholds | the commands below the table |
 | Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each with `--output` to a file outside the directory of the traces of the windows, and compared with its trace at the defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05}'`, whose layer 6 declines its tables, for the time of that layer without them |
+| Layer 7 of `distance/classical:128:80:6/-` at the limits of 90 and 100 | `trace.py 'distance/classical:128:80:6/-' --tuning '{"completion_bound_max_cost_percent": 100}'`, the same with `"completion_bound_samples": 256` added, and at the defaults, compared by `windows.py --compare` and by their `layer` events (`c11`) |
 | Gate values of partitioning across codes | `trace.py distance/lp13s<seed>/<sector> --setup-only` for seeds 1 to 10 and sectors `X` and `Z`, and `trace.py 'distance/classical:128:80:<seed>/-' --setup-only` for seeds 2 to 6; a gate value is the `estimated_work` of the `family` event of kind `partitioned` divided by its `unit` |
 | Below the window of `enumeration_setup_cost_factor` | `trace.py <w> --setup-only --tuning '{"enumeration_setup_cost_factor": 8}'` for `'distance/classical:8000:7979:2/-'` and `'distance/sparse:8000:21:400:2/-'` |
-| Families of `overlapping_minimum_work` | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000` |
-| Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`; for the sampling budget, `resample.py hadamard/gross --weights 6 --num-seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
+| Families of `overlapping_minimum_work` | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000`; `coset_families.py <w> --thresholds 20000 24000 30000` for `coset/gross/css/10/10/3000`, `coset/pp110/css/8/8/2000`, `coset/pp232/css/10/10/3000`, and `coset/qt7/css/10/10/3000` |
+| Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`, and `resample.py hadamard/pp110 --weights 5` and `resample.py distance/bb288/X --weights 5`, at the defaults of their time (`c10` ran them with `--changes '[]'` at commit `dfa8944b3`, whose limit was 100, and `c12` the first at the current defaults, with the changes of `completion_bound_samples`, `completion_bound_confidence_z`, `completion_bound_kept_first_row_ratio`, and the lookup costs that `evidence.md` names); for the sampling budget, `resample.py hadamard/gross --weights 6 --num-seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
 | Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |
 
 Searches without information sets: `trial.py 'distance/classical:<n>:<checks>:2/-' --repeat 2` with and without `--tuning '{"allow_enumeration_by_work": false}'`, reading the second repetition.
 
-These commands trace the workloads behind the windows that the comments cite, at the defaults, and print the windows; the classical codes that enumerate many words are traced up to their decision to enumerate.
+These commands trace the workloads behind the windows that `evidence.md` cites, at the defaults, and print the windows; the classical codes that enumerate many words are traced up to their decision to enumerate.
 Keep other traces out of `traces/`, since `windows.py` requires its traces to share one tuning.
 
 ```bash
@@ -216,7 +222,7 @@ python experiments/distance_tuning/windows.py traces/*.json --long distance/{bb2
     distance/sparse:4000:{21..23}:200:2/-
 ```
 
-These sweeps produced the ratios that the comments cite, and `collect_results.py --tags <tag>` summarizes each.
+These sweeps produced the ratios that `evidence.md` cites, and `collect_results.py --tags <tag>` summarizes each.
 
 ### noise-j10
 
@@ -226,7 +232,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 10 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads coset/gross/physical/6/6/500 count/pp110/12 coset/pp232/physical/6/6/500 distance/lp13s5/X distance/lp13s8/X distance/qt7/Z coset/gross/css/10/10/3000 distance/qt7/X count/gross/12 distance/pp232/X first/pp232/physical/6/6/2000 \
     --arms '[{}, {}]'
 ```
@@ -239,7 +245,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 4 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/lp13s8/X distance/lp13s5/X distance/qt7/Z distance/qt7/X count/pp110/12 coset/gross/physical/6/6/500 count/gross/12 distance/pp232/X coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 first/pp232/physical/6/6/2000 \
     --arms '[{}, {}]'
 ```
@@ -252,7 +258,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X count/gross/12 count/pp110/12 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 first/pp232/physical/6/6/2000 \
     --arms '[{}, {}]'
 ```
@@ -265,7 +271,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 6 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/lp13s5/X distance/qt7/Z distance/qt7/X distance/pp232/X \
     --arms '[{"information_set_batch_exponent": 15}, {"information_set_batch_exponent": 12}, {"information_set_batch_exponent": 18}, {"information_set_batch_exponent": 21}]'
 ```
@@ -278,7 +284,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 6 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads count/pp110/12 count/gross/12 ccount/pp110/12 ccount/gross/12 \
     --arms '[{"scan_chunk_size": 65536}, {"scan_chunk_size": 4096}, {"scan_chunk_size": 1048576}]'
 ```
@@ -291,7 +297,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 6 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads ccount/pp110/12 ccount/gross/12 \
     --arms '[{"scan_chunks_per_call": 64}, {"scan_chunks_per_call": 4}, {"scan_chunks_per_call": 1024}]'
 ```
@@ -304,7 +310,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/pp232/X distance/qt7/Z \
     --arms '[{"information_set_batch_exponent": 15}, {"information_set_batch_exponent": 13}, {"information_set_batch_exponent": 14}, {"information_set_batch_exponent": 16}, {"information_set_batch_exponent": 17}]'
 ```
@@ -317,7 +323,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads count/gross/12 count/pp110/12 \
     --arms '[{"scan_chunk_size": 65536}, {"scan_chunk_size": 16384}, {"scan_chunk_size": 32768}, {"scan_chunk_size": 131072}]'
 ```
@@ -331,7 +337,7 @@ python experiments/distance_tuning/sweep.py \
     --jobs 8 \
     --repeat 3 \
     --timeout 1800 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:40:24:2/- distance/classical:40:22:2/- distance/classical:40:20:2/- distance/classical:40:16:2/- distance/classical:200:184:2/- distance/classical:40:18:2/- distance/sparse:200:16:10:2/- distance/classical:200:182:2/- distance/sparse:200:24:10:2/- distance/sparse:200:18:10:2/- distance/sparse:200:22:10:2/- distance/classical:200:180:2/- distance/sparse:200:20:10:2/- distance/classical:200:178:2/- distance/classical:200:176:2/- distance/classical:1000:984:2/- distance/sparse:1000:24:50:2/- distance/sparse:1000:16:50:2/- distance/sparse:4000:16:200:2/- distance/sparse:1000:20:50:2/- distance/classical:1000:980:2/- distance/surface:6/X distance/sparse:4000:20:200:2/- distance/toric:6/X distance/surface:7/X distance/classical:4000:3984:2/- distance/classical:4000:3980:2/- distance/classical:1000:976:2/- \
     --arms '[{}, {"enumeration_max_dimension": 30}, {"allow_enumeration_by_size": false, "allow_enumeration_by_work": false}]'
 ```
@@ -345,7 +351,7 @@ python experiments/distance_tuning/sweep.py \
     --jobs 8 \
     --repeat 3 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:40:23:2/- distance/classical:40:22:2/- distance/classical:200:182:2/- distance/sparse:200:17:10:2/- distance/classical:200:183:2/- distance/sparse:200:18:10:2/- distance/sparse:1000:17:50:2/- distance/classical:1000:983:2/- distance/classical:200:181:2/- distance/classical:40:21:2/- distance/sparse:200:19:10:2/- distance/sparse:1000:18:50:2/- distance/classical:1000:982:2/- distance/classical:1000:981:2/- distance/classical:40:20:2/- distance/sparse:200:20:10:2/- distance/classical:200:180:2/- distance/sparse:1000:19:50:2/- distance/classical:40:19:2/- distance/classical:200:179:2/- distance/sparse:200:21:10:2/- distance/classical:1000:980:2/- distance/sparse:1000:20:50:2/- distance/sparse:4000:17:200:2/- distance/sparse:1000:21:50:2/- distance/classical:1000:979:2/- distance/sparse:4000:19:200:2/- distance/classical:4000:3983:2/- distance/classical:4000:3981:2/- distance/sparse:4000:20:200:2/- distance/classical:4000:3980:2/- distance/surface:6/X distance/toric:6/X distance/surface:7/X distance/classical:8000:7984:2/- distance/classical:8000:7980:2/- \
     --arms '[{}, {"enumeration_max_dimension": 18}, {"enumeration_max_dimension": 18, "enumeration_setup_cost_factor": 16}, {"enumeration_max_dimension": 18, "enumeration_setup_cost_factor": 4}]'
 ```
@@ -359,7 +365,7 @@ python experiments/distance_tuning/sweep.py \
     --jobs 2 \
     --repeat 3 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/sparse:8000:16:400:2/- distance/sparse:8000:20:400:2/- \
     --arms '[{}, {"enumeration_max_dimension": 18}, {"enumeration_max_dimension": 18, "enumeration_setup_cost_factor": 16}, {"enumeration_max_dimension": 18, "enumeration_setup_cost_factor": 4}]'
 ```
@@ -372,7 +378,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 3 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/lp13s5/X distance/qt7/Z distance/qt7/X distance/pp232/X distance/classical:128:80:1/- distance/classical:150:100:1/- count/gross/12 count/pp110/12 \
     --arms '[{}, {"completion_bound_max_table_bytes": 0}, {"completion_bound_minimum_layer_work": 0, "completion_bound_max_cost_percent": 4611686018427387904}, {"completion_bound_block_bits": 8}, {"completion_bound_block_bits": 4}]'
 ```
@@ -385,7 +391,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 3 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads count/pp110/12 distance/qt7/X count/gross/12 distance/qt7/Z distance/lp13s5/X distance/pp232/X distance/classical:150:100:1/- \
     --arms '[{}, {"completion_bound_minimum_layer_work": 10000000}, {"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_max_cost_percent": 4611686018427387904}, {"completion_bound_max_cost_percent": 100}]'
 ```
@@ -398,7 +404,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 1 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:150:100:1/- \
     --arms '[{}, {"completion_bound_max_cost_percent": 4611686018427387904}]'
 ```
@@ -411,7 +417,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 12 \
     --jobs 6 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:150:100:1/- \
     --arms '[{}, {"completion_bound_max_cost_percent": 4611686018427387904}]'
 ```
@@ -424,7 +430,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 1 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_minimum_layer_work": 100000000}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_minimum_layer_work": 100000000, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads count/pp110/12 count/gross/12 distance/classical:128:80:1/- distance/classical:150:100:1/- distance/pp232/X distance/qt7/X distance/qt7/Z distance/lp13s5/X \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05}, {}]'
 ```
@@ -437,7 +443,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 3 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:128:80:1/- count/pp110/12 count/gross/12 distance/qt7/X distance/pp232/X distance/lp13s5/X \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_samples": 128}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_samples": 512}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_confidence_z": 1.0}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_confidence_z": 3.0}]'
 ```
@@ -450,7 +456,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 6 \
     --timeout 1800 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:130:80:1/- distance/classical:128:80:1/- distance/lp13s5/X distance/qt7/Z distance/qt7/X distance/classical:140:90:1/- coset/gross/css/10/10/3000 distance/pp232/X coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 first/pp232/physical/6/6/2000 \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "max_information_sets": 8}, {"completion_bound_minimum_layer_work": 30000000, "max_information_sets": 32}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_attempts_per_set": 1}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_attempts_per_set": 4}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 100}, {"completion_bound_minimum_layer_work": 30000000, "partition_cost_factor": 80}, {"completion_bound_minimum_layer_work": 30000000, "max_partition_coverage": 2}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 0}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 32}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000000}, {"completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 100000000}, {"completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 10000000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 10000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 1000000000}]'
 ```
@@ -463,7 +469,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 6 \
     --timeout 1800 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/gross/X distance/lp13s5/X distance/qt7/X \
     --arms '[{"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "max_information_sets": 8}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "max_information_sets": 32}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "overlapping_attempts_per_set": 1}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "overlapping_attempts_per_set": 4}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "partition_work_ratio": 100}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "partition_cost_factor": 80}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "max_partition_coverage": 2}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "disjoint_random_column_orders": 0}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "disjoint_random_column_orders": 32}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "overlapping_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "overlapping_minimum_work": 1000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "lp_minimum_work": 100000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 4611686018427387904, "lp_minimum_work": 10000000000}]'
 ```
@@ -476,7 +482,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 6 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads hbound/pp232/2/2000 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 hcoset/gross/css/4/4/500 first/pp232/physical/6/6/2000 distance/qt7/X distance/qt7/Z distance/lp13s5/X distance/pp232/X distance/classical:140:90:1/- \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 16}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 32}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 64}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 300000000}]'
 ```
@@ -489,7 +495,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 4 \
     --jobs 4 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/lp13s5/X distance/qt7/X hadamard/gross hadamard/pp110 \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 30}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 100}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 4611686018427387904}]'
 ```
@@ -502,7 +508,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 4 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads coset/pp110/css/8/8/2000 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 first/pp232/physical/6/6/2000 hcoset/gross/css/4/4/500 hbound/pp232/2/2000 hbound/pp372/2/2000 distance/qt7/X distance/pp232/X \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 30000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 4}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 16}, {"completion_bound_minimum_layer_work": 30000000, "max_css_single_pairs": 262144}]'
 ```
@@ -515,7 +521,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 4 \
     --jobs 4 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads coset/pp232/css/10/10/3000 coset/lp13s5/physical/7/7/1000 coset/qt7/css/10/10/3000 \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 4}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 16}]'
 ```
@@ -528,7 +534,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 6 \
     --jobs 4 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/sparse:1000:21:50:2/- distance/classical:1000:979:2/- distance/sparse:4000:21:200:2/- distance/sparse:1000:22:50:2/- distance/classical:1000:978:2/- distance/classical:4000:3979:2/- distance/sparse:4000:22:200:2/- distance/classical:4000:3978:2/- distance/classical:1000:977:2/- distance/sparse:1000:23:50:2/- distance/sparse:4000:23:200:2/- distance/classical:4000:3977:2/- distance/classical:8000:7979:2/- distance/classical:8000:7978:2/- distance/classical:8000:7977:2/- \
     --arms '[{}, {"enumeration_setup_cost_factor": 16}]'
 ```
@@ -541,7 +547,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 6 \
     --jobs 1 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:128:80:1/- distance/classical:140:90:1/- distance/classical:150:100:1/- distance/classical:160:110:1/- distance/qt7/X distance/qt7/Z distance/pp232/X distance/lp13s5/X count/pp110/12 count/gross/12 \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_max_cost_percent": 150}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_max_cost_percent": 200}]'
 ```
@@ -554,7 +560,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 3 \
     --timeout 3600 \
-    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536}' \
+    --base '{"enumeration_setup_cost_factor": 128, "partition_work_ratio": 10, "partition_cost_factor": 20, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000}' \
     --workloads distance/classical:128:80:1/- distance/classical:140:90:1/- distance/classical:150:100:1/- \
     --arms '[{}, {"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "completion_bound_max_cost_percent": 200}]'
 ```
@@ -567,6 +573,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 3 \
     --timeout 3600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/classical:128:80:1/- distance/classical:140:90:1/- distance/classical:150:100:1/- distance/sparse:1000:21:50:2/- distance/lp13s5/X distance/lp13s8/X distance/qt7/Z distance/qt7/X distance/pp232/X count/pp110/12 count/gross/12 coset/gross/css/10/10/3000 ccount/pp110/12 coset/pp232/physical/6/6/500 hbound/pp372/2/2000 certify/gross/css/2 faultdist/toric:6/Z \
     --arms '[{"completion_bound_minimum_layer_work": 100000000, "partition_work_ratio": 10, "partition_cost_factor": 20, "enumeration_setup_cost_factor": 128, "max_css_single_pairs": 65536}, {}]'
 ```
@@ -580,7 +587,7 @@ python experiments/distance_tuning/sweep.py \
     --jobs 1 \
     --repeat 3 \
     --timeout 3600 \
-    --base '{"partition_cost_factor": 20}' \
+    --base '{"partition_cost_factor": 20, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/classical:200:180:2/- distance/sparse:200:19:10:2/- \
     --arms '[{}, {"enumeration_max_dimension": 18}, {"enumeration_max_dimension": 18, "allow_enumeration_by_work": false}]'
 ```
@@ -593,7 +600,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 3600 \
-    --base '{"partition_cost_factor": 20}' \
+    --base '{"partition_cost_factor": 20, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/lp13s8/X distance/lp13s5/X distance/classical:128:80:1/- distance/classical:140:90:1/- \
     --arms '[{}, {"partition_work_ratio": 4611686018427387904}]'
 ```
@@ -606,6 +613,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 4 \
     --jobs 1 \
     --timeout 1800 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/classical:160:110:1/- distance/classical:150:100:1/- distance/classical:140:90:1/- \
     --arms '[{}, {"completion_bound_max_cost_percent": 150}, {"completion_bound_max_cost_percent": 200}]'
 ```
@@ -618,6 +626,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 4 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/lp13s5/X distance/lp13s5/Z distance/lp13s8/X distance/qt7/X distance/qt7/Z \
     --arms '[{}, {"completion_bound_max_cost_percent": 200}]'
 ```
@@ -630,6 +639,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/lp13s5/X distance/lp13s8/X distance/classical:128:80:1/- distance/classical:140:90:1/- \
     --arms '[{}, {"max_partition_coverage": 3}, {"max_partition_coverage": 2}]'
 ```
@@ -642,6 +652,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/pp232/X distance/qt7/Z \
     --arms '[{}, {"information_set_batch_exponent": 11}, {"information_set_batch_exponent": 12}, {"information_set_batch_exponent": 13}, {"information_set_batch_exponent": 14}]'
 ```
@@ -654,6 +665,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/pp232/X distance/qt7/Z \
     --arms '[{}, {"information_set_batch_exponent": 16}, {"information_set_batch_exponent": 17}, {"information_set_batch_exponent": 18}, {"information_set_batch_exponent": 20}]'
 ```
@@ -666,6 +678,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads count/gross/12 count/pp110/12 \
     --arms '[{}, {"scan_chunk_size": 16384}, {"scan_chunk_size": 32768}]'
 ```
@@ -678,6 +691,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 6 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/lp13s1/X distance/lp13s6/X distance/lp13s6/Z distance/lp13s8/X distance/classical:128:80:2/- distance/classical:128:80:3/- distance/classical:128:80:4/- distance/classical:128:80:5/- distance/classical:128:80:6/- \
     --arms '[{}, {"partition_work_ratio": 4611686018427387904}]'
 ```
@@ -690,6 +704,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 6 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/lp13s2/X distance/lp13s10/X \
     --arms '[{}, {"partition_work_ratio": 20}]'
 ```
@@ -703,6 +718,7 @@ python experiments/distance_tuning/sweep.py \
     --jobs 1 \
     --repeat 3 \
     --timeout 900 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads distance/sparse:8000:21:400:2/- \
     --arms '[{}, {"enumeration_setup_cost_factor": 8}]'
 ```
@@ -715,6 +731,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads count/pp110/12 ccount/pp110/12 distance/classical:128:80:1/- distance/lp13s5/X distance/qt7/X distance/pp232/X \
     --arms '[{}, {"completion_bound_samples": 512}, {"completion_bound_samples": 1024}]'
 ```
@@ -727,6 +744,46 @@ python experiments/distance_tuning/sweep.py \
     --rounds 4 \
     --jobs 1 \
     --timeout 900 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
     --workloads coset/pp232/css/10/10/300 coset/qt7/css/10/10/300 \
     --arms '[{}, {"overlapping_minimum_work": 10000}]'
+```
+
+### c8-usecase
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c8-usecase \
+    --rounds 10 \
+    --jobs 1 \
+    --timeout 600 \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100}' \
+    --workloads certify/gross/css/2 faultdist/toric:6/Z \
+    --arms '[{}, {"overlapping_minimum_work": 10000}, {"overlapping_minimum_work": 20000}]'
+```
+
+### c9-decided
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c9-decided \
+    --rounds 4 \
+    --jobs 1 \
+    --timeout 900 \
+    --base '{"completion_bound_max_cost_percent": 100}' \
+    --workloads coset/gross/css/10/10/3000 coset/pp110/css/8/8/2000 coset/pp232/css/10/10/300 coset/qt7/css/10/10/300 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 first/pp232/physical/6/6/2000 hcoset/gross/css/4/4/500 hbound/pp232/2/2000 hbound/pp372/2/2000 certify/gross/css/2 faultdist/toric:6/Z distance/lp13s1/X distance/lp13s5/X distance/classical:128:80:6/- distance/qt7/X distance/pp232/X count/pp110/12 \
+    --arms '[{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 100, "completion_bound_max_cost_percent": 90}, {}]'
+```
+
+### c11-revert
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c11-revert \
+    --rounds 6 \
+    --jobs 1 \
+    --timeout 600 \
+    --base '{"completion_bound_max_cost_percent": 100}' \
+    --workloads distance/classical:128:80:6/- coset/pp110/css/8/8/2000 \
+    --arms '[{}, {"completion_bound_max_cost_percent": 90}, {"completion_bound_samples": 256}, {"overlapping_minimum_work": 100000}, {"partition_work_ratio": 100}, {"coset_completion_block_bits": 8}]'
 ```

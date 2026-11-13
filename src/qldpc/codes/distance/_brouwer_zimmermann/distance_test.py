@@ -1169,9 +1169,9 @@ def test_searches_take_completion_limits_from_their_tuning(
 
     The searches keep the disjoint family, whose scanned sets in both sectors of this [[36, 4, 4]]
     code have 20 rows and 16 tail columns, so tables of one sixteen-column block take
-    19 * 2**16 bytes, and tables of two eight-column blocks take 19 * 2 * 2**8 bytes.  A tuning that forces tables uses sixteen-column blocks, a smaller
-    memory limit eight-column blocks, and a limit of zero bytes or of zero cost, or the largest
-    threshold of layer work, no tables.
+    19 * 2**16 bytes, and tables of two eight-column blocks take 19 * 2 * 2**8 bytes.  A tuning
+    that forces tables uses sixteen-column blocks, a smaller memory limit eight-column blocks, and a
+    limit of zero bytes or of zero cost, or the largest threshold of layer work, no tables.
     """
     block_bits: set[int] = set()
     select = completion_bounds.select_completion_tables
