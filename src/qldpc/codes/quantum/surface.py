@@ -393,6 +393,10 @@ class T4Code(CSSCode):
     of ``T^4`` tiled by integer unit tesseracts.  Cubes have 6 faces on the boundary, and edges are
     incident to 6 faces, so stabilizers have weight 6.
 
+    The lattice must have at least two unit cells per period, that is ``abs(det(matrix)) >= 2``.  A
+    unimodular basis tiles the torus with a single cell, for which every boundary operator vanishes
+    identically and the resulting code has no parity checks at all.
+
     References:
 
     - https://arxiv.org/abs/2506.15130
@@ -406,12 +410,7 @@ class T4Code(CSSCode):
         *,
         skip_validation: bool = False,
     ) -> None:
-        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice.
-
-        The lattice must have at least two unit cells per period, that is ``abs(det(matrix)) >= 2``.
-        A unimodular basis tiles the torus with a single cell, for which every boundary operator
-        vanishes identically and the resulting code has no parity checks at all.
-        """
+        """Construct a T4Code from a 4x4 integer matrix whose rows generate a 4d lattice."""
         self._field = resolve_field(field)
 
         determinant = int(sympy.Matrix(matrix).det())
