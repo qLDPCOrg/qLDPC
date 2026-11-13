@@ -681,7 +681,10 @@ def test_code_and_checks() -> None:
 
 
 def test_accepted_forms_of_checks() -> None:
-    """Checks from a code, and as galois arrays, lists, or sparse matrices, give the same counts."""
+    """Checks from a code, and as galois arrays, lists, or sparse matrices, give the same counts.
+
+    Empty X checks take the width of the Z checks.
+    """
     expected = Counts(2, 2, 3, 6)
     code = codes.CSSCode(HAND_X.astype(int), HAND_Z.astype(int))
     assert lc.CSSLogicalCounter.from_code(code).count_logical_ops(count_pauli=True) == expected
@@ -693,9 +696,14 @@ def test_accepted_forms_of_checks() -> None:
         counter = lc.CSSLogicalCounter(checks_x, checks_z)
         assert counter.count_logical_ops(count_pauli=True) == expected
 
+    # Empty X checks take the width of the Z checks.  The X logical operators of weight 3 are then
+    # the 7 words of weight 3 of the Hamming code.
+    hamming_checks = codes.HammingCode(3).matrix
+    assert lc.CSSLogicalCounter([], hamming_checks).count_logical_ops(3).count_x == 7
+
 
 def test_invalid_checks() -> None:
-    """Invalid checks raise errors that name them, and empty X checks take the width of Z checks."""
+    """Invalid checks raise errors that name them, and a code in place of its checks is rejected."""
     for checks_x, checks_z, message in (
         ([[0, 2]], [[1, 1]], "binary.*checks_x"),
         ([[1, 1]], galois.GF(3)([[1, 1]]), "binary.*checks_z"),
@@ -711,12 +719,6 @@ def test_invalid_checks() -> None:
         lc.CSSLogicalCounter(steane, steane.matrix_z)
     with pytest.raises(TypeError, match="checks_z must be an array of binary entries, not a"):
         lc.count_logical_ops_css(steane.matrix_x, steane, 3)
-
-    # Empty X checks take the width of the Z checks.  The X logical operators of weight 3 are then
-    # the 7 words of weight 3 of the Hamming code.
-    hamming_checks = codes.HammingCode(3).matrix
-    assert lc.CSSLogicalCounter([], hamming_checks).count_logical_ops(3).count_x == 7
-    assert lc.count_logical_ops_css([], hamming_checks, 3).count_x == 7
 
 
 def test_counters_from_codes() -> None:

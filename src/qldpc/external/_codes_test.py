@@ -12,7 +12,7 @@ import pytest
 
 from qldpc import codes, external
 from qldpc.external import _codes
-from qldpc.objects import Pauli
+from qldpc.objects import PAULIS_XZ
 
 
 def test_get_guava_code() -> None:
@@ -134,12 +134,16 @@ def test_get_qdistrnd_distance_bound() -> None:
                 == 3
             )
 
-            # QDistRnd fails on a matrix without rows, so it receives a zero row instead
-            code = codes.CSSCode(np.zeros((0, 7), dtype=int), steane_code.matrix_z)
-            _codes.get_qdistrnd_distance_bound(code.matrix_x, matrix_z=code.matrix_z)
-            zero_row = np.zeros((1, 7), dtype=int)
-            commands = _codes._get_gap_sparse_matrix_commands("matrix_x", 2, zero_row)
-            assert set(commands) <= set(get_output.call_args.args)
+            # QDistRnd fails on a matrix without rows, so it receives a zero row instead, for each
+            # matrix of a CSS code and for the matrix of a stabilizer code
+            no_rows = steane_code.matrix_x[:0]
+            for matrices in (
+                (no_rows, steane_code.matrix_z),
+                (steane_code.matrix_x, no_rows),
+                (codes.QuditCode(np.zeros((0, 14), dtype=int)).matrix, None),
+            ):
+                _codes.get_qdistrnd_distance_bound(matrices[0], matrix_z=matrices[1])
+                assert "nz:=[];;" not in get_output.call_args.args
 
         # QDistRnd negates a bound at or below the cutoff when it stops early
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="-2"):
@@ -161,7 +165,7 @@ def test_get_qdistrnd_distance_bound() -> None:
 
 
 def test_qdistrnd_bounds_without_checks_of_one_type() -> None:  # pragma: no cover
-    """GAP bounds the distances of CSS codes without checks, or stabilizers, of one type.
+    """GAP bounds dressed distances of CSS codes, also without checks or stabilizers of one type.
 
     This test runs GAP itself, so it runs only where GAP can be called, as in the GAP integration
     tests.
@@ -173,9 +177,17 @@ def test_qdistrnd_bounds_without_checks_of_one_type() -> None:  # pragma: no cov
         codes.CSSCode(np.zeros((0, 7), dtype=int), codes.HammingCode(3).matrix),
         codes.CSSCode(trivial_code.matrix_x, trivial_code.matrix_z),
     ):
-        for pauli in (Pauli.X, Pauli.Z):
+        for pauli in PAULIS_XZ:
             bound = code.get_distance_bound(20, pauli=pauli, backend="gap")
             assert code.get_distance_exact(pauli) <= bound <= len(code)
+
+    # QDistRnd searches dressed logical operators.  The only stabilizer of this subsystem code is Z
+    # on its last qubit, so X or Z on one of its first three qubits is a dressed logical operator,
+    # although every bare logical operator has weight 3.
+    gauge_x, gauge_z = [[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]]
+    for pauli in PAULIS_XZ:
+        code = codes.CSSCode(gauge_x, gauge_z)
+        assert code.get_distance_bound(20, pauli=pauli, backend="gap") == 1
 
 
 def test_get_gap_sparse_matrix_commands() -> None:

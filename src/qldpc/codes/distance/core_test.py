@@ -87,10 +87,12 @@ def test_css_distances(method: core.DistanceMethod) -> None:
     assert core.get_distance_css(gauge_x, gauge_z, "X", method=method) == 1
 
     # Empty X checks take the width of the Z checks.  The X logical operators are then the words of
-    # the Hamming code, and Z on any qubit is a logical operator.
+    # the Hamming code, and Z on any qubit is a logical operator.  Two empty matrices of no qubits
+    # leave no logical qubit.
     hamming_checks = qldpc.codes.HammingCode(3).matrix
     assert core.get_distance_css([], hamming_checks, "X", method=method) == 3
     assert core.get_distance_css(np.zeros((0, 0)), hamming_checks, method=method) == 1
+    assert core.get_distance_css(np.zeros((0, 0)), [], method=method) is core.NO_DISTANCE
 
 
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
@@ -123,14 +125,17 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
     with pytest.raises(ValueError, match="satisfy the checks"):
         core.get_distance_from_checks([[1, 1, 0]], [[1, 0, 0]], method=method)
 
+    # Empty checks take the width of the excluded rows, and every word satisfies them.
+    assert core.get_distance_from_checks([], [[1, 1, 0]], method=method) == 1
+
 
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
 def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod) -> None:
     """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes.
 
-    The gauge generators of the three-qubit subsystem code leave no stabilizers, so a single-qubit X
-    is a dressed logical operator, although every bare logical operator has weight 3.  The checks of
-    the stabilizer state include a redundant row.
+    The gauge generators of this three-qubit subsystem code leave no stabilizers, so a single-qubit
+    X is a dressed logical operator, although every bare logical operator has weight 3.  The checks
+    of the stabilizer state include a redundant row.
     """
     five_qubit_code = qldpc.codes.FiveQubitCode()
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method) == 3
@@ -142,30 +147,33 @@ def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod
     stabilizer_state = [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 1, 1]]
     assert core.get_distance_pauli(stabilizer_state, method=method) is core.NO_DISTANCE
 
-    # The gauge generators X0, Z0, Y1, and Z1 X2, which are not CSS, and the redundant X0 Y1 leave
-    # no stabilizers and one logical qubit, so X1, which is not a gauge operator, is a dressed
-    # logical operator.
+    # An S gate on qubit 1 makes these gauge generators of the three-qubit code non-CSS, and the
+    # last of them is redundant.  They still leave no stabilizers, so the dressed distance is 1,
+    # but excluding no stabilizers gives the bare distance, 3.
     gauge = [
-        [1, 0, 0, 0, 0, 0],
-        [0, 0, 0, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0],
-        [0, 0, 1, 0, 1, 0],
+        [0, 1, 1, 0, 1, 0],
         [1, 1, 0, 0, 1, 0],
+        [0, 0, 0, 1, 0, 1],
+        [0, 0, 0, 1, 1, 0],
+        [1, 0, 1, 0, 0, 0],
     ]
     assert core.get_distance_pauli(gauge, method=method) == 1
+    no_stabilizers = np.zeros((0, 6), dtype=np.uint8)
+    assert core.get_distance_from_checks(gauge, no_stabilizers, symplectic=True, method=method) == 3
 
 
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
 def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     """The recipes of get_distance_from_checks give the bare and dressed distances of a code.
 
-    The gauge generators of the three-qubit subsystem code leave no stabilizers, so X on one qubit
-    is a dressed logical operator, but every bare logical operator has weight 3.
+    The only stabilizer of this subsystem code is Z on its last qubit, and X on one of its first
+    three qubits is a dressed logical operator, but every bare logical operator has weight 3.  The
+    bare distance therefore needs the stabilizers excluded, and the X and Z sectors kept apart.
     """
-    code = qldpc.codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]])
+    code = qldpc.codes.CSSCode(
+        [[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]]
+    )
     stabilizers = code.get_stabilizer_ops()
-    assert core.get_distance_css(code.matrix_x, code.matrix_z, method=method) == 1
-    assert core.get_distance_pauli(code.matrix, method=method) == 1
     assert (
         core.get_distance_from_checks(stabilizers, code.matrix, symplectic=True, method=method) == 1
     )
@@ -270,9 +278,12 @@ def test_special_inputs_of_generators() -> None:
     assert (
         core.get_distance_from_generators(np.empty((0, 4), dtype=np.uint8), cutoff=0) is no_distance
     )
+    # Generators in the row space of the excluded rows leave no distance, and so do no generators,
+    # which take the width of the excluded rows.
     for method in ("brouwer_zimmermann", "brute_force"):
         distance = core.get_distance_from_generators([[1, 0]], [[1, 0]], method=method)
         assert distance is no_distance
+        assert core.get_distance_from_generators([], [[1, 0]], method=method) is no_distance
     no_logical_ops = np.empty((0, 4), dtype=np.uint8)
     assert (
         core.get_distance_from_generators(no_logical_ops, [[1, 0, 0, 0]], symplectic=True)

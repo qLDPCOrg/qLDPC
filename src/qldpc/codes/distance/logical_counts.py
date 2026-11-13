@@ -165,8 +165,8 @@ class CSSLogicalCounter:
             gauge generators ``G_X``.
         checks_z: The Z-type checks ``H_Z`` of the code, as the rows of a binary matrix with as
             many columns as ``checks_x``, in any of the same forms.  They may be redundant, and in a
-            subsystem code they are the Z gauge generators ``G_Z``.  If either matrix is empty, an
-            empty list or a matrix of shape ``(0, 0)``, it takes the width of the other.
+            subsystem code they are the Z gauge generators ``G_Z``.  If either matrix is an empty
+            list or has shape ``(0, 0)``, it takes the width of the other.
 
     Raises:
         TypeError: If ``checks_x`` or ``checks_z`` is not array-like, as when a code is given

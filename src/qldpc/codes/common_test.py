@@ -1738,6 +1738,20 @@ def test_distance_css() -> None:
         assert code.get_distance_bound_with_decoder(Pauli.X) is codes.NO_DISTANCE
 
 
+def test_decoder_distance_bounds_of_subsystem_codes_are_bare() -> None:
+    """The decoder bounds the distance of a subsystem code by bare logical operators.
+
+    The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
+    three qubits is a dressed logical operator, although every bare logical operator has weight 3.
+    """
+    for pauli in PAULIS_XZ:
+        code = codes.CSSCode(
+            [[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]]
+        )
+        assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 3
+        assert code.get_distance_exact(pauli) == 1
+
+
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:
     """Decoder-specific arguments bypass optional-backend probes."""
     code = codes.QuditCode(codes.SteaneCode().matrix).to_css()

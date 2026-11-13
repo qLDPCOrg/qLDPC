@@ -279,8 +279,8 @@ def test_deprecated_distance_functions() -> None:
                 tuning.information_set_batch_exponent,
             ) == batches
 
-    # The functions search with those batches, as rows that record the active batch exponent when
-    # the search reads them show, and warn at their caller about both deprecations.
+    # The functions search with those batches, and warn at their caller about both deprecations.
+    # Rows that record the active batch exponent when the search reads them show the batches.
     exponents: list[int] = []
 
     class RecordingRows:

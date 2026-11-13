@@ -4,7 +4,7 @@
 
 The functions and classes of this package take plain binary arrays, so that programs can use them
 without building code objects.  The exact-distance methods of the code classes of
-:mod:`qldpc.codes` call its distance functions for binary codes.
+:mod:`qldpc.codes` call the distance functions of this package for binary codes.
 
 .. list-table::
    :header-rows: 1
@@ -19,11 +19,11 @@ without building code objects.  The exact-distance methods of the code classes o
      - :func:`~qldpc.codes.distance.get_distance_from_generators` or
        :func:`~qldpc.codes.distance.get_distance_from_checks`, with ``symplectic=True`` for Pauli
        strings
-   * - The distance, or the X- or Z-distance, of a CSS stabilizer or subsystem code, from its X and
-       Z checks, dressed for a subsystem code
+   * - The distance (dressed for a subsystem code), or the X- or Z-distance, of a CSS stabilizer or
+       subsystem code, from its X and Z checks
      - :func:`~qldpc.codes.distance.get_distance_css`, with ``pauli`` choosing the type
-   * - The distance of a stabilizer or subsystem code, from its checks as Pauli strings, dressed for
-       a subsystem code
+   * - The distance (dressed for a subsystem code) of a stabilizer or subsystem code, from its
+       checks as Pauli strings
      - :func:`~qldpc.codes.distance.get_distance_pauli`
    * - The bare distance of a subsystem code, from its gauge generators and stabilizers
      - :func:`~qldpc.codes.distance.get_distance_from_checks`, whose description gives the recipe

@@ -42,9 +42,9 @@ DistanceMethod = Literal[
   sets, and stops once a lower bound that the sets prove meets the lightest word found.
 - ``"connected_support"``: a search of the words whose supports the parity checks of a code connect,
   which is fast for codes with sparse checks.  Functions that take generators rather than checks
-  reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` search
-  its stabilizers, which they derive from its gauge generators, and which can be dense even if the
-  gauge generators are sparse.
+  reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` use its
+  stabilizers, which they derive from its gauge generators, as the checks, and these can be dense
+  even if the gauge generators are sparse.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 
 :class:`~qldpc.codes.distance.CosetLeaderSearch` and
@@ -121,15 +121,15 @@ def get_distance_from_generators(
     weight of a nontrivial logical operator.  For a subsystem code, exclude its gauge generators,
     such as the rows of ``code.matrix``, to get its distance, which is dressed: its logical
     operators may be multiplied by gauge operators.  If the generators are bare logical operators,
-    such as :meth:`~qldpc.codes.common.QuditCode.get_logical_ops` returns, excluding only its
-    stabilizers gives its bare distance instead (see :func:`get_distance_from_checks`).  Rows may be
-    redundant.
+    such as those that :meth:`~qldpc.codes.common.QuditCode.get_logical_ops` returns, excluding only
+    the stabilizers of the code gives its bare distance instead (see
+    :func:`get_distance_from_checks`).  Rows may be redundant.
 
     Args:
         generators: A binary matrix whose rows, together with those of ``excluded``, span the words.
         excluded: A binary matrix with as many columns, whose rows span the trivial words.  By
-            default, only the zero word is trivial.  If either matrix is empty, an empty list or a
-            matrix of shape ``(0, 0)``, it takes the width of the other.
+            default, only the zero word is trivial.  If either matrix is an empty list or has
+            shape ``(0, 0)``, it takes the width of the other.
         symplectic: If False (the default), each row is a binary word, which weighs its number of
             nonzero entries.  If True, each row is a Pauli string on ``n`` qubits, with ``2 n``
             entries: the support of its X part, then the support of its Z part.  A Pauli string
@@ -170,8 +170,8 @@ def get_distance_from_generators(
         ValueError: If the method is unknown or is ``"connected_support"``, if ``max_weight`` is
             negative, if the matrices are not binary matrices with the same number of columns, if
             they have an odd number of columns while ``symplectic`` is True, if ``automorphisms``
-            are not permutations of the bits or qubits, or if one is not an automorphism of a
-            problem whose search uses it.
+            are not permutations of the bits or qubits, or if a search uses them and finds that one
+            of them is not an automorphism.
     """
     method = _reject_connected_support(_validate_distance_method(method))
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -216,23 +216,25 @@ def get_distance_from_checks(
 
         get_distance_from_checks(code.matrix, code.get_stabilizer_ops(), symplectic=True)
 
-    For a CSS code, two classical searches are faster.  The bare X-distance is::
+    For a CSS code, two smaller classical searches give it too.  The bare X-distance is::
 
         get_distance_from_checks(code.matrix_z, code.get_stabilizer_ops(Pauli.X))
 
-    The bare Z-distance exchanges X and Z, and the bare distance is the smaller of the two.  Exclude
-    all of the stabilizers, or all of the gauge generators, since a word that satisfies the checks
-    counts as a logical operator unless it is a sum of excluded rows.  So excluding nothing, or only
-    some stabilizers, counts stabilizers as logical operators, and stabilizers as both the checks
-    and ``excluded``, such as ``S_Z`` and ``S_X``, count gauge operators as logical operators.
+    The bare Z-distance exchanges X and Z, and the bare distance is the smaller of the two.
+
+    A word that satisfies the checks counts as a logical operator unless it is a sum of excluded
+    rows.  So exclude all of the stabilizers for the bare distance, and all of the gauge generators
+    for the dressed distance.  Excluding nothing, or only some stabilizers, counts stabilizers as
+    logical operators.  Passing stabilizers as both the checks and ``excluded``, such as the Z-type
+    and X-type stabilizers of a CSS code, counts gauge operators as logical operators.
 
     Args:
         checks: A binary matrix whose rows are the checks.
         excluded: A binary matrix with as many columns, whose rows satisfy the checks and span the
             trivial words.  By default, only the zero word is trivial.  It is required if
             ``symplectic`` is True, since the stabilizers of a quantum code satisfy its checks but
-            are trivial.  If either matrix is empty, an empty list or a matrix of shape ``(0, 0)``,
-            it takes the width of the other.
+            are trivial.  If either matrix is an empty list or has shape ``(0, 0)``, it takes the
+            width of the other.
         symplectic: If False (the default), each row is a binary word, which weighs its number of
             nonzero entries.  If True, each row is a Pauli string on ``n`` qubits, with ``2 n``
             entries: the support of its X part, then the support of its Z part.  A Pauli string
@@ -270,8 +272,8 @@ def get_distance_from_checks(
             binary matrices with the same number of columns, if they have an odd number of columns
             while ``symplectic`` is True, if ``symplectic`` is True and ``excluded`` is not given,
             if a row of ``excluded`` does not satisfy the checks, if ``automorphisms`` are not
-            permutations of the bits or qubits, or if one is not an automorphism of a problem whose
-            search uses it.
+            permutations of the bits or qubits, or if a search uses them and finds that one of them
+            is not an automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -279,18 +281,18 @@ def get_distance_from_checks(
     num_variables = _get_num_variables(check_matrix.shape[1], symplectic)
     if symplectic and excluded is None:
         raise ValueError(
-            "Symplectic checks need excluded rows, which satisfy the checks but are trivial, such as"
-            " the stabilizers of a stabilizer code: for the distance of a stabilizer or subsystem"
-            " code from its checks, use get_distance_pauli, and for the bare distance of a"
-            " subsystem code, pass its stabilizers as excluded (see get_distance_from_checks)"
+            "Symplectic checks need excluded rows, which satisfy the checks but are trivial.  For"
+            " the distance of a stabilizer or subsystem code, use get_distance_pauli; for the bare"
+            " distance of a subsystem code, pass its gauge generators as the checks and its"
+            " stabilizers as excluded (see get_distance_from_checks)"
         )
     dot_checks = swap_pauli_halves(check_matrix) if symplectic else check_matrix
     if np.any(multiply_binary(excluded_matrix, dot_checks.T)):
         raise ValueError(
-            "Every row of excluded must satisfy the checks.  For a subsystem code, get_distance_css"
-            " and get_distance_pauli find its distance, which is dressed, from its gauge"
-            " generators, and the gauge generators as the checks, with the stabilizers excluded,"
-            " give its bare distance (see get_distance_from_checks)"
+            "Every row of excluded must satisfy the checks.  For the distance of a subsystem code,"
+            " which is dressed, use get_distance_css or get_distance_pauli; for its bare distance,"
+            " pass its gauge generators as the checks and its stabilizers as excluded (see"
+            " get_distance_from_checks)"
         )
     return _search_checks(
         check_matrix,
@@ -327,16 +329,17 @@ def get_distance_css(
     Its stabilizers are the gauge operators that commute with every gauge operator, and its logical
     operators are dressed: they may be multiplied by gauge operators.  An X logical operator then
     commutes with every Z-type stabilizer, and it is trivial if it is an X-type gauge operator.  The
-    result is then the dressed distance, which is the distance of the code, and
-    :func:`get_distance_from_checks` says how to find its bare distance instead.  To be sure that
-    the checks define a stabilizer code, check that ``checks_x @ checks_z.T % 2`` is zero, or build
-    ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error otherwise.
+    result is then dressed, as the distance of a subsystem code is, and
+    :func:`get_distance_from_checks` says how to find the bare distance instead.  To be sure that
+    the checks define a stabilizer code, build a code with
+    ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error if they do not
+    commute.
 
     Args:
         checks_x: A binary matrix of the X-type checks, which may be redundant.
         checks_z: A binary matrix of the Z-type checks, with as many columns, which may be
-            redundant.  If either matrix is empty, an empty list or a matrix of shape ``(0, 0)``,
-            it takes the width of the other.
+            redundant.  If either matrix is an empty list or has shape ``(0, 0)``, it takes the
+            width of the other.
         pauli: ``Pauli.X`` (or ``"X"``) for the X-distance, the minimum weight of a nontrivial X
             logical operator, or ``Pauli.Z`` (or ``"Z"``) for the Z-distance.  If None (the
             default), the result is the distance of the code, the smaller of the two.  The
@@ -346,8 +349,8 @@ def get_distance_css(
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
             ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  For a
-            subsystem code, the connected-support method searches the stabilizers, which can be
-            dense even if the checks are sparse.
+            subsystem code, the connected-support method uses the stabilizers as its checks, which
+            can be dense even if the gauge generators are sparse.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
@@ -369,8 +372,8 @@ def get_distance_css(
             ``checks_z`` is not array-like, as when a code is given instead of its checks.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not
             binary matrices with the same number of columns, if ``pauli`` is not X, Z, or None, if
-            ``automorphisms`` are not permutations of the qubits, or if one is not an automorphism
-            of a problem whose search uses it.
+            ``automorphisms`` are not permutations of the qubits, or if a search uses them and finds
+            that one of them is not an automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -441,16 +444,15 @@ def get_distance_pauli(
     :class:`~qldpc.codes.QuditCode`.  If all of these Pauli strings commute, the code is a
     stabilizer code, and the rows generate its stabilizer group.  Its distance is the minimum weight
     of a nontrivial logical operator: a Pauli string that commutes with every row, but is not a
-    stabilizer.
+    stabilizer.  A Pauli string weighs the number of qubits on which it acts nontrivially.
 
     Otherwise, the code is a subsystem code, and the rows generate its gauge group.  Its stabilizers
     are the gauge operators that commute with every gauge operator, and its logical operators are
     dressed: they may be multiplied by gauge operators.  Its distance is then the dressed distance:
     the minimum weight of a Pauli string that commutes with every stabilizer, but is not a gauge
-    operator.  :func:`get_distance_from_checks` says how to find its bare distance instead.  A Pauli
-    string weighs the number of qubits on which it acts nontrivially.  To be sure that the checks
-    define a stabilizer code, build ``QuditCode(checks, is_subsystem_code=False)``, which raises an
-    error if they do not commute.
+    operator.  :func:`get_distance_from_checks` says how to find its bare distance instead.  To be
+    sure that the checks define a stabilizer code, build a code with
+    ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if they do not commute.
 
     Args:
         checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
@@ -458,8 +460,8 @@ def get_distance_pauli(
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
             ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  For a
-            subsystem code, the connected-support method searches the stabilizers, which can be
-            dense even if the checks are sparse.
+            subsystem code, the connected-support method uses the stabilizers as its checks, which
+            can be dense even if the gauge generators are sparse.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
@@ -479,10 +481,10 @@ def get_distance_pauli(
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` is not
             array-like, as when a code is given instead of its checks.
-        ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not
-            a binary matrix with an even number of columns, if ``automorphisms`` are not
-            permutations of the qubits, or if one is not an automorphism of a problem whose search
-            uses it.
+        ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not a
+            binary matrix with an even number of columns, if ``automorphisms`` are not permutations
+            of the qubits, or if a search uses them and finds that one of them is not an
+            automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -608,8 +610,9 @@ def _as_matrix_and_excluded(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Check a matrix and the excluded rows, and return them as binary matrices of one width.
 
-    The matrix is named ``name`` in error messages.  No excluded rows give a matrix without rows,
-    and otherwise either matrix can take the width of the other (see ``as_binary_matrix_pair``).
+    The matrix is named ``name`` in error messages.  If ``excluded`` is None, the excluded matrix
+    has no rows, and otherwise either matrix can take the width of the other (see
+    ``as_binary_matrix_pair``).
     """
     if excluded is None:
         binary_matrix = as_binary_matrix(matrix, name)

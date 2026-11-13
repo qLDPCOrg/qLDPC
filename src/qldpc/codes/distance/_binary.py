@@ -53,11 +53,13 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
             f"Exact searches only take binary input, but {name} is defined over GF({order})"
         )
     array = np.asarray(_as_dense(vectors))
-    if array.dtype == object and array.ndim == 0 and not isinstance(array.item(), numbers.Number):
-        raise TypeError(
-            f"{name} must be an array of binary entries, not an object of type"
-            f" {type(vectors).__name__}"
-        )
+    if array.dtype == object and array.ndim == 0:
+        item = array.item()
+        if not isinstance(item, numbers.Number | np.generic):
+            raise TypeError(
+                f"{name} must be an array of binary entries, not an object of type"
+                f" {type(item).__name__}"
+            )
     if array.size and not np.all((array == 0) | (array == 1)):
         raise ValueError(
             f"Exact searches only take binary input, but {name} has entries other than 0 and 1"
@@ -101,9 +103,9 @@ def as_binary_matrix_pair(
 
     Each is checked as by ``as_binary_matrix``, under its name in ``names``.  A matrix without a
     width, an empty list or a matrix of shape ``(0, 0)``, takes the width of the other, so if both
-    are empty lists, the second raises an error.
+    are empty lists, the first raises an error.
     """
-    if np.shape(first) in ((0,), (0, 0)):
+    if np.shape(first) in ((0,), (0, 0)) and np.shape(second) != (0,):
         second_matrix = as_binary_matrix(second, names[1])
         return as_binary_matrix(first, names[0], num_cols=second_matrix.shape[1]), second_matrix
     first_matrix = as_binary_matrix(first, names[0])

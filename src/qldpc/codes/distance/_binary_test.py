@@ -11,6 +11,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import scipy.sparse
+import sympy
 
 import qldpc
 from qldpc._binary import get_independent_rows
@@ -41,24 +42,31 @@ def test_binary_matrices_and_nested_bases() -> None:
     assert binary.as_binary_matrix(np.zeros((0, 0)), num_cols=3).shape == (0, 3)
 
     # Arrays of objects, such as Python integers too large for NumPy, are checked entry by entry,
-    # and so is a single number, but a single object that is neither is rejected.
+    # and so is a single number, but a single object that is neither an array nor a number is
+    # rejected.
     np.testing.assert_array_equal(
         binary.as_binary_matrix(np.array([[1, 0]], dtype=object)), [[1, 0]]
     )
-    np.testing.assert_array_equal(binary.as_binary_matrix(np.array(1, dtype=object)), [[1]])
+    for number in (sympy.Integer(1), np.array(np.True_, dtype=object)):
+        np.testing.assert_array_equal(binary.as_binary_matrix(cast(Any, number)), [[1]])
     for not_binary in ([[2**70, 0]], [[None, 1]]):
         with pytest.raises(ValueError, match="entries other than 0 and 1"):
             binary.as_binary_matrix(cast(Any, not_binary))
     with pytest.raises(TypeError, match="rows must be an array of binary entries, not an object"):
         binary.as_binary_matrix(cast(Any, {}))
 
-    # A matrix without a width takes the width of the other, but two empty lists have no width.
+    # A matrix without a width takes the width of the other, in either order, but two empty lists
+    # have no width.
     names = ("first", "second")
     first, second = binary.as_binary_matrix_pair([], [[1, 0, 1]], names)
     assert first.shape == (0, 3) and second.shape == (1, 3)
     first, second = binary.as_binary_matrix_pair([[1, 0, 1]], np.zeros((0, 0)), names)
     assert first.shape == (1, 3) and second.shape == (0, 3)
-    with pytest.raises(ValueError, match="infer the width of second"):
+    first, second = binary.as_binary_matrix_pair(np.zeros((0, 0)), [], names)
+    assert first.shape == second.shape == (0, 0)
+    first, second = binary.as_binary_matrix_pair([], np.zeros((0, 0)), names)
+    assert first.shape == second.shape == (0, 0)
+    with pytest.raises(ValueError, match="infer the width of first"):
         binary.as_binary_matrix_pair([], [], names)
 
     sparse = scipy.sparse.csr_array([[1, 0, 1]])

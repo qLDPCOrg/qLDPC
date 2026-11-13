@@ -532,8 +532,9 @@ def _as_state_stabilizers(stabilizers: npt.ArrayLike) -> npt.NDArray[np.uint8]:
     checks = swap_pauli_halves(matrix)
     if np.any((checks @ matrix.T) % 2):
         raise ValueError(
-            "The stabilizers must commute: the gauge generators of a subsystem code are not"
-            " supported, so fix its gauge first, to get the stabilizers of a state"
+            "The stabilizers must commute, so they cannot be the gauge generators of a subsystem"
+            " code: pass the stabilizers of a state, such as one with the gauge and logical qubits"
+            " of the code fixed"
         )
 
     # Commuting stabilizers of rank ``n`` define a state, and of a lower rank a code.

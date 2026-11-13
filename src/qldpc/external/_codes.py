@@ -206,17 +206,18 @@ def get_qdistrnd_distance_bound(
     cutoff = cutoff or 0
     kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
 
+    # QDistRnd fails on a matrix without rows, so give each such matrix a zero row, which keeps its
+    # row space.
+    if not len(matrix):
+        matrix = type(matrix).Zeros((1, matrix.shape[1]))
+    if matrix_z is not None and not len(matrix_z):
+        matrix_z = type(matrix_z).Zeros((1, matrix_z.shape[1]))
+
     if matrix_z is not None:
-        # QDistRnd fails on a matrix without rows, so give each such matrix a zero row, which keeps
-        # its row space.
-        matrix_x, matrix_z = (
-            rows if len(rows) else type(rows).Zeros((1, rows.shape[1]))
-            for rows in (matrix, matrix_z)
-        )
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);;',
-            *_get_gap_sparse_matrix_commands("matrix_x", field_order, matrix_x),
+            *_get_gap_sparse_matrix_commands("matrix_x", field_order, matrix),
             *_get_gap_sparse_matrix_commands("matrix_z", field_order, matrix_z),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
