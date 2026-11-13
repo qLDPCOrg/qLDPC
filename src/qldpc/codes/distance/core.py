@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc._binary import get_independent_rows, get_kernel
-from qldpc.objects import PAULIS_XZ, Pauli, PauliXZLike
+from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
 
 from ._binary import (
     as_binary_matrix,
@@ -30,7 +30,8 @@ from ._binary import (
 from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_nested_distance_brute_force
 from ._connected_support.search import get_distance_connected_support
-from ._tuning import get_tuning
+from ._connected_support.sparse_checks import get_sparser_rows
+from ._tuning import SearchTuning, get_tuning
 
 DistanceMethod = Literal[
     "brouwer_zimmermann", "brute_force", "information_sets", "connected_support"
@@ -38,13 +39,13 @@ DistanceMethod = Literal[
 """The methods of exact distance searches.
 
 - ``"brouwer_zimmermann"``, the default of every search, and its alias ``"information_sets"``: the
-  Brouwer--Zimmermann algorithm, which enumerates words of increasing weight in several information
+  Brouwer-Zimmermann algorithm, which enumerates words of increasing weight in several information
   sets, and stops once a lower bound that the sets prove meets the lightest word found.
 - ``"connected_support"``: a search of the words whose supports the parity checks of a code connect,
   which is fast for codes with sparse checks.  Functions that take generators rather than checks
   reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` derive
-  its stabilizers from its gauge generators and use them as the checks.  These can be dense even if
-  the gauge generators are sparse.
+  its stabilizers from its gauge generators, and search sparser generators of them.  A caller who
+  knows sparser ones can pass them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 
 :class:`~qldpc.codes.distance.CosetLeaderSearch` and
@@ -151,7 +152,7 @@ def get_distance_from_generators(
             onto themselves.  Pass them as an array whose row ``p`` maps bit or qubit ``j`` to
             ``p[j]``, or as a function that returns such an array or None.  A search asks for them
             at most once, when it reaches a costly stage (see :doc:`/exact_search_tuning`), and only
-            then calls a function.  The Brouwer--Zimmermann method then verifies that the
+            then calls a function.  The Brouwer-Zimmermann method then verifies that the
             permutations are automorphisms, and uses them to search fewer information sets.  The
             brute-force method does not use them.
 
@@ -246,7 +247,7 @@ def get_distance_from_checks(
             "Returns").
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
             ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  The
-            Brouwer--Zimmermann and brute-force methods search among the words that satisfy the
+            Brouwer-Zimmermann and brute-force methods search among the words that satisfy the
             checks, and the connected-support method searches the words whose supports the checks
             connect.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
@@ -260,7 +261,7 @@ def get_distance_from_checks(
             as an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or as a function that
             returns such an array or None.  A search asks for them at most once, when it reaches a
             costly stage (see :doc:`/exact_search_tuning`), and only then calls a function.  The
-            Brouwer--Zimmermann and connected-support methods then verify that the permutations are
+            Brouwer-Zimmermann and connected-support methods then verify that the permutations are
             automorphisms, and use them to search less.  The brute-force method does not use them.
 
     Returns:
@@ -346,7 +347,7 @@ def get_distance_css(
         pauli: ``Pauli.X`` (or ``"X"``) for the X-distance, the minimum weight of a nontrivial X
             logical operator, or ``Pauli.Z`` (or ``"Z"``) for the Z-distance.  If None (the
             default), the result is the distance of the code, the smaller of the two.  The
-            Brouwer--Zimmermann and connected-support methods then search both types at once, which
+            Brouwer-Zimmermann and connected-support methods then search both types at once, which
             is faster than two calls.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
@@ -360,7 +361,7 @@ def get_distance_css(
             of ``checks_z``, onto themselves.  Pass them as an array whose row ``p`` maps qubit
             ``j`` to ``p[j]``, or as a function that returns such an array or None.  A search asks
             for them at most once, when it reaches a costly stage (see :doc:`/exact_search_tuning`),
-            and only then calls a function.  The Brouwer--Zimmermann and connected-support methods
+            and only then calls a function.  The Brouwer-Zimmermann and connected-support methods
             then verify that the permutations are automorphisms, and use them to search less.  The
             brute-force method does not use them.
 
@@ -382,52 +383,14 @@ def get_distance_css(
     gauge_x, gauge_z = as_binary_matrix_pair(checks_x, checks_z, ("checks_x", "checks_z"))
     paulis = PAULIS_XZ if pauli is None else [Pauli.coerce_xz(pauli)]
     get_automorphisms = _get_automorphism_getter(automorphisms, gauge_x.shape[1])
-
-    # The logical operators of each type satisfy the stabilizers of the other type, and are trivial
-    # if they are gauge operators of their own type.
-    stabilizers_x, stabilizers_z = get_css_stabilizers(gauge_x, gauge_z)
-    sectors = {Pauli.X: (stabilizers_z, gauge_x), Pauli.Z: (stabilizers_x, gauge_z)}
-    problems = [sectors[sector_pauli] for sector_pauli in paulis]
-
-    # Each type has one independent nontrivial logical operator for each logical qubit, so the X
-    # type alone shows whether the code encodes any.
-    num_logical_x = (
-        gauge_x.shape[1]
-        - len(get_independent_rows(stabilizers_z))
-        - len(get_independent_rows(gauge_x))
-    )
-    if num_logical_x == 0:
-        return NO_DISTANCE
-
-    # Search the requested types at once, except by brute force, which has no joint search, and so
-    # searches each type in turn and takes the minimum.
-    if method == "connected_support":
-        return get_distance_connected_support(
-            problems,
-            cutoff=cutoff,
-            upper_bound=upper_bound,
-            get_automorphisms=get_automorphisms,
-            tuning=get_tuning(),
-        )
-    if method == "brute_force":
-        return min(
-            _search_checks(
-                checks,
-                excluded,
-                symplectic=False,
-                cutoff=cutoff,
-                upper_bound=upper_bound,
-                method=method,
-                get_automorphisms=None,
-            )
-            for checks, excluded in problems
-        )
-    return get_distance_brouwer_zimmermann_many(
-        [get_nested_code_basis(get_kernel(checks), excluded) for checks, excluded in problems],
+    return _search_css(
+        gauge_x,
+        gauge_z,
+        paulis,
         cutoff=cutoff,
         upper_bound=upper_bound,
+        method=method,
         get_automorphisms=get_automorphisms,
-        tuning=get_tuning(),
     )
 
 
@@ -456,6 +419,10 @@ def get_distance_pauli(
     sure that the checks define a stabilizer code, build a code with
     ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if they do not commute.
 
+    If X-type and Z-type operators generate the group that the rows generate, the code is CSS, even
+    if the rows mix X and Z.  This function then searches it as :func:`get_distance_css` does, which
+    is faster.
+
     Args:
         checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
@@ -470,7 +437,7 @@ def get_distance_pauli(
             Pass them as an array whose row ``p`` maps qubit ``j`` to ``p[j]``, or as a function
             that returns such an array or None.  A search asks for them at most once, when it
             reaches a costly stage (see :doc:`/exact_search_tuning`), and only then calls a
-            function.  The Brouwer--Zimmermann and connected-support methods then verify that the
+            function.  The Brouwer-Zimmermann and connected-support methods then verify that the
             permutations are automorphisms, and use them to search less.  The brute-force method
             does not use them.
 
@@ -491,14 +458,124 @@ def get_distance_pauli(
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     gauge = as_binary_matrix(checks, "checks")
     num_qubits = _get_num_variables(gauge.shape[1], symplectic=True)
+    get_automorphisms = _get_automorphism_getter(automorphisms, num_qubits)
+
+    # The checks generate the same group as their X and Z parts exactly if the ranks of the parts
+    # add up to theirs.  Then search the CSS code of the parts, whose two sectors of n bits each are
+    # much cheaper to search than one sector of 2n bits.
+    gauge_x, gauge_z = gauge[:, :num_qubits], gauge[:, num_qubits:]
+    rank = len(get_independent_rows(gauge))
+    if rank == len(get_independent_rows(gauge_x)) + len(get_independent_rows(gauge_z)):
+        return _search_css(
+            gauge_x,
+            gauge_z,
+            PAULIS_XZ,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            method=method,
+            get_automorphisms=get_automorphisms,
+        )
+
+    stabilizers = get_pauli_stabilizers(gauge)
+
+    # get_pauli_stabilizers returns new rows only for a subsystem code.  Its gauge generators that
+    # commute with every gauge generator are stabilizers, which the search keeps among its checks.
+    kept_stabilizers = None
+    if method == "connected_support" and stabilizers is not gauge:
+        overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
+        kept_stabilizers = gauge[~np.any(overlaps, axis=1)]
+
     return _search_checks(
-        get_pauli_stabilizers(gauge),
+        stabilizers,
         gauge,
         symplectic=True,
         cutoff=cutoff,
         upper_bound=upper_bound,
         method=method,
-        get_automorphisms=_get_automorphism_getter(automorphisms, num_qubits),
+        get_automorphisms=get_automorphisms,
+        kept_stabilizers=kept_stabilizers,
+    )
+
+
+def _search_css(
+    gauge_x: npt.NDArray[np.uint8],
+    gauge_z: npt.NDArray[np.uint8],
+    paulis: list[PauliXZ],
+    *,
+    cutoff: int,
+    upper_bound: int | None,
+    method: _CanonicalDistanceMethod,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+) -> int | Literal[NoDistance.NAN]:
+    """Search the requested sectors of a CSS code, given its X-type and Z-type gauge generators.
+
+    ``upper_bound``, if given, is ``max_weight + 1``, which the result does not exceed, and
+    ``get_automorphisms`` returns checked permutations or None (see ``_get_automorphism_getter``).
+    The other arguments are those of ``get_distance_css``, validated.
+    """
+    # The logical operators of each type satisfy the stabilizers of the other type, and are trivial
+    # if they are gauge operators of their own type.
+    stabilizers_x, stabilizers_z = get_css_stabilizers(gauge_x, gauge_z)
+    sectors = {Pauli.X: (stabilizers_z, gauge_x), Pauli.Z: (stabilizers_x, gauge_z)}
+    problems = [sectors[sector_pauli] for sector_pauli in paulis]
+
+    # Each type has one independent nontrivial logical operator for each logical qubit, so the X
+    # type alone shows whether the code encodes any.
+    num_logical_x = (
+        gauge_x.shape[1]
+        - len(get_independent_rows(stabilizers_z))
+        - len(get_independent_rows(gauge_x))
+    )
+    if num_logical_x == 0:
+        return NO_DISTANCE
+
+    # Search the requested types at once, except by brute force, which has no joint search, and so
+    # searches each type in turn and takes the minimum.
+    if method == "connected_support":
+        tuning = get_tuning()
+        if stabilizers_x is not gauge_x:
+            # get_css_stabilizers returns new rows only for a subsystem code.  Its stabilizers are a
+            # row-reduced basis, which can be dense, so search sparser checks with the same span.
+            overlaps = multiply_binary(gauge_x, gauge_z.T)
+            kept_stabilizers = {
+                Pauli.X: gauge_z[~np.any(overlaps, axis=0)],
+                Pauli.Z: gauge_x[~np.any(overlaps, axis=1)],
+            }
+            problems = [
+                (
+                    _get_sparser_stabilizers(
+                        checks, kept_stabilizers[sector_pauli], homogeneous=True, tuning=tuning
+                    ),
+                    excluded,
+                )
+                for sector_pauli, (checks, excluded) in zip(paulis, problems, strict=True)
+            ]
+        return get_distance_connected_support(
+            problems,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            get_automorphisms=get_automorphisms,
+            tuning=tuning,
+        )
+    if method == "brute_force":
+        return min(
+            _search_checks(
+                checks,
+                excluded,
+                symplectic=False,
+                cutoff=cutoff,
+                upper_bound=upper_bound,
+                method=method,
+                get_automorphisms=None,
+            )
+            for checks, excluded in problems
+        )
+    return get_distance_brouwer_zimmermann_many(
+        [get_nested_code_basis(get_kernel(checks), excluded) for checks, excluded in problems],
+        cutoff=cutoff,
+        upper_bound=upper_bound,
+        get_automorphisms=get_automorphisms,
+        tuning=get_tuning(),
     )
 
 
@@ -511,13 +588,16 @@ def _search_checks(
     upper_bound: int | None,
     method: _CanonicalDistanceMethod,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+    kept_stabilizers: npt.NDArray[np.uint8] | None = None,
 ) -> int | Literal[NoDistance.NAN]:
     """Search the words that satisfy the checks, outside the row space of excluded rows.
 
     The excluded rows satisfy the checks.  ``upper_bound``, if given, is ``max_weight + 1``, which
     the result does not exceed, and ``get_automorphisms`` returns checked permutations or None (see
     ``_get_automorphism_getter``).  The other arguments are those of the public distance functions,
-    validated.
+    validated.  If ``kept_stabilizers`` is given, the checks are the derived stabilizers of a
+    subsystem code, and the connected-support method searches the checks that
+    ``_get_sparser_stabilizers`` returns instead.
     """
     if method != "connected_support":
         kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
@@ -536,14 +616,45 @@ def _search_checks(
     dimension = checks.shape[1] - len(get_independent_rows(checks))
     if dimension == len(get_independent_rows(excluded)):
         return NO_DISTANCE
+    tuning = get_tuning()
+    if kept_stabilizers is not None:
+        checks = _get_sparser_stabilizers(
+            checks, kept_stabilizers, homogeneous=not symplectic, tuning=tuning
+        )
     return get_distance_connected_support(
         [(checks, excluded)],
         cutoff=cutoff,
         upper_bound=upper_bound,
         homogeneous=not symplectic,
         get_automorphisms=get_automorphisms,
-        tuning=get_tuning(),
+        tuning=tuning,
     )
+
+
+def _get_sparser_stabilizers(
+    stabilizers: npt.NDArray[np.uint8],
+    kept_stabilizers: npt.NDArray[np.uint8],
+    *,
+    homogeneous: bool,
+    tuning: SearchTuning,
+) -> npt.NDArray[np.uint8]:
+    """Checks that span the stabilizers of a subsystem code, for a connected-support search.
+
+    ``stabilizers`` is the independent basis that ``get_css_stabilizers`` or
+    ``get_pauli_stabilizers`` derives, and ``kept_stabilizers`` holds the gauge generators that are
+    stabilizers.  The checks are ``kept_stabilizers``, as given, followed by ``stabilizers`` made
+    sparser in up to ``max_distance_sparsifying_rounds`` rounds (Section 3.9 of
+    ``connected_support.md``).
+    """
+    rows = stabilizers
+    if tuning.max_distance_sparsifying_rounds:
+        rows, _ = get_sparser_rows(
+            stabilizers,
+            homogeneous=homogeneous,
+            max_rounds=tuning.max_distance_sparsifying_rounds,
+            rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
+        )
+    return np.vstack([kept_stabilizers, rows])
 
 
 def _search_generators(

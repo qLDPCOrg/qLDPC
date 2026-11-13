@@ -13,6 +13,11 @@ Prose style
   For each paragraph, docstring section, or comment, ask what its reader needs from it, and whether that reader would miss it if it were gone.
   If not, delete it, or point to where the information lives.
   If so, state its message in one line, then write the simplest text that gets that message across.
+* A docstring says what its object does, and what its arguments and results mean where the signature and summary line leave that unclear.
+  Beyond that, state a behavior when, and only when, a reader who knows the subject's standard terms could reasonably expect something else, and so get a wrong or materially misleading result without an error.
+  An expectation is reasonable if it has a source, such as the literature, a similar function, or a name.
+  Also state limitations and security risks, and what other standards call for, such as assumptions and side effects.
+  For example, say that the distance of a subsystem code is dressed, since the literature also defines a bare distance, but not that an empty batch of syndromes decodes to an empty batch of errors.
 * Prefer short sentences with one idea each.
   Split a sentence with stacked clauses, parenthetical asides, or chains of semicolons rather than compressing it.
 * Describe what code does, not what it does not do or how it used to work.
@@ -28,7 +33,7 @@ Prose style
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
 * Use the serial (Oxford) comma before the conjunction in a list of three or more items, as in ``X, Y, and Z``.
-* Docstrings follow the Google convention.
+* Docstrings use the section format of the Google convention, such as ``Args:`` and ``Returns:``.
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
 * Keep one prose sentence per physical source line in repository ``.rst`` and ``.md`` files and notebook Markdown cells.
   Put ``First sentence.`` and ``Second sentence.`` on separate source lines; leave code blocks, equations, and table syntax intact.
