@@ -383,7 +383,7 @@ def test_weight_oracles(pytestconfig: pytest.Config) -> None:
 
     tables = residual_weights._CSSWeightTables(x_supports, z_supports, max_residual_weight)
     search = residual_weights._CosetSearchWeights(
-        stabilizers, True, max_residual_weight, search_method="brouwer_zimmermann"
+        stabilizers, True, max_residual_weight, method="brouwer_zimmermann"
     )
     keys = []
     expected = []

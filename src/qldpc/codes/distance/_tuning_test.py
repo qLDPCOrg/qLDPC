@@ -170,10 +170,11 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
             # New codes and counters, since codes and counters remember their distances.
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
             distances = (fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z))
-            counter_code = codes.CSSCode(code.matrix_x, code.matrix_z)
-            counts = lc.CSSLogicalCounter(counter_code).count_logical_ops(count_pauli=True)
+            counts = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(
+                count_pauli=True
+            )
             assert counts.weight is not codes.NO_DISTANCE
-            macwilliams = lc.CSSLogicalCounter(counter_code).count_logical_ops(
+            macwilliams = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(
                 counts.weight, method="macwilliams"
             )
         results.append((distances, counts, macwilliams))
@@ -264,7 +265,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     and ``_information_sets/basis_families_test.py`` change them there.  Others are read once by
     ``CosetLeaderSearch``, which passes their values down to its coset searches:
     ``max_css_single_pairs``, ``max_sparsifying_rounds``, and
-    ``sparsifying_rounds_without_improvement``.  Tests in ``_coset_leader_search_test.py``,
+    ``sparsifying_rounds_without_improvement``.  Tests in ``coset_leaders_test.py``,
     ``_brouwer_zimmermann/coset_test.py``, and ``_connected_support/coset_test.py`` change or
     record these, and the fields that the oracle passes down to the routes of its BZ searches.
     """
@@ -288,8 +289,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(basis_families, "get_partitioned_family", "tuning")
     record(basis_families.BasisFamily, "get_search_certificate", "lp_max_denominator")
     record(bz, "get_nested_distance_brute_force", "batch_exponent", prefix="bz ")
-    record(core, "get_distance_quantum_brute_force", "batch_exponent", prefix="classical ")
-    record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="quantum ")
+    record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="core ")
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
@@ -326,14 +326,13 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     ) as tuning:
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(Pauli.X)
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="connected_support")
-        counter = lc.CSSLogicalCounter(codes.CSSCode(code.matrix_x, code.matrix_z))
+        counter = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z)
         counter.count_logical_ops()
         counter.count_logical_ops(method="brute_force")
-        lc.CSSLogicalCounter(code).count_logical_ops(method="macwilliams")
+        lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(method="macwilliams")
         # A basis of one row is small enough to enumerate under either method.
-        core.get_distance_classical([[1, 1, 1, 0]])
-        core.get_distance_classical([[1, 1, 1, 0]], method="brute_force")
-        core.get_distance_quantum([[1, 1, 0]], [[0, 1, 1]], homogeneous=True, method="brute_force")
+        core.get_distance_from_generators([[1, 1, 1, 0]])
+        core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
 
     expected = {
         "max_dimension": {3},
@@ -343,8 +342,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "tuning": {tuning},
         "lp_max_denominator": {97},
         "bz batch_exponent": {6},
-        "classical batch_exponent": {6},
-        "quantum batch_exponent": {6},
+        "core batch_exponent": {6},
         "count batch_exponent": {6},
         "shared_walk_rank": {5},
         "chunk_size": {1000, 1001},

@@ -27,6 +27,9 @@ So its cost depends on the sparsity of the checks, on the weight limit, and on t
 For a given code, its cost grows by a roughly constant factor with each step of the weight limit.
 That factor is large if the checks are dense, because every unsatisfied check offers many variables to branch on.
 The search of a subsystem code uses the Tanner graph of its stabilizers, which can be dense even if its gauge generators are sparse.
+`get_distance_css` and `get_distance_pauli` derive these stabilizers as a row-reduced basis, which can be dense even if the stabilizer group has sparse generators.
+A caller who knows sparse generators `S` of the stabilizer group, and gauge generators `G`, can get the same dressed distance faster from `get_distance_from_checks(S, G, symplectic=True, method="connected_support")`.
+For a CSS code with sparse X-type and Z-type stabilizer generators, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_support")`, where `S_Z` holds the supports of the Z-type stabilizer generators and `G_X` those of the X-type gauge generators.
 If the checks weigh much less than the distance, as those of surface codes do, many supports grow without being pruned ([Section 3.4](#34-pruning)), so the search visits many states below the distance.
 The search of a qubit code that is not CSS costs more than the searches of the sectors of an equivalent CSS code, such as the same code without Hadamards on some of its qubits.
 A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning), and each qubit of a check offers two symbols that flip it, the two Paulis that anticommute with the check there ([Section 3.7](#37-qubit-codes-that-are-not-css)).
@@ -163,8 +166,8 @@ Without symmetries, every variable is a root, and the ranks are the variables th
 Okada and Kasai instead take the roots `(ℓ, 0)` of the cyclic translations of a pair-partition code, with variables `(ℓ, a)` ranked by `ℓP + a`, and their implementation does so only if `P` is prime and `W < P`.
 qLDPC takes the orbits of any group of automorphisms that it verifies.
 
-The `_found_qudit_automorphisms` of a quantum code provide generators of `Γ`.
-Classical codes are searched without symmetries, from every variable.
+Generators of `Γ` are the automorphisms that the caller of a distance function passes, such as the `_found_qudit_automorphisms` that the `get_distance_exact` methods of quantum codes pass.
+Without automorphisms, as for the classical codes of `get_distance_exact`, a search starts from every variable.
 Finding the automorphisms of a large code can take as long as a search of many states.
 So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
 It expects the number of states of each weight limit to grow by the ratio between those of the last two.
@@ -277,7 +280,7 @@ Four parts of a distance search do not carry over:
 - The weights of the vectors with a syndrome need not share a divisor, so the query has none.
 - Every vector with the syndrome counts, so the query has no logical test.
 
-The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `_coset_leader_search.py`.
+The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `coset_leaders.py`.
 When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries by a table lookup, or by such queries at one or more weight limits.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
@@ -335,16 +338,16 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
-| Sectors of a CSS code | `CSSCode._get_parity_check_sector` in `src/qldpc/codes/common.py` |
-| Classical codes, and qubit codes that are not CSS | `ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` in `src/qldpc/codes/common.py` |
+| Sectors of a CSS code | `get_distance_css` of `core.py`, with `get_css_stabilizers` of `_binary.py` |
+| Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
-| Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
+| Distance of several sectors | `get_distance_connected_support`, which `get_distance_css` of `core.py` calls |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
-| Coset leaders of Pauli errors, and the sparser checks that their searches use | `ConnectedSupportCosetSearch`, `_get_sparser_rows`, and `_sparsify` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `_coset_leader_search.py` |
+| Coset leaders of Pauli errors, and the sparser checks that their searches use | `ConnectedSupportCosetSearch`, `_get_sparser_rows`, and `_sparsify` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
 | How many rounds make the checks of a coset search sparser | `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_support/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `_coset_leader_search.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_support/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `coset_leaders.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
@@ -352,11 +355,12 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
-`CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_connected_support` of `core.py`, which passes the active tuning to the search.
-`ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` call it with their problems, and `SupportSearch` validates every problem.
+`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, and the last two find the stabilizers of subsystem codes.
+They pass the search the active tuning, and `SupportSearch` validates every problem.
+The `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes reject the method.
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.
-`get_distance_classical` and `get_distance_quantum` reject it, since their inputs are generators and not parity checks.
+`get_distance_from_generators` rejects it, since its inputs are generators and not parity checks.
 The closed forms of hypergraph product codes search their classical seed codes with the method that they are given.
 `_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
 

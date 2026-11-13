@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import itertools
 import random
 import unittest.mock
@@ -23,7 +24,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance import DistanceMethod
+from qldpc.codes.distance import DistanceMethod, get_distance_css
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 from .conftest import Tune, assert_valid_subgraphs
@@ -600,6 +601,19 @@ def test_distance_qudit() -> None:
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
+    # Gauge operators dress the logical operators of nonbinary subsystem codes too: here the gauge
+    # generators leave no stabilizers, so X on one qudit, which is not an X-type gauge operator, is
+    # a dressed logical operator.  The bare logical X operators, the multiples of (1, 2, 2), have
+    # weight 3.
+    css_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]], field=3)
+    assert css_code.is_subsystem_code
+    for get_distance in (
+        lambda: css_code.get_distance_exact(Pauli.X),
+        lambda: codes.QuditCode(css_code.matrix).get_distance_exact(),
+    ):
+        with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+            assert get_distance() == 1
+
 
 def test_distance_bound_memory() -> None:
     """Codes remember their best known upper bound on distance."""
@@ -678,9 +692,9 @@ def test_exact_code_distance_method_api() -> None:
     qudit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
     css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     for kernel, get_distance in (
-        ("get_distance_classical", lambda: classical_code.get_distance(method="brute_force")),
-        ("_get_distance_quantum", lambda: qudit_code.get_distance(method="brute_force")),
-        ("get_distance_quantum", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
+        ("get_distance_from_generators", lambda: classical_code.get_distance(method="brute_force")),
+        ("get_distance_pauli", lambda: qudit_code.get_distance(method="brute_force")),
+        ("get_distance_css", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
     ):
         with unittest.mock.patch(f"qldpc.codes.common.{kernel}", return_value=3) as mock_kernel:
             assert get_distance() == 3
@@ -699,10 +713,16 @@ def test_exact_code_distance_method_api() -> None:
     hgp_code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
     css_code = codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z)
     with unittest.mock.patch(
-        "qldpc.codes.common._get_distance_css_brouwer_zimmermann", return_value=3
+        "qldpc.codes.common.get_distance_css", return_value=3
     ) as mock_joint_distance:
         assert css_code.get_distance_exact(method="information_sets") == 3
     mock_joint_distance.assert_called_once()
+    arguments = (
+        inspect.signature(get_distance_css)
+        .bind(*mock_joint_distance.call_args.args, **mock_joint_distance.call_args.kwargs)
+        .arguments
+    )
+    assert arguments["pauli"] is None
 
 
 def test_connected_support_method_is_only_for_binary_codes() -> None:
@@ -732,9 +752,9 @@ def test_connected_support_distances_of_classical_codes() -> None:
     code = codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]])
     with unittest.mock.patch.object(
         common,
-        "_get_distance_connected_support",
+        "get_distance_from_checks",
         autospec=True,
-        side_effect=common._get_distance_connected_support,
+        side_effect=common.get_distance_from_checks,
     ) as search:
         assert 2 <= code.get_distance_exact(cutoff=3, method="connected_support") <= 3
     assert search.call_args.kwargs["cutoff"] == 3
@@ -759,10 +779,7 @@ def test_connected_support_distances_of_qubit_codes() -> None:
     # the five-qubit code has distance 3, which a cutoff can bound without remembering it
     five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
     with unittest.mock.patch.object(
-        common,
-        "_get_distance_connected_support",
-        autospec=True,
-        side_effect=common._get_distance_connected_support,
+        common, "get_distance_pauli", autospec=True, side_effect=common.get_distance_pauli
     ) as search:
         assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_support") <= 5
     assert search.call_args.kwargs["cutoff"] == 5
@@ -791,10 +808,7 @@ def test_connected_support_distances_of_css_codes() -> None:
     # an exit at a cutoff returns an upper bound, which is not remembered
     code = codes.CSSCode(checks_x, checks_z)
     with unittest.mock.patch.object(
-        common,
-        "_get_distance_connected_support",
-        autospec=True,
-        side_effect=common._get_distance_connected_support,
+        common, "get_distance_css", autospec=True, side_effect=common.get_distance_css
     ) as search:
         assert 2 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
     assert search.call_args.kwargs["cutoff"] == 7
@@ -842,6 +856,13 @@ def test_css_joint_distance_cache() -> None:
     code = codes.CSSCode(checks_x, checks_z)
     assert code.get_distance_exact(Pauli.Z, cutoff=0, method="brute_force") == 2
     assert code.get_distance_exact(cutoff=0) == 2
+
+    # a known sector within the cutoff ends the joint search before it starts
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.Z, cutoff=0, method="brute_force") == 2
+    with unittest.mock.patch.object(common, "get_distance_css") as search:
+        assert code.get_distance_exact(cutoff=2) == 2
+    search.assert_not_called()
 
     # the gauge operators of a subsystem code dress its logical operators.  Here the X-type gauge
     # group is every even-weight X string and there are no stabilizers, so a single-qubit X operator
@@ -1070,6 +1091,24 @@ def test_subsystem_code_hint() -> None:
 
     # a qutrit check commutes with itself, although its non-symplectic square is nonzero
     assert not codes.QuditCode([[1, 1]], field=3, is_subsystem_code=False).is_subsystem_code
+
+    # a stabilizer code hinted as a subsystem code has no gauge qudits and the same distances, but
+    # QuditCode.get_distance_bound, which uses QDistRnd, rejects it
+    steane_code = codes.SteaneCode()
+    hinted_css_code = codes.CSSCode(
+        steane_code.matrix_x, steane_code.matrix_z, is_subsystem_code=True
+    )
+    assert hinted_css_code.gauge_dimension == 0
+    assert hinted_css_code.get_distance_exact() == 3
+    hinted_qudit_code = codes.QuditCode(steane_code.matrix, is_subsystem_code=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        pytest.raises(ValueError, match="subsystem code from its symplectic checks"),
+    ):
+        hinted_qudit_code.get_distance_bound(1)
+    assert hinted_qudit_code.gauge_dimension == 0
+    assert hinted_qudit_code.get_distance_exact() == 3
 
 
 def test_from_qldpc_challenge_id() -> None:
@@ -1717,6 +1756,22 @@ def test_distance_css() -> None:
         assert code.get_distance_bound_with_decoder(Pauli.X) is codes.NO_DISTANCE
 
 
+def test_decoder_distance_bounds_of_subsystem_codes_are_bare() -> None:
+    """The decoder bounds the distance of a subsystem code by bare logical operators.
+
+    The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
+    three qubits is a dressed logical operator, although every bare logical operator has weight 3.
+    Reduced logical operators stay bare: they commute with every gauge generator.
+    """
+    code = codes.CSSCode([[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]])
+    for pauli in PAULIS_XZ:
+        assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 3
+        assert code.get_distance_exact(pauli) == 1
+    code.reduce_logical_ops()
+    logical_ops = code.get_logical_ops(symplectic=True)
+    assert not np.any(code.matrix @ math.symplectic_conjugate(logical_ops).T)
+
+
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:
     """Decoder-specific arguments bypass optional-backend probes."""
     code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
@@ -2150,7 +2205,16 @@ def test_css_distance_bound_backend_selection() -> None:
 
 
 def test_distance_backend_validation() -> None:
-    """Reject sqetch and decoder selectors for non-CSS codes."""
+    """Unknown backends raise, and quantum codes that are not CSS reject sqetch and decoder."""
+    bounded_codes: list[codes.ClassicalCode | codes.QuditCode] = [
+        codes.RepetitionCode(3),
+        codes.FiveQubitCode(),
+        codes.SteaneCode(),
+    ]
+    for code in bounded_codes:
+        with pytest.raises(ValueError, match="Unknown distance backend"):
+            code.get_distance_bound(backend="other")  # type: ignore[arg-type]
+
     code = codes.FiveQubitCode()
     code.forget_distance()
     for backend in ["sqetch", "decoder"]:

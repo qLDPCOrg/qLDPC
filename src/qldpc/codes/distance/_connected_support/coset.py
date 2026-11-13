@@ -10,14 +10,15 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 
 from .. import _tuning
+from .._binary import multiply_binary, swap_pauli_halves
 from .._cosets import (
-    MinWeightBound,
     get_unit_syndrome_words,
     int_to_words,
     row_ints,
     tabulate_singles,
     xor_selected,
 )
+from ..min_weight_bounds import MinWeightBound
 from .search import SupportSearch
 
 # The seed of the random orders of columns in which connected-support coset searches row-reduce
@@ -67,7 +68,7 @@ class ConnectedSupportCosetSearch:
         # with one nonzero bit is a column of the checks, once the halves of symplectic checks are
         # swapped.
         num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
-        syndrome_matrix = matrix if homogeneous else np.roll(matrix, num_variables, axis=1)
+        syndrome_matrix = matrix if homogeneous else swap_pauli_halves(matrix)
         columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
         self._singles, _, _ = tabulate_singles(columns, num_variables, is_pauli=not homogeneous)
 
@@ -91,7 +92,7 @@ class ConnectedSupportCosetSearch:
         )
         # Word ``j`` of ``get_unit_syndrome_words`` of the sparser rows has a syndrome of only bit
         # ``j``, so the words of the set bits of a syndrome sum to a representative of its coset.
-        syndrome_rows = rows if homogeneous else np.roll(rows, num_variables, axis=1)
+        syndrome_rows = rows if homogeneous else swap_pauli_halves(rows)
         self._inverse_rows = row_ints(get_unit_syndrome_words(syndrome_rows))
 
     def get_min_weight_bound(
@@ -221,13 +222,9 @@ def _get_sparser_rows(
 
     # Add rows to each other where that helps, and find the transform from the given rows.  The rows
     # are in the span of ``matrix``, whose product with the transpose of ``get_unit_syndrome_words``
-    # of ``matrix`` is the identity, so their product with it is the transform.  Products of binary
-    # matrices in float32 are exact while their inner dimension is below ``2**24``, and faster than
-    # in integers.
+    # of ``matrix`` is the identity, so their product with it is the transform.
     rows, _ = _sparsify(rows, homogeneous=homogeneous)
-    inverse = get_unit_syndrome_words(matrix)
-    product = rows.astype(np.float32) @ inverse.T.astype(np.float32)
-    return rows, (product % 2).astype(np.uint8)
+    return rows, multiply_binary(rows, get_unit_syndrome_words(matrix).T)
 
 
 def _sparsify(

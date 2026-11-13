@@ -6,13 +6,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-import galois
 import numpy as np
 import stim
 
-from qldpc import codes, decoders
-from qldpc.codes.distance import DistanceMethod, NoDistance
-from qldpc.objects import Pauli
+from qldpc import decoders
+from qldpc._binary import get_kernel
+from qldpc.codes.distance import DistanceMethod, NoDistance, get_distance_from_checks
 
 ####################################################################################################
 # exact circuit fault distance
@@ -45,40 +44,29 @@ def get_fault_distance(
 
     where :math:`|e|` is the fault weight of :math:`e`, or its number of error mechanisms.
 
-    Imagine one artificial qubit per error mechanism, and define an auxiliary CSS code :math:`C`
-    with X-check matrix :math:`H_X=D`.  Thinking of :math:`e` as the support of a Pauli-Z string,
-    :math:`D \cdot e=0` means that this string commutes with all X-type stabilizers, so it is a
-    logical operator of :math:`C`.  This logical operator may be trivial (a stabilizer), acting as
-    the identity on the code space.
-
-    We seek a minimum-weight logical operator :math:`e` for which additionally
-    :math:`L \cdot e\ne0`.  To do so, we mod out the search space by trivial logicals for which
-    :math:`L \cdot e=0`, which we can do by adding Z-type stabilizers to :math:`C` that commute with
-    both its X-type stabilizers and each X string supported on a row of :math:`L`.  These conditions
-    are satisfied by ``H_Z = np.vstack([D, L]).null_space()`` over GF(2).  The rows of :math:`H_Z`
-    are in the null spaces of both :math:`D` and :math:`L`: precisely the undetected faults with no
-    observable effect, which we declare trivial faults.  The remaining nontrivial Z-logical
-    operators have zero syndrome but flip an observable.
-
-    Thus the Z-distance of :math:`C` is exactly the circuit fault distance.  The artificial Z label
-    does not restrict the underlying error mechanisms to physical Z errors.  The exact code distance
-    calculation can be expensive for larger circuits.
+    The undetected faults are the null space of :math:`D`.  Those in the null spaces of both
+    :math:`D` and :math:`L` flip no observable, so they are harmless, and every other undetected
+    fault flips an observable.  The fault distance is therefore the minimum weight of an undetected
+    fault that is not harmless, which :func:`~qldpc.codes.distance.get_distance_from_checks` finds
+    with :math:`D` as the checks and a basis of the harmless faults excluded.  The exact calculation
+    can be expensive for larger circuits.
 
     Args:
         circuit: A noisy Stim circuit annotated with detectors and logical observables.
-        method: The exact-distance method used to compute the Z-distance of the auxiliary code
-            :math:`C`: ``"brouwer_zimmermann"`` (the default, with alias ``"information_sets"``),
-            ``"brute_force"``, or ``"connected_support"``, which searches the sparse detector
-            matrix :math:`D` of :math:`C` for undetected faults that are connected through its
-            detectors (see :meth:`qldpc.codes.CSSCode.get_distance_exact`).
+        method: The exact-distance method: ``"brouwer_zimmermann"`` (the default, with alias
+            ``"information_sets"``), ``"brute_force"``, or ``"connected_support"``, which searches
+            the sparse detector matrix :math:`D` for undetected faults that are connected through
+            its detectors (see :data:`~qldpc.codes.distance.DistanceMethod`).
 
     Returns:
         The minimum number of DEM error mechanisms causing an undetected observable flip, or
         ``NO_DISTANCE`` (see :class:`~qldpc.codes.distance.NoDistance`) if no such fault exists.
+
+    Raises:
+        ValueError: If Stim cannot convert the circuit to a DEM, or if the method is unknown.
     """
     dem_arrays = decoders.DetectorErrorModelArrays(circuit)
-    detectors = galois.GF2(dem_arrays.detector_flip_matrix.toarray())
-    observables = galois.GF2(dem_arrays.observable_flip_matrix.toarray())
-    harmless_faults = galois.GF2(np.vstack([detectors, observables])).null_space()
-    fault_code = codes.CSSCode(detectors, harmless_faults)
-    return fault_code.get_distance_exact(Pauli.Z, method=method)
+    detectors = dem_arrays.detector_flip_matrix.toarray().astype(np.uint8)
+    observables = dem_arrays.observable_flip_matrix.toarray().astype(np.uint8)
+    harmless_faults = get_kernel(np.vstack([detectors, observables]))
+    return get_distance_from_checks(detectors, harmless_faults, method=method)
