@@ -188,7 +188,7 @@ def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
     num_qubits = 3
     logical_op = [1, 0, 0] if homogeneous else [1, 0, 0, 0, 0, 0]
     stabilizer = [0, 1, 1] if homogeneous else [0, 1, 1, 0, 0, 0]
-    distance = _brute_force.get_distance_quantum_brute_force(
+    distance = _brute_force._get_distance_brute_force(
         [logical_op],
         [stabilizer],
         cutoff=len(logical_op),
@@ -198,7 +198,7 @@ def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
     assert distance == 1
 
     # Without logical operators, the result exceeds every weight, whatever the cutoff.
-    distance = _brute_force.get_distance_quantum_brute_force(
+    distance = _brute_force._get_distance_brute_force(
         np.empty((0, len(logical_op)), dtype=np.uint8),
         [stabilizer],
         cutoff=100,

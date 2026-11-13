@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import itertools
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -33,11 +33,14 @@ def test_binary_matrices_and_nested_bases() -> None:
         binary.as_binary_matrix([[1, 0]], "stabilizers", num_cols=3)
     np.testing.assert_array_equal(binary.as_binary_matrix([1, 0, 1]), [[1, 0, 1]])
 
-    # Rows without columns have the wrong width for a given width, but a matrix without rows has
-    # every width.
-    with pytest.raises(ValueError, match="rows has 0 columns"):
-        binary.as_binary_matrix(np.zeros((4, 0)), num_cols=3)
-    assert binary.as_binary_matrix(np.zeros((0, 2)), num_cols=3).shape == (0, 3)
+    # Rows without columns, or no rows of another width, have the wrong width for a given width, but
+    # an empty matrix of no width takes it.
+    for wrong_width in (np.zeros((4, 0)), np.zeros((0, 2))):
+        with pytest.raises(ValueError, match=r"rows has \d columns"):
+            binary.as_binary_matrix(wrong_width, num_cols=3)
+    assert binary.as_binary_matrix(np.zeros((0, 0)), num_cols=3).shape == (0, 3)
+    with pytest.raises(TypeError, match="rows must be an array of binary entries, not a dict"):
+        binary.as_binary_matrix(cast(Any, {}))
 
     sparse = scipy.sparse.csr_array([[1, 0, 1]])
     binary.assert_binary(sparse, "rows")

@@ -13,7 +13,7 @@ leave errors that are too heavy.
 from __future__ import annotations
 
 import functools
-from typing import Literal
+from typing import Literal, SupportsIndex, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -30,19 +30,8 @@ from ._brouwer_zimmermann.coset import (
 from ._connected_support.coset import ConnectedSupportCosetSearch
 from ._cosets import row_ints, words_to_int, xor_selected, xor_selected_rows
 from ._tuning import get_tuning
-from .core import DistanceMethod
+from .core import DistanceMethod, _validate_distance_method
 from .min_weight_bounds import MinWeightBound
-
-# The method of the coset searches that answer the queries of a ``CosetLeaderSearch``.
-_CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
-
-# The method of the coset searches for each method name that ``CosetLeaderSearch`` accepts.
-_COSET_SEARCH_METHODS: dict[str, _CosetSearchMethod] = {
-    "brouwer_zimmermann": "brouwer_zimmermann",
-    "information_sets": "brouwer_zimmermann",
-    "connected_support": "connected_support",
-}
-
 
 ####################################################################################################
 # coset-leader minimum-weight bounds
@@ -62,6 +51,7 @@ class CosetLeaderSearch:
     The queries use packed integers and arrays, which the searches use directly:
 
     - A syndrome is an integer with bit ``j`` set if the error anticommutes with stabilizer ``j``.
+      :meth:`get_min_weight_bound` also takes a syndrome as a binary vector.
     - A Pauli error is an integer with its X part in bits ``0`` to ``n - 1`` and its Z part in bits
       ``n`` to ``2 n - 1``.  :meth:`unpack_pauli` turns it into a binary vector.
     - A batch of syndromes is a two-dimensional ``uint64`` array with one row per syndrome and
@@ -83,7 +73,7 @@ class CosetLeaderSearch:
     stabilizer group, whichever stabilizers generate it.
 
     Args:
-        stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order, whose rows are ``n``
+        stabilizers: A binary matrix with ``2 n`` columns in ``[X|Z]`` order, whose rows are ``n``
             independent commuting stabilizers on ``n`` qubits.
         css_weight: True to weigh an error by its CSS weight, or False to weigh it by its physical
             weight.  Default: False.
@@ -114,7 +104,13 @@ class CosetLeaderSearch:
         css_weight: bool = False,
         method: DistanceMethod = "brouwer_zimmermann",
     ) -> None:
+        # Check the arguments.
         coset_search_method = _get_coset_search_method(method)
+        css_weight = bool(css_weight)
+        self._css_weight = css_weight
+        matrix = _as_state_stabilizers(stabilizers)
+        self._num_qubits = n = len(matrix)
+
         tuning = get_tuning()
         # The connected-support searches make their checks sparser in rounds that the tuning bounds.
         support_search = functools.partial(
@@ -125,9 +121,6 @@ class CosetLeaderSearch:
         # Exactly one of the BZ searches and the connected-support searches is nonempty.
         self._brouwer_zimmermann_searches: tuple[BrouwerZimmermannCosetSearch, ...] = ()
         self._connected_support_searches: tuple[ConnectedSupportCosetSearch, ...] = ()
-        self._css_weight = bool(css_weight)
-        matrix = _as_state_stabilizers(stabilizers)
-        self._num_qubits = n = len(matrix)
 
         # Search the Pauli errors themselves, unless the CSS weight on a CSS state lets the X and Z
         # parts of the errors be searched separately.
@@ -219,7 +212,7 @@ class CosetLeaderSearch:
                 have one entry for each stabilizer.
         """
         packed_syndrome = self._pack_syndrome(syndrome)
-        max_weight = self._check_max_weight(max_weight)
+        max_weight = self._as_max_weight(max_weight)
         searches = self._connected_support_searches or self._brouwer_zimmermann_searches
         if len(searches) == 1:
             return searches[0].get_min_weight_bound(packed_syndrome, max_weight)
@@ -251,7 +244,7 @@ class CosetLeaderSearch:
                 ``num_qubits``.
         """
         self._check_syndromes(syndromes)
-        max_weight = self._check_max_weight(max_weight)
+        max_weight = self._as_max_weight(max_weight)
 
         # The connected-support searches answer one syndrome at a time.
         if self._connected_support_searches:
@@ -301,7 +294,7 @@ class CosetLeaderSearch:
                 ``num_qubits``.
         """
         self._check_syndromes(syndromes)
-        max_weight = self._check_max_weight(max_weight)
+        max_weight = self._as_max_weight(max_weight)
 
         # The connected-support searches answer one syndrome at a time.
         if self._connected_support_searches:
@@ -310,6 +303,7 @@ class CosetLeaderSearch:
                 dtype=np.int64,
             )
 
+        # The searches of the first parts find their minimum weights from zero.
         floors = np.zeros(len(syndromes), dtype=np.int64)
 
         # With one search, take its weights.
@@ -361,7 +355,7 @@ class CosetLeaderSearch:
             The error as a binary vector of length ``2 n`` in ``[X|Z]`` order.
 
         Raises:
-            TypeError: If ``pauli`` is not an integer.
+            TypeError: If ``pauli`` is not an integer, or is a bool.
             ValueError: If ``pauli`` is negative or has a bit at or above ``2 n``.
         """
         value = as_integer(pauli, "pauli")
@@ -418,10 +412,10 @@ class CosetLeaderSearch:
     def _pack_syndrome(self, syndrome: int | npt.ArrayLike) -> int:
         """Return a syndrome of a query packed into an integer, or raise an error if it is invalid.
 
-        A syndrome vector is packed with ``pack_syndromes``, which checks its entries.
+        A syndrome vector is packed after ``as_binary_matrix`` checks its entries.
         """
         if np.ndim(syndrome) == 0:
-            packed_syndrome = as_integer(syndrome, "syndrome")  # type: ignore[arg-type]
+            packed_syndrome = as_integer(cast(SupportsIndex, syndrome), "syndrome")
             if not 0 <= packed_syndrome < 1 << self.num_qubits:
                 raise ValueError(
                     f"The packed syndrome {packed_syndrome} is out of range for"
@@ -433,10 +427,11 @@ class CosetLeaderSearch:
                 "A syndrome must be an integer, or a binary vector with one entry for each of the"
                 f" {self.num_qubits} stabilizers"
             )
-        return words_to_int(self.pack_syndromes(syndrome)[0])
+        matrix = as_binary_matrix(syndrome, "syndrome", num_cols=self.num_qubits)
+        return words_to_int(pack_bits(np.ascontiguousarray(matrix))[0])
 
-    def _check_max_weight(self, max_weight: int) -> int:
-        """Return the maximum weight of a query as a Python integer, or raise an error if invalid.
+    def _as_max_weight(self, max_weight: int) -> int:
+        """Return the maximum weight of a query as a Python integer, at most ``num_qubits``.
 
         No error weighs more than the number of qubits, so a larger maximum weight is replaced by
         it, which changes no answer of whether a class is within the maximum weight.
@@ -489,23 +484,21 @@ class CosetLeaderSearch:
         )
 
 
-def _get_coset_search_method(method: DistanceMethod) -> _CosetSearchMethod:
-    """Validate a distance method, and return the method of the coset searches.
+def _get_coset_search_method(
+    method: DistanceMethod,
+) -> Literal["brouwer_zimmermann", "connected_support"]:
+    """Validate a distance method, and return the canonical method of the coset searches.
 
     Raises:
         ValueError: If the method is unknown, or is ``"brute_force"``, which has no coset searches.
     """
-    if method == "brute_force":
+    canonical = _validate_distance_method(method)
+    if canonical == "brute_force":
         raise ValueError(
             "The 'brute_force' distance method has no coset-leader search: use"
             " 'brouwer_zimmermann' or 'connected_support'."
         )
-    if not isinstance(method, str) or method not in _COSET_SEARCH_METHODS:
-        raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' or"
-            " 'connected_support'."
-        )
-    return _COSET_SEARCH_METHODS[method]
+    return canonical
 
 
 def _as_state_stabilizers(stabilizers: npt.ArrayLike) -> npt.NDArray[np.uint8]:

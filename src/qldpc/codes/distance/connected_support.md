@@ -352,7 +352,7 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
-`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, and find the stabilizers of subsystem codes.
+`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, and the last two find the stabilizers of subsystem codes.
 They pass the search the active tuning, and `SupportSearch` validates every problem.
 The `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes reject the method.

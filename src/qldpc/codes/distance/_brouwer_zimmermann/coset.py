@@ -14,7 +14,7 @@ from qldpc._binary import pack_bits, popcount_word, unpack_bits
 from qldpc._compilation import always_compiled
 
 from .. import _tuning
-from .._binary import symplectic_to_hamming
+from .._binary import swap_pauli_halves, symplectic_to_hamming
 from .._cosets import (
     get_unit_syndrome_words,
     int_to_words,
@@ -351,7 +351,7 @@ def _get_pauli_search(
     num_qubits = len(stabilizers)
     # The syndrome of a packed Pauli ``e`` is ``checks @ e``, where ``checks`` swaps the X and Z
     # halves of the stabilizers.
-    checks = np.roll(stabilizers, num_qubits, axis=1)
+    checks = swap_pauli_halves(stabilizers)
     inverse = get_unit_syndrome_words(checks)
     embedded_stabilizers = stabilizers if css_weight else symplectic_to_hamming(stabilizers)
     embedded_inverse = inverse if css_weight else symplectic_to_hamming(inverse)

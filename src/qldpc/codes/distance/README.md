@@ -2,7 +2,7 @@
 
 This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, counts the logical operators of a given weight in binary CSS codes, and finds light Pauli errors with given syndromes on stabilizer states.
-Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py`, which call those functions.
+Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the binary code classes in `src/qldpc/codes/common.py`, which call the distance functions.
 `brouwer_zimmermann.md` explains the Brouwer–Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a Brouwer–Zimmermann search must keep.
 `connected_support.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the code, says what its cost depends on, and lists its correctness requirements.
 
@@ -50,7 +50,7 @@ Users reach it through the public functions and classes below, which take plain 
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact` and `get_distance` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early check of `src/qldpc/circuits/certification/fault_propagation.py`; and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, and `get_distance` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `coset_leaders.py` |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |

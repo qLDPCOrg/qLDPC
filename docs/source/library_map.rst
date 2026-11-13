@@ -147,7 +147,7 @@ An explicit ``num_trials`` runs that many trials, and never returns a worse boun
 :class:`~qldpc.codes.distance.CSSLogicalCounter` and :func:`~qldpc.codes.distance.count_logical_ops_css` count the logical operators of a given weight in a binary CSS code, given its X-type and Z-type checks as binary matrices.
 ``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.
 
-The exact distances are also public functions of :mod:`qldpc.codes.distance` on plain binary arrays, for programs that need distances without building code objects, and the code methods call these functions.
+Exact distance searches are also public functions of :mod:`qldpc.codes.distance` on plain binary arrays, for programs that need distances without building code objects, and the exact-distance methods of binary codes call these functions.
 :func:`~qldpc.codes.distance.get_distance_from_generators` and :func:`~qldpc.codes.distance.get_distance_from_checks` take a generator or parity-check matrix, :func:`~qldpc.codes.distance.get_distance_css` takes the X-type and Z-type checks of a CSS code, and :func:`~qldpc.codes.distance.get_distance_pauli` takes the parity checks of a stabilizer or subsystem code as Pauli strings, as in ``QuditCode``.
 The docstring of :mod:`qldpc.codes.distance` leads from tasks to these functions, whose own docstrings give their conventions and arguments.
 

@@ -280,9 +280,12 @@ def get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
     return sum(int(bit) << jj for jj, bit in enumerate(products))
 
 
-def split_syndromes_into_words(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
-    """Split packed syndromes into rows of 64-bit words, with word ``j`` in bits ``64 j`` and up."""
-    width = (num_qubits + 63) // 64
+def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.NDArray[np.uint64]:
+    """Split packed syndromes of ``num_bits`` bits into rows of 64-bit words.
+
+    Bit ``k`` of word ``j`` of a row is bit ``64 j + k`` of its syndrome.
+    """
+    width = (num_bits + 63) // 64
     words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 

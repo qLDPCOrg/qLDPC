@@ -4321,11 +4321,12 @@ class CSSCode(QuditCode):
         cutoff: int,
         upper_bound: int | None = None,
     ) -> int | Literal[NoDistance.NAN]:
-        """The minimum distance of the logical operators of one type, or of both, over GF(2).
+        """The least weight of a nontrivial logical operator of one type, or of either, over GF(2).
 
-        The search uses the automorphisms of this code.  ``upper_bound``, if given, is the weight of
-        a known logical operator of another type, which ends the search if it is at most ``cutoff``,
-        and otherwise limits it.  A result at or below ``cutoff`` can be an upper bound.
+        Brouwer--Zimmermann and connected-support searches use the automorphisms of this code.
+        ``upper_bound``, if given, is the weight of a known logical operator of the other type,
+        which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
+        below ``cutoff`` can be an upper bound.
         """
         if upper_bound is not None and upper_bound <= cutoff:
             return upper_bound

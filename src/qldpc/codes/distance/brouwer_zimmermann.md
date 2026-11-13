@@ -826,8 +826,9 @@ The distance search and the counts call it through `get_overlapping_family_polic
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 The distance functions of [core.py](core.py) build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector that they search, and pass the resulting problems to `get_distance_brouwer_zimmermann_many`, with `get_distance_css` passing both sectors of a CSS code at once.
-They also pass the automorphisms that their caller gives, as a function that returns them, and that calls a function that the caller gives at most once.
-`get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` gives a function that returns the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method, and `get_distance_exact` of `QuditCode` gives the same function to `get_distance_pauli`.
+They pass the automorphisms that their caller gives to the search as a function, which calls any function that the caller gives at most once.
+`get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` gives a function that returns the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method.
+`get_distance_exact` of `QuditCode` gives the same function to `get_distance_pauli`.
 For Pauli strings, the functions lift the automorphisms to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`.
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
 Distance searches and counts use [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py) to choose and build the tables of [Section 3.9](#39-skipping-completions-by-completion-tables), and coset searches use it to choose and build the tables of their routes by tails.
@@ -1050,7 +1051,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   Only `method="brute_force"` uses native symplectic weights and the original `cutoff`.
 - **Independence.**
   Callers need not supply independent generators.
-  The classical path uses `get_independent_rows`, and the quantum path uses `get_nested_code_basis`.
+  Without excluded rows, the BZ route uses `get_independent_rows`; with them, it uses `get_nested_code_basis`.
   So the packed enumerators always receive independent bases.
 - **Resumable layers.**
   The compiled scan returns after at most `batch_size` supports.

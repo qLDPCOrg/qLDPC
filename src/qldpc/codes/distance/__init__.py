@@ -3,8 +3,8 @@
 """Exact distances of binary codes, counts of their logical operators, and searches of cosets.
 
 The functions and classes of this package take plain binary arrays, so that programs can use them
-without building code objects, and the distance methods of the code classes of :mod:`qldpc.codes`
-call them.
+without building code objects, and the exact-distance methods of the binary code classes of
+:mod:`qldpc.codes` call them.
 
 .. list-table::
    :header-rows: 1
@@ -34,10 +34,10 @@ call them.
      - :func:`~qldpc.codes.distance.compile_search_setup`
 
 Matrices are binary: NumPy arrays, nested lists, ``galois`` arrays over GF(2), or SciPy sparse
-matrices.  A Pauli string on ``n`` qubits is a row ``[P_x|P_z]`` of ``2 n`` entries, the supports of
-its X and Z parts.  The ``method`` argument of the distance searches takes a
-:data:`~qldpc.codes.distance.DistanceMethod`, and a search without a nontrivial word returns
-:data:`~qldpc.codes.distance.NO_DISTANCE`.
+matrices, and a single vector is one row.  A Pauli string on ``n`` qubits is a row ``[P_x|P_z]`` of
+``2 n`` entries, the supports of its X and Z parts.  The ``method`` argument of the distance
+searches takes a :data:`~qldpc.codes.distance.DistanceMethod`, and a search without a nontrivial
+word returns :data:`~qldpc.codes.distance.NO_DISTANCE`.
 
 The inner loops of the exact searches are compiled by numba the first time that they are used, and
 the compiled code is cached on disk.  The cache is a directory named ``qldpc-<hash>``, where the

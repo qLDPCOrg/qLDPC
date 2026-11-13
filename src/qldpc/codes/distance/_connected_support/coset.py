@@ -10,7 +10,7 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 
 from .. import _tuning
-from .._binary import multiply_binary
+from .._binary import multiply_binary, swap_pauli_halves
 from .._cosets import (
     get_unit_syndrome_words,
     int_to_words,
@@ -68,7 +68,7 @@ class ConnectedSupportCosetSearch:
         # with one nonzero bit is a column of the checks, once the halves of symplectic checks are
         # swapped.
         num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
-        syndrome_matrix = matrix if homogeneous else np.roll(matrix, num_variables, axis=1)
+        syndrome_matrix = matrix if homogeneous else swap_pauli_halves(matrix)
         columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
         self._singles, _, _ = tabulate_singles(columns, num_variables, is_pauli=not homogeneous)
 
@@ -92,7 +92,7 @@ class ConnectedSupportCosetSearch:
         )
         # Word ``j`` of ``get_unit_syndrome_words`` of the sparser rows has a syndrome of only bit
         # ``j``, so the words of the set bits of a syndrome sum to a representative of its coset.
-        syndrome_rows = rows if homogeneous else np.roll(rows, num_variables, axis=1)
+        syndrome_rows = rows if homogeneous else swap_pauli_halves(rows)
         self._inverse_rows = row_ints(get_unit_syndrome_words(syndrome_rows))
 
     def get_min_weight_bound(

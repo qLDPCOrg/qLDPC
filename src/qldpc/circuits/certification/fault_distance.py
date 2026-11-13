@@ -61,6 +61,9 @@ def get_fault_distance(
     Returns:
         The minimum number of DEM error mechanisms causing an undetected observable flip, or
         ``NO_DISTANCE`` (see :class:`~qldpc.codes.distance.NoDistance`) if no such fault exists.
+
+    Raises:
+        ValueError: If the method is unknown.
     """
     dem_arrays = decoders.DetectorErrorModelArrays(circuit)
     detectors = dem_arrays.detector_flip_matrix.toarray().astype(np.uint8)

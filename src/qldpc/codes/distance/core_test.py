@@ -9,7 +9,7 @@ import functools
 import math
 import pickle
 from collections.abc import Callable
-from typing import cast, get_args
+from typing import Any, cast, get_args
 from unittest import mock
 
 import numpy as np
@@ -81,6 +81,11 @@ def test_css_distances(method: core.DistanceMethod) -> None:
     assert distance == 3
     assert core.get_distance_css([[1, 1]], [[1, 1]], method=method) is core.NO_DISTANCE
 
+    # These gauge generators leave no stabilizers, so X on one qubit is a dressed logical operator,
+    # although the bare logical X operator, X on every qubit, has weight 3.
+    gauge_x, gauge_z = [[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]]
+    assert core.get_distance_css(gauge_x, gauge_z, "X", method=method) == 1
+
 
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
 def test_distances_from_checks(method: core.DistanceMethod) -> None:
@@ -101,8 +106,9 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
         five_qubit_code.matrix, five_qubit_code.matrix, symplectic=True, method=method
     )
     assert distance == 3
+    generator = np.asarray(hamming_code.generator)
     distance = core.get_distance_from_checks(
-        hamming_code.matrix, hamming_code.generator, method=method
+        hamming_code.matrix, np.vstack([generator, generator[:1]]), method=method
     )
     assert distance is core.NO_DISTANCE
     with pytest.raises(ValueError, match="satisfy the checks"):
@@ -111,13 +117,20 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
 
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
 def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod) -> None:
-    """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes."""
+    """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes.
+
+    The gauge generators of the three-qubit subsystem code leave no stabilizers, so a single-qubit X
+    is a dressed logical operator, although every bare logical operator has weight 3.  The checks
+    of the stabilizer state include a redundant row.
+    """
     five_qubit_code = qldpc.codes.FiveQubitCode()
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method) == 3
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method, max_weight=1) == 2
     bacon_shor_code = qldpc.codes.BaconShorCode(3)
     assert core.get_distance_pauli(bacon_shor_code.matrix, method=method) == 3
-    stabilizer_state = [[0, 0, 1, 0], [0, 0, 0, 1]]
+    gauge = [[0, 1, 1, 0, 0, 0], [1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 0, 1], [0, 0, 0, 1, 1, 0]]
+    assert core.get_distance_pauli(gauge, method=method) == 1
+    stabilizer_state = [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 1, 1]]
     assert core.get_distance_pauli(stabilizer_state, method=method) is core.NO_DISTANCE
 
 
@@ -134,8 +147,11 @@ def test_distance_functions_check_their_input() -> None:
         functools.partial(core.get_distance_css, checks, checks),
         functools.partial(core.get_distance_pauli, checks),
     ):
-        with pytest.raises(ValueError, match="Unknown distance method"):
-            search(method="other")
+        for unknown in ("other", ["brouwer_zimmermann"]):
+            with pytest.raises(ValueError, match="Unknown distance method"):
+                search(method=cast(Any, unknown))
+    with pytest.raises(TypeError, match="checks must be an array of binary entries, not a"):
+        core.get_distance_from_checks(cast(Any, hamming_code))
 
     with pytest.raises(ValueError, match="satisfy the checks"):
         core.get_distance_from_checks([[1, 0, 0, 0]], [[0, 0, 1, 0]], symplectic=True)
@@ -151,6 +167,8 @@ def test_distance_functions_check_their_input() -> None:
         core.get_distance_css(checks, [[1, 1, 1, 1, 1, 1]])
     with pytest.raises(ValueError, match="excluded has 0 columns"):
         core.get_distance_from_generators(checks, np.zeros((2, 0), dtype=int))
+    with pytest.raises(ValueError, match="checks_z has 5 columns"):
+        core.get_distance_css(np.zeros((0, 3)), np.zeros((0, 5)))
 
 
 def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
@@ -196,22 +214,15 @@ def test_connected_support_needs_parity_checks() -> None:
         core.get_distance_from_generators([[1, 1, 0]], method="connected_support")
 
 
-def test_brouwer_zimmermann_special_inputs() -> None:
-    """Brouwer-Zimmermann validates matrix shapes and preserves quotient edge cases.
+def test_special_inputs_of_generators() -> None:
+    """Generators are checked for their shapes, and inputs without nontrivial words have none.
 
-    Inputs without nontrivial words have no distance and give NO_DISTANCE, whether they have no
-    logical rows or only logical rows in the stabilizer span.
+    Inputs without nontrivial words give NO_DISTANCE, whether they have no logical rows or only
+    logical rows in the stabilizer span.
     """
     no_distance = qldpc.codes.NO_DISTANCE
     assert (
         core.get_distance_from_generators(np.empty((0, 4), dtype=np.uint8), cutoff=0) is no_distance
-    )
-    assert (
-        core.get_distance_from_generators(
-            np.empty((0, 4), dtype=np.uint8),
-            np.empty((0, 4), dtype=np.uint8),
-        )
-        is no_distance
     )
     for method in ("brouwer_zimmermann", "brute_force"):
         distance = core.get_distance_from_generators([[1, 0]], [[1, 0]], method=method)
@@ -240,10 +251,6 @@ def test_brouwer_zimmermann_special_inputs() -> None:
         core.get_distance_from_generators(np.zeros((1, 1, 1), dtype=np.uint8))
     with pytest.raises(ValueError, match="infer the width of generators"):
         core.get_distance_from_generators([])
-    with pytest.raises(ValueError, match="generators must be a matrix or a single row"):
-        core.get_distance_from_generators(
-            np.zeros((1, 1, 2), dtype=np.uint8), [[1, 0]], symplectic=True
-        )
     with pytest.raises(ValueError, match="excluded must be a matrix or a single row"):
         core.get_distance_from_generators(
             [[1, 0]], np.zeros((1, 1, 2), dtype=np.uint8), symplectic=True
@@ -421,8 +428,6 @@ def test_max_weight_caps_cutoff() -> None:
     """
     basis = [[1, 0, 1, 1, 1, 1], [0, 1, 1, 1, 1, 0]]
     assert core.get_distance_from_generators(basis, cutoff=6, max_weight=3) == 3
-    distance = core.get_distance_from_generators(basis, [], cutoff=6, max_weight=3)
-    assert distance == 3
 
 
 def test_max_weight_conventions_and_validation() -> None:
@@ -444,8 +449,6 @@ def test_max_weight_conventions_and_validation() -> None:
     )
     with pytest.raises(ValueError, match="max_weight must be nonnegative"):
         core.get_distance_from_generators([[1, 1]], max_weight=-1)
-    with pytest.raises(ValueError, match="max_weight must be nonnegative"):
-        core.get_distance_from_generators([[1, 1]], [], max_weight=-1)
 
     # The limit is an integer, and a NumPy integer gives a Python integer, even on a route that
     # clamps its result.

@@ -160,27 +160,21 @@ class CSSLogicalCounter:
 
     Args:
         checks_x: The X-type checks ``H_X`` of the code, as the rows of a binary matrix: a NumPy
-            array, a nested list, a ``galois`` array over GF(2), or a SciPy sparse matrix.  They may
-            be redundant, and in a subsystem code they are the X gauge generators ``G_X``.
+            array, a nested list, a ``galois`` array over GF(2), or a SciPy sparse matrix.  A single
+            vector is one check.  They may be redundant, and in a subsystem code they are the X
+            gauge generators ``G_X``.
         checks_z: The Z-type checks ``H_Z`` of the code, as the rows of a binary matrix with as
             many columns as ``checks_x``, in any of the same forms.  They may be redundant, and in a
             subsystem code they are the Z gauge generators ``G_Z``.
 
     Raises:
-        TypeError: If ``checks_x`` is a code, rather than its checks.
-        ValueError: If the checks are not binary, have more than two dimensions, or have different
-            numbers of columns.  A single vector is one check.
+        TypeError: If the checks are not arrays of numbers, as when a code is given instead of its
+            checks (see :meth:`from_code`).
+        ValueError: If the checks are not binary, have more than two dimensions, are empty without
+            a width, or have different numbers of columns.
     """
 
     def __init__(self, checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> None:
-        from ..common import AbstractCode
-
-        if isinstance(checks_x, AbstractCode):
-            raise TypeError(
-                "Pass the X and Z checks of a code, or build a counter from the code with"
-                " CSSLogicalCounter.from_code"
-            )
-
         # Validate the checks, and reduce them to independent bases in reduced row echelon form.
         matrix_x = as_binary_matrix(checks_x, "checks_x")
         matrix_z = as_binary_matrix(checks_z, "checks_z", num_cols=matrix_x.shape[1])
@@ -730,8 +724,8 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If ``checks_x`` is a code, rather than its checks, or if the weight is not an
-            integer, or is a bool.
+        TypeError: If the checks are not valid for :class:`CSSLogicalCounter`, or if the weight is
+            not an integer, or is a bool.
         ValueError: If the checks are not valid for :class:`CSSLogicalCounter`, or for invalid
             arguments as described in :meth:`CSSLogicalCounter.count_logical_ops`.
     """
@@ -776,7 +770,7 @@ def _validate_logical_count_method(
     The aliases ``"information_sets"`` and ``"weight_enumerator"`` resolve to
     ``"brouwer_zimmermann"`` and ``"macwilliams"``, respectively.
     """
-    if method not in _LOGICAL_COUNT_METHODS:
+    if not isinstance(method, str) or method not in _LOGICAL_COUNT_METHODS:
         raise ValueError(
             f"Unknown logical-count method {method!r}; choose from 'brouwer_zimmermann',"
             " 'macwilliams', or 'brute_force'."

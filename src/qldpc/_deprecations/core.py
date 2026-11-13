@@ -396,7 +396,7 @@ def get_distance_classical(
         " qldpc.codes.distance.get_distance_from_generators instead",
         stacklevel=get_external_caller_stacklevel(),
     )
-    with _tuning.use_tuning(**_get_block_size_tuning(block_size)):
+    with _tuning.use_tuning(**_get_block_size_changes(block_size)):
         return get_distance_from_generators(
             generators, cutoff=cutoff, method=method, max_weight=max_weight
         )
@@ -425,7 +425,7 @@ def get_distance_quantum(
         " symplectic=not homogeneous) instead",
         stacklevel=get_external_caller_stacklevel(),
     )
-    with _tuning.use_tuning(**_get_block_size_tuning(block_size)):
+    with _tuning.use_tuning(**_get_block_size_changes(block_size)):
         return get_distance_from_generators(
             logical_ops,
             stabilizers,
@@ -483,13 +483,13 @@ def get_primitive_central_idempotents(
     ]
 
 
-def _get_block_size_tuning(block_size: int | None) -> dict[str, int]:
-    """The changes to the active tuning that the deprecated block_size argument makes, if given.
+def _get_block_size_changes(block_size: int | None) -> dict[str, int]:
+    """Warn about a deprecated block_size argument, if given, and return the changes that it makes.
 
-    Exhaustive enumeration took block_size as the exponent of its batches, and scans of information
-    sets took at most it.  As before, any integer, including a bool, is accepted, and an exponent
-    outside the range of the fields is clamped to it, which changes no batch of exhaustive
-    enumeration.
+    The changes are to the fields of the active tuning.  Exhaustive enumeration took block_size as
+    the exponent of its batches, and scans of information sets took at most it.  As before, any
+    integer, including a bool, is accepted, and an exponent outside the range of the fields is
+    clamped to it, which changes no batch of exhaustive enumeration.
     """
     if block_size is None:
         return {}

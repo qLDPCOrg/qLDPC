@@ -51,6 +51,10 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
             f"Exact searches only take binary input, but {name} is defined over GF({order})"
         )
     array = np.asarray(_as_dense(vectors))
+    if array.dtype == object:
+        raise TypeError(
+            f"{name} must be an array of binary entries, not a {type(vectors).__name__}"
+        )
     if array.size and not np.all((array == 0) | (array == 1)):
         raise ValueError(
             f"Exact searches only take binary input, but {name} has entries other than 0 and 1"
@@ -62,12 +66,15 @@ def as_binary_matrix(
 ) -> npt.NDArray[np.uint8]:
     """Check that a collection of rows is binary, and return it as a two-dimensional uint8 array.
 
-    A single vector is one row.  The checks use ``name``, the name of the argument, in their error
+    A single vector is one row.  If ``num_cols`` is given, every row must have that many entries,
+    and a matrix without rows, or an empty list, gets that width.  Otherwise, an empty list has no
+    width, and raises an error.  The checks use ``name``, the name of the argument, in their error
     messages.  If NumPy cannot convert the rows to an array, such as when their lengths differ, it
     raises its own error.
     """
-    assert_binary(vectors, name)
-    matrix = np.asarray(_as_dense(vectors), dtype=np.uint8)
+    dense = _as_dense(vectors)
+    assert_binary(dense, name)
+    matrix = np.asarray(dense, dtype=np.uint8)
     if matrix.ndim == 1 and not matrix.size:
         if num_cols is None:
             raise ValueError(f"Cannot infer the width of {name}, which is empty")
@@ -75,7 +82,7 @@ def as_binary_matrix(
     matrix = np.atleast_2d(matrix)
     if matrix.ndim != 2:
         raise ValueError(f"{name} must be a matrix or a single row, not a {matrix.ndim}-D array")
-    if num_cols is not None and len(matrix) and matrix.shape[1] != num_cols:
+    if num_cols is not None and matrix.shape[1] != num_cols and matrix.shape != (0, 0):
         raise ValueError(
             f"{name} has {matrix.shape[1]} columns, which is incompatible with the width {num_cols}"
         )

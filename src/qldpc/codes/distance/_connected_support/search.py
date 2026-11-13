@@ -76,8 +76,9 @@ def get_distance_connected_support(
         problems: The ``(checks, excluded)`` pairs to search.
         cutoff: Exit early and return once an upper bound on the distance falls to or below this
             cutoff.
-        upper_bound: The weight of a known witness of a problem that is not in ``problems``, if
-            any.  The result is the minimum of this bound and the distances of ``problems``.
+        upper_bound: A cap on the result, if any, such as the weight of a known witness that is
+            not in ``problems``, or ``max_weight + 1`` under a weight limit.  The result is the
+            minimum of this bound and the distances of ``problems``.
         homogeneous: Whether the problems have binary words, rather than the symplectic words of
             Pauli operators (see ``SupportSearch``).  Default: True.
         get_automorphisms: A function that returns an array of generators of a group of

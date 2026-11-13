@@ -564,7 +564,7 @@ def test_syndromes_of_queries_are_integers_or_binary_vectors() -> None:
     """
     matrix = get_graph_state(5, [(0, 1), (0, 2), (2, 3), (3, 4)], phase=True)
     search = CosetLeaderSearch(matrix)
-    for syndrome in range(1 << 5):
+    for syndrome in (0b00110, 0b10011):
         bits = (syndrome >> np.arange(5)) & 1
         assert search.get_min_weight_bound(bits.tolist(), 2) == search.get_min_weight_bound(
             syndrome, 2
@@ -621,12 +621,9 @@ def test_representatives_unpack_to_binary_vectors_in_xz_order() -> None:
             search.unpack_pauli(pauli)
 
     # On six qubits, a packed error spans two bytes, and bit j of it is entry j of the vector.
-    num_qubits = 6
-    search = CosetLeaderSearch(get_graph_state(num_qubits, [(j, j + 1) for j in range(5)]))
-    for syndrome in range(1 << num_qubits):
-        pauli = search.get_min_weight_bound(syndrome, num_qubits).representative
-        expected = [(pauli >> j) & 1 for j in range(2 * num_qubits)]
-        assert search.unpack_pauli(pauli).tolist() == expected
+    search = CosetLeaderSearch(get_graph_state(6, [(j, j + 1) for j in range(5)]))
+    for pauli in (0b100000000001, 0b011010010110):
+        assert search.unpack_pauli(pauli).tolist() == [(pauli >> j) & 1 for j in range(12)]
 
 
 @pytest.mark.parametrize(

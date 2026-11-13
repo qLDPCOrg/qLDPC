@@ -44,8 +44,9 @@ DistanceMethod = Literal[
   reject it.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 
-Functions that search cosets rather than codes reject ``"brute_force"``.  The page
-:doc:`/exact_search_tuning` of the documentation says how to make costly searches faster.
+:class:`~qldpc.codes.distance.CosetLeaderSearch`, and the certification of circuits that uses it,
+reject ``"brute_force"``.  The page :doc:`/exact_search_tuning` of the documentation says how to
+make costly searches faster.
 """
 
 
@@ -78,6 +79,10 @@ class NoDistance(float, enum.ReprEnum):
 
 
 NO_DISTANCE = NoDistance.NAN
+"""The distance of an object that has none, the only member of :class:`NoDistance`.
+
+It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
+"""
 
 _CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force", "connected_support"]
 
@@ -109,9 +114,9 @@ def get_distance_from_generators(
     The words are the sums of rows of ``generators`` and ``excluded``, and a word is trivial if it
     is a sum of rows of ``excluded`` alone.  For a classical code, pass its generator matrix, and
     nothing excluded, to get its distance: the minimum weight of a nonzero code word.  For a quantum
-    code, pass its logical operators, and exclude its stabilizers, or the gauge generators of a
-    subsystem code, to get its distance: the minimum weight of a nontrivial logical operator.  Rows
-    may be redundant.
+    code, pass its logical operators, and exclude its stabilizers, to get its distance: the minimum
+    weight of a nontrivial logical operator.  For a subsystem code, exclude its gauge generators
+    instead.  Rows may be redundant.
 
     Args:
         generators: A binary matrix whose rows, together with those of ``excluded``, span the words.
@@ -134,11 +139,11 @@ def get_distance_from_generators(
             ``cutoff=max_weight`` as well to stop at the first such word.
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
             map the row space of ``excluded``, and that of ``generators`` and ``excluded`` together,
-            onto themselves: an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or a
-            function that returns such an array or None, which is called at most once, when a search
-            reaches a costly stage (see :doc:`/exact_search_tuning`).  The Brouwer--Zimmermann
-            method uses them to search fewer information sets, and verifies them before it uses
-            them.  The brute-force method ignores them.
+            onto themselves.  Pass them as an array whose row ``p`` maps bit or qubit ``j`` to
+            ``p[j]``, or as a function that returns such an array or None.  A search calls the
+            function at most once, when it reaches a costly stage (see :doc:`/exact_search_tuning`).
+            The Brouwer--Zimmermann method verifies the permutations, and then uses them to search
+            fewer information sets.  The brute-force method ignores them.
 
     Returns:
         The minimum weight of a nontrivial word.  As soon as the lightest nontrivial word seen so
@@ -153,9 +158,10 @@ def get_distance_from_generators(
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
         ValueError: If the method is unknown or is ``"connected_support"``, if ``max_weight`` is
-            negative, if the matrices are not binary matrices with the same number of columns,
-            which is even if ``symplectic`` is True, if ``automorphisms`` are not permutations of
-            the bits or qubits, or if a search uses one that is not an automorphism.
+            negative, if the matrices are not binary matrices with the same number of columns, if
+            they have an odd number of columns while ``symplectic`` is True, if ``automorphisms``
+            are not permutations of the bits or qubits, or if a search asks for them and one is not
+            an automorphism.
     """
     method = _reject_connected_support(_validate_distance_method(method))
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -207,8 +213,8 @@ def get_distance_from_checks(
             "Returns").
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
             ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  The
-            Brouwer--Zimmermann and brute-force methods search the null space of the checks, and the
-            connected-support method searches the words whose supports the checks connect.
+            Brouwer--Zimmermann and brute-force methods search every word that satisfies the
+            checks, and the connected-support method the words whose supports the checks connect.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial word is heavier than ``max_weight``, which can be much
@@ -216,12 +222,12 @@ def get_distance_from_checks(
             early exit still returns the weight of a word within the limit; pass
             ``cutoff=max_weight`` as well to stop at the first such word.
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
-            map the row space of ``checks``, and that of ``excluded``, onto themselves: an array
-            whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or a function that returns such an
-            array or None, which is called at most once, when a search reaches a costly stage (see
-            :doc:`/exact_search_tuning`).  The Brouwer--Zimmermann and connected-support methods use
-            them to search less, and verify them before they use them.  The brute-force method
-            ignores them.
+            map the row space of ``checks``, and that of ``excluded``, onto themselves.  Pass them
+            as an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or as a function that
+            returns such an array or None.  A search calls the function at most once, when it
+            reaches a costly stage (see :doc:`/exact_search_tuning`).  The Brouwer--Zimmermann and
+            connected-support methods verify the permutations, and then use them to search less.
+            The brute-force method ignores them.
 
     Returns:
         The minimum weight of a nontrivial word, as for :func:`get_distance_from_generators`,
@@ -231,10 +237,11 @@ def get_distance_from_checks(
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the matrices are not
-            binary matrices with the same number of columns, which is even if ``symplectic`` is
-            True, if ``symplectic`` is True and nothing is excluded, if a row of ``excluded`` does
-            not satisfy the checks, if ``automorphisms`` are not permutations of the bits or
-            qubits, or if a search uses one that is not an automorphism.
+            binary matrices with the same number of columns, if they have an odd number of columns
+            while ``symplectic`` is True, if ``symplectic`` is True and ``excluded`` is not given,
+            if a row of ``excluded`` does not satisfy the checks, if ``automorphisms`` are not
+            permutations of the bits or qubits, or if a search asks for them and one is not an
+            automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -303,11 +310,12 @@ def get_distance_css(
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
         automorphisms: Permutations of the qubits that map the row space of ``checks_x``, and that
-            of ``checks_z``, onto themselves: an array whose row ``p`` maps qubit ``j`` to ``p[j]``,
-            or a function that returns such an array or None, which is called at most once, when a
-            search reaches a costly stage (see :doc:`/exact_search_tuning`).  The
-            Brouwer--Zimmermann and connected-support methods use them to search less, and verify
-            them before they use them.  The brute-force method ignores them.
+            of ``checks_z``, onto themselves.  Pass them as an array whose row ``p`` maps qubit
+            ``j`` to ``p[j]``, or as a function that returns such an array or None.  A search calls
+            the function at most once, when it reaches a costly stage (see
+            :doc:`/exact_search_tuning`).  The Brouwer--Zimmermann and connected-support methods
+            verify the permutations, and then use them to search less.  The brute-force method
+            ignores them.
 
     Returns:
         The minimum weight of a nontrivial logical operator of the requested types, as for
@@ -318,8 +326,8 @@ def get_distance_css(
         TypeError: If ``max_weight`` is not an integer, or is a bool.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not
             binary matrices with the same number of columns, if ``pauli`` is not X, Z, or None, if
-            ``automorphisms`` are not permutations of the qubits, or if a search uses one that is
-            not an automorphism.
+            ``automorphisms`` are not permutations of the qubits, or if a search asks for them and
+            one is not an automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -344,14 +352,15 @@ def get_distance_css(
     if num_logical_x == 0:
         return NO_DISTANCE
 
-    tuning = get_tuning()
+    # Search both types at once, except by brute force, which has no joint search, and so searches
+    # each type in turn and takes the minimum.
     if method == "connected_support":
         return get_distance_connected_support(
             problems,
             cutoff=cutoff,
             upper_bound=upper_bound,
             get_automorphisms=get_automorphisms,
-            tuning=tuning,
+            tuning=get_tuning(),
         )
     if method == "brute_force":
         return min(
@@ -371,7 +380,7 @@ def get_distance_css(
         cutoff=cutoff,
         upper_bound=upper_bound,
         get_automorphisms=get_automorphisms,
-        tuning=tuning,
+        tuning=get_tuning(),
     )
 
 
@@ -389,7 +398,8 @@ def get_distance_pauli(
     length ``2 n``, where ``P_x`` and ``P_z`` are the supports of its X-type and Z-type parts, as in
     :class:`~qldpc.codes.QuditCode`.  If all of these Pauli strings commute, the code is a
     stabilizer code, and the rows generate its stabilizer group.  Its distance is the minimum weight
-    of a logical operator: a Pauli string that commutes with every row, but is not a stabilizer.
+    of a nontrivial logical operator: a Pauli string that commutes with every row, but is not a
+    stabilizer.
 
     Otherwise, the code is a subsystem code, and the rows generate its gauge group.  Its stabilizers
     are the gauge operators that commute with every gauge operator, and its logical operators are
@@ -406,12 +416,12 @@ def get_distance_pauli(
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
-        automorphisms: Permutations of the qubits that map the row space of ``checks`` onto itself:
-            an array whose row ``p`` maps qubit ``j`` to ``p[j]``, or a function that returns such
-            an array or None, which is called at most once, when a search reaches a costly stage
-            (see :doc:`/exact_search_tuning`).  The Brouwer--Zimmermann and connected-support
-            methods use them to search less, and verify them before they use them.  The brute-force
-            method ignores them.
+        automorphisms: Permutations of the qubits that map the row space of ``checks`` onto itself.
+            Pass them as an array whose row ``p`` maps qubit ``j`` to ``p[j]``, or as a function
+            that returns such an array or None.  A search calls the function at most once, when it
+            reaches a costly stage (see :doc:`/exact_search_tuning`).  The Brouwer--Zimmermann and
+            connected-support methods verify the permutations, and then use them to search less.
+            The brute-force method ignores them.
 
     Returns:
         The minimum weight of a nontrivial logical operator, as for
@@ -422,7 +432,7 @@ def get_distance_pauli(
         TypeError: If ``max_weight`` is not an integer, or is a bool.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not
             a binary matrix with an even number of columns, if ``automorphisms`` are not
-            permutations of the qubits, or if a search uses one that is not an automorphism.
+            permutations of the qubits, or if a search asks for them and one is not an automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -645,7 +655,7 @@ def _validate_distance_method(
 
     The alias ``"information_sets"`` resolves to ``"brouwer_zimmermann"``.
     """
-    if method not in _DISTANCE_METHODS:
+    if not isinstance(method, str) or method not in _DISTANCE_METHODS:
         raise ValueError(
             f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
             " 'information_sets'), 'brute_force', or 'connected_support'."

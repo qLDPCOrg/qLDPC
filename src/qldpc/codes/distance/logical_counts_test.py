@@ -9,7 +9,7 @@ import functools
 import itertools
 import math
 from dataclasses import replace
-from typing import Any, get_args
+from typing import Any, cast, get_args
 from unittest import mock
 
 import galois
@@ -707,10 +707,10 @@ def test_invalid_checks() -> None:
             lc.CSSLogicalCounter(checks_x, checks_z)
 
     steane: Any = codes.SteaneCode()
-    with pytest.raises(TypeError, match="from_code"):
+    with pytest.raises(TypeError, match="checks_x must be an array of binary entries, not a"):
         lc.CSSLogicalCounter(steane, steane.matrix_z)
-    with pytest.raises(TypeError, match="from_code"):
-        lc.count_logical_ops_css(steane, 3)
+    with pytest.raises(TypeError, match="checks_z must be an array of binary entries, not a"):
+        lc.count_logical_ops_css(steane.matrix_x, steane, 3)
 
 
 def test_counters_from_codes() -> None:
@@ -739,8 +739,9 @@ def test_public_api() -> None:
 def test_invalid_inputs() -> None:
     counter = lc.CSSLogicalCounter([[0, 0]], [[0, 0]])
     invalid_method: Any = "unknown"
-    with pytest.raises(ValueError, match="Unknown logical-count method"):
-        counter.count_logical_ops(method=invalid_method)
+    for unknown in (invalid_method, cast(Any, ["brouwer_zimmermann"])):
+        with pytest.raises(ValueError, match="Unknown logical-count method"):
+            counter.count_logical_ops(method=unknown)
 
     # The connected-support distance method does not count logical operators of every weight.
     distance_method: Any = "connected_support"
