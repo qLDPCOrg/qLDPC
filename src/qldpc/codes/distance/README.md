@@ -3,7 +3,7 @@
 This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, counts the logical operators of a given weight in binary CSS codes, and finds light Pauli errors with given syndromes on stabilizer states.
 Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py`, which call the distance functions for binary codes.
-`brouwer_zimmermann.md` explains the Brouwer–Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a Brouwer–Zimmermann search must keep.
+`brouwer_zimmermann.md` explains the Brouwer-Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a Brouwer-Zimmermann search must keep.
 `connected_support.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the code, says what its cost depends on, and lists its correctness requirements.
 
 ## Public names
@@ -19,41 +19,42 @@ Users reach it through the public functions and classes below, which take plain 
 ## Terms
 
 - **Sector:** the words of one type that a search examines, such as the logical operators of one type of a CSS code.
-  A Brouwer–Zimmermann search takes a basis of them, with labels that tell nontrivial words from trivial ones, such as logical operators from stabilizers.
+  A Brouwer-Zimmermann search takes a basis of them, with labels that tell nontrivial words from trivial ones, such as logical operators from stabilizers.
   A connected-support search takes the parity checks whose kernel holds them, and a matrix whose row space has the trivial ones.
 - **Information set:** in the code, the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
   `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
-- **Basis family** (`BasisFamily`): the information sets that one Brouwer–Zimmermann search or count uses together, stacked into arrays.
-- **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer–Zimmermann search has neither visited nor skipped, which tells the search when it can stop.
+- **Basis family** (`BasisFamily`): the information sets that one Brouwer-Zimmermann search or count uses together, stacked into arrays.
+- **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither visited nor skipped, which tells the search when it can stop.
   With completion tables, it bounds only the words lighter than the best weight (see Section 3.9 of `brouwer_zimmermann.md`).
 - **Connected-support search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
   It is another exact method, selected by `method="connected_support"`, and it also finds light vectors with a given syndrome.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
   Counting scans in `_counting/scan.py`.
-  The Brouwer–Zimmermann distance search in `_brouwer_zimmermann/distance.py` and the Brouwer–Zimmermann coset searches in `_brouwer_zimmermann/coset.py` scan with the compiled scans of `_brouwer_zimmermann/affine_search.py`.
+  The Brouwer-Zimmermann distance search in `_brouwer_zimmermann/distance.py` and the Brouwer-Zimmermann coset searches in `_brouwer_zimmermann/coset.py` scan with the compiled scans of `_brouwer_zimmermann/affine_search.py`.
   All of them step through a layer with `advance_support` in `_information_sets/support_stepping.py`.
 
 ## Layout
 
 - `core.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
 - `coset_leaders.py` is the public interface of the coset-leader search, and `min_weight_bounds.py` defines the answer of its queries, which its coset searches build too.
-- `_brouwer_zimmermann/` holds the Brouwer–Zimmermann searches, which scan information sets, and `_connected_support/` the searches over connected supports.
+- `_brouwer_zimmermann/` holds the Brouwer-Zimmermann searches, which scan information sets, and `_connected_support/` the searches over connected supports.
   Each holds its distance search, and the coset searches with which the coset-leader search answers its queries by that method.
   Exhaustive enumeration fits in one module, `_brute_force.py`.
 - `_counting/` holds the word scan of the counts, the local Clifford gates of deformed counters, and the MacWilliams method.
-- `_information_sets/` holds the families of information sets and their certificates, which the Brouwer–Zimmermann searches and the counts share.
+- `_information_sets/` holds the families of information sets and their certificates, which the Brouwer-Zimmermann searches and the counts share.
   The method name `"information_sets"` is an alias of `"brouwer_zimmermann"`, for distances and counts alike.
 - `_cosets.py` holds what the coset searches of both methods share.
 - `_tuning.py` holds the settings of the searches, and `_binary.py` the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
+  The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
 
 ## Where to look
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early check of `src/qldpc/circuits/certification/fault_propagation.py`; and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, and `get_distance` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, and `get_distance` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `coset_leaders.py` |
-| The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
+| The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
 | The compiled scans of layers that the BZ distance search and the BZ coset-leader search share, one body specialized by constant flags | `_brouwer_zimmermann/affine_search.py` |
 | The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_brouwer_zimmermann/affine_instance.py` |
 | The BZ coset searches of the coset-leader search | `_brouwer_zimmermann/coset.py` |
@@ -86,7 +87,7 @@ From the top:
 2. `core.py`.
 3. The methods `_brouwer_zimmermann/`, `_connected_support/`, and `_counting/`.
 4. `_information_sets/`, `_cosets.py`, `min_weight_bounds.py`, and `_brute_force.py`, which the methods build on.
-   The connected-support search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`, and the Brouwer–Zimmermann distance search uses `_brute_force.py` for its exhaustive routes.
+   The connected-support search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`, and the Brouwer-Zimmermann distance search uses `_brute_force.py` for its exhaustive routes.
 5. `_tuning.py`.
 6. `_binary.py`.
 
@@ -117,7 +118,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecat
 The coset searches answer their own queries with `MinWeightBound` too, whose representative is then a word of their code: a packed Pauli error, or an X or Z part.
 Each coset search first looks up the words of weight at most one in a table.
 
-By default, each coset search is a Brouwer–Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann.md`).
+By default, each coset search is a Brouwer-Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann.md`).
 With one BZ search, `find_first_not_within_max_weight` returns the bound that the batch search found, so the syndrome is not searched again, and with two, the bound that `get_min_weight_bound` gives.
 `get_min_weights` answers the syndromes of a batch in one compiled loop for each coset search, with `BrouwerZimmermannCosetSearch.get_min_weights` (Section 3.10 of `brouwer_zimmermann.md`).
 For the CSS weight, it searches the Z part of a class only if its X part is within the maximum weight, with the weight of the X part as the floor of that search.
@@ -147,7 +148,7 @@ So for the CSS weight, the representative of a part within `max_weight` can diff
 
 Every value that changes only how long a search takes or how much memory it uses, and that a search can read when it starts, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
 The arguments of the public functions say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`; do not add arguments that only tune a search.
-Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–Zimmermann search uses its fields, and Sections 3.5 and 3.8 of `connected_support.md` where the connected-support searches use theirs.
+Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer-Zimmermann search uses its fields, and Sections 3.5 and 3.8 of `connected_support.md` where the connected-support searches use theirs.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_support` read it only if their callers pass none.

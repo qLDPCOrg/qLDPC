@@ -8,7 +8,7 @@ caches.  :class:`SearchTuning` collects the values that tune a search, from the 
 choose a route to the coefficients of cost models and the sizes of batches.  The tables of the page
 :doc:`/exact_search_tuning` of the documentation, which renders this docstring, map routes and
 symptoms to these values.  Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a
-Brouwer--Zimmermann search uses them, and Sections 3.5 and 3.8 of ``connected_support.md`` where the
+Brouwer-Zimmermann search uses them, and Sections 3.5 and 3.8 of ``connected_support.md`` where the
 connected-support searches use theirs.
 
 This module is private.  Its names, fields, defaults, and constants can change in any release,
@@ -28,7 +28,7 @@ What tuning can and cannot change:
 - Under every tuning, a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` decides the same
   way whether a coset has a word of weight at most the query's maximum weight, and with the
   connected-support method it gives the same lower bound.  The word that it returns, and with the
-  Brouwer--Zimmermann method its lower bound, can depend on tuning, within the contract of
+  Brouwer-Zimmermann method its lower bound, can depend on tuning, within the contract of
   :class:`~qldpc.codes.distance.MinWeightBound`.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
   process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,

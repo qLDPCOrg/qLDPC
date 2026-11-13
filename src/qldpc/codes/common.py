@@ -55,6 +55,7 @@ from .distance import (
     get_distance_from_generators,
     get_distance_pauli,
 )
+from .distance._binary import infer_field
 from .distance.core import _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
@@ -127,8 +128,13 @@ class AbstractCode(abc.ABC):
     ) -> None:
         """Construct a code from a parity check matrix over a finite field.
 
-        The base field is taken to be ``F_2`` by default.  If ``matrix`` is a finite-field array, an
-        explicit field may either match its field or canonically extend its prime field.
+        The base field is ``field`` if given.  Otherwise, it is the field of ``matrix`` if that is a
+        code or a finite-field array, and ``F_2`` if not.  An explicit field must match the field of
+        a code.  The field of a finite-field array must be the base field or its prime subfield.
+        Rows over a finite field that are given in a list or tuple, possibly nested, follow the same
+        rule, with their field read from the first row.  Unlike finite-field arrays, such rows need
+        an explicit field unless they are over ``F_2``.  The code keeps a copy of an array that it
+        is given, so later changes to the array do not change the code.
         """
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
@@ -150,7 +156,7 @@ class AbstractCode(abc.ABC):
             matrix_field = type(matrix)
             self._field = resolve_field(field) if field is not None else type(matrix)
             if self._field is matrix_field:
-                self._matrix = matrix.view(self._field)
+                self._matrix = matrix.copy()
             elif (
                 matrix_field.degree == 1
                 and matrix_field.characteristic == self._field.characteristic
@@ -165,13 +171,30 @@ class AbstractCode(abc.ABC):
 
         else:
             self._field = resolve_field(field)
+            # NumPy drops the field of listed rows, so check it as for finite-field arrays above
+            rows_field = infer_field(matrix) or self._field
+            if rows_field is not self._field and (
+                rows_field.degree > 1 or rows_field.characteristic != self._field.characteristic
+            ):
+                raise ValueError(
+                    f"The rows of the matrix are over GF({rows_field.order}), which is incompatible"
+                    f" with the field GF({self._field.order}) of this code; pass the field of the"
+                    " rows as the field argument"
+                )
             if scipy.sparse.issparse(matrix):
                 matrix = matrix.todense()  # type:ignore[union-attr]  # issparse does not narrow
-            array = np.asanyarray(matrix)
-            if array.dtype == bool:
-                # galois rejects bool dtypes, so treat booleans as 0/1 integers
-                array = array.astype(np.uint8)
+            array = np.array(matrix)
+            if array.dtype == bool or not array.size:
+                # galois rejects bool dtypes and the float dtype that NumPy gives empty lists, so
+                # cast booleans and empty arrays to an integer dtype of the field
+                array = array.astype(self._field.dtypes[0])
             self._matrix = array.view(self.field)
+
+        if self._matrix.ndim != 2:
+            raise ValueError(
+                f"A parity check matrix must be two-dimensional, not of shape {self._matrix.shape};"
+                " pass one row per check or, for no checks, an array of shape (0, n) with n columns"
+            )
 
     @property
     def name(self) -> str:
@@ -2796,7 +2819,14 @@ class CSSCode(QuditCode):
         assumed to have equal minimum weight, which lets the code distance be computed from one type
         alone.  This promise is trusted rather than verified: passing ``True`` when it does not hold
         makes get_distance return an incorrect (and compute-order-dependent) distance.
+
+        The checks of one type may be an empty list or tuple, which takes the number of qudits and
+        the field of the checks of the other type.
         """
+        if isinstance(code_x, list | tuple) and not code_x:
+            code_x = ClassicalCode(code_z, field).matrix[:0]
+        if isinstance(code_z, list | tuple) and not code_z:
+            code_z = ClassicalCode(code_x, field).matrix[:0]
         self._code_x = ClassicalCode(code_x, field)  # X-type parity checks, measuring Z-type errors
         self._code_z = ClassicalCode(code_z, field)  # Z-type parity checks, measuring X-type errors
         self._field = self.code_x.field
@@ -4358,7 +4388,7 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
-        Brouwer--Zimmermann and connected-support searches use the automorphisms of this code.
+        Brouwer-Zimmermann and connected-support searches use the automorphisms of this code.
         ``upper_bound``, if given, is the weight of a known logical operator of the other type,
         which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
         below ``cutoff`` can be an upper bound.

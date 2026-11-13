@@ -108,7 +108,7 @@ The coset of `x` is determined by the syndrome bits of the pure-Z stabilizers, a
 `CosetLeaderSearch` computes these bits from the syndrome for `g_1, ..., g_n`.
 For the physical weight, or for a state that is not CSS, the X and Z parts do not separate in this way.
 
-By default, each search of the oracle is a Brouwer–Zimmermann search of the cosets of a binary code, which [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md) describes, with the improvements that it uses for cosets.
+By default, each search of the oracle is a Brouwer-Zimmermann search of the cosets of a binary code, which [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md) describes, with the improvements that it uses for cosets.
 When a high threshold makes a search costly, the oracle may search with another family of information sets that it expects to take less work.
 Section 4.4 of [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models) says when, from the expected work that the field `overlapping_minimum_work` of the search tuning sets.
 The oracle builds these families once for each cached search (see `CSS_SEARCH_CACHE_SIZE` and `PAULI_SEARCH_CACHE_SIZE` in `qldpc.codes.distance._tuning`).

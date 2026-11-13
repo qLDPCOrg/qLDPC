@@ -141,6 +141,38 @@ def test_field_array_construction() -> None:
     with pytest.raises(ValueError, match="canonical prime-subfield embeddings"):
         codes.ClassicalCode(galois.GF(4)([[0, 1, 2, 3]]), field=16)
 
+    # Listed rows, whose field NumPy drops, follow the same rules, and never set the field of a
+    # code, which is GF(2) by default.
+    assert codes.ClassicalCode(list(binary_matrix), field=4).field is galois.GF(4)
+    for matrix, field in [(galois.GF(3)([[1, 1, 0]]), None), (galois.GF(4)([[0, 1, 2, 3]]), 16)]:
+        with pytest.raises(ValueError, match=r"rows of the matrix are over GF"):
+            codes.ClassicalCode(list(matrix), field=field)
+
+
+def test_codes_copy_their_matrices() -> None:
+    """Changing the array that built a code does not change the code."""
+    for matrix in (np.array([[1, 1, 0], [0, 1, 1]]), galois.GF(2)([[1, 1, 0], [0, 1, 1]])):
+        code = codes.ClassicalCode(matrix)
+        matrix[0, 0] = 0
+        assert code.matrix[0, 0] == 1
+
+
+def test_check_matrix_shapes() -> None:
+    """Code constructors handle empty, boolean, and malformed matrices.
+
+    A CSS code can have no checks of one type, empty and boolean matrices build codes over fields of
+    any order, and a matrix must be two-dimensional.
+    """
+    checks = galois.GF(3)([[1, 2, 0], [0, 1, 1]])
+    assert codes.CSSCode([], checks) == codes.CSSCode.classical(checks, Pauli.Z)
+    assert codes.CSSCode(checks, ()) == codes.CSSCode.classical(checks, Pauli.X)
+    for matrix in (np.zeros((0, 3), dtype=int), np.ones((1, 3), dtype=bool)):
+        assert np.array_equal(codes.ClassicalCode(matrix, field=257).matrix, matrix)
+    not_two_dimensional: list[Any] = [[], galois.GF(2).Zeros((1, 1, 3))]
+    for matrix in not_two_dimensional:
+        with pytest.raises(ValueError, match="must be two-dimensional"):
+            codes.ClassicalCode(matrix)
+
 
 def test_named_codes(order: int = 2) -> None:
     """Named codes from the GAP computer algebra system."""

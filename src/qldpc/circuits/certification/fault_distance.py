@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, get_args
 
 import numpy as np
 import stim
@@ -63,8 +63,14 @@ def get_fault_distance(
         ``NO_DISTANCE`` (see :class:`~qldpc.codes.distance.NoDistance`) if no such fault exists.
 
     Raises:
-        ValueError: If Stim cannot convert the circuit to a DEM, or if the method is unknown.
+        ValueError: If the method is unknown, or if Stim cannot convert the circuit to a DEM.
     """
+    # Check the method before the costly analysis of the circuit.
+    if method not in get_args(DistanceMethod):
+        raise ValueError(
+            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
+            " 'information_sets'), 'brute_force', or 'connected_support'."
+        )
     dem_arrays = decoders.DetectorErrorModelArrays(circuit)
     detectors = dem_arrays.detector_flip_matrix.toarray().astype(np.uint8)
     observables = dem_arrays.observable_flip_matrix.toarray().astype(np.uint8)
