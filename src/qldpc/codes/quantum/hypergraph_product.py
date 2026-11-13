@@ -486,7 +486,8 @@ class SHPCode(CSSCode):
     for the underlying classical codes.
 
     If the classical generating codes of an SHPCode have code parameters ``[n1, k1, d1]`` and
-    ``[n2, k2, d2]``, the SHPCode has parameters ``[n1 n2, k1 k2, min(d1, d2)]``.
+    ``[n2, k2, d2]``, the SHPCode has parameters ``[n1 n2, k1 k2, min(d1, d2)]``, where the distance
+    is dressed: its logical operators may be multiplied by gauge operators.
 
     References:
 

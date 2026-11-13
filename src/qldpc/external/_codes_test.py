@@ -10,8 +10,9 @@ import urllib
 import numpy as np
 import pytest
 
-from qldpc import codes
+from qldpc import codes, external
 from qldpc.external import _codes
+from qldpc.objects import Pauli
 
 
 def test_get_guava_code() -> None:
@@ -115,7 +116,7 @@ def test_get_qdistrnd_distance_bound() -> None:
     matrix = codes.FiveQubitCode().matrix
     steane_code = codes.SteaneCode()
     with unittest.mock.patch("qldpc.external.gap.require_package", return_value=None):
-        with pytest.raises(ValueError, match="non-CSS subsystem codes"):
+        with pytest.raises(ValueError, match="subsystem code from its symplectic checks"):
             _codes.get_qdistrnd_distance_bound(matrix, is_subsystem_code=True)
 
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="3") as get_output:
@@ -132,6 +133,13 @@ def test_get_qdistrnd_distance_bound() -> None:
                 )
                 == 3
             )
+
+            # QDistRnd fails on a matrix without rows, so it receives a zero row instead
+            code = codes.CSSCode(np.zeros((0, 7), dtype=int), steane_code.matrix_z)
+            _codes.get_qdistrnd_distance_bound(code.matrix_x, matrix_z=code.matrix_z)
+            zero_row = np.zeros((1, 7), dtype=int)
+            commands = _codes._get_gap_sparse_matrix_commands("matrix_x", 2, zero_row)
+            assert set(commands) <= set(get_output.call_args.args)
 
         # QDistRnd negates a bound at or below the cutoff when it stops early
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="-2"):
@@ -150,6 +158,24 @@ def test_get_qdistrnd_distance_bound() -> None:
             pytest.raises(ValueError, match="Could not parse a distance bound"),
         ):
             _codes.get_qdistrnd_distance_bound(matrix)
+
+
+def test_qdistrnd_bounds_without_checks_of_one_type() -> None:  # pragma: no cover
+    """GAP bounds the distances of CSS codes without checks, or stabilizers, of one type.
+
+    This test runs GAP itself, so it runs only where GAP can be called, as in the GAP integration
+    tests.
+    """
+    if not external.gap.is_callable():
+        pytest.skip("GAP cannot be called")
+    trivial_code = codes.TrivialCode(4, gauge_dimension=2)
+    for code in (
+        codes.CSSCode(np.zeros((0, 7), dtype=int), codes.HammingCode(3).matrix),
+        codes.CSSCode(trivial_code.matrix_x, trivial_code.matrix_z),
+    ):
+        for pauli in (Pauli.X, Pauli.Z):
+            bound = code.get_distance_bound(20, pauli=pauli, backend="gap")
+            assert code.get_distance_exact(pauli) <= bound <= len(code)
 
 
 def test_get_gap_sparse_matrix_commands() -> None:

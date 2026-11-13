@@ -71,6 +71,11 @@ def certify_bounded_fault_propagation(
     other, such as the cases of an ``ELSE_CORRELATED_ERROR`` chain, count as separate error
     mechanisms that can occur together.
 
+    Errors are judged modulo the stabilizers of the prepared state.  If it is a state of a subsystem
+    code whose gauge the circuit fixes, an error that changes only the gauge is therefore not
+    equivalent to no error, and counts toward the residual weight.  So the certificate is
+    conservative: a fault that leaves only such an error can fail the bound.
+
     Args:
         state_prep_circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.
 

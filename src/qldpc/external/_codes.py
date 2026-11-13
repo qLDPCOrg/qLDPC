@@ -194,7 +194,8 @@ def get_qdistrnd_distance_bound(
         An upper bound on the distance of the code.
 
     Raises:
-        ValueError: If given a non-CSS subsystem code, or if QDistRnd output is missing or invalid.
+        ValueError: If given the symplectic checks of a subsystem code, or if QDistRnd output is
+            missing or invalid.
     """
     qldpc.external.gap.require_package("GUAVA")
     qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
@@ -206,16 +207,25 @@ def get_qdistrnd_distance_bound(
     kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
 
     if matrix_z is not None:
+        # QDistRnd fails on a matrix without rows, so give each such matrix a zero row, which keeps
+        # its row space.
+        matrix_x, matrix_z = (
+            rows if len(rows) else type(rows).Zeros((1, rows.shape[1]))
+            for rows in (matrix, matrix_z)
+        )
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);;',
-            *_get_gap_sparse_matrix_commands("matrix_x", field_order, matrix),
+            *_get_gap_sparse_matrix_commands("matrix_x", field_order, matrix_x),
             *_get_gap_sparse_matrix_commands("matrix_z", field_order, matrix_z),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
 
     elif is_subsystem_code:
-        raise ValueError("QDistRnd cannot estimate the distance of non-CSS subsystem codes.")
+        raise ValueError(
+            "QDistRnd cannot estimate the distance of a subsystem code from its symplectic checks;"
+            " for a CSS subsystem code, use a CSSCode"
+        )
 
     else:
         # "riffle" the parity check matrix to put X and Z support bits each qudit next to each other

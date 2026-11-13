@@ -40,7 +40,7 @@ from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import get_external_caller_stacklevel
 
 from ._binary import (
-    as_binary_matrix,
+    as_binary_matrix_pair,
     as_integer,
     get_css_stabilizers,
     get_nested_code_basis,
@@ -165,19 +165,19 @@ class CSSLogicalCounter:
             gauge generators ``G_X``.
         checks_z: The Z-type checks ``H_Z`` of the code, as the rows of a binary matrix with as
             many columns as ``checks_x``, in any of the same forms.  They may be redundant, and in a
-            subsystem code they are the Z gauge generators ``G_Z``.
+            subsystem code they are the Z gauge generators ``G_Z``.  If either matrix is empty, an
+            empty list or a matrix of shape ``(0, 0)``, it takes the width of the other.
 
     Raises:
         TypeError: If ``checks_x`` or ``checks_z`` is not array-like, as when a code is given
             instead of its checks (see :meth:`from_code`).
         ValueError: If the checks are not binary or have more than two dimensions, if they have
-            different numbers of columns, or if ``checks_x`` is an empty list, which has no width.
+            different numbers of columns, or if both are empty lists, which have no width.
     """
 
     def __init__(self, checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> None:
         # Validate the checks, and reduce them to independent bases in reduced row echelon form.
-        matrix_x = as_binary_matrix(checks_x, "checks_x")
-        matrix_z = as_binary_matrix(checks_z, "checks_z", num_cols=matrix_x.shape[1])
+        matrix_x, matrix_z = as_binary_matrix_pair(checks_x, checks_z, ("checks_x", "checks_z"))
         self._code: CSSCode | None = None
         self._num_qubits = matrix_x.shape[1]
         self._gauge_x = get_independent_rows(matrix_x)

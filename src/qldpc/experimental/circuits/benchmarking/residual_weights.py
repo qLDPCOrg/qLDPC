@@ -329,7 +329,9 @@ def estimate_residual_weight_histogram(
 
     For a CSS state, the residual weight of one Pauli type, chosen by ``pauli``, is the smallest
     weight of the X-type (or Z-type) part of the output error after multiplying it by any X-type (or
-    Z-type) stabilizer of the prepared state.
+    Z-type) stabilizer of the prepared state.  As for ``certify_bounded_fault_propagation``, if the
+    prepared state is a state of a subsystem code whose gauge the circuit fixes, an error that
+    changes only the gauge counts toward the residual weight, so the estimates are conservative.
 
     In each shot of the circuit, error mechanisms occur independently with their own probabilities,
     and the error mechanisms that occur form the fault of the shot.  A shot is discarded if its

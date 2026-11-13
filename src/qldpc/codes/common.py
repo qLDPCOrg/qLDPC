@@ -1126,9 +1126,10 @@ class QuditCode(AbstractCode):
 
         ``is_subsystem_code`` records whether the parity checks fail to commute, making this a
         subsystem code.  If omitted, it is computed when first needed.  An explicit ``True`` is a
-        trusted hint, which is safe even if wrong: a stabilizer code treated as a subsystem code
-        just has no gauge qudits.  An explicit ``False`` is verified, and raises a ValueError if
-        some parity checks do not commute.
+        trusted hint, not verified.  A stabilizer code treated as a subsystem code has no gauge
+        qudits, and has the same distances, but methods that reject subsystem codes reject it, such
+        as get_distance_bound and memory experiments.  An explicit ``False`` is verified, and
+        raises a ValueError if some parity checks do not commute.
         """
         super().__init__(matrix, field)
 
@@ -1469,7 +1470,9 @@ class QuditCode(AbstractCode):
 
         For a subsystem code, logical operators are constructed as a symplectic basis of the gauge
         group's centralizer, whose symplectic radical is the stabilizer group.  These logical
-        operators make no guarantees on their physical support.
+        operators make no guarantees on their physical support.  They are bare: they commute with
+        every gauge operator, so they can be heavier than the distance, which is dressed (see
+        get_distance).
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
@@ -1918,8 +1921,9 @@ class QuditCode(AbstractCode):
             A tuple ``(n, k, d)``, where:
                 - n is the number of data qudits
                 - k is the number of encoded ("logical") qudits
-                - d is the code distance (or an upper bound on code distance), an integer, or
-                  ``NO_DISTANCE`` if the code encodes nothing.
+                - d is the code distance (or an upper bound on code distance), which is dressed for
+                  a subsystem code (see :meth:`get_distance`), an integer, or ``NO_DISTANCE`` if
+                  the code encodes nothing.
         """
         dimension = self.dimension
         distance = self.get_distance(bound=bound, **bound_kwargs)
@@ -1933,6 +1937,10 @@ class QuditCode(AbstractCode):
         **bound_kwargs: Any,
     ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
+
+        For a subsystem code, logical operators are dressed: they may be multiplied by gauge
+        operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
+        distance instead.
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
@@ -2088,8 +2096,9 @@ class QuditCode(AbstractCode):
                 workflow is declined with ``backend="gap"``.
             TypeError: If num_trials is not an integer or None.
             ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
-                GAP/QDistRnd does not recognize, or if given options for GAP with
-                ``backend="auto"`` when GAP cannot be called.
+                GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
+                when GAP cannot be called, or if the code is a subsystem code, which QDistRnd can
+                bound only as a :class:`CSSCode`.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -2775,9 +2784,10 @@ class CSSCode(QuditCode):
 
         ``is_subsystem_code`` records whether some X-type and Z-type parity checks fail to commute,
         making this a subsystem code.  If omitted, it is computed when first needed.  An explicit
-        ``True`` is a trusted hint, which is safe even if wrong: a stabilizer code treated as a
-        subsystem code just has no gauge qudits.  An explicit ``False`` is verified, and raises a
-        ValueError if some parity checks do not commute.
+        ``True`` is a trusted hint, not verified.  A stabilizer code treated as a subsystem code has
+        no gauge qudits, and has the same distances, but methods that reject subsystem codes reject
+        it, such as memory experiments.  An explicit ``False`` is verified, and raises a ValueError
+        if some parity checks do not commute.
 
         If ``promise_equal_distance_xz is True``, the X-type and Z-type logical operators are
         assumed to have equal minimum weight, which lets the code distance be computed from one type
@@ -2957,7 +2967,8 @@ class CSSCode(QuditCode):
     def is_self_dual(self) -> bool:
         """Is this code self-dual?
 
-        That is, are its X-type and Z-type stabilizers equivalent?
+        That is, do its X-type and Z-type parity checks span the same space?  For a stabilizer code,
+        these are its stabilizers, and for a subsystem code, its gauge generators.
         """
         return np.array_equal(self.canonicalized.matrix_x, self.canonicalized.matrix_z)
 
@@ -3097,6 +3108,9 @@ class CSSCode(QuditCode):
         check matrix when written in standard form (see QuditCode.get_standard_form_data), and then
         fill in the remaining entries of the logical operator matrix as required by parity check
         constraints.
+
+        For a subsystem code, these logical operators are bare: they commute with every gauge
+        operator, so they can be heavier than the distance, which is dressed (see get_distance).
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
 
@@ -3488,8 +3502,9 @@ class CSSCode(QuditCode):
             A tuple ``(n, k, d)``, where:
                 - n is the number of data qudits
                 - k is the number of encoded ("logical") qudits
-                - d is the code distance (or an upper bound on code distance), an integer, or
-                  ``NO_DISTANCE`` if the code encodes nothing.
+                - d is the code distance (or an upper bound on code distance), which is dressed for
+                  a subsystem code (see :meth:`get_distance`), an integer, or ``NO_DISTANCE`` if
+                  the code encodes nothing.
         """
         dimension = self.dimension
         distance = self.get_distance(bound=bound, decoder=decoder, **bound_kwargs)
@@ -3505,6 +3520,10 @@ class CSSCode(QuditCode):
         **bound_kwargs: Any,
     ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
+
+        For a subsystem code, logical operators are dressed: they may be multiplied by gauge
+        operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
+        distance instead.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3708,6 +3727,11 @@ class CSSCode(QuditCode):
         ``backend="gap"``, but GAP may still ask on standard input before installing a missing
         GUAVA or QDistRnd package.
 
+        Every backend gives an upper bound on the distance, which is dressed for a subsystem code.
+        GAP and sqetch search dressed logical operators, but the decoder-based algorithm searches
+        bare ones, which commute with every gauge operator, so for a subsystem code its bound can
+        stay above the distance.
+
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
                 default), return the best known upper bound on distance, or compute a single upper
@@ -3833,7 +3857,9 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         r"""Use a randomized algorithm to compute an upper bound on code distance.
 
-        Specifically, use the algorithm described in arXiv:2308.07915, also explained below.
+        Specifically, use the algorithm described in arXiv:2308.07915, also explained below.  For a
+        subsystem code, it finds bare logical operators, which commute with every gauge operator, so
+        its bound is valid but can stay above the distance, which is dressed.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3937,7 +3963,9 @@ class CSSCode(QuditCode):
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
         that it commutes with all logical operators except its dual.  This is essentially the same
-        method as that used in CSSCode.get_distance_bound.
+        method as that used in CSSCode.get_distance_bound.  For a subsystem code, the operator stays
+        bare: it commutes with every gauge operator, so its weight can exceed the distance, which is
+        dressed (see get_distance).
 
         Args:
             pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"
@@ -3993,6 +4021,8 @@ class CSSCode(QuditCode):
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> Self:
         """Reduce the weight of all logical operators.
+
+        For a subsystem code, the reduced operators stay bare (see reduce_logical_op).
 
         Args:
             pauli: The type of logical operators to reduce: Pauli.X, Pauli.Z, or None (the default)

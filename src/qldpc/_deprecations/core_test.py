@@ -199,7 +199,7 @@ def test_deprecated_get_distance_bound() -> None:
             code.forget_distance()
             assert get_bound() == _deprecations.core.get_distance_bound(code) == 3
             assert get_output.call_args_list[-2] == get_output.call_args_list[-1]
-        with pytest.raises(ValueError, match="non-CSS subsystem codes"):
+        with pytest.raises(ValueError, match="subsystem code from its symplectic checks"):
             _deprecations.core.get_distance_bound(subsystem_code)
 
 

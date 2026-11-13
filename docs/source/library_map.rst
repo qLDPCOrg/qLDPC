@@ -130,6 +130,8 @@ Distances across packages
 -------------------------
 
 ``get_distance()`` computes an exact distance, and ``get_distance_bound`` computes a randomized upper bound; CSS codes also have separate X and Z distances.
+The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
+:func:`~qldpc.codes.distance.get_distance_from_checks` says how to find its bare distance instead, the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
 Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
 Binary codes with sparse parity checks can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_.
 All exact methods can take exponential time.
@@ -145,6 +147,7 @@ With ``num_trials=None``, ``get_distance_bound`` returns the exact distance or b
 An explicit ``num_trials`` runs that many trials, and never returns a worse bound than the best known one.
 ``forget_distance()`` discards remembered distances and bounds.
 :class:`~qldpc.codes.distance.CSSLogicalCounter` and :func:`~qldpc.codes.distance.count_logical_ops_css` count the logical operators of a given weight in a binary CSS code, given its X-type and Z-type checks as binary matrices.
+For a subsystem code, they count dressed logical operators, and the MacWilliams method does not support it.
 ``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.
 
 Exact distance searches are also public functions of :mod:`qldpc.codes.distance` on plain binary arrays, for programs that need distances without building code objects, and the exact-distance methods of binary codes call these functions.
@@ -228,7 +231,7 @@ Capability       :math:`GF(2)`                              Prime field :math:`G
 ===============  =========================================  ==============================  ===================================  ========================================
 Codes            Yes                                        Yes                             Yes                                  Yes, inferred from non-commuting checks
 Exact distance   Brouwer--Zimmermann, or connected support  Exhaustive enumeration          Exhaustive enumeration               Yes
-Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only
+Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only (see upper bounds below)
 Decoders         All built-in decoders                      GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
 Circuits         Yes                                        No                              No                                   No memory experiments
 ===============  =========================================  ==============================  ===================================  ========================================
@@ -245,6 +248,7 @@ What qLDPC computes exactly, bounds, and trusts
 
 * Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
+  For a subsystem code, the decoder backend searches bare logical operators, so its bound is valid but can stay above the distance, which is dressed.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.
 * Trusted, not verified: recorded parameters of built-in families and online lookups, promises such as ``promise_equal_distance_xz``, an explicit ``is_subsystem_code=True`` hint to ``QuditCode`` or ``CSSCode``, a code-capacity ``min_error_weight`` below which errors are assumed to be corrected, and an explicit ``detector_to_time`` mapping.

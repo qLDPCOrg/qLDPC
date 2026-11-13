@@ -86,6 +86,12 @@ def test_css_distances(method: core.DistanceMethod) -> None:
     gauge_x, gauge_z = [[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]]
     assert core.get_distance_css(gauge_x, gauge_z, "X", method=method) == 1
 
+    # Empty X checks take the width of the Z checks.  The X logical operators are then the words of
+    # the Hamming code, and Z on any qubit is a logical operator.
+    hamming_checks = qldpc.codes.HammingCode(3).matrix
+    assert core.get_distance_css([], hamming_checks, "X", method=method) == 3
+    assert core.get_distance_css(np.zeros((0, 0)), hamming_checks, method=method) == 1
+
 
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
 def test_distances_from_checks(method: core.DistanceMethod) -> None:
@@ -135,6 +141,43 @@ def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod
     assert core.get_distance_pauli(gauge, method=method) == 1
     stabilizer_state = [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 1, 1]]
     assert core.get_distance_pauli(stabilizer_state, method=method) is core.NO_DISTANCE
+
+    # The gauge generators X0, Z0, Y1, and Z1 X2, which are not CSS, and the redundant X0 Y1 leave
+    # no stabilizers and one logical qubit, so X1, which is not a gauge operator, is a dressed
+    # logical operator.
+    gauge = [
+        [1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0],
+        [0, 0, 1, 0, 1, 0],
+        [1, 1, 0, 0, 1, 0],
+    ]
+    assert core.get_distance_pauli(gauge, method=method) == 1
+
+
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
+def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
+    """The recipes of get_distance_from_checks give the bare and dressed distances of a code.
+
+    The gauge generators of the three-qubit subsystem code leave no stabilizers, so X on one qubit
+    is a dressed logical operator, but every bare logical operator has weight 3.
+    """
+    code = qldpc.codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]])
+    stabilizers = code.get_stabilizer_ops()
+    assert core.get_distance_css(code.matrix_x, code.matrix_z, method=method) == 1
+    assert core.get_distance_pauli(code.matrix, method=method) == 1
+    assert (
+        core.get_distance_from_checks(stabilizers, code.matrix, symplectic=True, method=method) == 1
+    )
+    assert (
+        core.get_distance_from_checks(code.matrix, stabilizers, symplectic=True, method=method) == 3
+    )
+    stabilizers_x, stabilizers_z = (
+        code.get_stabilizer_ops(Pauli.X),
+        code.get_stabilizer_ops(Pauli.Z),
+    )
+    assert core.get_distance_from_checks(code.matrix_z, stabilizers_x, method=method) == 3
+    assert core.get_distance_from_checks(code.matrix_x, stabilizers_z, method=method) == 3
 
 
 def test_distance_functions_check_their_input() -> None:

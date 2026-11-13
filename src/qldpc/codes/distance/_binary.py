@@ -94,6 +94,22 @@ def as_binary_matrix(
     return matrix
 
 
+def as_binary_matrix_pair(
+    first: npt.ArrayLike, second: npt.ArrayLike, names: tuple[str, str]
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Check two binary matrices with the same number of columns, and return them as uint8 arrays.
+
+    Each is checked as by ``as_binary_matrix``, under its name in ``names``.  A matrix without a
+    width, an empty list or a matrix of shape ``(0, 0)``, takes the width of the other, so if both
+    are empty lists, the second raises an error.
+    """
+    if np.shape(first) in ((0,), (0, 0)):
+        second_matrix = as_binary_matrix(second, names[1])
+        return as_binary_matrix(first, names[0], num_cols=second_matrix.shape[1]), second_matrix
+    first_matrix = as_binary_matrix(first, names[0])
+    return first_matrix, as_binary_matrix(second, names[1], num_cols=first_matrix.shape[1])
+
+
 def get_nested_code_basis(
     logical_ops: npt.NDArray[np.uint8],
     stabilizers: npt.NDArray[np.uint8],

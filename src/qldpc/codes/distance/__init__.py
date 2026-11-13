@@ -20,10 +20,13 @@ without building code objects.  The exact-distance methods of the code classes o
        :func:`~qldpc.codes.distance.get_distance_from_checks`, with ``symplectic=True`` for Pauli
        strings
    * - The distance, or the X- or Z-distance, of a CSS stabilizer or subsystem code, from its X and
-       Z checks
+       Z checks, dressed for a subsystem code
      - :func:`~qldpc.codes.distance.get_distance_css`, with ``pauli`` choosing the type
-   * - The distance of a stabilizer or subsystem code, from its checks as Pauli strings
+   * - The distance of a stabilizer or subsystem code, from its checks as Pauli strings, dressed for
+       a subsystem code
      - :func:`~qldpc.codes.distance.get_distance_pauli`
+   * - The bare distance of a subsystem code, from its gauge generators and stabilizers
+     - :func:`~qldpc.codes.distance.get_distance_from_checks`, whose description gives the recipe
    * - The number of logical operators of a given weight in a CSS code
      - :class:`~qldpc.codes.distance.CSSLogicalCounter`, or
        :func:`~qldpc.codes.distance.count_logical_ops_css` for one count
