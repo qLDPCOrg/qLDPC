@@ -1047,6 +1047,14 @@ def test_pauli_stabilizer_ops_respect_canonicalized() -> None:
         assert np.array_equal(stabilizers, stabilizers.row_reduce()[: len(stabilizers)])
 
 
+def test_is_row_reduced() -> None:
+    """Row-reduced matrices have increasing pivots, each the only nonzero entry of its column."""
+    assert common._is_row_reduced(np.array([[1, 1, 0], [0, 0, 1]]))
+    assert not common._is_row_reduced(np.array([[0, 1], [1, 0]]))
+    assert not common._is_row_reduced(np.array([[1, 1], [0, 1]]))
+    assert not common._is_row_reduced(np.array([[1, 0], [0, 0]]))
+
+
 def test_canonicalized_code_is_its_own_canonical_form() -> None:
     """Canonicalizing a canonicalized code returns the same code object."""
     for code in [codes.HammingCode(3), codes.FiveQubitCode(), codes.SteaneCode()]:

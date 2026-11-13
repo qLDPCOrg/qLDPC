@@ -24,6 +24,7 @@ import scipy.sparse
 import stim
 
 from qldpc import _deprecations, abstract, decoders, external, math
+from qldpc._binary import get_independent_rows
 from qldpc._deprecations.decoders import (
     merge_legacy_css_decoder_args,
     merge_legacy_decoder_args,
@@ -55,6 +56,7 @@ from .distance import (
     get_distance_from_generators,
     get_distance_pauli,
 )
+from .distance._binary import get_css_stabilizers, get_pauli_stabilizers
 from .distance.core import _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
@@ -1745,7 +1747,14 @@ class QuditCode(AbstractCode):
         if not self.is_subsystem_code:
             return self.canonicalized.matrix if canonicalized else self.matrix
 
-        if self._stabilizer_ops is None or recompute:
+        if (self._stabilizer_ops is None or recompute) and self.field.order == 2:
+            # the bit-packed GF(2) routines are much faster than galois
+            matrix = self.matrix
+            stabilizers = get_pauli_stabilizers(matrix.view(np.ndarray).astype(np.uint8))
+            self._stabilizer_ops = (
+                get_independent_rows(stabilizers).astype(matrix.dtype).view(self.field)
+            )
+        elif self._stabilizer_ops is None or recompute:
             # keep gauge combinations that commute with every gauge as stabilizers
             stabs_and_gauges = self.canonicalized.matrix
             stabs_and_logs = math.symplectic_conjugate(stabs_and_gauges).null_space()
@@ -3422,7 +3431,18 @@ class CSSCode(QuditCode):
         row-reduced) such that its rows are a minimal generating set for the stabilizer group.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-        if self._stabilizer_ops is None and self.is_subsystem_code:
+        if self._stabilizer_ops is None and self.is_subsystem_code and self.field.order == 2:
+            # the bit-packed GF(2) routines are much faster than galois
+            stabs_x, stabs_z = get_css_stabilizers(
+                self.matrix_x.view(np.ndarray).astype(np.uint8),
+                self.matrix_z.view(np.ndarray).astype(np.uint8),
+            )
+            stabilizer_ops = scipy.linalg.block_diag(
+                get_independent_rows(stabs_x), get_independent_rows(stabs_z)
+            )
+            dtype = np.result_type(self.matrix_x.dtype, self.matrix_z.dtype)
+            self._stabilizer_ops = stabilizer_ops.astype(dtype).view(self.field)
+        elif self._stabilizer_ops is None and self.is_subsystem_code:
             # keep gauge combinations in each sector that commute with the opposite sector
             stabs_and_gauges_x = self.canonicalized.get_matrix(Pauli.X)
             stabs_and_gauges_z = self.canonicalized.get_matrix(Pauli.Z)
@@ -4502,11 +4522,16 @@ def _permute_qudits(
 
 
 def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
-    """Is the provided matrix in a row-reduced form?"""
+    """Is the provided matrix in reduced row echelon form, with no zero rows?
+
+    The pivots, or first nonzero entries, of its rows must lie in increasing columns, and each must
+    be the only nonzero entry of its column.
+    """
     pivots = math.first_nonzero_cols(matrix)
-    return all(pivots < matrix.shape[1]) and all(
-        not np.any(matrix[row, :pivot]) and not np.any(matrix[row, pivot + 1 :])
-        for row, pivot in enumerate(pivots)
+    return bool(
+        np.all(pivots < matrix.shape[1])
+        and np.all(np.diff(pivots) > 0)
+        and np.all(np.sum(matrix[:, pivots] != 0, axis=0) == 1)
     )
 
 
