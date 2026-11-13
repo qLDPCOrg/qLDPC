@@ -544,7 +544,7 @@ def _search_css(
             problems = [
                 (
                     _get_sparser_stabilizers(
-                        checks, kept_stabilizers[sector_pauli], homogeneous=True, tuning=tuning
+                        checks, kept_stabilizers[sector_pauli], symplectic=False, tuning=tuning
                     ),
                     excluded,
                 )
@@ -619,13 +619,13 @@ def _search_checks(
     tuning = get_tuning()
     if kept_stabilizers is not None:
         checks = _get_sparser_stabilizers(
-            checks, kept_stabilizers, homogeneous=not symplectic, tuning=tuning
+            checks, kept_stabilizers, symplectic=symplectic, tuning=tuning
         )
     return get_distance_connected_support(
         [(checks, excluded)],
         cutoff=cutoff,
         upper_bound=upper_bound,
-        homogeneous=not symplectic,
+        symplectic=symplectic,
         get_automorphisms=get_automorphisms,
         tuning=tuning,
     )
@@ -635,7 +635,7 @@ def _get_sparser_stabilizers(
     stabilizers: npt.NDArray[np.uint8],
     kept_stabilizers: npt.NDArray[np.uint8],
     *,
-    homogeneous: bool,
+    symplectic: bool,
     tuning: SearchTuning,
 ) -> npt.NDArray[np.uint8]:
     """Checks that span the stabilizers of a subsystem code, for a connected-support search.
@@ -650,7 +650,7 @@ def _get_sparser_stabilizers(
     if tuning.max_distance_sparsifying_rounds:
         rows, _ = get_sparser_rows(
             stabilizers,
-            homogeneous=homogeneous,
+            symplectic=symplectic,
             max_rounds=tuning.max_distance_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
         )
@@ -692,7 +692,7 @@ def _search_generators(
             labels,
             cutoff=cutoff,
             batch_exponent=tuning.enumeration_batch_exponent,
-            homogeneous=not symplectic,
+            symplectic=symplectic,
         )
         return _apply_upper_bound(distance, upper_bound)
 

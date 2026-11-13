@@ -46,7 +46,7 @@ class ConnectedSupportCosetSearch:
         matrix: The checks, whose kernel is the code: the stabilizers, in ``[X|Z]`` order, for
             Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a word
             is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
-        homogeneous: False for Paulis, and True for X or Z parts.
+        symplectic: True for Paulis, and False for X or Z parts.
         max_rounds: The ``max_sparsifying_rounds`` of the tuning (see ``get_sparser_rows``).
         rounds_without_improvement: The ``sparsifying_rounds_without_improvement`` of the tuning.
     """
@@ -55,21 +55,21 @@ class ConnectedSupportCosetSearch:
         self,
         matrix: npt.NDArray[np.uint8],
         *,
-        homogeneous: bool,
+        symplectic: bool,
         max_rounds: int,
         rounds_without_improvement: int,
     ) -> None:
         # Map each syndrome of a word of weight zero or one to such a word.  The syndrome of a word
         # with one nonzero bit is a column of the checks, once the halves of symplectic checks are
         # swapped.
-        num_variables = matrix.shape[1] if homogeneous else matrix.shape[1] // 2
-        syndrome_matrix = matrix if homogeneous else swap_pauli_halves(matrix)
+        num_variables = matrix.shape[1] // 2 if symplectic else matrix.shape[1]
+        syndrome_matrix = swap_pauli_halves(matrix) if symplectic else matrix
         columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
-        self._singles, _, _ = tabulate_singles(columns, num_variables, is_pauli=not homogeneous)
+        self._singles, _, _ = tabulate_singles(columns, num_variables, is_pauli=symplectic)
 
         rows, transform = get_sparser_rows(
             matrix,
-            homogeneous=homogeneous,
+            symplectic=symplectic,
             max_rounds=max_rounds,
             rounds_without_improvement=rounds_without_improvement,
         )
@@ -82,12 +82,12 @@ class ConnectedSupportCosetSearch:
         self._search = SupportSearch(
             rows,
             np.zeros((0, matrix.shape[1]), dtype=np.uint8),
-            homogeneous=homogeneous,
+            symplectic=symplectic,
             automorphism_minimum_states=_tuning.MAX_VALUE,
         )
         # Word ``j`` of ``get_unit_syndrome_words`` of the sparser rows has a syndrome of only bit
         # ``j``, so the words of the set bits of a syndrome sum to a representative of its coset.
-        syndrome_rows = rows if homogeneous else swap_pauli_halves(rows)
+        syndrome_rows = swap_pauli_halves(rows) if symplectic else rows
         self._inverse_rows = row_ints(get_unit_syndrome_words(syndrome_rows))
 
     def get_min_weight_bound(

@@ -555,7 +555,7 @@ def _prepare_brouwer_zimmermann_search(
             labels,
             cutoff=cutoff,
             batch_exponent=tuning.enumeration_batch_exponent,
-            homogeneous=True,
+            symplectic=False,
         )
         return min(best, distance)
 
@@ -624,7 +624,7 @@ def _prepare_brouwer_zimmermann_search(
             labels,
             cutoff=cutoff,
             batch_exponent=tuning.enumeration_batch_exponent,
-            homogeneous=True,
+            symplectic=False,
         )
         return min(best, distance)
 
