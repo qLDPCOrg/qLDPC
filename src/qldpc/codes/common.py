@@ -55,6 +55,7 @@ from .distance import (
     get_distance_from_generators,
     get_distance_pauli,
 )
+from .distance._binary import infer_field
 from .distance.core import _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
@@ -128,7 +129,9 @@ class AbstractCode(abc.ABC):
         """Construct a code from a parity check matrix over a finite field.
 
         The base field is taken to be ``F_2`` by default.  If ``matrix`` is a finite-field array, an
-        explicit field may either match its field or canonically extend its prime field.
+        explicit field may either match its field or canonically extend its prime field.  If
+        ``matrix`` is a list of rows over a finite field, the base field must likewise match the
+        field of the rows, as read from the first row, or canonically extend its prime field.
         """
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
@@ -165,6 +168,16 @@ class AbstractCode(abc.ABC):
 
         else:
             self._field = resolve_field(field)
+            # NumPy drops the field of listed rows, so check it as for finite-field arrays above
+            rows_field = infer_field(matrix) or self._field
+            if rows_field is not self._field and (
+                rows_field.degree > 1 or rows_field.characteristic != self._field.characteristic
+            ):
+                raise ValueError(
+                    f"The rows of the matrix are over GF({rows_field.order}), which is incompatible"
+                    f" with the field GF({self._field.order}) of this code; pass the field of the"
+                    " rows as the field argument"
+                )
             if scipy.sparse.issparse(matrix):
                 matrix = matrix.todense()  # type:ignore[union-attr]  # issparse does not narrow
             array = np.asanyarray(matrix)

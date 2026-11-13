@@ -141,6 +141,13 @@ def test_field_array_construction() -> None:
     with pytest.raises(ValueError, match="canonical prime-subfield embeddings"):
         codes.ClassicalCode(galois.GF(4)([[0, 1, 2, 3]]), field=16)
 
+    # Listed rows, whose field NumPy drops, follow the same rules, and never set the field of a
+    # code, which is GF(2) by default.
+    assert codes.ClassicalCode(list(binary_matrix), field=4).field is galois.GF(4)
+    for matrix, field in [(galois.GF(3)([[1, 1, 0]]), None), (galois.GF(4)([[0, 1, 2, 3]]), 16)]:
+        with pytest.raises(ValueError, match=r"rows of the matrix are over GF"):
+            codes.ClassicalCode(list(matrix), field=field)
+
 
 def test_named_codes(order: int = 2) -> None:
     """Named codes from the GAP computer algebra system."""

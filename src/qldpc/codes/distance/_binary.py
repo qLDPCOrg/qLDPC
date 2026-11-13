@@ -11,6 +11,7 @@ import numbers
 import operator
 from typing import SupportsIndex
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
@@ -35,6 +36,21 @@ def as_integer(value: SupportsIndex, name: str) -> int:
         raise TypeError(f"{name} must be an integer, not {value!r}") from error
 
 
+def infer_field(vectors: object) -> type[galois.FieldArray] | None:
+    """Return the finite field of an array, or of the arrays in nested lists or tuples.
+
+    NumPy drops the field of the arrays in a list, such as the rows of a field array, so a list of
+    rows over GF(3) with entries 0 and 1 would pass as a binary matrix.  In lists and tuples, this
+    function reads the field of the first item at each level of nesting, and no other items, so that
+    its cost does not grow with the size of the input.  It returns None if it finds no field.
+    """
+    while not isinstance(vectors, galois.FieldArray):
+        if not isinstance(vectors, list | tuple) or not vectors:
+            return None
+        vectors = vectors[0]
+    return type(vectors)
+
+
 ####################################################################################################
 # binary matrices
 
@@ -44,13 +60,14 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
 
     The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
     XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated
-    silently and yield a wrong distance rather than an error.  A single object that is neither
-    array-like nor a number, such as a code, raises a ``TypeError``.
+    silently and yield a wrong distance rather than an error.  Input over another field, as
+    ``infer_field`` finds it, raises a ``ValueError`` even if its entries are 0 and 1.  A single
+    object that is neither array-like nor a number, such as a code, raises a ``TypeError``.
     """
-    order = getattr(type(vectors), "order", None)
-    if order is not None and order != 2:
+    field = infer_field(vectors)
+    if field is not None and field.order != 2:
         raise ValueError(
-            f"Exact searches only take binary input, but {name} is defined over GF({order})"
+            f"Exact searches only take binary input, but {name} is defined over GF({field.order})"
         )
     array = np.asarray(_as_dense(vectors))
     if array.dtype == object and array.ndim == 0:
