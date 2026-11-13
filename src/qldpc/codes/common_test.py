@@ -550,7 +550,6 @@ def test_distance_qudit() -> None:
     code: codes.QuditCode
 
     code = codes.FiveQubitCode()
-    code._is_subsystem_code = True  # test that this does not break anything
 
     # cover calls to the known code exact distance
     assert code.get_code_params() == (5, 1, 3)
@@ -587,9 +586,20 @@ def test_distance_qudit() -> None:
     with (
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        unittest.mock.patch("qldpc.external._codes.get_qdistrnd_distance_bound", return_value=-1),
+        unittest.mock.patch("qldpc.external.gap.require_package"),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="4"),
     ):
-        assert code.get_distance(bound=True) == -1
+        assert code.get_distance(bound=True) == 4
+
+    # A subsystem code is bounded as a CSS code, here with a decoder, if X-type and Z-type operators
+    # generate its gauge group, even if its checks mix X and Z.
+    matrix = codes.BaconShorCode(3).matrix
+    matrix[0] += matrix[-1]
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
+    ):
+        assert codes.QuditCode(matrix).get_distance_bound() == 3
 
     # the distance of dimension-0 codes is undefined
     assert codes.QuditCode([[0, 1]]).get_distance() is codes.NO_DISTANCE
@@ -1100,8 +1110,9 @@ def test_subsystem_code_hint() -> None:
     # a qutrit check commutes with itself, although its non-symplectic square is nonzero
     assert not codes.QuditCode([[1, 1]], field=3, is_subsystem_code=False).is_subsystem_code
 
-    # a stabilizer code hinted as a subsystem code has no gauge qudits and the same distances, but
-    # QuditCode.get_distance_bound, which uses QDistRnd, rejects it
+    # A stabilizer code hinted as a subsystem code has no gauge qudits and the same distances.
+    # QuditCode.get_distance_bound bounds a hinted CSS code as a CSSCode, here with a decoder, and
+    # rejects a hinted code that is not CSS before it looks for GAP.
     steane_code = codes.SteaneCode()
     hinted_css_code = codes.CSSCode(
         steane_code.matrix_x, steane_code.matrix_z, is_subsystem_code=True
@@ -1110,13 +1121,19 @@ def test_subsystem_code_hint() -> None:
     assert hinted_css_code.get_distance_exact() == 3
     hinted_qudit_code = codes.QuditCode(steane_code.matrix, is_subsystem_code=True)
     with (
-        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        pytest.raises(ValueError, match="subsystem code from its symplectic checks"),
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
     ):
-        hinted_qudit_code.get_distance_bound(1)
+        assert hinted_qudit_code.get_distance_bound(1) == 3
     assert hinted_qudit_code.gauge_dimension == 0
     assert hinted_qudit_code.get_distance_exact() == 3
+    hinted_noncss_code = codes.QuditCode(codes.FiveQubitCode().matrix, is_subsystem_code=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_callable", side_effect=AssertionError),
+        unittest.mock.patch("qldpc.external.gap.is_installed", side_effect=AssertionError),
+        pytest.raises(ValueError, match="gauge group is not CSS"),
+    ):
+        hinted_noncss_code.get_distance_bound(1)
 
 
 def test_from_qldpc_challenge_id() -> None:

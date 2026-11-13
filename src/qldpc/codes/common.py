@@ -1130,8 +1130,9 @@ class QuditCode(AbstractCode):
         subsystem code.  If omitted, it is computed when first needed.  An explicit ``True`` is a
         trusted hint, not verified.  A stabilizer code treated as a subsystem code has no gauge
         qudits and the same distances, but functions and methods that reject subsystem codes, such
-        as get_distance_bound and memory experiments, reject it too.  An explicit ``False`` is
-        verified, and raises a ValueError if some parity checks do not commute.
+        as memory experiments, and get_distance_bound for codes that are not CSS, reject it too.
+        An explicit ``False`` is verified, and raises a ValueError if some parity checks do not
+        commute.
         """
         super().__init__(matrix, field)
 
@@ -2003,9 +2004,12 @@ class QuditCode(AbstractCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the stabilizers, branching on the Paulis of each qubit, which is
-                fast for sparse stabilizers.  Its guide, ``connected_support.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.
+                Tanner graph of the stabilizers, which is fast for sparse stabilizers.  It branches
+                on the Paulis of each qubit, or on the qubits alone if X-type and Z-type operators
+                generate the group of the checks (see
+                :func:`~qldpc.codes.distance.get_distance_pauli`).  Its guide,
+                ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
+                explains it.
                 Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_support"``.
 
@@ -2086,6 +2090,13 @@ class QuditCode(AbstractCode):
         :func:`qldpc.external.gap.get_output`).  With either backend, GAP may ask on standard input
         before installing a missing GUAVA or QDistRnd package.
 
+        QDistRnd bounds only stabilizer codes and CSS subsystem codes.  A subsystem code is CSS if
+        the X-type and Z-type operators of its gauge group generate the group, even if its checks
+        mix X and Z.  Its distance is then that of the CSS code whose checks are the X parts and the
+        Z parts of its checks, which this method bounds with
+        :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>` instead.
+        With ``backend="auto"``, that method falls back to a decoder if GAP cannot be called.
+
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
                 default), return the best known upper bound on distance, or compute a single upper
@@ -2103,13 +2114,14 @@ class QuditCode(AbstractCode):
             is remembered for later calls.
 
         Raises:
-            NotImplementedError: If GAP cannot be called with ``backend="auto"``, or if the manual
-                workflow is declined with ``backend="gap"``.
+            NotImplementedError: If GAP cannot be called with ``backend="auto"`` for a stabilizer
+                code, or if the manual workflow is declined with ``backend="gap"``.
             TypeError: If num_trials is not an integer or None.
             ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
                 GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
-                when GAP cannot be called, or if the code is a subsystem code, since QDistRnd
-                bounds a subsystem code only if it is CSS and given as a :class:`CSSCode`.
+                when GAP cannot be called, or if the code is a subsystem code that is not CSS, which
+                no backend supports.  A CSS subsystem code can also raise the errors of
+                :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>`.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -2127,6 +2139,29 @@ class QuditCode(AbstractCode):
         if num_trials == 0 or (cutoff is not None and best_bound <= cutoff):
             return best_bound
 
+        # The backends support only CSS subsystem codes.  The X and Z parts of the checks generate a
+        # CSS group exactly if their ranks add up to the rank of the checks, and the CSS code with
+        # these parts as checks then has the same gauge group and distances.
+        if self.is_subsystem_code:
+            matrix_x, matrix_z = self.matrix[:, : len(self)], self.matrix[:, len(self) :]
+            rank = np.linalg.matrix_rank(self.matrix)
+            if rank != np.linalg.matrix_rank(matrix_x) + np.linalg.matrix_rank(matrix_z):
+                raise ValueError(
+                    "No distance-bound backend supports a subsystem code whose gauge group is not"
+                    " CSS; get_distance_exact computes its exact distance"
+                )
+            css_code = CSSCode(
+                matrix_x[np.any(matrix_x, axis=1)],
+                matrix_z[np.any(matrix_z, axis=1)],
+                self.field,
+                is_subsystem_code=True,
+            )
+            bound = css_code.get_distance_bound(
+                num_trials, cutoff=cutoff, backend=backend, **bound_kwargs
+            )
+            self._distance_bound = min(best_bound, bound)
+            return self._distance_bound
+
         if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
         if _resolve_distance_backend(backend, bound_kwargs, is_binary=False) != "gap":
@@ -2142,11 +2177,7 @@ class QuditCode(AbstractCode):
 
         maxav = bound_kwargs.get("maxav", "fail")
         bound = _codes.get_qdistrnd_distance_bound(
-            self.matrix,
-            num_trials,
-            is_subsystem_code=self.is_subsystem_code,
-            cutoff=cutoff,
-            maxav=maxav,
+            self.matrix, num_trials, cutoff=cutoff, maxav=maxav
         )
         self._distance_bound = min(best_bound, bound)
         return self._distance_bound

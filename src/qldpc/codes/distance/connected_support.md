@@ -34,6 +34,7 @@ A caller who knows sparser generators `S` of the stabilizer group, and gauge gen
 For a CSS code with sparse X-type and Z-type stabilizer generators, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_support")`, where `S_Z` holds the supports of the Z-type stabilizer generators and `G_X` those of the X-type gauge generators.
 If the checks weigh much less than the distance, as those of surface codes do, many supports grow without being pruned ([Section 3.4](#34-pruning)), so the search visits many states below the distance.
 The search of a qubit code that is not CSS costs more than the searches of the sectors of an equivalent CSS code, such as the same code without Hadamards on some of its qubits.
+So `get_distance_pauli` searches Pauli checks as a CSS code if X-type and Z-type operators generate their group, even if the checks mix X and Z.
 A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning), and each qubit of a check offers two symbols that flip it, the two Paulis that anticommute with the check there ([Section 3.7](#37-qubit-codes-that-are-not-css)).
 
 The script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
@@ -365,7 +366,7 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
-| Sectors of a CSS code | `get_distance_css` of `core.py`, with `get_css_stabilizers` of `_binary.py` |
+| Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` calls, and `get_distance_pauli` for Pauli checks that generate a CSS group, with `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `get_distance_css` of `core.py` calls |

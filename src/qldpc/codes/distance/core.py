@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qldpc._binary import get_independent_rows, get_kernel
-from qldpc.objects import PAULIS_XZ, Pauli, PauliXZLike
+from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
 
 from ._binary import (
     as_binary_matrix,
@@ -385,7 +385,139 @@ def get_distance_css(
     gauge_x, gauge_z = as_binary_matrix_pair(checks_x, checks_z, ("checks_x", "checks_z"))
     paulis = PAULIS_XZ if pauli is None else [Pauli.coerce_xz(pauli)]
     get_automorphisms = _get_automorphism_getter(automorphisms, gauge_x.shape[1])
+    return _search_css(
+        gauge_x,
+        gauge_z,
+        paulis,
+        cutoff=cutoff,
+        upper_bound=upper_bound,
+        method=method,
+        get_automorphisms=get_automorphisms,
+    )
 
+
+def get_distance_pauli(
+    checks: npt.ArrayLike,
+    *,
+    cutoff: int = 1,
+    method: DistanceMethod = "brouwer_zimmermann",
+    max_weight: SupportsIndex | None = None,
+    automorphisms: npt.ArrayLike | Callable[[], npt.ArrayLike | None] | None = None,
+) -> int | Literal[NoDistance.NAN]:
+    """The distance of a binary stabilizer or subsystem code, from its parity check matrix.
+
+    Each row of ``checks`` represents a Pauli string on ``n`` qubits as a vector ``[P_x|P_z]`` of
+    length ``2 n``, where ``P_x`` and ``P_z`` are the supports of its X-type and Z-type parts, as in
+    :class:`~qldpc.codes.QuditCode`.  If all of these Pauli strings commute, the code is a
+    stabilizer code, and the rows generate its stabilizer group.  Its distance is the minimum weight
+    of a nontrivial logical operator: a Pauli string that commutes with every row, but is not a
+    stabilizer.  A Pauli string weighs the number of qubits on which it acts nontrivially.
+
+    Otherwise, the code is a subsystem code, and the rows generate its gauge group.  Its stabilizers
+    are the gauge operators that commute with every gauge operator, and its logical operators are
+    dressed: they may be multiplied by gauge operators.  Its distance is then the dressed distance:
+    the minimum weight of a Pauli string that commutes with every stabilizer, but is not a gauge
+    operator.  :func:`get_distance_from_checks` says how to find its bare distance instead.  To be
+    sure that the checks define a stabilizer code, build a code with
+    ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if they do not commute.
+
+    If X-type and Z-type operators generate the group that the rows generate, the code is CSS,
+    even if its rows mix X and Z.  Its distance is then that of the CSS code whose checks are the X
+    parts and the Z parts of the rows.  This function then searches that code as
+    :func:`get_distance_css` does, in ``n`` bits for each type of logical operator rather than in
+    ``2 n`` bits for both, which is faster.
+
+    Args:
+        checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
+        cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
+            (see :func:`get_distance_from_generators`).
+        method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
+            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
+            covers subsystem codes).
+        max_weight: If given, a nonnegative integer limit on the weights to search: the result is
+            then the smaller of the distance and ``max_weight + 1`` (see
+            :func:`get_distance_from_generators`).
+        automorphisms: Permutations of the qubits that map the row space of ``checks`` onto itself.
+            Pass them as an array whose row ``p`` maps qubit ``j`` to ``p[j]``, or as a function
+            that returns such an array or None.  A search asks for them at most once, when it
+            reaches a costly stage (see :doc:`/exact_search_tuning`), and only then calls a
+            function.  The Brouwer--Zimmermann and connected-support methods then verify that the
+            permutations are automorphisms, and use them to search less.  The brute-force method
+            does not use them.
+
+    Returns:
+        The minimum weight of a nontrivial logical operator, as for
+        :func:`get_distance_from_generators`, including its early exit at ``cutoff``, its limit
+        ``max_weight``, and ``NO_DISTANCE`` for a code that encodes no qubits.
+
+    Raises:
+        TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` is not
+            array-like, as when a code is given instead of its checks.
+        ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not a
+            binary matrix with an even number of columns, if they are an empty list, which has no
+            width, if ``automorphisms`` are not permutations of the qubits, or if a search uses them
+            and finds that one of them is not an automorphism.
+    """
+    method = _validate_distance_method(method)
+    cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
+    gauge = as_binary_matrix(checks, "checks")
+    num_qubits = _get_num_variables(gauge.shape[1], symplectic=True)
+    get_automorphisms = _get_automorphism_getter(automorphisms, num_qubits)
+
+    # The X and Z parts of the checks generate a CSS group exactly if their ranks add up to the rank
+    # of the checks.  That group is then the gauge group, and the CSS code with these parts as
+    # checks has the same distance.  Its two sectors of n bits each are much cheaper to search than
+    # one sector of 2n bits.
+    gauge_x, gauge_z = gauge[:, :num_qubits], gauge[:, num_qubits:]
+    rank = len(get_independent_rows(gauge))
+    if rank == len(get_independent_rows(gauge_x)) + len(get_independent_rows(gauge_z)):
+        return _search_css(
+            gauge_x,
+            gauge_z,
+            PAULIS_XZ,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            method=method,
+            get_automorphisms=get_automorphisms,
+        )
+
+    stabilizers = get_pauli_stabilizers(gauge)
+
+    # The gauge generators of a subsystem code that commute with every gauge generator are
+    # stabilizers, which a connected-support search keeps among its sparser checks.
+    kept_stabilizers = None
+    if method == "connected_support" and stabilizers is not gauge:
+        overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
+        kept_stabilizers = gauge[~np.any(overlaps, axis=1)]
+
+    return _search_checks(
+        stabilizers,
+        gauge,
+        symplectic=True,
+        cutoff=cutoff,
+        upper_bound=upper_bound,
+        method=method,
+        get_automorphisms=get_automorphisms,
+        kept_stabilizers=kept_stabilizers,
+    )
+
+
+def _search_css(
+    gauge_x: npt.NDArray[np.uint8],
+    gauge_z: npt.NDArray[np.uint8],
+    paulis: list[PauliXZ],
+    *,
+    cutoff: int,
+    upper_bound: int | None,
+    method: _CanonicalDistanceMethod,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+) -> int | Literal[NoDistance.NAN]:
+    """Search the requested sectors of a CSS code, given its X-type and Z-type gauge generators.
+
+    ``upper_bound``, if given, is ``max_weight + 1``, which the result does not exceed, and
+    ``get_automorphisms`` returns checked permutations or None (see ``_get_automorphism_getter``).
+    The other arguments are those of ``get_distance_css``, validated.
+    """
     # The logical operators of each type satisfy the stabilizers of the other type, and are trivial
     # if they are gauge operators of their own type.
     stabilizers_x, stabilizers_z = get_css_stabilizers(gauge_x, gauge_z)
@@ -450,87 +582,6 @@ def get_distance_css(
         upper_bound=upper_bound,
         get_automorphisms=get_automorphisms,
         tuning=get_tuning(),
-    )
-
-
-def get_distance_pauli(
-    checks: npt.ArrayLike,
-    *,
-    cutoff: int = 1,
-    method: DistanceMethod = "brouwer_zimmermann",
-    max_weight: SupportsIndex | None = None,
-    automorphisms: npt.ArrayLike | Callable[[], npt.ArrayLike | None] | None = None,
-) -> int | Literal[NoDistance.NAN]:
-    """The distance of a binary stabilizer or subsystem code, from its parity check matrix.
-
-    Each row of ``checks`` represents a Pauli string on ``n`` qubits as a vector ``[P_x|P_z]`` of
-    length ``2 n``, where ``P_x`` and ``P_z`` are the supports of its X-type and Z-type parts, as in
-    :class:`~qldpc.codes.QuditCode`.  If all of these Pauli strings commute, the code is a
-    stabilizer code, and the rows generate its stabilizer group.  Its distance is the minimum weight
-    of a nontrivial logical operator: a Pauli string that commutes with every row, but is not a
-    stabilizer.  A Pauli string weighs the number of qubits on which it acts nontrivially.
-
-    Otherwise, the code is a subsystem code, and the rows generate its gauge group.  Its stabilizers
-    are the gauge operators that commute with every gauge operator, and its logical operators are
-    dressed: they may be multiplied by gauge operators.  Its distance is then the dressed distance:
-    the minimum weight of a Pauli string that commutes with every stabilizer, but is not a gauge
-    operator.  :func:`get_distance_from_checks` says how to find its bare distance instead.  To be
-    sure that the checks define a stabilizer code, build a code with
-    ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if they do not commute.
-
-    Args:
-        checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
-        cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
-            (see :func:`get_distance_from_generators`).
-        method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
-            covers subsystem codes).
-        max_weight: If given, a nonnegative integer limit on the weights to search: the result is
-            then the smaller of the distance and ``max_weight + 1`` (see
-            :func:`get_distance_from_generators`).
-        automorphisms: Permutations of the qubits that map the row space of ``checks`` onto itself.
-            Pass them as an array whose row ``p`` maps qubit ``j`` to ``p[j]``, or as a function
-            that returns such an array or None.  A search asks for them at most once, when it
-            reaches a costly stage (see :doc:`/exact_search_tuning`), and only then calls a
-            function.  The Brouwer--Zimmermann and connected-support methods then verify that the
-            permutations are automorphisms, and use them to search less.  The brute-force method
-            does not use them.
-
-    Returns:
-        The minimum weight of a nontrivial logical operator, as for
-        :func:`get_distance_from_generators`, including its early exit at ``cutoff``, its limit
-        ``max_weight``, and ``NO_DISTANCE`` for a code that encodes no qubits.
-
-    Raises:
-        TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` is not
-            array-like, as when a code is given instead of its checks.
-        ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not a
-            binary matrix with an even number of columns, if they are an empty list, which has no
-            width, if ``automorphisms`` are not permutations of the qubits, or if a search uses them
-            and finds that one of them is not an automorphism.
-    """
-    method = _validate_distance_method(method)
-    cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
-    gauge = as_binary_matrix(checks, "checks")
-    num_qubits = _get_num_variables(gauge.shape[1], symplectic=True)
-    stabilizers = get_pauli_stabilizers(gauge)
-
-    # The gauge generators of a subsystem code that commute with every gauge generator are
-    # stabilizers, which a connected-support search keeps among its sparser checks.
-    kept_stabilizers = None
-    if method == "connected_support" and stabilizers is not gauge:
-        overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
-        kept_stabilizers = gauge[~np.any(overlaps, axis=1)]
-
-    return _search_checks(
-        stabilizers,
-        gauge,
-        symplectic=True,
-        cutoff=cutoff,
-        upper_bound=upper_bound,
-        method=method,
-        get_automorphisms=_get_automorphism_getter(automorphisms, num_qubits),
-        kept_stabilizers=kept_stabilizers,
     )
 
 

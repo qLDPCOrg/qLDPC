@@ -163,6 +163,36 @@ def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod
     assert core.get_distance_from_checks(gauge, no_stabilizers, symplectic=True, method=method) == 3
 
 
+def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pauli checks that generate a CSS group are searched as a CSS code, even if they mix X and Z.
+
+    Adding the Z-type checks of the Steane code to its X-type checks mixes the X and Z parts of the
+    rows, but keeps the group that they generate.  Every method finds the distance 3, and the
+    connected-support search gets a problem of 7 bits for each type of logical operator, rather
+    than one problem of 14 symplectic bits.
+    """
+    steane_code = qldpc.codes.SteaneCode()
+    checks_x = steane_code.matrix_x.view(np.ndarray)
+    checks_z = steane_code.matrix_z.view(np.ndarray)
+    checks = np.block([[checks_x, checks_z], [np.zeros_like(checks_z), checks_z]])
+    for method in ("brouwer_zimmermann", "brute_force"):
+        assert core.get_distance_pauli(checks, method=method) == 3
+
+    searched: list[tuple[list[int], bool]] = []
+
+    def record(problems: Any, **kwargs: Any) -> Any:
+        widths = [np.shape(sector_checks)[1] for sector_checks, _ in problems]
+        searched.append((widths, kwargs.get("homogeneous", True)))
+        return get_distance_connected_support(problems, **kwargs)
+
+    get_distance_connected_support = core.get_distance_connected_support
+    monkeypatch.setattr(core, "get_distance_connected_support", record)
+    assert core.get_distance_pauli(checks, method="connected_support") == 3
+    assert searched == [([7, 7], True)]
+
+
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
 def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     """The recipes of get_distance_from_checks give the bare and dressed distances of a code.
