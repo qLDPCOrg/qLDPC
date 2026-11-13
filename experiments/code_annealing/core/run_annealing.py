@@ -64,8 +64,7 @@ import sys
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-from qldpc.codes import CSSLogicalCounter
-from qldpc.codes.distance import compile_search_setup
+from qldpc.codes.distance import CSSLogicalCounter, compile_search_setup
 
 from .annealing import (
     METHODS,

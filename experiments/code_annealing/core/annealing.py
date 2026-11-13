@@ -35,8 +35,13 @@ import numpy as np
 import numpy.typing as npt
 from scipy.optimize import minimize_scalar
 
-from qldpc.codes import NO_DISTANCE, CSSLogicalCounter, CSSLogicalCounts, LogicalCountMethod
-from qldpc.codes.distance import _tuning
+from qldpc.codes.distance import (
+    NO_DISTANCE,
+    CSSLogicalCounter,
+    CSSLogicalCounts,
+    LogicalCountMethod,
+    _tuning,
+)
 
 from .proposals import CODE_TYPES, CodeType, propose
 
@@ -493,7 +498,7 @@ def _start_epoch(state: SearchState) -> None:
         if method == "brouwer_zimmermann":
             _count_logical_ops(state.current.counter, state.current.score.distance, method=method)
         elif previous == "brouwer_zimmermann":
-            fresh = CSSLogicalCounter(state.current.counter.code)
+            fresh = CSSLogicalCounter.from_code(state.current.counter.code)
             state.current = replace(state.current, counter=fresh)
     state.epoch_method = method
 
@@ -520,7 +525,7 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
     # Both methods score children of a copy that Brouwer--Zimmermann has prepared, as they would be
     # during an epoch that uses it, so the chain itself is left as it is.  Each method scores with
     # its own copy of the chain state, whose recent distances its scores update.
-    prepared = CSSLogicalCounter(counter.code)
+    prepared = CSSLogicalCounter.from_code(counter.code)
     _count_logical_ops(prepared, state.current.score.distance, method="brouwer_zimmermann")
     trial_states = {
         method: replace(
@@ -627,7 +632,7 @@ def score_code(
     if method is None:
         method = _get_library_method(config)
         if config.method == "auto":
-            counter = CSSLogicalCounter(counter.code)
+            counter = CSSLogicalCounter.from_code(counter.code)
     counts = _count_logical_ops(counter, method=method)
     return Score.from_counts(counts)
 

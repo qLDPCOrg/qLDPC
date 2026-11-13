@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from qldpc.codes import CSSLogicalCounter
+from qldpc.codes.distance import CSSLogicalCounter
 
 from ..core.annealing import distance_rank
 from ..core.cli import add_results_dir_argument, make_parser
@@ -58,7 +58,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     for code_type, path in files.items():
         for entry in read_code_file(path) if path.exists() else []:
             recount(entry)
-            offer(code_type, CSSLogicalCounter(entry.code), entry.distance, entry.multiplicity)
+            offer(
+                code_type,
+                CSSLogicalCounter.from_code(entry.code),
+                entry.distance,
+                entry.multiplicity,
+            )
     for code in saved:
         offer(code.code_type, code.counter, code.score.distance, code.score.multiplicity)
 

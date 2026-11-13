@@ -23,7 +23,7 @@ import numba
 import numpy as np
 import scipy
 
-from qldpc.codes import CSSCode, CSSLogicalCounter
+from qldpc.codes.distance import CSSLogicalCounter
 
 from .annealing import (
     LOG_TEMPERATURE_BOUNDS,
@@ -136,7 +136,7 @@ def decode_code(data: dict[str, Any]) -> CSSLogicalCounter:
         rows = [[(word >> jj) & 1 for jj in range(size)] for word in words]
         return np.array(rows, dtype=np.uint8).reshape(len(rows), size)
 
-    return CSSLogicalCounter(CSSCode(matrix(data["x"]), matrix(data["z"])))
+    return CSSLogicalCounter(matrix(data["x"]), matrix(data["z"]))
 
 
 def load_code(path: str | Path) -> CSSLogicalCounter:

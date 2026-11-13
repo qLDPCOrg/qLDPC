@@ -4,33 +4,26 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 
 from qldpc import codes
+from qldpc.codes.distance import CSSLogicalCounter
 
 
-def counter_from_checks(checks_x: Any, checks_z: Any) -> codes.CSSLogicalCounter:
-    """A counter of the CSS code with the given binary X and Z checks."""
-    code = codes.CSSCode(np.asarray(checks_x, dtype=int), np.asarray(checks_z, dtype=int))
-    return codes.CSSLogicalCounter(code)
-
-
-def steane_counter() -> codes.CSSLogicalCounter:
+def steane_counter() -> CSSLogicalCounter:
     """The Steane code, with a counter."""
-    return codes.CSSLogicalCounter(codes.SteaneCode())
+    return CSSLogicalCounter.from_code(codes.SteaneCode())
 
 
-def weak_counter(num_qubits: int = 7) -> codes.CSSLogicalCounter:
+def weak_counter(num_qubits: int = 7) -> CSSLogicalCounter:
     """A code of one logical qubit and distance 1, which is worse than the Steane code.
 
     Its Z checks fix every qubit but the first, which carries the logical qubit, so a single X or Z
     on the first qubit is a logical operator.
     """
-    return counter_from_checks(np.zeros((0, num_qubits)), np.eye(num_qubits)[1:])
+    return CSSLogicalCounter(np.zeros((0, num_qubits)), np.eye(num_qubits)[1:])
 
 
-def canonical_checks(counter: codes.CSSLogicalCounter) -> tuple[bytes, bytes]:
+def canonical_checks(counter: CSSLogicalCounter) -> tuple[bytes, bytes]:
     """The checks of a code in reduced row echelon form, which identify its stabilizer group."""
     return counter.checks_x.tobytes(), counter.checks_z.tobytes()

@@ -21,7 +21,7 @@ import galois
 import numpy as np
 import numpy.typing as npt
 
-from qldpc.codes import CSSCode, CSSLogicalCounter
+from qldpc.codes.distance import CSSLogicalCounter
 
 # The types of codes that a search covers: general CSS codes, and SWEL codes.
 CodeType = Literal["css", "swel"]
@@ -100,10 +100,6 @@ def _get_trivial_code(
     return x, z
 
 
-def _get_counter(x: npt.NDArray[np.uint8], z: npt.NDArray[np.uint8]) -> CSSLogicalCounter:
-    return CSSLogicalCounter(CSSCode(x.astype(int), z.astype(int)))
-
-
 def _scramble_self_dual(
     x: npt.NDArray[np.uint8],
     z: npt.NDArray[np.uint8],
@@ -111,7 +107,7 @@ def _scramble_self_dual(
 ) -> CSSLogicalCounter:
     """A random walk of 30 SWEL gates per qubit, which preserves the self-dual structure."""
     num_qubits = x.shape[1]
-    counter = _get_counter(x, z)
+    counter = CSSLogicalCounter(x, z)
     for _ in range(30 * num_qubits):
         targets = list(map(int, rng.choice(num_qubits, 4, replace=False)))
         counter = counter.deformed_swel(*targets)
@@ -127,7 +123,7 @@ def _scramble_css(
     while np.linalg.matrix_rank(field(matrix)) < size:  # reject singular samples
         matrix = rng.integers(2, size=(size, size), dtype=np.uint8)
     inverse = np.linalg.inv(field(matrix)).view(np.ndarray)
-    return _get_counter((x @ matrix.T) % 2, (z @ inverse) % 2)
+    return CSSLogicalCounter((x @ matrix.T) % 2, (z @ inverse) % 2)
 
 
 ####################################################################################################

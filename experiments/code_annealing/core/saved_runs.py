@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Literal
 
-from qldpc.codes import CSSLogicalCounter
+from qldpc.codes.distance import CSSLogicalCounter
 
 from .annealing import Score, SearchConfig, energy
 from .atomic import write_atomic

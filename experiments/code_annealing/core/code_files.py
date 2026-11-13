@@ -28,7 +28,8 @@ from typing import TypeAlias
 import numpy as np
 import numpy.typing as npt
 
-from qldpc.codes import NO_DISTANCE, CSSCode, CSSLogicalCounter, CSSLogicalCounts
+from qldpc.codes import CSSCode
+from qldpc.codes.distance import NO_DISTANCE, CSSLogicalCounter, CSSLogicalCounts
 
 from .atomic import write_text_atomic
 
@@ -145,7 +146,7 @@ def recount(entry: CodeEntry) -> CSSLogicalCounts:
         ValueError: If the code encodes no logical qubits, or if the distance or count differs from
             the claims of the header.
     """
-    counts = CSSLogicalCounter(entry.code).count_logical_ops()
+    counts = CSSLogicalCounter.from_code(entry.code).count_logical_ops()
     if counts.weight is NO_DISTANCE:
         raise ValueError(f"{entry.path}: the code {entry.params} encodes no logical qubits")
     check_header(entry, counts.weight, counts.count_x + counts.count_z)

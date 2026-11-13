@@ -13,11 +13,11 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from qldpc import codes
+from qldpc.codes.distance import CSSLogicalCounter, LogicalCountMethod
 
 from ..core import annealing as a
 from ..core.proposals import propose, random_initial_codes
-from .search_helpers import canonical_checks, counter_from_checks, steane_counter
+from .search_helpers import canonical_checks, steane_counter
 
 ####################################################################################################
 # scores, energies, and ranks
@@ -42,7 +42,7 @@ def test_the_energy_of_the_steane_code_is_e_of_arxiv_2607_19574() -> None:
 
 def test_counting_at_a_guess_gives_the_score_or_the_side_of_the_distance() -> None:
     steane = steane_counter()
-    method: codes.LogicalCountMethod = "brouwer_zimmermann"
+    method: LogicalCountMethod = "brouwer_zimmermann"
     assert a._score_at_guess(steane, 2, method) == "above"
     assert a._score_at_guess(steane, 3, method) == _brute_force_score(steane)
     assert a._score_at_guess(steane, 4, method) == "below"
@@ -167,7 +167,7 @@ def test_the_pilot_records_the_best_of_all_its_proposals_and_keeps_the_first_of_
     initial = steane_counter()
     candidates = [initial]
 
-    def observe(*args: Any, **kwargs: Any) -> codes.CSSLogicalCounter:
+    def observe(*args: Any, **kwargs: Any) -> CSSLogicalCounter:
         candidates.append(propose(*args, **kwargs))
         return candidates[-1]
 
@@ -263,14 +263,14 @@ def test_a_configuration_rejects_a_code_that_its_policy_cannot_use(
 ) -> None:
     config = a.SearchConfig(code_type=code_type, gate_size=2 + 2 * (code_type == "swel"))
     with pytest.raises(ValueError):
-        config.validate_code(counter_from_checks(checks_x, checks_z))
+        config.validate_code(CSSLogicalCounter(checks_x, checks_z))
 
 
 ####################################################################################################
 # helper methods
 
 
-def _brute_force_score(counter: codes.CSSLogicalCounter) -> a.Score:
+def _brute_force_score(counter: CSSLogicalCounter) -> a.Score:
     """The score of a code from the brute-force counts of the library."""
     counts = counter.count_logical_ops(method="brute_force")
     return a.Score.from_counts(counts)

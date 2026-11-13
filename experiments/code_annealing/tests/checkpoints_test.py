@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from qldpc.codes import CSSLogicalCounter
+from qldpc.codes.distance import CSSLogicalCounter
 
 from ..core import checkpoints
 from ..core.annealing import (
