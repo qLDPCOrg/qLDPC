@@ -136,7 +136,7 @@ class CosetLeaderSearch:
                     " use css_weight=False or the default method"
                 )
             else:
-                self._connected_support_searches = (support_search(matrix, homogeneous=False),)
+                self._connected_support_searches = (support_search(matrix, symplectic=True),)
             return
 
         # Combine the stabilizers into pure-X and pure-Z stabilizers, and row-reduce the X parts of
@@ -154,8 +154,8 @@ class CosetLeaderSearch:
             # The Z parts of the pure-Z stabilizers check the X parts, and the X parts of the pure-X
             # stabilizers check the Z parts.
             self._connected_support_searches = (
-                support_search(z_rows, homogeneous=True),
-                support_search(x_rows, homogeneous=True),
+                support_search(z_rows, symplectic=False),
+                support_search(x_rows, symplectic=False),
             )
         else:
             self._brouwer_zimmermann_searches = get_css_searches(x_rows, z_rows, tuning)

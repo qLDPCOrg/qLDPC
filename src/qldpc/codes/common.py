@@ -110,7 +110,16 @@ _DECODING_FAILURE_MESSAGE = (
 
 
 class AbstractCode(abc.ABC):
-    """Base class for error-correcting codes."""
+    """Base class for error-correcting codes.
+
+    The base field is ``field`` if given.  Otherwise, it is the field of ``matrix`` if that is a
+    code or a finite-field array, and ``F_2`` if not.  An explicit field must match the field of a
+    code.  The field of a finite-field array must be the base field or its prime subfield.  Rows
+    over a finite field that are given in a list or tuple, possibly nested, follow the same rule,
+    with their field read from the first row.  Unlike finite-field arrays, such rows need an
+    explicit field unless they are over ``F_2``.  The code keeps a copy of an array that it is
+    given, so later changes to the array do not change the code.
+    """
 
     _name: str
     _matrix: galois.FieldArray
@@ -127,16 +136,7 @@ class AbstractCode(abc.ABC):
         matrix: AbstractCode | IntegerArray | Sequence[Sequence[int]],
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
-        """Construct a code from a parity check matrix over a finite field.
-
-        The base field is ``field`` if given.  Otherwise, it is the field of ``matrix`` if that is a
-        code or a finite-field array, and ``F_2`` if not.  An explicit field must match the field of
-        a code.  The field of a finite-field array must be the base field or its prime subfield.
-        Rows over a finite field that are given in a list or tuple, possibly nested, follow the same
-        rule, with their field read from the first row.  Unlike finite-field arrays, such rows need
-        an explicit field unless they are over ``F_2``.  The code keeps a copy of an array that it
-        is given, so later changes to the array do not change the code.
-        """
+        """Construct a code from a parity check matrix over a finite field."""
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
             self._field = matrix._field
@@ -1125,6 +1125,13 @@ class QuditCode(AbstractCode):
     symplectic inner product ``⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q)`` is
     the space of logical Pauli operators of the QuditCode.
 
+    ``is_subsystem_code`` records whether the parity checks fail to commute, making this a subsystem
+    code.  If omitted, it is computed when first needed.  An explicit ``True`` is a trusted hint,
+    not verified.  A stabilizer code treated as a subsystem code has no gauge qudits and the same
+    distances, but functions and methods that reject subsystem codes, such as memory experiments,
+    reject it too.  An explicit ``False`` is verified, and raises a ValueError if some parity checks
+    do not commute.
+
     References:
 
     - https://errorcorrectionzoo.org/c/galois_into_galois
@@ -1145,15 +1152,7 @@ class QuditCode(AbstractCode):
         *,
         is_subsystem_code: bool | None = None,
     ) -> None:
-        """Construct a qudit code from a parity check matrix over a finite field.
-
-        ``is_subsystem_code`` records whether the parity checks fail to commute, making this a
-        subsystem code.  If omitted, it is computed when first needed.  An explicit ``True`` is a
-        trusted hint, not verified.  A stabilizer code treated as a subsystem code has no gauge
-        qudits and the same distances, but functions and methods that reject subsystem codes, such
-        as memory experiments, reject it too.  An explicit ``False`` is verified, and raises a
-        ValueError if some parity checks do not commute.
-        """
+        """Construct a qudit code from a parity check matrix over a finite field."""
         super().__init__(matrix, field)
 
         if isinstance(matrix, QuditCode):
@@ -2819,6 +2818,21 @@ class CSSCode(QuditCode):
     column per qudit, whereas a QuditCode only supports ``symplectic=True``, which returns matrices
     with two columns per qudit.
 
+    ``is_subsystem_code`` records whether some X-type and Z-type parity checks fail to commute,
+    making this a subsystem code.  If omitted, it is computed when first needed.  An explicit
+    ``True`` is a trusted hint, not verified.  A stabilizer code treated as a subsystem code has no
+    gauge qudits and the same distances, but functions that reject subsystem codes, such as memory
+    experiments, reject it too.  An explicit ``False`` is verified, and raises a ValueError if some
+    parity checks do not commute.
+
+    If ``promise_equal_distance_xz is True``, the X-type and Z-type logical operators are assumed to
+    have equal minimum weight, which lets the code distance be computed from one type alone.  This
+    promise is trusted rather than verified: passing ``True`` when it does not hold makes
+    get_distance return an incorrect (and compute-order-dependent) distance.
+
+    The checks of one type may be an empty list or tuple, which takes the number of qudits and the
+    field of the checks of the other type.
+
     References:
 
     - https://errorcorrectionzoo.org/c/galois_subsystem_css
@@ -2846,23 +2860,7 @@ class CSSCode(QuditCode):
         is_subsystem_code: bool | None = None,
         promise_equal_distance_xz: bool = False,  # do X and Z logicals have equal minimum weight?
     ) -> None:
-        """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks.
-
-        ``is_subsystem_code`` records whether some X-type and Z-type parity checks fail to commute,
-        making this a subsystem code.  If omitted, it is computed when first needed.  An explicit
-        ``True`` is a trusted hint, not verified.  A stabilizer code treated as a subsystem code has
-        no gauge qudits and the same distances, but functions that reject subsystem codes, such as
-        memory experiments, reject it too.  An explicit ``False`` is verified, and raises a
-        ValueError if some parity checks do not commute.
-
-        If ``promise_equal_distance_xz is True``, the X-type and Z-type logical operators are
-        assumed to have equal minimum weight, which lets the code distance be computed from one type
-        alone.  This promise is trusted rather than verified: passing ``True`` when it does not hold
-        makes get_distance return an incorrect (and compute-order-dependent) distance.
-
-        The checks of one type may be an empty list or tuple, which takes the number of qudits and
-        the field of the checks of the other type.
-        """
+        """Build a CSSCode from classical subcodes that specify X-type and Z-type parity checks."""
         if isinstance(code_x, list | tuple) and not code_x:
             code_x = ClassicalCode(code_z, field).matrix[:0]
         if isinstance(code_z, list | tuple) and not code_z:
