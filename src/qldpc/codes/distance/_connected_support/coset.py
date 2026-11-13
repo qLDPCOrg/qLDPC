@@ -65,7 +65,7 @@ class ConnectedSupportCosetSearch:
         num_variables = matrix.shape[1] // 2 if symplectic else matrix.shape[1]
         syndrome_matrix = swap_pauli_halves(matrix) if symplectic else matrix
         columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
-        self._singles, _, _ = tabulate_singles(columns, num_variables, is_pauli=symplectic)
+        self._singles, _, _ = tabulate_singles(columns, num_variables, symplectic=symplectic)
 
         rows, transform = get_sparser_rows(
             matrix,
