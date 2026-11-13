@@ -150,9 +150,10 @@ def _resolve_package_reexports(
 
 _PYTHON_DOCS = "https://docs.python.org/3/library"
 
-# The documentation of the external objects that the API reference names, keyed by the names that it
-# uses.  The strict docs build must not need network access, so it cannot fetch the inventories that
-# intersphinx would use to find these.
+# The documentation of the external objects that the API reference names in code style (see
+# _resolve_external_references), keyed by the names that references use, with names from typing
+# qualified.  The strict docs build must not need network access, so it cannot fetch the inventories
+# that intersphinx would use to find these.
 _EXTERNAL_DOCS = {
     "UserWarning": f"{_PYTHON_DOCS}/exceptions.html#UserWarning",
     "ValueError": f"{_PYTHON_DOCS}/exceptions.html#ValueError",
@@ -171,7 +172,9 @@ _EXTERNAL_DOCS = {
     "ldpc.BeliefFindDecoder": "https://software.roffe.eu/ldpc/ldpc/belief_find_decoder.html",
     "ldpc.BpOsdDecoder": "https://software.roffe.eu/ldpc/ldpc/bposd_decoder.html",
     "ldpc.bplsd_decoder.BpLsdDecoder": "https://software.roffe.eu/ldpc/ldpc/bplsd_decoder.html",
-    "networkx.DiGraph": "https://networkx.org/documentation/stable/reference/classes/digraph.html",
+    "qldpc._utils.networkx.DiGraph": (
+        "https://networkx.org/documentation/stable/reference/classes/digraph.html"
+    ),
     "numpy.dtype": "https://numpy.org/doc/stable/reference/generated/numpy.dtype.html",
     "numpy.ndarray": "https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html",
     "numpy.object_": "https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.object_",
@@ -196,16 +199,13 @@ def _resolve_external_references(
     but not others.
 
     An unqualified name from typing, such as Protocol, resolves only in a module that imports it
-    from typing.  Code imports networkx lazily, as qldpc._utils.networkx, so a reference to a name
-    in qldpc._utils.networkx resolves as a reference to that name in networkx.
+    from typing.
     """
     from docutils import nodes
 
     if node.get("refdomain") != "py" or not isinstance(contnode, nodes.literal):
         return None
     target = node.get("reftarget", "")
-    if target.startswith("qldpc._utils.networkx."):
-        target = target.removeprefix("qldpc._utils.")
     module_name = node.get("py:module")
     if (
         module_name
