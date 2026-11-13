@@ -4385,7 +4385,7 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
-        Brouwer--Zimmermann and connected-support searches use the automorphisms of this code.
+        Brouwer-Zimmermann and connected-support searches use the automorphisms of this code.
         ``upper_bound``, if given, is the weight of a known logical operator of the other type,
         which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
         below ``cutoff`` can be an upper bound.

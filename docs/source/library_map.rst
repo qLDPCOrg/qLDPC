@@ -132,7 +132,7 @@ Distances across packages
 ``get_distance()`` computes an exact distance, and ``get_distance_bound`` computes a randomized upper bound; CSS codes also have separate X and Z distances.
 The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
 For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find its bare distance instead: the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
-Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
+Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
 Binary codes with sparse parity checks can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_.
 All exact methods can take exponential time.
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
@@ -212,7 +212,7 @@ The residual weight of the fault is the smallest weight of that Pauli error afte
 Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
 The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance certificates notebook <examples/logical_error_rates/5_fault_tolerance_certificates>` applies it to a flagged preparation circuit.
-The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: Brouwer--Zimmermann by default, or the connected-support search that the exact distances also offer.
+The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: Brouwer-Zimmermann by default, or the connected-support search that the exact distances also offer.
 :class:`qldpc.codes.distance.CosetLeaderSearch <qldpc.codes.distance.coset_leaders.CosetLeaderSearch>` offers both searches: it takes the stabilizers of a state as a binary matrix, and decides for any syndrome whether some Pauli error with that syndrome has at most a given weight.
 For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
 The same notebook illustrates why this circuit property need not equal the code distance.
@@ -230,7 +230,7 @@ The following table summarizes support by field; the subsystem column applies to
 Capability       :math:`GF(2)`                              Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
 ===============  =========================================  ==============================  ===================================  ========================================
 Codes            Yes                                        Yes                             Yes                                  Yes, inferred from non-commuting checks
-Exact distance   Brouwer--Zimmermann, or connected support  Exhaustive enumeration          Exhaustive enumeration               Yes
+Exact distance   Brouwer-Zimmermann, or connected support   Exhaustive enumeration          Exhaustive enumeration               Yes
 Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only (see upper bounds below)
 Decoders         All built-in decoders                      GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
 Circuits         Yes                                        No                              No                                   No memory experiments

@@ -5,7 +5,7 @@
 The connected-support search computes the exact distance of a binary code from the Tanner graph of its parity checks.
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
-Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
+Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 The same search also finds light vectors with a given syndrome, such as Pauli errors, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
 The idea is older: Richter, Rosnes and Ytrehus, and Khatami et al. search the Tanner graphs of classical LDPC codes for small stopping sets and low-weight codewords.

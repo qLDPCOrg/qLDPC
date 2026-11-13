@@ -22,7 +22,7 @@ Circuit tools currently only support qubit codes.
 - **Code families.**
   Construct surface, toric, Hamming, and Reed–Muller codes, along with hypergraph-product, lifted-product, balanced-product, bivariate-bicycle, quantum Tanner, SHYPS, GALA, and other families.
 - **Distance calculations.**
-  Compute exact distances of binary codes with an [optimized Brouwer–Zimmermann search](src/qldpc/codes/distance/brouwer_zimmermann.md).
+  Compute exact distances of binary codes with an [optimized Brouwer-Zimmermann search](src/qldpc/codes/distance/brouwer_zimmermann.md).
   Codes with sparse checks can instead use a [search over Tanner-connected supports](src/qldpc/codes/distance/connected_support.md).
   Bound code distance using [QDistRnd](https://arxiv.org/abs/2308.15140) or [`sqetch`](https://github.com/a7b/yarn/tree/main/sqetch).
 - **Code structure and analysis.**
