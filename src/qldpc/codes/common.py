@@ -2121,9 +2121,11 @@ class QuditCode(AbstractCode):
                 bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             backend: Distance-bound backend.  ``"auto"`` (the default) and ``"gap"`` work as
-                described above; ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected
-                here.
-            **bound_kwargs: Keyword arguments to pass to GAP/QDistRnd.  Recognized options are
+                described above.  ``"decoder"`` and ``"sqetch"`` bound the code with
+                ``CSSCode.get_distance_bound``, and need X-type and Z-type operators to generate the
+                group of its checks.
+            **bound_kwargs: Keyword arguments to pass to GAP/QDistRnd, or with ``"decoder"`` or
+                ``"sqetch"``, to ``CSSCode.get_distance_bound``.  Recognized GAP options are
                 {gap_options}; see https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
@@ -2135,16 +2137,14 @@ class QuditCode(AbstractCode):
             NotImplementedError: If GAP cannot be called with ``backend="auto"`` for a stabilizer
                 code, or if the manual workflow is declined with ``backend="gap"``.
             TypeError: If num_trials is not an integer or None.
-            ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
-                GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
-                when GAP cannot be called, or if the code is a subsystem code that is not CSS.
+            ValueError: If backend is unknown, if given options that the backend does not
+                recognize, if given options for GAP with ``backend="auto"`` when GAP cannot be
+                called, if the code is a subsystem code that is not CSS, or if backend is
+                ``"decoder"`` or ``"sqetch"`` and X-type and Z-type operators do not generate the
+                group of the checks.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
-        if backend not in ("auto", "gap"):
-            raise ValueError(
-                f"The {backend!r} distance backend is only available for CSSCode instances."
-            )
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
         known_bound = self._distance_bound
@@ -2155,19 +2155,30 @@ class QuditCode(AbstractCode):
         if num_trials == 0 or (cutoff is not None and best_bound <= cutoff):
             return best_bound
 
-        if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
+        # CSSCode.get_distance_bound validates the options of the decoder and sqetch backends.
+        css_backend = backend in ("decoder", "sqetch")
+        if not css_backend and (
+            unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS)
+        ):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
 
-        # Of subsystem codes, the backends support only CSS ones.  The checks generate the same
-        # group as their X and Z parts exactly if the ranks of the parts add up to theirs.
-        if self.is_subsystem_code:
+        # Bound a subsystem code, and any code with the decoder or sqetch backend, as a CSSCode,
+        # which needs checks that generate a CSS group.  They do exactly if the ranks of their X and
+        # Z parts add up to theirs.
+        if css_backend or self.is_subsystem_code:
             matrix_x, matrix_z = self.matrix[:, : len(self)], self.matrix[:, len(self) :]
             if self.rank != np.linalg.matrix_rank(matrix_x) + np.linalg.matrix_rank(matrix_z):
+                if css_backend:
+                    raise ValueError(
+                        f"The {backend!r} distance backend needs checks that generate a CSS group"
+                    )
                 raise ValueError(
                     "No distance-bound backend supports a subsystem code whose gauge group is not"
                     " CSS; get_distance_exact computes its exact distance"
                 )
-            css_code = CSSCode(matrix_x, matrix_z, self.field, is_subsystem_code=True)
+            css_code = CSSCode(
+                matrix_x, matrix_z, self.field, is_subsystem_code=self._is_subsystem_code
+            )
             bound = css_code.get_distance_bound(
                 num_trials, cutoff=cutoff, backend=backend, **bound_kwargs
             )
