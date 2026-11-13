@@ -50,7 +50,7 @@ Users reach it through the public functions and classes below, which take plain 
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early check of `src/qldpc/circuits/certification/fault_propagation.py`; and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, and `get_distance` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, and `get_distance` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `coset_leaders.py` |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
