@@ -2101,12 +2101,11 @@ class QuditCode(AbstractCode):
         """Use a randomized algorithm to compute an upper bound on code distance.
 
         With ``backend="auto"`` or ``"gap"``, use GAP's QDistRnd package to bound the distance of a
-        stabilizer code.  By default,
-        ``backend="auto"`` uses GAP only if a GAP binding or executable can be called (see
-        :func:`qldpc.external.gap.is_callable`), and raises an error otherwise.  An explicit
-        ``backend="gap"`` instead falls back to a manual workflow when GAP cannot be called: after
-        asking on standard input whether to proceed, it prints GAP commands, copies them to the
-        system clipboard, and reads GAP's output from standard input (see
+        stabilizer code.  By default, ``backend="auto"`` uses GAP only if a GAP binding or
+        executable can be called (see :func:`qldpc.external.gap.is_callable`), and raises an error
+        otherwise.  An explicit ``backend="gap"`` instead falls back to a manual workflow when GAP
+        cannot be called: after asking on standard input whether to proceed, it prints GAP commands,
+        copies them to the system clipboard, and reads GAP's output from standard input (see
         :func:`qldpc.external.gap.get_output`).  With either backend, GAP may ask on standard input
         before installing a missing GUAVA or QDistRnd package.
 
