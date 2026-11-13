@@ -13,7 +13,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from qldpc.codes.distance import CSSLogicalCounter, LogicalCountMethod
+from qldpc.codes.distance import NO_DISTANCE, CSSLogicalCounter, LogicalCountMethod
 
 from ..core import annealing as a
 from ..core.proposals import propose, random_initial_codes
@@ -34,6 +34,12 @@ def test_the_energy_of_the_steane_code_is_e_of_arxiv_2607_19574() -> None:
     # E = log(m p^d) / log(1/p) = log10(m) / 3 - 3 at p = 1e-3 and d = 3, where the multiplicity m
     # is the 7 + 7 = 14 X-only and Z-only operators.
     assert a.energy(a.Score(3, 7, 7), a.SearchConfig()) == pytest.approx(-2.6179573)
+
+
+def test_a_code_without_logical_qubits_has_no_score() -> None:
+    # One qubit with one X check encodes nothing, so it has no distance; a score would carry nan.
+    with pytest.raises(ValueError):
+        a.score_code(CSSLogicalCounter(np.eye(1), np.zeros((0, 1))), a.SearchConfig())
 
 
 ####################################################################################################
@@ -273,7 +279,8 @@ def test_a_configuration_rejects_a_code_that_its_policy_cannot_use(
 def _brute_force_score(counter: CSSLogicalCounter) -> a.Score:
     """The score of a code from the brute-force counts of the library."""
     counts = counter.count_logical_ops(method="brute_force")
-    return a.Score.from_counts(counts)
+    assert counts.weight is not NO_DISTANCE
+    return a.Score(counts.weight, counts.count_x, counts.count_z)
 
 
 def _rank(score: a.Score) -> tuple[int, int]:

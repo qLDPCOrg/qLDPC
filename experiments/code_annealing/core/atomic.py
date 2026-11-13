@@ -19,27 +19,19 @@ from typing import IO
 
 
 def write_atomic(destination: Path, write: Callable[[IO[str]], None]) -> None:
-    """Replace a file only after ``write`` has produced a complete, flushed file.
+    """Replace a file only after ``write`` has produced its complete contents.
 
-    Temporary files are removed on every exit, so a failure leaves the previous file untouched.  The
-    stream translates no newlines, as the CSV writer of ``saved_runs`` requires.
-
-    On a network file system, such as NFS, a client can send a rename again after the first attempt
-    succeeded, and the second attempt then fails because the temporary file is gone.  So after such
-    a failure, the text is written and renamed once more, which is harmless if the first rename took
-    effect.
+    The stream translates no newlines, as the CSV writer of ``saved_runs`` requires.  The file is
+    replaced as ``write_text_atomic`` replaces it.
 
     Args:
         destination: The file to replace, whose directory is created if needed.
-        write: Writes the complete contents of the file to the stream that it is given, once.
+        write: Writes the complete contents of the file to the stream that it is given.
+            ``write_atomic`` calls it once, even if it writes the file again.
     """
     buffer = io.StringIO(newline="")
     write(buffer)
-    text = buffer.getvalue()
-    try:
-        _replace_with_text(destination, text)
-    except FileNotFoundError:
-        _replace_with_text(destination, text)
+    write_text_atomic(destination, buffer.getvalue())
 
 
 @contextlib.contextmanager
@@ -62,12 +54,19 @@ def hold_lock(path: Path) -> Iterator[None]:
 
 
 def write_text_atomic(destination: str | Path, text: str) -> None:
-    """Replace a file with text, atomically."""
+    """Replace a file with text, atomically, after the text is flushed to disk.
 
-    def write(stream: IO[str]) -> None:
-        stream.write(text)
+    Temporary files are removed on every exit, so a failure leaves the previous file untouched.
 
-    write_atomic(Path(destination), write)
+    On a network file system, such as NFS, a client can send a rename again after the first attempt
+    succeeded, and the second attempt then fails because the temporary file is gone.  So after such
+    a failure, the text is written and renamed once more, which is harmless if the first rename took
+    effect.
+    """
+    try:
+        _replace_with_text(Path(destination), text)
+    except FileNotFoundError:
+        _replace_with_text(Path(destination), text)
 
 
 ####################################################################################################

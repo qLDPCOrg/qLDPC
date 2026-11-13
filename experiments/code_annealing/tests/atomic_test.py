@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import IO
 
 import pytest
 
-from ..core.atomic import write_text_atomic
+from ..core.atomic import write_atomic, write_text_atomic
 
 
 def test_a_rename_that_took_effect_but_reports_a_missing_file_still_replaces_the_file(
@@ -26,7 +27,14 @@ def test_a_rename_that_took_effect_but_reports_a_missing_file_still_replaces_the
         if len(calls) == 1:
             raise FileNotFoundError(source)
 
+    # The contents are produced once, so that a writer that also prints does not print twice.
+    writes = []
+
+    def write(stream: IO[str]) -> None:
+        writes.append(stream)
+        stream.write("next\n")
+
     monkeypatch.setattr(os, "replace", replace_then_fail_once)
-    write_text_atomic(path, "next\n")
-    assert path.read_text() == "next\n"
+    write_atomic(path, write)
+    assert (path.read_text(), len(writes), len(calls)) == ("next\n", 1, 2)
     assert [child.name for child in tmp_path.iterdir()] == ["file.txt"]

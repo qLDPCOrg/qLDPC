@@ -29,7 +29,7 @@ import time
 from collections import Counter, deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, get_args
+from typing import Literal, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -60,7 +60,8 @@ _GUESS_WINDOW = 16
 
 # Limit on the information sets of a count.  Scoring a proposal is a short count on a large code,
 # where the library default of 16 sets costs more in setup than it saves.  The limit is a field of
-# the library's private tuning, which only this version of qLDPC is known to have.
+# the library's private tuning, which can change without a deprecation period; the experiment runs
+# with the qLDPC of the same clone (see ENVIRONMENT.md).
 _MAX_INFORMATION_SETS = 8
 
 # Bounds on the fitted log-temperature.  The fit to proposals of which none is uphill is the upper
@@ -715,7 +716,13 @@ def _get_multiplicity(score: Score) -> int:
 # helper methods
 
 
-def _count_logical_ops(counter: CSSLogicalCounter, *args: Any, **kwargs: Any) -> CSSLogicalCounts:
+def _count_logical_ops(
+    counter: CSSLogicalCounter,
+    weight: int | None = None,
+    *,
+    method: LogicalCountMethod,
+    within_distance: bool = False,
+) -> CSSLogicalCounts:
     """``CSSLogicalCounter.count_logical_ops``, with the search's limit on information sets."""
     with _tuning.use_tuning(max_information_sets=_MAX_INFORMATION_SETS):
-        return counter.count_logical_ops(*args, **kwargs)
+        return counter.count_logical_ops(weight, method=method, within_distance=within_distance)

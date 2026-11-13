@@ -8,7 +8,7 @@ The code-annealing experiment has offline tests that you can run locally, but th
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
-| [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS codes and of self-dual CSS codes with equivalent logicals (SWEL), scored exactly | `python -m experiments.code_annealing.reproduce_paper`, or `write_jobs`, then `collect_data` and `make_figures` (see its guide) |
+| [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS codes and of self-dual CSS codes with equivalent logicals (SWEL), scored exactly | `python -m experiments.code_annealing.reproduce_paper`, or `write_jobs`, then its jobs, then `collect_data` and `make_figures` (see its guide) |
 | [`connected_support_distance/`](connected_support_distance/) | Timings of the connected-support and Brouwer–Zimmermann exact distance searches on pair-partition and other codes | `benchmark.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
@@ -36,8 +36,8 @@ The results directories of the bivariate bicycle, quantum Tanner, and lattice su
 | Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
-Code annealing divides its `results/` directory into `logs/`, `data/`, `figures/`, and `cache/`: `logs/` holds one resumable checkpoint for each search, and `data/` the best code of each size and the tables computed from them.
-Its high-level scripts take `--test` to run at smoke-test scale in `results/test/`; see its guide.
+Each results directory of code annealing has `logs/`, `data/`, `figures/`, and `cache/`, such as `logs/` for the resumable checkpoints and records of the searches, and `data/` for the best code of each size and the tables computed from them.
+Its high-level scripts take `--test` to use the `results/test/` subdirectory, with the same layout; its guide lists every file.
 
 ## Bivariate bicycle codes
 
