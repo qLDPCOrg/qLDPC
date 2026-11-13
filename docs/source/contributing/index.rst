@@ -124,6 +124,7 @@ CI runs on pull requests that are ready for review, not on drafts.
 It runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
 It also makes the compiled runs.
 Run these locally only in the extended checks, or as targeted tests of a change to compiled code.
+To re-balance the coverage shards, run the "Store test durations" workflow from the Actions tab, then ``python checks/_fetch_test_durations.py``, and commit the updated ``.test_durations``.
 
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
