@@ -127,8 +127,7 @@ The coordinator runs each round as follows:
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
-   Present each decision in plain terms: whether a silent wrong result is at risk, whether a call that works now breaks, or whether only runtime or an error message changes.
-   Then give the options, their costs, and a recommendation.
+   Present each decision to that person as :doc:`decisions and recommendations <decisions>` describes.
 4. Fix a minor pre-existing problem in the change, such as a misleading message, a missing check, or an untested edge case, if its fix is local, evidently correct, and needs no decision.
    Report every such fix explicitly, under its own heading, so that the person the coordinator works for sees each change that they did not ask for.
    What to do about any other pre-existing problem that can give a wrong result or fail silently is a decision.

@@ -34,6 +34,11 @@ Count the pre-existing problems that the review fixed, as in the examples.
 When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
 
+## Decisions and recommendations
+
+Make every recommendation, and present every decision, as [decisions and recommendations](docs/source/contributing/decisions.rst) describes.
+A request for "the standard format" refers to the format that it defines.
+
 ## Working on a change
 
 1. While writing a change, run the anytime and as-needed checks of the [validation commands](docs/source/contributing/index.rst#validation-commands).
