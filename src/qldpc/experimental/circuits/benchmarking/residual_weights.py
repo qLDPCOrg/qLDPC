@@ -1056,8 +1056,12 @@ class _CosetSearchWeights:
     ) -> None:
         """Prepare the search for the given stabilizer generators, one row per generator."""
         self.max_residual_weight = max_residual_weight
-        self.num_key_words = (len(stabilizers) + 63) // 64
         self._search = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
+
+    @property
+    def num_key_words(self) -> int:
+        """The number of 64-bit machine words in a packed syndrome."""
+        return (self._search.num_qubits + 63) // 64
 
     def get_key_words(self, syndrome: int) -> list[int]:
         """Split a syndrome into machine words, least significant first."""
