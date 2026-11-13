@@ -36,8 +36,8 @@ The results directories of the bivariate bicycle, quantum Tanner, and lattice su
 | Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
-Each results directory of code annealing has `logs/`, `data/`, `figures/`, and `cache/`, such as `logs/` for the resumable checkpoints and records of the searches, and `data/` for the best code of each size and the tables computed from them.
-Its high-level scripts take `--test` to use the `results/test/` subdirectory, with the same layout; its guide lists every file.
+Code annealing keeps `logs/` (the resumable checkpoints and records of the searches), `data/` (the best code of each size and the tables computed from them), `figures/`, and `cache/` in `results/`.
+Runs with `--test` and `reproduce_paper` use `results/test/` and `results/paper/`, with the same layout; its guide lists every file.
 
 ## Bivariate bicycle codes
 

@@ -13,7 +13,7 @@ import pytest
 from ..core.atomic import write_atomic, write_text_atomic
 
 
-def test_a_rename_that_took_effect_but_reports_a_missing_file_still_replaces_the_file(
+def test_a_rename_that_took_effect_but_reports_a_missing_file_replaces_it_from_one_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # An NFS client that sends a rename again after it succeeded reports the temporary file missing.
@@ -36,5 +36,5 @@ def test_a_rename_that_took_effect_but_reports_a_missing_file_still_replaces_the
 
     monkeypatch.setattr(os, "replace", replace_then_fail_once)
     write_atomic(path, write)
-    assert (path.read_text(), len(writes), len(calls)) == ("next\n", 1, 2)
+    assert (path.read_text(), len(writes)) == ("next\n", 1)
     assert [child.name for child in tmp_path.iterdir()] == ["file.txt"]

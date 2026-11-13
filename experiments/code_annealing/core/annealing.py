@@ -629,6 +629,9 @@ def score_code(
         config: Search policy.
         method: Library counting method: by default ``config.method``, or ``brouwer_zimmermann``
             if that is ``auto``.
+
+    Raises:
+        ValueError: If the code encodes no logical qubits, and so has no distance.
     """
     if method is None:
         method = _get_library_method(config)

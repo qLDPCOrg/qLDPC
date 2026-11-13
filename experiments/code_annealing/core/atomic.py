@@ -27,7 +27,8 @@ def write_atomic(destination: Path, write: Callable[[IO[str]], None]) -> None:
     Args:
         destination: The file to replace, whose directory is created if needed.
         write: Writes the complete contents of the file to the stream that it is given.
-            ``write_atomic`` calls it once, even if it writes the file again.
+            ``write_atomic`` calls it once, even when ``write_text_atomic`` writes and renames the
+            file again.
     """
     buffer = io.StringIO(newline="")
     write(buffer)
@@ -99,8 +100,8 @@ def _replace_with_text(destination: Path, text: str) -> None:
 def _get_file_mode(destination: Path) -> int:
     """The permissions of the file to replace, or those that a new file gets with the umask.
 
-    A temporary file is created private to its owner, so ``write_atomic`` gives it these permissions
-    before it replaces the destination.
+    A temporary file is created private to its owner, so ``_replace_with_text`` gives it these
+    permissions before it replaces the destination.
     """
     if destination.exists():
         return stat.S_IMODE(destination.stat().st_mode)
