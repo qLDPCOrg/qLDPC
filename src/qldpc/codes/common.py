@@ -587,7 +587,8 @@ class ClassicalCode(AbstractCode):
                 # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the
                 # coset of the vector, with b appended, and the words with b = 0 are the code
                 # words, which the search excludes.  So the coset weighs one less than the search
-                # finds, and the cutoff is one more.
+                # finds, and the cutoff is one more.  The vector with b appended weighs weight + 1,
+                # so the search need not look beyond weight.
                 matrix = self.matrix.view(np.ndarray)
                 checks = np.hstack([matrix, (matrix @ vector.view(np.ndarray))[:, None] % 2])
                 code_words = np.hstack(
@@ -3593,6 +3594,7 @@ class CSSCode(QuditCode):
             return distance
 
         # Subclasses with specialized formulas keep control of their exact-distance calculation.
+        # Brute force searches the two sectors separately, so it may as well remember both.
         if (
             pauli is None
             and method in ("brouwer_zimmermann", "connected_support")
@@ -3602,21 +3604,18 @@ class CSSCode(QuditCode):
             if self._equal_distance_xz:
                 return self.get_distance_exact(Pauli.X, cutoff=cutoff, method=method)
 
-            paulis: list[PauliXZ] = []
+            # At most one sector is known, since the distance would be known otherwise.  A known
+            # sector caps the search of the other.
+            known_x = self.get_distance_if_known(Pauli.X)
+            known_z = self.get_distance_if_known(Pauli.Z)
+            sector: PauliXZ | None = None
             upper_bound: int | None = None
-            for sector_pauli in PAULIS_XZ:
-                known_distance = self.get_distance_if_known(sector_pauli)
-                if known_distance is not None:
-                    # A known sector caps the sectors that still need to be searched.
-                    sector_bound = int(known_distance)
-                    upper_bound = (
-                        sector_bound if upper_bound is None else min(upper_bound, sector_bound)
-                    )
-                    continue
-                paulis.append(sector_pauli)
-
+            if known_x is not None:
+                sector, upper_bound = Pauli.Z, int(known_x)
+            elif known_z is not None:
+                sector, upper_bound = Pauli.X, int(known_z)
             distance = self._get_distance_of_sectors(
-                paulis, method, cutoff=cutoff, upper_bound=upper_bound
+                sector, method, cutoff=cutoff, upper_bound=upper_bound
             )
             if cutoff <= 1:
                 # The joint search proves only the minimum, not either individual sector distance.
@@ -3631,7 +3630,7 @@ class CSSCode(QuditCode):
 
         # we do not know the exact distance, so compute it
         if self.field is galois.GF2:
-            distance = self._get_distance_of_sectors([pauli], method, cutoff=cutoff)
+            distance = self._get_distance_of_sectors(pauli, method, cutoff=cutoff)
 
         else:
             warnings.warn(
@@ -4316,13 +4315,13 @@ class CSSCode(QuditCode):
 
     def _get_distance_of_sectors(
         self,
-        paulis: Sequence[PauliXZ],
+        pauli: PauliXZ | None,
         method: DistanceMethod,
         *,
         cutoff: int,
         upper_bound: int | None = None,
     ) -> int | Literal[NoDistance.NAN]:
-        """The minimum distance of the logical operators of the given types, over GF(2).
+        """The minimum distance of the logical operators of one type, or of both, over GF(2).
 
         The search uses the automorphisms of this code.  ``upper_bound``, if given, is the weight of
         a known logical operator of another type, which ends the search if it is at most ``cutoff``,
@@ -4333,7 +4332,7 @@ class CSSCode(QuditCode):
         return get_distance_css(
             self.matrix_x,
             self.matrix_z,
-            paulis[0] if len(paulis) == 1 else None,
+            pauli,
             cutoff=cutoff,
             method=method,
             max_weight=None if upper_bound is None else upper_bound - 1,

@@ -48,41 +48,39 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
     order = getattr(type(vectors), "order", None)
     if order is not None and order != 2:
         raise ValueError(
-            f"Exact distance searches and counts only support binary codes, but {name} is defined"
-            f" over GF({order})"
+            f"Exact searches only take binary input, but {name} is defined over GF({order})"
         )
     array = np.asarray(_as_dense(vectors))
     if array.size and not np.all((array == 0) | (array == 1)):
         raise ValueError(
-            f"Exact distance searches and counts only support binary codes, but {name} has entries"
-            " other than 0 and 1"
+            f"Exact searches only take binary input, but {name} has entries other than 0 and 1"
         )
 
 
 def as_binary_matrix(
     vectors: npt.ArrayLike, name: str = "rows", *, num_cols: int | None = None
 ) -> npt.NDArray[np.uint8]:
-    """Convert a collection of binary rows to a two-dimensional uint8 array.
+    """Check that a collection of rows is binary, and return it as a two-dimensional uint8 array.
 
-    The dimension and width checks use ``name`` in their error messages, as ``assert_binary`` does.
-    If NumPy cannot convert the rows to an array, such as when their lengths differ, it raises its
-    own error.
+    A single vector is one row.  The checks use ``name``, the name of the argument, in their error
+    messages.  If NumPy cannot convert the rows to an array, such as when their lengths differ, it
+    raises its own error.
     """
+    assert_binary(vectors, name)
     matrix = np.asarray(_as_dense(vectors), dtype=np.uint8)
-    if matrix.size == 0:
+    if matrix.ndim == 1 and not matrix.size:
         if num_cols is None:
-            if matrix.ndim != 2:
-                raise ValueError(f"Cannot infer the width of {name}, which are empty")
-            num_cols = matrix.shape[1]
+            raise ValueError(f"Cannot infer the width of {name}, which is empty")
         return np.empty((0, num_cols), dtype=np.uint8)
     matrix = np.atleast_2d(matrix)
     if matrix.ndim != 2:
-        raise ValueError(f"The {name} must be a two-dimensional matrix")
-    if num_cols is not None and matrix.shape[1] != num_cols:
+        raise ValueError(f"{name} must be a matrix or a single row, not a {matrix.ndim}-D array")
+    if num_cols is not None and len(matrix) and matrix.shape[1] != num_cols:
         raise ValueError(
-            f"The {name} have {matrix.shape[1]} columns, which is incompatible with the width"
-            f" {num_cols}"
+            f"{name} has {matrix.shape[1]} columns, which is incompatible with the width {num_cols}"
         )
+    if not len(matrix):
+        return np.empty((0, matrix.shape[1] if num_cols is None else num_cols), dtype=np.uint8)
     return matrix
 
 
@@ -136,6 +134,14 @@ def multiply_binary(
     return (left.astype(np.float32) @ right.astype(np.float32) % 2).astype(np.uint8)
 
 
+def swap_pauli_halves(paulis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Swap the X and Z halves of Pauli strings in ``[X|Z]`` order.
+
+    The symplectic product of two Pauli strings is the dot product of one with the other swapped.
+    """
+    return np.roll(paulis, paulis.shape[1] // 2, axis=1)
+
+
 def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Map ``(X | Z)`` to ``(X | Z | X xor Z)``, doubling symplectic weight.
 
@@ -183,8 +189,7 @@ def get_pauli_stabilizers(gauge: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]
     generators commute, the given array is returned, with any redundant rows.  Otherwise, the result
     is an independent basis.
     """
-    # Swapping the X and Z halves of a Pauli turns its symplectic products into dot products.
-    overlaps = multiply_binary(gauge, np.roll(gauge, gauge.shape[1] // 2, axis=1).T)
+    overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
     if not np.any(overlaps):
         return gauge
     return _get_commuting_span(gauge, overlaps)

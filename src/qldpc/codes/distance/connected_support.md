@@ -163,8 +163,8 @@ Without symmetries, every variable is a root, and the ranks are the variables th
 Okada and Kasai instead take the roots `(ℓ, 0)` of the cyclic translations of a pair-partition code, with variables `(ℓ, a)` ranked by `ℓP + a`, and their implementation does so only if `P` is prime and `W < P`.
 qLDPC takes the orbits of any group of automorphisms that it verifies.
 
-The `_found_qudit_automorphisms` of a quantum code provide generators of `Γ`.
-Classical codes are searched without symmetries, from every variable.
+Generators of `Γ` are the automorphisms that the caller of a distance function passes, such as the `_found_qudit_automorphisms` that the `get_distance_exact` methods of quantum codes pass.
+Without automorphisms, as for the classical codes of `get_distance_exact`, a search starts from every variable.
 Finding the automorphisms of a large code can take as long as a search of many states.
 So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
 It expects the number of states of each weight limit to grow by the ratio between those of the last two.
@@ -335,10 +335,10 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
-| Sectors of a CSS code | `CSSCode._get_parity_check_sector` in `src/qldpc/codes/common.py` |
-| Classical codes, and qubit codes that are not CSS | `ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` in `src/qldpc/codes/common.py` |
+| Sectors of a CSS code | `get_distance_css` of `core.py`, with `get_css_stabilizers` of `_binary.py` |
+| Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
-| Distance of several sectors | `get_distance_connected_support`, which `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` reaches through `core.py` |
+| Distance of several sectors | `get_distance_connected_support`, which `get_distance_css` of `core.py` calls |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
@@ -352,7 +352,8 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
-`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, finding the stabilizers of subsystem codes, and pass it the active tuning, and `SupportSearch` validates every problem.
+`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, and find the stabilizers of subsystem codes.
+They pass the search the active tuning, and `SupportSearch` validates every problem.
 The `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes reject the method.
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.

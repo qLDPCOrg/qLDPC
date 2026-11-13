@@ -203,13 +203,13 @@ def test_deprecated_get_distance_bound() -> None:
 
 
 def test_deprecated_distance_functions() -> None:
-    """The deprecated distance functions warn at their caller, and find the distances they found.
+    """The deprecated distance functions warn at their caller, and give the distances they gave.
 
-    get_distance_quantum read its rows as symplectic unless homogeneous was True.
+    get_distance_quantum read its rows as symplectic unless homogeneous was True: as Pauli strings,
+    the rows [1, 0, 1, 0] and [0, 1, 0, 1] are Y on one qubit and Y on the other, at distance 1,
+    whereas as binary words they are at distance 2.
     """
     generator = np.asarray(codes.HammingCode(3).generator)
-    five_qubit_code = codes.FiveQubitCode()
-    logical_ops, stabilizers = five_qubit_code.get_logical_ops(), five_qubit_code.matrix
     searches = [
         (lambda: codes.get_distance_classical(generator), 3),  # type: ignore[attr-defined]
         (
@@ -219,8 +219,8 @@ def test_deprecated_distance_functions() -> None:
             3,
         ),
         (
-            lambda: codes.get_distance_quantum(logical_ops, stabilizers),  # type: ignore[attr-defined]
-            3,
+            lambda: codes.get_distance_quantum([[1, 0, 1, 0]], [[0, 1, 0, 1]]),  # type: ignore[attr-defined]
+            1,
         ),
     ]
     for search, distance in searches:
@@ -246,10 +246,16 @@ def test_deprecated_distance_functions() -> None:
             with pytest.warns(DeprecationWarning, match="use_tuning"):
                 changes = _deprecations.core._get_block_size_tuning(block_size)
             assert tuple(changes.values()) == batches
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        assert codes.get_distance_classical(generator, block_size=2) == 3  # type: ignore[attr-defined]
-    assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
+    for search in (
+        lambda: codes.get_distance_classical(generator, block_size=2),  # type: ignore[attr-defined]
+        lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
+            generator[:1], generator[1:], homogeneous=True, block_size=2
+        ),
+    ):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            assert search() == 3
+        assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
 
 
 def test_deprecated_get_primitive_central_idempotents() -> None:

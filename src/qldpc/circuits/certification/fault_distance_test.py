@@ -11,7 +11,7 @@ from qldpc import circuits, codes
 from qldpc.codes.distance import DistanceMethod
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force"])
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force", "connected_support"])
 @pytest.mark.parametrize("measurement, expected_distance", [(-7, 3), (-4, 4)])
 def test_fault_distance(measurement: int, expected_distance: int, method: DistanceMethod) -> None:
     """Undetected faults flip whole blocks of three or four qubits; only one block is logical."""

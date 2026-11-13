@@ -62,7 +62,7 @@ def test_brute_force_visits_every_code_word_once(batch_exponent: int, tune: Tune
 def test_brute_force_visits_every_nontrivial_word_once(
     symplectic: bool, batch_exponent: int, tune: Tune
 ) -> None:
-    """Exhaustive enumeration visits every stabilizer + logical-op combination exactly once.
+    """Exhaustive enumeration visits every combination of stabilizers and logical operators once.
 
     The spy records each enumerated word through its weight function: ``np.bitwise_count`` for
     Hamming weights, and ``symplectic_weight`` for symplectic weights.

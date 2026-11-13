@@ -2,8 +2,8 @@
 
 """The answer to a query about the lightest Pauli errors with a given syndrome.
 
-:class:`~qldpc.codes.distance.CosetLeaderSearch` answers each of its queries with a
-:class:`MinWeightBound`.
+The queries ``get_min_weight_bound`` and ``find_first_not_within_max_weight`` of
+:class:`~qldpc.codes.distance.CosetLeaderSearch` answer with a :class:`MinWeightBound`.
 """
 
 from __future__ import annotations

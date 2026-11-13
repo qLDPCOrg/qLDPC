@@ -148,12 +148,8 @@ An explicit ``num_trials`` runs that many trials, and never returns a worse boun
 ``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.
 
 The exact distances are also public functions of :mod:`qldpc.codes.distance` on plain binary arrays, for programs that need distances without building code objects, and the code methods call these functions.
-:func:`~qldpc.codes.distance.get_distance_from_generators` and :func:`~qldpc.codes.distance.get_distance_from_checks` take a generator or parity-check matrix, and optionally a matrix whose rows span the trivial words.
-:func:`~qldpc.codes.distance.get_distance_css` takes the X-type and Z-type checks of a CSS code, and :func:`~qldpc.codes.distance.get_distance_pauli` takes the parity checks of a stabilizer or subsystem code as Pauli strings.
-A Pauli string is a row ``[P_x|P_z]`` of ``2 n`` entries, as in ``QuditCode``, and the functions that also take binary words read rows as Pauli strings only with ``symplectic=True``.
-Checks that do not commute are the gauge generators of a subsystem code, whose logical operators are dressed.
-The functions take the ``method`` and ``cutoff`` of ``get_distance_exact``, and also a weight limit ``max_weight``, above which they stop searching, and they return ``NO_DISTANCE`` if every word is trivial.
-They also accept permutations of the bits or qubits that preserve the code, which speed up the Brouwer--Zimmermann and connected-support searches.
+:func:`~qldpc.codes.distance.get_distance_from_generators` and :func:`~qldpc.codes.distance.get_distance_from_checks` take a generator or parity-check matrix, :func:`~qldpc.codes.distance.get_distance_css` takes the X-type and Z-type checks of a CSS code, and :func:`~qldpc.codes.distance.get_distance_pauli` takes the parity checks of a stabilizer or subsystem code as Pauli strings, as in ``QuditCode``.
+The docstring of :mod:`qldpc.codes.distance` leads from tasks to these functions, whose own docstrings give their conventions and arguments.
 
 From codes to logical error rates
 ---------------------------------
@@ -214,7 +210,7 @@ Fault propagation is bounded if the residual weight of every fault is at most it
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
 The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance certificates notebook <examples/logical_error_rates/5_fault_tolerance_certificates>` applies it to a flagged preparation circuit.
 The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: Brouwer--Zimmermann by default, or the connected-support search that the exact distances also offer.
-Both are methods of :class:`qldpc.codes.distance.CosetLeaderSearch <qldpc.codes.distance.coset_leaders.CosetLeaderSearch>`, which takes the stabilizers of a state as a binary matrix, and decides for any syndrome whether some Pauli error with that syndrome has at most a given weight.
+:class:`qldpc.codes.distance.CosetLeaderSearch <qldpc.codes.distance.coset_leaders.CosetLeaderSearch>` offers both searches: it takes the stabilizers of a state as a binary matrix, and decides for any syndrome whether some Pauli error with that syndrome has at most a given weight.
 For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
 The same notebook illustrates why this circuit property need not equal the code distance.
 

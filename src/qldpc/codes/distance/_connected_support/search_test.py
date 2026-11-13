@@ -43,7 +43,7 @@ EXPONENTS_Z_276 = [
 def get_sectors(code: codes.CSSCode) -> list[Problem]:
     """The X and Z sectors of a code: its stabilizers of the opposite type, and its gauge matrix.
 
-    This builds the sectors independently of ``CSSCode._get_parity_check_sector``, as an oracle.
+    This builds the sectors independently of ``get_distance_css``, as an oracle.
     """
     return [
         (

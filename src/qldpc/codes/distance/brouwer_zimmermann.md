@@ -826,7 +826,7 @@ The distance search and the counts call it through `get_overlapping_family_polic
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 The distance functions of [core.py](core.py) build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector that they search, and pass the resulting problems to `get_distance_brouwer_zimmermann_many`, with `get_distance_css` passing both sectors of a CSS code at once.
-They also pass the automorphisms that their caller gives, as a function that calls the caller's function at most once.
+They also pass the automorphisms that their caller gives, as a function that returns them, and that calls a function that the caller gives at most once.
 `get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` gives a function that returns the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method, and `get_distance_exact` of `QuditCode` gives the same function to `get_distance_pauli`.
 For Pauli strings, the functions lift the automorphisms to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`.
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
@@ -873,7 +873,7 @@ Otherwise, a query takes the tables of the **route** of its maximum weight, whic
 A route is a family of search bases of the code, with its coset instance and planning buffer: the disjoint sets, or a family that the routes build for costly queries.
 `BrouwerZimmermannCosetSearch.find_first_not_within_max_weight` answers a batch with the route of its maximum weight, which it takes once.
 For the CSS weight on a CSS state, `CosetLeaderSearch` gives the X parts and the Z parts of a batch to their own searches, each with its own route.
-`get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](#310-minimum-weights-of-cosets) for the residual-weight estimator.
+`get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](#310-minimum-weights-of-cosets), such as those of the residual-weight estimator.
 `BrouwerZimmermannCosetSearch.get_min_weights` answers a batch on the route of the maximum weight ([Section 4.4](#44-heuristics-and-cost-models)), with `_find_min_weights`.
 These searches find their stopping steps with `find_stopping_step`, and leave the cached steps of the planning buffer to the queries.
 The gate tests the predicted examinations of a query with the disjoint family against its threshold, to decide whether the query may take another family ([Section 4.4](#44-heuristics-and-cost-models)).
@@ -1066,12 +1066,13 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   A joint search runs one search per sector in round-robin order and shares the best bound.
   Each sector keeps its own `lower_bound` and the `certificate` of its `instance`, including its coverage and divisor.
 - **Automorphisms.**
-  `get_distance_exact` of `QuditCode` and of `CSSCode` pass the code's `_found_qudit_automorphisms` to their BZ searches, as a function.
+  The distance functions pass the automorphisms that their caller gives to their BZ searches, as a function.
+  `get_distance_exact` of `QuditCode` and of `CSSCode` give a function that returns the code's `_found_qudit_automorphisms`.
   Each search calls the function only before a costly layer, and the code caches its result, so bliss runs at most once for the code.
   A search uses the generators only after `verify_automorphisms` accepts them for its problem.
   A generator preserves both sectors of a CSS code if it maps the row spaces of both parity check matrices onto themselves.
   For a general Pauli problem, the distance functions lift each generator to the three blocks of coordinates of [Section 2.7](#27-pauli-weight-as-hamming-weight).
-  Only these BZ searches of binary codes receive automorphisms.
+  Counts of logical operators and coset searches receive no automorphisms.
 
 ## 5. Correctness requirements
 

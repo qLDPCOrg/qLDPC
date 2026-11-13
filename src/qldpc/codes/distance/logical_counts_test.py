@@ -695,14 +695,22 @@ def test_accepted_forms_of_checks() -> None:
 
 
 def test_invalid_checks() -> None:
+    """Invalid checks raise errors that name them, and a code in place of its checks is rejected."""
     for checks_x, checks_z, message in (
         ([[0, 2]], [[1, 1]], "binary.*checks_x"),
         ([[1, 1]], galois.GF(3)([[1, 1]]), "binary.*checks_z"),
-        ([[1, 1, 0]], [[1, 1]], "checks_z.*columns"),
-        (np.ones((1, 1, 2)), [[1, 1]], "checks_x.*two-dimensional"),
+        ([[1, 1, 0]], [[1, 1]], "checks_z has 2 columns"),
+        ([[1, 1]], np.zeros((2, 0)), "checks_z has 0 columns"),
+        (np.ones((1, 1, 2)), [[1, 1]], "checks_x must be a matrix or a single row"),
     ):
         with pytest.raises(ValueError, match=message):
             lc.CSSLogicalCounter(checks_x, checks_z)
+
+    steane: Any = codes.SteaneCode()
+    with pytest.raises(TypeError, match="from_code"):
+        lc.CSSLogicalCounter(steane, steane.matrix_z)
+    with pytest.raises(TypeError, match="from_code"):
+        lc.count_logical_ops_css(steane, 3)
 
 
 def test_counters_from_codes() -> None:

@@ -11,7 +11,7 @@ call them.
 
    * - Task
      - Entry point
-   * - The distance of a classical code, from its generator or parity-check matrix
+   * - The distance of a classical code, from its generator or parity check matrix
      - :func:`~qldpc.codes.distance.get_distance_from_generators` or
        :func:`~qldpc.codes.distance.get_distance_from_checks`
    * - The minimum weight of a nontrivial logical operator of a quantum code, from its logical
@@ -27,8 +27,8 @@ call them.
    * - The number of logical operators of a given weight in a CSS code
      - :class:`~qldpc.codes.distance.CSSLogicalCounter`, or
        :func:`~qldpc.codes.distance.count_logical_ops_css` for one count
-   * - Whether Pauli errors with given syndromes on a stabilizer state weigh at most a given weight,
-       and the minimum weights of such errors
+   * - Whether some Pauli error with a given syndrome on a pure stabilizer state weighs at most a
+       given weight, and the weight of the lightest such errors
      - :class:`~qldpc.codes.distance.CosetLeaderSearch`
    * - Many counts of similar codes, faster
      - :func:`~qldpc.codes.distance.compile_search_setup`
@@ -60,7 +60,8 @@ searches, the page :doc:`/exact_search_tuning` of the documentation leads from s
 to the private settings that control them.  It also says how to change these settings, and what
 changing them can and cannot affect.
 
-Contributors can find a map of the modules in the README.md of this directory.
+Contributors can find a map of the modules in the `README of the package
+<https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md>`_.
 """
 
 from typing import TYPE_CHECKING

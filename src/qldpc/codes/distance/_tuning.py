@@ -282,25 +282,25 @@ class SearchTuning:
     #: that loses no certified bound.
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
-    #: A distance search that can find automorphisms of its code finds them before its first
-    #: coefficient layer of at least this estimated work, in candidate/set evaluations, and then
-    #: searches the images of one information set under them if that predicts less work (Section 3.7
-    #: of ``brouwer_zimmermann.md``).  Finding them takes milliseconds; lowering it pays that on
-    #: cheaper searches, zero before the first layer, and ``MAX_VALUE`` never.  Only the
-    #: ``get_distance_exact`` methods of binary quantum codes find automorphisms.  Defaults to
-    #: 10**8; how it was chosen is not recorded.  To retune it, time searches with and without
+    #: A distance search asks for the automorphisms that its caller passes, such as those that the
+    #: ``get_distance_exact`` methods of binary quantum codes find, before its first coefficient
+    #: layer of at least this estimated work, in candidate/set evaluations.  It then searches the
+    #: images of one information set under them if that predicts less work (Section 3.7 of
+    #: ``brouwer_zimmermann.md``).  Finding them takes milliseconds; lowering it pays that on
+    #: cheaper searches, zero before the first layer, and ``MAX_VALUE`` never.  Defaults to 10**8;
+    #: how it was chosen is not recorded.  To retune it, time searches with and without
     #: automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
 
     # Fields of connected-support searches.
 
-    #: A connected-support search of a quantum code asks for its automorphisms before the first
+    #: A connected-support search asks for the automorphisms that its caller passes before the first
     #: weight limit at which it expects to have visited this many states, which are supports, over
     #: all limits of one problem (Section 3.5 of ``connected_support.md``).  It also asks before a
-    #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost
-    #: of finding them on cheaper searches; raising it searches more limits from every variable.
-    #: Zero asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by
-    #: hand.  To retune it, time searches with and without automorphisms.
+    #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost of
+    #: finding them on cheaper searches; raising it searches more limits from every variable.  Zero
+    #: asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by hand.
+    #: To retune it, time searches with and without automorphisms.
     automorphism_minimum_states: int = 100_000
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to

@@ -27,10 +27,17 @@ def test_binary_matrices_and_nested_bases() -> None:
     assert binary.as_binary_matrix([], num_cols=3).shape == (0, 3)
     with pytest.raises(ValueError, match="infer the width"):
         binary.as_binary_matrix([])
-    with pytest.raises(ValueError, match="The rows must be a two-dimensional"):
+    with pytest.raises(ValueError, match="rows must be a matrix or a single row"):
         binary.as_binary_matrix(np.zeros((1, 1, 1)))
-    with pytest.raises(ValueError, match="The stabilizers have 2 columns"):
+    with pytest.raises(ValueError, match="stabilizers has 2 columns"):
         binary.as_binary_matrix([[1, 0]], "stabilizers", num_cols=3)
+    np.testing.assert_array_equal(binary.as_binary_matrix([1, 0, 1]), [[1, 0, 1]])
+
+    # Rows without columns have the wrong width for a given width, but a matrix without rows has
+    # every width.
+    with pytest.raises(ValueError, match="rows has 0 columns"):
+        binary.as_binary_matrix(np.zeros((4, 0)), num_cols=3)
+    assert binary.as_binary_matrix(np.zeros((0, 2)), num_cols=3).shape == (0, 3)
 
     sparse = scipy.sparse.csr_array([[1, 0, 1]])
     binary.assert_binary(sparse, "rows")
@@ -69,7 +76,7 @@ def test_distance_requires_binary_input() -> None:
     """
     # A GF(3) generator matrix is rejected because exact distance enumeration supports only GF(2).
     ternary_code = qldpc.codes.classical.HammingCode(3, 3)
-    with pytest.raises(ValueError, match=r"only support binary codes.*GF\(3\)"):
+    with pytest.raises(ValueError, match=r"only take binary input.*GF\(3\)"):
         qldpc.codes.distance.get_distance_from_generators(ternary_code.generator)
 
     # A plain integer array with a nonbinary entry is rejected by value validation.
@@ -87,6 +94,16 @@ def test_distance_requires_binary_input() -> None:
     )
 
 
+def test_binary_products() -> None:
+    """Binary products match products of integers, reduced modulo two."""
+    rng = np.random.default_rng(0)
+    left = rng.integers(2, size=(5, 70), dtype=np.uint8)
+    right = rng.integers(2, size=(70, 4), dtype=np.uint8)
+    product = binary.multiply_binary(left, right)
+    assert product.dtype == np.uint8
+    np.testing.assert_array_equal(product, left.astype(int) @ right.astype(int) % 2)
+
+
 def test_symplectic_to_hamming_doubles_weights() -> None:
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     transformed = binary.symplectic_to_hamming(symplectic)
@@ -98,16 +115,6 @@ def test_symplectic_to_hamming_doubles_weights() -> None:
 
 ####################################################################################################
 # stabilizers of subsystem codes
-
-
-def test_binary_products() -> None:
-    """Binary products match products of integers, reduced modulo two."""
-    rng = np.random.default_rng(0)
-    left = rng.integers(2, size=(5, 70), dtype=np.uint8)
-    right = rng.integers(2, size=(70, 4), dtype=np.uint8)
-    product = binary.multiply_binary(left, right)
-    assert product.dtype == np.uint8
-    np.testing.assert_array_equal(product, left.astype(int) @ right.astype(int) % 2)
 
 
 def test_stabilizers_of_subsystem_codes() -> None:
@@ -130,8 +137,9 @@ def test_stabilizers_of_subsystem_codes() -> None:
     expected_x = get_commuting(gauge_x, gauge_z)
     expected_z = get_commuting(gauge_z, gauge_x)
     assert 0 < len(expected_x) < len(gauge_x) and 0 < len(expected_z) < len(gauge_z)
-    np.testing.assert_array_equal(stabilizers_x, expected_x)
-    np.testing.assert_array_equal(stabilizers_z, expected_z)
+    assert len(stabilizers_x) == len(expected_x) and len(stabilizers_z) == len(expected_z)
+    np.testing.assert_array_equal(get_independent_rows(stabilizers_x), expected_x)
+    np.testing.assert_array_equal(get_independent_rows(stabilizers_z), expected_z)
 
     zeros_x = np.zeros_like(gauge_x)
     zeros_z = np.zeros_like(gauge_z)
@@ -143,7 +151,8 @@ def test_stabilizers_of_subsystem_codes() -> None:
             np.hstack([np.zeros_like(expected_z), expected_z]),
         ]
     )
-    np.testing.assert_array_equal(stabilizers, get_independent_rows(expected))
+    assert len(stabilizers) == len(expected_x) + len(expected_z)
+    np.testing.assert_array_equal(get_independent_rows(stabilizers), get_independent_rows(expected))
 
     checks = np.vstack([expected_x, expected_x[:1] ^ expected_x[1:2]])
     stabilizers_x, stabilizers_z = binary.get_css_stabilizers(checks, expected_z)

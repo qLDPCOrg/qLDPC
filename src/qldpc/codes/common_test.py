@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import itertools
 import random
 import unittest.mock
@@ -23,7 +24,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
-from qldpc.codes.distance import DistanceMethod
+from qldpc.codes.distance import DistanceMethod, get_distance_css
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 from .conftest import Tune, assert_valid_subgraphs
@@ -600,11 +601,17 @@ def test_distance_qudit() -> None:
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
-    # gauge operators dress the logical operators of nonbinary subsystem codes too
-    code = codes.QuditCode(codes.BaconShorCode(2, field=3).matrix)
-    assert code.is_subsystem_code
-    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
-        assert code.get_distance_exact() == 2
+    # gauge operators dress the logical operators of nonbinary subsystem codes too: here the X-type
+    # gauge operators include every X string of even weight, so a single-qudit X operator is a
+    # dressed logical operator, although every bare logical X operator has weight 3
+    css_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]], field=3)
+    assert css_code.is_subsystem_code
+    for get_distance in (
+        lambda: css_code.get_distance_exact(Pauli.X),
+        lambda: codes.QuditCode(css_code.matrix).get_distance_exact(),
+    ):
+        with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+            assert get_distance() == 1
 
 
 def test_distance_bound_memory() -> None:
@@ -709,8 +716,12 @@ def test_exact_code_distance_method_api() -> None:
     ) as mock_joint_distance:
         assert css_code.get_distance_exact(method="information_sets") == 3
     mock_joint_distance.assert_called_once()
-    assert mock_joint_distance.call_args.args[2] is None
-    assert mock_joint_distance.call_args.kwargs["method"] == "brouwer_zimmermann"
+    arguments = (
+        inspect.signature(get_distance_css)
+        .bind(*mock_joint_distance.call_args.args, **mock_joint_distance.call_args.kwargs)
+        .arguments
+    )
+    assert arguments["pauli"] is None
 
 
 def test_connected_support_method_is_only_for_binary_codes() -> None:

@@ -42,7 +42,6 @@ from qldpc._utils import get_external_caller_stacklevel
 from ._binary import (
     as_binary_matrix,
     as_integer,
-    assert_binary,
     get_css_stabilizers,
     get_nested_code_basis,
 )
@@ -132,8 +131,8 @@ class CSSLogicalCounts:
 class CSSLogicalCounter:
     """Exact counter of the logical operators of a given weight in a binary CSS code.
 
-    A counter takes the two check matrices of the code: ``checks_x``, or ``H_X``, whose rows are the
-    X-type checks, which detect Z errors, and ``checks_z``, or ``H_Z``, whose rows are the Z-type
+    A counter takes the two check matrices of the code.  The rows of ``checks_x``, or ``H_X``, are
+    its X-type checks, which detect Z errors.  The rows of ``checks_z``, or ``H_Z``, are its Z-type
     checks, which detect X errors.  For a CSS stabilizer code, the nontrivial X logicals are the
     words in ``ker(H_Z)`` outside ``row(H_X)``, and likewise for Z with X and Z exchanged.  At a
     weight ``w`` that defaults to the distance ``d``, ``count_logical_ops`` counts:
@@ -151,8 +150,8 @@ class CSSLogicalCounter:
     In a subsystem code, the checks ``G_X`` and ``G_Z`` are gauge generators, and the stabilizers
     ``S_X`` and ``S_Z`` are the gauge operators that commute with all gauge operators of the other
     type.  Nontrivial logicals are those outside the gauge group (dressed logicals), so the X sector
-    is ``ker(S_Z)`` modulo ``row(G_X)``, and likewise for Z.  The Brouwer-Zimmermann and brute-force
-    methods support subsystem codes, but the MacWilliams method does not.
+    is ``ker(S_Z)`` modulo ``row(G_X)``, and likewise for Z.  The Brouwer--Zimmermann and
+    brute-force methods support subsystem codes, but the MacWilliams method does not.
 
     Counters for codes deformed by local CSS-preserving Cliffords (see :meth:`deformed`) reuse the
     work of this counter, except for the distance, which they search for again.
@@ -168,14 +167,21 @@ class CSSLogicalCounter:
             subsystem code they are the Z gauge generators ``G_Z``.
 
     Raises:
-        ValueError: If the checks are not binary, are not two-dimensional matrices, or have
-            different numbers of columns.
+        TypeError: If ``checks_x`` is a code, rather than its checks.
+        ValueError: If the checks are not binary, have more than two dimensions, or have different
+            numbers of columns.  A single vector is one check.
     """
 
     def __init__(self, checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> None:
+        from ..common import AbstractCode
+
+        if isinstance(checks_x, AbstractCode):
+            raise TypeError(
+                "Pass the X and Z checks of a code, or build a counter from the code with"
+                " CSSLogicalCounter.from_code"
+            )
+
         # Validate the checks, and reduce them to independent bases in reduced row echelon form.
-        assert_binary(checks_x, "checks_x")
-        assert_binary(checks_z, "checks_z")
         matrix_x = as_binary_matrix(checks_x, "checks_x")
         matrix_z = as_binary_matrix(checks_z, "checks_z", num_cols=matrix_x.shape[1])
         self._code: CSSCode | None = None
@@ -222,8 +228,6 @@ class CSSLogicalCounter:
         if not isinstance(code, CSSCode):
             hint = "; convert it with code.to_css()" if isinstance(code, QuditCode) else ""
             raise TypeError(f"Expected a CSSCode, not {type(code).__name__}{hint}")
-        if code.field.order != 2:
-            raise ValueError(f"Logical counts require a binary code, not GF({code.field.order})")
         counter = cls(code.matrix_x, code.matrix_z)
         counter._code = code
         return counter
@@ -726,10 +730,10 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If the weight is not an integer, or is a bool.
-        ValueError: If the checks are not binary two-dimensional matrices with equal numbers of
-            columns, or for invalid arguments as described in
-            :meth:`CSSLogicalCounter.count_logical_ops`.
+        TypeError: If ``checks_x`` is a code, rather than its checks, or if the weight is not an
+            integer, or is a bool.
+        ValueError: If the checks are not valid for :class:`CSSLogicalCounter`, or for invalid
+            arguments as described in :meth:`CSSLogicalCounter.count_logical_ops`.
     """
     return CSSLogicalCounter(checks_x, checks_z).count_logical_ops(
         weight,

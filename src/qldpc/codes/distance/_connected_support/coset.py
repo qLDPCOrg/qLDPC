@@ -10,6 +10,7 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 
 from .. import _tuning
+from .._binary import multiply_binary
 from .._cosets import (
     get_unit_syndrome_words,
     int_to_words,
@@ -221,13 +222,9 @@ def _get_sparser_rows(
 
     # Add rows to each other where that helps, and find the transform from the given rows.  The rows
     # are in the span of ``matrix``, whose product with the transpose of ``get_unit_syndrome_words``
-    # of ``matrix`` is the identity, so their product with it is the transform.  Products of binary
-    # matrices in float32 are exact while their inner dimension is below ``2**24``, and faster than
-    # in integers.
+    # of ``matrix`` is the identity, so their product with it is the transform.
     rows, _ = _sparsify(rows, homogeneous=homogeneous)
-    inverse = get_unit_syndrome_words(matrix)
-    product = rows.astype(np.float32) @ inverse.T.astype(np.float32)
-    return rows, (product % 2).astype(np.uint8)
+    return rows, multiply_binary(rows, get_unit_syndrome_words(matrix).T)
 
 
 def _sparsify(

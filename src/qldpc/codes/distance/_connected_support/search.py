@@ -33,7 +33,7 @@ import scipy.sparse
 from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
 
-from .._binary import assert_binary, get_nested_code_basis
+from .._binary import assert_binary, get_nested_code_basis, multiply_binary, swap_pauli_halves
 from .._information_sets import automorphism_families
 from .._information_sets.basis_families import infer_weight_divisor
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
@@ -233,11 +233,10 @@ class SupportSearch:
         self._automorphism_minimum_states = automorphism_minimum_states
 
         # A symplectic check is satisfied if its dot product with a word vanishes once its halves
-        # are swapped, and the excluded rows must satisfy every check.  The product of small
-        # integer matrices in float32 is exact, and faster than in integers.
+        # are swapped, and the excluded rows must satisfy every check.
         if not homogeneous:
-            checks = np.roll(checks, self.num_variables, axis=1)
-        if np.any(checks.astype(np.float32) @ excluded.astype(np.float32).T % 2):
+            checks = swap_pauli_halves(checks)
+        if np.any(multiply_binary(checks, excluded.T)):
             raise ValueError("The excluded rows must satisfy the checks")
         # Zero and duplicate checks add nothing to a search, which keeps the first copy of each
         # nonzero check, in order.  A syndrome query maps each given check to the index of the kept

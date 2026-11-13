@@ -263,8 +263,8 @@ def test_an_upper_bound_acts_as_a_known_witness() -> None:
     """A search returns the smaller of its upper bound and the distance."""
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(3).generator, dtype=np.uint8))
     for upper_bound, expected in ((2, 2), (3, 3), (5, 3)):
-        distance = bz.get_distance_brouwer_zimmermann(
-            basis, _no_labels(basis), cutoff=0, upper_bound=upper_bound
+        distance = bz.get_distance_brouwer_zimmermann_many(
+            [(basis, _no_labels(basis))], cutoff=0, upper_bound=upper_bound
         )
         assert distance == expected
 
