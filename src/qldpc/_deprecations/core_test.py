@@ -293,7 +293,7 @@ def test_deprecated_distance_functions() -> None:
 
     # The functions search with those batches, and warn at their caller about both deprecations.
     # Rows that record the active batch exponent when the search reads them show the batches, since
-    # nothing else observable does.
+    # nothing else observable does.  The last read is the search's, after any checks of the rows.
     exponents: list[int] = []
 
     class RecordingRows:

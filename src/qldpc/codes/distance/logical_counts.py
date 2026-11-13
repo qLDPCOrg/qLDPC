@@ -297,8 +297,8 @@ class CSSLogicalCounter:
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Deprecated.  The page :doc:`/exact_search_tuning` of the
-                documentation says how to tune counts instead.
+            max_information_sets: Deprecated.  To tune counts instead, see the page
+                :doc:`/exact_search_tuning` of the documentation.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
