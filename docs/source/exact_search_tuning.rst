@@ -48,6 +48,8 @@ Start from a symptom
        A search whose first weight limit a cutoff raises asks for them unless the field is ``MAX_VALUE``.
    * - A :class:`~qldpc.codes.distance.CosetLeaderSearch` with the connected-support method takes long to build, or its queries are slow
      - Lower :attr:`~SearchTuning.max_sparsifying_rounds` or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` to build it sooner, or raise them for sparser checks and faster queries.
+   * - A connected-support distance search of a subsystem code is slow to start, or slow to search
+     - Lower :attr:`~SearchTuning.max_distance_sparsifying_rounds`, or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` below it, to start sooner, or raise the former for sparser checks and a faster search.
    * - Completion tables are used, or declined, against measured savings
      - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
 
@@ -98,6 +100,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.max_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -
      - `Section 3.8 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#38-vectors-with-a-given-syndrome>`__
+   * - Making the stabilizers that connected-support distance searches derive for subsystem codes sparser
+     - :attr:`SearchTuning.max_distance_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
+     -
+     - `Section 3.9 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#39-sparser-stabilizers-of-subsystem-codes>`__
    * - Whether an information set in a layer of a distance search, or a step of a count, uses completion tables to skip hopeless supports
      - :attr:`SearchTuning.completion_bound_minimum_layer_work`, :attr:`SearchTuning.completion_bound_max_cost_percent`
      -

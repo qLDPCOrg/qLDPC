@@ -582,7 +582,6 @@ def test_distance_qudit() -> None:
     code: codes.QuditCode
 
     code = codes.FiveQubitCode()
-    code._is_subsystem_code = True  # test that this does not break anything
 
     # cover calls to the known code exact distance
     assert code.get_code_params() == (5, 1, 3)
@@ -622,6 +621,15 @@ def test_distance_qudit() -> None:
         unittest.mock.patch("qldpc.external._codes.get_qdistrnd_distance_bound", return_value=-1),
     ):
         assert code.get_distance(bound=True) == -1
+
+    # A subsystem code is bounded as a CSS code, here with a decoder, if X-type and Z-type operators
+    # generate its gauge group, even if its checks mix X and Z.  Here the Z parts of the checks are
+    # proportional over GF(3), but not over the reals or GF(2).  Options that GAP does not recognize
+    # are still rejected.
+    with unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False):
+        assert codes.QuditCode([[1, 2, 2, 1], [0, 0, 1, 2]], field=3).get_distance_bound() == 1
+        with pytest.raises(ValueError, match="not recognized by GAP/QDistRnd"):
+            codes.QuditCode([[1, 2, 2, 1], [0, 0, 1, 2]], field=3).get_distance_bound(test=True)
 
     # the distance of dimension-0 codes is undefined
     assert codes.QuditCode([[0, 1]]).get_distance() is codes.NO_DISTANCE
@@ -1079,6 +1087,15 @@ def test_pauli_stabilizer_ops_respect_canonicalized() -> None:
         assert np.array_equal(stabilizers, stabilizers.row_reduce()[: len(stabilizers)])
 
 
+def test_is_row_reduced() -> None:
+    """Row-reduced matrices have increasing pivots equal to 1, each alone in its column."""
+    assert common._is_row_reduced(np.array([[1, 1, 0], [0, 0, 1]]))
+    assert not common._is_row_reduced(np.array([[0, 1], [1, 0]]))
+    assert not common._is_row_reduced(np.array([[1, 1], [0, 1]]))
+    assert not common._is_row_reduced(np.array([[1, 0], [0, 0]]))
+    assert not common._is_row_reduced(np.array([[2, 0]]))
+
+
 def test_canonicalized_code_is_its_own_canonical_form() -> None:
     """Canonicalizing a canonicalized code returns the same code object."""
     for code in [codes.HammingCode(3), codes.FiveQubitCode(), codes.SteaneCode()]:
@@ -1124,8 +1141,9 @@ def test_subsystem_code_hint() -> None:
     # a qutrit check commutes with itself, although its non-symplectic square is nonzero
     assert not codes.QuditCode([[1, 1]], field=3, is_subsystem_code=False).is_subsystem_code
 
-    # a stabilizer code hinted as a subsystem code has no gauge qudits and the same distances, but
-    # QuditCode.get_distance_bound, which uses QDistRnd, rejects it
+    # A stabilizer code hinted as a subsystem code has no gauge qudits and the same distances.
+    # QuditCode.get_distance_bound bounds a hinted CSS code as a CSSCode, here with a decoder, and
+    # rejects a hinted code that is not CSS before it looks for GAP.
     steane_code = codes.SteaneCode()
     hinted_css_code = codes.CSSCode(
         steane_code.matrix_x, steane_code.matrix_z, is_subsystem_code=True
@@ -1134,13 +1152,19 @@ def test_subsystem_code_hint() -> None:
     assert hinted_css_code.get_distance_exact() == 3
     hinted_qudit_code = codes.QuditCode(steane_code.matrix, is_subsystem_code=True)
     with (
-        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
-        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
-        pytest.raises(ValueError, match="subsystem code from its symplectic checks"),
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
     ):
-        hinted_qudit_code.get_distance_bound(1)
+        assert hinted_qudit_code.get_distance_bound(1) == 3
     assert hinted_qudit_code.gauge_dimension == 0
     assert hinted_qudit_code.get_distance_exact() == 3
+    hinted_noncss_code = codes.QuditCode(codes.FiveQubitCode().matrix, is_subsystem_code=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_callable", side_effect=AssertionError),
+        unittest.mock.patch("qldpc.external.gap.is_installed", side_effect=AssertionError),
+        pytest.raises(ValueError, match="gauge group is not CSS"),
+    ):
+        hinted_noncss_code.get_distance_bound(1)
 
 
 def test_from_qldpc_challenge_id() -> None:
@@ -1788,8 +1812,8 @@ def test_distance_css() -> None:
         assert code.get_distance_bound_with_decoder(Pauli.X) is codes.NO_DISTANCE
 
 
-def test_decoder_distance_bounds_of_subsystem_codes_are_bare() -> None:
-    """The decoder bounds the distance of a subsystem code by bare logical operators.
+def test_decoder_distance_bounds_of_subsystem_codes_are_dressed() -> None:
+    """The decoder bounds the distance of a subsystem code by dressed logical operators.
 
     The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
     three qubits is a dressed logical operator, although every bare logical operator has weight 3.
@@ -1797,11 +1821,21 @@ def test_decoder_distance_bounds_of_subsystem_codes_are_bare() -> None:
     """
     code = codes.CSSCode([[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]])
     for pauli in PAULIS_XZ:
-        assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 3
-        assert code.get_distance_exact(pauli) == 1
+        assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 1
     code.reduce_logical_ops()
     logical_ops = code.get_logical_ops(symplectic=True)
     assert not np.any(code.matrix @ math.symplectic_conjugate(logical_ops).T)
+
+
+def test_decoder_distance_bounds_exclude_gauge_operators() -> None:
+    """Gauge operators lighter than the distance of a subsystem code do not bound it.
+
+    The X-type gauge generators of the 2x3 Bacon-Shor code have weight 2 and commute with its
+    stabilizers, but they are not logical operators, and its X-distance is 3.  Its Z-distance is 2.
+    """
+    code = codes.BaconShorCode(2, 3)
+    assert code.get_distance_bound_with_decoder(Pauli.X) == 3
+    assert code.get_distance_bound_with_decoder(Pauli.Z) == 2
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:

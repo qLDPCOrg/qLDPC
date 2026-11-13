@@ -142,6 +142,7 @@ Exact searches choose their routes by cost models whose settings and constants :
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a ``QuditCode`` that is not a ``CSSCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.
+A subsystem ``QuditCode`` is bounded as a ``CSSCode`` if X-type and Z-type operators generate its gauge group, even if its checks mix X and Z.
 Codes remember the best distance bound that they have computed or been given, and CSS codes remember X and Z bounds separately.
 With ``num_trials=None``, ``get_distance_bound`` returns the exact distance or best known bound if there is one, and otherwise computes one bound.
 An explicit ``num_trials`` runs that many trials, and never returns a worse bound than the best known one.
@@ -231,7 +232,7 @@ Capability       :math:`GF(2)`                              Prime field :math:`G
 ===============  =========================================  ==============================  ===================================  ========================================
 Codes            Yes                                        Yes                             Yes                                  Yes, inferred from non-commuting checks
 Exact distance   Brouwer-Zimmermann, or connected support   Exhaustive enumeration          Exhaustive enumeration               Yes
-Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only (see upper bounds below)
+Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only
 Decoders         All built-in decoders                      GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
 Circuits         Yes                                        No                              No                                   No memory experiments
 ===============  =========================================  ==============================  ===================================  ========================================
@@ -248,7 +249,6 @@ What qLDPC computes exactly, bounds, and trusts
 
 * Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
-  For a subsystem code, the decoder backend searches bare logical operators, so its bound is valid but can stay above the distance, which is dressed.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.
 * Trusted, not verified: recorded parameters of built-in families and online lookups, promises such as ``promise_equal_distance_xz``, an explicit ``is_subsystem_code=True`` hint to ``QuditCode`` or ``CSSCode``, a code-capacity ``min_error_weight`` below which errors are assumed to be corrected, and an explicit ``detector_to_time`` mapping.
