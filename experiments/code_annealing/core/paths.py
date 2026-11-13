@@ -28,10 +28,14 @@ RESULTS_DIR = EXPERIMENT_DIR / "results"
 TEST_DIR_NAME = "test"
 
 # The codes and the qecdb.org snapshot that the paper reports, which no script writes, and the
-# subdirectory of the results directory in which ``reproduce_paper`` works with copies of them.
+# subdirectory of the results directory in which ``reproduce_paper`` works with copies of them; and
+# the same for the revised version of the paper.
 PAPER_DATA_DIR = EXPERIMENT_DIR / "paper_data"
 PAPER_SNAPSHOT_FILE = PAPER_DATA_DIR / "scrape_qecdb_2026-05-21.txt"
 PAPER_DIR_NAME = "paper"
+REVISED_DATA_DIR = PAPER_DATA_DIR / "revised"
+REVISED_SNAPSHOT_FILE = REVISED_DATA_DIR / "scrape_qecdb_2026-11-13.txt"
+REVISED_DIR_NAME = "paper_revised"
 
 # Names of the text files with the best code of each code size, by code type.
 CODE_FILE_NAMES: dict[CodeType, str] = {

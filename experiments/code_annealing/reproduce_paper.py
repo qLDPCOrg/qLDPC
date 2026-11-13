@@ -2,11 +2,10 @@
 
 """Check the codes that the paper reports, and rebuild its table and figures from them.
 
-Run with ``python -m experiments.code_annealing.reproduce_paper [--skip-figures]``.  The paper's
-best codes and its snapshot of qecdb.org, taken before the paper, are kept in ``paper_data/``,
-which no script writes, beside a later scrape for a revised table.  The script copies the paper's
-data, which leaves out that scrape, to the ``paper/data/`` subdirectory of the results directory,
-and runs three scripts on that subdirectory, in order:
+Run with ``python -m experiments.code_annealing.reproduce_paper [--revised] [--skip-figures]``.  The
+paper's best codes and its snapshot of qecdb.org, taken before the paper, are kept in
+``paper_data/``, which no script writes.  The script copies them to the ``paper/data/``
+subdirectory of the results directory, and runs three scripts on that subdirectory, in order:
 
 1. ``analysis/half_supports`` recounts every code exactly, which checks the distance and the number
    of minimum-weight logical operators that the paper reports, and counts the half supports that
@@ -19,6 +18,10 @@ and runs three scripts on that subdirectory, in order:
 3. ``make_figures`` simulates the codes, and saves the paper's figures to ``paper/figures/``,
    together with ``error_rates.pdf``, which shows both code types in one figure.
 
+With ``--revised``, the script does the same for the revised version of the paper: its codes, the
+best of each size of the campaign of ``write_jobs.py``, and its scrape of qecdb.org are kept in
+``paper_data/revised/``, and the script works in the ``paper_revised/`` subdirectory.
+
 The simulations take most of the time.  Pass ``--skip-figures`` for the first two steps alone, or a
 small ``--num-samples`` and ``--max-qubits`` for a quick look at the figures.
 """
@@ -30,12 +33,23 @@ from collections.abc import Sequence
 
 from .analysis import half_supports, latex_tables
 from .core.cli import add_results_dir_argument, make_parser, run_step
-from .core.paths import PAPER_DATA_DIR, PAPER_DIR_NAME, PAPER_SNAPSHOT_FILE, get_data_dir
+from .core.paths import (
+    PAPER_DATA_DIR,
+    PAPER_DIR_NAME,
+    PAPER_SNAPSHOT_FILE,
+    REVISED_DATA_DIR,
+    REVISED_DIR_NAME,
+    REVISED_SNAPSHOT_FILE,
+    get_data_dir,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Copy the data of the paper, check its codes, and rebuild its table and figures."""
     parser = make_parser(__doc__)
+    parser.add_argument(
+        "--revised", action="store_true", help="use the data of the revised version of the paper"
+    )
     parser.add_argument("--skip-figures", action="store_true", help="do not simulate the codes")
     parser.add_argument(
         "--max-qubits", type=int, help="plot only the codes with at most this many qubits"
@@ -44,16 +58,23 @@ def main(argv: Sequence[str] | None = None) -> None:
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
 
-    results_dir = args.results_dir / PAPER_DIR_NAME
+    if args.revised:
+        source_dir, snapshot_file, dir_name = (
+            REVISED_DATA_DIR,
+            REVISED_SNAPSHOT_FILE,
+            REVISED_DIR_NAME,
+        )
+    else:
+        source_dir, snapshot_file, dir_name = PAPER_DATA_DIR, PAPER_SNAPSHOT_FILE, PAPER_DIR_NAME
+    results_dir = args.results_dir / dir_name
     data_dir = get_data_dir(results_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    for path in sorted(PAPER_DATA_DIR.glob("*.txt")):
-        if not path.name.startswith("scrape_qecdb_") or path == PAPER_SNAPSHOT_FILE:
-            shutil.copyfile(path, data_dir / path.name)
-    print(f"Copied the data of the paper from {PAPER_DATA_DIR} to {data_dir}")
+    for path in sorted(source_dir.glob("*.txt")):
+        shutil.copyfile(path, data_dir / path.name)
+    print(f"Copied the data of the paper from {source_dir} to {data_dir}")
 
     options = ["--results-dir", str(results_dir)]
-    snapshot = data_dir / PAPER_SNAPSHOT_FILE.name
+    snapshot = data_dir / snapshot_file.name
     run_step("half_supports", half_supports.main, options)
     run_step("latex_tables", latex_tables.main, [*options, "--data-file", str(snapshot)])
     if not args.skip_figures:
