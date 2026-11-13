@@ -255,9 +255,17 @@ def test_deprecated_distance_functions() -> None:
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
             search()
 
-    # get_distance_quantum required its stabilizers, so it rejects None.
+    # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
+    # arguments.
     with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="not None"):
         get_distance_quantum(generator[:1], None, homogeneous=True)
+    nonbinary = [[2] + [0] * 6]
+    for logical_ops, stabilizers, name in (
+        (nonbinary, generator[1:], "logical_ops"),
+        (generator[:1], nonbinary, "stabilizers"),
+    ):
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=name):
+            get_distance_quantum(logical_ops, stabilizers, homogeneous=True)
 
     # The block_size argument gives the batches that it gave before it was deprecated: exhaustive
     # enumeration took it as its exponent, and scans of information sets took at most it, clamped to
@@ -274,7 +282,7 @@ def test_deprecated_distance_functions() -> None:
             (-3, (0, 0)),
             (True, (1, 1)),
         ):
-            with pytest.warns(DeprecationWarning, match="use_tuning"):
+            with pytest.warns(DeprecationWarning, match="Exact-search performance and tuning"):
                 context = _deprecations.core._use_block_size(block_size)
             with context:
                 tuning = _tuning.get_tuning()
