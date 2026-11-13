@@ -31,8 +31,7 @@ def test_each_row_uses_the_oldest_scrape_that_lists_its_exact_parameters(tmp_pat
     new.write_text("(7, 1, 3) 7 1 3\n(4, 2, 2) 4 2 2\n\n(7, 1, 3) 7 1 3\n")
     latex_tables.main(["--results-dir", str(tmp_path), "--data-file", str(old), str(new)])
     table = get_table_file(tmp_path, "css").read_text()
-    rows = [line.split(r"\\")[0] for line in table.splitlines() if line.count("&") == 10][1:]
-    cells = [[cell.strip() for cell in row.split("&")] for row in rows]
+    cells = _get_cells(table)
     # The Steane code beats the old scrape's empty neighbors, but not the new scrape; [[4, 2, 2]]
     # uses the new scrape.
     assert cells[0][:3] == [r"\hlgreen{7}$^\ddagger$", r"\hlgreen{1}", r"\hlgreen{3}"]
@@ -40,3 +39,15 @@ def test_each_row_uses_the_oldest_scrape_that_lists_its_exact_parameters(tmp_pat
     assert cells[1][:3] == [r"4$^\dagger$", "2", "2"]
     assert cells[1][8:] == ["4", "2", "2"]
     assert old.name in table and new.name in table
+
+    # A newer scrape that lists no code as good as the Steane code gives it no double dagger.
+    newer = tmp_path / "scrape_qecdb_2000-03-03.txt"
+    newer.write_text("(7, 1, 3) None None None\n(4, 2, 2) 4 2 2\n\n(7, 1, 3) 7 1 3\n")
+    latex_tables.main(["--results-dir", str(tmp_path), "--data-file", str(old), str(newer)])
+    assert _get_cells(get_table_file(tmp_path, "css").read_text())[0][0] == r"\hlgreen{7}"
+
+
+def _get_cells(table: str) -> list[list[str]]:
+    """The cells of the rows of codes of a table."""
+    rows = [line.split(r"\\")[0] for line in table.splitlines() if line.count("&") == 10][1:]
+    return [[cell.strip() for cell in row.split("&")] for row in rows]

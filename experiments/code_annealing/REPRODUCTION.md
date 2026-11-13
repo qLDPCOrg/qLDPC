@@ -16,7 +16,7 @@ The status is `reproduced` if the output matches the paper, and `runs-but-differ
 | Appendix of the best codes (CSS and SWEL listings) | `python -m experiments.code_annealing.reproduce_paper --skip-figures` | `paper_data/annealed_codes*.txt` | `results/paper/data/listing_css.txt`, `listing_swel.txt` | `reproduced` | The listings are the code files with the paper's headers.  `check_claims` recounts their distances and counts exactly in seconds. |
 | Appendix on automorphisms of the [[20, 6, 4]] SWEL code (2304 logical Clifford gates) | `python -m experiments.code_annealing.check_claims` | `paper_data/annealed_codes_swel.txt`, `paper_data/automorphisms_swel_n20_k06.txt` | printed | `reproduced` | Finds a group of 2304 logical Clifford gates modulo logical Pauli gates, as the paper reports. |
 
-`reproduce_paper` is a grouped wrapper of the first three rows: it copies `paper_data/`, recounts every code, writes the table from the paper's snapshot of qecdb.org, and plots both figures, together with `error_rates.pdf`, which shows both code types in one figure and is not in the paper.
+`reproduce_paper` is a grouped wrapper of the first three rows: it copies the paper's data from `paper_data/`, recounts every code, writes the table from the paper's snapshot of qecdb.org, and plots both figures, together with `error_rates.pdf`, which shows both code types in one figure and is not in the paper.
 It accepts `--num-samples` and `--max-qubits` for a quick look.
 
 Not computational, so not reproduced by code: the pseudocode of adaptive annealing, the proofs, and the circuit diagram of the elementary SWEL-preserving gate.

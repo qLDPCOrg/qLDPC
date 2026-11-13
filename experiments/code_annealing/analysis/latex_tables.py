@@ -202,7 +202,7 @@ def _describe_data_files(data_files: Sequence[Path], comparisons: Sequence[_Comp
         path.name for index, path in enumerate(data_files) if index > 0 and index in used
     )
     if 0 not in used:
-        text = f"{later}, which all rows use and which mark them $^\\dagger$"
+        text = f"{later}, which all rows use, so all are marked $^\\dagger$"
     elif not later:
         text = data_files[0].name
     else:
