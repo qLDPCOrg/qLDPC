@@ -170,10 +170,11 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
             # New codes and counters, since codes and counters remember their distances.
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
             distances = (fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z))
-            counter_code = codes.CSSCode(code.matrix_x, code.matrix_z)
-            counts = lc.CSSLogicalCounter(counter_code).count_logical_ops(count_pauli=True)
+            counts = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(
+                count_pauli=True
+            )
             assert counts.weight is not codes.NO_DISTANCE
-            macwilliams = lc.CSSLogicalCounter(counter_code).count_logical_ops(
+            macwilliams = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(
                 counts.weight, method="macwilliams"
             )
         results.append((distances, counts, macwilliams))
@@ -325,10 +326,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     ) as tuning:
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(Pauli.X)
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="connected_support")
-        counter = lc.CSSLogicalCounter(codes.CSSCode(code.matrix_x, code.matrix_z))
+        counter = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z)
         counter.count_logical_ops()
         counter.count_logical_ops(method="brute_force")
-        lc.CSSLogicalCounter(code).count_logical_ops(method="macwilliams")
+        lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(method="macwilliams")
         # A basis of one row is small enough to enumerate under either method.
         core.get_distance_from_generators([[1, 1, 1, 0]])
         core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")

@@ -144,7 +144,8 @@ Codes remember the best distance bound that they have computed or been given, an
 With ``num_trials=None``, ``get_distance_bound`` returns the exact distance or best known bound if there is one, and otherwise computes one bound.
 An explicit ``num_trials`` runs that many trials, and never returns a worse bound than the best known one.
 ``forget_distance()`` discards remembered distances and bounds.
-:class:`~qldpc.codes.distance.logical_counts.CSSLogicalCounter` and :func:`~qldpc.codes.distance.logical_counts.count_logical_ops_css` count the logical operators of a given weight in a binary CSS code.
+:class:`~qldpc.codes.distance.CSSLogicalCounter` and :func:`~qldpc.codes.distance.count_logical_ops_css` count the logical operators of a given weight in a binary CSS code, given its X-type and Z-type checks as binary matrices.
+``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.
 
 From codes to logical error rates
 ---------------------------------

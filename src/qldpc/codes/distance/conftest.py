@@ -140,12 +140,6 @@ Counts = lc.CSSLogicalCounts
 METHODS: tuple[lc.LogicalCountMethod, ...] = ("brouwer_zimmermann", "brute_force")
 
 
-def get_counter(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> lc.CSSLogicalCounter:
-    """A counter for the CSS code with the given binary checks."""
-    code = codes.CSSCode(np.asarray(checks_x, dtype=int), np.asarray(checks_z, dtype=int))
-    return lc.CSSLogicalCounter(code)
-
-
 def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
     """Binary rows whose bit j is bit j of each integer."""
     return np.array([[value >> jj & 1 for jj in range(width)] for value in values], dtype=np.uint8)
