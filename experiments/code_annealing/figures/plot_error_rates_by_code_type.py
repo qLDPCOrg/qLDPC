@@ -85,7 +85,7 @@ def _make_code_type_figure(
             sharex=True,
             sharey="row",
             squeeze=False,
-            gridspec_kw={"hspace": 0.1, "wspace": 0.15},
+            gridspec_kw={"hspace": 0.1, "wspace": 0.1},
         )
 
         # a full column holds num_colors codes and the reference line, and every legend has as many
@@ -102,7 +102,7 @@ def _make_code_type_figure(
         format_error_rate_axes(axes, error_rates, max_rate=1e-1, min_discard_rate=1e-8)
         axes[0, 0].set_ylabel("logical error rate\nper logical qubit")
         axes[1, 0].set_ylabel("discard rate\nper logical qubit")
-        figure.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.11)
+        figure.subplots_adjust(left=0.12, right=0.985, top=0.88, bottom=0.11)
     return figure
 
 

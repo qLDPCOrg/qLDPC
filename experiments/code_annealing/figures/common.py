@@ -217,6 +217,10 @@ def add_legend(
         fontsize="small",
         ncol=len(handles) // nrow,
         framealpha=0,
+        handlelength=1.0,
+        handletextpad=0.3,
+        columnspacing=0.5,
+        borderpad=0.2,
     )
 
 
@@ -245,8 +249,18 @@ def format_error_rate_axes(
     axes[0, 0].set_xlim(left=error_rates[0], right=error_rates[-1])
     axes[0, 0].set_ylim(bottom=_MIN_LOGICAL_RATE)
     axes[1, 0].set_ylim(bottom=min_discard_rate)
+    # Label the powers of ten, and align a label at an end of the range inward, so that the labels
+    # of neighboring panels do not overlap.
+    exponents = np.log10([error_rates[0], error_rates[-1]])
+    decades = 10.0 ** np.arange(math.ceil(exponents[0] - 1e-9), math.floor(exponents[1] + 1e-9) + 1)
+    axes[0, 0].xaxis.set_major_locator(ticker.FixedLocator(decades.tolist()))
     for axis in axes[1, :]:
         axis.set_xlabel("physical error rate")
+        labels = axis.get_xticklabels()
+        if np.isclose(decades[0], error_rates[0]):
+            labels[0].set_horizontalalignment("left")
+        if np.isclose(decades[-1], error_rates[-1]):
+            labels[-1].set_horizontalalignment("right")
 
 
 def get_label(entry: CodeEntry) -> str:

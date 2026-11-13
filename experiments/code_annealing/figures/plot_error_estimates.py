@@ -202,8 +202,8 @@ def _make_error_estimates_figure(
     with matplotlib.rc_context(PLOT_STYLE):
         colors = matplotlib.rcParams["axes.prop_cycle"].by_key()["color"]
         size_colors = {size: colors[index % len(colors)] for index, size in enumerate(sizes)}
-        figure = Figure(figsize=(6.5, 3.0))
-        axes = figure.subplots(1, len(estimates_by_code_type), sharey=True, squeeze=False)[0]
+        figure = Figure(figsize=(6.5, 2.4 * len(estimates_by_code_type)))
+        axes = figure.subplots(len(estimates_by_code_type), 1, sharey=True, squeeze=False)[:, 0]
 
         for axis, (code_type, rows) in zip(axes, estimates_by_code_type.items()):
             # A column of markers for each code, colored by its size, with lines between distances.
@@ -248,8 +248,9 @@ def _make_error_estimates_figure(
             loc="upper right",
             framealpha=1,
         )
-        axes[0].set_ylabel("logical error rate per logical qubit")
-        figure.tight_layout(pad=0.3, h_pad=0.1, w_pad=0.1)
+        for axis in axes:
+            axis.set_ylabel("logical error rate\nper logical qubit")
+        figure.tight_layout(pad=0.3, h_pad=1.5, w_pad=0.1)
     return figure
 
 
