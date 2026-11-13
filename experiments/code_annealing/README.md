@@ -98,7 +98,6 @@ python -m experiments.code_annealing.make_figures
 `collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access.
 It saves the comparison in a file named by the date of the scrape, and writes the tables in the format of the paper's.
 Without `--scrape`, it writes the table from the newest earlier scrape, if that scrape covered the same codes.
-To keep the comparisons of an older scrape, such as the paper's, for the codes that it lists, pass several scrapes to `analysis/latex_tables.py`, oldest first, with `--data-file`; its docstring describes how rows choose a scrape.
 qecdb.org may list codes that were published after the paper, including those of the paper itself, so this comparison can differ from that of the paper.
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
 
