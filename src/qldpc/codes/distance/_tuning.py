@@ -88,20 +88,20 @@ The scripts of ``experiments/distance_tuning`` do this.  Its README walks throug
 retuning, gives the commands of the sweeps behind the current values, and says what guards those
 values against over-fitting and where the guards fall short.
 
-Those sweeps chose the values whose comments say how they were chosen, each among candidates,
-none of which had a special standing.  A value rests on a verified mechanism or, for a
-coefficient, on a direct measurement of what it stands for, where there is one.  Otherwise it
-rests on a large gain on long runs, those of a minute or more one search at a time, with only
-small losses on quick runs, those of a few seconds or less.  Otherwise it is the simplest choice,
-such as a round value among candidates that made no clear difference; some of those candidates
-made the same decisions on every search timed, so their timings could not differ.  A comment
-calls a value a judgment call where it trades one kind of search against another.  Timings of the
-same work varied up to two- or threefold between sessions on the one machine used, so comments
-state outcomes roughly.  A comment that says a value was chosen by hand, or that how it was
-chosen is not recorded, marks a field that these sweeps did not choose.
+Where those sweeps chose a value, they chose it among candidates, none of which had a special
+standing.  A value rests on a verified mechanism or, for a coefficient, on a direct measurement
+of what it stands for, where there is one.  Otherwise it rests on a large gain on long runs,
+those of a minute or more one search at a time, with only small losses on quick runs, those of
+seconds.  Otherwise it is the simplest choice, such as a round value among candidates that made
+no clear difference; some of those candidates made the same decisions on every search timed, so
+their timings could differ only by noise.  A comment calls a value a judgment call where it
+trades one kind of search against another.  Timings of the same work varied up to two- or
+threefold between sessions on the one machine used, so comments state outcomes roughly.  The
+comment of each calibrated field says how its value was chosen: by these sweeps, by the earlier
+measurements on the data sets below, or by hand, or that this is not recorded.
 
 The cost model and the block widths of the completion tables of distance searches and counts
-(Section 3.9 of ``brouwer_zimmermann.md``) were chosen on an Apple M3 Max, with layers of one
+(Section 3.9 of ``brouwer_zimmermann.md``) were measured on an Apple M3 Max, with layers of one
 information set of ``4 * 10**7`` to ``5 * 10**10`` supports from two data sets:
 
 - The width data set holds layers of weights 4 to 6 of both sectors of
@@ -252,10 +252,10 @@ class SearchTuning:
     #: whole words, and a search builds other families for the smallest weight whose queries reach
     #: it.  Lowering it tries other families sooner, and, in searches by Hamming weight, tails and
     #: completion tables, which may not repay setup; zero always tries, ``MAX_VALUE`` never.
-    #: Defaults to ``2 * 10**4``, chosen on CSS coset searches of a few codes with 8-column coset
-    #: tables, which values a few times lower or higher slowed; with 16-column tables, ``10**5`` was
-    #: a little faster on the one search timed again.  To retune it, time searches near it with and
-    #: without other families.
+    #: Defaults to ``2 * 10**4``, chosen with 8-column coset tables on CSS coset searches of a few
+    #: codes, where values a few times lower or higher were slower; with 16-column tables, ``10**5``
+    #: was a little faster on the one such search timed again.  To retune it, time searches near it
+    #: with and without other families.
     overlapping_minimum_work: int = 20_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
@@ -355,8 +355,8 @@ class SearchTuning:
     #: The number of supports (choices of rows) of an information set from which a distance search
     #: or count considers completion tables for its layer, which skip supports that cannot complete
     #: a word lighter than the best, or, in a count, within the counted weight (Section 3.9 of
-    #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling.  Lowering it
-    #: considers smaller layers; zero every layer, and ``MAX_VALUE`` none.  Defaults to
+    #: ``brouwer_zimmermann.md``).  Considering them takes up to tens of milliseconds of sampling.
+    #: Lowering it considers smaller layers; zero every layer, and ``MAX_VALUE`` none.  Defaults to
     #: ``3 * 10**7``, so that a timed count of a code of moderate size uses tables, which made it
     #: several times faster.  To retune it, time layers near the threshold with tables disabled and
     #: forced.
@@ -375,8 +375,8 @@ class SearchTuning:
     #: ``CosetLeaderSearch`` for each set of a family.  Distance searches and counts use blocks of
     #: ``completion_bound_block_bits`` columns, or of ``completion_bound_fallback_block_bits`` if
     #: those do not fit, or none.  Zero disables tables, and ``MAX_VALUE`` removes the limit.
-    #: Defaults to 256 MiB, which fits blocks of 16 columns for bases of up to about 500 rows and
-    #: 140 tail columns.  To retune it, choose the memory that tables may use.
+    #: Defaults to 256 MiB, chosen by hand: it fits blocks of 16 columns for bases of up to about
+    #: 500 rows and 140 tail columns.  To retune it, choose the memory that tables may use.
     completion_bound_max_table_bytes: int = 256 * 2**20
 
     #: The number of tail columns in a block of the completion tables of distance searches and
@@ -411,18 +411,18 @@ class SearchTuning:
     #: them takes about 16 bytes for each sample and each row of the basis.  More samples narrow the
     #: estimate, so that tables pay on more of the layers that accept them, but take longer.
     #: Between 1 and ``2**12``.  Defaults to 1024, enough that the long-run layers traced near the
-    #: limit of ``completion_bound_max_cost_percent`` decided alike under every sampling draw tried;
-    #: then choosing tables for a layer near ``completion_bound_minimum_layer_work`` can take about
-    #: a third of the time of its scan.  To retune it, raise it until layers near the limit decide
-    #: alike under different draws, while sampling stays a small part of quick runs.
+    #: limit of ``completion_bound_max_cost_percent`` decided alike under every sampling draw tried.
+    #: Choosing tables for a layer near ``completion_bound_minimum_layer_work`` then takes about a
+    #: third of that layer's time.  To retune it, raise it until layers near the limit decide alike
+    #: under different draws, while sampling stays a small part of quick runs.
     completion_bound_samples: int = dataclasses.field(
         default=1024, metadata={"minimum": 1, "maximum": 2**12}
     )
 
     #: The fewest samples with which a search trusts its estimate of the share that completion
     #: tables would skip; with fewer within the budget, it takes the skipped share to be zero, so
-    #: that tables must pay without skipping.  At least 1.  Defaults to 64, so that when every
-    #: sample skips, the lower end of the confidence interval (see
+    #: that tables must pay without skipping.  At least 1.  Defaults to 64, chosen by hand so that
+    #: when every sample skips, the lower end of the confidence interval (see
     #: ``completion_bound_confidence_z``) is 0.94.  To retune it, keep the fewest samples that still
     #: accept tables on the layers of the cost data set that they speed up.
     completion_bound_min_samples: int = dataclasses.field(default=64, metadata={"minimum": 1})
@@ -430,16 +430,16 @@ class SearchTuning:
     #: The most work that a search spends bounding sampled supports, in units of one pair of rows on
     #: one block of the tables; summing the first rows of a support costs one unit for each row of
     #: the basis.  Raising it allows more samples on large bases, at more cost; zero takes no
-    #: samples, so the search declines tables.  Defaults to ``5 * 10**7``, so that sampling takes
-    #: tens of milliseconds on large bases.  To retune it, time sampling on the largest bases of
-    #: interest, and keep it under a tenth of the time of the smallest layer considered.
+    #: samples, so the search declines tables.  Defaults to ``5 * 10**7``, chosen by hand so that
+    #: sampling takes tens of milliseconds on large bases.  To retune it, time sampling on the
+    #: largest bases of interest, and keep it a small part of quick runs.
     completion_bound_sampling_work: int = 50_000_000
 
     #: How many standard errors below the sampled share of skipped supports a search sets its
     #: estimate, the lower end of a Wilson score interval; at most 10.  Raising it declines more
     #: layers where tables would pay; lowering it lets sampling error choose tables that cost more
-    #: than they save.  Defaults to 2.0, a conventional confidence of about 98%.  To retune it,
-    #: raise it if sampling error made choices slower on the cost data set.
+    #: than they save.  Defaults to 2.0, chosen by hand as a conventional confidence of about 98%.
+    #: To retune it, raise it if sampling error made choices slower on the cost data set.
     completion_bound_confidence_z: float = dataclasses.field(
         default=2.0, metadata={"maximum": 10.0}
     )
