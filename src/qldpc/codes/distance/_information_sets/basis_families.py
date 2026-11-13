@@ -392,13 +392,13 @@ def get_partitioned_family(
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
 
-    # Skip partitioning if it would cost too much for this search, or if no family of full sets
-    # could do less work, which is certain if no sets are allowed.
+    # Skip partitioning if it would cost too much for this search, if it would try no coverage, or
+    # if no family of full sets could do less work, which is certain if no sets are allowed.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     total_coverage = sum(range(2, max_coverage + 1))
     partition_work = tuning.partition_cost_factor * total_coverage * dimension**2 * num_columns
-    if best_work < tuning.partition_work_ratio * partition_work:
+    if max_coverage < 2 or best_work < tuning.partition_work_ratio * partition_work:
         return best
     optimistic_work = _estimate_optimistic_work(
         dimension,

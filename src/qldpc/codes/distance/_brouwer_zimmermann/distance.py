@@ -83,9 +83,9 @@ def get_distance_brouwer_zimmermann_many(
         get_automorphisms: If given, returns an array of generators of a group of column
             permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.
             Each generator must map the searched space and the excluded subspace of every problem
-            onto themselves.  A search calls the function before a costly layer, or before matroid
-            partitioning if it would partition, verifies the generators for its problem, and may
-            then scan fewer information sets (see ``automorphism_families``).
+            onto themselves.  A search calls the function at most once: before matroid partitioning
+            if it would partition, or else before a costly layer.  It verifies the generators for
+            its problem, and may then scan fewer information sets (see ``automorphism_families``).
         tuning: Sets the thresholds that choose the route of each search (see ``_tuning``), and
             defaults to the active tuning, which every search then uses throughout.
 
@@ -709,16 +709,13 @@ def _get_automorphism_family_work(
 ) -> int:
     """The estimated work of the automorphism family that a search can switch to.
 
-    Returns ``WORK_CAP`` if the problem has no automorphism family.  The rows of the scanned set can
-    lower ``upper_bound``, as they do when the search switches.
+    Returns ``WORK_CAP`` if the problem has no automorphism family.
     """
     automorphism_family = get_automorphism_family(weight_divisor)
     if automorphism_family is None:
         return certificates.WORK_CAP
-    family, certificate = automorphism_family
-    return automorphism_families.estimate_automorphism_family_work(
-        certificate, _get_basis_family_upper_bound(family, upper_bound)
-    )
+    _, certificate = automorphism_family
+    return automorphism_families.estimate_automorphism_family_work(certificate, upper_bound)
 
 
 def _get_lightest_eligible_row_weight(

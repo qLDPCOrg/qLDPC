@@ -8,6 +8,7 @@ import dataclasses
 import functools
 import itertools
 from typing import Any
+from unittest import mock
 
 import numpy as np
 import numpy.typing as npt
@@ -19,7 +20,7 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 
 from .._tuning import DEFAULT_TUNING, SearchTuning
 from ..conftest import get_random_full_rank_matrix
-from . import basis_families
+from . import basis_families, certificates
 
 # The default numbers of column orders of disjoint families, and denominators of LP dual weights.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
@@ -203,9 +204,18 @@ def test_partitioned_families_replace_costlier_ones() -> None:
     _assert_certificate_bounds_unvisited_words(basis, family)
 
     # A family that the search would switch to rules partitioning out if it does no more work than
-    # any partitioned family could, and only then.
+    # any partitioned family could, and only then.  Partitioning asks for that work only if it
+    # would otherwise run.
     tuning = dataclasses.replace(DEFAULT_TUNING, partition_work_ratio=0)
-    for competing_work, partitions in ((0, False), (disjoint.certificate.work(5), True)):
+    optimistic_work = basis_families._estimate_optimistic_work(
+        len(basis),
+        int(np.count_nonzero(np.any(basis, axis=0))),
+        disjoint.weight_divisor,
+        5,
+        tuning.max_information_sets,
+        certificates.get_capped_binomials(len(basis)),
+    )
+    for competing_work, partitions in ((optimistic_work, False), (optimistic_work + 1, True)):
         partitioned = basis_families.get_partitioned_family(
             basis,
             labels,
@@ -215,6 +225,23 @@ def test_partitioned_families_replace_costlier_ones() -> None:
             get_competing_work=functools.partial(int, competing_work),
         )
         assert bool(len(partitioned.ranks)) == partitions
+    gate_changes: list[dict[str, Any]] = [
+        {"partition_work_ratio": 2**62},
+        {"partition_work_ratio": 0, "max_information_sets": 0},
+        {"partition_work_ratio": 0, "max_partition_coverage": 1},
+    ]
+    for changes in gate_changes:
+        get_competing_work = mock.Mock(return_value=0)
+        partitioned = basis_families.get_partitioned_family(
+            basis,
+            labels,
+            disjoint,
+            5,
+            dataclasses.replace(DEFAULT_TUNING, **changes),
+            get_competing_work=get_competing_work,
+        )
+        assert not len(partitioned.ranks)
+        get_competing_work.assert_not_called()
 
 
 def test_maximum_disjoint_families_replace_smaller_packings() -> None:

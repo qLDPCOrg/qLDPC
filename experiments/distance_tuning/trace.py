@@ -17,13 +17,15 @@ records:
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
   search and the cost of partitioning, in candidate/set evaluations, the least work that any
   partitioned family could do, and whether the gates let it try (``partitioned``), even if it then
-  found no family.  A search with automorphisms skips partitioning if their family does no more
-  work than that least work, which is recorded with the seconds that building their family took
-  (``competing_work`` and ``competing_seconds``), and which the seconds of partitioning include;
+  found no family.  Before trying, a search with automorphisms asks for them, verifies them, and
+  builds their family, and skips partitioning if that family does no more work than the least work
+  of a partitioned family.  The trace records that family's work (``competing_work``) and the
+  seconds those steps took (``competing_seconds``), which the seconds of partitioning include;
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
-- each attempt to switch to a family of automorphism images, the seconds it took, and whether the
+- each attempt to switch to a family of automorphism images, the seconds it took, which exclude
+  finding the automorphisms and building their family if setup already did, and whether the
   search switched;
 - the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step
   considers completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted
@@ -234,8 +236,8 @@ def wrap_family(kind: str, function: Callable[..., Any]) -> Callable[..., Any]:
         event = {"event": "family", "kind": kind, "sets": len(family.ranks), "seconds": seconds}
         if kind == "partitioned" and len(args) == 5:
             event |= get_partition_gate(*args) | competing
-            if competing:
-                event["partitioned"] = competing["competing_work"] > event["optimistic_work"]
+            if competing and competing["competing_work"] <= event["optimistic_work"]:
+                event["partitioned"] = False
         if kind == "overlapping" and len(args) == 5:
             event |= get_overlapping_gate(*args)
         EVENTS.append(event)
@@ -285,7 +287,11 @@ def get_partition_gate(
         "unit": total_coverage * dimension**2 * num_columns,
         "ratio": tuning.partition_work_ratio,
         "optimistic_work": int(optimistic_work),
-        "partitioned": bool(work >= tuning.partition_work_ratio * cost),
+        "partitioned": bool(
+            tuning.max_partition_coverage >= 2
+            and work >= tuning.partition_work_ratio * cost
+            and work > optimistic_work
+        ),
     }
 
 

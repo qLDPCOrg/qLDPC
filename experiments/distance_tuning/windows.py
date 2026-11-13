@@ -18,7 +18,8 @@ are compared with are:
   a layer accepts if it is at most the threshold;
 - the product of ``partition_work_ratio`` and ``partition_cost_factor``: the estimated work of a
   search divided by ``b * k**2 * n``, which tries matroid partitioning if it reaches the product,
-  unless a cheap family of automorphism images rules partitioning out (see ``trace.py``);
+  unless a cheap family of automorphism images rules partitioning out (see ``trace.py``), in which
+  case the script skips the search;
 - ``overlapping_minimum_work``: the estimated work of a family that an overlapping family may
   replace, if it reaches the threshold, after the checks that come before it;
 - ``lp_minimum_work``: the estimated work of a certificate of overlapping sets, which may solve
@@ -185,10 +186,11 @@ def get_gates(trace: dict[str, Any], tuning: _tuning.SearchTuning) -> list[tuple
                 ("completion_bound_max_cost_percent", Gate(100 * event["cost"], workload, detail))
             )
         elif kind == "family" and event["kind"] == "partitioned" and "estimated_work" in event:
-            # Older traces record the cost of partitioning, but not its unit.
+            # Older traces record the cost of partitioning, but not its unit.  Crossing the product
+            # changes nothing in a search whose automorphism family ruled partitioning out.
             factor = tuning.partition_cost_factor
             unit = event.get("unit", event["estimated_cost"] / factor if factor else 0)
-            if not unit:
+            if not unit or event.get("competing_work", math.inf) <= event.get("optimistic_work", 0):
                 continue
             detail = f"k={event['rows']} n={event['columns']}"
             field = "partition_work_ratio * partition_cost_factor"
