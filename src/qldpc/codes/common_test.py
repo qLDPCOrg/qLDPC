@@ -600,6 +600,12 @@ def test_distance_qudit() -> None:
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
+    # gauge operators dress the logical operators of nonbinary subsystem codes too
+    code = codes.QuditCode(codes.BaconShorCode(2, field=3).matrix)
+    assert code.is_subsystem_code
+    with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+        assert code.get_distance_exact() == 2
+
 
 def test_distance_bound_memory() -> None:
     """Codes remember their best known upper bound on distance."""
@@ -838,6 +844,13 @@ def test_css_joint_distance_cache() -> None:
     code = codes.CSSCode(checks_x, checks_z)
     assert code.get_distance_exact(Pauli.Z, cutoff=0, method="brute_force") == 2
     assert code.get_distance_exact(cutoff=0) == 2
+
+    # a known sector within the cutoff ends the joint search before it starts
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.Z, cutoff=0, method="brute_force") == 2
+    with unittest.mock.patch.object(common, "get_distance_css") as search:
+        assert code.get_distance_exact(cutoff=2) == 2
+    search.assert_not_called()
 
     # the gauge operators of a subsystem code dress its logical operators.  Here the X-type gauge
     # group is every even-weight X string and there are no stabilizers, so a single-qubit X operator
