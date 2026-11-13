@@ -106,38 +106,46 @@ def _resolve_package_reexports(
     """Resolve references to names that a qLDPC package re-exports from one of its modules.
 
     AutoAPI documents each object only in the module that defines it (see autoapi_options), but type
-    annotations name objects by the paths that code imports them from, such as qldpc.objects.Pauli.
-    This handler resolves such a reference to the documented object that the package re-exports.
+    annotations and docstrings name objects by the paths that code imports them from, such as
+    qldpc.objects.Pauli.  This handler resolves such a reference, or a reference to a member of such
+    an object, such as qldpc.abstract.GroupMember.to_matrix, to the documented object.
     """
     if node.get("refdomain") != "py":
         return None
-    package_name, _, attribute = node.get("reftarget", "").rpartition(".")
-    if not package_name.startswith("qldpc"):
+    names = node.get("reftarget", "").split(".")
+    if names[0] != "qldpc":
         return None
-    try:
-        package = importlib.import_module(package_name)
-    except ImportError:
+    # split the target into a package, a name that it re-exports, and the name of a member, if any
+    for index in range(len(names) - 1, 0, -1):
+        try:
+            package = importlib.import_module(".".join(names[:index]))
+            break
+        except ImportError:
+            pass
+    else:
         return None
+    attribute = names[index]
     if attribute not in getattr(package, "__all__", ()):
         return None
 
     objects = env.get_domain("py").objects
-    targets = [
+    definitions = [
         name
         for name in objects
-        if name.startswith(f"{package_name}.")
+        if name.startswith(f"{package.__name__}.")
         and name.endswith(f".{attribute}")
         and getattr(sys.modules.get(name.rpartition(".")[0]), attribute, None)
         is getattr(package, attribute)
     ]
-    if len(targets) != 1:
+    if len(definitions) != 1:
+        return None
+    target = ".".join([definitions[0], *names[index + 1 :]])
+    if target not in objects:
         return None
     from sphinx.util.nodes import make_refnode
 
-    entry = objects[targets[0]]
-    return make_refnode(
-        app.builder, node["refdoc"], entry.docname, entry.node_id, contnode, targets[0]
-    )
+    entry = objects[target]
+    return make_refnode(app.builder, node["refdoc"], entry.docname, entry.node_id, contnode, target)
 
 
 def _warn_on_missing_tuning_reference(

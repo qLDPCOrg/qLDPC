@@ -30,11 +30,11 @@ from ..common import AbstractCode, ClassicalCode, CSSCode
 class BPCode(CSSCode):
     """Balanced product code.
 
-    A balanced product code is a quotient of the hypergraph product code of two classical codes
-    (see :class:`HGPCode`) by symmetries that the classical codes share.  This quotient has fewer
-    qudits than the hypergraph product code, and with suitable classical codes and distance
-    balancing (see :class:`DistanceBalancedCode`), it yields codes whose distance grows faster than
-    the square root of their length (https://arxiv.org/abs/2012.09271).
+    A balanced product code is a quotient of the hypergraph product code of two classical codes (see
+    :class:`qldpc.codes.HGPCode`) by symmetries that the classical codes share.  This quotient has
+    fewer qudits than the hypergraph product code, and with suitable classical codes and distance
+    balancing (see :class:`qldpc.codes.DistanceBalancedCode`), it yields codes whose distance grows
+    faster than the square root of their length (https://arxiv.org/abs/2012.09271).
 
     A symmetry of a classical code is a pair of permutations ``(p_checks, p_bits)`` of its checks
     and bits that leaves its parity check matrix ``H`` invariant, in the sense that
@@ -42,8 +42,8 @@ class BPCode(CSSCode):
     ``p[j]`` of every index ``j``, or a SymPy permutation, which fixes the indices beyond its size.
     A symmetry can also be a single :class:`qldpc.abstract.GroupMember` that permutes the checks
     followed by the bits, such as ``GroupMember(p_checks) @ GroupMember(p_bits)``.  The group
-    returned by :meth:`ClassicalCode.get_matrix_automorphism_group` consists of the symmetries of a
-    classical code in this form.
+    returned by :meth:`qldpc.codes.ClassicalCode.get_matrix_automorphism_group` consists of the
+    symmetries of a classical code in this form.
 
     The qudits of the hypergraph product code are pairs of bits and pairs of checks of the two
     classical codes.  Its X-type checks are pairs of a check of the first code and a bit of the
@@ -58,11 +58,12 @@ class BPCode(CSSCode):
 
     Without symmetries, a balanced product code is a hypergraph product code.  If the pairs of
     symmetries generate a group that acts freely on both classical codes, a balanced product code is
-    a lifted product code (see :class:`LPCode`).  For example, if ``A`` and ``B`` are matrices over
-    the group algebra of a cyclic group, their lifts ``A.lift()`` and ``B.lift()`` consist of blocks
-    whose rows and columns are indexed by group members (see :meth:`qldpc.abstract.RingArray.lift`).
-    Pairing a cyclic shift within every block of ``A.lift()`` with the inverse shift within every
-    block of ``B.lift()`` then yields ``LPCode(A, B)``, up to the order of qudits and checks.
+    a lifted product code (see :class:`qldpc.codes.LPCode`).  For example, if ``A`` and ``B`` are
+    matrices over the group algebra of a cyclic group, their lifts ``A.lift()`` and ``B.lift()``
+    consist of blocks whose rows and columns are indexed by group members (see
+    :meth:`qldpc.abstract.RingArray.lift`).  Pairing a cyclic shift within every block of
+    ``A.lift()`` with the inverse shift within every block of ``B.lift()`` then yields
+    ``LPCode(A, B)``, up to the order of qudits and checks.
 
     The static method :meth:`from_seed` constructs balanced product codes from a single seed matrix
     with a symmetry, as in https://arxiv.org/abs/2505.13679, and :meth:`get_seed_symmetries` finds
@@ -212,14 +213,14 @@ class BPCode(CSSCode):
         """Find symmetries of a seed matrix for :meth:`from_seed`.
 
         This method finds the automorphisms of order ``order`` of the seed matrix (see
-        :meth:`ClassicalCode.get_matrix_automorphism_group`), and returns one automorphism in each
-        conjugacy class.  Each automorphism is a GroupMember that permutes the rows followed by the
-        columns of the seed matrix.  Conjugate automorphisms ``g`` and ``h * g * h**-1`` yield equal
-        codes, up to a permutation of qudits, because the automorphism ``h`` relabels the rows and
-        columns of the seed matrix without changing it.  This method enumerates the automorphism
-        group of the seed matrix, which can take a long time if the group is large.  Computing
-        automorphisms requires the optional ``pybliss`` package, which can be installed with
-        ``pip install 'qldpc[bliss]'``.
+        :meth:`qldpc.codes.ClassicalCode.get_matrix_automorphism_group`), and returns one
+        automorphism in each conjugacy class.  Each automorphism is a GroupMember that permutes the
+        rows followed by the columns of the seed matrix.  Conjugate automorphisms ``g`` and
+        ``h * g * h**-1`` yield equal codes, up to a permutation of qudits, because the automorphism
+        ``h`` relabels the rows and columns of the seed matrix without changing it.  This method
+        enumerates the automorphism group of the seed matrix, which can take a long time if the
+        group is large.  Computing automorphisms requires the optional ``pybliss`` package, which
+        can be installed with ``pip install 'qldpc[bliss]'``.
 
         Args:
             matrix: The seed matrix, or a classical code with the seed matrix as its parity check

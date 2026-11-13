@@ -114,7 +114,8 @@ class NoiseModel:
     Args:
         clifford_1q_error: The default noise after each one-qubit unitary Clifford gate.  A float
             ``p`` is depolarizing noise of total probability ``p``.  The noise may also be a Mapping
-            from Pauli strings to probabilities, a Pauli channel, or a :class:`NoiseRule`.
+            from Pauli strings to probabilities, a Pauli channel, or a
+            :class:`~qldpc.circuits.NoiseRule`.
         clifford_2q_error: The default noise after each two-qubit unitary Clifford gate, as for
             ``clifford_1q_error``.
         readout_error: The default probability of flipping each measurement result.
@@ -126,8 +127,8 @@ class NoiseModel:
             and cannot be given with them.
         idle_error: The noise on each idling qubit in each moment, as for ``clifford_1q_error`` on
             one qubit.  Pauli noise is applied once per idle run, with the probabilities of the
-            whole run.  Noise given as a ``stim.Circuit`` in a :class:`NoiseRule` is applied once
-            per idle moment.
+            whole run.  Noise given as a ``stim.Circuit`` in a :class:`~qldpc.circuits.NoiseRule` is
+            applied once per idle moment.
         quadratic_idle_error: An error on each idling qubit, for slow noise, whose probability grows
             about quadratically with the length of an idle run.  It is given for one moment as a
             float ``p``, a Mapping such as ``{"Z": p}``, or a one-qubit ``PauliChannel``, with total
