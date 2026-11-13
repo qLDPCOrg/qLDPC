@@ -222,7 +222,7 @@ Extensions strengthen the lower certificate or the upper bound, while optimizati
 
 The extensions are:
 
-- [Section 3.1](#31-overlapping-search-bases) strengthens the lower certificate by allowing for search bases with overlapping blocks, chosen heuristically or by matroid partitioning, and certified by coverage or by linear programming.
+- [Section 3.1](#31-overlapping-search-bases) strengthens the lower certificate by allowing for search bases with overlapping blocks, chosen heuristically or by matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)), and certified by coverage or by linear programming.
 - [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) strengthens the lower certificate by rounding it up when the weight of every eligible word is a multiple of some integer, or, in a coset search of an even code, has the parity of its coset.
 - [Section 3.3](#33-sharing-witnesses-between-css-sectors) tightens the upper bound by sharing witnesses between the two sectors of a CSS code.
 
@@ -554,8 +554,10 @@ Before a search finds a light witness, its work estimate of [Section 3.6](#36-ex
 A search therefore starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases).
 Before the first layer whose scan would cost at least `automorphism_minimum_layer_work` candidate/set evaluations ([Section 4.4](#44-heuristics-and-cost-models)), it asks for automorphisms once.
 If their automorphism family has a smaller work estimate for the current `U`, the search continues with it, from layer two.
-The switch would discard any family that matroid partitioning ([Section 3.1](#31-overlapping-search-bases)) finds.
-So a search that would partition first builds its automorphism family, and skips partitioning if that family's work estimate is at most the least that any partitioned family could reach; it reuses that family before its first costly layer.
+The switch would discard any family that matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)) finds.
+So before it partitions, a search builds its automorphism family.
+It skips partitioning if that family's work estimate is at most the least work that any partitioned family could reach.
+It reuses that family before its first costly layer.
 
 This switch keeps both certificates.
 An eligible word lighter than `U` is unexamined by both families, since examining it would have lowered `U`.
@@ -998,7 +1000,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
   It tries this only if its estimated work is at least `partition_work_ratio` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
-  A distance search with automorphisms also skips it if the work estimate of its automorphism family is at most that optimistic bound ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
+  A distance search with automorphisms also skips it if the work estimate of its automorphism family is at most the least work that the optimistic coverage allows ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
@@ -1074,7 +1076,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 - **Automorphisms.**
   The distance functions pass the automorphisms that their caller gives to their BZ searches, as a function.
   `get_distance_exact` of `QuditCode` and of `CSSCode` give a function that returns the code's `_found_qudit_automorphisms`.
-  Each search calls the function only before a costly layer, and the code caches its result, so bliss runs at most once for the code.
+  Each search calls the function only before a costly layer, or before matroid partitioning if it would partition, and the code caches its result, so bliss runs at most once for the code.
   A search uses the generators only after `verify_automorphisms` accepts them for its problem.
   A generator preserves both sectors of a CSS code if it maps the row spaces of both parity check matrices onto themselves.
   For a general Pauli problem, the distance functions lift each generator to the three blocks of coordinates of [Section 2.7](#27-pauli-weight-as-hamming-weight).

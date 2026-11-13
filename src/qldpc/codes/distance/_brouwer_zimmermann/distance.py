@@ -83,9 +83,9 @@ def get_distance_brouwer_zimmermann_many(
         get_automorphisms: If given, returns an array of generators of a group of column
             permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.
             Each generator must map the searched space and the excluded subspace of every problem
-            onto themselves.  A search calls the function before a costly layer, verifies the
-            generators for its problem, and may then scan fewer information sets (see
-            ``automorphism_families``).
+            onto themselves.  A search calls the function before a costly layer, or before matroid
+            partitioning if it would partition, verifies the generators for its problem, and may
+            then scan fewer information sets (see ``automorphism_families``).
         tuning: Sets the thresholds that choose the route of each search (see ``_tuning``), and
             defaults to the active tuning, which every search then uses throughout.
 
@@ -586,10 +586,12 @@ def _prepare_brouwer_zimmermann_search(
         return best
 
     # Build the automorphism family at most once: before matroid partitioning, to decide whether to
-    # partition, or before the first costly layer of the search.
+    # partition, or before the first costly layer of the search.  Layer work saturates at the cap of
+    # work estimates, so a threshold above that cap never switches, and needs no family.
     get_automorphism_family = (
         None
         if get_automorphisms is None
+        or tuning.automorphism_minimum_layer_work > certificates.WORK_CAP
         else functools.cache(
             functools.partial(_get_automorphism_family, basis, labels, get_automorphisms)
         )
@@ -597,8 +599,8 @@ def _prepare_brouwer_zimmermann_search(
 
     # Replace the basis family only when overlapping sets, built heuristically and then, for costly
     # searches, by matroid partitioning, predict less certification work.  Partitioning is skipped
-    # if the search would switch to an automorphism family that does less work than any partitioned
-    # family could.
+    # if the search would switch to an automorphism family that does no more work than any
+    # partitioned family could.
     for get_replacement in (
         lambda family, best: basis_families.get_overlapping_family(
             basis,
@@ -616,7 +618,10 @@ def _prepare_brouwer_zimmermann_search(
             get_competing_work=None
             if get_automorphism_family is None
             else functools.partial(
-                _get_automorphism_family_work, get_automorphism_family, family, best
+                _get_automorphism_family_work,
+                get_automorphism_family,
+                family.weight_divisor,
+                best,
             ),
         ),
     ):
@@ -699,15 +704,15 @@ def _get_automorphism_family(
 
 def _get_automorphism_family_work(
     get_automorphism_family: _GetAutomorphismFamily,
-    basis_family: basis_families.BasisFamily,
+    weight_divisor: int,
     upper_bound: int,
 ) -> int:
-    """The estimated work of the automorphism family that a search of a basis family can switch to.
+    """The estimated work of the automorphism family that a search can switch to.
 
     Returns ``WORK_CAP`` if the problem has no automorphism family.  The rows of the scanned set can
     lower ``upper_bound``, as they do when the search switches.
     """
-    automorphism_family = get_automorphism_family(basis_family.weight_divisor)
+    automorphism_family = get_automorphism_family(weight_divisor)
     if automorphism_family is None:
         return certificates.WORK_CAP
     family, certificate = automorphism_family

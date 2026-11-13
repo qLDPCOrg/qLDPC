@@ -17,7 +17,8 @@ are compared with are:
 - ``completion_bound_max_cost_percent``: each predicted cost of completion tables, in percent, which
   a layer accepts if it is at most the threshold;
 - the product of ``partition_work_ratio`` and ``partition_cost_factor``: the estimated work of a
-  search divided by ``b * k**2 * n``, which tries matroid partitioning if it reaches the product;
+  search divided by ``b * k**2 * n``, which tries matroid partitioning if it reaches the product,
+  unless a cheap family of automorphism images rules partitioning out (see ``trace.py``);
 - ``overlapping_minimum_work``: the estimated work of a family that an overlapping family may
   replace, if it reaches the threshold, after the checks that come before it;
 - ``lp_minimum_work``: the estimated work of a certificate of overlapping sets, which may solve
