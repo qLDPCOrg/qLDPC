@@ -96,7 +96,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/build_docs.py``
      - Strict Sphinx and notebook documentation build
    * - ``python checks/all_.py``
-     - Formatting, lint, mypy, ``coverage_.py``, and (on full runs) the docs build
+     - Most of these checks in one command, for advanced use
 
 Checks come in three tiers by cost.
 The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`review <reviewing>` and in a draft pull request.
@@ -125,9 +125,6 @@ It runs the checks that need extra dependencies or platforms, such as the notebo
 It also makes the compiled runs.
 Run these locally only in the extended checks, or as targeted tests of a change to compiled code.
 
-``all_.py`` runs most checks in one command.
-Its coverage step is ``coverage_.py``, and it skips ``pyproject.toml`` formatting.
-A coverage failure never stops it early.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed files only, which is much faster than a full run.
