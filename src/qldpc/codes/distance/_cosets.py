@@ -33,7 +33,7 @@ class MinWeightBound:
     Attributes:
         within_max_weight: Whether the coset has an element of weight at most ``max_weight``.
         representative: An element of the coset.  For a query of ``CosetLeaderSearch``
-            (``_coset_leader_search.py``), it is a packed Pauli, as that class packs it.  For a
+            (``coset_leaders.py``), it is a packed Pauli, as that class packs it.  For a
             query of a coset search, it is a word of that search (a packed Pauli, or an X or Z
             part).  If ``within_max_weight`` is True, its weight is at most ``max_weight``.
         lower_bound: A lower bound on the minimum weight of the coset.  If ``within_max_weight`` is

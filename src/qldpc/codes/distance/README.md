@@ -35,7 +35,7 @@ Users reach it through the public functions and classes below, which take plain 
 ## Layout
 
 - `core.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
-- `_coset_leader_search.py` is the entry module of the coset-leader search, which modules elsewhere in qLDPC import.
+- `coset_leaders.py` is the entry module of the coset-leader search, which modules elsewhere in qLDPC import.
 - `_brouwer_zimmermann/` holds the Brouwer–Zimmermann searches, which scan information sets, and `_connected_support/` the searches over connected supports.
   Each holds its distance search, and the coset searches with which the coset-leader search answers its queries by that method.
   Exhaustive enumeration fits in one module, `_brute_force.py`.
@@ -51,7 +51,7 @@ Users reach it through the public functions and classes below, which take plain 
 | --- | --- |
 | A distance method, or the validation of method names | `core.py`, and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, `get_distance`, and `CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` dispatch on the method name |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
-| The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `_coset_leader_search.py` |
+| The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `coset_leaders.py` |
 | The Brouwer–Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
 | The compiled scans of layers that the BZ distance search and the BZ coset-leader search share, one body specialized by constant flags | `_brouwer_zimmermann/affine_search.py` |
 | The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_brouwer_zimmermann/affine_instance.py` |
@@ -81,7 +81,7 @@ Users reach it through the public functions and classes below, which take plain 
 From the top:
 
 1. `logical_counts.py`, which takes `NoDistance` from `core.py`.
-2. `core.py` and `_coset_leader_search.py`.
+2. `core.py` and `coset_leaders.py`.
 3. The methods `_brouwer_zimmermann/`, `_connected_support/`, and `_counting/`.
 4. `_information_sets/`, `_cosets.py`, and `_brute_force.py`, which the methods build on.
    The connected-support search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`, and the Brouwer–Zimmermann distance search uses `_brute_force.py` for its exhaustive routes.

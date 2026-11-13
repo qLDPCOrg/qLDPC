@@ -265,7 +265,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     and ``_information_sets/basis_families_test.py`` change them there.  Others are read once by
     ``CosetLeaderSearch``, which passes their values down to its coset searches:
     ``max_css_single_pairs``, ``max_sparsifying_rounds``, and
-    ``sparsifying_rounds_without_improvement``.  Tests in ``_coset_leader_search_test.py``,
+    ``sparsifying_rounds_without_improvement``.  Tests in ``coset_leaders_test.py``,
     ``_brouwer_zimmermann/coset_test.py``, and ``_connected_support/coset_test.py`` change or
     record these, and the fields that the oracle passes down to the routes of its BZ searches.
     """

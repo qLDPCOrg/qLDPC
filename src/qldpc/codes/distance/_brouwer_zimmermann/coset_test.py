@@ -20,7 +20,6 @@ from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 from ...conftest import Tune
 from .. import _cosets
 from .._binary import symplectic_to_hamming
-from .._coset_leader_search import CosetLeaderSearch
 from .._cosets import MinWeightBound
 from .._information_sets import basis_families, completion_bounds
 from .._information_sets import certificates as certificates_module
@@ -42,6 +41,7 @@ from ..conftest import (
     pack_syndromes,
     scramble,
 )
+from ..coset_leaders import CosetLeaderSearch
 from . import affine_instance, coset, coset_tables
 
 

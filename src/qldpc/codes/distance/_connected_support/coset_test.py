@@ -14,7 +14,6 @@ import pytest
 
 from qldpc._binary import row_reduce_binary
 
-from .._coset_leader_search import CosetLeaderSearch
 from .._tuning import use_tuning
 from ..conftest import (
     get_exhaustive_minima,
@@ -23,6 +22,7 @@ from ..conftest import (
     get_random_css_state,
     get_syndrome,
 )
+from ..coset_leaders import CosetLeaderSearch
 from . import coset
 
 

@@ -13,7 +13,7 @@ _LAYERS = (
     ("_tuning",),
     ("_brute_force", "_information_sets", "_cosets"),
     ("_brouwer_zimmermann", "_connected_support", "_counting"),
-    ("_coset_leader_search", "core"),
+    ("coset_leaders", "core"),
     ("logical_counts",),
 )
 

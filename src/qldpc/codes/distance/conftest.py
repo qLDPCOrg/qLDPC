@@ -19,8 +19,8 @@ from qldpc.objects import Pauli, PauliXZ
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._coset_leader_search import CosetLeaderSearch
 from ._information_sets import basis_families, certificates
+from .coset_leaders import CosetLeaderSearch
 
 
 @pytest.fixture

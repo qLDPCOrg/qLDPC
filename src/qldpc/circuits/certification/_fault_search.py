@@ -24,7 +24,7 @@ import numpy.typing as npt
 
 from qldpc._binary import get_rank_packed, popcount_word, trailing_zeros_word
 from qldpc._compilation import always_compiled
-from qldpc.codes.distance._coset_leader_search import (
+from qldpc.codes.distance.coset_leaders import (
     CosetLeaderSearch,
     CosetSearchMethod,
     MinWeightBound,

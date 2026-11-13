@@ -277,7 +277,7 @@ Four parts of a distance search do not carry over:
 - The weights of the vectors with a syndrome need not share a divisor, so the query has none.
 - Every vector with the syndrome counts, so the query has no logical test.
 
-The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `_coset_leader_search.py`.
+The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `coset_leaders.py`.
 When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries by a table lookup, or by such queries at one or more weight limits.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
@@ -342,9 +342,9 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
-| Coset leaders of Pauli errors, and the sparser checks that their searches use | `ConnectedSupportCosetSearch`, `_get_sparser_rows`, and `_sparsify` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `_coset_leader_search.py` |
+| Coset leaders of Pauli errors, and the sparser checks that their searches use | `ConnectedSupportCosetSearch`, `_get_sparser_rows`, and `_sparsify` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
 | How many rounds make the checks of a coset search sparser | `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_support/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `_coset_leader_search.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_support/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `coset_leaders.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |

@@ -14,7 +14,6 @@ import pytest
 import stim
 
 from ..conftest import Tune
-from ._coset_leader_search import CosetLeaderSearch, CosetSearchMethod
 from ._cosets import MinWeightBound
 from .conftest import (
     ROUTED_CSS_WEIGHT_STATE,
@@ -29,6 +28,7 @@ from .conftest import (
     pack_syndromes,
     scramble,
 )
+from .coset_leaders import CosetLeaderSearch, CosetSearchMethod
 
 
 def _class_weights(
