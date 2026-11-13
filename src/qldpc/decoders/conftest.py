@@ -56,9 +56,10 @@ def get_type_checking_class_docstrings(module: types.ModuleType) -> dict[str, st
     docstrings = {}
     for block in ast.parse(inspect.getsource(module)).body:
         if isinstance(block, ast.If) and ast.unparse(block.test) == "TYPE_CHECKING":
-            definitions = [
-                node for node in block.body if not isinstance(node, ast.Import | ast.ImportFrom)
-            ]
-            if definitions and isinstance(definitions[0], ast.ClassDef):
-                docstrings[definitions[0].name] = ast.get_docstring(definitions[0])
+            first = next(
+                (node for node in block.body if not isinstance(node, ast.Import | ast.ImportFrom)),
+                None,
+            )
+            if isinstance(first, ast.ClassDef):
+                docstrings[first.name] = ast.get_docstring(first)
     return docstrings

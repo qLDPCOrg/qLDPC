@@ -157,10 +157,10 @@ def test_ldpc_protocol_adapters() -> None:
 
 
 def test_ldpc_protocol_adapter_declarations() -> None:
-    """AutoAPI documents each integration class from its declaration, with its runtime docstring."""
-    names = ("BeliefFindDecoder", "BpLsdDecoder", "BpOsdDecoder")
+    """AutoAPI documents each adapter class from its declaration, with its runtime docstring."""
     assert get_type_checking_class_docstrings(ldpc_integration) == {
-        name: getattr(ldpc_integration, name).__doc__ for name in names
+        name: inspect.getdoc(getattr(ldpc_integration, name))
+        for name in ldpc_integration._BACKEND_CLASS_NAMES
     }
 
 

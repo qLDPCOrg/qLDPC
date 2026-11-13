@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import inspect
 import pickle
 import sys
 import threading
@@ -188,9 +189,9 @@ def test_matching_protocol_adapter() -> None:
 
 
 def test_matching_protocol_adapter_declaration() -> None:
-    """AutoAPI documents the Matching adapter from its declaration, with its runtime docstring."""
+    """AutoAPI documents the adapter class from its declaration, with its runtime docstring."""
     assert get_type_checking_class_docstrings(pymatching) == {
-        "Matching": pymatching.Matching.__doc__
+        "Matching": inspect.getdoc(pymatching.Matching)
     }
 
 
