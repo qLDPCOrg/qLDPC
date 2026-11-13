@@ -1060,7 +1060,11 @@ class _CosetSearchWeights:
 
     @property
     def num_key_words(self) -> int:
-        """The number of 64-bit machine words in a packed syndrome."""
+        """The number of 64-bit machine words in a packed syndrome.
+
+        A syndrome has a bit for each stabilizer, and the search takes as many stabilizers as
+        qubits.
+        """
         return (self._search.num_qubits + 63) // 64
 
     def get_key_words(self, syndrome: int) -> list[int]:

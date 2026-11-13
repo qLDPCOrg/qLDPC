@@ -128,12 +128,13 @@ class AbstractCode(abc.ABC):
     ) -> None:
         """Construct a code from a parity check matrix over a finite field.
 
-        The base field is ``F_2`` by default, or the field of ``matrix`` if it is a finite-field
-        array.  An explicit field must match the field of a finite-field array or, if that is a
-        prime field, extend it.  Rows listed or nested in lists or tuples over a finite field, as
-        read from the first row, follow the same rule, but do not set the base field.  The code
-        keeps a copy of an array that it is given, so later changes to the array do not change the
-        code.
+        The base field is the field of ``matrix`` if it is a code or a finite-field array, and
+        ``F_2`` otherwise.  An explicit field must match the field of a code, and must match the
+        field of a finite-field array or, if that is a prime field, extend it.  Rows over a finite
+        field that are given in a list or tuple, possibly nested, do not set the base field.  Their
+        field, read from the first row, must match the base field or, if it is a prime field, be
+        extended by it.  The code keeps a copy of an array that it is given, so later changes to the
+        array do not change the code.
         """
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
@@ -192,7 +193,7 @@ class AbstractCode(abc.ABC):
         if self._matrix.ndim != 2:
             raise ValueError(
                 f"A parity check matrix must be two-dimensional, not of shape {self._matrix.shape};"
-                " for no checks, pass an array with no rows"
+                " pass one row per check, or an array with no rows for no checks"
             )
 
     @property

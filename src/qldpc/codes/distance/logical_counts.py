@@ -297,8 +297,8 @@ class CSSLogicalCounter:
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Deprecated.  Use
-                ``qldpc.codes.distance._tuning.use_tuning(max_information_sets=...)`` instead.
+            max_information_sets: Deprecated.  The page :doc:`/exact_search_tuning` of the
+                documentation says how to tune counts instead.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
@@ -326,8 +326,8 @@ class CSSLogicalCounter:
         if max_information_sets is not None:  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "The max_information_sets argument of logical-operator counts is deprecated and"
-                " will be removed in a future release.  Use"
-                " qldpc.codes.distance._tuning.use_tuning(max_information_sets=...) instead",
+                " will be removed in a future release.  To tune counts, see the documentation page"
+                " 'Exact-search performance and tuning'",
                 stacklevel=get_external_caller_stacklevel(),
             )
             max_sets = as_integer(max_information_sets, "max_information_sets")

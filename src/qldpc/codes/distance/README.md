@@ -45,7 +45,7 @@ Users reach it through the public functions and classes below, which take plain 
   The method name `"information_sets"` is an alias of `"brouwer_zimmermann"`, for distances and counts alike.
 - `_cosets.py` holds what the coset searches of both methods share.
 - `_tuning.py` holds the settings of the searches, and `_binary.py` the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
-  The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists.
+  The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
 
 ## Where to look
 

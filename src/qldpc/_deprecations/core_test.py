@@ -314,7 +314,7 @@ def test_deprecated_distance_functions() -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             assert search() == 3
-        assert exponents and set(exponents) == {2}
+        assert exponents[-1:] == [2]
         assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
 
 

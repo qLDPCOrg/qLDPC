@@ -429,7 +429,8 @@ def get_distance_quantum(
     )
     with _use_block_size(block_size):
         # Check the rows here, so that errors name the arguments of this function.  This also
-        # rejects None as the stabilizers, which have no default, unlike ``excluded``.
+        # rejects None as the stabilizers, which get_distance_from_generators would read as no
+        # excluded rows.
         as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
         return get_distance_from_generators(
             logical_ops,

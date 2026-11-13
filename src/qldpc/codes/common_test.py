@@ -158,13 +158,18 @@ def test_codes_copy_their_matrices() -> None:
 
 
 def test_check_matrix_shapes() -> None:
-    """CSS codes take no checks of one type, and matrices must be two-dimensional."""
+    """Code constructors handle empty, boolean, and malformed matrices.
+
+    A CSS code can have no checks of one type, empty and boolean matrices build codes over any
+    field, and a matrix must be two-dimensional.
+    """
     checks = galois.GF(3)([[1, 2, 0], [0, 1, 1]])
     assert codes.CSSCode([], checks) == codes.CSSCode.classical(checks, Pauli.Z)
     assert codes.CSSCode(checks, ()) == codes.CSSCode.classical(checks, Pauli.X)
-    assert codes.ClassicalCode(np.zeros((0, 3), dtype=int), field=257).num_checks == 0
-    one_dimensional: list[Any] = [[], galois.GF(2)([1, 0, 1])]
-    for matrix in one_dimensional:
+    for matrix in (np.zeros((0, 3), dtype=int), np.ones((1, 3), dtype=bool)):
+        assert codes.ClassicalCode(matrix, field=257).num_bits == 3
+    not_two_dimensional: list[Any] = [[], galois.GF(2).Zeros((1, 1, 3))]
+    for matrix in not_two_dimensional:
         with pytest.raises(ValueError, match="must be two-dimensional"):
             codes.ClassicalCode(matrix)
 
