@@ -131,7 +131,7 @@ Distances across packages
 
 ``get_distance()`` computes an exact distance, and ``get_distance_bound`` computes a randomized upper bound; CSS codes also have separate X and Z distances.
 The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
-For a binary code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find its bare distance instead, the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
+For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find its bare distance instead: the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
 Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
 Binary codes with sparse parity checks can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_.
 All exact methods can take exponential time.

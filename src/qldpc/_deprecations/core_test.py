@@ -255,6 +255,10 @@ def test_deprecated_distance_functions() -> None:
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
             search()
 
+    # get_distance_quantum required its stabilizers, so it rejects None.
+    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="not None"):
+        get_distance_quantum(generator[:1], None, homogeneous=True)
+
     # The block_size argument gives the batches that it gave before it was deprecated: exhaustive
     # enumeration took it as its exponent, and scans of information sets took at most it, clamped to
     # the range of the fields.
@@ -280,7 +284,8 @@ def test_deprecated_distance_functions() -> None:
             ) == batches
 
     # The functions search with those batches, and warn at their caller about both deprecations.
-    # Rows that record the active batch exponent when the search reads them show the batches.
+    # Rows that record the active batch exponent when the search reads them show the batches, since
+    # nothing else observable does.
     exponents: list[int] = []
 
     class RecordingRows:

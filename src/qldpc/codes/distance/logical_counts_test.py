@@ -681,10 +681,7 @@ def test_code_and_checks() -> None:
 
 
 def test_accepted_forms_of_checks() -> None:
-    """Checks from a code, and as galois arrays, lists, or sparse matrices, give the same counts.
-
-    Empty X checks take the width of the Z checks.
-    """
+    """Checks from a code, and as galois arrays, lists, or sparse matrices, give the same counts."""
     expected = Counts(2, 2, 3, 6)
     code = codes.CSSCode(HAND_X.astype(int), HAND_Z.astype(int))
     assert lc.CSSLogicalCounter.from_code(code).count_logical_ops(count_pauli=True) == expected

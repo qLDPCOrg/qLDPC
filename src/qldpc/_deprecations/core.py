@@ -426,6 +426,9 @@ def get_distance_quantum(
         " symplectic=not homogeneous) instead",
         stacklevel=get_external_caller_stacklevel(),
     )
+    # The stabilizers were required, so None does not mean that nothing is excluded.
+    if stabilizers is None:
+        raise TypeError("stabilizers must be an array of binary entries, not None")
     with _use_block_size(block_size):
         return get_distance_from_generators(
             logical_ops,

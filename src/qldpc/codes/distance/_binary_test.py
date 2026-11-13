@@ -60,13 +60,13 @@ def test_binary_matrices_and_nested_bases() -> None:
     names = ("first", "second")
     first, second = binary.as_binary_matrix_pair([], [[1, 0, 1]], names)
     assert first.shape == (0, 3) and second.shape == (1, 3)
-    first, second = binary.as_binary_matrix_pair([[1, 0, 1]], np.zeros((0, 0)), names)
-    assert first.shape == (1, 3) and second.shape == (0, 3)
+    first, second = binary.as_binary_matrix_pair(np.zeros((0, 0)), [[1, 0, 1]], names)
+    assert first.shape == (0, 3) and second.shape == (1, 3)
     first, second = binary.as_binary_matrix_pair(np.zeros((0, 0)), [], names)
     assert first.shape == second.shape == (0, 0)
     first, second = binary.as_binary_matrix_pair([], np.zeros((0, 0)), names)
     assert first.shape == second.shape == (0, 0)
-    with pytest.raises(ValueError, match="infer the width of first"):
+    with pytest.raises(ValueError, match="infer the width of first or second"):
         binary.as_binary_matrix_pair([], [], names)
 
     sparse = scipy.sparse.csr_array([[1, 0, 1]])

@@ -172,8 +172,8 @@ def get_qdistrnd_distance_bound(
     The estimate is a randomized upper bound (QDistRnd samples random codewords).  Requires the GAP
     GUAVA and QDistRnd packages.  See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
-    Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we can
-    still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
+    QDistRnd does not support subsystem codes, but for a CSS code it bounds the dressed Z-distance,
+    given the Z-type gauge generators as if they were stabilizers.
     ``maxav`` is passed through to QDistRnd as a raw GAP value (default "fail"); see the QDistRnd
     documentation linked above.
 
@@ -197,6 +197,11 @@ def get_qdistrnd_distance_bound(
         ValueError: If given the symplectic checks of a subsystem code, or if QDistRnd output is
             missing or invalid.
     """
+    if matrix_z is None and is_subsystem_code:
+        raise ValueError(
+            "QDistRnd cannot estimate the distance of a subsystem code from its symplectic checks;"
+            " for a CSS subsystem code, convert it with code.to_css()"
+        )
     qldpc.external.gap.require_package("GUAVA")
     qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
 
@@ -221,12 +226,6 @@ def get_qdistrnd_distance_bound(
             *_get_gap_sparse_matrix_commands("matrix_z", field_order, matrix_z),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
-
-    elif is_subsystem_code:
-        raise ValueError(
-            "QDistRnd cannot estimate the distance of a subsystem code from its symplectic checks;"
-            " for a CSS subsystem code, use a CSSCode"
-        )
 
     else:
         # "riffle" the parity check matrix to put X and Z support bits each qudit next to each other

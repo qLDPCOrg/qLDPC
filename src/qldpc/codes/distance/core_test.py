@@ -133,23 +133,20 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
 def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod) -> None:
     """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes.
 
-    The gauge generators of this three-qubit subsystem code leave no stabilizers, so a single-qubit
-    X is a dressed logical operator, although every bare logical operator has weight 3.  The checks
-    of the stabilizer state include a redundant row.
+    The checks of the stabilizer state include a redundant row.
     """
     five_qubit_code = qldpc.codes.FiveQubitCode()
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method) == 3
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method, max_weight=1) == 2
     bacon_shor_code = qldpc.codes.BaconShorCode(3)
     assert core.get_distance_pauli(bacon_shor_code.matrix, method=method) == 3
-    gauge = [[0, 1, 1, 0, 0, 0], [1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 0, 1], [0, 0, 0, 1, 1, 0]]
-    assert core.get_distance_pauli(gauge, method=method) == 1
     stabilizer_state = [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 1, 1]]
     assert core.get_distance_pauli(stabilizer_state, method=method) is core.NO_DISTANCE
 
-    # An S gate on qubit 1 makes these gauge generators of the three-qubit code non-CSS, and the
-    # last of them is redundant.  They still leave no stabilizers, so the dressed distance is 1,
-    # but excluding no stabilizers gives the bare distance, 3.
+    # The gauge generators of the three-qubit code [[0, 1, 1], [1, 1, 0]] and [[1, 0, 1], [1, 1, 0]]
+    # leave no stabilizers.  An S gate on qubit 1 makes them non-CSS, and the last row is redundant.
+    # A single-qubit Pauli is a dressed logical operator, so the dressed distance is 1, and the bare
+    # recipe, with no stabilizers to exclude, gives 3.
     gauge = [
         [0, 1, 1, 0, 1, 0],
         [1, 1, 0, 0, 1, 0],
@@ -167,8 +164,10 @@ def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     """The recipes of get_distance_from_checks give the bare and dressed distances of a code.
 
     The only stabilizer of this subsystem code is Z on its last qubit, and X on one of its first
-    three qubits is a dressed logical operator, but every bare logical operator has weight 3.  The
-    bare distance therefore needs the stabilizers excluded, and the X and Z sectors kept apart.
+    three qubits is a dressed logical operator, but every bare logical operator has weight 3.  So
+    excluding no stabilizers, or those of the wrong type, would give a bare distance of 1.  The
+    dressed distance of the Bacon-Shor code is 3, whereas excluding only some of its gauge
+    generators, such as its stabilizers, would give 2.
     """
     code = qldpc.codes.CSSCode(
         [[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]]
@@ -186,6 +185,23 @@ def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     )
     assert core.get_distance_from_checks(code.matrix_z, stabilizers_x, method=method) == 3
     assert core.get_distance_from_checks(code.matrix_x, stabilizers_z, method=method) == 3
+    bacon_shor_code = qldpc.codes.BaconShorCode(3)
+    distance = core.get_distance_from_checks(
+        bacon_shor_code.get_stabilizer_ops(), bacon_shor_code.matrix, symplectic=True, method=method
+    )
+    assert distance == 3
+
+    # Bare logical operators as generators give the dressed distance with the gauge generators
+    # excluded, and the bare distance with only the stabilizers excluded.
+    if method != "connected_support":
+        logical_ops = code.get_logical_ops()
+        for excluded, distance in ((code.matrix, 1), (stabilizers, 3)):
+            assert (
+                core.get_distance_from_generators(
+                    logical_ops, excluded, symplectic=True, method=method
+                )
+                == distance
+            )
 
 
 def test_distance_functions_check_their_input() -> None:
@@ -283,7 +299,7 @@ def test_special_inputs_of_generators() -> None:
     for method in ("brouwer_zimmermann", "brute_force"):
         distance = core.get_distance_from_generators([[1, 0]], [[1, 0]], method=method)
         assert distance is no_distance
-        assert core.get_distance_from_generators([], [[1, 0]], method=method) is no_distance
+    assert core.get_distance_from_generators([], [[1, 0]]) is no_distance
     no_logical_ops = np.empty((0, 4), dtype=np.uint8)
     assert (
         core.get_distance_from_generators(no_logical_ops, [[1, 0, 0, 0]], symplectic=True)

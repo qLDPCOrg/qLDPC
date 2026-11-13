@@ -1092,6 +1092,19 @@ def test_subsystem_code_hint() -> None:
     # a qutrit check commutes with itself, although its non-symplectic square is nonzero
     assert not codes.QuditCode([[1, 1]], field=3, is_subsystem_code=False).is_subsystem_code
 
+    # a stabilizer code treated as a subsystem code has the same distances, but the distance bound
+    # of a QuditCode, by QDistRnd, rejects it
+    steane_code = codes.SteaneCode()
+    hinted_code = codes.CSSCode(steane_code.matrix_x, steane_code.matrix_z, is_subsystem_code=True)
+    assert hinted_code.get_distance_exact() == 3
+    assert codes.QuditCode(steane_code.matrix, is_subsystem_code=True).get_distance_exact() == 3
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
+        pytest.raises(ValueError, match="subsystem code from its symplectic checks"),
+    ):
+        codes.QuditCode(steane_code.matrix, is_subsystem_code=True).get_distance_bound(1)
+
 
 def test_from_qldpc_challenge_id() -> None:
     """Retrieve a code from the Unitary Foundation qLDPC Challenge."""
@@ -1743,13 +1756,15 @@ def test_decoder_distance_bounds_of_subsystem_codes_are_bare() -> None:
 
     The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
     three qubits is a dressed logical operator, although every bare logical operator has weight 3.
+    Reduced logical operators stay bare: they commute with every gauge generator.
     """
+    code = codes.CSSCode([[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]])
     for pauli in PAULIS_XZ:
-        code = codes.CSSCode(
-            [[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]]
-        )
         assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 3
         assert code.get_distance_exact(pauli) == 1
+    code.reduce_logical_ops()
+    logical_ops = code.get_logical_ops(symplectic=True)
+    assert not np.any(code.matrix @ math.symplectic_conjugate(logical_ops).T)
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:

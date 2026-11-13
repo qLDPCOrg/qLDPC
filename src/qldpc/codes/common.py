@@ -1940,7 +1940,7 @@ class QuditCode(AbstractCode):
 
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
         operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
-        distance of a binary code instead.
+        distance instead, if the code is binary.
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
@@ -1982,10 +1982,10 @@ class QuditCode(AbstractCode):
 
         The weight of an operator is the number of qudits on which it acts nontrivially.  For a
         subsystem code, logical operators are dressed: they may be multiplied by gauge operators.
-        :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare distance of
-        a binary code instead.  The cost of this computation generally grows exponentially with the
-        size of the code.  The computed distance is remembered for later calls unless cutoff is
-        greater than 1.
+        :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare distance
+        instead, if the code is binary.  The cost of this computation generally grows exponentially
+        with the size of the code.  The computed distance is remembered for later calls unless
+        cutoff is greater than 1.
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
@@ -2099,8 +2099,8 @@ class QuditCode(AbstractCode):
             TypeError: If num_trials is not an integer or None.
             ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
                 GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
-                when GAP cannot be called, or if the code is a subsystem code, which QDistRnd can
-                bound only as a :class:`CSSCode`.
+                when GAP cannot be called, or if the code is a subsystem code (QDistRnd bounds
+                only CSS subsystem codes, given as a :class:`CSSCode`).
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -2122,12 +2122,12 @@ class QuditCode(AbstractCode):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
         if _resolve_distance_backend(backend, bound_kwargs, is_binary=False) != "gap":
             raise NotImplementedError(
-                "Bounding the code distance of non-CSS codes requires GAP/QDistRnd, but GAP cannot"
-                ' be called; pass backend="gap" to use GAP manually'
+                "Bounding the distance of a QuditCode requires GAP/QDistRnd, but GAP cannot be"
+                ' called; pass backend="gap" to use GAP manually'
             )
         if not external.gap.is_installed():
             raise NotImplementedError(
-                "Bounding the code distance of non-CSS codes without GAP is not supported"
+                "Bounding the distance of a QuditCode without GAP is not supported"
             )
 
         maxav = bound_kwargs.get("maxav", "fail")
@@ -3525,7 +3525,7 @@ class CSSCode(QuditCode):
 
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
         operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
-        distance of a binary code instead.
+        distance instead, if the code is binary.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3575,7 +3575,7 @@ class CSSCode(QuditCode):
 
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
         operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
-        distance of a binary code instead.  The cost of this computation generally grows
+        distance instead, if the code is binary.  The cost of this computation generally grows
         exponentially with the size of the code.  Computed distances are remembered for later calls
         unless cutoff is greater than 1.
 
@@ -3732,7 +3732,7 @@ class CSSCode(QuditCode):
         GUAVA or QDistRnd package.
 
         Every backend gives an upper bound on the distance, which is dressed for a subsystem code.
-        GAP searches dressed logical operators, but the decoder-based algorithm searches bare ones,
+        GAP searches dressed logical operators.  The decoder-based algorithm searches bare ones,
         which commute with every gauge operator, so for a subsystem code its bound can stay above
         the distance.
 

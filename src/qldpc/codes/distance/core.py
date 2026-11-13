@@ -42,9 +42,9 @@ DistanceMethod = Literal[
   sets, and stops once a lower bound that the sets prove meets the lightest word found.
 - ``"connected_support"``: a search of the words whose supports the parity checks of a code connect,
   which is fast for codes with sparse checks.  Functions that take generators rather than checks
-  reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` use its
-  stabilizers, which they derive from its gauge generators, as the checks, and these can be dense
-  even if the gauge generators are sparse.
+  reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` derive
+  its stabilizers from its gauge generators and use them as the checks.  These can be dense even if
+  the gauge generators are sparse.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 
 :class:`~qldpc.codes.distance.CosetLeaderSearch` and
@@ -119,17 +119,18 @@ def get_distance_from_generators(
     nothing excluded, to get its distance: the minimum weight of a nonzero code word.  For a quantum
     code, pass its logical operators, and exclude its stabilizers, to get its distance: the minimum
     weight of a nontrivial logical operator.  For a subsystem code, exclude its gauge generators,
-    such as the rows of ``code.matrix``, to get its distance, which is dressed: its logical
-    operators may be multiplied by gauge operators.  If the generators are bare logical operators,
-    such as those that :meth:`~qldpc.codes.common.QuditCode.get_logical_ops` returns, excluding only
-    the stabilizers of the code gives its bare distance instead (see
-    :func:`get_distance_from_checks`).  Rows may be redundant.
+    such as the rows of the ``matrix`` of a :class:`~qldpc.codes.QuditCode`, to get its distance,
+    which is dressed: its logical operators may be multiplied by gauge operators.  If the generators
+    are bare logical operators, such as those that
+    :meth:`~qldpc.codes.common.QuditCode.get_logical_ops` returns, excluding only the stabilizers of
+    the code gives its bare distance instead (see :func:`get_distance_from_checks`).  Rows may be
+    redundant.
 
     Args:
         generators: A binary matrix whose rows, together with those of ``excluded``, span the words.
         excluded: A binary matrix with as many columns, whose rows span the trivial words.  By
-            default, only the zero word is trivial.  If either matrix is an empty list or has
-            shape ``(0, 0)``, it takes the width of the other.
+            default, only the zero word is trivial.  If either matrix is an empty list or has shape
+            ``(0, 0)``, it takes the width of the other.
         symplectic: If False (the default), each row is a binary word, which weighs its number of
             nonzero entries.  If True, each row is a Pauli string on ``n`` qubits, with ``2 n``
             entries: the support of its X part, then the support of its Z part.  A Pauli string
@@ -169,13 +170,14 @@ def get_distance_from_generators(
             ``excluded`` is not array-like, as when a code is given instead of a matrix.
         ValueError: If the method is unknown or is ``"connected_support"``, if ``max_weight`` is
             negative, if the matrices are not binary matrices with the same number of columns, if
+            neither matrix has a width, as when both are empty lists, if
             they have an odd number of columns while ``symplectic`` is True, if ``automorphisms``
             are not permutations of the bits or qubits, or if a search uses them and finds that one
             of them is not an automorphism.
     """
     method = _reject_connected_support(_validate_distance_method(method))
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
-    generator_matrix, excluded_matrix = _as_matrix_and_excluded(generators, "generators", excluded)
+    generator_matrix, excluded_matrix = _as_matrix_and_excluded(generators, excluded, "generators")
     num_variables = _get_num_variables(generator_matrix.shape[1], symplectic)
     return _search_generators(
         generator_matrix,
@@ -225,8 +227,9 @@ def get_distance_from_checks(
     A word that satisfies the checks counts as a logical operator unless it is a sum of excluded
     rows.  So exclude all of the stabilizers for the bare distance, and all of the gauge generators
     for the dressed distance.  Excluding nothing, or only some stabilizers, counts stabilizers as
-    logical operators.  Passing stabilizers as both the checks and ``excluded``, such as the Z-type
-    and X-type stabilizers of a CSS code, counts gauge operators as logical operators.
+    logical operators.  For a subsystem code, passing its stabilizers as both the checks and
+    ``excluded``, such as its Z-type and X-type stabilizers, counts gauge operators that are not
+    stabilizers as logical operators.
 
     Args:
         checks: A binary matrix whose rows are the checks.
@@ -269,7 +272,8 @@ def get_distance_from_checks(
         TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` or
             ``excluded`` is not array-like, as when a code is given instead of a matrix.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the matrices are not
-            binary matrices with the same number of columns, if they have an odd number of columns
+            binary matrices with the same number of columns, if neither matrix has a width, as when
+            both are empty lists, if they have an odd number of columns
             while ``symplectic`` is True, if ``symplectic`` is True and ``excluded`` is not given,
             if a row of ``excluded`` does not satisfy the checks, if ``automorphisms`` are not
             permutations of the bits or qubits, or if a search uses them and finds that one of them
@@ -277,7 +281,7 @@ def get_distance_from_checks(
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
-    check_matrix, excluded_matrix = _as_matrix_and_excluded(checks, "checks", excluded)
+    check_matrix, excluded_matrix = _as_matrix_and_excluded(checks, excluded, "checks")
     num_variables = _get_num_variables(check_matrix.shape[1], symplectic)
     if symplectic and excluded is None:
         raise ValueError(
@@ -329,11 +333,10 @@ def get_distance_css(
     Its stabilizers are the gauge operators that commute with every gauge operator, and its logical
     operators are dressed: they may be multiplied by gauge operators.  An X logical operator then
     commutes with every Z-type stabilizer, and it is trivial if it is an X-type gauge operator.  The
-    result is then dressed, as the distance of a subsystem code is, and
-    :func:`get_distance_from_checks` says how to find the bare distance instead.  To be sure that
-    the checks define a stabilizer code, build a code with
-    ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error if they do not
-    commute.
+    result is the dressed distance of the code, and :func:`get_distance_from_checks` says how to
+    find its bare distance instead.  To be sure that the checks define a stabilizer code, build a
+    code with ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error if
+    they do not commute.
 
     Args:
         checks_x: A binary matrix of the X-type checks, which may be redundant.
@@ -348,9 +351,8 @@ def get_distance_css(
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  For a
-            subsystem code, the connected-support method uses the stabilizers as its checks, which
-            can be dense even if the gauge generators are sparse.
+            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, also for
+            subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
@@ -371,7 +373,8 @@ def get_distance_css(
         TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks_x`` or
             ``checks_z`` is not array-like, as when a code is given instead of its checks.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not
-            binary matrices with the same number of columns, if ``pauli`` is not X, Z, or None, if
+            binary matrices with the same number of columns, if both are empty lists, which have no
+            width, if ``pauli`` is not X, Z, or None, if
             ``automorphisms`` are not permutations of the qubits, or if a search uses them and finds
             that one of them is not an automorphism.
     """
@@ -459,9 +462,8 @@ def get_distance_pauli(
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  For a
-            subsystem code, the connected-support method uses the stabilizers as its checks, which
-            can be dense even if the gauge generators are sparse.
+            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, also for
+            subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
@@ -606,7 +608,7 @@ def _search_generators(
 
 
 def _as_matrix_and_excluded(
-    matrix: npt.ArrayLike, name: str, excluded: npt.ArrayLike | None
+    matrix: npt.ArrayLike, excluded: npt.ArrayLike | None, name: str
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Check a matrix and the excluded rows, and return them as binary matrices of one width.
 

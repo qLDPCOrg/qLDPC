@@ -29,7 +29,7 @@ That factor is large if the checks are dense, because every unsatisfied check of
 The search of a subsystem code uses the Tanner graph of its stabilizers, which can be dense even if its gauge generators are sparse.
 `get_distance_css` and `get_distance_pauli` derive these stabilizers as a row-reduced basis, which can be dense even if the stabilizer group has sparse generators.
 A caller who knows sparse generators `S` of the stabilizer group, and gauge generators `G`, can get the same dressed distance faster from `get_distance_from_checks(S, G, symplectic=True, method="connected_support")`.
-For a CSS code, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_support")`, with the Z-type rows of `S` and the X-type rows of `G`.
+For a CSS code with sparse X-type and Z-type stabilizer generators, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_support")`, where `S_Z` holds the supports of the Z-type stabilizer generators and `G_X` those of the X-type gauge generators.
 If the checks weigh much less than the distance, as those of surface codes do, many supports grow without being pruned ([Section 3.4](#34-pruning)), so the search visits many states below the distance.
 The search of a qubit code that is not CSS costs more than the searches of the sectors of an equivalent CSS code, such as the same code without Hadamards on some of its qubits.
 A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning), and each qubit of a check offers two symbols that flip it, the two Paulis that anticommute with the check there ([Section 3.7](#37-qubit-codes-that-are-not-css)).

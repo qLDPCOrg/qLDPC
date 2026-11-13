@@ -101,11 +101,16 @@ def as_binary_matrix_pair(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Check two binary matrices with the same number of columns, and return them as uint8 arrays.
 
-    Each is checked as by ``as_binary_matrix``, under its name in ``names``.  A matrix without a
-    width, an empty list or a matrix of shape ``(0, 0)``, takes the width of the other, so if both
-    are empty lists, the first raises an error.
+    Each is checked as by ``as_binary_matrix``, under its name in ``names``.  An empty list has no
+    width, and a matrix of shape ``(0, 0)`` can take any width, so either takes the width of the
+    other.  If both are empty lists, neither has a width, which raises an error.
     """
-    if np.shape(first) in ((0,), (0, 0)) and np.shape(second) != (0,):
+    first_shape, second_shape = np.shape(first), np.shape(second)
+    if first_shape == second_shape == (0,):
+        raise ValueError(
+            f"Cannot infer the width of {names[0]} or {names[1]}, which are both empty"
+        )
+    if first_shape in ((0,), (0, 0)) and second_shape != (0,):
         second_matrix = as_binary_matrix(second, names[1])
         return as_binary_matrix(first, names[0], num_cols=second_matrix.shape[1]), second_matrix
     first_matrix = as_binary_matrix(first, names[0])
