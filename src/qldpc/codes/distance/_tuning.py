@@ -343,7 +343,7 @@ class SearchTuning:
     #: ``5 * 10**11`` or more, and 1000, 10,000, and 30,000 changed none of the timed ones by more
     #: than 3%.  To retune it, record the families of long coset searches with
     #: ``coset_families.py``, and time the values that change them.
-    overlapping_minimum_work: int = 100_000
+    overlapping_minimum_work: int = 20_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
     #: that it may add; an order that repeats an existing set still counts.  Distance searches and
@@ -380,7 +380,7 @@ class SearchTuning:
     #: product from 33 to ``1.4 * 10**5``, and ``distance/lp13s6/X`` and ``distance/lp13s6/Z``
     #: measured alike with partitioning off.  To retune it, time searches that partition with and
     #: without it, on codes with and without automorphisms.
-    partition_work_ratio: int = 100
+    partition_work_ratio: int = 500
 
     #: The largest coverage, the most information sets that contain any one column, that matroid
     #: partitioning tries; it tries each coverage from two to this value.  Larger values can find
@@ -527,7 +527,7 @@ class SearchTuning:
     #: or two layers sooner; in traces, the layers that change took 0.18 seconds less to 0.38
     #: seconds more.  To retune it, compare predicted and measured costs with
     #: ``fit_completion_costs.py``, and time searches one and several at a time.
-    completion_bound_max_cost_percent: int = 90
+    completion_bound_max_cost_percent: int = 100
 
     #: The most bytes of completion tables that a distance search keeps for each problem, a count
     #: for each sector besides the tables that it is building, and a coset search of
@@ -574,7 +574,7 @@ class SearchTuning:
     #: estimates of state-preparation circuits of 37, 81, and 95 qubits, not in the repository,
     #: tables of 16-column blocks took longer to build than most estimates spent scanning.  To
     #: retune it, time such estimates with each width.
-    coset_completion_block_bits: int = dataclasses.field(default=8, metadata=_BLOCK_WIDTHS)
+    coset_completion_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The number of random supports from which a search estimates the share of a layer that
     #: completion tables would skip, within the budget ``completion_bound_sampling_work``; drawing
@@ -593,7 +593,7 @@ class SearchTuning:
     #: ``completion_bound_minimum_layer_work``), and resample the layers of long runs near the
     #: limit.
     completion_bound_samples: int = dataclasses.field(
-        default=256, metadata={"minimum": 1, "maximum": 2**12}
+        default=1024, metadata={"minimum": 1, "maximum": 2**12}
     )
 
     #: The fewest samples with which a search trusts its estimate of the share that completion
