@@ -1,0 +1,317 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""Write the annealing jobs of a campaign to ``results/logs/jobs.txt``, one shell command per line.
+
+Run with ``python -m experiments.code_annealing.write_jobs``, then run the jobs with GNU parallel.
+Each job changes into the root of the repository, so the jobs file can run from any directory; the
+command below is written from the root::
+
+    parallel -j 16 < experiments/code_annealing/results/logs/jobs.txt
+
+Give ``parallel`` the option ``--joblog FILE`` to record the exit status of every job.  Each job
+runs one chain with one core, and writes its checkpoint, its two code records, and a log to the logs
+of the results directory (see ``run_annealing.py``).  An interrupted run loses at most one epoch, or
+all of its work if it had not yet saved its first checkpoint, which follows its pilot.  After an
+interruption, run ``write_jobs`` again with the same options.  Its new ``jobs.txt`` resumes the
+unfinished runs and skips the finished ones, in the same order, so rerunning it after any
+interruption completes the campaign.  A resumed run continues exactly as an uninterrupted one would,
+in the same numerical environment (see ``run_annealing.py``), so a campaign can run in sessions of
+any length.  The jobs are ordered by seed, every code size of seed 0 first, then of seed 1, and so
+on, so that a campaign that is stopped early has about as many finished runs for every code size.
+Pass ``--tag`` to start another campaign beside the files of earlier runs.  Progress is shown by
+``progress_report.py``, and the codes that the runs found are collected by
+``analysis/collect_annealed_codes.py``.
+
+Pass ``--test`` to write a smoke-test campaign instead: the 20- and 22-qubit rows, 2 seeds, 2 epochs
+of 100 proposals, starting from the lowest-energy code of 10 random codes, with the files in the
+``test/`` subdirectory of the results directory.  Give the same flag to the other high-level
+scripts to follow that campaign.
+
+The campaign, ``CAMPAIGN`` in this script, lists each code size with the epochs of its CSS and SWEL
+searches and its final target acceptance of uphill proposals.  Every code size runs both code types,
+CSS and SWEL, with the seeds of ``CampaignRow.num_seeds``.  A CSS search starts from a self-dual
+code.  Every search starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with
+its own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``,
+``--max-seeds``, and ``--code-types``.
+"""
+
+from __future__ import annotations
+
+import shlex
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
+
+from .core.atomic import write_text_atomic
+from .core.cli import (
+    add_results_dir_argument,
+    add_test_argument,
+    get_results_dir,
+    make_parser,
+)
+from .core.paths import EXPERIMENT_DIR, get_logs_dir, get_run_name
+from .core.proposals import CODE_TYPES, CodeType
+from .core.run_annealing import build_parser as build_command_parser
+from .core.saved_runs import load_run_progress
+
+_REPO_ROOT = EXPERIMENT_DIR.parents[1]
+
+_RunStatus = Literal["new", "unfinished", "finished"]
+
+# The part of the campaign that ``--test`` runs: enough to exercise every step.
+_SMOKE_QUBITS = (20, 22)
+_SMOKE_MAX_SEEDS = 2
+_SMOKE_EPOCHS = 2
+_SMOKE_STEPS_PER_EPOCH = 100
+_SMOKE_INIT_SAMPLES = 10
+
+
+# Proposals in an epoch of every search of the campaign.
+STEPS_PER_EPOCH = 10_000
+# Seeds of a code size and code type, unless its row of the campaign gives fewer.
+NUM_SEEDS = 100
+# Random codes of which every search starts from the one of lowest energy.
+INIT_SAMPLES = 30_000
+# Target acceptance of uphill proposals in the first epoch of every search.
+UPHILL_ACCEPTANCE_START = 0.01
+
+
+@dataclass(frozen=True)
+class CampaignRow:
+    """A code size to search, with the epochs of each code type and the final uphill acceptance.
+
+    The number of seeds of each code type depends on the size (see ``num_seeds``).
+    """
+
+    num_qubits: int
+    num_logicals: int
+    epochs_css: int
+    epochs_swel: int
+    uphill_acceptance_stop: float
+
+    @property
+    def num_seeds(self) -> int:
+        """The number of seeds of each code type, which count up from 0.
+
+        There are ``NUM_SEEDS`` below 48 qubits, and half as many from 48 qubits.
+        """
+        return NUM_SEEDS if self.num_qubits < 48 else NUM_SEEDS // 2
+
+
+# The code sizes of the campaign: qubits, logical qubits, CSS epochs, SWEL epochs, and final uphill
+# acceptance.
+CAMPAIGN = (
+    CampaignRow(20, 4, 3000, 1000, 1e-3),
+    CampaignRow(20, 6, 3000, 1000, 1e-3),
+    CampaignRow(22, 4, 3000, 1000, 1e-3),
+    CampaignRow(22, 6, 3000, 1000, 1e-3),
+    CampaignRow(24, 4, 3000, 1000, 1e-4),
+    CampaignRow(24, 6, 3000, 1000, 1e-4),
+    CampaignRow(25, 5, 3000, 1000, 1e-4),
+    CampaignRow(26, 4, 3000, 1000, 1e-4),
+    CampaignRow(26, 6, 3000, 1000, 1e-4),
+    CampaignRow(30, 4, 3000, 1000, 1e-4),
+    CampaignRow(30, 6, 3000, 1000, 1e-4),
+    CampaignRow(32, 6, 3000, 1000, 1e-4),
+    CampaignRow(32, 8, 3000, 1000, 1e-4),
+    CampaignRow(36, 6, 2000, 1000, 1e-4),
+    CampaignRow(36, 8, 2000, 1000, 1e-4),
+    CampaignRow(38, 8, 2000, 1000, 1e-4),
+    CampaignRow(38, 10, 2000, 1000, 1e-4),
+    CampaignRow(38, 12, 2000, 1000, 1e-4),
+    CampaignRow(40, 10, 2000, 1000, 1e-4),
+    CampaignRow(40, 12, 2000, 1000, 1e-4),
+    CampaignRow(42, 8, 2000, 1000, 1e-4),
+    CampaignRow(42, 10, 2000, 1000, 1e-4),
+    CampaignRow(42, 12, 2000, 1000, 1e-4),
+    CampaignRow(44, 8, 2000, 1000, 1e-4),
+    CampaignRow(48, 6, 3000, 1000, 1e-4),
+    CampaignRow(48, 8, 3000, 1000, 1e-4),
+    CampaignRow(50, 6, 3000, 1000, 1e-4),
+    CampaignRow(50, 8, 3000, 1000, 1e-4),
+    CampaignRow(50, 10, 3000, 1000, 1e-4),
+    CampaignRow(52, 10, 1500, 1000, 1e-4),
+    CampaignRow(52, 12, 1500, 1000, 1e-4),
+    CampaignRow(56, 12, 1500, 1000, 1e-4),
+    CampaignRow(56, 14, 1500, 1000, 1e-4),
+)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Write the jobs file of the campaign, ordered by seed and then largest codes first."""
+    parser = make_parser(__doc__)
+    parser.add_argument(
+        "--code-types",
+        nargs="+",
+        choices=CODE_TYPES,
+        default=CODE_TYPES,
+        help="code types to run",
+    )
+    parser.add_argument("--qubits", type=int, nargs="+", help="only these numbers of qubits")
+    parser.add_argument("--max-seeds", type=int, help="only the first seeds of each code size")
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        help="override the epochs of every code size and code type",
+    )
+    parser.add_argument(
+        "--steps-per-epoch",
+        type=int,
+        help=f"proposals of an epoch (default: {STEPS_PER_EPOCH}, or {_SMOKE_STEPS_PER_EPOCH}"
+        " with --test)",
+    )
+    parser.add_argument(
+        "--init-samples",
+        type=int,
+        help=f"random codes to choose the starting code of a search from (default: {INIT_SAMPLES},"
+        f" or {_SMOKE_INIT_SAMPLES} with --test)",
+    )
+    parser.add_argument(
+        "--tag", default="", help="suffix of the search names and files, to tell campaigns apart"
+    )
+    parser.add_argument("--python", default="python", help="the Python command of the jobs")
+    add_results_dir_argument(parser)
+    add_test_argument(parser)
+    args = parser.parse_args(argv)
+    for name in ("max_seeds", "epochs", "steps_per_epoch", "init_samples"):
+        if getattr(args, name) is not None and getattr(args, name) < 1:
+            parser.error(f"--{name.replace('_', '-')} must be positive")
+
+    # A smoke test runs a small campaign, of which the options can still change any part.
+    if args.test:
+        qubits = args.qubits or _SMOKE_QUBITS
+        max_seeds = args.max_seeds or _SMOKE_MAX_SEEDS
+        epochs = args.epochs or _SMOKE_EPOCHS
+    else:
+        qubits, max_seeds, epochs = args.qubits, args.max_seeds, args.epochs
+    settings = _JobSettings(
+        epochs=epochs,
+        steps_per_epoch=args.steps_per_epoch
+        or (_SMOKE_STEPS_PER_EPOCH if args.test else STEPS_PER_EPOCH),
+        init_samples=args.init_samples or (_SMOKE_INIT_SAMPLES if args.test else INIT_SAMPLES),
+        python=args.python,
+    )
+
+    rows = [row for row in CAMPAIGN if qubits is None or row.num_qubits in qubits]
+    if not rows:
+        parser.error(f"the campaign has no code size with {qubits} qubits")
+    # the jobs change into the repository root, so their paths must not be relative
+    logs_dir = get_logs_dir(get_results_dir(args)).resolve()
+    command_parser = build_command_parser()
+    jobs = []
+    skipped = 0
+    # By seed, so that a campaign that is stopped early has runs of every code size, and within a
+    # seed, long jobs first, so that the jobs of a seed finish close together.
+    rows = sorted(rows, key=lambda row: -row.num_qubits)
+    for seed in range(max(row.num_seeds for row in rows))[:max_seeds]:
+        for row in rows:
+            if seed >= row.num_seeds:
+                continue
+            for code_type in args.code_types:
+                name = get_run_name(code_type, row.num_qubits, row.num_logicals, seed, args.tag)
+                checkpoint = logs_dir / f"{name}.json"
+                status = _get_run_status(checkpoint)
+                if status == "finished":
+                    skipped += 1
+                    continue
+                if status == "unfinished":
+                    arguments = ["--resume", str(checkpoint)]
+                else:
+                    arguments = _get_new_run_arguments(settings, row, code_type, seed, checkpoint)
+                command_parser.parse_args(arguments)  # bad arguments fail here, not in a job
+                log = logs_dir / f"{name}.log"
+                jobs.append(
+                    _get_job(settings.python, arguments, log, append=status == "unfinished")
+                )
+
+    output = logs_dir / "jobs.txt"
+    # writing the jobs file creates the logs directory, which the shell opens before the jobs run
+    write_text_atomic(output, "".join(f"{job}\n" for job in jobs))
+    print(f"Wrote {len(jobs)} jobs to {output}, and skipped {skipped} finished runs")
+
+
+####################################################################################################
+# helper methods
+
+
+@dataclass(frozen=True)
+class _JobSettings:
+    """What the jobs share beyond the code size: the scale of a search and the Python command."""
+
+    epochs: int | None
+    """Epochs of every search, or None for those of its code size and code type."""
+
+    steps_per_epoch: int
+    init_samples: int
+    python: str
+
+
+def _get_new_run_arguments(
+    settings: _JobSettings, row: CampaignRow, code_type: CodeType, seed: int, checkpoint: Path
+) -> list[str]:
+    """The arguments of ``run_annealing`` for a new chain."""
+    if settings.epochs is not None:
+        epochs = settings.epochs
+    else:
+        epochs = row.epochs_swel if code_type == "swel" else row.epochs_css
+    arguments = [
+        str(row.num_qubits),
+        str(row.num_logicals),
+        "--code-type",
+        code_type,
+        "--init-samples",
+        str(settings.init_samples),
+        "--seed",
+        str(seed),
+        "--epochs",
+        str(epochs),
+        "--steps-per-epoch",
+        str(settings.steps_per_epoch),
+        "--uphill-acceptance-start",
+        str(UPHILL_ACCEPTANCE_START),
+        "--uphill-acceptance-stop",
+        str(row.uphill_acceptance_stop),
+        "--output",
+        str(checkpoint),
+    ]
+    return [*arguments, "--self-dual-start"] if code_type == "css" else arguments
+
+
+def _get_job(python: str, arguments: list[str], log: Path, *, append: bool) -> str:
+    """A shell command that runs ``run_annealing`` from the repository root, logging to a file.
+
+    The job imports ``qldpc`` from the repository that it runs in, so a copy of the repository
+    works without being installed.
+
+    Args:
+        python: The Python command that runs the job.
+        arguments: The arguments of ``run_annealing``.
+        log: The file that receives the output of the job.
+        append: Whether to append to the log, as a resumed run does, rather than overwrite it.
+
+    Returns:
+        The shell command, with every argument quoted.
+    """
+    quoted = " ".join(shlex.quote(argument) for argument in arguments)
+    root = shlex.quote(str(_REPO_ROOT))
+    path = shlex.quote(f"{_REPO_ROOT}/src:{_REPO_ROOT}")
+    return (
+        f"cd {root} && PYTHONPATH={path} NUMBA_NUM_THREADS=1 {shlex.quote(python)}"
+        f" -m experiments.code_annealing.core.run_annealing {quoted}"
+        f" {'>>' if append else '>'} {shlex.quote(str(log))} 2>&1"
+    )
+
+
+def _get_run_status(checkpoint: Path) -> _RunStatus:
+    """Whether a run is ``new``, ``unfinished``, or ``finished``, from its checkpoint file."""
+    if not checkpoint.exists():
+        return "new"
+    progress = load_run_progress(checkpoint)
+    if progress is None:
+        raise SystemExit(f"{checkpoint} is not a chain checkpoint")
+    return "finished" if progress.finished else "unfinished"
+
+
+if __name__ == "__main__":
+    main()
