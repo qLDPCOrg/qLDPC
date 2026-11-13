@@ -201,9 +201,10 @@ class SearchTuning:
     #: A distance search enumerates every nontrivial word, instead of building information sets, if
     #: its basis has at most this many rows.  Raising it enumerates larger bases, whose number of
     #: words doubles with each row; lowering it makes small searches pay for setup.  Defaults to 20;
-    #: how it was first measured is not recorded, and it predates the vectorized enumeration of rows
-    #: of more than 960 bits, which can move the crossover on long codes.  To retune it, time both
-    #: routes on bases near the crossover.
+    #: how it was first measured is not recorded, and it predates larger enumeration batches for
+    #: long rows, which made enumerating rows of several hundred bits or more much faster and can
+    #: move the crossover on long codes.  To retune it, time both routes on bases near the
+    #: crossover.
     enumeration_max_dimension: int = 20
 
     #: A distance search of more than ``enumeration_max_dimension`` and fewer than 63 basis rows
@@ -212,8 +213,9 @@ class SearchTuning:
     #: enumerates more long codes of low dimension; lowering it builds information sets for more of
     #: them.  Defaults to 16, a judgment call: against 128, it made searches of most of the sparse
     #: codes of low dimension measured much faster, at a small cost to those of random ones.  Those
-    #: measurements predate the vectorized enumeration of rows of more than 960 bits.  To retune it,
-    #: time both routes on long codes near the crossover.
+    #: measurements predate larger enumeration batches, which made rows of several hundred bits or
+    #: more much faster to enumerate.  To retune it, time both routes on long codes near the
+    #: crossover.
     enumeration_setup_cost_factor: int = 16
 
     #: The exponent of the batches of exhaustive enumeration, which handles at most

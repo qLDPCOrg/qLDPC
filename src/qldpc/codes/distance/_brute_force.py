@@ -62,7 +62,8 @@ def _get_distance_brute_force(
         stabilizers: Binary rows that generate the excluded (stabilizer) space.
         cutoff: Return early once the lightest operator seen has weight at most this cutoff.
         batch_exponent: Calculations are vectorized over at most ``2**batch_exponent`` packed
-            64-bit integers, so over fewer words if they are longer than 64 bits.
+            64-bit integers, so over fewer words if they are longer than 64 bits, and over one
+            word if it alone needs more.
         homogeneous: If True, rows are weighed by Hamming weight.  If False, rows are symplectic
             vectors, with X support in their first half and Z support in their second half, and
             are weighed by symplectic weight.
@@ -85,13 +86,14 @@ def _get_distance_brute_force(
     num_stabilizers = len(int_stabilizers)
 
     # Choose how many generators to vectorize over, so that a batch holds at most
-    # ``2**batch_exponent`` packed integers.  Each row packs into ``num_words`` of them, so the
-    # batch gives up one generator each time ``num_words`` doubles, and never has fewer than zero.
-    num_words = int_logical_ops.shape[-1]
+    # ``2**batch_exponent`` packed integers, or one word if it alone needs more.  Each row packs
+    # into ``ints_per_row`` of them, so the batch gives up one generator each time ``ints_per_row``
+    # doubles, and never has fewer than zero.
+    ints_per_row = int_logical_ops.shape[-1]
     num_vectorized_ops = max(
         0,
         min(
-            batch_exponent - (num_words - 1).bit_length(),
+            batch_exponent - (ints_per_row - 1).bit_length(),
             len(int_logical_ops) + len(int_stabilizers),
         ),
     )

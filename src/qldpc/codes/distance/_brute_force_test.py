@@ -128,12 +128,14 @@ def test_brute_force_visits_every_nontrivial_word_once(
     assert distance == expected_distance
 
 
-@pytest.mark.parametrize("num_bits", [64, 65, 200, 1000, 2000])
+@pytest.mark.parametrize("num_bits", [129, 300, 1000])
 def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
-    """A batch of exhaustive enumeration holds as many words as fit in its packed integers.
+    """A batch of exhaustive enumeration fills more than half of its packed integers, and no more.
 
     Each word packs into one 64-bit integer for every 64 bits, so longer words fit fewer to a batch
-    of at most 2**batch_exponent integers, but a batch still holds more than half that many.
+    of at most 2**batch_exponent integers.  Words of three and five integers, which are not powers
+    of two, check that a batch rounds its number of words down, and words of 16 integers check that
+    long words still share batches.
     """
     batch_exponent = 9
     tune(enumeration_batch_exponent=batch_exponent)

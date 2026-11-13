@@ -178,8 +178,7 @@ def _enumeration_is_cheaper_than_search(
 
     The BZ estimate pessimistically assumes that the search must certify the current upper bound,
     whereas lighter witnesses usually end the search sooner.  Although the vectorized exhaustive
-    kernel is a few times cheaper per candidate than the serial Numba BZ kernel on rows short
-    enough to vectorize (see ``enumeration_batch_exponent`` of ``SearchTuning``), whole-search
+    kernel is a few times cheaper per candidate than the serial Numba BZ kernel, whole-search
     timings near this boundary favor BZ until the exhaustive count reaches roughly the estimated BZ
     count, so the two counts are compared directly.
     """
