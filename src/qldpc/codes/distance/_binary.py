@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Binary input checks, nested bases, and the symplectic-to-Hamming map for distance searches.
+"""Binary input checks, nested bases, stabilizers, and the symplectic map for distance searches.
 
 The generic bit-packed linear algebra over GF(2) that the searches use is in ``qldpc._binary``.
 """
@@ -12,8 +12,9 @@ from typing import SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
 
-from qldpc._binary import get_independent_rows
+from qldpc._binary import get_independent_rows, get_kernel
 
 ####################################################################################################
 # input checks
@@ -50,7 +51,7 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
             f"Distance calculations only support binary codes, but {name} is defined over"
             f" GF({order})"
         )
-    array = np.asarray(vectors)
+    array = np.asarray(_as_dense(vectors))
     if array.size and not np.all((array == 0) | (array == 1)):
         raise ValueError(
             f"Distance calculations only support binary codes, but {name} has entries other"
@@ -67,7 +68,7 @@ def as_binary_matrix(
     If NumPy cannot convert the rows to an array, such as when their lengths differ, it raises its
     own error.
     """
-    matrix = np.asarray(vectors, dtype=np.uint8)
+    matrix = np.asarray(_as_dense(vectors), dtype=np.uint8)
     if matrix.size == 0:
         if num_cols is None:
             if matrix.ndim != 2:
@@ -83,6 +84,16 @@ def as_binary_matrix(
             f" {num_cols}"
         )
     return matrix
+
+
+def _as_dense(vectors: npt.ArrayLike) -> npt.ArrayLike:
+    """Convert a SciPy sparse matrix or array to a dense array, and return other input as is.
+
+    NumPy would otherwise wrap a sparse matrix in an array of one object.
+    """
+    if isinstance(vectors, scipy.sparse.sparray | scipy.sparse.spmatrix):
+        return vectors.toarray()
+    return vectors
 
 
 def get_nested_code_basis(
@@ -121,6 +132,62 @@ def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
     if labels.shape[1] == 0:
         return np.ones(len(labels), dtype=bool)
     return np.any(labels, axis=1)
+
+
+def multiply_binary(
+    left: npt.NDArray[np.uint8], right: npt.NDArray[np.uint8]
+) -> npt.NDArray[np.uint8]:
+    """The product of two binary matrices over GF(2).
+
+    Products of matrices of zeros and ones in float32 are exact while their inner dimension is below
+    ``2**24``, and faster than in integers.
+    """
+    assert left.shape[1] < 2**24
+    return (left.astype(np.float32) @ right.astype(np.float32) % 2).astype(np.uint8)
+
+
+####################################################################################################
+# stabilizers of subsystem codes
+
+
+def get_css_stabilizers(
+    gauge_x: npt.NDArray[np.uint8], gauge_z: npt.NDArray[np.uint8]
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """The stabilizers among the X and Z gauge operators of a binary CSS subsystem code.
+
+    The stabilizers are the gauge operators that commute with every gauge operator of the other
+    type.  If all gauge generators commute, the given arrays are returned, with any redundant rows.
+    Otherwise, the results are independent bases.
+    """
+    overlaps = multiply_binary(gauge_x, gauge_z.T)
+    if not np.any(overlaps):
+        return gauge_x, gauge_z
+    return _get_commuting_span(gauge_x, overlaps), _get_commuting_span(gauge_z, overlaps.T)
+
+
+def get_pauli_stabilizers(gauge: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """The stabilizers among the gauge operators of a binary subsystem code, in ``[X|Z]`` order.
+
+    The stabilizers are the gauge operators that commute with every gauge operator.  If all gauge
+    generators commute, the given array is returned, with any redundant rows.  Otherwise, the result
+    is an independent basis.
+    """
+    # Swapping the X and Z halves of a Pauli turns its symplectic products into dot products.
+    overlaps = multiply_binary(gauge, np.roll(gauge, gauge.shape[1] // 2, axis=1).T)
+    if not np.any(overlaps):
+        return gauge
+    return _get_commuting_span(gauge, overlaps)
+
+
+def _get_commuting_span(
+    rows: npt.NDArray[np.uint8], overlaps: npt.NDArray[np.uint8]
+) -> npt.NDArray[np.uint8]:
+    """An independent basis of the combinations of rows that commute with a set of other rows.
+
+    Entry ``(i, j)`` of ``overlaps`` is one if row ``i`` anticommutes with other row ``j``.  A
+    combination ``c @ rows`` commutes with every other row exactly when ``c @ overlaps`` is zero.
+    """
+    return get_independent_rows(multiply_binary(get_kernel(overlaps.T), rows))
 
 
 def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

@@ -39,7 +39,7 @@ from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import get_external_caller_stacklevel
 
-from ._binary import as_integer, get_nested_code_basis
+from ._binary import as_integer, get_css_stabilizers, get_nested_code_basis
 from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
@@ -172,7 +172,7 @@ class CSSLogicalCounter:
             self._gauge_z = self._gauge_x
 
         # Identify the stabilizers among the gauge operators, which fixes the number of logicals.
-        self._stabilizers_x, self._stabilizers_z = _get_stabilizers(self._gauge_x, self._gauge_z)
+        self._stabilizers_x, self._stabilizers_z = get_css_stabilizers(self._gauge_x, self._gauge_z)
         if self._self_dual:
             self._stabilizers_z = self._stabilizers_x
         self._dimension = self._num_qubits - len(self._gauge_x) - len(self._stabilizers_z)
@@ -807,28 +807,4 @@ def _get_distance(
         cutoff=0,
         get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],
         tuning=tuning,
-    )
-
-
-####################################################################################################
-# stabilizers of subsystem codes
-
-
-def _get_stabilizers(
-    gauge_x: npt.NDArray[np.uint8], gauge_z: npt.NDArray[np.uint8]
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Independent bases of the stabilizers among the given gauge generators.
-
-    The stabilizers are the gauge operators that commute with every gauge operator of the other
-    type.  If all gauge generators commute, the given arrays are returned.
-    """
-    overlaps = (gauge_x.astype(int) @ gauge_z.T.astype(int) % 2).astype(np.uint8)
-    if not np.any(overlaps):
-        return gauge_x, gauge_z
-    # A combination c @ gauge_x commutes with every Z gauge generator exactly when c @ overlaps = 0.
-    stabilizers_x = get_kernel(overlaps.T).astype(int) @ gauge_x % 2
-    stabilizers_z = get_kernel(overlaps).astype(int) @ gauge_z % 2
-    return (
-        get_independent_rows(stabilizers_x.astype(np.uint8)),
-        get_independent_rows(stabilizers_z.astype(np.uint8)),
     )

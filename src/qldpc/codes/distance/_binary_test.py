@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests of the input checks, nested bases, and symplectic-to-Hamming map of distance searches."""
+"""Tests of the binary input checks, nested bases, stabilizers, and symplectic map of searches."""
 
 from __future__ import annotations
 
@@ -8,9 +8,12 @@ import itertools
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import pytest
+import scipy.sparse
 
 import qldpc
+from qldpc._binary import get_independent_rows
 
 from . import _binary as binary
 
@@ -28,6 +31,12 @@ def test_binary_matrices_and_nested_bases() -> None:
         binary.as_binary_matrix(np.zeros((1, 1, 1)))
     with pytest.raises(ValueError, match="The stabilizers have 2 columns"):
         binary.as_binary_matrix([[1, 0]], "stabilizers", num_cols=3)
+
+    sparse = scipy.sparse.csr_array([[1, 0, 1]])
+    binary.assert_binary(sparse, "rows")
+    np.testing.assert_array_equal(binary.as_binary_matrix(sparse), [[1, 0, 1]])
+    with pytest.raises(ValueError, match="entries other than 0 and 1"):
+        binary.assert_binary(scipy.sparse.csr_matrix([[2, 0]]), "rows")
 
     matrix = np.array([[0, 1, 1], [1, 1, 0], [1, 0, 1], [0, 0, 0]], dtype=np.uint8)
     basis, tags = binary.get_nested_code_basis(matrix, np.array([[1, 0, 1]], dtype=np.uint8))
@@ -83,3 +92,58 @@ def test_symplectic_to_hamming_doubles_weights() -> None:
         np.count_nonzero(transformed, axis=1),
         2 * np.count_nonzero(symplectic[:, :3] | symplectic[:, 3:], axis=1),
     )
+
+
+####################################################################################################
+# stabilizers of subsystem codes
+
+
+def test_binary_products() -> None:
+    """Binary products match products of integers, reduced modulo two."""
+    rng = np.random.default_rng(0)
+    left = rng.integers(2, size=(5, 70), dtype=np.uint8)
+    right = rng.integers(2, size=(70, 4), dtype=np.uint8)
+    product = binary.multiply_binary(left, right)
+    assert product.dtype == np.uint8
+    np.testing.assert_array_equal(product, left.astype(int) @ right.astype(int) % 2)
+
+
+def test_stabilizers_of_subsystem_codes() -> None:
+    """The stabilizers are the gauge operators that commute with every gauge operator.
+
+    For a Bacon-Shor code, the stabilizers of the CSS form and of the Pauli form span the
+    combinations of gauge generators that commute with every gauge generator, which the test finds
+    by enumerating them.  Commuting gauge generators come back unchanged, with their redundant rows.
+    """
+    code = qldpc.codes.BaconShorCode(3)
+    gauge_x = code.matrix_x.view(np.ndarray).astype(np.uint8)
+    gauge_z = code.matrix_z.view(np.ndarray).astype(np.uint8)
+
+    def get_commuting(rows: npt.NDArray[np.uint8], others: npt.NDArray[np.uint8]) -> Any:
+        combinations = np.array(list(itertools.product([0, 1], repeat=len(rows))), dtype=int)
+        words = combinations @ rows % 2
+        return get_independent_rows(words[~np.any(words @ others.T % 2, axis=1)].astype(np.uint8))
+
+    stabilizers_x, stabilizers_z = binary.get_css_stabilizers(gauge_x, gauge_z)
+    expected_x = get_commuting(gauge_x, gauge_z)
+    expected_z = get_commuting(gauge_z, gauge_x)
+    assert 0 < len(expected_x) < len(gauge_x) and 0 < len(expected_z) < len(gauge_z)
+    np.testing.assert_array_equal(stabilizers_x, expected_x)
+    np.testing.assert_array_equal(stabilizers_z, expected_z)
+
+    zeros_x = np.zeros_like(gauge_x)
+    zeros_z = np.zeros_like(gauge_z)
+    gauge = np.vstack([np.hstack([gauge_x, zeros_x]), np.hstack([zeros_z, gauge_z])])
+    stabilizers = binary.get_pauli_stabilizers(gauge)
+    expected = np.vstack(
+        [
+            np.hstack([expected_x, np.zeros_like(expected_x)]),
+            np.hstack([np.zeros_like(expected_z), expected_z]),
+        ]
+    )
+    np.testing.assert_array_equal(stabilizers, get_independent_rows(expected))
+
+    checks = np.vstack([expected_x, expected_x[:1] ^ expected_x[1:2]])
+    stabilizers_x, stabilizers_z = binary.get_css_stabilizers(checks, expected_z)
+    assert stabilizers_x is checks and stabilizers_z is expected_z
+    assert binary.get_pauli_stabilizers(stabilizers) is stabilizers
