@@ -17,6 +17,11 @@ With ``--hadamards``, the script applies Hadamards to the second half of the qub
 which leaves a code with the same distance that is not CSS, and times it as a
 ``qldpc.codes.QuditCode``.
 
+With ``--gauge K``, the script makes the first ``K`` logical qubits of each code gauge qubits, by
+adding their logical operators to the checks.  The subsystem code that results has a dressed
+distance of at least that of the code, and its connected-support search makes its stabilizers
+sparser.
+
 The script also builds a few other codes to contrast the two methods: ``gross`` (the [[144, 12, 12]]
 bivariate bicycle code), and ``surface:D`` and ``toric:D`` (rotated, with distance ``D``, which is
 even for a toric code).
@@ -61,6 +66,11 @@ def main() -> None:
     args = parse_args()
     for name in args.codes:
         css_code, parameters = get_code(name)
+        if args.gauge:
+            css_code = codes.CSSCode(
+                np.vstack([css_code.matrix_x, css_code.get_logical_ops(Pauli.X)[: args.gauge]]),
+                np.vstack([css_code.matrix_z, css_code.get_logical_ops(Pauli.Z)[: args.gauge]]),
+            )
         print(f"{name}: n={len(css_code)}, k={css_code.dimension}", flush=True)
         code: codes.QuditCode = css_code
         if args.hadamards:
@@ -73,7 +83,8 @@ def main() -> None:
                 distance, wall, cpu = time_distance(code, method, sector)
                 note = ""
                 if parameters is not None and (
-                    distance < parameters[2] or (sector == "both" and distance != parameters[2])
+                    distance < parameters[2]
+                    or (sector == "both" and not args.gauge and distance != parameters[2])
                 ):
                     note = f"  (differs from the published distance {parameters[2]})"
                 print(
@@ -114,6 +125,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="apply Hadamards to the second half of the qubits, and search the resulting code,"
         " which is not CSS, as a QuditCode; this searches both sectors, and ignores --sectors",
+    )
+    parser.add_argument(
+        "--gauge",
+        type=int,
+        default=0,
+        metavar="K",
+        help="make the first K logical qubits gauge qubits (default: %(default)s)",
     )
     return parser.parse_args()
 

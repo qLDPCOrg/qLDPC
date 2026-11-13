@@ -8,8 +8,8 @@ caches.  :class:`SearchTuning` collects the values that tune a search, from the 
 choose a route to the coefficients of cost models and the sizes of batches.  The tables of the page
 :doc:`/exact_search_tuning` of the documentation, which renders this docstring, map routes and
 symptoms to these values.  Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a
-Brouwer--Zimmermann search uses them, and Sections 3.5 and 3.8 of ``connected_support.md`` where the
-connected-support searches use theirs.
+Brouwer-Zimmermann search uses them, and Sections 3.5, 3.8, and 3.9 of ``connected_support.md``
+where the connected-support searches use theirs.
 
 This module is private.  Its names, fields, defaults, and constants can change in any release,
 without a deprecation period or any other warning, so code that uses it should pin the exact version
@@ -315,11 +315,22 @@ class SearchTuning:
     #: queries.
     max_sparsifying_rounds: int = 400
 
+    #: The most rounds, each a row reduction in a random order of the columns, in which a
+    #: connected-support distance search of a subsystem code makes its derived stabilizers sparser
+    #: (Section 3.9 of ``connected_support.md``).  Raising it can speed up the search but delays its
+    #: start; zero only adds checks to each other, and ``MAX_VALUE`` leaves the rounds to
+    #: ``sparsifying_rounds_without_improvement``.  Defaults to 50, chosen on subsystem codes from
+    #: toric, surface, bivariate bicycle, and hypergraph product codes, where 400 rounds saved no
+    #: time overall and started up to 3 seconds later.  To retune it, time searches and count their
+    #: states.
+    max_distance_sparsifying_rounds: int = 50
+
     #: Making checks sparser stops early after this many rounds in a row that leave the total
-    #: weight of the checks unchanged (see ``max_sparsifying_rounds``).  Raising it spends more
-    #: rounds on checks that rarely get lighter; zero stops after the first round, and ``MAX_VALUE``
-    #: never stops early, so that with both fields at ``MAX_VALUE`` the rounds never end.  Defaults
-    #: to 200, chosen by hand from the rounds between improvements on the pair-partition codes of
+    #: weight of the checks unchanged (see ``max_sparsifying_rounds`` and
+    #: ``max_distance_sparsifying_rounds``).  Raising it spends more rounds on checks that rarely
+    #: get lighter; zero stops after the first round, and ``MAX_VALUE`` never stops early, so that
+    #: with it and the most rounds at ``MAX_VALUE`` the rounds never end.  Defaults to 200, chosen
+    #: by hand from the rounds between improvements on the pair-partition codes of
     #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record the rounds
     #: between improvements.
     sparsifying_rounds_without_improvement: int = 200

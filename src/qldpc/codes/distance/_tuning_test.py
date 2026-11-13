@@ -267,7 +267,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     ``max_css_single_pairs``, ``max_sparsifying_rounds``, and
     ``sparsifying_rounds_without_improvement``.  Tests in ``coset_leaders_test.py``,
     ``_brouwer_zimmermann/coset_test.py``, and ``_connected_support/coset_test.py`` change or
-    record these, and the fields that the oracle passes down to the routes of its BZ searches.
+    record these, and the fields that the oracle passes down to the routes of its BZ searches.  The
+    connected-support distance search of the subsystem code with X-type gauge generator [1, 1, 0]
+    and Z-type gauge generators [0, 1, 1] and [1, 0, 0] makes its stabilizers sparser.
     """
     seen: dict[str, list[Any]] = collections.defaultdict(list)
 
@@ -294,6 +296,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
     record(connected_support.SupportSearch, "__init__", "automorphism_minimum_states")
+    record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
     original_prepare = bz._prepare_brouwer_zimmermann_search
 
     def prepare(*args: Any, **kwargs: Any) -> Any:
@@ -323,6 +326,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         macwilliams_chunk_size=1000,
         macwilliams_shared_walk_rank=5,
         automorphism_minimum_states=7,
+        max_distance_sparsifying_rounds=4,
+        sparsifying_rounds_without_improvement=2,
     ) as tuning:
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(Pauli.X)
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="connected_support")
@@ -333,6 +338,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         # A basis of one row is small enough to enumerate under either method.
         core.get_distance_from_generators([[1, 1, 1, 0]])
         core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
+        core.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_support")
 
     expected = {
         "max_dimension": {3},
@@ -348,6 +354,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "chunk_size": {1000, 1001},
         "max_chunks": {3},
         "automorphism_minimum_states": {7},
+        "max_rounds": {4},
+        "rounds_without_improvement": {2},
     }
     assert {key: set(values) for key, values in seen.items()} == expected
 

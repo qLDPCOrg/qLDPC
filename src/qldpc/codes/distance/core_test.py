@@ -13,15 +13,19 @@ from typing import Any, cast, get_args
 from unittest import mock
 
 import numpy as np
+import numpy.typing as npt
 import pytest
+import scipy.linalg
 import scipy.sparse
 from sympy.abc import x
 
 import qldpc
+from qldpc._binary import get_independent_rows
 from qldpc.objects import Pauli
 
 from ..conftest import Tune
 from . import core
+from ._binary import get_css_stabilizers
 from ._tuning import use_tuning
 from .conftest import get_random_full_rank_matrix, get_span
 
@@ -282,6 +286,71 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
         core.get_distance_from_checks(
             checks, method="connected_support", automorphisms=lambda: [[0, 0, 1]]
         )
+
+
+def test_connected_support_searches_sparse_stabilizers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A connected-support search of a subsystem code searches sparse checks that span S.
+
+    With X and Z on a bulk qubit of the [[16, 1, 4]] surface code as gauge generators, the two
+    checks of each type on that qubit merge into one stabilizer of weight 6, and the dressed
+    distance drops to 3.  The other checks are gauge generators that are stabilizers, but they do
+    not span S, and the row-reduced basis of S weighs 8.  The search gets checks that weigh at most
+    6 and span S, and finds the distance that brute force finds, in the CSS form, and in a Pauli
+    form with Hadamards on half of the qubits, which is not CSS.  The search of the surface code
+    itself gets its checks as given.
+    """
+    code = qldpc.codes.SurfaceCode(4)
+    qubit = 5
+    gauge_qubit = np.zeros((1, len(code)), dtype=np.uint8)
+    gauge_qubit[0, qubit] = 1
+    checks_x = code.matrix_x.view(np.ndarray).astype(np.uint8)
+    checks_z = code.matrix_z.view(np.ndarray).astype(np.uint8)
+    gauge_x, gauge_z = np.vstack([checks_x, gauge_qubit]), np.vstack([checks_z, gauge_qubit])
+    derived_x, derived_z = get_css_stabilizers(gauge_x, gauge_z)
+    assert derived_x.sum(axis=1).max() == derived_z.sum(axis=1).max() == 8
+
+    # The stabilizers are the checks off the gauge qubit, and the product of those on it.
+    def get_stabilizers(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        on_qubit = checks[:, qubit] == 1
+        return np.vstack([checks[~on_qubit], checks[on_qubit].sum(axis=0) % 2])
+
+    searched: list[npt.NDArray[np.uint8]] = []
+
+    def record(problems: Any, **kwargs: Any) -> Any:
+        searched.extend(np.asarray(checks) for checks, _ in problems)
+        return get_distance_connected_support(problems, **kwargs)
+
+    get_distance_connected_support = core.get_distance_connected_support
+    monkeypatch.setattr(core, "get_distance_connected_support", record)
+    distance = core.get_distance_css(gauge_x, gauge_z, method="connected_support")
+    assert distance == core.get_distance_css(gauge_x, gauge_z, method="brute_force") == 3
+    for checks, stabilizers in zip(
+        searched, (get_stabilizers(checks_z), get_stabilizers(checks_x)), strict=True
+    ):
+        assert checks.sum(axis=1).max() <= 6
+        assert np.array_equal(get_independent_rows(checks), get_independent_rows(stabilizers))
+
+    searched.clear()
+    assert core.get_distance_css(checks_x, checks_z, method="connected_support") == 4
+    assert [checks.tolist() for checks in searched] == [checks_z.tolist(), checks_x.tolist()]
+
+    searched.clear()
+    qubits = np.arange(0, len(code), 2)
+    columns, swapped = np.r_[qubits, qubits + len(code)], np.r_[qubits + len(code), qubits]
+
+    def apply_hadamards(rows: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        rows = rows.copy()
+        rows[:, columns] = rows[:, swapped]
+        return rows
+
+    gauge = apply_hadamards(scipy.linalg.block_diag(gauge_x, gauge_z))
+    assert core.get_distance_pauli(gauge, method="connected_support") == 3
+    (checks,) = searched
+    assert (checks[:, : len(code)] | checks[:, len(code) :]).sum(axis=1).max() <= 6
+    stabilizers = scipy.linalg.block_diag(get_stabilizers(checks_x), get_stabilizers(checks_z))
+    assert np.array_equal(
+        get_independent_rows(checks), get_independent_rows(apply_hadamards(stabilizers))
+    )
 
 
 def test_connected_support_needs_parity_checks() -> None:
