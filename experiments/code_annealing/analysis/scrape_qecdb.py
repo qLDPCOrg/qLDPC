@@ -146,6 +146,31 @@ def read_best_known(
     return dict(zip(_sorted_code_types(code_files), _read_blocks(data_file), strict=True))
 
 
+def read_data_file(
+    code_files: Mapping[CodeType, Path], data_file: Path
+) -> dict[CodeType, dict[CodeParams, BestKnown]]:
+    """The lines of a data file, by code type and by the parameters ``(n, k, d)`` of their codes.
+
+    Unlike ``read_best_known``, this accepts a data file of other codes, such as an older scrape, to
+    read the lines of the codes that it shares with the code files.  Its blocks are taken to be
+    those of the code types of the code files, in the same order.
+
+    Raises:
+        ValueError: If a line is malformed, or the data file has a block for each of another number
+            of code types than the code files.
+    """
+    code_types, blocks = _sorted_code_types(code_files), _read_blocks(data_file)
+    if len(blocks) != len(code_types):
+        raise ValueError(
+            f"{data_file} has {len(blocks)} blocks, but the code files have {len(code_types)} code"
+            " types"
+        )
+    return {
+        code_type: {best_known.params: best_known for best_known in block}
+        for code_type, block in zip(code_types, blocks, strict=True)
+    }
+
+
 def query_best_known(params: CodeParams, code_type: CodeType) -> BestKnown:
     """The best known neighbors of a code ``(n, k, d)`` of a code type in the database.
 
