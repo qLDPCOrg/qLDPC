@@ -50,7 +50,6 @@ Start from a symptom
      - Lower :attr:`~SearchTuning.max_sparsifying_rounds` or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` to build it sooner, or raise them for sparser checks and faster queries.
    * - A connected-support distance search of a subsystem code is slow to start, or slow to search
      - Lower :attr:`~SearchTuning.max_distance_sparsifying_rounds`, or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` below it, to start sooner, or raise the former for sparser checks and a faster search.
-       With zero rounds, the search skips making its stabilizers sparser, which can take seconds on large codes.
    * - Completion tables are used, or declined, against measured savings
      - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
 

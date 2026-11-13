@@ -44,10 +44,8 @@ DistanceMethod = Literal[
 - ``"connected_support"``: a search of the words whose supports the parity checks of a code connect,
   which is fast for codes with sparse checks.  Functions that take generators rather than checks
   reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` derive
-  its stabilizers from its gauge generators.  They use as checks the gauge generators that are
-  stabilizers, and sparser generators of the stabilizers, which row reductions in random orders
-  find.  These need not be the sparsest, so a caller who knows sparser generators can pass them to
-  :func:`get_distance_from_checks`.
+  its stabilizers from its gauge generators, and search sparser generators of them.  A caller who
+  knows sparser ones can pass them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 
 :class:`~qldpc.codes.distance.CosetLeaderSearch` and
@@ -421,10 +419,8 @@ def get_distance_pauli(
     sure that the checks define a stabilizer code, build a code with
     ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if they do not commute.
 
-    If X-type and Z-type operators generate the group that the rows generate, the code is CSS, even
-    if its rows mix X and Z.  Its distance is then that of the CSS code whose checks are the X parts
-    and the Z parts of the rows.  This function then searches that code as :func:`get_distance_css`
-    does, in ``n`` bits for each type of logical operator rather than in ``2 n`` bits for both,
+    If X-type and Z-type operators generate the group that the rows generate, even if the rows mix
+    X and Z, the code is CSS.  This function then searches it as :func:`get_distance_css` does,
     which is faster.
 
     Args:
@@ -464,10 +460,9 @@ def get_distance_pauli(
     num_qubits = _get_num_variables(gauge.shape[1], symplectic=True)
     get_automorphisms = _get_automorphism_getter(automorphisms, num_qubits)
 
-    # The X and Z parts of the checks generate a CSS group exactly if their ranks add up to the rank
-    # of the checks.  That group is then the gauge group, and the CSS code with these parts as
-    # checks has the same distance.  Its two sectors of n bits each are much cheaper to search than
-    # one sector of 2n bits.
+    # The checks generate the same group as their X and Z parts exactly if the ranks of the parts
+    # add up to theirs.  Then search the CSS code of the parts, whose two sectors of n bits each are
+    # much cheaper to search than one sector of 2n bits.
     gauge_x, gauge_z = gauge[:, :num_qubits], gauge[:, num_qubits:]
     rank = len(get_independent_rows(gauge))
     if rank == len(get_independent_rows(gauge_x)) + len(get_independent_rows(gauge_z)):
@@ -483,8 +478,8 @@ def get_distance_pauli(
 
     stabilizers = get_pauli_stabilizers(gauge)
 
-    # The gauge generators of a subsystem code that commute with every gauge generator are
-    # stabilizers, which a connected-support search keeps among its sparser checks.
+    # get_pauli_stabilizers returns new rows only for a subsystem code.  Its gauge generators that
+    # commute with every gauge generator are stabilizers, which the search keeps among its checks.
     kept_stabilizers = None
     if method == "connected_support" and stabilizers is not gauge:
         overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
@@ -539,9 +534,8 @@ def _search_css(
     if method == "connected_support":
         tuning = get_tuning()
         if stabilizers_x is not gauge_x:
-            # The stabilizers of a subsystem code are a row-reduced basis, which can be dense, so
-            # search sparser checks with the same span.  The gauge generators that commute with
-            # every gauge generator of the other type are stabilizers.
+            # get_css_stabilizers returns new rows only for a subsystem code.  Its stabilizers are a
+            # row-reduced basis, which can be dense, so search sparser checks with the same span.
             overlaps = multiply_binary(gauge_x, gauge_z.T)
             kept_stabilizers = {
                 Pauli.X: gauge_z[~np.any(overlaps, axis=0)],
@@ -601,9 +595,8 @@ def _search_checks(
     The excluded rows satisfy the checks.  ``upper_bound``, if given, is ``max_weight + 1``, which
     the result does not exceed, and ``get_automorphisms`` returns checked permutations or None (see
     ``_get_automorphism_getter``).  The other arguments are those of the public distance functions,
-    validated.  If ``kept_stabilizers`` is given, the checks are the stabilizers that
-    ``get_pauli_stabilizers`` derives for a subsystem code, and the connected-support method
-    searches sparser checks instead (see ``_get_sparser_stabilizers``).
+    validated.  If ``kept_stabilizers`` is given, the checks are the derived stabilizers of a
+    subsystem code, and the connected-support method searches those of ``_get_sparser_stabilizers``.
     """
     if method != "connected_support":
         kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
@@ -648,11 +641,12 @@ def _get_sparser_stabilizers(
 
     ``stabilizers`` is the independent basis that ``get_css_stabilizers`` or
     ``get_pauli_stabilizers`` derives, and ``kept_stabilizers`` holds the gauge generators that are
-    stabilizers.  The checks are ``kept_stabilizers``, as given, with any redundant rows, which can
-    strengthen the search.  They also include the sparser rows that ``get_sparser_rows`` finds with
-    the span of ``stabilizers`` (Section 3.9 of ``connected_support.md``), or ``stabilizers`` itself
-    if ``max_distance_sparsifying_rounds`` is zero.
+    stabilizers.  The checks start with ``kept_stabilizers``, as given.  Unless these span the
+    stabilizers, sparser rows with the span of ``stabilizers`` follow them (Section 3.9 of
+    ``connected_support.md``).
     """
+    if len(get_independent_rows(kept_stabilizers)) == len(stabilizers):
+        return kept_stabilizers
     rows = stabilizers
     if tuning.max_distance_sparsifying_rounds:
         rows, _ = get_sparser_rows(

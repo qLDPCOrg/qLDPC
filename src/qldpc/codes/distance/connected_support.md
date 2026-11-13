@@ -17,7 +17,7 @@ It is organized as follows:
 - [Section 2](#2-what-the-cost-of-the-search-depends-on) says what the cost of the search depends on.
 - [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper.
   [Section 3.7](#37-qubit-codes-that-are-not-css) extends the algorithm to qubit codes that are not CSS, and [Section 3.8](#38-vectors-with-a-given-syndrome) to vectors with a given syndrome.
-  [Section 3.9](#39-sparser-stabilizers-of-subsystem-codes) says how the search of a subsystem code gets sparse checks.
+  [Section 3.9](#39-sparser-stabilizers-of-subsystem-codes) says how the search of a subsystem code gets sparser checks.
 - [Section 4](#4-guide-to-the-source-code) maps the algorithm to the source code.
 - [Section 5](#5-correctness-requirements) lists the requirements that every change to the search must keep.
 
@@ -28,7 +28,8 @@ So its cost depends on the sparsity of the checks, on the weight limit, and on t
 For a given code, its cost grows by a roughly constant factor with each step of the weight limit.
 That factor is large if the checks are dense, because every unsatisfied check offers many variables to branch on.
 The search of a subsystem code uses the Tanner graph of its stabilizers, which can be dense even if its gauge generators are sparse.
-`get_distance_css` and `get_distance_pauli` derive these stabilizers as a row-reduced basis, which can be dense even if the stabilizer group has sparse generators, so they search sparser generators instead ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
+`get_distance_css` and `get_distance_pauli` derive these stabilizers as a row-reduced basis, which can be dense even if the stabilizer group has sparse generators.
+So they search sparser generators instead ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
 These need not be the sparsest.
 A caller who knows sparser generators `S` of the stabilizer group, and gauge generators `G`, can get the same dressed distance by searching them as given, with `get_distance_from_checks(S, G, symplectic=True, method="connected_support")`.
 For a CSS code with sparse X-type and Z-type stabilizer generators, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_support")`, where `S_Z` holds the supports of the Z-type stabilizer generators and `G_X` those of the X-type gauge generators.
@@ -350,13 +351,12 @@ So with `method="connected_support"`, the search of a subsystem code gets two se
   `max_distance_sparsifying_rounds`, a field of `SearchTuning`, limits the rounds.
 
 The second set spans `S`, and the first lies in `S`, so together they span `S`.
+If the first set already spans `S`, the search uses it alone.
 The kernel of the checks is that of the derived basis, so the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
 A coset search maps the syndrome of each query to its sparser checks, but a distance search needs only their span.
 Redundant checks can strengthen the search, since each unsatisfied check can prune a state or offer fewer branches.
 On the [[288, 12, 18]] bivariate bicycle code with 6 of its logical qubits made gauge qubits, the gauge generators that are stabilizers roughly halve the number of states that the search visits.
-A distance search pays for its rounds once, so it takes fewer of them than a `CosetLeaderSearch`, whose checks answer many queries.
-With zero rounds, it keeps the derived basis as it is, without even the passes that add its rows to each other, which can take seconds on large codes.
-Stabilizer codes keep their checks, unsparsified, and the other methods search kernels, which depend only on the span of the checks.
+A `CosetLeaderSearch` makes its checks sparser once for many queries, but a distance search uses its checks for one search, so it takes fewer rounds.
 
 Sparsity is not the only property of the checks that matters.
 The derived basis of a Bacon-Shor code is already as sparse as possible: each of its stabilizers acts on two parallel lines of the lattice, one of which is the last line.
@@ -370,7 +370,7 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
-| Sectors of a CSS code | `_search_css` of `core.py`, with `get_css_stabilizers` of `_binary.py`. `get_distance_css` calls it, and so does `get_distance_pauli` for Pauli checks that generate a CSS group |
+| Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, with `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `_search_css` of `core.py` calls |

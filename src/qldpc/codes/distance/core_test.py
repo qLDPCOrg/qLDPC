@@ -137,13 +137,15 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
 def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod) -> None:
     """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes.
 
-    The checks of the stabilizer state include a redundant row.
+    The checks of the five-qubit code are repeated, and those of the stabilizer state include a
+    redundant row.
     """
     five_qubit_code = qldpc.codes.FiveQubitCode()
-    assert core.get_distance_pauli(five_qubit_code.matrix, method=method) == 3
+    assert core.get_distance_pauli(np.vstack([five_qubit_code.matrix] * 2), method=method) == 3
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method, max_weight=1) == 2
     bacon_shor_code = qldpc.codes.BaconShorCode(3)
     assert core.get_distance_pauli(bacon_shor_code.matrix, method=method) == 3
+    assert core.get_distance_pauli(bacon_shor_code.matrix, method=method, max_weight=1) == 2
     stabilizer_state = [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 1, 1]]
     assert core.get_distance_pauli(stabilizer_state, method=method) is core.NO_DISTANCE
 

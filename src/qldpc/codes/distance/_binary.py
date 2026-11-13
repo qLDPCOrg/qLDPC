@@ -2,9 +2,7 @@
 
 """Binary input checks, nested bases, stabilizers, and the symplectic map for distance searches.
 
-The generic bit-packed linear algebra over GF(2) that the searches use is in ``qldpc._binary``.  The
-code classes of ``qldpc.codes.common`` also compute the stabilizers of binary subsystem codes with
-``get_css_stabilizers`` and ``get_pauli_stabilizers``.
+The generic bit-packed linear algebra over GF(2) that the searches use is in ``qldpc._binary``.
 """
 
 from __future__ import annotations

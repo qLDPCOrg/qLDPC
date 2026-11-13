@@ -1151,9 +1151,8 @@ class QuditCode(AbstractCode):
         subsystem code.  If omitted, it is computed when first needed.  An explicit ``True`` is a
         trusted hint, not verified.  A stabilizer code treated as a subsystem code has no gauge
         qudits and the same distances, but functions and methods that reject subsystem codes, such
-        as memory experiments, and get_distance_bound for codes that are not CSS, reject it too.  An
-        explicit ``False`` is verified, and raises a ValueError if some parity checks do not
-        commute.
+        as memory experiments, reject it too.  An explicit ``False`` is verified, and raises a
+        ValueError if some parity checks do not commute.
         """
         super().__init__(matrix, field)
 
@@ -1774,6 +1773,7 @@ class QuditCode(AbstractCode):
                 # the bit-packed GF(2) routines are much faster than galois
                 matrix = self.matrix
                 stabilizers = get_pauli_stabilizers(matrix.view(np.ndarray).astype(np.uint8))
+                # a hinted stabilizer code gets back its checks, which may be redundant
                 self._stabilizer_ops = (
                     get_independent_rows(stabilizers).astype(matrix.dtype).view(self.field)
                 )
@@ -2028,10 +2028,7 @@ class QuditCode(AbstractCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the stabilizers, which is fast for sparse stabilizers.  It branches
-                on the Paulis of each qubit, or on the qubits alone if X-type and Z-type operators
-                generate the group of the checks (see
-                :func:`~qldpc.codes.distance.get_distance_pauli`).  Its guide,
+                Tanner graph of the stabilizers, which is fast for sparse stabilizers.  Its guide,
                 ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
                 explains it.  Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_support"``.
@@ -2104,7 +2101,7 @@ class QuditCode(AbstractCode):
     ) -> int | Literal[NoDistance.NAN]:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        Specifically, use GAP's QDistRnd package to compute a distance bound.  By default,
+        For a stabilizer code, use GAP's QDistRnd package to compute a distance bound.  By default,
         ``backend="auto"`` uses GAP only if a GAP binding or executable can be called (see
         :func:`qldpc.external.gap.is_callable`), and raises an error otherwise.  An explicit
         ``backend="gap"`` instead falls back to a manual workflow when GAP cannot be called: after
@@ -2113,13 +2110,9 @@ class QuditCode(AbstractCode):
         :func:`qldpc.external.gap.get_output`).  With either backend, GAP may ask on standard input
         before installing a missing GUAVA or QDistRnd package.
 
-        QDistRnd bounds only stabilizer codes and CSS subsystem codes.  A subsystem code is CSS if
-        the X-type and Z-type operators of its gauge group generate the group, even if its checks
-        mix X and Z.  Its distance is then that of the CSS code whose checks are the X parts and the
-        Z parts of its checks, which this method bounds with
-        :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>` instead,
-        passing on backend and bound_kwargs.  With ``backend="auto"``, that method chooses among
-        sqetch, GAP, and a decoder, as it documents.
+        A subsystem code is CSS if X-type and Z-type operators generate its gauge group, even if its
+        checks mix X and Z.  This method bounds it as a CSS code, with
+        :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>`.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
@@ -2143,9 +2136,7 @@ class QuditCode(AbstractCode):
             TypeError: If num_trials is not an integer or None.
             ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
                 GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
-                when GAP cannot be called, or if the code is a subsystem code that is not CSS, which
-                no backend supports.  A CSS subsystem code can also raise the errors of
-                :meth:`CSSCode.get_distance_bound <qldpc.codes.common.CSSCode.get_distance_bound>`.
+                when GAP cannot be called, or if the code is a subsystem code that is not CSS.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -2166,13 +2157,11 @@ class QuditCode(AbstractCode):
         if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
 
-        # Of subsystem codes, the backends support only CSS ones.  The X and Z parts of the checks
-        # generate a CSS group exactly if their ranks add up to the rank of the checks, and the CSS
-        # code with these parts as checks then has the same gauge group and distances.
+        # The backends support only CSS subsystem codes.  The checks generate the same group as
+        # their X and Z parts exactly if the ranks of the parts add up to theirs.
         if self.is_subsystem_code:
             matrix_x, matrix_z = self.matrix[:, : len(self)], self.matrix[:, len(self) :]
-            rank = np.linalg.matrix_rank(self.matrix)
-            if rank != np.linalg.matrix_rank(matrix_x) + np.linalg.matrix_rank(matrix_z):
+            if self.rank != np.linalg.matrix_rank(matrix_x) + np.linalg.matrix_rank(matrix_z):
                 raise ValueError(
                     "No distance-bound backend supports a subsystem code whose gauge group is not"
                     " CSS; get_distance_exact computes its exact distance"
@@ -3496,6 +3485,7 @@ class CSSCode(QuditCode):
                     self.matrix_x.view(np.ndarray).astype(np.uint8),
                     self.matrix_z.view(np.ndarray).astype(np.uint8),
                 )
+                # a hinted stabilizer code gets back its checks, which may be redundant
                 stabilizer_ops = scipy.linalg.block_diag(
                     get_independent_rows(stabs_x), get_independent_rows(stabs_z)
                 )
@@ -3811,10 +3801,9 @@ class CSSCode(QuditCode):
         ``backend="gap"``, but GAP may still ask on standard input before installing a missing
         GUAVA or QDistRnd package.
 
-        Every backend gives an upper bound on the distance, which is dressed for a subsystem code:
-        the backends search logical operators that may be multiplied by gauge operators.  The
-        decoder-based algorithm may need more trials for subsystem codes whose stabilizers are much
-        heavier than their gauge generators, such as subsystem hypergraph product codes.
+        Every backend gives an upper bound on the distance, which is dressed for a subsystem code.
+        The decoder-based algorithm may need more trials for subsystem codes whose stabilizers are
+        much heavier than their gauge generators, such as subsystem hypergraph product codes.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
@@ -3942,9 +3931,9 @@ class CSSCode(QuditCode):
         r"""Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use the algorithm described in arXiv:2308.07915, also explained below.  For a
-        subsystem code, it finds dressed logical operators, which may be multiplied by gauge
-        operators (see get_distance).  Subsystem codes whose stabilizers are much heavier than their
-        gauge generators, such as subsystem hypergraph product codes, may need more trials.
+        subsystem code, it finds dressed logical operators (see get_distance).  Subsystem codes
+        whose stabilizers are much heavier than their gauge generators, such as subsystem hypergraph
+        product codes, may need more trials.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -4017,8 +4006,7 @@ class CSSCode(QuditCode):
 
         # pretend without loss of generality that we are computing the X-distance
         pauli_z: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
-        # Dressed logical operators need only commute with the stabilizers.  The logical operators
-        # are bare, so a word that anti-commutes with one of them is not a gauge operator.
+        # dressed logical operators need only commute with the stabilizers
         matrix_z = (
             self.get_stabilizer_ops(pauli_z) if self.is_subsystem_code else self.get_matrix(pauli_z)
         )
@@ -4059,8 +4047,8 @@ class CSSCode(QuditCode):
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
         that it commutes with all logical operators except its dual.  This is essentially the same
         method as that used in CSSCode.get_distance_bound_with_decoder.  For a subsystem code,
-        however, the operator stays bare: it must commute with every gauge operator, not only with
-        the stabilizers, so its weight can exceed the distance, which is dressed (see get_distance).
+        however, the operator stays bare, so its weight can exceed the distance, which is dressed
+        (see get_distance).
 
         Args:
             pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"
@@ -4592,11 +4580,7 @@ def _permute_qudits(
 
 
 def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
-    """Is the provided matrix in reduced row echelon form, with no zero rows?
-
-    The pivots, or first nonzero entries, of its rows must lie in increasing columns, and each must
-    equal 1 and be the only nonzero entry of its column.
-    """
+    """Is the provided matrix in reduced row echelon form, with no zero rows?"""
     pivots = math.first_nonzero_cols(matrix)
     return bool(
         np.all(pivots < matrix.shape[1])

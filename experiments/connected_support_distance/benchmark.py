@@ -19,8 +19,7 @@ which leaves a code with the same distance that is not CSS, and times it as a
 
 With ``--gauge K``, the script makes the first ``K`` logical qubits of each code gauge qubits, by
 adding their logical operators to the checks.  The subsystem code that results has a dressed
-distance of at least that of the code, and its connected-support search makes its stabilizers
-sparser.
+distance of at least that of the code, so the script then flags only lower distances.
 
 The script also builds a few other codes to contrast the two methods: ``gross`` (the [[144, 12, 12]]
 bivariate bicycle code), and ``surface:D`` and ``toric:D`` (rotated, with distance ``D``, which is

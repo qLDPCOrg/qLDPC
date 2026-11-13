@@ -29,9 +29,10 @@ def test_connected_support_oracles_make_checks_sparser_with_their_tuning(
 ) -> None:
     """A connected-support oracle makes its checks sparser in the rounds of its tuning.
 
-    The most rounds and the rounds without improvement of the tuning in force when the oracle is
-    built reach ``get_sparser_rows``, which the test wraps to record them.  The state is a graph
-    state with phases, which is not CSS, so the oracle has one search of Pauli errors.
+    The ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` of the tuning in
+    force when the oracle is built reach ``get_sparser_rows``, which the test wraps to record them.
+    The state is a graph state with phases, which is not CSS, so the oracle has one search of Pauli
+    errors.
     """
     calls: list[tuple[int, int]] = []
     get_sparser_rows = coset.get_sparser_rows

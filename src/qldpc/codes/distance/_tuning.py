@@ -288,9 +288,9 @@ class SearchTuning:
     #: evaluations.  It then searches the images of one information set under them if that predicts
     #: less work (Section 3.7 of ``brouwer_zimmermann.md``).  Finding them, as the
     #: ``get_distance_exact`` methods of binary quantum codes do, takes milliseconds.  Lowering this
-    #: threshold pays that cost on cheaper searches.  A threshold of zero asks before the first
-    #: layer, and ``MAX_VALUE`` never asks.  Defaults to 10**8; how it was chosen is not recorded.
-    #: To retune it, time searches with and without automorphisms.
+    #: threshold pays that cost on cheaper searches.  Zero asks before the first layer, and
+    #: ``MAX_VALUE`` never asks.  Defaults to 10**8; its choice is not recorded.  To retune it, time
+    #: searches with and without automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
 
     # Fields of connected-support searches.
@@ -316,22 +316,18 @@ class SearchTuning:
     max_sparsifying_rounds: int = 400
 
     #: A connected-support distance search of a subsystem code makes its derived stabilizers sparser
-    #: in up to this many rounds, each a row reduction in a random order of the columns (Section 3.9
-    #: of ``connected_support.md``).  Raising it can speed up the search but delays its start.  Zero
-    #: leaves the stabilizers as derived, without even the pass that adds them to each other, which
-    #: can take seconds on large codes.  ``MAX_VALUE`` leaves the rounds to
-    #: ``sparsifying_rounds_without_improvement``.  Defaults to 50, chosen on subsystem codes from
-    #: toric, surface, bivariate bicycle, and hypergraph product codes, where 400 rounds saved no
-    #: time overall and started up to 3 seconds later.  To retune it, time searches and count their
-    #: states.
+    #: in up to this many rounds, each a row reduction in a random column order (Section 3.9 of
+    #: ``connected_support.md``).  Raising it can speed up the search but delays its start.  Zero
+    #: skips sparsifying, and ``MAX_VALUE`` leaves the rounds to
+    #: ``sparsifying_rounds_without_improvement``.  Defaults to 50, chosen on gauged toric, surface,
+    #: and bivariate bicycle codes and subsystem hypergraph product codes, where 400 rounds saved no
+    #: time and started up to 3 s later.  To retune it, time searches and count their states.
     max_distance_sparsifying_rounds: int = 50
 
     #: Making checks sparser stops early after this many rounds in a row that leave the total
     #: weight of the checks unchanged (see ``max_sparsifying_rounds`` and
     #: ``max_distance_sparsifying_rounds``).  Raising it spends more rounds on checks that rarely
-    #: get lighter; zero stops after the first round, and ``MAX_VALUE`` never stops early.  The
-    #: rounds then end only at the limit of ``max_sparsifying_rounds`` or
-    #: ``max_distance_sparsifying_rounds``, and never if that field is ``MAX_VALUE`` too.  Defaults
+    #: get lighter; zero stops after the first round, and ``MAX_VALUE`` never stops early.  Defaults
     #: to 200, chosen by hand from the rounds between improvements on the pair-partition codes of
     #: ``experiments/connected_support_distance/benchmark.py``.  To retune it, record the rounds
     #: between improvements.

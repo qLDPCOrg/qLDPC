@@ -46,7 +46,7 @@ def get_sparser_rows(
     Args:
         matrix: Independent rows.
         homogeneous: False if the rows are symplectic, and True otherwise.
-        max_rounds: The most rounds, or zero for the rows of ``_sparsify``.
+        max_rounds: The maximum number of rounds, or zero for the rows of ``_sparsify``.
         rounds_without_improvement: The number of rounds in a row without a lower total weight after
             which the rounds stop.
 
