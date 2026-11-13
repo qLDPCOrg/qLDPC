@@ -749,7 +749,7 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
     least_weights: dict[tuple[int, ...], int] = {}
     for entries in itertools.product([0, 1], repeat=width):
         vector = np.array(entries, dtype=np.uint8)
-        support = vector[:num_variables] | vector[num_variables:] if symplectic else vector
+        support = (vector[:num_variables] | vector[num_variables:]) if symplectic else vector
         syndrome = tuple(products @ vector % 2)
         least_weights[syndrome] = min(least_weights.get(syndrome, width), int(np.sum(support)))
 
