@@ -6,12 +6,16 @@ on:
     paths:
       - 'pyproject.toml'
       - 'src/qldpc/external/gap*'
+      - 'src/qldpc/external/_codes*'
+      - 'src/qldpc/external/_groups*'
       - '.github/workflows/gap-integration.yaml'
   pull_request:
     branches: [ main ]
     paths:
       - 'pyproject.toml'
       - 'src/qldpc/external/gap*'
+      - 'src/qldpc/external/_codes*'
+      - 'src/qldpc/external/_groups*'
       - '.github/workflows/gap-integration.yaml'
     types: [ opened, synchronize, reopened, ready_for_review ]  # defaults plus ready_for_review
   workflow_dispatch:

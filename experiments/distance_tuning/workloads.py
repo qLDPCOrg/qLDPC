@@ -64,8 +64,7 @@ import stim
 from sympy.abc import x, y
 
 from qldpc import abstract, circuits, codes
-from qldpc.codes.distance import CSSLogicalCounter
-from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch
+from qldpc.codes.distance import CosetLeaderSearch, CSSLogicalCounter
 from qldpc.objects import Pauli
 
 ####################################################################################################
@@ -267,7 +266,8 @@ def get_hadamard_code(code_name: str) -> codes.QuditCode:
 
 def run_count(code_name: str, weight: str) -> str:
     """Count the logical operators of a CSS code of a given weight, by the BZ method."""
-    counts = CSSLogicalCounter(get_css_code(code_name)).count_logical_ops(int(weight))
+    code = get_css_code(code_name)
+    counts = CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(int(weight))
     return f"{counts.weight}:{counts.count_x}:{counts.count_z}"
 
 
@@ -291,7 +291,7 @@ def run_cosets(
         stabilizers = get_hadamard_stabilizers(stabilizers)
     syndromes = get_random_syndromes(stabilizers, int(error_weight), int(num_syndromes))
     search = CosetLeaderSearch(stabilizers, css_weight=weighing == "css")
-    weights = search._get_min_weights(syndromes, int(max_weight))
+    weights = search.get_min_weights(syndromes, int(max_weight))
     return ",".join(
         f"{weight}:{count}" for weight, count in zip(*np.unique(weights, return_counts=True))
     )

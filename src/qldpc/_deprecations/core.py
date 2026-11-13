@@ -35,12 +35,14 @@ docs/source/contributing/standards/deprecations.rst describes the steps of a fut
 
 from __future__ import annotations
 
+import contextlib
 import importlib
+import operator
 import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Literal, SupportsIndex, TypeVar
 
 import stim
 
@@ -56,7 +58,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
     from qldpc.abstract.groups import NestedSequence
-    from qldpc.codes import QuditCode
+    from qldpc.codes import DistanceMethod, NoDistance, QuditCode
     from qldpc.decoders.dems import ErrorMechanism
     from qldpc.objects import TannerGraph
 
@@ -110,17 +112,12 @@ ALIASES: dict[str, dict[str, str]] = {
     "qldpc.codes": {
         "QCCode": "qldpc.codes.quantum:MBCode",
         "code_capacity": "qldpc.codes._code_capacity",
-        "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
-        ),
-        "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
+        "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.distance": {
-        "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
-        ),
-        "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
+        "DistanceBackend": "qldpc.codes:DistanceBackend",
+        "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.monte_carlo": {
@@ -232,6 +229,14 @@ ALIASES: dict[str, dict[str, str]] = {
 # Deprecated functions, which are served without warning when accessed, because they warn when
 # called instead.
 SILENT_ALIASES: dict[str, dict[str, str]] = {
+    "qldpc.codes": {
+        "get_distance_classical": "qldpc._deprecations.core:get_distance_classical",
+        "get_distance_quantum": "qldpc._deprecations.core:get_distance_quantum",
+    },
+    "qldpc.codes.distance": {
+        "get_distance_classical": "qldpc._deprecations.core:get_distance_classical",
+        "get_distance_quantum": "qldpc._deprecations.core:get_distance_quantum",
+    },
     "qldpc.decoders": {
         "decode": "qldpc._deprecations.decoders:decode",
         "decode_observables": "qldpc._deprecations.decoders:decode_observables",
@@ -373,6 +378,68 @@ def get_distance_bound(
     )
 
 
+def get_distance_classical(
+    generators: npt.ArrayLike,
+    *,
+    cutoff: int = 1,
+    block_size: int | None = None,
+    method: DistanceMethod = "brouwer_zimmermann",
+    max_weight: SupportsIndex | None = None,
+) -> int | Literal[NoDistance.NAN]:
+    """Deprecated: the distance of a classical linear binary code, from its generator matrix.
+
+    This function was formerly qldpc.codes.get_distance_classical.
+    """
+    from qldpc.codes.distance import get_distance_from_generators
+
+    warn_deprecated(
+        "get_distance_classical is deprecated; use"
+        " qldpc.codes.distance.get_distance_from_generators instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    with _use_block_size(block_size):
+        return get_distance_from_generators(
+            generators, cutoff=cutoff, method=method, max_weight=max_weight
+        )
+
+
+def get_distance_quantum(
+    logical_ops: npt.ArrayLike,
+    stabilizers: npt.ArrayLike,
+    *,
+    cutoff: int = 1,
+    block_size: int | None = None,
+    homogeneous: bool = False,
+    method: DistanceMethod = "brouwer_zimmermann",
+    max_weight: SupportsIndex | None = None,
+) -> int | Literal[NoDistance.NAN]:
+    """Deprecated: the distance of a binary quantum code from its logical operators and stabilizers.
+
+    This function was formerly qldpc.codes.get_distance_quantum.  Its rows are symplectic unless
+    ``homogeneous`` is True.
+    """
+    from qldpc.codes.distance import get_distance_from_generators
+
+    warn_deprecated(
+        "get_distance_quantum is deprecated; use"
+        " qldpc.codes.distance.get_distance_from_generators(logical_ops, stabilizers,"
+        " symplectic=not homogeneous) instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    # Unlike ``excluded``, the stabilizers have no default, so None is an error, not "no rows".
+    if stabilizers is None:
+        raise TypeError("stabilizers must be an array of binary entries, not None")
+    with _use_block_size(block_size):
+        return get_distance_from_generators(
+            logical_ops,
+            stabilizers,
+            symplectic=not homogeneous,
+            cutoff=cutoff,
+            method=method,
+            max_weight=max_weight,
+        )
+
+
 def get_primitive_central_idempotents(
     group: str, field: int
 ) -> list[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...]]:
@@ -418,6 +485,36 @@ def get_primitive_central_idempotents(
         )
         for idempotent in ring.get_primitive_central_idempotents()
     ]
+
+
+def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager[object]:
+    """Warn about a deprecated block_size argument, if given, and return a context that applies it.
+
+    Within the context, the active tuning has the batches that block_size gave before it was
+    deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
+    information sets took at most it.  As before, any integer, including a bool, is accepted, and an
+    exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive
+    enumeration.  This function warns when it is called, not when its context is entered, since a
+    warning from inside a ``contextlib`` context manager would point to ``contextlib`` rather than
+    to the caller.
+    """
+    if block_size is None:
+        return contextlib.nullcontext()
+    from qldpc.codes.distance import _tuning
+
+    warn_deprecated(
+        "The block_size argument of exact distance searches is deprecated and will be removed in a"
+        " future release.  Use qldpc.codes.distance._tuning.use_tuning to set"
+        " enumeration_batch_exponent and information_set_batch_exponent instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    exponent = max(0, min(operator.index(block_size), 62))
+    return _tuning.use_tuning(
+        enumeration_batch_exponent=exponent,
+        information_set_batch_exponent=min(
+            exponent, _tuning.get_tuning().information_set_batch_exponent
+        ),
+    )
 
 
 ####################################################################################################

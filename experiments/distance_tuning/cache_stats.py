@@ -48,8 +48,8 @@ def main() -> None:
     args = parser.parse_args()
     caches: dict[str, Any] = {
         "BINOMIAL_CACHE_SIZE": certificates.get_capped_binomials,
-        "CSS_SEARCH_CACHE_SIZE": coset.get_css_searches,
-        "PAULI_SEARCH_CACHE_SIZE": coset.get_pauli_search,
+        "CSS_SEARCH_CACHE_SIZE": coset._get_css_searches,
+        "PAULI_SEARCH_CACHE_SIZE": coset._get_pauli_search,
     }
     for name in args.workloads:
         trial.check_workload(name)

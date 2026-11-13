@@ -30,12 +30,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from qldpc.codes.distance import _tuning
+from qldpc.codes.distance import CosetLeaderSearch, _tuning
 from qldpc.codes.distance._brouwer_zimmermann import coset
 from qldpc.codes.distance._brouwer_zimmermann.coset_routes import CosetRoutes
-from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.distance_tuning.*, and would silently treat a bare "import workloads" as untyped.
@@ -73,11 +72,11 @@ def main() -> None:
             search = CosetLeaderSearch(stabilizers, css_weight=weighing == "css")
             for part, bz_search in zip(parts, search._brouwer_zimmermann_searches, strict=True):
                 print_route(part, threshold, bz_search._routes, int(max_weight))
-        coset.get_css_searches.cache_clear()
-        coset.get_pauli_search.cache_clear()
+        coset._get_css_searches.cache_clear()
+        coset._get_pauli_search.cache_clear()
 
 
-def print_route(part: str, threshold: int, routes: CosetRoutes[Any, Any], max_weight: int) -> None:
+def print_route(part: str, threshold: int, routes: CosetRoutes, max_weight: int) -> None:
     """Choose the route of the maximum weight of one search, and print it."""
     disjoint = (routes._disjoint, routes.disjoint_tables)
     examinations = {

@@ -18,7 +18,32 @@ _MASK55 = np.uint64(0x5555555555555555)
 # exhaustive enumeration
 
 
-def get_distance_quantum_brute_force(
+def get_nested_distance_brute_force(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    *,
+    cutoff: int,
+    batch_exponent: int,
+    homogeneous: bool,
+) -> int:
+    """Find the minimum weight of an eligible word of a nested-code basis by exhaustive enumeration.
+
+    The rows of ``basis`` are independent, and ``labels`` are its quotient labels (see
+    ``get_nested_code_basis``).  The rows marked by ``get_eligible_rows`` are the logical rows of
+    ``_get_distance_brute_force``, and the others are its stabilizers.  The other arguments and the
+    result are those of ``_get_distance_brute_force``.
+    """
+    eligible = get_eligible_rows(labels)
+    return _get_distance_brute_force(
+        basis[eligible],
+        basis[~eligible],
+        cutoff=cutoff,
+        batch_exponent=batch_exponent,
+        homogeneous=homogeneous,
+    )
+
+
+def _get_distance_brute_force(
     logical_ops: npt.ArrayLike,
     stabilizers: npt.ArrayLike,
     *,
@@ -125,31 +150,6 @@ def get_distance_quantum_brute_force(
                 return int(min_weight)
 
     return int(min_weight)
-
-
-def get_nested_distance_brute_force(
-    basis: npt.NDArray[np.uint8],
-    labels: npt.NDArray[np.uint8],
-    *,
-    cutoff: int,
-    batch_exponent: int,
-    homogeneous: bool,
-) -> int:
-    """Find the minimum weight of an eligible word of a nested-code basis by exhaustive enumeration.
-
-    The rows of ``basis`` are independent, and ``labels`` are its quotient labels (see
-    ``get_nested_code_basis``).  The rows marked by ``get_eligible_rows`` are the logical rows of
-    ``get_distance_quantum_brute_force``, and the others are its stabilizers.  The other arguments
-    and the result are those of ``get_distance_quantum_brute_force``.
-    """
-    eligible = get_eligible_rows(labels)
-    return get_distance_quantum_brute_force(
-        basis[eligible],
-        basis[~eligible],
-        cutoff=cutoff,
-        batch_exponent=batch_exponent,
-        homogeneous=homogeneous,
-    )
 
 
 ####################################################################################################

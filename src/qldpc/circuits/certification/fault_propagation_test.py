@@ -17,8 +17,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.codes.distance import DistanceMethod
-from qldpc.codes.distance._coset_leader_search import MinWeightBound
+from qldpc.codes.distance import DistanceMethod, MinWeightBound
 
 from . import fault_propagation
 
@@ -613,23 +612,21 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
     ).certified
 
 
-def test_coset_search_method_of_each_distance_method() -> None:
-    """Each exact-distance method except brute force selects a coset-leader search.
+def test_every_distance_method_but_brute_force_searches_residual_weights() -> None:
+    """Each exact-distance method except brute force passes the check of methods.
 
-    The alias ``"information_sets"`` selects the default search, and unknown methods are rejected.
-    Certification checks its method before it reads the circuit, so the lack of an unmeasured qubit
-    of this circuit raises no error first.
+    Unknown methods are rejected.  Certification checks its method before it reads the circuit, so
+    the lack of an unmeasured qubit of this circuit raises no error first.
     """
     for method in typing.get_args(DistanceMethod):
         if method == "brute_force":
             with pytest.raises(ValueError, match="no search of residual weights"):
-                fault_propagation._get_coset_search_method(method)
+                fault_propagation._check_coset_search_method(method)
         else:
-            expected = "brouwer_zimmermann" if method == "information_sets" else method
-            assert fault_propagation._get_coset_search_method(method) == expected
+            fault_propagation._check_coset_search_method(method)
     unknown: Any = "gap"
     with pytest.raises(ValueError, match="Unknown distance method"):
-        fault_propagation._get_coset_search_method(unknown)
+        fault_propagation._check_coset_search_method(unknown)
     with pytest.raises(ValueError, match="no search of residual weights"):
         circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
 

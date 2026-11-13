@@ -30,8 +30,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from qldpc import codes
-from qldpc.codes.distance import CSSLogicalCounter, _tuning, compile_search_setup
-from qldpc.codes.distance._coset_leader_search import CosetLeaderSearch
+from qldpc.codes.distance import (
+    CosetLeaderSearch,
+    CSSLogicalCounter,
+    _tuning,
+    compile_search_setup,
+)
 from qldpc.objects import Pauli
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
@@ -154,8 +158,11 @@ def warm_up(kind: str) -> None:
                 hadamard_code.forget_distance()
                 hadamard_code.get_distance_exact()
             elif kind == "count":
-                CSSLogicalCounter(codes.SurfaceCode(5)).count_logical_ops(5)
-                CSSLogicalCounter(codes.ToricCode(4, rotated=True)).count_logical_ops(4)
+                for code, weight in (
+                    (codes.SurfaceCode(5), 5),
+                    (codes.ToricCode(4, rotated=True), 4),
+                ):
+                    CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(weight)
             elif kind == "certify":
                 for weighing in ("css", "physical"):
                     workloads.run_certification("surface:5", weighing, "3")
@@ -170,7 +177,7 @@ def warm_up(kind: str) -> None:
                 syndromes = workloads.get_random_syndromes(stabilizers, 3, 20, seed=1)
                 for css_weight in (False, True):
                     search = CosetLeaderSearch(stabilizers, css_weight=css_weight)
-                    search._get_min_weights(syndromes, 4)
+                    search.get_min_weights(syndromes, 4)
                     search.find_first_not_within_max_weight(syndromes, 4)
                     search.get_min_weight_bound(int(syndromes[0, 0]), 4)
             else:

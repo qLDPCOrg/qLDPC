@@ -449,6 +449,16 @@ def test_hand_derived_dependency_cases() -> None:
         assert (failure is None) == certified
 
 
+def test_batches_have_a_word_for_every_64_output_qubits() -> None:
+    """On 70 qubits, the batches of syndromes below ``2**64`` have two words, as the oracle needs.
+
+    The two primitive faults fire the same flag, so together they pass post-selection, and they
+    leave X on the first three qubits, which violates the bound at fault weight two.
+    """
+    failure = _certify_map([1, 1], [0b011, 0b100], None, 70)
+    assert failure is not None and failure.fault_indices == (0, 1)
+
+
 def test_failures_report_the_smallest_faults() -> None:
     """The smallest fault weight is reported.
 

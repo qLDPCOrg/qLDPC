@@ -142,7 +142,7 @@ def get_coset_instance(
     one, since the sets are disjoint.  ``random_column_orders`` is passed to
     ``basis_families.get_disjoint_family``.  ``weight_factor`` is the weight factor of the instance.
     It is two for a search of Pauli errors, since an error weighs at least half the Hamming weight
-    of the binary word that represents it in the search (see ``get_pauli_search`` in ``coset.py``).
+    of the binary word that represents it in the search (see ``_get_pauli_search`` in ``coset.py``).
     It is one for a search of X or Z parts.  Without generators, each coset is a single word, which
     the search visits on layer zero of one empty set.
 
