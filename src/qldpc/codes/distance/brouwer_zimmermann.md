@@ -1051,7 +1051,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   Only `method="brute_force"` uses native symplectic weights and the original `cutoff`.
 - **Independence.**
   Callers need not supply independent generators.
-  Without excluded rows, the BZ route uses `get_independent_rows`; with them, it uses `get_nested_code_basis`.
+  Without excluded rows, `_search_generators` in `core.py`, which the BZ and brute-force routes of the public functions share, uses `get_independent_rows`; with them, it uses `get_nested_code_basis`.
+  The joint BZ route of `get_distance_css` always uses `get_nested_code_basis`.
   So the packed enumerators always receive independent bases.
 - **Resumable layers.**
   The compiled scan returns after at most `batch_size` supports.

@@ -30,8 +30,8 @@ def get_nested_distance_brute_force(
 
     The rows of ``basis`` are independent, and ``labels`` are its quotient labels (see
     ``get_nested_code_basis``).  The rows marked by ``get_eligible_rows`` are the logical rows of
-    ``_get_distance_brute_force``, and the others are its stabilizers.  The other arguments
-    and the result are those of ``_get_distance_brute_force``.
+    ``_get_distance_brute_force``, and the others are its stabilizers.  The other arguments and the
+    result are those of ``_get_distance_brute_force``.
     """
     eligible = get_eligible_rows(labels)
     return _get_distance_brute_force(

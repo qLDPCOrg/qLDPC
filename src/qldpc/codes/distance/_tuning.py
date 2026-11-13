@@ -283,14 +283,13 @@ class SearchTuning:
     #: that loses no certified bound.
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
-    #: A distance search asks for the automorphisms that its caller passes before its first
-    #: coefficient layer of at least this estimated work, in candidate/set evaluations.  It then
-    #: searches the images of one information set under them if that predicts less work (Section
-    #: 3.7 of ``brouwer_zimmermann.md``).  Finding them, as the ``get_distance_exact`` methods of
-    #: binary quantum codes do, takes milliseconds; lowering it pays that on cheaper searches, zero
-    #: before the first layer, and ``MAX_VALUE`` never.  Defaults to 10**8;
-    #: how it was chosen is not recorded.  To retune it, time searches with and without
-    #: automorphisms.
+    #: Before its first coefficient layer of at least this estimated work, in candidate/set
+    #: evaluations, a distance search asks for the automorphisms that its caller passes.  It then
+    #: searches the images of one information set under them if that predicts less work (Section 3.7
+    #: of ``brouwer_zimmermann.md``).  Finding them, as the ``get_distance_exact`` methods of binary
+    #: quantum codes do, takes milliseconds; lowering it pays that on cheaper searches, zero before
+    #: the first layer, and ``MAX_VALUE`` never.  Defaults to 10**8; how it was chosen is not
+    #: recorded.  To retune it, time searches with and without automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
 
     # Fields of connected-support searches.

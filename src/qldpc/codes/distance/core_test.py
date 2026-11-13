@@ -106,6 +106,9 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
         five_qubit_code.matrix, five_qubit_code.matrix, symplectic=True, method=method
     )
     assert distance == 3
+
+    # Excluded rows that span every word that satisfies the checks leave no distance, also when
+    # they are redundant, so that their number exceeds their rank.
     generator = np.asarray(hamming_code.generator)
     distance = core.get_distance_from_checks(
         hamming_code.matrix, np.vstack([generator, generator[:1]]), method=method
@@ -120,8 +123,8 @@ def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod
     """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes.
 
     The gauge generators of the three-qubit subsystem code leave no stabilizers, so a single-qubit X
-    is a dressed logical operator, although every bare logical operator has weight 3.  The checks
-    of the stabilizer state include a redundant row.
+    is a dressed logical operator, although every bare logical operator has weight 3.  The checks of
+    the stabilizer state include a redundant row.
     """
     five_qubit_code = qldpc.codes.FiveQubitCode()
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method) == 3
@@ -215,7 +218,7 @@ def test_connected_support_needs_parity_checks() -> None:
 
 
 def test_special_inputs_of_generators() -> None:
-    """Generators are checked for their shapes, and inputs without nontrivial words have none.
+    """The shapes of the matrices are checked, and inputs without nontrivial words have no distance.
 
     Inputs without nontrivial words give NO_DISTANCE, whether they have no logical rows or only
     logical rows in the stabilizer span.

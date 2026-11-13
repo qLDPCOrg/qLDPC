@@ -2,7 +2,7 @@
 
 This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, counts the logical operators of a given weight in binary CSS codes, and finds light Pauli errors with given syndromes on stabilizer states.
-Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the binary code classes in `src/qldpc/codes/common.py`, which call the distance functions.
+Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py`, which call the distance functions for binary codes.
 `brouwer_zimmermann.md` explains the Brouwer–Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a Brouwer–Zimmermann search must keep.
 `connected_support.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the code, says what its cost depends on, and lists its correctness requirements.
 

@@ -43,7 +43,8 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
 
     The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
     XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated
-    silently and yield a wrong distance rather than an error.
+    silently and yield a wrong distance rather than an error.  A single object that is not
+    array-like, such as a code, raises a ``TypeError``.
     """
     order = getattr(type(vectors), "order", None)
     if order is not None and order != 2:
@@ -51,9 +52,10 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
             f"Exact searches only take binary input, but {name} is defined over GF({order})"
         )
     array = np.asarray(_as_dense(vectors))
-    if array.dtype == object:
+    if array.dtype == object and array.ndim == 0:
         raise TypeError(
-            f"{name} must be an array of binary entries, not a {type(vectors).__name__}"
+            f"{name} must be an array of binary entries, not an object of type"
+            f" {type(vectors).__name__}"
         )
     if array.size and not np.all((array == 0) | (array == 1)):
         raise ValueError(
@@ -66,11 +68,11 @@ def as_binary_matrix(
 ) -> npt.NDArray[np.uint8]:
     """Check that a collection of rows is binary, and return it as a two-dimensional uint8 array.
 
-    A single vector is one row.  If ``num_cols`` is given, every row must have that many entries,
-    and a matrix without rows, or an empty list, gets that width.  Otherwise, an empty list has no
-    width, and raises an error.  The checks use ``name``, the name of the argument, in their error
-    messages.  If NumPy cannot convert the rows to an array, such as when their lengths differ, it
-    raises its own error.
+    A single vector is one row.  If ``num_cols`` is given, the matrix must have that many columns,
+    except that an empty list, or a matrix of shape ``(0, 0)``, gets that width.  Otherwise, an
+    empty list has no width, and raises an error.  The checks use ``name``, the name of the
+    argument, in their error messages.  If NumPy cannot convert the rows to an array, such as when
+    their lengths differ, it raises its own error.
     """
     dense = _as_dense(vectors)
     assert_binary(dense, name)

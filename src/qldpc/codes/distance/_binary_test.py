@@ -33,13 +33,22 @@ def test_binary_matrices_and_nested_bases() -> None:
         binary.as_binary_matrix([[1, 0]], "stabilizers", num_cols=3)
     np.testing.assert_array_equal(binary.as_binary_matrix([1, 0, 1]), [[1, 0, 1]])
 
-    # Rows without columns, or no rows of another width, have the wrong width for a given width, but
-    # an empty matrix of no width takes it.
+    # A matrix of another width, even one without rows, is rejected, but a matrix of shape (0, 0)
+    # takes the given width.
     for wrong_width in (np.zeros((4, 0)), np.zeros((0, 2))):
         with pytest.raises(ValueError, match=r"rows has \d columns"):
             binary.as_binary_matrix(wrong_width, num_cols=3)
     assert binary.as_binary_matrix(np.zeros((0, 0)), num_cols=3).shape == (0, 3)
-    with pytest.raises(TypeError, match="rows must be an array of binary entries, not a dict"):
+
+    # Arrays of objects, such as Python integers too large for NumPy, are checked entry by entry,
+    # but a single object that is not array-like is rejected.
+    np.testing.assert_array_equal(
+        binary.as_binary_matrix(np.array([[1, 0]], dtype=object)), [[1, 0]]
+    )
+    for not_binary in ([[2**70, 0]], [[None, 1]]):
+        with pytest.raises(ValueError, match="entries other than 0 and 1"):
+            binary.as_binary_matrix(cast(Any, not_binary))
+    with pytest.raises(TypeError, match="rows must be an array of binary entries, not an object"):
         binary.as_binary_matrix(cast(Any, {}))
 
     sparse = scipy.sparse.csr_array([[1, 0, 1]])

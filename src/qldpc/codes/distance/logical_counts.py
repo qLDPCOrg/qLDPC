@@ -168,10 +168,10 @@ class CSSLogicalCounter:
             subsystem code they are the Z gauge generators ``G_Z``.
 
     Raises:
-        TypeError: If the checks are not arrays of numbers, as when a code is given instead of its
-            checks (see :meth:`from_code`).
-        ValueError: If the checks are not binary, have more than two dimensions, are empty without
-            a width, or have different numbers of columns.
+        TypeError: If ``checks_x`` or ``checks_z`` is not array-like, as when a code is given
+            instead of its checks (see :meth:`from_code`).
+        ValueError: If the checks are not binary, have more than two dimensions, or have different
+            numbers of columns, or if ``checks_x`` is an empty list, which has no width.
     """
 
     def __init__(self, checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> None:

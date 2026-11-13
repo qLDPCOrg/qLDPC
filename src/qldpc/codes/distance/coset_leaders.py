@@ -91,6 +91,8 @@ class CosetLeaderSearch:
             ``"brouwer_zimmermann"``.
 
     Raises:
+        TypeError: If ``stabilizers`` is not array-like, as when a code is given instead of a
+            matrix.
         ValueError: If the stabilizers are not a binary matrix with ``2 n`` columns, or are not
             ``n`` independent commuting stabilizers, as when they define a code that encodes
             qubits; if the method is unknown or ``"brute_force"``; or if the connected-support
@@ -104,15 +106,16 @@ class CosetLeaderSearch:
         css_weight: bool = False,
         method: DistanceMethod = "brouwer_zimmermann",
     ) -> None:
-        # Check the arguments.
+        # Check the arguments, and keep those that the queries read.
         coset_search_method = _get_coset_search_method(method)
         css_weight = bool(css_weight)
         self._css_weight = css_weight
         matrix = _as_state_stabilizers(stabilizers)
         self._num_qubits = n = len(matrix)
 
+        # Read the active tuning, and prepare the searches.  The connected-support searches make
+        # their checks sparser in rounds that the tuning bounds.
         tuning = get_tuning()
-        # The connected-support searches make their checks sparser in rounds that the tuning bounds.
         support_search = functools.partial(
             ConnectedSupportCosetSearch,
             max_rounds=tuning.max_sparsifying_rounds,
@@ -303,7 +306,7 @@ class CosetLeaderSearch:
                 dtype=np.int64,
             )
 
-        # The searches of the first parts find their minimum weights from zero.
+        # Every search starts from weight zero, except those of the Z parts below.
         floors = np.zeros(len(syndromes), dtype=np.int64)
 
         # With one search, take its weights.
@@ -338,6 +341,7 @@ class CosetLeaderSearch:
             entry ``64 j + k`` of its syndrome.
 
         Raises:
+            TypeError: If ``syndromes`` is not array-like.
             ValueError: If the syndromes are not binary, or do not have one entry for each
                 stabilizer.
         """
@@ -492,7 +496,13 @@ def _get_coset_search_method(
     Raises:
         ValueError: If the method is unknown, or is ``"brute_force"``, which has no coset searches.
     """
-    canonical = _validate_distance_method(method)
+    try:
+        canonical = _validate_distance_method(method)
+    except ValueError:
+        raise ValueError(
+            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
+            " 'information_sets') or 'connected_support'."
+        ) from None
     if canonical == "brute_force":
         raise ValueError(
             "The 'brute_force' distance method has no coset-leader search: use"

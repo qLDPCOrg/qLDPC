@@ -602,9 +602,9 @@ def test_distance_qudit() -> None:
         assert code.get_distance_exact() == 2
 
     # gauge operators dress the logical operators of nonbinary subsystem codes too: here the gauge
-    # generators leave no stabilizers, so every X string that is not an X-type gauge operator, such
-    # as X on one qudit, is a dressed logical operator, although the bare logical X operators, the
-    # multiples of (1, 2, 2), have weight 3
+    # generators leave no stabilizers, so X on one qudit, which is not an X-type gauge operator, is
+    # a dressed logical operator.  The bare logical X operators, the multiples of (1, 2, 2), have
+    # weight 3.
     css_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]], field=3)
     assert css_code.is_subsystem_code
     for get_distance in (

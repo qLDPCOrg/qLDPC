@@ -4321,7 +4321,7 @@ class CSSCode(QuditCode):
         cutoff: int,
         upper_bound: int | None = None,
     ) -> int | Literal[NoDistance.NAN]:
-        """The least weight of a nontrivial logical operator of one type, or of either, over GF(2).
+        """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
         Brouwer--Zimmermann and connected-support searches use the automorphisms of this code.
         ``upper_bound``, if given, is the weight of a known logical operator of the other type,

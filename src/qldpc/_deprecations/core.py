@@ -35,6 +35,7 @@ docs/source/contributing/standards/deprecations.rst describes the steps of a fut
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import operator
 import re
@@ -389,14 +390,14 @@ def get_distance_classical(
 
     This function was formerly qldpc.codes.get_distance_classical.
     """
-    from qldpc.codes.distance import _tuning, get_distance_from_generators
+    from qldpc.codes.distance import get_distance_from_generators
 
     warn_deprecated(
         "get_distance_classical is deprecated; use"
         " qldpc.codes.distance.get_distance_from_generators instead",
         stacklevel=get_external_caller_stacklevel(),
     )
-    with _tuning.use_tuning(**_get_block_size_changes(block_size)):
+    with _use_block_size(block_size):
         return get_distance_from_generators(
             generators, cutoff=cutoff, method=method, max_weight=max_weight
         )
@@ -417,7 +418,7 @@ def get_distance_quantum(
     This function was formerly qldpc.codes.get_distance_quantum.  Its rows are symplectic unless
     ``homogeneous`` is True.
     """
-    from qldpc.codes.distance import _tuning, get_distance_from_generators
+    from qldpc.codes.distance import get_distance_from_generators
 
     warn_deprecated(
         "get_distance_quantum is deprecated; use"
@@ -425,7 +426,7 @@ def get_distance_quantum(
         " symplectic=not homogeneous) instead",
         stacklevel=get_external_caller_stacklevel(),
     )
-    with _tuning.use_tuning(**_get_block_size_changes(block_size)):
+    with _use_block_size(block_size):
         return get_distance_from_generators(
             logical_ops,
             stabilizers,
@@ -483,16 +484,18 @@ def get_primitive_central_idempotents(
     ]
 
 
-def _get_block_size_changes(block_size: int | None) -> dict[str, int]:
-    """Warn about a deprecated block_size argument, if given, and return the changes that it makes.
+def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager[object]:
+    """Warn about a deprecated block_size argument, if given, and return a context that applies it.
 
-    The changes are to the fields of the active tuning.  Exhaustive enumeration took block_size as
-    the exponent of its batches, and scans of information sets took at most it.  As before, any
-    integer, including a bool, is accepted, and an exponent outside the range of the fields is
-    clamped to it, which changes no batch of exhaustive enumeration.
+    Within the context, the active tuning has the batches that block_size gave before it was
+    deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
+    information sets took at most it.  As before, any integer, including a bool, is accepted, and
+    an exponent outside the range of the fields is clamped to it, which changes no batch of
+    exhaustive enumeration.  The warning is issued here rather than in the context, which would
+    find the wrong caller.
     """
     if block_size is None:
-        return {}
+        return contextlib.nullcontext()
     from qldpc.codes.distance import _tuning
 
     warn_deprecated(
@@ -502,12 +505,12 @@ def _get_block_size_changes(block_size: int | None) -> dict[str, int]:
         stacklevel=get_external_caller_stacklevel(),
     )
     exponent = max(0, min(operator.index(block_size), 62))
-    return {
-        "enumeration_batch_exponent": exponent,
-        "information_set_batch_exponent": min(
+    return _tuning.use_tuning(
+        enumeration_batch_exponent=exponent,
+        information_set_batch_exponent=min(
             exponent, _tuning.get_tuning().information_set_batch_exponent
         ),
-    }
+    )
 
 
 ####################################################################################################

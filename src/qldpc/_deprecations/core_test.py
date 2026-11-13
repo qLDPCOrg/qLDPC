@@ -215,15 +215,15 @@ def test_deprecated_distance_functions() -> None:
         (lambda: codes.get_distance_classical(generator), 3),  # type: ignore[attr-defined]
         (
             lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
+                generator.astype(object)
+            ),
+            3,
+        ),
+        (
+            lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
                 generator, method="brute_force", max_weight=1
             ),
             2,
-        ),
-        (
-            lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
-                generator[:1], generator[1:], homogeneous=True, method="brute_force"
-            ),
-            3,
         ),
         (
             lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
@@ -243,17 +243,28 @@ def test_deprecated_distance_functions() -> None:
             DeprecationWarning, match="use qldpc.codes.distance.get_distance_from_gen"
         ):
             assert search() == distance
+
+    # Both functions pass on their method.
     get_distance_classical: Any = codes.get_distance_classical  # type: ignore[attr-defined]
-    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
-        get_distance_classical(generator, method="connected_support")
+    get_distance_quantum: Any = codes.get_distance_quantum  # type: ignore[attr-defined]
+    for search in (
+        lambda: get_distance_classical(generator, method="connected_support"),
+        lambda: get_distance_quantum(
+            generator[:1], generator[1:], homogeneous=True, method="connected_support"
+        ),
+    ):
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
+            search()
 
     # The block_size argument gives the batches that it gave before it was deprecated: exhaustive
     # enumeration took it as its exponent, and scans of information sets took at most it, clamped to
     # the range of the fields.
     from qldpc.codes.distance import _tuning
 
-    assert _deprecations.core._get_block_size_changes(None) == {}
     with _tuning.use_tuning(information_set_batch_exponent=10):
+        active_tuning = _tuning.get_tuning()
+        with _deprecations.core._use_block_size(None):
+            assert _tuning.get_tuning() is active_tuning
         for block_size, batches in (
             (4, (4, 4)),
             (12, (12, 10)),
@@ -262,13 +273,15 @@ def test_deprecated_distance_functions() -> None:
             (True, (1, 1)),
         ):
             with pytest.warns(DeprecationWarning, match="use_tuning"):
-                changes = _deprecations.core._get_block_size_changes(block_size)
-            assert tuple(changes.values()) == batches
+                context = _deprecations.core._use_block_size(block_size)
+            with context:
+                tuning = _tuning.get_tuning()
+            assert (
+                tuning.enumeration_batch_exponent,
+                tuning.information_set_batch_exponent,
+            ) == batches
 
-    # The functions search with those batches, and warn at their caller about both deprecations.
-    def get_batch_exponent(*args: object, **kwargs: object) -> int:
-        return _tuning.get_tuning().enumeration_batch_exponent
-
+    # The functions take block_size, and warn at their caller about both deprecations.
     for search in (
         lambda: codes.get_distance_classical(generator, block_size=2),  # type: ignore[attr-defined]
         lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
@@ -278,11 +291,7 @@ def test_deprecated_distance_functions() -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             assert search() == 3
-            with unittest.mock.patch.object(
-                codes.distance, "get_distance_from_generators", get_batch_exponent
-            ):
-                assert search() == 2
-        assert len(caught) == 4 and all(warning.filename == __file__ for warning in caught)
+        assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
 
 
 def test_deprecated_get_primitive_central_idempotents() -> None:

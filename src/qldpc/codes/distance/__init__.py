@@ -3,8 +3,8 @@
 """Exact distances of binary codes, counts of their logical operators, and searches of cosets.
 
 The functions and classes of this package take plain binary arrays, so that programs can use them
-without building code objects, and the exact-distance methods of the binary code classes of
-:mod:`qldpc.codes` call them.
+without building code objects, and the exact-distance methods of the code classes of
+:mod:`qldpc.codes` call them for binary codes.
 
 .. list-table::
    :header-rows: 1
