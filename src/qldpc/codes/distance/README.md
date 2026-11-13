@@ -157,7 +157,7 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer–
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
 - Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
   Say, in this order, what it decides and in what unit; how a smaller or larger value changes a search, including the effects of its smallest and largest values; how its default was chosen and on what data, or that this is not recorded, in one clause; and what to measure to retune it.
-  Keep each comment readable without knowing the method that uses the value, and within a hundred words.
+  Keep each comment readable without knowing the method that uses the value, and within about 120 words.
   State each fact in one place: link to a formula that the code computes, such as a cost model, rather than restating it, and put procedures that several values share, such as fitting a cost model, in the "Retuning" section of the module docstring.
   Do not put a colon on the first line of a comment, since Sphinx then reads the text before it as a type.
 - [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the fields and constants from their comments, after hand-written tables that lead from symptoms and routes to their names.

@@ -409,12 +409,12 @@ class SearchTuning:
     #: The number of random supports from which a search estimates the share of a layer that
     #: completion tables would skip, within the budget ``completion_bound_sampling_work``; drawing
     #: them takes about 16 bytes for each sample and each row of the basis.  More samples narrow the
-    #: estimate, so that tables pay on more of the layers that accept them, but take longer.
-    #: Between 1 and ``2**12``.  Defaults to 1024, enough that the long-run layers traced near the
-    #: limit of ``completion_bound_max_cost_percent`` decided alike under every sampling draw tried.
-    #: Choosing tables for a layer near ``completion_bound_minimum_layer_work`` can then take up to
-    #: about a third of that layer's time.  To retune it, raise it until layers near the limit
-    #: decide alike under different draws, while sampling stays a small part of quick runs.
+    #: estimate, so that tables pay on more of the layers that accept them, but take longer: at
+    #: 1024, up to about a third of the time of a layer near
+    #: ``completion_bound_minimum_layer_work``.  Between 1 and ``2**12``.  Defaults to 1024, enough
+    #: that the long-run layers traced near the limit of ``completion_bound_max_cost_percent``
+    #: decided alike under every sampling draw tried.  To retune it, raise it until layers near the
+    #: limit decide alike under different draws, while sampling stays a small part of quick runs.
     completion_bound_samples: int = dataclasses.field(
         default=1024, metadata={"minimum": 1, "maximum": 2**12}
     )
