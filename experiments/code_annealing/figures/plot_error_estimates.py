@@ -10,8 +10,9 @@ Run with ``python -m experiments.code_annealing.figures.plot_error_estimates``. 
 ``error_estimates.pdf`` has a panel for each code type, with the logical error rate per logical
 qubit of every code at one physical error rate: the simulated rate, an estimate from the numbers of
 minimum-weight logical operators, and a refined estimate from the numbers of distinct subsets of
-their supports.  The codes are grouped by distance, and sorted by decreasing simulated rate per
-logical qubit within each group.  Their colors identify the code sizes ``(n, k)``, in order of size.
+their supports, which also leaves out the errors that the decoder discards.  The codes are grouped
+by distance, and sorted by decreasing simulated rate per logical qubit within each group.  Their
+colors identify the code sizes ``(n, k)``, in order of size.
 
 The counts of operators and subsets come from ``data/half_supports.txt`` of the results directory,
 which ``analysis/half_supports.py`` writes and reads.  Codes without counts are skipped.  The
@@ -176,13 +177,20 @@ def _refine_error_rate_estimate(counts: HalfSupportCounts, error_rate: float) ->
     The noise, the decoder, ``r``, and ``w`` are those of ``_estimate_error_rate``.  This estimate
     counts the distinct subsets of ``w`` qubits of all supports (the majority supports), which are
     fewer than ``comb(d, w)`` per operator if supports overlap, and gives each the probability
-    ``r**w * (1 - r)**(n - w)`` that exactly its qubits err.  It combines the sectors as if they
-    were independent, ``1 - (1 - P_x) * (1 - P_z)``, which is an approximation: a Y error is both
-    an X-type and a Z-type error.
+    ``r**w * (1 - r)**(n - w)`` that exactly its qubits err.
+
+    It also leaves out the patterns that the decoder discards rather than fails on.  Each X-type
+    error is a Y error with probability 1/2, which adds a Z-type error on its qubit, and a pattern
+    with more than ``t = (d - 1) // 2`` Y errors leaves a Z-type error that the lookup table of the
+    other sector does not hold, so the shot is discarded.  A pattern thus fails with probability
+    ``sum(comb(w, j) for j <= t) / 2**w``, and likewise with X and Z swapped.  The sectors are then
+    combined as if they were otherwise independent, ``1 - (1 - P_x) * (1 - P_z)``.
     """
-    num_qubits, weight = counts.num_qubits, counts.distance // 2 + 1
+    num_qubits, distance = counts.num_qubits, counts.distance
+    weight = distance // 2 + 1
     rate = 2 * error_rate / 3
-    pattern_probability = rate**weight * (1 - rate) ** (num_qubits - weight)
+    kept = sum(math.comb(weight, num_y) for num_y in range((distance - 1) // 2 + 1)) / 2**weight
+    pattern_probability = rate**weight * (1 - rate) ** (num_qubits - weight) * kept
     failure_x = counts.num_majority_supports_x * pattern_probability
     failure_z = counts.num_majority_supports_z * pattern_probability
     return 1 - (1 - failure_x) * (1 - failure_z)

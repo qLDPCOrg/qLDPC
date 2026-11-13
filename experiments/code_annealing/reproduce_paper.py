@@ -58,14 +58,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
 
+    # The paper labels its columns of best known neighbors "prior", and the revised paper "qecdb".
     if args.revised:
         source_dir, snapshot_file, dir_name = (
             REVISED_DATA_DIR,
             REVISED_SNAPSHOT_FILE,
             REVISED_DIR_NAME,
         )
+        best_label = "qecdb"
     else:
         source_dir, snapshot_file, dir_name = PAPER_DATA_DIR, PAPER_SNAPSHOT_FILE, PAPER_DIR_NAME
+        best_label = "prior"
     results_dir = args.results_dir / dir_name
     data_dir = get_data_dir(results_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -76,7 +79,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     options = ["--results-dir", str(results_dir)]
     snapshot = data_dir / snapshot_file.name
     run_step("half_supports", half_supports.main, options)
-    run_step("latex_tables", latex_tables.main, [*options, "--data-file", str(snapshot)])
+    table_options = [*options, "--data-file", str(snapshot), "--best-label", best_label]
+    run_step("latex_tables", latex_tables.main, table_options)
     if not args.skip_figures:
         figure_options = [*options]
         for name in ("max_qubits", "num_samples"):

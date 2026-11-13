@@ -14,9 +14,10 @@ the code files, in their order, with:
 - the mean and maximum weight of the stabilizer generators, after ``reduce_weights``;
 - the best known neighbors of the code at qecdb.org, from a scrape of the database,
   ``data/scrape_qecdb_YYYY-MM-DD.txt`` (see ``scrape_qecdb.py``): the newest one, or the one that
-  ``--data-file`` names.  If no code of the database is at least as good in all of ``n``, ``k``,
-  and ``d``, the code beats its three neighbors: its parameters are highlighted in green, and those
-  of the neighbors in red.
+  ``--data-file`` names.  Their column headers, such as ``n_best^qecdb``, carry the superscript
+  that ``--best-label`` sets.  If no code of the database is at least as good in all of ``n``,
+  ``k``, and ``d``, the code beats its three neighbors: its parameters are highlighted in green, and
+  those of the neighbors in red.
 
 Every distance and count is recomputed exactly, and a code whose distance or count differs from the
 claims of its code file is an error.  The data file of qecdb.org must describe the current codes:
@@ -52,11 +53,12 @@ from ..core.proposals import CodeType
 from .gv_bounds import get_css_gv_distance, get_qgv_distance
 from .scrape_qecdb import BestKnown, find_data_file, read_best_known
 
+# The column headers, with a placeholder for the superscript of the columns of best known neighbors.
 _HEADER = (
     r"$n$ & $k$ & $d$ & $\delta_{\mathrm{QGV}}$ & $\delta_{\mathrm{CSS}}$"
     r" & \thead{min-weight\\nontrivial\\logicals} & \thead{mean\\stab.\\weight}"
-    r" & \thead{max\\stab.\\weight} & $n_\mathrm{best}^{\mathrm{prior}}$"
-    r" & $k_\mathrm{best}^{\mathrm{prior}}$ & $d_\mathrm{best}^{\mathrm{prior}}$"
+    r" & \thead{max\\stab.\\weight} & $n_\mathrm{best}^{\mathrm{LABEL}}$"
+    r" & $k_\mathrm{best}^{\mathrm{LABEL}}$ & $d_\mathrm{best}^{\mathrm{LABEL}}$"
 )
 _COLUMNS = "c|c|c||c|c||c|c|c||c|c|c"
 # The column of the maximum stabilizer weight in ``_HEADER``, counted from 0, whose numbers are
@@ -96,6 +98,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         type=Path,
         help="the scrape of qecdb.org to compare with (default: the newest in the data directory)",
     )
+    parser.add_argument(
+        "--best-label",
+        default="qecdb",
+        help="the superscript of the columns of best known neighbors (default: %(default)s)",
+    )
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
 
@@ -113,7 +120,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     for code_type, neighbors in best_known.items():
         code_file = code_files[code_type]
         entries = read_code_file(code_file)
-        table = _format_table(entries, neighbors, args.few_logicals)
+        table = _format_table(entries, neighbors, args.few_logicals, args.best_label)
         preamble = _PREAMBLE.format(
             code_type=code_type.upper(), code_file=code_file.name, data_file=data_file.name
         )
@@ -130,7 +137,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 def _format_table(
-    entries: Sequence[CodeEntry], neighbors: Sequence[BestKnown], few_logicals: int
+    entries: Sequence[CodeEntry], neighbors: Sequence[BestKnown], few_logicals: int, best_label: str
 ) -> str:
     """The ``tabular`` environment of the codes of one code file, with aligned columns."""
     rows = [
@@ -149,7 +156,7 @@ def _format_table(
     return "\n".join(
         [
             rf"\begin{{tabular}}{{{_COLUMNS}}}",
-            rf"  {_HEADER} \\ \hline\hline",
+            rf"  {_HEADER.replace('LABEL', best_label)} \\ \hline\hline",
             *(f"  {line}" for line in body),
             r"\end{tabular}%",
         ]
