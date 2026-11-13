@@ -148,38 +148,6 @@ def get_distance_brouwer_zimmermann_many(
     return best
 
 
-def get_distance_brouwer_zimmermann(
-    basis: npt.NDArray[np.uint8],
-    labels: npt.NDArray[np.uint8],
-    *,
-    cutoff: int,
-    weight_divisor: int = 1,
-    upper_bound: int | None = None,
-    tuning: SearchTuning | None = None,
-) -> int:
-    """Compute a nested-code distance with the Brouwer-Zimmermann algorithm.
-
-    The disjoint and rank-deficient bound follows Algorithm 1 of https://arxiv.org/abs/1603.06757.
-    The overlapping-set extension divides pivot occupancy by the maximum coordinate coverage.
-    Nonzero ``labels`` identify rows outside an excluded subcode, and labels with no columns exclude
-    nothing (see ``get_eligible_rows``).  Transforming the labels alongside the generators makes the
-    upper-bound search exact for logical operators modulo stabilizers.
-
-    An ``upper_bound`` starts the search as though a witness of that weight were known, so the
-    search returns ``min(distance, upper_bound)`` and stops once it certifies that no word is
-    lighter than ``upper_bound``.  ``tuning`` defaults to the active tuning.  As with
-    ``get_distance_brouwer_zimmermann_many``, the basis needs a nontrivial word, and an early exit
-    once a witness weighs at most ``cutoff`` returns its weight, which can exceed the distance.
-    """
-    return get_distance_brouwer_zimmermann_many(
-        [(basis, labels)],
-        cutoff=cutoff,
-        weight_divisor=weight_divisor,
-        upper_bound=upper_bound,
-        tuning=tuning,
-    )
-
-
 ####################################################################################################
 # cost models
 

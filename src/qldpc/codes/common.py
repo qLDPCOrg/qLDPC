@@ -50,22 +50,24 @@ from .distance import (
     NO_DISTANCE,
     DistanceMethod,
     NoDistance,
-    get_distance_classical,
-    get_distance_quantum,
+    get_distance_css,
+    get_distance_from_checks,
+    get_distance_from_generators,
+    get_distance_pauli,
 )
-from .distance.core import (
-    _get_distance_connected_support,
-    _get_distance_css_brouwer_zimmermann,
-    _get_distance_quantum,
-    _validate_distance_method,
-)
+from .distance.core import _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
-# The values of the backend argument of get_distance_bound, which selects how it computes an upper
-# bound.
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
+"""The backends with which the ``get_distance_bound`` methods of codes bound a distance from above.
+
+- ``"auto"``, the default: an available backend that the code supports.
+- ``"decoder"``: a decoder, which classical codes and CSS codes support.
+- ``"gap"``: the QDistRnd package of GAP, which quantum codes support.
+- ``"sqetch"``: the optional GPU estimator sqetch, which binary CSS codes support.
+"""
 
 _GAP_DISTANCE_BOUND_KWARGS = frozenset({"maxav"})
 _SQETCH_DISTANCE_BOUND_KWARGS = frozenset({"d_target", "k_sub", "batch_size", "seed", "device"})
@@ -555,18 +557,12 @@ class ClassicalCode(AbstractCode):
         # we do not know the exact distance, so compute it
         distance: int | Literal[NoDistance.NAN]
         if vector is None and method == "connected_support":
-            distance = _get_distance_connected_support(
-                [(self.matrix, np.zeros((0, len(self)), dtype=np.uint8))], cutoff=cutoff
-            )
+            distance = get_distance_from_checks(self.matrix, cutoff=cutoff, method=method)
             if cutoff <= 1:
                 self._distance = int(distance)
 
         elif self.field is galois.GF2 and vector is None:
-            distance = get_distance_classical(
-                self.generator,
-                cutoff=cutoff,
-                method=method,
-            )
+            distance = get_distance_from_generators(self.generator, cutoff=cutoff, method=method)
             if cutoff <= 1:
                 self._distance = int(distance)
 
@@ -584,26 +580,29 @@ class ClassicalCode(AbstractCode):
             if not np.any(self.matrix @ vector):
                 return 0
             if self.field is galois.GF2 and method == "connected_support":
+                # The vector itself is within the cutoff, or bounds the weight of its coset.
+                weight = int(np.count_nonzero(vector))
+                if weight <= cutoff:
+                    return weight
                 # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the
                 # coset of the vector, with b appended, and the words with b = 0 are the code
                 # words, which the search excludes.  So the coset weighs one less than the search
-                # finds, and the cutoff and the upper bound from the vector itself are one more.
+                # finds, and the cutoff is one more.  The vector with b appended weighs weight + 1,
+                # so the search need not look beyond weight.
                 matrix = self.matrix.view(np.ndarray)
                 checks = np.hstack([matrix, (matrix @ vector.view(np.ndarray))[:, None] % 2])
                 code_words = np.hstack(
                     [self.generator.view(np.ndarray), np.zeros((len(self.generator), 1), int)]
                 )
-                weight = _get_distance_connected_support(
-                    [(checks, code_words)],
-                    cutoff=cutoff + 1,
-                    upper_bound=int(np.count_nonzero(vector)) + 1,
+                found = get_distance_from_checks(
+                    checks, code_words, cutoff=cutoff + 1, method=method, max_weight=weight
                 )
-                return weight - 1
+                return int(found) - 1
             if self.field is galois.GF2:
                 # The vector is one logical operator modulo the code, so search its coset.
                 return int(
-                    get_distance_quantum(
-                        [vector], self.generator, homogeneous=True, cutoff=cutoff, method=method
+                    get_distance_from_generators(
+                        [vector], self.generator, cutoff=cutoff, method=method
                     )
                 )
             distance = int(np.count_nonzero(vector))
@@ -1127,9 +1126,10 @@ class QuditCode(AbstractCode):
 
         ``is_subsystem_code`` records whether the parity checks fail to commute, making this a
         subsystem code.  If omitted, it is computed when first needed.  An explicit ``True`` is a
-        trusted hint, which is safe even if wrong: a stabilizer code treated as a subsystem code
-        just has no gauge qudits.  An explicit ``False`` is verified, and raises a ValueError if
-        some parity checks do not commute.
+        trusted hint, not verified.  A stabilizer code treated as a subsystem code has no gauge
+        qudits and the same distances, but functions and methods that reject subsystem codes, such
+        as get_distance_bound and memory experiments, reject it too.  An explicit ``False`` is
+        verified, and raises a ValueError if some parity checks do not commute.
         """
         super().__init__(matrix, field)
 
@@ -1470,7 +1470,9 @@ class QuditCode(AbstractCode):
 
         For a subsystem code, logical operators are constructed as a symplectic basis of the gauge
         group's centralizer, whose symplectic radical is the stabilizer group.  These logical
-        operators make no guarantees on their physical support.
+        operators make no guarantees on their physical support.  They are bare: they commute with
+        every gauge operator, so they can be heavier than the distance, which is dressed (see
+        get_distance).
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
         always be True for a non-CSS code.
@@ -1920,7 +1922,8 @@ class QuditCode(AbstractCode):
                 - n is the number of data qudits
                 - k is the number of encoded ("logical") qudits
                 - d is the code distance (or an upper bound on code distance), an integer, or
-                  ``NO_DISTANCE`` if the code encodes nothing.
+                  ``NO_DISTANCE`` if the code encodes nothing.  For a subsystem code, it is dressed
+                  (see :meth:`get_distance`).
         """
         dimension = self.dimension
         distance = self.get_distance(bound=bound, **bound_kwargs)
@@ -1934,6 +1937,10 @@ class QuditCode(AbstractCode):
         **bound_kwargs: Any,
     ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
+
+        For a subsystem code, logical operators are dressed: they may be multiplied by gauge
+        operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
+        distance instead, if the code is binary.
 
         Args:
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
@@ -1975,8 +1982,10 @@ class QuditCode(AbstractCode):
 
         The weight of an operator is the number of qudits on which it acts nontrivially.  For a
         subsystem code, logical operators are dressed: they may be multiplied by gauge operators.
-        The cost of this computation generally grows exponentially with the size of the code.  The
-        computed distance is remembered for later calls unless cutoff is greater than 1.
+        :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare distance
+        instead, if the code is binary.  The cost of this computation generally grows exponentially
+        with the size of the code.  The computed distance is remembered for later calls unless
+        cutoff is greater than 1.
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
@@ -2005,26 +2014,12 @@ class QuditCode(AbstractCode):
 
         # we do not know the exact distance, so compute it
         distance: int | Literal[NoDistance.NAN]
-        if method == "connected_support":
-            # A dressed logical operator commutes with the stabilizers, and is trivial if it is in
-            # the gauge group, which the rows of self.matrix generate.
-            checks = self.get_stabilizer_ops() if self.is_subsystem_code else self.matrix
-            distance = _get_distance_connected_support(
-                [(checks, self.matrix)],
+        if self.field is galois.GF2:
+            distance = get_distance_pauli(
+                self.matrix,
                 cutoff=cutoff,
-                homogeneous=False,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
-            )
-
-        elif self.field is galois.GF2:
-            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops()
-            distance = _get_distance_quantum(
-                logical_ops,
-                stabilizers,
-                cutoff=cutoff,
-                homogeneous=False,
                 method=method,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
+                automorphisms=lambda: self._found_qudit_automorphisms,
             )
 
         else:
@@ -2103,8 +2098,9 @@ class QuditCode(AbstractCode):
                 workflow is declined with ``backend="gap"``.
             TypeError: If num_trials is not an integer or None.
             ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
-                GAP/QDistRnd does not recognize, or if given options for GAP with
-                ``backend="auto"`` when GAP cannot be called.
+                GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
+                when GAP cannot be called, or if the code is a subsystem code, since QDistRnd
+                bounds a subsystem code only if it is CSS and given as a :class:`CSSCode`.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -2126,12 +2122,13 @@ class QuditCode(AbstractCode):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
         if _resolve_distance_backend(backend, bound_kwargs, is_binary=False) != "gap":
             raise NotImplementedError(
-                "Bounding the code distance of non-CSS codes requires GAP/QDistRnd, but GAP cannot"
-                ' be called; pass backend="gap" to use GAP manually'
+                "Bounding the distance of a QuditCode that is not a CSSCode requires GAP/QDistRnd,"
+                ' but GAP cannot be called; pass backend="gap" to use GAP manually'
             )
         if not external.gap.is_installed():
             raise NotImplementedError(
-                "Bounding the code distance of non-CSS codes without GAP is not supported"
+                "Bounding the distance of a QuditCode that is not a CSSCode without GAP is not"
+                " supported"
             )
 
         maxav = bound_kwargs.get("maxav", "fail")
@@ -2790,8 +2787,9 @@ class CSSCode(QuditCode):
 
         ``is_subsystem_code`` records whether some X-type and Z-type parity checks fail to commute,
         making this a subsystem code.  If omitted, it is computed when first needed.  An explicit
-        ``True`` is a trusted hint, which is safe even if wrong: a stabilizer code treated as a
-        subsystem code just has no gauge qudits.  An explicit ``False`` is verified, and raises a
+        ``True`` is a trusted hint, not verified.  A stabilizer code treated as a subsystem code has
+        no gauge qudits and the same distances, but functions that reject subsystem codes, such as
+        memory experiments, reject it too.  An explicit ``False`` is verified, and raises a
         ValueError if some parity checks do not commute.
 
         If ``promise_equal_distance_xz is True``, the X-type and Z-type logical operators are
@@ -2972,7 +2970,8 @@ class CSSCode(QuditCode):
     def is_self_dual(self) -> bool:
         """Is this code self-dual?
 
-        That is, are its X-type and Z-type stabilizers equivalent?
+        That is, do its X-type and Z-type parity checks span the same space?  For a stabilizer code,
+        these are its stabilizers, and for a subsystem code, its gauge generators.
         """
         return np.array_equal(self.canonicalized.matrix_x, self.canonicalized.matrix_z)
 
@@ -3106,12 +3105,15 @@ class CSSCode(QuditCode):
         Logical X-type operators only address physical qudits by physical X-type operators, and
         logical Z-type operators only address physical qudits by physical Z-type operators.
 
-        Logical operators are constructed with the method similar to that in Section 4.1 of
+        Logical operators are constructed with a method similar to that in Section 4.1 of
         Gottesman's thesis (arXiv:9705052), generalized for subsystem qudit codes.  The basic
         strategy is to fix the values of the logical operator matrix in the GL sector of the parity
         check matrix when written in standard form (see QuditCode.get_standard_form_data), and then
         fill in the remaining entries of the logical operator matrix as required by parity check
         constraints.
+
+        For a subsystem code, these logical operators are bare: they commute with every gauge
+        operator, so they can be heavier than the distance, which is dressed (see get_distance).
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
 
@@ -3504,7 +3506,8 @@ class CSSCode(QuditCode):
                 - n is the number of data qudits
                 - k is the number of encoded ("logical") qudits
                 - d is the code distance (or an upper bound on code distance), an integer, or
-                  ``NO_DISTANCE`` if the code encodes nothing.
+                  ``NO_DISTANCE`` if the code encodes nothing.  For a subsystem code, it is dressed
+                  (see :meth:`get_distance`).
         """
         dimension = self.dimension
         distance = self.get_distance(bound=bound, decoder=decoder, **bound_kwargs)
@@ -3520,6 +3523,10 @@ class CSSCode(QuditCode):
         **bound_kwargs: Any,
     ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
+
+        For a subsystem code, logical operators are dressed: they may be multiplied by gauge
+        operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
+        distance instead, if the code is binary.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3568,8 +3575,10 @@ class CSSCode(QuditCode):
         """Compute the exact minimum weight of nontrivial logical operators.
 
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
-        operators.  The cost of this computation generally grows exponentially with the size of the
-        code.  Computed distances are remembered for later calls unless cutoff is greater than 1.
+        operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
+        distance instead, if the code is binary.  The cost of this computation generally grows
+        exponentially with the size of the code.  Computed distances are remembered for later calls
+        unless cutoff is greater than 1.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3609,6 +3618,7 @@ class CSSCode(QuditCode):
             return distance
 
         # Subclasses with specialized formulas keep control of their exact-distance calculation.
+        # Brute force searches the two sectors separately, so it may as well remember both.
         if (
             pauli is None
             and method in ("brouwer_zimmermann", "connected_support")
@@ -3618,21 +3628,18 @@ class CSSCode(QuditCode):
             if self._equal_distance_xz:
                 return self.get_distance_exact(Pauli.X, cutoff=cutoff, method=method)
 
-            paulis: list[PauliXZ] = []
+            # At most one sector is known, since the distance would be known otherwise.  A known
+            # sector caps the search of the other.
+            known_x = self.get_distance_if_known(Pauli.X)
+            known_z = self.get_distance_if_known(Pauli.Z)
+            sector: PauliXZ | None = None
             upper_bound: int | None = None
-            for sector_pauli in PAULIS_XZ:
-                known_distance = self.get_distance_if_known(sector_pauli)
-                if known_distance is not None:
-                    # A known sector caps the sectors that still need to be searched.
-                    sector_bound = int(known_distance)
-                    upper_bound = (
-                        sector_bound if upper_bound is None else min(upper_bound, sector_bound)
-                    )
-                    continue
-                paulis.append(sector_pauli)
-
+            if known_x is not None:
+                sector, upper_bound = Pauli.Z, int(known_x)
+            elif known_z is not None:
+                sector, upper_bound = Pauli.X, int(known_z)
             distance = self._get_distance_of_sectors(
-                paulis, method, cutoff=cutoff, upper_bound=upper_bound
+                sector, method, cutoff=cutoff, upper_bound=upper_bound
             )
             if cutoff <= 1:
                 # The joint search proves only the minimum, not either individual sector distance.
@@ -3646,18 +3653,8 @@ class CSSCode(QuditCode):
             )
 
         # we do not know the exact distance, so compute it
-        if self.field is galois.GF2 and method in ("brouwer_zimmermann", "connected_support"):
-            distance = self._get_distance_of_sectors([pauli], method, cutoff=cutoff)
-
-        elif self.field is galois.GF2:
-            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops(pauli)
-            distance = get_distance_quantum(
-                logical_ops,
-                stabilizers,
-                cutoff=cutoff,
-                homogeneous=True,
-                method=method,
-            )
+        if self.field is galois.GF2:
+            distance = self._get_distance_of_sectors(pauli, method, cutoff=cutoff)
 
         else:
             warnings.warn(
@@ -3734,6 +3731,11 @@ class CSSCode(QuditCode):
         selection therefore never falls back to the manual copy/paste GAP workflow, which requires
         ``backend="gap"``, but GAP may still ask on standard input before installing a missing
         GUAVA or QDistRnd package.
+
+        Every backend gives an upper bound on the distance, which is dressed for a subsystem code.
+        GAP searches dressed logical operators.  The decoder-based algorithm searches bare ones,
+        which commute with every gauge operator, so for a subsystem code its bound can stay above
+        the distance.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
@@ -3860,7 +3862,9 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         r"""Use a randomized algorithm to compute an upper bound on code distance.
 
-        Specifically, use the algorithm described in arXiv:2308.07915, also explained below.
+        Specifically, use the algorithm described in arXiv:2308.07915, also explained below.  For a
+        subsystem code, it finds bare logical operators, which commute with every gauge operator, so
+        its bound is valid but can stay above the distance, which is dressed.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3964,7 +3968,9 @@ class CSSCode(QuditCode):
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
         that it commutes with all logical operators except its dual.  This is essentially the same
-        method as that used in CSSCode.get_distance_bound.
+        method as that used in CSSCode.get_distance_bound.  For a subsystem code, the operator stays
+        bare: it commutes with every gauge operator, so its weight can exceed the distance, which is
+        dressed (see get_distance).
 
         Args:
             pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"
@@ -4020,6 +4026,8 @@ class CSSCode(QuditCode):
         **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
     ) -> Self:
         """Reduce the weight of all logical operators.
+
+        For a subsystem code, the reduced operators stay bare (see reduce_logical_op).
 
         Args:
             pauli: The type of logical operators to reduce: Pauli.X, Pauli.Z, or None (the default)
@@ -4340,51 +4348,31 @@ class CSSCode(QuditCode):
             min_error_weight,
         )
 
-    def _get_parity_check_sector(
-        self, pauli: PauliXZ
-    ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Parity checks whose kernel holds the operators of one type, and a matrix of trivial ones.
-
-        The checks are the stabilizers of the opposite type.  The rows of the second matrix are the
-        gauge generators of type ``pauli``, which include its stabilizers, and their row space holds
-        the operators of that type that act trivially.
-        """
-        # The rows of the matrix of a stabilizer code can be redundant, which strengthens the
-        # search, while the stabilizers of a subsystem code need to be computed.
-        opposite: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
-        checks = (
-            self.get_stabilizer_ops(opposite)
-            if self.is_subsystem_code
-            else self.get_matrix(opposite)
-        )
-        return checks, self.get_matrix(pauli)
-
     def _get_distance_of_sectors(
         self,
-        paulis: Sequence[PauliXZ],
-        method: Literal["brouwer_zimmermann", "connected_support"],
+        pauli: PauliXZ | None,
+        method: DistanceMethod,
         *,
         cutoff: int,
         upper_bound: int | None = None,
-    ) -> int:
-        """The minimum distance of the logical operators of the given types, over GF(2).
+    ) -> int | Literal[NoDistance.NAN]:
+        """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
-        The search uses the automorphisms of this code.  It searches connected supports if
-        ``method`` is ``"connected_support"``, and is Brouwer-Zimmermann otherwise.  A result at or
+        Brouwer--Zimmermann and connected-support searches use the automorphisms of this code.
+        ``upper_bound``, if given, is the weight of a known logical operator of the other type,
+        which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
         below ``cutoff`` can be an upper bound.
         """
-        if method == "connected_support":
-            return _get_distance_connected_support(
-                [self._get_parity_check_sector(pauli) for pauli in paulis],
-                cutoff=cutoff,
-                upper_bound=upper_bound,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
-            )
-        return _get_distance_css_brouwer_zimmermann(
-            [self._get_logical_ops_and_trivial_ops(pauli) for pauli in paulis],
+        if upper_bound is not None and upper_bound <= cutoff:
+            return upper_bound
+        return get_distance_css(
+            self.matrix_x,
+            self.matrix_z,
+            pauli,
             cutoff=cutoff,
-            upper_bound=upper_bound,
-            get_automorphisms=lambda: self._found_qudit_automorphisms,
+            method=method,
+            max_weight=None if upper_bound is None else upper_bound - 1,
+            automorphisms=lambda: self._found_qudit_automorphisms,
         )
 
     def _get_distance_exact(

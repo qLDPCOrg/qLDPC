@@ -825,11 +825,11 @@ The distance search and the counts call it through `get_overlapping_family_polic
 [core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_support/search.py](_connected_support/search.py), which [connected_support.md](connected_support.md) describes, and [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
-`_get_distance_css_brouwer_zimmermann` of [core.py](core.py) builds an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each nontrivial sector, then passes the resulting problems to `get_distance_brouwer_zimmermann_many`.
-It also passes a function that returns automorphisms of the code.
-`get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` passes the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method.
-`get_distance_exact` of `QuditCode` passes the same function to `_get_distance_quantum`, a private form of `get_distance_quantum` that accepts automorphisms.
-`_get_distance_quantum` lifts them to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`, and passes its problem to `get_distance_brouwer_zimmermann_many`.
+The distance functions of [core.py](core.py) build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector that they search, and pass the resulting problems to `get_distance_brouwer_zimmermann_many`, with `get_distance_css` passing both sectors of a CSS code at once.
+They pass the automorphisms that their caller gives to the search as a function, which calls any function that the caller gives at most once.
+`get_distance_exact` of `CSSCode` in `src/qldpc/codes/common.py` gives a function that returns the code's `_found_qudit_automorphisms`, which uses bliss from `src/qldpc/external/_bliss.py` or the code's `_get_qudit_automorphisms` method.
+`get_distance_exact` of `QuditCode` gives the same function to `get_distance_pauli`.
+For Pauli strings, the functions lift the automorphisms to the coordinates of a general Pauli problem with `_get_lifted_automorphisms`.
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
 Distance searches and counts use [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py) to choose and build the tables of [Section 3.9](#39-skipping-completions-by-completion-tables), and coset searches use it to choose and build the tables of their routes by tails.
 The distance search and `CosetLeaderSearch` scan their layers with the compiled entry points of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which run one body, `_scan`, with constant flags.
@@ -844,7 +844,7 @@ The weight divisor of the certificate rounds its Hamming bounds up to multiples 
 `get_distance_instance` packs a basis family with its pivot columns deleted ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and takes the certificate that the distance search selects.
 The distance search builds another instance when it switches to an automorphism family, whose certificate covers every image of the one set that it scans.
 
-`CosetLeaderSearch` in [_coset_leader_search.py](_coset_leader_search.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `u + V` instead of `V`, unless it is built with `method="connected_support"` ([connected_support.md](connected_support.md)).
+`CosetLeaderSearch` in [coset_leaders.py](coset_leaders.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `u + V` instead of `V`, unless it is built with `method="connected_support"` ([connected_support.md](connected_support.md)).
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
 A **query** of `CosetLeaderSearch` asks whether the coset of a syndrome has a word of weight at most a given maximum weight.
 `CosetLeaderSearch` answers each query with one or two **coset searches**: a search of Pauli errors, or, for the CSS weight on a CSS state, searches of their X and Z parts, as described at the end of this section.
@@ -874,7 +874,7 @@ Otherwise, a query takes the tables of the **route** of its maximum weight, whic
 A route is a family of search bases of the code, with its coset instance and planning buffer: the disjoint sets, or a family that the routes build for costly queries.
 `BrouwerZimmermannCosetSearch.find_first_not_within_max_weight` answers a batch with the route of its maximum weight, which it takes once.
 For the CSS weight on a CSS state, `CosetLeaderSearch` gives the X parts and the Z parts of a batch to their own searches, each with its own route.
-`_get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](#310-minimum-weights-of-cosets) for the residual-weight estimator.
+`get_min_weights` of `CosetLeaderSearch` finds the minimum weights of [Section 3.10](#310-minimum-weights-of-cosets), such as those of the residual-weight estimator.
 `BrouwerZimmermannCosetSearch.get_min_weights` answers a batch on the route of the maximum weight ([Section 4.4](#44-heuristics-and-cost-models)), with `_find_min_weights`.
 These searches find their stopping steps with `find_stopping_step`, and leave the cached steps of the planning buffer to the queries.
 The gate tests the predicted examinations of a query with the disjoint family against its threshold, to decide whether the query may take another family ([Section 4.4](#44-heuristics-and-cost-models)).
@@ -898,7 +898,7 @@ A certificate with linear programs instead checks the steps of the layer but the
 For the CSS weight `max(|x|, |z|)` on a CSS state, whose stabilizer group is generated by stabilizers with no Z part and stabilizers with no X part, `CosetLeaderSearch` instead runs this search on two classical codes, spanned by the X parts of the first kind and by the Z parts of the second, with words weighed by their Hamming weight.
 The BZ coset searches of `CosetLeaderSearch`, `BrouwerZimmermannCosetSearch` with `_search_coset` and `_find_min_weights`, are in [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py).
 The tables of their steps and tails, such as `get_search_tables`, `get_stopping_step`, and `CosetTails`, are in [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py).
-What they share with the connected-support coset searches, such as `MinWeightBound`, is in [_cosets.py](_cosets.py).
+What they share with the connected-support coset searches is in [_cosets.py](_cosets.py), and their answers, `MinWeightBound`, are in [min_weight_bounds.py](min_weight_bounds.py).
 
 ### 4.2 Flow and exit points
 
@@ -1032,27 +1032,27 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 ### 4.5 Behavior spanning files
 
 - **Cutoff.**
-  The docstrings of `get_distance_classical` and `get_distance_quantum` in [core.py](core.py) state the contracts of `cutoff` and of an early exit.
-  Both functions default to `cutoff=1`, which gives the exact distance for a valid nontrivial binary problem, because a distance is at least one.
-  `_get_distance_css_brouwer_zimmermann` requires a `cutoff`.
+  The docstring of `get_distance_from_generators` in [core.py](core.py) states the contracts of `cutoff` and of an early exit, which the other distance functions share.
+  They all default to `cutoff=1`, which gives the exact distance for a valid nontrivial binary problem, because a distance is at least one.
   A `cutoff` of zero or less never triggers an early exit for such a problem, and `advance` clamps negative values to `-1` before it calls the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
 - **Weight limit.**
-  The same docstrings state the contract of `max_weight`, and what inputs without nontrivial words give.
+  The same docstring states the contract of `max_weight`, and what inputs without nontrivial words give.
   The functions pass `upper_bound=max_weight+1` to the BZ route, as though a witness of that weight were known, so the search stops once its certificate reaches that bound, and they clamp the results of the other routes to it.
   A limit below the distance therefore avoids the cost of certifying the distance itself.
   The limit also caps `cutoff` at `max_weight`, since a cutoff at or above `max_weight+1` would end the search at once on the assumed witness, even if a lighter word exists.
   Inside the searches, a problem without nontrivial words counts as `n+1`, which no word on `n` bits or qubits weighs, so that it never lowers the minimum over problems.
-  For non-homogeneous input, the BZ route doubles the bound along with `cutoff`.
+  For symplectic input, the BZ route doubles the bound along with `cutoff`.
 - **Units.**
-  Homogeneous input represents a pure-X or pure-Z problem with one support bit per qubit.
-  Non-homogeneous input (`homogeneous=False`) uses general symplectic Pauli rows, as in [Section 2.7](#27-pauli-weight-as-hamming-weight).
-  For non-homogeneous input, the BZ route maps rows to Hamming coordinates, doubles `cutoff`, passes `weight_divisor=2`, and halves the result.
+  Binary input (`symplectic=False`) represents a classical problem, or a pure-X or pure-Z problem with one support bit per qubit.
+  Symplectic input (`symplectic=True`) uses general Pauli rows, as in [Section 2.7](#27-pauli-weight-as-hamming-weight).
+  For symplectic input, the BZ route maps rows to Hamming coordinates, doubles `cutoff`, passes `weight_divisor=2`, and halves the result.
   The exhaustive routes inside preparation receive the same Hamming-coordinate basis, so they use the doubled `cutoff`.
   Only `method="brute_force"` uses native symplectic weights and the original `cutoff`.
 - **Independence.**
   Callers need not supply independent generators.
-  The classical path uses `get_independent_rows`, and the quantum path uses `get_nested_code_basis`.
+  `_search_generators` in `core.py` makes them independent: without excluded rows it uses `get_independent_rows`, and with them it uses `get_nested_code_basis`.
+  Every BZ and brute-force route of the distance functions goes through it, except the BZ route of `get_distance_css`, which calls `get_nested_code_basis` itself.
   So the packed enumerators always receive independent bases.
 - **Resumable layers.**
   The compiled scan returns after at most `batch_size` supports.
@@ -1068,12 +1068,13 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   A joint search runs one search per sector in round-robin order and shares the best bound.
   Each sector keeps its own `lower_bound` and the `certificate` of its `instance`, including its coverage and divisor.
 - **Automorphisms.**
-  `get_distance_exact` of `QuditCode` and of `CSSCode` pass the code's `_found_qudit_automorphisms` to their BZ searches, as a function.
+  The distance functions pass the automorphisms that their caller gives to their BZ searches, as a function.
+  `get_distance_exact` of `QuditCode` and of `CSSCode` give a function that returns the code's `_found_qudit_automorphisms`.
   Each search calls the function only before a costly layer, and the code caches its result, so bliss runs at most once for the code.
   A search uses the generators only after `verify_automorphisms` accepts them for its problem.
   A generator preserves both sectors of a CSS code if it maps the row spaces of both parity check matrices onto themselves.
-  For a general Pauli problem, `_get_distance_quantum` lifts each generator to the three blocks of coordinates of [Section 2.7](#27-pauli-weight-as-hamming-weight).
-  Only these BZ searches of binary codes receive automorphisms.
+  For a general Pauli problem, the distance functions lift each generator to the three blocks of coordinates of [Section 2.7](#27-pauli-weight-as-hamming-weight).
+  Counts of logical operators and coset searches receive no automorphisms.
 
 ## 5. Correctness requirements
 
@@ -1110,7 +1111,7 @@ Changes to the BZ algorithm can use different representations, certificates, and
   A search for the minimum weight of a coset up to `ω` may stop only at a step whose bound reaches `U`, the lesser of `ω + 1` and the weight of its lightest word, or within a step once that weight is at most the bound of the step before or the floor of the search ([Section 3.10](#310-minimum-weights-of-cosets)).
   The floor is the weight of the X part of a class in the search of its Z part, for the CSS weight on a CSS state, and zero otherwise.
   The scans of the search may keep only the words lighter than the incumbent of that section, and its tables may skip only the completions whose bound reaches it: `h(ω)` until it finds a word within `ω`, and then the Hamming weight of its lightest word, less one only where every word of the coset has the parity of that word.
-  `test_min_weights_of_cosets_match_brute_force` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) and `test_min_weights_match_exhaustive_minima` in [_coset_leader_search_test.py](_coset_leader_search_test.py) check the weights against every word of each coset, on even codes and with tables, and `test_min_weight_searches_above_max_weight_examine_as_queries` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks that a search of a coset without a word within `ω` weighs and skips as many words as a query at `ω`.
+  `test_min_weights_of_cosets_match_brute_force` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) and `test_min_weights_match_exhaustive_minima` in [coset_leaders_test.py](coset_leaders_test.py) check the weights against every word of each coset, on even codes and with tables, and `test_min_weight_searches_above_max_weight_examine_as_queries` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks that a search of a coset without a word within `ω` weighs and skips as many words as a query at `ω`.
 - **Keep the strict certificate available to fixed-weight counting.**
   [logical_counts.py](logical_counts.py) builds its basis family with the same stages as the distance search, in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), and stops at the first step after which that basis family's certificate exceeds a target weight `w`, to count every word of weight `w`, which defaults to the distance.
   Distance may stop at `L(t, j) ≥ U`, but counting must also exhaust words of weight exactly `w`, so it stops only at `L(t, j) > w`.
@@ -1147,5 +1148,5 @@ Those tests can evolve with the implementation; they do not make a particular in
 - M. Grassl, "Searching for linear codes with large minimum distance," in *Discovering Mathematics with Magma*, Springer, 2006, pp. 287-313 ([doi:10.1007/978-3-540-37634-7_13](https://doi.org/10.1007/978-3-540-37634-7_13)): Algorithm 2.5 gives the certificate for overlapping information sets, footnote 2 on page 295 the certificate within a layer, page 299 the rounding to a weight divisor, and Algorithm 2.11 the choice between BZ and the weight distribution.
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 a coverage-divided certificate for any blocks, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
-- [core.py](core.py), [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_coset_leader_search.py](_coset_leader_search.py), [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py), [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py), [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py), [_cosets.py](_cosets.py), [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), [_brouwer_zimmermann/affine_instance.py](_brouwer_zimmermann/affine_instance.py), [_information_sets/basis_families.py](_information_sets/basis_families.py), [_information_sets/certificates.py](_information_sets/certificates.py), [_information_sets/support_stepping.py](_information_sets/support_stepping.py), [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), [_information_sets/matroid_partition.py](_information_sets/matroid_partition.py), [_brute_force.py](_brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
-- [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py), [_coset_leader_search_test.py](_coset_leader_search_test.py), [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py), [_brouwer_zimmermann/coset_tables_test.py](_brouwer_zimmermann/coset_tables_test.py), [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py), [_cosets_test.py](_cosets_test.py), [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py), [_brouwer_zimmermann/affine_instance_test.py](_brouwer_zimmermann/affine_instance_test.py), [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py), [_information_sets/certificates_test.py](_information_sets/certificates_test.py), [_information_sets/support_stepping_test.py](_information_sets/support_stepping_test.py), [_information_sets/automorphism_families_test.py](_information_sets/automorphism_families_test.py), [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.
+- [core.py](core.py), [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [coset_leaders.py](coset_leaders.py), [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py), [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py), [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py), [_cosets.py](_cosets.py), [min_weight_bounds.py](min_weight_bounds.py), [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), [_brouwer_zimmermann/affine_instance.py](_brouwer_zimmermann/affine_instance.py), [_information_sets/basis_families.py](_information_sets/basis_families.py), [_information_sets/certificates.py](_information_sets/certificates.py), [_information_sets/support_stepping.py](_information_sets/support_stepping.py), [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), [_information_sets/matroid_partition.py](_information_sets/matroid_partition.py), [_brute_force.py](_brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
+- [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py), [coset_leaders_test.py](coset_leaders_test.py), [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py), [_brouwer_zimmermann/coset_tables_test.py](_brouwer_zimmermann/coset_tables_test.py), [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py), [_cosets_test.py](_cosets_test.py), [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py), [_brouwer_zimmermann/affine_instance_test.py](_brouwer_zimmermann/affine_instance_test.py), [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py), [_information_sets/certificates_test.py](_information_sets/certificates_test.py), [_information_sets/support_stepping_test.py](_information_sets/support_stepping_test.py), [_information_sets/automorphism_families_test.py](_information_sets/automorphism_families_test.py), [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.

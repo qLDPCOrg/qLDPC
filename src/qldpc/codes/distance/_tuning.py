@@ -8,7 +8,7 @@ caches.  :class:`SearchTuning` collects the values that tune a search, from the 
 choose a route to the coefficients of cost models and the sizes of batches.  The tables of the page
 :doc:`/exact_search_tuning` of the documentation, which renders this docstring, map routes and
 symptoms to these values.  Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a
-Brouwer-Zimmermann search uses them, and Sections 3.5 and 3.8 of ``connected_support.md`` where the
+Brouwer--Zimmermann search uses them, and Sections 3.5 and 3.8 of ``connected_support.md`` where the
 connected-support searches use theirs.
 
 This module is private.  Its names, fields, defaults, and constants can change in any release,
@@ -24,11 +24,12 @@ What tuning can and cannot change:
 - With an early exit (``cutoff`` of two or more), a distance search returns the weight of a
   nontrivial word at or below ``cutoff`` that it finds, and which word that is depends on tuning.
   The result is still an upper bound between the distance and ``cutoff``, as documented by
-  :func:`~qldpc.codes.distance.get_distance_quantum`.
-- Under every tuning, a query of ``CosetLeaderSearch`` decides the same way whether a coset has a
-  word of weight at most the query's maximum weight, and with the connected-support method it gives
-  the same lower bound.  The word that it returns, and with the Brouwer-Zimmermann method its lower
-  bound, can depend on tuning, within the contract of ``MinWeightBound``.
+  :func:`~qldpc.codes.distance.get_distance_from_generators`.
+- Under every tuning, a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` decides the same
+  way whether a coset has a word of weight at most the query's maximum weight, and with the
+  connected-support method it gives the same lower bound.  The word that it returns, and with the
+  Brouwer--Zimmermann method its lower bound, can depend on tuning, within the contract of
+  :class:`~qldpc.codes.distance.MinWeightBound`.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
   process (see ``BINOMIAL_CACHE_SIZE``, ``CSS_SEARCH_CACHE_SIZE``, ``KRAWTCHOUK_CACHE_SIZE``,
   ``LOCAL_CLIFFORD_CACHE_SIZE``, and ``PAULI_SEARCH_CACHE_SIZE``), so a later search with another
@@ -71,9 +72,9 @@ such as a coefficient of a cost model.  So a field can differ between two search
 and a saved tuning records every field.  The arguments of the public functions that start searches
 say instead what to compute and by which method, such as ``cutoff``, ``max_weight``, and ``method``.
 The entry points that read the tuning are the distance searches, the counts of logical operators,
-and the oracles of ``CosetLeaderSearch``, each when it starts or is built.  Only values that qLDPC
-fixes before any search starts are constants: ``MAX_VALUE``, and the sizes of caches, which it fixes
-when it is imported.  Change those by editing this module, and start a new process.
+and :class:`~qldpc.codes.distance.CosetLeaderSearch`, each when it starts or is built.  Only values
+that qLDPC fixes before any search starts are constants: ``MAX_VALUE``, and the sizes of caches,
+which it fixes when it is imported.  Change those by editing this module, and start a new process.
 
 .. _tuning-retuning:
 
@@ -282,25 +283,25 @@ class SearchTuning:
     #: that loses no certified bound.
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
-    #: A distance search that can find automorphisms of its code finds them before its first
-    #: coefficient layer of at least this estimated work, in candidate/set evaluations, and then
-    #: searches the images of one information set under them if that predicts less work (Section 3.7
-    #: of ``brouwer_zimmermann.md``).  Finding them takes milliseconds; lowering it pays that on
-    #: cheaper searches, zero before the first layer, and ``MAX_VALUE`` never.  Only the
-    #: ``get_distance_exact`` methods of binary quantum codes find automorphisms.  Defaults to
-    #: 10**8; how it was chosen is not recorded.  To retune it, time searches with and without
-    #: automorphisms.
+    #: A distance search asks at most once for the automorphisms that its caller passes.  It asks
+    #: before scanning its first coefficient layer of at least this estimated work, in candidate/set
+    #: evaluations.  It then searches the images of one information set under them if that predicts
+    #: less work (Section 3.7 of ``brouwer_zimmermann.md``).  Finding them, as the
+    #: ``get_distance_exact`` methods of binary quantum codes do, takes milliseconds.  Lowering this
+    #: threshold pays that cost on cheaper searches.  A threshold of zero asks before the first
+    #: layer, and ``MAX_VALUE`` never asks.  Defaults to 10**8; how it was chosen is not recorded.
+    #: To retune it, time searches with and without automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
 
     # Fields of connected-support searches.
 
-    #: A connected-support search of a quantum code asks for its automorphisms before the first
+    #: A connected-support search asks for the automorphisms that its caller passes before the first
     #: weight limit at which it expects to have visited this many states, which are supports, over
     #: all limits of one problem (Section 3.5 of ``connected_support.md``).  It also asks before a
-    #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost
-    #: of finding them on cheaper searches; raising it searches more limits from every variable.
-    #: Zero asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by
-    #: hand.  To retune it, time searches with and without automorphisms.
+    #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost of
+    #: finding them on cheaper searches; raising it searches more limits from every variable.  Zero
+    #: asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by hand.
+    #: To retune it, time searches with and without automorphisms.
     automorphism_minimum_states: int = 100_000
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to

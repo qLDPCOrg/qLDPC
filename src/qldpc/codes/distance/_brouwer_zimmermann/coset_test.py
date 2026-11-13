@@ -20,8 +20,6 @@ from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 from ...conftest import Tune
 from .. import _cosets
 from .._binary import symplectic_to_hamming
-from .._coset_leader_search import CosetLeaderSearch
-from .._cosets import MinWeightBound
 from .._information_sets import basis_families, completion_bounds
 from .._information_sets import certificates as certificates_module
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, get_tuning, use_tuning
@@ -39,9 +37,11 @@ from ..conftest import (
     get_random_full_rank_matrix,
     get_stabilizer_matrix,
     get_syndrome,
-    pack_syndromes,
     scramble,
+    split_syndromes_into_words,
 )
+from ..coset_leaders import CosetLeaderSearch
+from ..min_weight_bounds import MinWeightBound
 from . import affine_instance, coset, coset_tables
 
 
@@ -109,7 +109,11 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     num_sooner = 0
     for syndrome in range(1 << num_qubits):
         _, parity = coset._get_syndrome_word(
-            pack_syndromes([syndrome], num_qubits)[0], best, tables.inverse, tables.x_mask, 0
+            split_syndromes_into_words([syndrome], num_qubits)[0],
+            best,
+            tables.inverse,
+            tables.x_mask,
+            0,
         )
         table = coset_tables.get_planning_table(tables.planning, parity)
         bounds = instance.get_weight_bounds(class_parities[syndrome])
@@ -399,7 +403,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
         return max_weight + 1 + int(even and (max_weight + 1 - minima[syndrome]) % 2)
 
     syndromes = list(range(1 << len(checks)))
-    packed_syndromes = pack_syndromes(syndromes, len(checks))
+    packed_syndromes = split_syndromes_into_words(syndromes, len(checks))
     for max_weight in range(-1, num_columns + 2):
         bounds = {}
         for syndrome in syndromes:
@@ -566,7 +570,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             range(1 << len(checks)), range(num_columns + 1)
         ):
             best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
-            packed_syndrome = pack_syndromes([syndrome], len(checks))[0]
+            packed_syndrome = split_syndromes_into_words([syndrome], len(checks))[0]
             best_weight, parity = coset._get_syndrome_word(
                 packed_syndrome, best, tables.inverse, tables.x_mask, 1
             )
@@ -680,7 +684,7 @@ def _assert_searches_by_tails_match_searches_of_words(
         max_table_bytes=MAX_VALUE,
     )
     even = scale == 1 and not np.any(generators.sum(axis=1) % 2)
-    packed_syndromes = pack_syndromes(syndromes, len(inverse))
+    packed_syndromes = split_syndromes_into_words(syndromes, len(inverse))
     total_skipped = 0
     for max_weight in max_weights:
         answers = {}
@@ -962,7 +966,7 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     for syndrome in syndromes:
         bound = search.get_min_weight_bound(syndrome, 2)
         assert (bound.within_max_weight, bound.lower_bound) == (True, 2)
-    packed_syndromes = pack_syndromes(syndromes, len(checks))
+    packed_syndromes = split_syndromes_into_words(syndromes, len(checks))
     assert search.find_first_not_within_max_weight(packed_syndromes, 2) == (len(syndromes), None)
 
 
@@ -999,7 +1003,9 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
     ]
     assert missed
     assert {search.get_min_weight_bound(syndrome, 3).lower_bound for syndrome in missed} == {4}
-    _, bound = search.find_first_not_within_max_weight(pack_syndromes(missed, len(checks)), 3)
+    _, bound = search.find_first_not_within_max_weight(
+        split_syndromes_into_words(missed, len(checks)), 3
+    )
     assert bound is not None and bound.lower_bound == 4
 
 
@@ -1035,7 +1041,9 @@ def _assert_min_weights_match_brute_force(
     Any other coset gets its least weight, or one more than the maximum weight if that is smaller.
     """
     order = rng.permutation(len(syndromes))
-    packed_syndromes = pack_syndromes([syndromes[index] for index in order], num_syndrome_bits)
+    packed_syndromes = split_syndromes_into_words(
+        [syndromes[index] for index in order], num_syndrome_bits
+    )
     least = minima[order]
     for max_weight in range(int(least.max()) + 2):
         random_floors = rng.integers(0, max_weight + 1, len(least))
@@ -1142,7 +1150,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
             for syndrome, minimum in zip(syndromes, minima, strict=True):
                 if minimum <= max_weight:
                     continue
-                packed_syndrome = pack_syndromes([syndrome], num_syndrome_bits)[0]
+                packed_syndrome = split_syndromes_into_words([syndrome], num_syndrome_bits)[0]
                 best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
                 best_weight, parity = coset._get_syndrome_word(
                     packed_syndrome, best, tables.inverse, tables.x_mask, search.scale

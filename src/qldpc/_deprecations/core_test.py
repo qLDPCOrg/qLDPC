@@ -8,6 +8,7 @@ import importlib
 import inspect
 import unittest.mock
 import warnings
+from typing import Any
 
 import galois
 import networkx as nx
@@ -198,8 +199,115 @@ def test_deprecated_get_distance_bound() -> None:
             code.forget_distance()
             assert get_bound() == _deprecations.core.get_distance_bound(code) == 3
             assert get_output.call_args_list[-2] == get_output.call_args_list[-1]
-        with pytest.raises(ValueError, match="non-CSS subsystem codes"):
+        with pytest.raises(ValueError, match="subsystem code from its symplectic checks"):
             _deprecations.core.get_distance_bound(subsystem_code)
+
+
+def test_deprecated_distance_functions() -> None:
+    """The deprecated distance functions warn at their caller, and give the distances they gave.
+
+    get_distance_quantum read its rows as symplectic unless homogeneous was True: as Pauli strings,
+    the rows [1, 0, 1, 0] and [0, 1, 0, 1] are Y on one qubit and Y on the other, at distance 1,
+    whereas as binary words they are at distance 2.
+    """
+    generator = np.asarray(codes.HammingCode(3).generator)
+    searches = [
+        (
+            lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
+                generator.astype(object)
+            ),
+            3,
+        ),
+        (
+            lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
+                generator, method="brute_force", max_weight=1
+            ),
+            2,
+        ),
+        (
+            lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
+                generator[:1], generator[1:], homogeneous=True, max_weight=1
+            ),
+            2,
+        ),
+        (
+            lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
+                [[1, 0, 1, 0]], [[0, 1, 0, 1]]
+            ),
+            1,
+        ),
+    ]
+    for search, distance in searches:
+        with pytest.warns(
+            DeprecationWarning, match="use qldpc.codes.distance.get_distance_from_gen"
+        ):
+            assert search() == distance
+
+    # Both functions pass on their method.
+    get_distance_classical: Any = codes.get_distance_classical  # type: ignore[attr-defined]
+    get_distance_quantum: Any = codes.get_distance_quantum  # type: ignore[attr-defined]
+    for search in (
+        lambda: get_distance_classical(generator, method="connected_support"),
+        lambda: get_distance_quantum(
+            generator[:1], generator[1:], homogeneous=True, method="connected_support"
+        ),
+    ):
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
+            search()
+
+    # get_distance_quantum required its stabilizers, so it rejects None.
+    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="not None"):
+        get_distance_quantum(generator[:1], None, homogeneous=True)
+
+    # The block_size argument gives the batches that it gave before it was deprecated: exhaustive
+    # enumeration took it as its exponent, and scans of information sets took at most it, clamped to
+    # the range of the fields.
+    from qldpc.codes.distance import _tuning
+
+    with _tuning.use_tuning(information_set_batch_exponent=10) as active_tuning:
+        with _deprecations.core._use_block_size(None):
+            assert _tuning.get_tuning() is active_tuning
+        for block_size, batches in (
+            (4, (4, 4)),
+            (12, (12, 10)),
+            (100, (62, 10)),
+            (-3, (0, 0)),
+            (True, (1, 1)),
+        ):
+            with pytest.warns(DeprecationWarning, match="use_tuning"):
+                context = _deprecations.core._use_block_size(block_size)
+            with context:
+                tuning = _tuning.get_tuning()
+            assert (
+                tuning.enumeration_batch_exponent,
+                tuning.information_set_batch_exponent,
+            ) == batches
+
+    # The functions search with those batches, and warn at their caller about both deprecations.
+    # Rows that record the active batch exponent when the search reads them show the batches, since
+    # nothing else observable does.
+    exponents: list[int] = []
+
+    class RecordingRows:
+        def __init__(self, rows: Any) -> None:
+            self.rows = rows
+
+        def __array__(self, dtype: Any = None, copy: Any = None) -> Any:
+            exponents.append(_tuning.get_tuning().enumeration_batch_exponent)
+            return np.asarray(self.rows, dtype=dtype)
+
+    for search in (
+        lambda: get_distance_classical(RecordingRows(generator), block_size=2),
+        lambda: get_distance_quantum(
+            RecordingRows(generator[:1]), generator[1:], homogeneous=True, block_size=2
+        ),
+    ):
+        exponents.clear()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            assert search() == 3
+        assert exponents and set(exponents) == {2}
+        assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
 
 
 def test_deprecated_get_primitive_central_idempotents() -> None:

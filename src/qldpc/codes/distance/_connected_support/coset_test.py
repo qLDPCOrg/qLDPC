@@ -14,7 +14,6 @@ import pytest
 
 from qldpc._binary import row_reduce_binary
 
-from .._coset_leader_search import CosetLeaderSearch
 from .._tuning import use_tuning
 from ..conftest import (
     get_exhaustive_minima,
@@ -23,6 +22,7 @@ from ..conftest import (
     get_random_css_state,
     get_syndrome,
 )
+from ..coset_leaders import CosetLeaderSearch
 from . import coset
 
 
@@ -73,7 +73,7 @@ def test_connected_support_answers_match_exhaustive_minima(pytestconfig: pytest.
             oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_support")
             minima = get_exhaustive_minima(matrix, css_weight)
             for syndrome, max_weight in itertools.product(
-                range(1 << num_qubits), range(-1, num_qubits + 1)
+                range(1 << num_qubits), range(num_qubits + 1)
             ):
                 minimum = int(minima[syndrome])
                 single = oracle.get_min_weight_bound(syndrome, max_weight)

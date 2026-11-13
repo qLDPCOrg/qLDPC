@@ -192,8 +192,8 @@ def test_brouwer_zimmermann_setup_exits(
     tune: Tune,
 ) -> None:
     """Early exits from search setup or a shared search agree with a brute-force oracle."""
-    expected = qldpc.codes.get_distance_quantum(
-        logicals, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        logicals, stabilizers, cutoff=0, method="brute_force"
     )
 
     # Forbid only enumeration by size, so that these small inputs reach the information-set search,
@@ -201,8 +201,8 @@ def test_brouwer_zimmermann_setup_exits(
     tune(allow_enumeration_by_size=False)
     if overlap:
         tune(overlapping_minimum_work=0)
-    distance = qldpc.codes.get_distance_quantum(
-        logicals, stabilizers, homogeneous=True, cutoff=cutoff
+    distance = qldpc.codes.distance.get_distance_from_generators(
+        logicals, stabilizers, cutoff=cutoff
     )
     assert expected <= distance <= max(cutoff, expected)
 
@@ -212,8 +212,8 @@ def test_enumeration_by_work_can_be_forbidden(monkeypatch: pytest.MonkeyPatch, t
     case = next(case for case in SETUP_EXIT_CASES if case.id == "brute-force")
     values: Sequence[Any] = case.values
     logicals, stabilizers = values[:2]
-    expected = qldpc.codes.get_distance_quantum(
-        logicals, stabilizers, homogeneous=True, method="brute_force"
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        logicals, stabilizers, method="brute_force"
     )
     enumerations = []
     original = bz.get_nested_distance_brute_force
@@ -227,7 +227,7 @@ def test_enumeration_by_work_can_be_forbidden(monkeypatch: pytest.MonkeyPatch, t
     for allowed in (True, False):
         enumerations.clear()
         with use_tuning(allow_enumeration_by_work=allowed):
-            distance = qldpc.codes.get_distance_quantum(logicals, stabilizers, homogeneous=True)
+            distance = qldpc.codes.distance.get_distance_from_generators(logicals, stabilizers)
         assert distance == expected
         assert bool(enumerations) == allowed
 
@@ -263,8 +263,8 @@ def test_an_upper_bound_acts_as_a_known_witness() -> None:
     """A search returns the smaller of its upper bound and the distance."""
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(3).generator, dtype=np.uint8))
     for upper_bound, expected in ((2, 2), (3, 3), (5, 3)):
-        distance = bz.get_distance_brouwer_zimmermann(
-            basis, _no_labels(basis), cutoff=0, upper_bound=upper_bound
+        distance = bz.get_distance_brouwer_zimmermann_many(
+            [(basis, _no_labels(basis))], cutoff=0, upper_bound=upper_bound
         )
         assert distance == expected
 
@@ -282,16 +282,15 @@ def test_brouwer_zimmermann_shared_search() -> None:
         ]
     )
 
-    expected_a = qldpc.codes.get_distance_classical(
+    expected_a = qldpc.codes.distance.get_distance_from_generators(
         basis_a,
         cutoff=0,
         method="brute_force",
     )
-    expected_b = qldpc.codes.get_distance_quantum(
+    expected_b = qldpc.codes.distance.get_distance_from_generators(
         basis_b[2:],
         basis_b[:2],
         cutoff=0,
-        homogeneous=True,
         method="brute_force",
     )
     actual = bz.get_distance_brouwer_zimmermann_many(
@@ -351,7 +350,7 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
         )
     )
     expected = [
-        qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force")
+        qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
         for basis in (basis_a, basis_b)
     ]
     assert expected == [4, 2]
@@ -400,13 +399,13 @@ def test_brouwer_zimmermann_subsystem_code() -> None:
 def test_brouwer_zimmermann_packed_widths(length: int) -> None:
     """Information-set weights are exact across uint64 words and for weights above 255."""
     generators = np.ones((1, length), dtype=np.uint8)
-    assert qldpc.codes.get_distance_classical(generators, cutoff=0) == length
+    assert qldpc.codes.distance.get_distance_from_generators(generators, cutoff=0) == length
 
 
 def test_dependent_logical_rows_give_the_distance_of_their_span() -> None:
     """Repeated logical rows are reduced to a basis of the quotient before any search."""
-    distance = qldpc.codes.get_distance_quantum(
-        [[1, 1, 1], [1, 1, 1]], [], homogeneous=True, cutoff=0
+    distance = qldpc.codes.distance.get_distance_from_generators(
+        [[1, 1, 1], [1, 1, 1]], [], cutoff=0
     )
     assert distance == 3
 
@@ -419,7 +418,9 @@ def test_brouwer_zimmermann_reduces_enumeration_work(
     generators = np.asarray(qldpc.codes.HammingCode(5).generator, dtype=np.uint8)
     if extended:
         generators = np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
-    assert qldpc.codes.get_distance_classical(generators, cutoff=0) == (4 if extended else 3)
+    assert qldpc.codes.distance.get_distance_from_generators(generators, cutoff=0) == (
+        4 if extended else 3
+    )
     assert 0 < 1000 * get_candidate_count() < 2 ** len(generators)
 
 
@@ -451,8 +452,8 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
     ]
     logicals = basis[13:14]
     stabilizers = np.delete(basis, 13, axis=0)
-    expected = qldpc.codes.get_distance_quantum(
-        logicals, stabilizers, homogeneous=True, cutoff=0, method="brute_force"
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        logicals, stabilizers, cutoff=0, method="brute_force"
     )
 
     # Lower only the work threshold so this small oracle exercises production basis family
@@ -476,7 +477,7 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
         basis_families, "get_overlapping_family", side_effect=select
     ) as select_mock:
         assert (
-            qldpc.codes.get_distance_quantum(logicals, stabilizers, homogeneous=True, cutoff=0)
+            qldpc.codes.distance.get_distance_from_generators(logicals, stabilizers, cutoff=0)
             == expected
             == 5
         )
@@ -541,8 +542,11 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
         "0000000000101110101110",
     ]
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
-    assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 5
-    assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 5
+    assert (
+        qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
+        == 5
+    )
+    assert qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0) == 5
 
 
 @pytest.mark.usefixtures("force_information_sets")
@@ -567,8 +571,11 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
         "000000001110001010110",
     ]
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
-    assert qldpc.codes.get_distance_classical(basis, cutoff=0, method="brute_force") == 6
-    assert qldpc.codes.get_distance_classical(basis, cutoff=0) == 6
+    assert (
+        qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
+        == 6
+    )
+    assert qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0) == 6
     assert any(
         len(family.ranks) and family.max_coverage > 1
         for family in costly_stages.partitioned_families
@@ -676,10 +683,9 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
     identity = np.arange(len(code))[None]
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
     for problem, pauli in zip(problems, PAULIS_XZ):
-        expected = qldpc.codes.get_distance_quantum(
+        expected = qldpc.codes.distance.get_distance_from_generators(
             code.get_logical_ops(pauli),
             code.get_stabilizer_ops(pauli),
-            homogeneous=True,
             cutoff=0,
             method="brute_force",
         )
@@ -728,7 +734,11 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
         get_disjoint_basis_families=[lambda: first_family],
         get_automorphisms=lambda: automorphisms,
     )
-    assert distance == qldpc.codes.get_distance_classical(basis, method="brute_force") == 4
+    assert (
+        distance
+        == qldpc.codes.distance.get_distance_from_generators(basis, method="brute_force")
+        == 4
+    )
 
     # With tables in every layer, the search builds tables for its first set, and again for the
     # set of its automorphism family, after it drops the tables of the first set.
@@ -839,10 +849,9 @@ def test_completion_tables_keep_distances_exact(
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     for pauli in PAULIS_XZ:
-        expected = qldpc.codes.get_distance_quantum(
+        expected = qldpc.codes.distance.get_distance_from_generators(
             code.get_logical_ops(pauli),
             code.get_stabilizer_ops(pauli),
-            homogeneous=True,
             method="brute_force",
         )
         assert expected is not qldpc.codes.NO_DISTANCE
@@ -881,12 +890,12 @@ def test_completion_tables_keep_distances_exact(
     five_qubit_code = qldpc.codes.FiveQubitCode()
     logicals, stabilizers = five_qubit_code.get_logical_ops(), five_qubit_code.get_stabilizer_ops()
     skipped = completion_tables.skipped
-    quantum_distance = qldpc.codes.get_distance_quantum(
-        logicals, stabilizers, homogeneous=False, cutoff=0, method="brouwer_zimmermann"
+    quantum_distance = qldpc.codes.distance.get_distance_from_generators(
+        logicals, stabilizers, symplectic=True, cutoff=0, method="brouwer_zimmermann"
     )
     assert quantum_distance is not qldpc.codes.NO_DISTANCE
-    assert assert_skips(quantum_distance) == qldpc.codes.get_distance_quantum(
-        logicals, stabilizers, homogeneous=False, method="brute_force"
+    assert assert_skips(quantum_distance) == qldpc.codes.distance.get_distance_from_generators(
+        logicals, stabilizers, symplectic=True, method="brute_force"
     )
 
 
@@ -1011,7 +1020,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
     distance = bz.get_distance_brouwer_zimmermann_many(
         [(generators, _no_labels(generators))], cutoff=0
     )
-    assert distance == qldpc.codes.get_distance_classical(
+    assert distance == qldpc.codes.distance.get_distance_from_generators(
         generators, cutoff=0, method="brute_force"
     )
     assert completion_tables.skipped
@@ -1154,7 +1163,9 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_scans_in_lockstep() -
         search.advance()
     assert (
         search.best
-        == qldpc.codes.get_distance_classical(generators, cutoff=0, method="brute_force")
+        == qldpc.codes.distance.get_distance_from_generators(
+            generators, cutoff=0, method="brute_force"
+        )
         == 4
     )
 

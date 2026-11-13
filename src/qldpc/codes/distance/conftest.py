@@ -19,8 +19,8 @@ from qldpc.objects import Pauli, PauliXZ
 from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._coset_leader_search import CosetLeaderSearch
 from ._information_sets import basis_families, certificates
+from .coset_leaders import CosetLeaderSearch
 
 
 @pytest.fixture
@@ -138,12 +138,6 @@ def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
 
 Counts = lc.CSSLogicalCounts
 METHODS: tuple[lc.LogicalCountMethod, ...] = ("brouwer_zimmermann", "brute_force")
-
-
-def get_counter(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> lc.CSSLogicalCounter:
-    """A counter for the CSS code with the given binary checks."""
-    code = codes.CSSCode(np.asarray(checks_x, dtype=int), np.asarray(checks_z, dtype=int))
-    return lc.CSSLogicalCounter(code)
 
 
 def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
@@ -286,9 +280,12 @@ def get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
     return sum(int(bit) << jj for jj, bit in enumerate(products))
 
 
-def pack_syndromes(syndromes: Sequence[int], num_qubits: int) -> npt.NDArray[np.uint64]:
-    """Split packed syndromes into rows of 64-bit words, with word ``j`` in bits ``64 j`` and up."""
-    width = (num_qubits + 63) // 64
+def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.NDArray[np.uint64]:
+    """Split packed syndromes of ``num_bits`` bits into rows of 64-bit words.
+
+    Bit ``k`` of word ``j`` of a row is bit ``64 j + k`` of its syndrome.
+    """
+    width = (num_bits + 63) // 64
     words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
