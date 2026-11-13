@@ -11,6 +11,7 @@ Contributor documentation comes in two kinds:
 * Guides, such as this page, explain how qLDPC works and how to make a change, and link to the standards rather than restating them.
 
 Read the standards that apply to a change before editing, and check the change against them in a :doc:`review <reviewing>`.
+Make recommendations, and present decisions, as :doc:`decisions and recommendations <decisions>` describes.
 
 .. _kinds-of-change:
 
@@ -141,4 +142,5 @@ The TQEC notebook (``examples/logical_error_rates/specialized/decoding_tqec_circ
    :hidden:
 
    reviewing
+   decisions
    standards/index
