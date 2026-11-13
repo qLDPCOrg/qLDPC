@@ -58,14 +58,17 @@ def main() -> None:
         help="values of overlapping_minimum_work (default: %(default)s)",
     )
     args = parser.parse_args()
-    kind, code_name, weighing, _, max_weight, _ = args.workload.split("/")
-    if kind != "coset":
-        raise ValueError("Only coset workloads have routes")
+    parts = args.workload.split("/")
+    if parts[0] != "coset" or len(parts) != 6:
+        raise ValueError("Give a coset workload, such as coset/pp232/css/10/10/3000")
+    _, code_name, weighing, _, max_weight, _ = parts
     if weighing not in ("css", "physical"):
         raise ValueError(f"Unknown weighing {weighing!r}; choose 'css' or 'physical'")
     if int(max_weight) < 2:
         raise ValueError("Routes build other families only for maximum weights of two or more")
     stabilizers = workloads.get_zero_state_stabilizers(code_name)
+    # No error weighs more than the number of qubits.
+    max_weight = str(min(int(max_weight), len(stabilizers)))
     parts = "XZ" if weighing == "css" else "P"
     for threshold in args.thresholds:
         with _tuning.use_tuning(overlapping_minimum_work=threshold):

@@ -10,10 +10,10 @@ the layer with a fixed seed, so a layer whose prediction lies near the limit may
 The script runs a ``distance``, ``hadamard``, or ``count`` workload in this process, with the
 active defaults, until each of the given weights has made a finite prediction, and stops it before
 scanning the layer of the last of them; it scans the layers of the others.  It then recomputes the
-first finite prediction of each weight, that of its first set, under sampling seeds 0 to
+first finite prediction of each weight, usually that of its first set, under sampling seeds 0 to
 ``--num-seeds`` - 1, and with seed 0 under each set of changes to the tuning in ``--changes``, and
-prints how many seeds keep it within the limit.  It fails if a weight makes no finite prediction, as
-a layer that the tuning does not consider for tables does not.
+prints how many seeds keep it within the limit.  It fails, after running the whole workload, if a
+weight makes no finite prediction, as a layer that the tuning does not consider for tables does not.
 
 Example:
 
@@ -84,6 +84,8 @@ def main() -> None:
         help="a JSON list of objects of changes to the tuning (default: a few sampling fields)",
     )
     args = parser.parse_args()
+    if args.num_seeds < 1:
+        parser.error("--num-seeds must be at least 1")
     if args.workload.split("/")[0] not in ("distance", "hadamard", "count"):
         raise ValueError("Only distance, hadamard, and count workloads predict costs of tables")
     captured = capture(args.workload, set(args.weights))

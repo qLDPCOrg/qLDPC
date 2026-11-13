@@ -11,13 +11,13 @@ Sweeps write their trials to `results/`, which Git ignores, so this page keeps t
 - Completion tables save less when several searches run at once, so time their fields one search at a time (`--jobs 1`), and screen other fields a few at a time.
 - Record the commit: `sweep.py` keys trials by it, and by a hash of any uncommitted change to `src/`.
 - Do not edit `src/` while a sweep runs, since each trial imports it anew.
-- A trial of one repetition also times work that a search caches on its code, such as the generator matrix of a classical code given by checks, which is the same in every arm: under a second for most distance workloads, 5 to 8 and 29 to 39 seconds for the sparse codes of 4000 and 8000 bits, and about 50 and 370 seconds for the classical codes of 4000 and 8000 bits.
+- A trial of one repetition also times work that a search caches on its code, such as the generator matrix of a classical code given by checks, which is the same in every arm: under a second for most distance workloads, but seconds to tens of seconds for the sparse codes of 4000 and 8000 bits, and about a minute and several minutes for the classical codes of 4000 and 8000 bits.
   It shrinks ratios toward 1 without reversing them; time such workloads with `--repeat 3`, whose median leaves it out.
 
 ## 1. Measure the noise floor
 
 Run a tuning against itself, as `noise-j1`, `noise-j4`, and `noise-j10` below do, and read the 95% intervals of `collect_results.py`.
-On an Apple M3 Max, ten rounds gave 95% intervals of ±1% to ±9% one search at a time, ±3.5% in the median, and ±3% to ±8% ten at a time, ±5.6% in the median; two of eleven workloads compared with themselves one at a time had intervals that excluded 1.
+On an Apple M3 Max, ten rounds gave 95% intervals of roughly ±1% to ±9% one search at a time and ±3% to ±8% ten at a time, and a few workloads compared with themselves had intervals that excluded 1.
 Differences within these intervals do not distinguish candidates.
 
 ## 2. Work through the fields in order
@@ -62,14 +62,14 @@ A mechanism justifies a choice only once it is verified:
 - Cite trace fields, such as stage times, decisions, and counts, and, for claims about the code, its file and line.
 - Label each claim verified, consistent (it fits the data, untested), or conjecture, and state only verified mechanisms in field comments.
 
-For example, the factor `enumeration_setup_cost_factor` stands for the time to set up information sets, divided by the numbers of rows and columns and by the time per enumerated codeword, but that ratio was 0.35 to 97 across codes.
-The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_brute_force.py` and confirmed by raising `enumeration_batch_exponent` from 15 to 30, which made each enumerated codeword about 325 times faster on rows of 1000 bits.
+For example, the factor `enumeration_setup_cost_factor` stands for the time to set up information sets, divided by the numbers of rows and columns and by the time per enumerated codeword, but that ratio ranged from below 1 to about 100 across codes.
+The cause, a sizing of enumeration batches that does not vectorize rows of more than 960 bits, was found in `src/qldpc/codes/distance/_brute_force.py` and confirmed by raising `enumeration_batch_exponent` from 15 to 30, which made each enumerated codeword a few hundred times faster on rows of 1000 bits.
 
 ## 5. Check the sensitivity of long runs
 
 The long runs, of a minute or more one search at a time, are `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, `distance/classical:160:110:1/-`, `distance/classical:1000:976:2/-`, the classical codes of 4000 and 8000 bits with 21 to 23 rows, the sparse codes of 4000 bits with 21 to 23 rows when they enumerate, and the coset searches `coset/pp232/css/10/10/3000`, `coset/qt7/css/10/10/3000`, and `coset/lp13s5/physical/7/7/1000`.
 The check `c1-gate` (section 7) found two more, `distance/lp13s6/X` and `distance/lp13s6/Z`, which the windows do not cover.
-The classical codes of 4000 and 8000 bits spend about 50 and 370 seconds of that in work that does not depend on the tuning (see "Before measuring").
+The classical codes of 4000 and 8000 bits spend about a minute and several minutes of that in work that does not depend on the tuning (see "Before measuring").
 Coset searches read none of the thresholds that `windows.py` covers but `overlapping_minimum_work`, whose families on coset searches `coset_families.py` prints; `resample.py` shows whether a layer near the cost limit decides by its sampling draw.
 
 Trace the long runs, and a set of quick ones, at the defaults, and give the traces to `windows.py`, which prints, for each threshold, the nearest decision on either side of it, for the workloads named by `--long` and for all.
@@ -83,87 +83,46 @@ Time a long run, one search at a time and in 4 or more paired rounds, only where
 ## 6. Guard against over-fitting
 
 A value over-fits when it suits the workloads, the machine, and the conditions that chose it, but not others.
-This section says what guards the values against over-fitting, how far each guard reaches, and which values are most at risk.
-[`evidence.md`](evidence.md) gives the measurements behind each value.
+This section states the measures taken against over-fitting, how far each reaches, and which values are most at risk, roughly in order of risk; [`evidence.md`](evidence.md) gives the measurements behind each value.
 
 ### Guards, and how far they reach
 
 - **Windows on long runs.**
-  Within the window of a threshold (section 5), every decision of the traced long runs stays the same, so their time depends on the precise value only through the cost of making those decisions.
-  The windows are wide for the product of `partition_work_ratio` and `partition_cost_factor` (33 to `1.4 * 10**5`), for `lp_minimum_work` (every value up to `1.17 * 10**13`), for whether `completion_bound_minimum_layer_work` lets a layer use tables (`10**6` to `5.9 * 10**8` supports), and for `overlapping_minimum_work` on distance searches.
-  There, quick runs placed the value, and a wrong value costs quick runs only.
-  The windows of `enumeration_setup_cost_factor`, `automorphism_minimum_layer_work`, `completion_bound_max_cost_percent`, and `overlapping_minimum_work` on coset searches are narrow (see "Values most at risk").
-  No window covers `distance/lp13s6/X` and `distance/lp13s6/Z`, two long runs found after the windows were traced (section 5).
-- **Round values inside windows.**
-  Where a window holds several candidates that make the same decisions, the value is a round number inside it, not the candidate that happened to time fastest.
-  For example, `overlapping_minimum_work` is `2 * 10**4`, inside the window from 16,473 to 34,300 in which every traced coset search builds the same families.
-- **Mechanisms checked by intervention.**
+  Where the traced long runs make the same decisions over a broad range of a threshold, as for the partition gate, for `lp_minimum_work`, and for whether `completion_bound_minimum_layer_work` lets a layer use tables, their time hardly depends on its precise value, and a wrong value costs quick runs only.
+  The traced long runs leave out two long runs found later (section 5), and some windows are narrow (see below).
+- **Round values inside ranges.**
+  Where several candidates make the same decisions, the value is a round number inside their range, not the candidate that happened to time fastest.
+- **Mechanisms verified by intervention.**
   Where a value rests on a mechanism, a trace or the code shows it, and changing the quantity that it names moved the outcome as the mechanism implies.
-  But most mechanisms were proposed after the sweeps whose effects they explain.
-  The last checks, the sweeps of section 7 from `c2-coverage` on, had their predictions written down first.
-  Of those predictions, five were refuted, in whole or in part, by their written criteria, one by the families that it predicted, and one only in its wording; `evidence.md` reports what was found instead.
-- **Coefficients measured directly.**
-  `partition_cost_factor`, the build costs of completion tables, and `completion_bound_kept_first_row_ratio` agree with direct measurements of the quantities that they stand for, rather than with fits to the total times of searches.
-  But the measurements spread.
-  Partitioning took 4.3 to 10.5 of the units of `partition_cost_factor`, whose value, 10, lies near the top.
-  The build costs fit blocks of 16 columns on quantum codes, not blocks of 8 columns or classical codes.
-  The kept ratio ranged from 0.04 to 0.50.
+  But most mechanisms were proposed after the sweeps that suggested them.
+  The last checks, whose sweeps in section 7 have tags that begin with `c`, had their predictions written first, and several of those predictions were refuted; `evidence.md` reports what was found instead.
+- **Coefficients set by direct measurement.**
+  `partition_cost_factor`, `completion_bound_kept_first_row_ratio`, and the build costs of completion tables agree with direct measurements of the quantities that they stand for, not with fits to the total times of searches, though those measurements spread widely.
 - **A noise floor.**
-  Speed does not choose between candidates that measured alike (see the Retuning section, and section 1 for the size of the noise).
-  But candidates that make the same decisions on every timed workload measure alike by construction; for those, the windows locate the value.
-  Of the 817 comparisons with 95% intervals, about 13 would exclude 1 by chance if their rounds were independent and their candidates equal, and of the 49 compared by their ranges, about 10.
-  But 2 of the 33 comparisons of a tuning with itself (section 1) excluded 1, so a candidate set aside by one small difference may have been set aside by chance.
-  Rechecked one search at a time, 12 for `information_set_batch_exponent` and 16,384 for `scan_chunk_size` were slower again, and 512 for `completion_bound_samples` measured alike.
-- **Checks on workloads that chose nothing.**
-  `certify/gross/css/2` and `faultdist/toric:6/Z`, which call the APIs of fault-propagation certificates, chose no value.
-  Held out for `overlapping_minimum_work`, they measured alike at `10**4`, `2 * 10**4`, and `10**5` (`c8-usecase`), so the value does them no harm, though they cannot show that it is best.
-  The values of the five fields that the last decisions set were timed together, against their values before, on 18 workloads (`c9-decided`), with predictions written first.
-  No result differed, and the slowdowns that they found, of two quick searches, are explained in `evidence.md`; one of them led to the cost limit of 90, which was then timed only on those two.
+  A tuning timed against itself (section 1) shows how large a difference must be to choose between candidates.
+  But many comparisons were made, so a candidate set aside by one small difference may have been set aside by chance.
+- **Held-out workloads.**
+  Two workloads of fault-propagation certificates chose no value, and measured alike at the candidates of `overlapping_minimum_work`, and within about 5% with the decided values together.
+- **The decided values together, and the merge of main.**
+  The values decided last were timed together against their values before (`c9-decided`): no result changed, and the two slowdowns that it found were traced to their causes.
+  A check written before the merge of `main` found that it changes no decision of the traced searches.
 
 ### Values most at risk
 
-These values lie near an edge of a window, rest on a few workloads, or trade one kind of search against another, roughly in order of risk:
-
-- **The partition gate.**
-  A search partitions only if its gate value, its estimated work in units of the cost of partitioning, reaches the product of `partition_work_ratio` and `partition_cost_factor`, 5000.
-  Partitioning slows searches that switch to automorphism images, such as those of `lp13s<seed>` codes, about 3 to 4 times, and speeds random classical codes up to 1.7 times, but their gate values overlap, so no product separates them.
-  5000 lies in the window, from 3022 to 7227, that misclassifies the fewest traced searches, but the gate values of codes with the same parameters scatter from 0 to 24,375, so where they fall is partly chance.
-  Deciding on automorphisms before partitioning, a follow-up, would remove the need to fit this product.
-- **The width of coset tables.**
-  16-column tables make CSS coset searches 2.8 to 29 times faster, and add about 1.5 GiB of memory to the long ones.
-  But they make two of three searches of Pauli errors by physical weight 2.7 to 4 times slower, and, with `overlapping_minimum_work` at `2 * 10**4`, a quick search of the moderate code `pp110` 63 milliseconds slower.
-  On residual-weight estimates of state-preparation circuits, not in this repository, 16-column tables took longer to build than most estimates spent scanning.
-  A width for each kind of search is a follow-up.
-- **`overlapping_minimum_work` on coset searches.**
-  Its window, from 16,473 to 34,300, comes from the costs of queries of weights 2 and 3 on four codes: the lower edge from `qt7`, and the upper edge from `pp110`.
-  Other codes have other edges, so the value suits codes like these, not every code.
-  Below the window, the long coset searches took 2.1 to 3.2 times as long; above it, two quick ones 1.5 to 1.75 times as long, four searches at a time.
-- **The fields of enumeration.**
-  Their measurements were taken while enumeration handled rows of more than 960 bits one codeword at a time (section 4), so their best values will change once that is fixed.
-  The window of `enumeration_setup_cost_factor` on long runs is 12.5 to 23.8, and on all traced workloads the window of `enumeration_max_dimension` is 20 alone.
-  `allow_enumeration_by_work` is a switch for tests: with it off, `distance/classical:1000:976:2/-` took 1.6 seconds instead of 70.6.
-- **The cost limit, and the sampling and costs of completion tables.**
-  With 1024 samples, the predictions of the traced long-run layers near the limit leave a gap from 86.1 to 93.9 percent under 40 sampling seeds, and the limit, 90, lies in it, so none of those layers decides by its draw.
-  But five layers make that gap, and the cost model errs both ways, by more than two times on some traced layers.
-  100, chosen first as a break-even point, made a quick search 1.19 times slower, since a layer of several sets compares the tables of each set with a scan of that set alone, not with their scan in lockstep.
-  The lookup costs were kept after one run, and the measured costs of the same lookups varied two- to threefold between sessions.
-- **`automorphism_minimum_layer_work`.**
-  Its window on long runs is `8.5 * 10**7` to `1.8 * 10**8`, but just past either edge a long search switches to automorphism images one layer sooner or later, a layer of at most 0.22 seconds.
-- **`max_css_single_pairs`.**
-  It is the smallest power of two that fits the one workload that reads it on a state of more than 255 qubits.
+- **The partition gate:** no product of `partition_work_ratio` and `partition_cost_factor` separates the searches that partitioning slows from those that it speeds up, and the value rests on where the gate values of a few codes fell.
+- **The width of coset tables:** a compromise that favors CSS coset searches over searches by physical weight, most of which it makes about 3 times slower.
+- **`overlapping_minimum_work` on coset searches:** its good range comes from the query costs of four CSS codes, and other codes may place it elsewhere.
+- **The fields of enumeration:** they were measured while enumeration handles rows of more than 960 bits one codeword at a time (section 4), so their best values may change once that is fixed.
+- **The cost limit and the sampling of completion tables:** the limit sits in a gap between the predictions of a few long-run layers, and the cost model errs both ways, by about twofold on some layers, so a layer near the limit may choose wrongly.
+- **`automorphism_minimum_layer_work`:** its window on the traced long runs is narrow, though past it only a short layer changes.
+- **`max_css_single_pairs`:** it fits the one workload that reads it on a large state.
 
 ### Other limits
 
-- **One machine, under load.**
-  Every timing comes from one Apple M3 Max.
-  Most sweeps ran three to eight searches at a time, and the sweeps of one search at a time, including the last checks, ran beside other work, at load averages of up to 19.
-- **Older library code.**
-  Most sweeps ran on earlier library code, at the commits that `trials.jsonl` records.
-  The windows, the refit data set, and the last checks used the current library code.
-  The comparisons of the sampling fields and of the block widths, and the comparison of the cost limit three searches at a time, did not.
-- **Fields not timed on long runs.**
-  `max_information_sets`, `disjoint_random_column_orders`, `overlapping_attempts_per_set`, `max_partition_coverage`, `max_css_single_pairs`, the batch and chunk sizes, the block widths of distance tables, `completion_bound_max_table_bytes`, and the coefficients of the cost model were timed only on runs of seconds, apart from one run of `hadamard/gross` behind the lookup costs.
-  The cache sizes, and the fields whose comments say they were chosen by hand, were not chosen by these measurements.
+- **One machine, often under load:** every timing comes from one Apple M3 Max, most sweeps ran several searches at a time, and many of one search at a time ran beside other work.
+- **Earlier library code:** most sweeps ran on earlier library code, at the commits that `trials.jsonl` records, while the windows, the refit data set, and the last checks ran on later code.
+- **Fields not timed on long runs:** the sizes of families and their attempts, the partition coverage, the batch and chunk sizes, the block widths of distance tables, the sampling fields, the memory limit and the coefficients of the cost model, and `max_css_single_pairs` were timed only on quick runs, apart from one long run behind the lookup costs.
+- **Values not chosen by measurement:** the cache sizes, and the fields whose comments say they were chosen by hand, were not chosen by these measurements.
 
 ## 7. Reproduce the measurements
 
@@ -191,7 +150,7 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Gate values of partitioning across codes | `trace.py distance/lp13s<seed>/<sector> --setup-only` for seeds 1 to 10 and sectors `X` and `Z`, and `trace.py 'distance/classical:128:80:<seed>/-' --setup-only` for seeds 2 to 6; a gate value is the `estimated_work` of the `family` event of kind `partitioned` divided by its `unit` |
 | Below the window of `enumeration_setup_cost_factor` | `trace.py <w> --setup-only --tuning '{"enumeration_setup_cost_factor": 8}'` for `'distance/classical:8000:7979:2/-'` and `'distance/sparse:8000:21:400:2/-'` |
 | Families of `overlapping_minimum_work` | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000`; `coset_families.py <w> --thresholds 20000 24000 30000` for `coset/gross/css/10/10/3000`, `coset/pp110/css/8/8/2000`, `coset/pp232/css/10/10/3000`, and `coset/qt7/css/10/10/3000` |
-| Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`, and `resample.py hadamard/pp110 --weights 5` and `resample.py distance/bb288/X --weights 5`, at the defaults of their time (`c10` ran them with `--changes '[]'` at commit `dfa8944b3`, whose limit was 100, and `c12` the first at the current defaults, with the changes of `completion_bound_samples`, `completion_bound_confidence_z`, `completion_bound_kept_first_row_ratio`, and the lookup costs that `evidence.md` names); for the sampling budget, `resample.py hadamard/gross --weights 6 --num-seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
+| Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`, and `resample.py hadamard/pp110 --weights 5` and `resample.py distance/bb288/X --weights 5`, at the defaults of their time (all four with `--changes '[]'` at commit `dfa8944b3`, whose limit was 100, and the first again at the current defaults, with the changes of `completion_bound_samples`, `completion_bound_confidence_z`, `completion_bound_kept_first_row_ratio`, and the lookup costs that `evidence.md` names); for the sampling budget, `resample.py hadamard/gross --weights 6 --num-seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
 | Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |
