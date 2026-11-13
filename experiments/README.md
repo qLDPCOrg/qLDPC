@@ -11,7 +11,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
-The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro–Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
+The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro-Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
 If GAP cannot be called, `abstract.SmallGroup` retrieves groups from GroupNames.org instead.
 The generators of a group from GroupNames.org can differ from those of GAP, so the same file names can then save different codes, which fail verification on a machine that uses GAP.
 qLDPC caches retrieved groups and codes on disk, so the first source that a machine uses for a group stays in use there.
@@ -76,7 +76,7 @@ The options of `run_search.py` choose the groups, the local codes, and the compl
 
 - `--groups` chooses between all groups of order at most `--max-order` in the SmallGroups library (the default), and the dihedral groups of orders 6 to `--max-order`, which are the symmetry groups of regular polygons.
   [arXiv:2508.05095](https://arxiv.org/abs/2508.05095) uses dihedral groups for the expansion of their Cayley graphs.
-- `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro–Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
+- `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro-Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
   Identifiers such as `Random-5-3-0` name random codes, here with 5 bits and 3 parity checks; `saved_codes.py` lists all identifiers.
 - `--pairs` chooses the pairs of local codes.
   By default, each base code is paired with its dual.
@@ -209,7 +209,7 @@ The option `--hadamards` applies Hadamards to the second half of the qubits of e
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
 
-[`distance_tuning/sweep.py`](distance_tuning/sweep.py) compares tunings of the Brouwer–Zimmermann searches (see the [tuning page](../docs/source/exact_search_tuning.rst)), as the Retuning section of `qldpc.codes.distance._tuning` describes.
+[`distance_tuning/sweep.py`](distance_tuning/sweep.py) compares tunings of the Brouwer-Zimmermann searches (see the [tuning page](../docs/source/exact_search_tuning.rst)), as the Retuning section of `qldpc.codes.distance._tuning` describes.
 Each arm of a sweep is a set of changes to the fields of `SearchTuning`, and each trial times one workload of [`workloads.py`](distance_tuning/workloads.py), such as a distance, a count of logical operators, or queries of `CosetLeaderSearch`, under one arm, in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)).
 Rounds alternate the order of the arms, and an interrupted sweep resumes where it stopped.
 [`collect_results.py`](distance_tuning/collect_results.py) summarizes the ratio of each arm's time to the first arm's in the same round, and flags arms that disagree on a result.

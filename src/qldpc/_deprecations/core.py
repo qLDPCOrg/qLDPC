@@ -419,6 +419,7 @@ def get_distance_quantum(
     ``homogeneous`` is True.
     """
     from qldpc.codes.distance import get_distance_from_generators
+    from qldpc.codes.distance._binary import as_binary_matrix_pair
 
     warn_deprecated(
         "get_distance_quantum is deprecated; use"
@@ -426,10 +427,11 @@ def get_distance_quantum(
         " symplectic=not homogeneous) instead",
         stacklevel=get_external_caller_stacklevel(),
     )
-    # Unlike ``excluded``, the stabilizers have no default, so None is an error, not "no rows".
-    if stabilizers is None:
-        raise TypeError("stabilizers must be an array of binary entries, not None")
     with _use_block_size(block_size):
+        # Check the rows here, so that errors name the arguments of this function.  This also
+        # rejects None as the stabilizers, which get_distance_from_generators would read as no
+        # excluded rows.
+        as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
         return get_distance_from_generators(
             logical_ops,
             stabilizers,
@@ -504,8 +506,8 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
 
     warn_deprecated(
         "The block_size argument of exact distance searches is deprecated and will be removed in a"
-        " future release.  Use qldpc.codes.distance._tuning.use_tuning to set"
-        " enumeration_batch_exponent and information_set_batch_exponent instead",
+        " future release.  It changes only the speed and memory use of a search.  To tune"
+        " searches, see the documentation page 'Exact-search performance and tuning'",
         stacklevel=get_external_caller_stacklevel(),
     )
     exponent = max(0, min(operator.index(block_size), 62))

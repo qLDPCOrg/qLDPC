@@ -132,7 +132,7 @@ Distances across packages
 ``get_distance()`` computes an exact distance, and ``get_distance_bound`` computes a randomized upper bound; CSS codes also have separate X and Z distances.
 The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
 For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find its bare distance instead: the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
-Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
+Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
 Binary codes with sparse parity checks can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_.
 All exact methods can take exponential time.
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
@@ -142,6 +142,7 @@ Exact searches choose their routes by cost models whose settings and constants :
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a ``QuditCode`` that is not a ``CSSCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.
+A subsystem ``QuditCode`` is bounded as a ``CSSCode`` if X-type and Z-type operators generate its gauge group, even if its checks mix X and Z.
 Codes remember the best distance bound that they have computed or been given, and CSS codes remember X and Z bounds separately.
 With ``num_trials=None``, ``get_distance_bound`` returns the exact distance or best known bound if there is one, and otherwise computes one bound.
 An explicit ``num_trials`` runs that many trials, and never returns a worse bound than the best known one.
@@ -212,7 +213,7 @@ The residual weight of the fault is the smallest weight of that Pauli error afte
 Fault propagation is bounded if the residual weight of every fault is at most its number of error mechanisms.
 For circuits that post-select on detectors such as measurement flags, only faults that pass post-selection count.
 The docstring of ``certify_bounded_fault_propagation`` defines these terms precisely and states the limitations of its check, and the :doc:`fault-tolerance certificates notebook <examples/logical_error_rates/5_fault_tolerance_certificates>` applies it to a flagged preparation circuit.
-The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: Brouwer--Zimmermann by default, or the connected-support search that the exact distances also offer.
+The ``method`` argument of ``certify_bounded_fault_propagation`` chooses its exact search of residual weights: Brouwer-Zimmermann by default, or the connected-support search that the exact distances also offer.
 :class:`qldpc.codes.distance.CosetLeaderSearch <qldpc.codes.distance.coset_leaders.CosetLeaderSearch>` offers both searches: it takes the stabilizers of a state as a binary matrix, and decides for any syndrome whether some Pauli error with that syndrome has at most a given weight.
 For annotated memory circuits, :func:`~qldpc.circuits.certification.fault_distance.get_fault_distance` instead computes the minimum number of detector-error-model mechanisms causing an undetected logical-observable flip.
 The same notebook illustrates why this circuit property need not equal the code distance.
@@ -230,8 +231,8 @@ The following table summarizes support by field; the subsystem column applies to
 Capability       :math:`GF(2)`                              Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
 ===============  =========================================  ==============================  ===================================  ========================================
 Codes            Yes                                        Yes                             Yes                                  Yes, inferred from non-commuting checks
-Exact distance   Brouwer--Zimmermann, or connected support  Exhaustive enumeration          Exhaustive enumeration               Yes
-Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only (see upper bounds below)
+Exact distance   Brouwer-Zimmermann, or connected support   Exhaustive enumeration          Exhaustive enumeration               Yes
+Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only
 Decoders         All built-in decoders                      GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
 Circuits         Yes                                        No                              No                                   No memory experiments
 ===============  =========================================  ==============================  ===================================  ========================================
@@ -248,7 +249,6 @@ What qLDPC computes exactly, bounds, and trusts
 
 * Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
-  For a subsystem code, the decoder backend searches bare logical operators, so its bound is valid but can stay above the distance, which is dressed.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.
 * Trusted, not verified: recorded parameters of built-in families and online lookups, promises such as ``promise_equal_distance_xz``, an explicit ``is_subsystem_code=True`` hint to ``QuditCode`` or ``CSSCode``, a code-capacity ``min_error_weight`` below which errors are assumed to be corrected, and an explicit ``detector_to_time`` mapping.

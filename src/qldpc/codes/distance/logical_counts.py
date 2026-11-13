@@ -5,12 +5,12 @@
 See :class:`CSSLogicalCounter` for the conventions.
 
 Each X/Z sector uses a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
-``brouwer_zimmermann.md``).  Words are enumerated in layers over Brouwer--Zimmermann (BZ)
-information sets, whose family and certificate come from the stages in ``_information_sets/`` that
-the distance search shares.  Unlike a distance search, the scan stops only when the BZ lower bound
-exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``), and a word visited by several information
-sets is counted by only one of them.  Full Pauli counts are derived from the homogeneous words of
-weight ``d``, with one masked rank per word.  Self-dual codes scan only one sector, and have
+``brouwer_zimmermann.md``).  Words are enumerated in layers over Brouwer-Zimmermann (BZ) information
+sets, whose family and certificate come from the stages in ``_information_sets/`` that the distance
+search shares.  Unlike a distance search, the scan stops only when the BZ lower bound exceeds ``w``
+(Section 5 of ``brouwer_zimmermann.md``), and a word visited by several information sets is counted
+by only one of them.  Full Pauli counts are derived from the homogeneous words of weight ``d``, with
+one masked rank per word.  Self-dual codes scan only one sector, and have
 ``count_pauli = 3 * count_x``.  Counters for codes deformed by local CSS-preserving Cliffords
 transform the stored sector bases and information-set families rather than recomputing them.
 
@@ -20,7 +20,7 @@ alternative ``"macwilliams"`` counts from check-space weight distributions; see
 
 References:
 
-- https://arxiv.org/abs/1603.06757 (Brouwer--Zimmermann information sets)
+- https://arxiv.org/abs/1603.06757 (Brouwer-Zimmermann information sets)
 """
 
 from __future__ import annotations
@@ -150,8 +150,8 @@ class CSSLogicalCounter:
     In a subsystem code, the checks ``G_X`` and ``G_Z`` are gauge generators, and the stabilizers
     ``S_X`` and ``S_Z`` are the gauge operators that commute with all gauge operators of the other
     type.  Nontrivial logicals are those outside the gauge group (dressed logicals), so the X sector
-    is ``ker(S_Z)`` modulo ``row(G_X)``, and likewise for Z.  The Brouwer--Zimmermann and
-    brute-force methods support subsystem codes, but the MacWilliams method does not.
+    is ``ker(S_Z)`` modulo ``row(G_X)``, and likewise for Z.  The Brouwer-Zimmermann and brute-force
+    methods support subsystem codes, but the MacWilliams method does not.
 
     Counters for codes deformed by local CSS-preserving Cliffords (see :meth:`deformed`) reuse the
     work of this counter, except for the distance, which they search for again.
@@ -297,8 +297,8 @@ class CSSLogicalCounter:
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Deprecated.  Use
-                ``qldpc.codes.distance._tuning.use_tuning(max_information_sets=...)`` instead.
+            max_information_sets: Deprecated.  To tune counts instead, see the page
+                :doc:`/exact_search_tuning` of the documentation.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
@@ -326,8 +326,8 @@ class CSSLogicalCounter:
         if max_information_sets is not None:  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "The max_information_sets argument of logical-operator counts is deprecated and"
-                " will be removed in a future release.  Use"
-                " qldpc.codes.distance._tuning.use_tuning(max_information_sets=...) instead",
+                " will be removed in a future release.  To tune counts, see the documentation page"
+                " 'Exact-search performance and tuning'",
                 stacklevel=get_external_caller_stacklevel(),
             )
             max_sets = as_integer(max_information_sets, "max_information_sets")
@@ -477,8 +477,9 @@ class CSSLogicalCounter:
 
         The Clifford applies the same binary matrix, whose rows have weight three, to X and Z
         supports on the four targets.  It therefore maps self-dual codes to self-dual codes, and
-        preserves the self-dual-with-equivalent-logicals (SWEL) property of
-        :meth:`qldpc.codes.CSSCode.is_swel`.  It is valid for any CSS code.
+        preserves the self-dual-with-equivalent-logicals (SWEL) property that
+        :attr:`CSSCode.is_swel <qldpc.codes.common.CSSCode.is_swel>` tests.  It is valid for any CSS
+        code.
 
         Args:
             qubit_0: The qubit of the first matrix row.

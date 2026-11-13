@@ -1,6 +1,6 @@
 # Retuning the exact distance searches
 
-This page walks through a retuning of the fields of `SearchTuning` that Brouwer–Zimmermann (BZ) searches read, like the retuning that set their current values.
+This page walks through a retuning of the fields of `SearchTuning` that Brouwer-Zimmermann (BZ) searches read, like the retuning that set their current values.
 The Retuning section of the module docstring of [`qldpc.codes.distance._tuning`](../../src/qldpc/codes/distance/_tuning.py) states how a value is chosen among candidates, and the comment of each field says what to measure to retune it.
 The [experiments README](../README.md#distance-tuning) introduces the scripts.
 Sweeps write their trials to `results/`, which Git ignores, so this page keeps the commands of the sweeps behind the current values.

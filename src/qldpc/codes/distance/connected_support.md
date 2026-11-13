@@ -5,7 +5,7 @@
 The connected-support search computes the exact distance of a binary code from the Tanner graph of its parity checks.
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
 It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
-Brouwer–Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
+Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 The same search also finds light vectors with a given syndrome, such as Pauli errors, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
 The idea is older: Richter, Rosnes and Ytrehus, and Khatami et al. search the Tanner graphs of classical LDPC codes for small stopping sets and low-weight codewords.
@@ -17,6 +17,7 @@ It is organized as follows:
 - [Section 2](#2-what-the-cost-of-the-search-depends-on) says what the cost of the search depends on.
 - [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper.
   [Section 3.7](#37-qubit-codes-that-are-not-css) extends the algorithm to qubit codes that are not CSS, and [Section 3.8](#38-vectors-with-a-given-syndrome) to vectors with a given syndrome.
+  [Section 3.9](#39-sparser-stabilizers-of-subsystem-codes) says how the search of a subsystem code gets sparser checks.
 - [Section 4](#4-guide-to-the-source-code) maps the algorithm to the source code.
 - [Section 5](#5-correctness-requirements) lists the requirements that every change to the search must keep.
 
@@ -28,11 +29,15 @@ For a given code, its cost grows by a roughly constant factor with each step of 
 That factor is large if the checks are dense, because every unsatisfied check offers many variables to branch on.
 The search of a subsystem code uses the Tanner graph of its stabilizers, which can be dense even if its gauge generators are sparse.
 `get_distance_css` and `get_distance_pauli` derive these stabilizers as a row-reduced basis, which can be dense even if the stabilizer group has sparse generators.
-A caller who knows sparse generators `S` of the stabilizer group, and gauge generators `G`, can get the same dressed distance faster from `get_distance_from_checks(S, G, symplectic=True, method="connected_support")`.
+So they search sparser generators instead ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
+These need not be the sparsest.
+A caller who knows sparser generators `S` of the stabilizer group, and gauge generators `G`, can get the same dressed distance by searching them as given, with `get_distance_from_checks(S, G, symplectic=True, method="connected_support")`.
 For a CSS code with sparse X-type and Z-type stabilizer generators, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_support")`, where `S_Z` holds the supports of the Z-type stabilizer generators and `G_X` those of the X-type gauge generators.
 If the checks weigh much less than the distance, as those of surface codes do, many supports grow without being pruned ([Section 3.4](#34-pruning)), so the search visits many states below the distance.
 The search of a qubit code that is not CSS costs more than the searches of the sectors of an equivalent CSS code, such as the same code without Hadamards on some of its qubits.
 A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning), and each qubit of a check offers two symbols that flip it, the two Paulis that anticommute with the check there ([Section 3.7](#37-qubit-codes-that-are-not-css)).
+So `get_distance_pauli` searches Pauli checks as a CSS code if X-type and Z-type operators generate their group, even if the checks mix X and Z.
+A code that is CSS only up to local Cliffords, such as those Hadamards, is still searched as a code that is not CSS.
 
 The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
 
@@ -331,6 +336,32 @@ Then a symbol can flip many unsatisfied checks.
 So a syndrome query computes the overlap and the repair of each symbol at most once per state, and reuses them.
 A distance search, whose checks are usually sparse, computes them again each time, since keeping them would cost more than it saves.
 
+### 3.9 Sparser stabilizers of subsystem codes
+
+The search of a subsystem code needs checks whose row space is its stabilizer group `S` ([Section 3.1](#31-the-problem)).
+`get_distance_css` and `get_distance_pauli` derive `S` from the gauge generators as a row-reduced basis, which can be several times heavier than sparse generators of `S`.
+For example, take the toric code on 256 qubits, and make one of its logical qubits a gauge qubit.
+Its stabilizers are generated by the plaquettes of the toric code, which weigh 4, but the derived basis has a mean weight of 15 and rows of weight up to 46.
+A search of the derived basis takes more than three minutes, and a search of the plaquettes about a second.
+So with `method="connected_support"`, the search of a subsystem code gets two sets of checks:
+
+- The gauge generators that commute with every gauge generator are stabilizers.
+  The search keeps them as given, with any redundant rows.
+- The rounds of row reductions in random orders of [Section 3.8](#38-vectors-with-a-given-syndrome) find sparser rows with the span of the derived basis.
+  `max_distance_sparsifying_rounds`, a field of `SearchTuning`, limits the rounds.
+
+The second set spans `S`, and the first lies in `S`, so together they span `S`.
+The kernel of the checks is that of the derived basis, so the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
+A coset search maps the syndrome of each query to its sparser checks, but a distance search needs only their span.
+Redundant checks can strengthen the search, since each unsatisfied check can prune a state or offer fewer branches.
+On the [[288, 12, 18]] bivariate bicycle code with 6 of its logical qubits made gauge qubits, the gauge generators that are stabilizers roughly halve the number of states that the search visits.
+A `CosetLeaderSearch` makes its checks sparser once for many queries, but a distance search uses its checks for one search, so it takes fewer rounds.
+
+Sparsity is not the only property of the checks that matters.
+The derived basis of a Bacon-Shor code is already as sparse as possible: each of its stabilizers acts on two parallel lines of the lattice, one of which is the last line.
+Another basis of the same weight, whose stabilizers act on neighboring lines, makes the search of the 9×9 Bacon-Shor code visit more than 100 times as many states.
+So the rounds change a row only when they find a strictly lighter one, which leaves the derived basis of a Bacon-Shor code as it is.
+
 ## 4. Guide to the source code
 
 The names below are in `_connected_support/search.py`, unless the table says otherwise.
@@ -338,15 +369,16 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Concept | Code |
 | --- | --- |
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
-| Sectors of a CSS code | `get_distance_css` of `core.py`, with `get_css_stabilizers` of `_binary.py` |
+| Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
 | Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
-| Distance of several sectors | `get_distance_connected_support`, which `get_distance_css` of `core.py` calls |
+| Distance of several sectors | `get_distance_connected_support`, which `_search_css` of `core.py` calls |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
-| Coset leaders of Pauli errors, and the sparser checks that their searches use | `ConnectedSupportCosetSearch`, `_get_sparser_rows`, and `_sparsify` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
-| How many rounds make the checks of a coset search sparser | `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
+| Coset leaders of Pauli errors | `ConnectedSupportCosetSearch` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
+| Sparser checks with the same span, for coset searches and for the distance searches of subsystem codes | `get_sparser_rows` and `_sparsify` in `_connected_support/sparse_checks.py`, and `_get_sparser_stabilizers` of `core.py` |
+| How many rounds make the checks of a coset search, or of a distance search of a subsystem code, sparser | `max_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
 | Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_support/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `coset_leaders.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
@@ -355,7 +387,7 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
-`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, and the last two find the stabilizers of subsystem codes.
+`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, and the last two find the stabilizers of subsystem codes and make them sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
 They pass the search the active tuning, and `SupportSearch` validates every problem.
 The `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes reject the method.
@@ -402,6 +434,10 @@ Changes to the search can use other bounds and orders, while keeping these requi
 - **Keep the span of the checks of a coset query.**
   Sparser checks must span the same space as the given ones, with an invertible transform that maps the syndrome of each query to a syndrome for them, or the query would search other cosets ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   How sparse they are changes only the speed of the queries, and which errors they return.
+- **Keep the span of the stabilizers of a subsystem code.**
+  The checks of its distance search must span exactly its stabilizer group ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
+  A smaller span would admit words that anticommute with a stabilizer, and a larger one would miss dressed logical operators.
+  The checks need no transform, and may have redundant rows.
 - **Return the exact minimum unless a cutoff permits an early exit.**
   The weights of the limits rise one divisor at a time, so that the first witness is the lightest.
   An early exit returns the weight of a known witness, which is an upper bound.
