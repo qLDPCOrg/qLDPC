@@ -44,7 +44,7 @@ DistanceMethod = Literal[
   reject it.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 
-:class:`~qldpc.codes.distance.CosetLeaderSearch`, and
+:class:`~qldpc.codes.distance.CosetLeaderSearch` and
 :func:`~qldpc.circuits.certify_bounded_fault_propagation`, which uses it, reject ``"brute_force"``.
 The page :doc:`/exact_search_tuning` of the documentation says how to make costly searches faster.
 """
@@ -79,7 +79,7 @@ class NoDistance(float, enum.ReprEnum):
 
 
 NO_DISTANCE = NoDistance.NAN
-"""The value returned as the distance of an object without one: the member of :class:`NoDistance`.
+"""The distance returned for an object without one: the only member of :class:`NoDistance`.
 
 It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
 """

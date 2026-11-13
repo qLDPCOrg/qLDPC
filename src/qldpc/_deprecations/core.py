@@ -489,10 +489,11 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
 
     Within the context, the active tuning has the batches that block_size gave before it was
     deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
-    information sets took at most it.  As before, any integer, including a bool, is accepted, and
-    an exponent outside the range of the fields is clamped to it, which changes no batch of
-    exhaustive enumeration.  The warning is issued here rather than in the context, which would
-    find the wrong caller.
+    information sets took at most it.  As before, any integer, including a bool, is accepted, and an
+    exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive
+    enumeration.  This function warns when it is called, not when its context is entered, since a
+    warning from inside a ``contextlib`` context manager would point to ``contextlib`` rather than
+    to the caller.
     """
     if block_size is None:
         return contextlib.nullcontext()

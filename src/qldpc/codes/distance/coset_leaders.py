@@ -106,7 +106,7 @@ class CosetLeaderSearch:
         css_weight: bool = False,
         method: DistanceMethod = "brouwer_zimmermann",
     ) -> None:
-        # Check the arguments, and keep those that the queries read.
+        # Check the arguments, and keep those that the properties return.
         coset_search_method = _get_coset_search_method(method)
         css_weight = bool(css_weight)
         self._css_weight = css_weight

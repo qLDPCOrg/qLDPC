@@ -170,8 +170,8 @@ class CSSLogicalCounter:
     Raises:
         TypeError: If ``checks_x`` or ``checks_z`` is not array-like, as when a code is given
             instead of its checks (see :meth:`from_code`).
-        ValueError: If the checks are not binary, have more than two dimensions, or have different
-            numbers of columns, or if ``checks_x`` is an empty list, which has no width.
+        ValueError: If the checks are not binary or have more than two dimensions, if they have
+            different numbers of columns, or if ``checks_x`` is an empty list, which has no width.
     """
 
     def __init__(self, checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> None:

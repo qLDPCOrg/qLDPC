@@ -107,8 +107,8 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
     )
     assert distance == 3
 
-    # Excluded rows that span every word that satisfies the checks leave no distance, also when
-    # they are redundant, so that their number exceeds their rank.
+    # Excluded rows that span every word that satisfies the checks leave no distance, even when they
+    # are redundant, as the repeated row makes them here.
     generator = np.asarray(hamming_code.generator)
     distance = core.get_distance_from_checks(
         hamming_code.matrix, np.vstack([generator, generator[:1]]), method=method

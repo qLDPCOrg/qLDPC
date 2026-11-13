@@ -601,7 +601,7 @@ def test_distance_qudit() -> None:
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
 
-    # gauge operators dress the logical operators of nonbinary subsystem codes too: here the gauge
+    # Gauge operators dress the logical operators of nonbinary subsystem codes too: here the gauge
     # generators leave no stabilizers, so X on one qudit, which is not an X-type gauge operator, is
     # a dressed logical operator.  The bare logical X operators, the multiples of (1, 2, 2), have
     # weight 3.

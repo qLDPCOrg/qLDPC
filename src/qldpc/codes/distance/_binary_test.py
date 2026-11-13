@@ -41,10 +41,11 @@ def test_binary_matrices_and_nested_bases() -> None:
     assert binary.as_binary_matrix(np.zeros((0, 0)), num_cols=3).shape == (0, 3)
 
     # Arrays of objects, such as Python integers too large for NumPy, are checked entry by entry,
-    # but a single object that is not array-like is rejected.
+    # and so is a single number, but a single object that is neither is rejected.
     np.testing.assert_array_equal(
         binary.as_binary_matrix(np.array([[1, 0]], dtype=object)), [[1, 0]]
     )
+    np.testing.assert_array_equal(binary.as_binary_matrix(np.array(1, dtype=object)), [[1]])
     for not_binary in ([[2**70, 0]], [[None, 1]]):
         with pytest.raises(ValueError, match="entries other than 0 and 1"):
             binary.as_binary_matrix(cast(Any, not_binary))

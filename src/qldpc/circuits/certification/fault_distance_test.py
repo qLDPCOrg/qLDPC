@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 import stim
 
@@ -34,3 +36,12 @@ def test_fault_distance_without_logical_faults() -> None:
     """Without an undetected observable flip, a circuit has no distance, and gives NO_DISTANCE."""
     circuit = stim.Circuit("R 0\nX_ERROR(0.01) 0\nM 0\nDETECTOR rec[-1]")
     assert circuits.get_fault_distance(circuit) is codes.NO_DISTANCE
+
+
+def test_fault_distance_errors() -> None:
+    """Circuits that Stim cannot convert to a DEM, and unknown methods, raise errors."""
+    with pytest.raises(ValueError, match="non-deterministic"):
+        circuits.get_fault_distance(stim.Circuit("H 0\nM 0\nDETECTOR rec[-1]"))
+    circuit = stim.Circuit("R 0\nX_ERROR(0.01) 0\nM 0\nDETECTOR rec[-1]")
+    with pytest.raises(ValueError, match="Unknown distance method"):
+        circuits.get_fault_distance(circuit, method=cast(Any, "other"))

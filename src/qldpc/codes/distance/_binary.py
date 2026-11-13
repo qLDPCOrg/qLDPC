@@ -7,6 +7,7 @@ The generic bit-packed linear algebra over GF(2) that the searches use is in ``q
 
 from __future__ import annotations
 
+import numbers
 import operator
 from typing import SupportsIndex
 
@@ -43,8 +44,8 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
 
     The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
     XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated
-    silently and yield a wrong distance rather than an error.  A single object that is not
-    array-like, such as a code, raises a ``TypeError``.
+    silently and yield a wrong distance rather than an error.  A single object that is neither
+    array-like nor a number, such as a code, raises a ``TypeError``.
     """
     order = getattr(type(vectors), "order", None)
     if order is not None and order != 2:
@@ -52,7 +53,7 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
             f"Exact searches only take binary input, but {name} is defined over GF({order})"
         )
     array = np.asarray(_as_dense(vectors))
-    if array.dtype == object and array.ndim == 0:
+    if array.dtype == object and array.ndim == 0 and not isinstance(array.item(), numbers.Number):
         raise TypeError(
             f"{name} must be an array of binary entries, not an object of type"
             f" {type(vectors).__name__}"

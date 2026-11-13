@@ -212,7 +212,6 @@ def test_deprecated_distance_functions() -> None:
     """
     generator = np.asarray(codes.HammingCode(3).generator)
     searches = [
-        (lambda: codes.get_distance_classical(generator), 3),  # type: ignore[attr-defined]
         (
             lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
                 generator.astype(object)
@@ -261,8 +260,7 @@ def test_deprecated_distance_functions() -> None:
     # the range of the fields.
     from qldpc.codes.distance import _tuning
 
-    with _tuning.use_tuning(information_set_batch_exponent=10):
-        active_tuning = _tuning.get_tuning()
+    with _tuning.use_tuning(information_set_batch_exponent=10) as active_tuning:
         with _deprecations.core._use_block_size(None):
             assert _tuning.get_tuning() is active_tuning
         for block_size, batches in (
@@ -281,16 +279,29 @@ def test_deprecated_distance_functions() -> None:
                 tuning.information_set_batch_exponent,
             ) == batches
 
-    # The functions take block_size, and warn at their caller about both deprecations.
+    # The functions search with those batches, as rows that record the active batch exponent when
+    # the search reads them show, and warn at their caller about both deprecations.
+    exponents: list[int] = []
+
+    class RecordingRows:
+        def __init__(self, rows: Any) -> None:
+            self.rows = rows
+
+        def __array__(self, dtype: Any = None, copy: Any = None) -> Any:
+            exponents.append(_tuning.get_tuning().enumeration_batch_exponent)
+            return np.asarray(self.rows, dtype=dtype)
+
     for search in (
-        lambda: codes.get_distance_classical(generator, block_size=2),  # type: ignore[attr-defined]
-        lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
-            generator[:1], generator[1:], homogeneous=True, block_size=2
+        lambda: get_distance_classical(RecordingRows(generator), block_size=2),
+        lambda: get_distance_quantum(
+            RecordingRows(generator[:1]), generator[1:], homogeneous=True, block_size=2
         ),
     ):
+        exponents.clear()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             assert search() == 3
+        assert exponents and set(exponents) == {2}
         assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
 
 

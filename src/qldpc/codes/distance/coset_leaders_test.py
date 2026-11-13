@@ -517,8 +517,9 @@ def test_methods_take_the_names_of_distance_methods() -> None:
     with pytest.raises(ValueError, match="no coset-leader search"):
         CosetLeaderSearch(matrix, method="brute_force")
     for unknown in ("gap", ["brouwer_zimmermann"]):
-        with pytest.raises(ValueError, match="Unknown distance method"):
+        with pytest.raises(ValueError, match="Unknown distance method") as error:
             CosetLeaderSearch(matrix, method=cast(Any, unknown))
+        assert "brute_force" not in str(error.value)
 
     # Every other distance method has a coset-leader search.
     for method in get_args(DistanceMethod):
