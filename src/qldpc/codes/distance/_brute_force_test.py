@@ -128,6 +128,36 @@ def test_brute_force_visits_every_nontrivial_word_once(
     assert distance == expected_distance
 
 
+@pytest.mark.parametrize("num_bits", [64, 65, 200, 1000, 2000])
+def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
+    """A batch of exhaustive enumeration holds as many words as fit in its packed integers.
+
+    Each word packs into one 64-bit integer for every 64 bits, so longer words fit fewer to a batch
+    of at most 2**batch_exponent integers, but a batch still holds more than half that many.
+    """
+    batch_exponent = 9
+    tune(enumeration_batch_exponent=batch_exponent)
+    rng = np.random.default_rng(num_bits)
+    logical_ops = rng.integers(2, size=(4, num_bits))
+    stabilizers = rng.integers(2, size=(8, num_bits))
+
+    # The weight spy records the number of packed integers in each batch that it weighs.
+    sizes: list[int] = []
+    bitwise_count = np.bitwise_count
+
+    def _spy_weight(
+        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
+    ) -> npt.NDArray[np.uint64]:
+        sizes.append(arr.size)
+        return bitwise_count(arr, out=out)
+
+    with mock.patch.object(np, "bitwise_count", _spy_weight):
+        qldpc.codes.distance.get_distance_from_generators(
+            logical_ops, stabilizers, method="brute_force"
+        )
+    assert 2 ** (batch_exponent - 1) < max(sizes) <= 2**batch_exponent
+
+
 def test_get_distance_empty_stabilizers_symplectic() -> None:
     """A symplectic-weight distance with no stabilizers returns the min logical operator weight.
 

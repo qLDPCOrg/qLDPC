@@ -201,9 +201,9 @@ class SearchTuning:
     #: A distance search enumerates every nontrivial word, instead of building information sets, if
     #: its basis has at most this many rows.  Raising it enumerates larger bases, whose number of
     #: words doubles with each row; lowering it makes small searches pay for setup.  Defaults to 20;
-    #: how it was first measured is not recorded, and it should be timed again once enumeration
-    #: vectorizes long rows (see ``enumeration_batch_exponent``).  To retune it, time both routes on
-    #: bases near the crossover.
+    #: how it was first measured is not recorded, and it predates the vectorized enumeration of rows
+    #: of more than 960 bits, which can move the crossover on long codes.  To retune it, time both
+    #: routes on bases near the crossover.
     enumeration_max_dimension: int = 20
 
     #: A distance search of more than ``enumeration_max_dimension`` and fewer than 63 basis rows
@@ -211,9 +211,9 @@ class SearchTuning:
     #: and columns, an estimate of the cost of setting up its information sets.  Raising it
     #: enumerates more long codes of low dimension; lowering it builds information sets for more of
     #: them.  Defaults to 16, a judgment call: against 128, it made searches of most of the sparse
-    #: codes of low dimension measured much faster, at a small cost to those of random ones.  Time
-    #: it again once enumeration vectorizes long rows (see ``enumeration_batch_exponent``).  To
-    #: retune it, time both routes on long codes near the crossover.
+    #: codes of low dimension measured much faster, at a small cost to those of random ones.  Those
+    #: measurements predate the vectorized enumeration of rows of more than 960 bits.  To retune it,
+    #: time both routes on long codes near the crossover.
     enumeration_setup_cost_factor: int = 16
 
     #: The exponent of the batches of exhaustive enumeration, which handles at most
@@ -221,9 +221,8 @@ class SearchTuning:
     #: ``2**(enumeration_batch_exponent + 3)`` bytes each, and checks for a keyboard interrupt
     #: between batches.  Raising it can speed up enumeration, at the cost of memory; lowering it
     #: saves memory and makes interrupts prompter, but adds overhead.  At most 62.  Defaults to 15,
-    #: chosen by hand; rows of over 960 bits then enumerate one word at a time
-    #: (``_brute_force.py``).  To retune it, time enumerations of bases of 16 to 24 rows, and keep
-    #: the smallest value beyond which they get no faster.
+    #: chosen by hand.  To retune it, time enumerations of bases of 16 to 24 rows, and keep the
+    #: smallest value beyond which they get no faster.
     enumeration_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     # Fields of information-set families.

@@ -502,7 +502,7 @@ Actual runtime also depends on basis construction, the width of packed words, an
 
 Exhaustive enumeration is chosen at two points, which [Section 4.2](#42-flow-and-exit-points) lists.
 It enumerates words in vectorized, packed blocks and updates them with Gray-code steps, and it does not use the BZ certificate.
-It vectorizes only rows short enough for the batch size (see `enumeration_batch_exponent`), and enumerates longer rows one word at a time.
+Each batch holds as many words as fit in `2**enumeration_batch_exponent` packed 64-bit integers (see `enumeration_batch_exponent`), so longer rows enumerate fewer words at a time.
 
 ### 3.7 Images of an information set under automorphisms
 
