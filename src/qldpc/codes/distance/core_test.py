@@ -165,9 +165,9 @@ def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
 
     The only stabilizer of this subsystem code is Z on its last qubit, and X on one of its first
     three qubits is a dressed logical operator, but every bare logical operator has weight 3.  So
-    excluding no stabilizers, or those of the wrong type, would give a bare distance of 1.  The
-    dressed distance of the Bacon-Shor code is 3, whereas excluding only some of its gauge
-    generators, such as its stabilizers, would give 2.
+    excluding no stabilizers would give a bare distance of 1, and excluding those of the wrong type
+    would give 1 or raise an error.  The dressed distance of the Bacon-Shor code is 3, whereas
+    excluding only part of its gauge group, such as its stabilizers, would give 2.
     """
     code = qldpc.codes.CSSCode(
         [[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]]
@@ -185,9 +185,15 @@ def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     )
     assert core.get_distance_from_checks(code.matrix_z, stabilizers_x, method=method) == 3
     assert core.get_distance_from_checks(code.matrix_x, stabilizers_z, method=method) == 3
+
+    # The dressed recipe excludes all of the gauge generators of the Bacon-Shor code, in both forms.
     bacon_shor_code = qldpc.codes.BaconShorCode(3)
     distance = core.get_distance_from_checks(
         bacon_shor_code.get_stabilizer_ops(), bacon_shor_code.matrix, symplectic=True, method=method
+    )
+    assert distance == 3
+    distance = core.get_distance_from_checks(
+        bacon_shor_code.get_stabilizer_ops(Pauli.Z), bacon_shor_code.matrix_x, method=method
     )
     assert distance == 3
 
@@ -195,12 +201,12 @@ def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     # excluded, and the bare distance with only the stabilizers excluded.
     if method != "connected_support":
         logical_ops = code.get_logical_ops()
-        for excluded, distance in ((code.matrix, 1), (stabilizers, 3)):
+        for excluded, expected in ((code.matrix, 1), (stabilizers, 3)):
             assert (
                 core.get_distance_from_generators(
                     logical_ops, excluded, symplectic=True, method=method
                 )
-                == distance
+                == expected
             )
 
 

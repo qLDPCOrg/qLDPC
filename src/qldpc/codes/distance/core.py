@@ -119,9 +119,9 @@ def get_distance_from_generators(
     nothing excluded, to get its distance: the minimum weight of a nonzero code word.  For a quantum
     code, pass its logical operators, and exclude its stabilizers, to get its distance: the minimum
     weight of a nontrivial logical operator.  For a subsystem code, exclude its gauge generators,
-    such as the rows of the ``matrix`` of a :class:`~qldpc.codes.QuditCode`, to get its distance,
-    which is dressed: its logical operators may be multiplied by gauge operators.  If the generators
-    are bare logical operators, such as those that
+    such as the rows of the ``matrix`` of a :class:`~qldpc.codes.QuditCode`.  The result is its
+    distance, which is dressed: its logical operators may be multiplied by gauge operators.  If the
+    generators are bare logical operators, such as those that
     :meth:`~qldpc.codes.common.QuditCode.get_logical_ops` returns, excluding only the stabilizers of
     the code gives its bare distance instead (see :func:`get_distance_from_checks`).  Rows may be
     redundant.
@@ -170,10 +170,10 @@ def get_distance_from_generators(
             ``excluded`` is not array-like, as when a code is given instead of a matrix.
         ValueError: If the method is unknown or is ``"connected_support"``, if ``max_weight`` is
             negative, if the matrices are not binary matrices with the same number of columns, if
-            neither matrix has a width, as when both are empty lists, if
-            they have an odd number of columns while ``symplectic`` is True, if ``automorphisms``
-            are not permutations of the bits or qubits, or if a search uses them and finds that one
-            of them is not an automorphism.
+            ``generators`` is an empty list and ``excluded`` is one too or is not given, so that
+            neither has a width, if the matrices have an odd number of columns while ``symplectic``
+            is True, if ``automorphisms`` are not permutations of the bits or qubits, or if a search
+            uses them and finds that one of them is not an automorphism.
     """
     method = _reject_connected_support(_validate_distance_method(method))
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -227,9 +227,9 @@ def get_distance_from_checks(
     A word that satisfies the checks counts as a logical operator unless it is a sum of excluded
     rows.  So exclude all of the stabilizers for the bare distance, and all of the gauge generators
     for the dressed distance.  Excluding nothing, or only some stabilizers, counts stabilizers as
-    logical operators.  For a subsystem code, passing its stabilizers as both the checks and
-    ``excluded``, such as its Z-type and X-type stabilizers, counts gauge operators that are not
-    stabilizers as logical operators.
+    logical operators.  For a subsystem code, passing stabilizers as both the checks and
+    ``excluded``, such as its Z-type stabilizers as the checks and its X-type ones as ``excluded``,
+    counts gauge operators that are not stabilizers as logical operators.
 
     Args:
         checks: A binary matrix whose rows are the checks.
@@ -272,12 +272,12 @@ def get_distance_from_checks(
         TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` or
             ``excluded`` is not array-like, as when a code is given instead of a matrix.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the matrices are not
-            binary matrices with the same number of columns, if neither matrix has a width, as when
-            both are empty lists, if they have an odd number of columns
-            while ``symplectic`` is True, if ``symplectic`` is True and ``excluded`` is not given,
-            if a row of ``excluded`` does not satisfy the checks, if ``automorphisms`` are not
-            permutations of the bits or qubits, or if a search uses them and finds that one of them
-            is not an automorphism.
+            binary matrices with the same number of columns, if ``checks`` is an empty list and
+            ``excluded`` is one too or is not given, so that neither has a width, if the matrices
+            have an odd number of columns while ``symplectic`` is True, if ``symplectic`` is True
+            and ``excluded`` is not given, if a row of ``excluded`` does not satisfy the checks, if
+            ``automorphisms`` are not permutations of the bits or qubits, or if a search uses them
+            and finds that one of them is not an automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -333,10 +333,10 @@ def get_distance_css(
     Its stabilizers are the gauge operators that commute with every gauge operator, and its logical
     operators are dressed: they may be multiplied by gauge operators.  An X logical operator then
     commutes with every Z-type stabilizer, and it is trivial if it is an X-type gauge operator.  The
-    result is the dressed distance of the code, and :func:`get_distance_from_checks` says how to
-    find its bare distance instead.  To be sure that the checks define a stabilizer code, build a
-    code with ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error if
-    they do not commute.
+    result is then dressed, and :func:`get_distance_from_checks` says how to find the bare distance
+    instead.  To be sure that the checks define a stabilizer code, build a code with
+    ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error if they do not
+    commute.
 
     Args:
         checks_x: A binary matrix of the X-type checks, which may be redundant.
@@ -351,8 +351,8 @@ def get_distance_css(
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, also for
-            subsystem codes).
+            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
+            covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
@@ -374,9 +374,8 @@ def get_distance_css(
             ``checks_z`` is not array-like, as when a code is given instead of its checks.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not
             binary matrices with the same number of columns, if both are empty lists, which have no
-            width, if ``pauli`` is not X, Z, or None, if
-            ``automorphisms`` are not permutations of the qubits, or if a search uses them and finds
-            that one of them is not an automorphism.
+            width, if ``pauli`` is not X, Z, or None, if ``automorphisms`` are not permutations of
+            the qubits, or if a search uses them and finds that one of them is not an automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
@@ -462,8 +461,8 @@ def get_distance_pauli(
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, also for
-            subsystem codes).
+            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
+            covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
             :func:`get_distance_from_generators`).
@@ -484,9 +483,9 @@ def get_distance_pauli(
         TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``checks`` is not
             array-like, as when a code is given instead of its checks.
         ValueError: If the method is unknown, if ``max_weight`` is negative, if the checks are not a
-            binary matrix with an even number of columns, if ``automorphisms`` are not permutations
-            of the qubits, or if a search uses them and finds that one of them is not an
-            automorphism.
+            binary matrix with an even number of columns, if they are an empty list, which has no
+            width, if ``automorphisms`` are not permutations of the qubits, or if a search uses them
+            and finds that one of them is not an automorphism.
     """
     method = _validate_distance_method(method)
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)

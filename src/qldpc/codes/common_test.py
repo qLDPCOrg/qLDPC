@@ -1092,18 +1092,23 @@ def test_subsystem_code_hint() -> None:
     # a qutrit check commutes with itself, although its non-symplectic square is nonzero
     assert not codes.QuditCode([[1, 1]], field=3, is_subsystem_code=False).is_subsystem_code
 
-    # a stabilizer code treated as a subsystem code has the same distances, but the distance bound
-    # of a QuditCode, by QDistRnd, rejects it
+    # a stabilizer code hinted as a subsystem code has no gauge qudits and the same distances, but
+    # QuditCode.get_distance_bound, which uses QDistRnd, rejects it
     steane_code = codes.SteaneCode()
-    hinted_code = codes.CSSCode(steane_code.matrix_x, steane_code.matrix_z, is_subsystem_code=True)
-    assert hinted_code.get_distance_exact() == 3
-    assert codes.QuditCode(steane_code.matrix, is_subsystem_code=True).get_distance_exact() == 3
+    hinted_css_code = codes.CSSCode(
+        steane_code.matrix_x, steane_code.matrix_z, is_subsystem_code=True
+    )
+    assert hinted_css_code.gauge_dimension == 0
+    assert hinted_css_code.get_distance_exact() == 3
+    hinted_qudit_code = codes.QuditCode(steane_code.matrix, is_subsystem_code=True)
     with (
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         pytest.raises(ValueError, match="subsystem code from its symplectic checks"),
     ):
-        codes.QuditCode(steane_code.matrix, is_subsystem_code=True).get_distance_bound(1)
+        hinted_qudit_code.get_distance_bound(1)
+    assert hinted_qudit_code.gauge_dimension == 0
+    assert hinted_qudit_code.get_distance_exact() == 3
 
 
 def test_from_qldpc_challenge_id() -> None:

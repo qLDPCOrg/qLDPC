@@ -139,7 +139,7 @@ A code that encodes nothing, or a circuit with no undetected logical fault, has 
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
 Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
-Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a non-CSS ``QuditCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
+Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a ``QuditCode`` that is not a ``CSSCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.
 Codes remember the best distance bound that they have computed or been given, and CSS codes remember X and Z bounds separately.

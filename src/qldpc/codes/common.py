@@ -2099,8 +2099,8 @@ class QuditCode(AbstractCode):
             TypeError: If num_trials is not an integer or None.
             ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
                 GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
-                when GAP cannot be called, or if the code is a subsystem code (QDistRnd bounds
-                only CSS subsystem codes, given as a :class:`CSSCode`).
+                when GAP cannot be called, or if the code is a subsystem code, since QDistRnd
+                bounds a subsystem code only if it is CSS and given as a :class:`CSSCode`.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
@@ -2122,12 +2122,13 @@ class QuditCode(AbstractCode):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
         if _resolve_distance_backend(backend, bound_kwargs, is_binary=False) != "gap":
             raise NotImplementedError(
-                "Bounding the distance of a QuditCode requires GAP/QDistRnd, but GAP cannot be"
-                ' called; pass backend="gap" to use GAP manually'
+                "Bounding the distance of a QuditCode that is not a CSSCode requires GAP/QDistRnd,"
+                ' but GAP cannot be called; pass backend="gap" to use GAP manually'
             )
         if not external.gap.is_installed():
             raise NotImplementedError(
-                "Bounding the distance of a QuditCode without GAP is not supported"
+                "Bounding the distance of a QuditCode that is not a CSSCode without GAP is not"
+                " supported"
             )
 
         maxav = bound_kwargs.get("maxav", "fail")

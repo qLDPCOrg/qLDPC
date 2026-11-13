@@ -115,9 +115,13 @@ def test_get_qdistrnd_distance_bound() -> None:
     """Compute a bound on code distance using QDistRnd."""
     matrix = codes.FiveQubitCode().matrix
     steane_code = codes.SteaneCode()
-    with unittest.mock.patch("qldpc.external.gap.require_package", return_value=None):
+    with unittest.mock.patch(
+        "qldpc.external.gap.require_package", return_value=None
+    ) as require_package:
+        # the symplectic checks of a subsystem code are rejected before GAP loads any package
         with pytest.raises(ValueError, match="subsystem code from its symplectic checks"):
             _codes.get_qdistrnd_distance_bound(matrix, is_subsystem_code=True)
+        require_package.assert_not_called()
 
         with unittest.mock.patch("qldpc.external.gap.get_output", return_value="3") as get_output:
             assert _codes.get_qdistrnd_distance_bound(matrix) == 3
@@ -137,13 +141,12 @@ def test_get_qdistrnd_distance_bound() -> None:
             # QDistRnd fails on a matrix without rows, so it receives a zero row instead, for each
             # matrix of a CSS code and for the matrix of a stabilizer code
             no_rows = steane_code.matrix_x[:0]
-            for matrix_x, matrix_z in (
+            for checks, matrix_z in (
                 (no_rows, steane_code.matrix_z),
                 (steane_code.matrix_x, no_rows),
                 (codes.QuditCode(np.zeros((0, 14), dtype=int)).matrix, None),
             ):
-                _codes.get_qdistrnd_distance_bound(matrix_x, matrix_z=matrix_z)
-                assert "nz:=[];;" not in get_output.call_args.args
+                _codes.get_qdistrnd_distance_bound(checks, matrix_z=matrix_z)
                 assert "nz:=[[[]]];;" in get_output.call_args.args
 
         # QDistRnd negates a bound at or below the cutoff when it stops early
@@ -166,7 +169,7 @@ def test_get_qdistrnd_distance_bound() -> None:
 
 
 def test_qdistrnd_bounds_without_checks_of_one_type() -> None:  # pragma: no cover
-    """GAP bounds dressed distances of CSS codes, also without checks or stabilizers of one type.
+    """GAP bounds the dressed distances of codes, also where some checks or stabilizers are missing.
 
     This test runs GAP itself, so it runs only where GAP can be called, as in the GAP integration
     tests.
