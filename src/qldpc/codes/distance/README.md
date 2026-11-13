@@ -1,7 +1,7 @@
 # Exact distances and logical-operator counts: a guide for contributors
 
 This directory is the package `qldpc.codes.distance`.
-It computes exact distances of binary codes, and counts the logical operators of a given weight in binary CSS codes.
+It computes exact distances of binary codes, counts the logical operators of a given weight in binary CSS codes, and finds light Pauli errors with given syndromes on stabilizer states.
 Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py`, which call those functions.
 `brouwer_zimmermann.md` explains the Brouwer–Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a Brouwer–Zimmermann search must keep.
 `connected_support.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the code, says what its cost depends on, and lists its correctness requirements.
@@ -12,6 +12,7 @@ Users reach it through the public functions and classes below, which take plain 
 
 - `get_distance_from_generators`, `get_distance_from_checks`, `get_distance_css`, `get_distance_pauli`, `DistanceMethod`, and `NoDistance`, whose only member `NoDistance.NAN` is also exported as `NO_DISTANCE`, from `core.py`.
 - `CSSLogicalCounter`, `CSSLogicalCounts`, `count_logical_ops_css`, `LogicalCountMethod`, and `compile_search_setup`, from `logical_counts.py`.
+- `CosetLeaderSearch`, from `coset_leaders.py`, and `MinWeightBound`, the answer of its queries, from `min_weight_bounds.py`.
 
 `qldpc.codes` re-exports only `NoDistance`, `NO_DISTANCE`, and `DistanceMethod`, which the code classes take or return, and docs cite the other names at `qldpc.codes.distance`.
 
@@ -35,7 +36,7 @@ Users reach it through the public functions and classes below, which take plain 
 ## Layout
 
 - `core.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
-- `coset_leaders.py` is the entry module of the coset-leader search, which modules elsewhere in qLDPC import.
+- `coset_leaders.py` is the public interface of the coset-leader search, and `min_weight_bounds.py` defines the answer of its queries, which its coset searches build too.
 - `_brouwer_zimmermann/` holds the Brouwer–Zimmermann searches, which scan information sets, and `_connected_support/` the searches over connected supports.
   Each holds its distance search, and the coset searches with which the coset-leader search answers its queries by that method.
   Exhaustive enumeration fits in one module, `_brute_force.py`.
@@ -64,7 +65,8 @@ Users reach it through the public functions and classes below, which take plain 
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The parts that the coset searches of both methods share: their answers (`MinWeightBound`), words with unit syndromes, packed rows, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
+| The answers of the queries of the coset-leader search and of its coset searches (`MinWeightBound`) | `min_weight_bounds.py` |
+| The parts that the coset searches of both methods share: words with unit syndromes, packed rows, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
 | How basis families are built | `_information_sets/basis_families.py` |
 | Certificates, and how searches plan their steps: where they stop, and the work of the steps up to there | `_information_sets/certificates.py` |
 | The step from one support of a layer to the next, which every scan of layers shares | `_information_sets/support_stepping.py` |
@@ -80,10 +82,10 @@ Users reach it through the public functions and classes below, which take plain 
 
 From the top:
 
-1. `logical_counts.py`, which takes `NoDistance` from `core.py`.
-2. `core.py` and `coset_leaders.py`.
+1. `logical_counts.py`, which takes `NoDistance` from `core.py`, and `coset_leaders.py`, which takes `DistanceMethod` from it.
+2. `core.py`.
 3. The methods `_brouwer_zimmermann/`, `_connected_support/`, and `_counting/`.
-4. `_information_sets/`, `_cosets.py`, and `_brute_force.py`, which the methods build on.
+4. `_information_sets/`, `_cosets.py`, `min_weight_bounds.py`, and `_brute_force.py`, which the methods build on.
    The connected-support search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`, and the Brouwer–Zimmermann distance search uses `_brute_force.py` for its exhaustive routes.
 5. `_tuning.py`.
 6. `_binary.py`.
@@ -97,7 +99,49 @@ In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and
 In `_connected_support/`, `coset` builds on `search`, and in `_counting/`, `scan` on `local_cliffords`.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` inside the functions that use them.
-Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py`, modules in `src/qldpc/circuits/certification/`, and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
+Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
+
+## The coset-leader search
+
+`CosetLeaderSearch` answers each query with one or two coset searches, each of the cosets of one binary code.
+
+- In general, one search of the Pauli errors, modulo the stabilizers, answers a query.
+  Its syndromes are for the given stabilizers, so it is cached for the most recently used stabilizer matrices (see `PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`).
+- For the CSS weight on a CSS state, two classical searches cover the X parts and the Z parts of the errors separately, on `n` columns each rather than `2n`.
+  A pure-X stabilizer has no Z part, a pure-Z stabilizer has no X part, and a stabilizer state is CSS if pure-X and pure-Z stabilizers generate its stabilizer group.
+  The X parts of the pure-X stabilizers span a binary code `C_X`, and the Z parts of the pure-Z stabilizers a binary code `C_Z`.
+  Multiplying an error by a stabilizer adds a word of `C_X` to its X part `x` and a word of `C_Z` to its Z part `z`, independently, so the smallest CSS weight of an error with a given syndrome is the larger of the smallest Hamming weights in the cosets `x + C_X` and `z + C_Z`.
+  The coset of an X part is labeled by its syndrome for the pure-Z stabilizers, and that of a Z part by its syndrome for the pure-X stabilizers, and the search maps a syndrome for the given stabilizers to these two syndromes.
+  The two coset searches depend only on the stabilizer group, so they are cached for the most recently used groups (see `CSS_SEARCH_CACHE_SIZE` in `_tuning.py`), and searches for different generating sets of one state share them.
+
+The coset searches answer their own queries with `MinWeightBound` too, whose representative is then a word of their code: a packed Pauli error, or an X or Z part.
+Each coset search first looks up the words of weight at most one in a table.
+
+By default, each coset search is a Brouwer–Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann.md`).
+With one BZ search, `find_first_not_within_max_weight` returns the bound that the batch search found, so the syndrome is not searched again, and with two, the bound that `get_min_weight_bound` gives.
+`get_min_weights` answers the syndromes of a batch in one compiled loop for each coset search, with `BrouwerZimmermannCosetSearch.get_min_weights` (Section 3.10 of `brouwer_zimmermann.md`).
+For the CSS weight, it searches the Z part of a class only if its X part is within the maximum weight, with the weight of the X part as the floor of that search.
+
+With `method="connected_support"`, each coset search is a `ConnectedSupportCosetSearch` in `_connected_support/coset.py`, which runs `SupportSearch` of `_connected_support/search.py` from the syndrome of a query (Section 3.8 of `connected_support.md`).
+It searches through the unsatisfied stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
+It is fast if its checks are sparse.
+Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its checks with sparser ones that span the same space, which can fall short of the sparsest generators.
+The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only on CSS states, whose X and Z parts it searches separately.
+A syndrome with an error of weight at most one gets the weight of its lightest errors as a lower bound.
+For any other syndrome, a query with an error within `max_weight` gives the lower bound two, and a query with none gives the larger of two and `max_weight + 1`.
+The BZ searches often give higher bounds.
+`find_first_not_within_max_weight` searches each syndrome that the table lacks with increasing weight limits (`_get_batch_support_bound`), which can find light errors sooner than one search at `max_weight`.
+So for the CSS weight, the representative of a part within `max_weight` can differ from the one that `get_min_weight_bound` gives.
+`get_min_weights` also tries increasing weight limits (`_get_min_support_weight`), and starts the search of a Z part at the weight of its X part.
+
+`CosetLeaderSearch` reads the active tuning when it is built, and the module docstring of `_tuning.py` says what a tuning can change about its answers.
+
+- `disjoint_random_column_orders` configures every BZ search.
+- `max_css_single_pairs` configures the BZ searches by CSS weight that are not split into two classical searches.
+- `overlapping_minimum_work`, `max_information_sets`, and `overlapping_attempts_per_set` configure the families of information sets with which a BZ search answers costly queries (see `_brouwer_zimmermann/coset_routes.py`).
+  The threshold `overlapping_minimum_work` also decides which queries of the BZ searches by physical weight, and of the classical searches, weigh words without the pivot columns of each set of their family, and skip the words that tables of bounds prove to weigh more than `max_weight`.
+  `coset_completion_block_bits` and `completion_bound_max_table_bytes` configure these tables.
+- `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` configure how the connected-support searches make their checks sparser.
 
 ## Tuning
 

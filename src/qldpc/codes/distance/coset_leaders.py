@@ -1,24 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact minimum-weight queries for syndrome classes of Pauli errors on a stabilizer state.
+"""Exact queries of the lightest Pauli errors with a given syndrome on a stabilizer state.
 
-The Pauli errors with a given syndrome form a coset of the stabilizer group, and a lightest error in
-it is a coset leader.  ``CosetLeaderSearch`` decides whether the coset leaders of a syndrome class
-weigh at most a given maximum weight, with Brouwer-Zimmermann searches of cosets of binary codes, or
-with connected-support searches that start from the syndrome.  For the residual-weight estimator of
-``qldpc.experimental``, it also finds the weight of the coset leaders of each syndrome class up to a
-maximum weight.
+The Pauli errors with a given syndrome for the stabilizers of a pure stabilizer state form a
+syndrome class, which is a coset of the stabilizer group, and its lightest errors are its coset
+leaders.  :class:`CosetLeaderSearch` decides exactly whether the coset leaders of a syndrome class
+weigh at most a given maximum weight, and finds their weight up to a maximum weight.
+:func:`qldpc.circuits.certify_bounded_fault_propagation` asks it whether the faults of a circuit
+leave errors that are too heavy.
 
-This module is the entry point of these queries.  It splits a query into coset searches, which live
-with their methods.  The BZ coset searches are in ``_brouwer_zimmermann/coset.py``, and the tables
-of their steps and tails in ``_brouwer_zimmermann/coset_tables.py``.  The connected-support coset
-searches are in ``_connected_support/coset.py``.  What both methods share is in ``_cosets.py``.
+The README.md of this directory says how the searches answer these queries.
 """
 
 from __future__ import annotations
 
 import functools
-from typing import Literal, get_args
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -26,18 +23,27 @@ import numpy.typing as npt
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary
 from qldpc._compilation import always_compiled
 
-from ._binary import as_binary_matrix, assert_binary
+from ._binary import as_binary_matrix, as_integer, assert_binary
 from ._brouwer_zimmermann.coset import (
     BrouwerZimmermannCosetSearch,
     get_css_searches,
     get_pauli_search,
 )
 from ._connected_support.coset import ConnectedSupportCosetSearch
-from ._cosets import MinWeightBound, row_ints, words_to_int, xor_selected, xor_selected_rows
+from ._cosets import row_ints, words_to_int, xor_selected, xor_selected_rows
 from ._tuning import get_tuning
+from .core import DistanceMethod
+from .min_weight_bounds import MinWeightBound
 
-# The method of a coset-leader search.
-CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
+# The method of the coset searches that answer the queries of a ``CosetLeaderSearch``.
+_CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
+
+# The method of the coset searches for each method name that ``CosetLeaderSearch`` accepts.
+_COSET_SEARCH_METHODS: dict[str, _CosetSearchMethod] = {
+    "brouwer_zimmermann": "brouwer_zimmermann",
+    "information_sets": "brouwer_zimmermann",
+    "connected_support": "connected_support",
+}
 
 
 ####################################################################################################
@@ -45,84 +51,61 @@ CosetSearchMethod = Literal["brouwer_zimmermann", "connected_support"]
 
 
 class CosetLeaderSearch:
-    """Minimum-weight oracle for Pauli errors modulo the stabilizers of a pure stabilizer state.
+    """Exact search of the lightest Pauli errors with a given syndrome on a pure stabilizer state.
 
-    The syndrome of a Pauli error on ``n`` qubits says which of the ``n`` given stabilizer
-    generators, the rows of ``stabilizers``, it anticommutes with.  Two errors have the same
-    syndrome exactly when they differ by a stabilizer, so the errors with a given syndrome form a
-    syndrome class of equivalent errors, which is a coset of the stabilizer group.  A lightest error
-    of a syndrome class is a coset leader, and the oracle determines whether the coset leaders of a
-    syndrome class weigh at most a given maximum weight.
+    The search takes ``n`` independent commuting stabilizers on ``n`` qubits, which define a pure
+    stabilizer state rather than a code that encodes qubits.  The syndrome of a Pauli error says
+    which of these stabilizers it anticommutes with.  Two errors have the same syndrome exactly when
+    they differ by a stabilizer, so the errors with a given syndrome form a syndrome class, which is
+    a coset of the stabilizer group.  The lightest errors of a syndrome class are its coset leaders.
+    The weight of an error is either its physical weight, the number of qubits that it acts on, or
+    its CSS weight ``max(|x|, |z|)``, where ``x`` and ``z`` are its X and Z parts.
 
-    A Pauli is packed into an integer with its X part ``x`` in the low ``n`` bits and its Z part
-    ``z`` in the next ``n`` bits, and a syndrome is packed into an integer with bit ``j`` for
-    stabilizer ``j``.  The weight of an error is either its physical weight, the number of qubits
-    that it acts on, or its CSS weight ``max(|x|, |z|)``.
+    The queries use packed integers and arrays, which the searches use directly:
 
-    The oracle answers a query with one or two coset searches.  By default, each searches the cosets
-    of a binary code with the Brouwer-Zimmermann (BZ) algorithm (see ``brouwer_zimmermann.md``), as
-    ``_search_coset`` in ``_brouwer_zimmermann/coset.py`` describes, and ``get_min_weight_bound`` of
-    each coset search first looks up words of weight at most one in a table.
+    - A syndrome is an integer with bit ``j`` set if the error anticommutes with stabilizer ``j``.
+    - A Pauli error is an integer with its X part in bits ``0`` to ``n - 1`` and its Z part in bits
+      ``n`` to ``2 n - 1``.  :meth:`unpack_pauli` turns it into a binary vector.
+    - A batch of syndromes is a two-dimensional ``uint64`` array with one row per syndrome, in which
+      word ``j`` of a row holds bits ``64 j`` and up of its syndrome.  :meth:`pack_syndromes` makes
+      a batch from binary syndromes.
 
-    - In general, one Pauli search covers the Pauli errors themselves, modulo the stabilizers.
-      Its syndromes are for the given stabilizers, so it is cached for the most recently used
-      stabilizer matrices (see ``_tuning.PAULI_SEARCH_CACHE_SIZE``).
-    - For the CSS weight on a CSS state, two classical searches cover the X parts and the Z parts
-      of the errors separately, on ``n`` columns each rather than ``2 n``.  A pure-X stabilizer has
-      no Z part, a pure-Z stabilizer has no X part, and a stabilizer state is CSS if pure-X and
-      pure-Z stabilizers generate its stabilizer group.  The X parts of the pure-X stabilizers span
-      a binary code ``C_X``, and the Z parts of the pure-Z stabilizers a binary code ``C_Z``.
-      Multiplying an error by a stabilizer adds a word of ``C_X`` to its X part and a word of
-      ``C_Z`` to its Z part, independently, so the smallest CSS weight of an error with a given
-      syndrome is the larger of the smallest Hamming weights in the cosets ``x + C_X`` and
-      ``z + C_Z``.  The coset of an X part is labeled by its syndrome for the pure-Z stabilizers,
-      and that of a Z part by its syndrome for the pure-X stabilizers, and the oracle maps a
-      syndrome for the given stabilizers to these two syndromes.  The two searches depend only on
-      the stabilizer group, so they are cached for the most recently used groups (see
-      ``_tuning.CSS_SEARCH_CACHE_SIZE``), and oracles for different generating sets of one state
-      share them.
+    Whether a syndrome class has an error within a maximum weight never depends on the method or
+    the tuning of the search.  The error and the lower bound that a query returns can depend on the
+    method, the tuning, and the version of qLDPC.  The error is some error of the class within the
+    maximum weight if there is one, but not necessarily a lightest one.  The search reads the active
+    tuning when it is built, and the page :doc:`/exact_search_tuning` of the documentation says how
+    to change it.
 
-    With ``method="connected_support"``, each coset search is instead the search of
-    ``SupportSearch`` in ``_connected_support/search.py`` from the syndrome of a query, through the
-    unsatisfied stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X
-    stabilizers for Z parts (Section 3.8 of ``connected_support.md``).  It is fast if its checks are
-    sparse.  Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its
-    checks with sparser ones that span the same space, which can fall short of the sparsest
-    generators.  The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only on
-    CSS states, whose X and Z parts it searches separately.  Like the BZ searches, it first looks up
-    errors of weight at most one, so a syndrome with such an error gets the weight of its lightest
-    errors as a lower bound.  For any other syndrome, a query with an error within ``max_weight``
-    gives two, and a query with none gives the larger of two and ``max_weight + 1``.
-    ``find_first_not_within_max_weight`` searches each syndrome that the table lacks with increasing
-    weight limits, which can find light errors sooner than one search at ``max_weight``.  The BZ
-    searches often give higher bounds.
-
-    The oracle reads the active tuning when it is built, and the module docstring of ``_tuning``
-    says what a tuning can change about its answers.  The field ``disjoint_random_column_orders``
-    configures every BZ search of the oracle.  The field ``max_css_single_pairs`` configures the BZ
-    searches by CSS weight that are not split into two classical searches.  The fields
-    ``overlapping_minimum_work``, ``max_information_sets``, and ``overlapping_attempts_per_set``
-    configure the families of information sets with which a BZ search answers costly queries (see
-    ``_brouwer_zimmermann/coset_routes.py``).  The threshold ``overlapping_minimum_work`` also
-    decides which queries of the BZ searches by physical weight, and of the classical searches,
-    weigh words without the pivot columns of each set of their family, and skip the words that
-    tables of bounds prove to weigh more than ``max_weight``.  The fields
-    ``coset_completion_block_bits`` and ``completion_bound_max_table_bytes`` configure these tables.
-    The fields ``max_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` configure
-    how the connected-support searches make their checks sparser.
+    For the CSS weight on a CSS state, whose stabilizer group is generated by stabilizers without Z
+    parts and stabilizers without X parts, the search covers the X parts and the Z parts of errors
+    separately, on ``n`` columns each rather than ``2 n``.  The Brouwer--Zimmermann method caches
+    its searches for the most recently used stabilizers, or, for the CSS weight on a CSS state,
+    stabilizer groups, and another ``CosetLeaderSearch`` for them reuses these searches.
 
     Args:
-        stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order whose rows are independent
-            commuting stabilizers.
+        stabilizers: A binary ``n x 2n`` matrix in ``[X|Z]`` order, whose rows are ``n``
+            independent commuting stabilizers on ``n`` qubits.
         css_weight: True to weigh an error by its CSS weight, or False to weigh it by its physical
-            weight.
-        method: ``"brouwer_zimmermann"`` (the default) or ``"connected_support"``, the search of
-            the cosets.
+            weight.  Default: False.
+        method: The search of the syndrome classes.  ``"brouwer_zimmermann"``, with alias
+            ``"information_sets"``, searches the cosets of binary codes by information sets (see
+            the `Brouwer--Zimmermann guide
+            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
+            ``"connected_support"`` grows errors from the syndrome through generators of the
+            stabilizer group, which it first makes sparser, and is fast if they are sparse (see the
+            `connected-support guide
+            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
+            It weighs errors by CSS weight only on CSS states.  For a class without an error within
+            a positive maximum weight, its lower bound is that maximum weight plus one, whereas the
+            Brouwer--Zimmermann method often proves a higher one.  Default:
+            ``"brouwer_zimmermann"``.
 
     Raises:
-        ValueError: If the stabilizers are not ``n`` independent commuting stabilizers, if the
-            method is unknown, or if the connected-support method would weigh errors on a state that
-            is not CSS by their CSS weight.
+        ValueError: If the stabilizers are not a binary matrix with ``2 n`` columns, or are not
+            ``n`` independent commuting stabilizers, as when they define a code that encodes
+            qubits; if the method is unknown or ``"brute_force"``; or if the connected-support
+            method would weigh errors on a state that is not CSS by their CSS weight.
     """
 
     def __init__(
@@ -130,13 +113,9 @@ class CosetLeaderSearch:
         stabilizers: npt.ArrayLike,
         *,
         css_weight: bool = False,
-        method: CosetSearchMethod = "brouwer_zimmermann",
+        method: DistanceMethod = "brouwer_zimmermann",
     ) -> None:
-        if method not in get_args(CosetSearchMethod):
-            raise ValueError(
-                f"Unknown coset-leader search method {method!r}; choose from 'brouwer_zimmermann'"
-                " or 'connected_support'"
-            )
+        coset_search_method = _get_coset_search_method(method)
         tuning = get_tuning()
         # The connected-support searches make their checks sparser in rounds that the tuning bounds.
         support_search = functools.partial(
@@ -147,25 +126,15 @@ class CosetLeaderSearch:
         # Exactly one of the BZ searches and the connected-support searches is nonempty.
         self._brouwer_zimmermann_searches: tuple[BrouwerZimmermannCosetSearch, ...] = ()
         self._connected_support_searches: tuple[ConnectedSupportCosetSearch, ...] = ()
-        self.css_weight = css_weight
-        assert_binary(stabilizers, "stabilizers")
-        matrix = as_binary_matrix(stabilizers, "stabilizers")
-        self.num_qubits = len(matrix)
-        n = self.num_qubits
-        if not n or matrix.shape[1] != 2 * n:
-            raise ValueError("Require a complete nonempty n by 2n stabilizer matrix")
-        # The syndrome of a packed Pauli ``e`` is ``checks @ e``, where ``checks`` swaps the X and Z
-        # halves of the stabilizers, and the stabilizers commute exactly when ``checks @ matrix.T``
-        # is zero.
-        checks = np.roll(matrix, n, axis=1)
-        if len(row_reduce_binary(matrix)[2]) != n or np.any((checks @ matrix.T) % 2):
-            raise ValueError("Stabilizers must be independent and commute")
+        self._css_weight = css_weight
+        matrix = _get_state_stabilizers(stabilizers)
+        self._num_qubits = n = len(matrix)
 
         # Search the Pauli errors themselves, unless the CSS weight on a CSS state lets the X and Z
         # parts of the errors be searched separately.
         combinations = _get_css_combinations(matrix) if css_weight else None
         if combinations is None:
-            if method == "brouwer_zimmermann":
+            if coset_search_method == "brouwer_zimmermann":
                 self._brouwer_zimmermann_searches = (get_pauli_search(matrix, css_weight, tuning),)
             elif css_weight:
                 raise ValueError(
@@ -187,7 +156,7 @@ class CosetLeaderSearch:
             (z_combinations @ matrix[:, n:]) % 2, np.eye(len(z_combinations), dtype=np.uint8)
         )
         assert x_transform is not None and z_transform is not None
-        if method == "connected_support":
+        if coset_search_method == "connected_support":
             # The Z parts of the pure-Z stabilizers check the X parts, and the X parts of the pure-X
             # stabilizers check the Z parts.
             self._connected_support_searches = (
@@ -220,25 +189,40 @@ class CosetLeaderSearch:
             np.ascontiguousarray(np.vstack([x_syndrome_map, z_syndrome_map]).T)
         )
 
-    def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
-        """Decide whether some error with this syndrome has weight at most ``max_weight``.
+    @property
+    def num_qubits(self) -> int:
+        """The number of qubits ``n`` of the state, which is also its number of stabilizers."""
+        return self._num_qubits
+
+    @property
+    def css_weight(self) -> bool:
+        """Whether the search weighs an error by its CSS weight, rather than its physical weight."""
+        return self._css_weight
+
+    def get_min_weight_bound(
+        self, syndrome: int | npt.ArrayLike, max_weight: int
+    ) -> MinWeightBound:
+        """Decide whether some error with a syndrome has weight at most ``max_weight``.
 
         Args:
-            syndrome: A packed syndrome (see ``CosetLeaderSearch``).
-            max_weight: The largest weight that the query accepts.
+            syndrome: The syndrome, packed into an integer, or a binary vector with one entry for
+                each stabilizer.
+            max_weight: The largest weight that the query accepts, a nonnegative integer.
 
         Returns:
-            A ``MinWeightBound``.  With two searches, its lower bound is the larger of theirs.
+            A ``MinWeightBound`` for the class of the syndrome.
 
         Raises:
-            ValueError: If the syndrome is out of range.
+            TypeError: If ``max_weight`` or a packed syndrome is not an integer.
+            ValueError: If ``max_weight`` is negative, if a packed syndrome has a bit at or above
+                ``num_qubits``, or if a syndrome vector is not binary or has the wrong length.
         """
-        if not 0 <= syndrome < 1 << self.num_qubits:
-            raise ValueError("The syndrome is out of range")
+        packed_syndrome = self._pack_syndrome(syndrome)
+        max_weight = _check_max_weight(max_weight)
         searches = self._connected_support_searches or self._brouwer_zimmermann_searches
         if len(searches) == 1:
-            return searches[0].get_min_weight_bound(syndrome, max_weight)
-        x_syndrome, z_syndrome = self._split_syndrome(syndrome)
+            return searches[0].get_min_weight_bound(packed_syndrome, max_weight)
+        x_syndrome, z_syndrome = self._split_syndrome(packed_syndrome)
         return self._join_part_bounds(
             searches[0].get_min_weight_bound(x_syndrome, max_weight),
             searches[1].get_min_weight_bound(z_syndrome, max_weight),
@@ -250,26 +234,23 @@ class CosetLeaderSearch:
         """Find the first syndrome whose class has no error of weight at most ``max_weight``.
 
         Args:
-            syndromes: One packed syndrome (see ``CosetLeaderSearch``) per row, split into 64-bit
-                machine words, with machine word ``j`` holding bits ``64 j`` and up.  Each syndrome
-                must be below ``2**num_qubits``.  The rows may have fewer words than ``num_qubits``
-                bits need, if every syndrome fits in them.
-            max_weight: The largest weight that the query accepts.
+            syndromes: A batch of syndromes, such as ``pack_syndromes`` makes.
+            max_weight: The largest weight that the queries accept, a nonnegative integer.
 
         Returns:
-            The index of that syndrome, or the number of syndromes if there is none, and a
-            ``MinWeightBound`` for that syndrome, or None if there is none.  With one BZ search,
-            the bound is the one that the batch search found, so the syndrome is not searched
-            again.  With two BZ searches, it is the one that ``get_min_weight_bound`` gives.  With
-            the connected-support method, it has the lower bound that ``get_min_weight_bound``
-            gives.  If the X and Z parts are searched separately, the representative of a part
-            within ``max_weight`` can differ, since the batch searches with increasing weight
-            limits (see ``_get_batch_support_bound``).
+            The index of the first syndrome whose class has no error of weight at most
+            ``max_weight``, and a ``MinWeightBound`` for that syndrome, or the number of syndromes
+            and None if there is no such syndrome.
 
         Raises:
-            ValueError: If a syndrome is out of range.
+            TypeError: If ``max_weight`` is not an integer, or if ``syndromes`` is not a ``uint64``
+                array.
+            ValueError: If ``max_weight`` is negative, if the batch does not have
+                ``ceil(num_qubits / 64)`` words per row, or if a syndrome has a bit at or above
+                ``num_qubits``.
         """
         self._check_syndromes(syndromes)
+        max_weight = _check_max_weight(max_weight)
 
         # The connected-support searches answer one syndrome at a time.
         if self._connected_support_searches:
@@ -298,34 +279,28 @@ class CosetLeaderSearch:
             return index, None
         return index, self.get_min_weight_bound(words_to_int(syndromes[index]), max_weight)
 
-    def _get_min_weights(
+    def get_min_weights(
         self, syndromes: npt.NDArray[np.uint64], max_weight: int
     ) -> npt.NDArray[np.int64]:
-        """Find the minimum weight of the class of each syndrome, if it is at most ``max_weight``.
-
-        The residual-weight estimator of ``qldpc.experimental`` asks for these weights.  The BZ
-        searches find the minimum weight of each coset in one search, and answer the syndromes in
-        one compiled loop for each coset search (see
-        ``BrouwerZimmermannCosetSearch.get_min_weights``).  The connected-support searches answer
-        one syndrome at a time, by trying increasing weight limits (see
-        ``_get_min_support_weight``).
+        """Find the weight of the lightest errors with each syndrome, up to ``max_weight + 1``.
 
         Args:
-            syndromes: Packed syndromes, as for ``find_first_not_within_max_weight``.
-            max_weight: The largest minimum weight to find.
+            syndromes: A batch of syndromes, such as ``pack_syndromes`` makes.
+            max_weight: The largest weight to find, a nonnegative integer.
 
         Returns:
-            The minimum weight of the class of each syndrome, or ``max_weight + 1`` if that is
-            larger.
+            For each syndrome, the weight of the lightest errors with the syndrome, or
+            ``max_weight + 1`` if that is smaller.
 
         Raises:
-            ValueError: If a syndrome is out of range.
+            TypeError: If ``max_weight`` is not an integer, or if ``syndromes`` is not a ``uint64``
+                array.
+            ValueError: If ``max_weight`` is negative, if the batch does not have
+                ``ceil(num_qubits / 64)`` words per row, or if a syndrome has a bit at or above
+                ``num_qubits``.
         """
         self._check_syndromes(syndromes)
-
-        # Every class weighs more than a negative maximum weight.
-        if max_weight < 0:
-            return np.full(len(syndromes), max_weight + 1, dtype=np.int64)
+        max_weight = _check_max_weight(max_weight)
 
         # The connected-support searches answer one syndrome at a time.
         if self._connected_support_searches:
@@ -353,6 +328,48 @@ class CosetLeaderSearch:
         z_weights = z_search.get_min_weights(z_syndromes, max_weight, weights[rows])
         weights[rows] = np.maximum(weights[rows], z_weights)
         return weights
+
+    def pack_syndromes(self, syndromes: npt.ArrayLike) -> npt.NDArray[np.uint64]:
+        """Pack binary syndromes into a batch of syndromes, the input of the batch queries.
+
+        Args:
+            syndromes: Binary syndromes, one per row, each with one entry for each stabilizer, or a
+                single syndrome as a vector.
+
+        Returns:
+            A batch of the syndromes: a ``uint64`` array with one row per syndrome, in which word
+            ``j`` of a row holds entries ``64 j`` and up of its syndrome.
+
+        Raises:
+            ValueError: If the syndromes are not binary, or do not have one entry for each
+                stabilizer.
+        """
+        array = np.asarray(syndromes)
+        if not np.all((array == 0) | (array == 1)):
+            raise ValueError("The syndromes must be binary")
+        matrix = as_binary_matrix(array, "syndromes", num_cols=self.num_qubits)
+        return pack_bits(np.ascontiguousarray(matrix))
+
+    def unpack_pauli(self, pauli: int) -> npt.NDArray[np.uint8]:
+        """Unpack a packed Pauli error, such as a representative of a ``MinWeightBound``.
+
+        Args:
+            pauli: A Pauli error, packed into an integer with its X part in bits ``0`` to ``n - 1``
+                and its Z part in bits ``n`` to ``2 n - 1``, for ``n = num_qubits``.
+
+        Returns:
+            The error as a binary vector of length ``2 n`` in ``[X|Z]`` order.
+
+        Raises:
+            TypeError: If ``pauli`` is not an integer.
+            ValueError: If ``pauli`` is negative or has a bit at or above ``2 n``.
+        """
+        value = as_integer(pauli, "pauli")
+        num_bits = 2 * self.num_qubits
+        if not 0 <= value < 1 << num_bits:
+            raise ValueError(f"The packed Pauli error {value} is out of range for {num_bits} bits")
+        data = np.frombuffer(value.to_bytes((num_bits + 7) // 8, "little"), dtype=np.uint8)
+        return np.unpackbits(data, count=num_bits, bitorder="little")
 
     def _get_min_support_weight(self, syndrome: int, max_weight: int) -> int:
         """Find the minimum weight of the class of a syndrome with the connected-support searches.
@@ -398,18 +415,42 @@ class CosetLeaderSearch:
             searches[1].get_min_weight_bound(z_syndrome, max_weight, first_limit=2),
         )
 
+    def _pack_syndrome(self, syndrome: int | npt.ArrayLike) -> int:
+        """Return a syndrome of a query packed into an integer, or raise an error if it is invalid.
+
+        A syndrome vector is packed with ``pack_syndromes``, which checks it.
+        """
+        if isinstance(syndrome, int | np.integer):
+            packed_syndrome = as_integer(syndrome, "syndrome")
+            if not 0 <= packed_syndrome < 1 << self.num_qubits:
+                raise ValueError(
+                    f"The packed syndrome {packed_syndrome} is out of range for"
+                    f" {self.num_qubits} stabilizers"
+                )
+            return packed_syndrome
+        bits = np.asarray(syndrome)
+        if bits.ndim != 1:
+            raise ValueError("A syndrome must be an integer or a binary vector")
+        return words_to_int(self.pack_syndromes(bits)[0])
+
     def _check_syndromes(self, syndromes: npt.NDArray[np.uint64]) -> None:
-        """Raise a ``ValueError`` unless each packed syndrome of a batch is below ``2**num_qubits``.
+        """Raise an error unless a batch holds packed syndromes of this search.
 
         The compiled searches read a word with a unit syndrome for each set bit of a syndrome, and
-        do not check the range of the bit.  So a batch checks its rows first, in the machine word
-        that holds bit ``num_qubits``, if any, and in the machine words above it.
+        do not check the range of the bit.  So a batch checks the bits of its last machine word at
+        and above bit ``num_qubits`` first.
         """
-        num_words, num_bits = divmod(self.num_qubits, 64)
-        high_words = syndromes[:, num_words:]
-        if high_words.size and (
-            np.any(high_words[:, 0] >> np.uint64(num_bits)) or np.any(high_words[:, 1:])
-        ):
+        num_words, num_bits = (self.num_qubits + 63) // 64, self.num_qubits % 64
+        if not isinstance(syndromes, np.ndarray) or syndromes.dtype != np.uint64:
+            raise TypeError(
+                "A batch of syndromes must be a uint64 array, such as pack_syndromes makes"
+            )
+        if syndromes.ndim != 2 or syndromes.shape[1] != num_words:
+            raise ValueError(
+                f"A batch of syndromes must have {num_words} words per row, not shape"
+                f" {syndromes.shape}, as pack_syndromes makes it"
+            )
+        if num_bits and np.any(syndromes[:, -1] >> np.uint64(num_bits)):
             raise ValueError("A syndrome of the batch is out of range")
 
     def _split_syndrome(self, syndrome: int) -> tuple[int, int]:
@@ -429,6 +470,76 @@ class CosetLeaderSearch:
             x_bound.representative | (z_bound.representative << self.num_qubits),
             max(x_bound.lower_bound, z_bound.lower_bound),
         )
+
+
+def _get_coset_search_method(method: DistanceMethod) -> _CosetSearchMethod:
+    """Validate a distance method, and return the method of the coset searches.
+
+    Raises:
+        ValueError: If the method is unknown, or is ``"brute_force"``, which has no coset searches.
+    """
+    if method == "brute_force":
+        raise ValueError(
+            "The 'brute_force' distance method has no search of residual weights: use"
+            " 'brouwer_zimmermann' or 'connected_support'."
+        )
+    if method not in _COSET_SEARCH_METHODS:
+        raise ValueError(
+            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' or"
+            " 'connected_support'."
+        )
+    return _COSET_SEARCH_METHODS[method]
+
+
+def _get_state_stabilizers(stabilizers: npt.ArrayLike) -> npt.NDArray[np.uint8]:
+    """Check that stabilizers define a pure stabilizer state, and return them as a binary matrix.
+
+    Raises:
+        ValueError: If the stabilizers are not a binary matrix with ``2 n`` columns, for ``n >= 1``
+            qubits, or are not ``n`` independent commuting stabilizers.
+    """
+    assert_binary(stabilizers, "stabilizers")
+    matrix = as_binary_matrix(stabilizers, "stabilizers")
+    num_qubits, odd = divmod(matrix.shape[1], 2)
+    if not num_qubits or odd:
+        raise ValueError(
+            "The stabilizers must have 2 n columns in [X|Z] order, for n qubits, not"
+            f" {matrix.shape[1]}"
+        )
+
+    # The syndrome of a packed Pauli ``e`` is ``checks @ e``, where ``checks`` swaps the X and Z
+    # halves of the stabilizers, and the stabilizers commute exactly when ``checks @ matrix.T`` is
+    # zero.
+    checks = np.roll(matrix, num_qubits, axis=1)
+    if np.any((checks @ matrix.T) % 2):
+        raise ValueError("The stabilizers must commute")
+
+    # Commuting stabilizers of rank ``n`` define a state, and of a lower rank a code.
+    rank = len(row_reduce_binary(matrix)[2])
+    if rank < num_qubits:
+        raise ValueError(
+            f"The stabilizers have rank {rank} on {num_qubits} qubits, so they define a code that"
+            f" encodes qubits, not a state: pass {num_qubits} independent commuting stabilizers,"
+            " which define a pure stabilizer state"
+        )
+    if len(matrix) > num_qubits:
+        raise ValueError(
+            f"The stabilizers must be independent, but {len(matrix)} of them have rank {rank}"
+        )
+    return matrix
+
+
+def _check_max_weight(max_weight: int) -> int:
+    """Return the maximum weight of a query as a Python integer, or raise an error if it is invalid.
+
+    Raises:
+        TypeError: If ``max_weight`` is not an integer.
+        ValueError: If ``max_weight`` is negative.
+    """
+    max_weight = as_integer(max_weight, "max_weight")
+    if max_weight < 0:
+        raise ValueError(f"max_weight must be nonnegative, not {max_weight}")
+    return max_weight
 
 
 def _get_css_combinations(

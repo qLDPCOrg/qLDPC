@@ -11,10 +11,10 @@ from qldpc.conftest import check_import_layering
 _LAYERS = (
     ("_binary",),
     ("_tuning",),
-    ("_brute_force", "_information_sets", "_cosets"),
+    ("_brute_force", "_information_sets", "_cosets", "min_weight_bounds"),
     ("_brouwer_zimmermann", "_connected_support", "_counting"),
-    ("coset_leaders", "core"),
-    ("logical_counts",),
+    ("core",),
+    ("logical_counts", "coset_leaders"),
 )
 
 

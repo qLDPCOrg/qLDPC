@@ -2,47 +2,20 @@
 
 """Parts that the coset searches of ``CosetLeaderSearch`` share.
 
-They are the answers of coset queries (:class:`MinWeightBound`), the words with unit syndromes
-(whose sums give a word of each syndrome), the packing of binary rows into integers and back, the
-sums of the rows that a support selects, and the tables of the errors of weight zero or one by
-syndrome.
+They are the words with unit syndromes (whose sums give a word of each syndrome), the packing of
+binary rows into integers and back, the sums of the rows that a support selects, and the tables of
+the errors of weight zero or one by syndrome.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
 
 from qldpc._binary import pack_bits, row_reduce_binary, trailing_zeros_word
 from qldpc._compilation import always_compiled
-
-
-@dataclass(frozen=True)
-class MinWeightBound:
-    """The answer to a query about the minimum weight of a coset.
-
-    A query of ``CosetLeaderSearch`` asks whether a syndrome class of Pauli errors, which is a coset
-    of the stabilizer group, has an error of weight at most ``max_weight``.  A query of one of its
-    coset searches asks the same about a coset of the code that the search covers.  Which element
-    and which lower bound a query returns can depend on the method and tuning of the search, and on
-    the version of qLDPC, within the guarantees below.
-
-    Attributes:
-        within_max_weight: Whether the coset has an element of weight at most ``max_weight``.
-        representative: An element of the coset.  For a query of ``CosetLeaderSearch``
-            (``coset_leaders.py``), it is a packed Pauli, as that class packs it.  For a
-            query of a coset search, it is a word of that search (a packed Pauli, or an X or Z
-            part).  If ``within_max_weight`` is True, its weight is at most ``max_weight``.
-        lower_bound: A lower bound on the minimum weight of the coset.  If ``within_max_weight`` is
-            False, it exceeds ``max_weight``.
-    """
-
-    within_max_weight: bool
-    representative: int
-    lower_bound: int
 
 
 def get_unit_syndrome_words(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

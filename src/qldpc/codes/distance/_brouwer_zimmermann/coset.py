@@ -16,7 +16,6 @@ from qldpc._compilation import always_compiled
 from .. import _tuning
 from .._binary import symplectic_to_hamming
 from .._cosets import (
-    MinWeightBound,
     get_unit_syndrome_words,
     int_to_words,
     row_ints,
@@ -27,6 +26,7 @@ from .._cosets import (
 )
 from .._information_sets import certificates
 from .._tuning import SearchTuning
+from ..min_weight_bounds import MinWeightBound
 from . import affine_instance, affine_search, coset_routes
 from .coset_tables import (
     CosetSearchTables,

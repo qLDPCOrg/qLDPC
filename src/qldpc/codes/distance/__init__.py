@@ -72,6 +72,7 @@ from .core import (
     get_distance_from_generators,
     get_distance_pauli,
 )
+from .coset_leaders import CosetLeaderSearch
 from .logical_counts import (
     CSSLogicalCounter,
     CSSLogicalCounts,
@@ -79,13 +80,16 @@ from .logical_counts import (
     compile_search_setup,
     count_logical_ops_css,
 )
+from .min_weight_bounds import MinWeightBound
 
 __all__ = [
     "NO_DISTANCE",
     "CSSLogicalCounter",
     "CSSLogicalCounts",
+    "CosetLeaderSearch",
     "DistanceMethod",
     "LogicalCountMethod",
+    "MinWeightBound",
     "NoDistance",
     "compile_search_setup",
     "count_logical_ops_css",

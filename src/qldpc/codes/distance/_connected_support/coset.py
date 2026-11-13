@@ -11,13 +11,13 @@ from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 
 from .. import _tuning
 from .._cosets import (
-    MinWeightBound,
     get_unit_syndrome_words,
     int_to_words,
     row_ints,
     tabulate_singles,
     xor_selected,
 )
+from ..min_weight_bounds import MinWeightBound
 from .search import SupportSearch
 
 # The seed of the random orders of columns in which connected-support coset searches row-reduce
