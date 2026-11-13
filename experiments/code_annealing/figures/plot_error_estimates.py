@@ -215,6 +215,7 @@ def _make_error_estimates_figure(
 
         for axis, (code_type, rows) in zip(axes, estimates_by_code_type.items()):
             # A column of markers for each code, colored by its size, with lines between distances.
+            # The circles are hollow so that the estimates show inside them.
             for index, row in enumerate(rows):
                 color = size_colors[(row.num_qubits, row.num_logicals)]
                 for rate, marker in [
@@ -222,7 +223,9 @@ def _make_error_estimates_figure(
                     (row.estimate, "x"),
                     (row.refined_estimate, "+"),
                 ]:
-                    axis.semilogy(index + 0.5, rate / row.num_logicals, marker, color=color)
+                    axis.semilogy(
+                        index + 0.5, rate / row.num_logicals, marker, color=color, fillstyle="none"
+                    )
             for index in range(1, len(rows)):  # separate the distances
                 if rows[index].distance != rows[index - 1].distance:
                     axis.axvline(index, color="k", linewidth=0.8, linestyle="--")
@@ -246,7 +249,15 @@ def _make_error_estimates_figure(
         # One legend for the markers, which mean the same in every panel.
         axes[0].legend(
             handles=[
-                lines.Line2D([0], [0], marker=marker, color="k", linestyle="none", label=label)
+                lines.Line2D(
+                    [0],
+                    [0],
+                    marker=marker,
+                    color="k",
+                    fillstyle="none",
+                    linestyle="none",
+                    label=label,
+                )
                 for marker, label in [
                     ("o", "simulation"),
                     ("x", "estimate"),
