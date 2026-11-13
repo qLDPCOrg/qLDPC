@@ -130,11 +130,11 @@ class AbstractCode(abc.ABC):
 
         The base field is ``field`` if given.  Otherwise, it is the field of ``matrix`` if that is a
         code or a finite-field array, and ``F_2`` if not.  An explicit field must match the field of
-        a code.  The field of a finite-field array, and of rows over a finite field that are given
-        in a list or tuple, possibly nested, must be the base field or its prime subfield.  The
-        field of such rows is read from the first row, and does not set the base field.  The code
-        keeps a copy of an array that it is given, so later changes to the array do not change the
-        code.
+        a code.  The field of a finite-field array must be the base field or its prime subfield.
+        Rows over a finite field that are given in a list or tuple, possibly nested, follow the same
+        rule, with their field read from the first row.  Unlike finite-field arrays, such rows need
+        an explicit field unless they are over ``F_2``.  The code keeps a copy of an array that it
+        is given, so later changes to the array do not change the code.
         """
         if isinstance(matrix, AbstractCode):
             self._matrix = getattr(matrix, "_matrix", matrix.matrix)
@@ -193,7 +193,7 @@ class AbstractCode(abc.ABC):
         if self._matrix.ndim != 2:
             raise ValueError(
                 f"A parity check matrix must be two-dimensional, not of shape {self._matrix.shape};"
-                " pass one row per check, or for no checks, an array of shape (0, n) with n columns"
+                " pass one row per check or, for no checks, an array of shape (0, n) with n columns"
             )
 
     @property

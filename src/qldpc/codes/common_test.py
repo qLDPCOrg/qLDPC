@@ -167,8 +167,7 @@ def test_check_matrix_shapes() -> None:
     assert codes.CSSCode([], checks) == codes.CSSCode.classical(checks, Pauli.Z)
     assert codes.CSSCode(checks, ()) == codes.CSSCode.classical(checks, Pauli.X)
     for matrix in (np.zeros((0, 3), dtype=int), np.ones((1, 3), dtype=bool)):
-        code = codes.ClassicalCode(matrix, field=257)
-        assert np.array_equal(code.matrix, matrix.astype(int))
+        assert np.array_equal(codes.ClassicalCode(matrix, field=257).matrix, matrix)
     not_two_dimensional: list[Any] = [[], galois.GF(2).Zeros((1, 1, 3))]
     for matrix in not_two_dimensional:
         with pytest.raises(ValueError, match="must be two-dimensional"):
