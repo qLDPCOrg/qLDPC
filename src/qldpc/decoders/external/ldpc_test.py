@@ -20,6 +20,7 @@ import stim
 from ldpc import bplsd_decoder
 
 from qldpc import decoders
+from qldpc.decoders.conftest import get_type_checking_class_docstrings
 from qldpc.decoders.external import ldpc as ldpc_integration
 from qldpc.decoders.external.ldpc import (
     _get_decoder_bf,
@@ -153,6 +154,14 @@ def test_ldpc_protocol_adapters() -> None:
     assert second.diagnostics["ldpc.iterations"] == 1
     assert np.array_equal(second_ratios, decoder.log_prob_ratios)
     assert np.array_equal(first_ratios, [1, 0])
+
+
+def test_ldpc_protocol_adapter_declarations() -> None:
+    """AutoAPI documents each integration class from its declaration, with its runtime docstring."""
+    names = ("BeliefFindDecoder", "BpLsdDecoder", "BpOsdDecoder")
+    assert get_type_checking_class_docstrings(ldpc_integration) == {
+        name: getattr(ldpc_integration, name).__doc__ for name in names
+    }
 
 
 def test_ldpc_protocol_adapters_are_created_once(monkeypatch: pytest.MonkeyPatch) -> None:
