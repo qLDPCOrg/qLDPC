@@ -30,15 +30,27 @@ from ..protocols import ErrorDecoder, ErrorDecodeResult
 
 _PcmOrDem: TypeAlias = IntegerArray | stim.DetectorErrorModel
 
+# Declare the lazily created backend classes, with their docstrings, for type checkers and AutoAPI,
+# which read source statically.  AutoAPI documents only the first definition in each if block, so
+# each class has its own block.
 if TYPE_CHECKING:
     import ldpc
     import ldpc.bplsd_decoder
 
-    class BpOsdDecoder(ldpc.BpOsdDecoder, ErrorDecoder): ...
+    class BpOsdDecoder(ldpc.BpOsdDecoder, ErrorDecoder):
+        """An ldpc.BpOsdDecoder with qLDPC error-decoding protocols."""
 
-    class BpLsdDecoder(ldpc.bplsd_decoder.BpLsdDecoder, ErrorDecoder): ...
 
-    class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder): ...
+if TYPE_CHECKING:
+
+    class BpLsdDecoder(ldpc.bplsd_decoder.BpLsdDecoder, ErrorDecoder):
+        """An ldpc.bplsd_decoder.BpLsdDecoder with qLDPC error-decoding protocols."""
+
+
+if TYPE_CHECKING:
+
+    class BeliefFindDecoder(ldpc.BeliefFindDecoder, ErrorDecoder):
+        """An ldpc.BeliefFindDecoder with qLDPC error-decoding protocols."""
 
 
 ####################################################################################################
