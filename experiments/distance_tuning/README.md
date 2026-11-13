@@ -79,7 +79,61 @@ Traces record the number of sets of each family, not the sets, so `--compare` ma
 Time a long run, one search at a time and in 4 or more paired rounds, only where a decision differs.
 `trace.py` cannot trace `ccount` workloads, whose compiled setup bypasses its wrappers; trace the same counts as `count` workloads.
 
-## 6. Reproduce the numbers in the comments
+## 6. Guard against over-fitting
+
+A value over-fits when it suits the workloads, the machine, and the conditions that chose it, but not others.
+This section says what guards the current values against over-fitting, and where those guards fall short; the comment of each field says which applies to it.
+
+### What guards the values
+
+- **Windows instead of timings on long runs.**
+  Traces at the defaults give, for each threshold, the interval of values over which every traced decision stays the same (section 5).
+  Where that interval is wide on long runs, their time cannot depend on the precise value.
+  This holds for the product of `partition_work_ratio` and `partition_cost_factor` (33 to `1.4 * 10**5`), for `lp_minimum_work` (up to `1.17 * 10**13`), for the decisions of `completion_bound_minimum_layer_work` to use tables (`10**6` to `5.9 * 10**8` supports), and for `overlapping_minimum_work` on distance searches, whose long runs estimate at least `5 * 10**11`.
+  `coset_routes.py` gives the same evidence for `overlapping_minimum_work` on the long coset searches.
+- **Decisions compared across candidates.**
+  Five long searches, `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, and `distance/classical:160:110:1/-`, made the same decisions under the current values and under those of the main branch, except that two of them sampled one more layer each, at 1.3 and 1.4 milliseconds.
+  The fields that differ between the two can change few decisions of these runs, so this shows that neither set slows them, not that either is best.
+- **Mechanisms checked by intervention.**
+  Where a value rests on a mechanism, a trace or the code shows it, and changing the quantity that it names moved the outcome as predicted.
+  Most mechanisms were proposed after the sweeps whose effects they explain.
+  The last checks, whose sweeps are the last of section 7, wrote their predictions down first; four of them were refuted, and the comments report what was found instead.
+- **Coefficients measured directly.**
+  `partition_cost_factor`, the build costs of completion tables, and `completion_bound_kept_first_row_ratio` agree with direct measurements of the quantities that they stand for, rather than with fits to the total times of searches.
+- **A noise floor.**
+  Candidates whose 95% interval of the ratio of times contains 1 measure alike (section 1), and speed does not choose between them.
+
+### Where the guards fall short
+
+- **No held-out test.**
+  The two workloads of the final comparison that chose no value, `certify/gross/css/2` and `faultdist/toric:6/Z`, make the same decisions under both of its candidate sets, so they test nothing; every workload whose decisions differ helped choose the values.
+- **Quick runs near an edge set some values.**
+  Long runs do not depend on most thresholds, so quick runs placed them, sometimes just past one workload:
+  - The partition product of 1000 lies just above 571.7, the gate value of 8 of 20 searches of `lp13s<seed>` codes.
+    Partitioning made the searches of these codes, which switch to automorphism images, up to 4 times slower, and those of six random classical codes up to 1.7 times faster; their gate values overlap, so no product separates them.
+  - `max_partition_coverage` shifts that gate: 3 made `distance/lp13s5/X` partition and run 2.1 times slower.
+  - Moving `enumeration_setup_cost_factor` past either edge of its window helps some codes and slows others, and its best value depends on enumeration not vectorizing rows of more than 960 bits.
+  - `max_css_single_pairs` is the smallest power of two that fits the one workload that reads it on more than 255 qubits.
+  - On the long coset searches, `overlapping_minimum_work` keeps the same families only from `1.6 * 10**4` to `1.1 * 10**5`; past either edge, their costliest searches take families that were 2 to 3 times slower.
+- **A long-run decision rests on a sampling draw.**
+  Layer 6 of `hadamard/gross`, 14 seconds with completion tables and 31 without, predicts 0.898 against the limit of 0.90.
+  Under 40 sampling seeds, it predicts 0.71 to 1.06, and uses its tables under 24 of them (`resample.py`); `completion_bound_confidence_z` of 3, `completion_bound_samples` of 128, or `completion_bound_kept_first_row_ratio` of 0.38 each make it decline them, though those values measured alike on quick runs.
+- **"Measured alike" can be empty.**
+  Candidates that make the same decisions on every timed workload measure alike by construction, such as 90 and 100 for `completion_bound_max_cost_percent`; for these, the windows locate the value, not the timings.
+- **Many comparisons.**
+  The sweeps made about 870 comparisons.
+  Were their rounds independent, about 13 comparisons of equal candidates would exclude 1 by chance, but 2 of 11 comparisons of a tuning with itself did, so a candidate set aside by one small difference may have been set aside by chance.
+  Rechecked one search at a time, the two such candidates of the batch and chunk sizes, 12 for `information_set_batch_exponent` and 16,384 for `scan_chunk_size`, were slower again.
+- **One machine, under load.**
+  Every timing comes from one Apple M3 Max, most sweeps ran three to eight searches at a time, and the measured cost of the same lookups of completion tables varied two- to threefold between sessions.
+- **Older library code.**
+  Most sweeps ran on earlier library code, at the commits that `trials.jsonl` records; the windows, the comparison of decisions, the cost data of the refit, and the last checks used the final code.
+- **A revised comparison.**
+  The final comparison ran four times, and its second candidate set changed twice after a workload ran slower under it, so that no workload ran slower under the last one is partly by construction.
+- **Fields not measured on long runs.**
+  `max_information_sets`, `disjoint_random_column_orders`, `overlapping_attempts_per_set`, `max_partition_coverage`, `max_css_single_pairs`, the batch and chunk sizes, and the sampling fields of completion tables were timed only on runs of seconds, and the fields whose comments say they were chosen by hand were not chosen by these measurements.
+
+## 7. Reproduce the numbers in the comments
 
 The commands below ran on the library code of their time, at the commits that `trials.jsonl` records, and each compares its arms with its first arm, as its command gives it.
 That arm is usually the defaults of its time, in some sweeps with `completion_bound_minimum_layer_work` at `3 * 10**7`.
@@ -101,6 +155,10 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
 | Windows of the thresholds | the commands below the table |
 | Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each with `--output` to a file outside the directory of the traces of the windows, and compared with its trace at the defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05}'`, whose layer 6 declines its tables, for the time of that layer without them |
+| Gate values of partitioning across codes | `trace.py distance/lp13s<seed>/<sector> --setup-only` for seeds 1 to 10 and sectors `X` and `Z`, and `trace.py 'distance/classical:128:80:<seed>/-' --setup-only` for seeds 2 to 6; a gate value is the `estimated_work` of the `family` event of kind `partitioned` divided by its `unit` |
+| Below the window of `enumeration_setup_cost_factor` | `trace.py <w> --setup-only --tuning '{"enumeration_setup_cost_factor": 8}'` for `'distance/classical:8000:7979:2/-'` and `'distance/sparse:8000:21:400:2/-'` |
+| Routes of `overlapping_minimum_work` | `coset_routes.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000` |
+| Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`; for the sampling budget, `resample.py hadamard/gross --weights 6 --seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
 | Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |
@@ -535,4 +593,89 @@ python experiments/distance_tuning/sweep.py \
     --timeout 600 \
     --workloads distance/lp13s5/X distance/lp13s5/Z distance/lp13s8/X distance/qt7/X distance/qt7/Z \
     --arms '[{}, {"completion_bound_max_cost_percent": 200}]'
+```
+
+### c2-coverage
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c2-coverage \
+    --rounds 10 \
+    --jobs 1 \
+    --timeout 600 \
+    --workloads distance/lp13s5/X distance/lp13s8/X distance/classical:128:80:1/- distance/classical:140:90:1/- \
+    --arms '[{}, {"max_partition_coverage": 3}, {"max_partition_coverage": 2}]'
+```
+
+### c5-isbatch
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c5-isbatch \
+    --rounds 10 \
+    --jobs 1 \
+    --timeout 600 \
+    --workloads distance/pp232/X distance/qt7/Z \
+    --arms '[{}, {"information_set_batch_exponent": 11}, {"information_set_batch_exponent": 12}, {"information_set_batch_exponent": 13}, {"information_set_batch_exponent": 14}]'
+```
+
+### c5-isbatch-high
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c5-isbatch-high \
+    --rounds 10 \
+    --jobs 1 \
+    --timeout 600 \
+    --workloads distance/pp232/X distance/qt7/Z \
+    --arms '[{}, {"information_set_batch_exponent": 16}, {"information_set_batch_exponent": 17}, {"information_set_batch_exponent": 18}, {"information_set_batch_exponent": 20}]'
+```
+
+### c5-chunk
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c5-chunk \
+    --rounds 10 \
+    --jobs 1 \
+    --timeout 600 \
+    --workloads count/gross/12 count/pp110/12 \
+    --arms '[{}, {"scan_chunk_size": 16384}, {"scan_chunk_size": 32768}]'
+```
+
+### c1-gate
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c1-gate \
+    --rounds 6 \
+    --jobs 1 \
+    --timeout 600 \
+    --workloads distance/lp13s1/X distance/lp13s6/X distance/lp13s6/Z distance/lp13s8/X distance/classical:128:80:2/- distance/classical:128:80:3/- distance/classical:128:80:4/- distance/classical:128:80:5/- distance/classical:128:80:6/- \
+    --arms '[{}, {"partition_work_ratio": 4611686018427387904}]'
+```
+
+### c1-low
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c1-low \
+    --rounds 6 \
+    --jobs 1 \
+    --timeout 600 \
+    --workloads distance/lp13s2/X distance/lp13s10/X \
+    --arms '[{}, {"partition_work_ratio": 20}]'
+```
+
+### c4-setup
+
+```bash
+python experiments/distance_tuning/sweep.py \
+    --tag c4-setup \
+    --rounds 4 \
+    --jobs 1 \
+    --repeat 3 \
+    --timeout 900 \
+    --workloads distance/sparse:8000:21:400:2/- \
+    --arms '[{}, {"enumeration_setup_cost_factor": 8}]'
 ```
