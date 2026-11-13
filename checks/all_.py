@@ -17,8 +17,9 @@ if __name__ == "__main__":
     build_docs.ensure_pandoc_on_path()
 
     skip_files = ["--sysmon", "--skip=configs", "--skip=requirements"]
-    # The combined gate of checks_superstaq runs its own coverage check, which ignores
-    # pytest_.EXCLUDE.  Give that check the same exclusions.
+    # The combined check of checks_superstaq runs its own coverage check, which by default excludes
+    # only *_integration_test.py.  Pass it pytest_.EXCLUDE, as checks/coverage_.py does, so that
+    # both checks measure the same files.
     with mock.patch.object(
         checks_superstaq.coverage_,
         "run",
