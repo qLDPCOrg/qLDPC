@@ -48,6 +48,8 @@ The coordinator gives each reviewer:
 
   * Report findings without editing the change.
   * Give each finding a location, the problem, why it matters, and a suggested fix.
+  * Report missing documentation only where a standard calls for it.
+    For a behavior that the writing standard calls for, name the reasonable expectation, its source, and the wrong result that it would give.
   * Mark a finding significant only if the change has or causes one of these problems:
 
     * a wrong result;
@@ -55,7 +57,8 @@ The coordinator gives each reviewer:
     * an unhandled edge case that gives a wrong result or fails silently;
     * an interface or design problem;
     * claimed behavior that no test verifies;
-    * documentation that states something false.
+    * documentation that states something false;
+    * documentation that leaves out a behavior or limitation without which a reader could get a wrong or materially misleading result without an error.
 
     Mark every other finding about the change minor.
     For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is minor, unless an agent that follows the rules in good faith would plausibly cause one of the problems listed above without reporting it.
