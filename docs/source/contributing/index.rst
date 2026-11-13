@@ -96,7 +96,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/build_docs.py``
      - Strict Sphinx and notebook documentation build
    * - ``python checks/all_.py``
-     - Formatting, lint, mypy, tests with overall 100% coverage, and (on full runs) the docs build
+     - Formatting, lint, mypy, ``coverage_.py``, and (on full runs) the docs build
 
 Checks come in three tiers by cost.
 The first two tiers are the drafting checks, which run while a change is in progress, including during a :doc:`review <reviewing>` and in a draft pull request.
@@ -126,13 +126,12 @@ It also makes the compiled runs.
 Run these locally only in the extended checks, or as targeted tests of a change to compiled code.
 
 ``all_.py`` runs most checks in one command.
-It skips the per-module coverage gate and ``pyproject.toml`` formatting.
-Running it alongside ``coverage_.py`` runs most tests twice.
+Its coverage step is ``coverage_.py``, and it skips ``pyproject.toml`` formatting.
+A coverage failure never stops it early.
 Every check script except ``build_docs.py`` accepts explicit files, as in ``python checks/coverage_.py src/qldpc/codes/common.py``, or ``-i/--incremental [REVISION ...]``.
 The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 For example, ``python checks/coverage_.py -i`` runs the per-module coverage gate for changed files only, which is much faster than a full run.
 Check scripts discover files through Git, so stage new source and test files with ``git add`` before running any check on them, including incremental runs.
-For incremental runs, prefer the individual scripts: ``all_.py -i`` measures overall coverage over only the selected tests, so shared fixtures in ``conftest.py`` files can fail it spuriously.
 
 The docs build renders saved notebook outputs without executing code cells.
 Pass an absolute path to this checkout's ``src`` directory in ``PYTHONPATH`` if a notebook runner starts its kernel from ``examples/``.
