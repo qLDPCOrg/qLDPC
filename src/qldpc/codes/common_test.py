@@ -86,10 +86,11 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     # puncture and shorten a code
     for field in [2, 3]:
-        code = codes.ClassicalCode.random(6, 4, field=field)
-        bits_to_remove = np.random.choice(range(len(code)), size=2, replace=False)
-        bits_to_keep = [bit for bit in range(len(code)) if bit not in bits_to_remove]
-        code._matrix[:2, bits_to_remove] = 1  # ensure we have nontrivial row-reduction to do
+        matrix = codes.ClassicalCode.random(6, 4, field=field).matrix.copy()
+        bits_to_remove = np.random.choice(range(matrix.shape[1]), size=2, replace=False)
+        bits_to_keep = [bit for bit in range(matrix.shape[1]) if bit not in bits_to_remove]
+        matrix[:2, bits_to_remove] = 1  # ensure we have nontrivial row-reduction to do
+        code = codes.ClassicalCode(matrix)
         punctured_code = code.punctured(bits_to_remove)
         assert punctured_code.is_equiv_to(
             codes.ClassicalCode.from_generator(code.generator[:, bits_to_keep])
@@ -150,11 +151,25 @@ def test_field_array_construction() -> None:
 
 
 def test_codes_copy_their_matrices() -> None:
-    """Changing the array that built a code does not change the code."""
+    """Codes copy the arrays that build them, and the arrays that they store are read-only."""
     for matrix in (np.array([[1, 1, 0], [0, 1, 1]]), galois.GF(2)([[1, 1, 0], [0, 1, 1]])):
         code = codes.ClassicalCode(matrix)
         matrix[0, 0] = 0
         assert code.matrix[0, 0] == 1
+
+    # writing into an array that a code stores raises; a subsystem code caches its stabilizer and
+    # gauge operators
+    subsystem_code = codes.SHPCode(codes.RepetitionCode(2))
+    for array in (
+        codes.RepetitionCode(2).matrix,
+        subsystem_code.matrix,
+        subsystem_code.code_x.generator,
+        subsystem_code.get_logical_ops(),
+        subsystem_code.get_stabilizer_ops(),
+        subsystem_code.get_gauge_ops(),
+    ):
+        with pytest.raises(ValueError, match="read-only"):
+            array[0, 0] = 0
 
 
 def test_check_matrix_shapes() -> None:
@@ -1757,11 +1772,11 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
     code = codes.ToricCode(dist, rotated=True)
     assert code.canonicalized.num_checks < code.num_checks
     assert code.get_code_params() == (dist**2, 2, dist)
-    code.reduce_logical_ops()
+    code.reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
     logical_ops_x = code.get_logical_ops(Pauli.X)
     logical_ops_z = code.get_logical_ops(Pauli.Z, symplectic=True)
-    assert not np.any(np.count_nonzero(logical_ops_x.view(np.ndarray), axis=1) < dist)
-    assert not np.any(np.count_nonzero(logical_ops_z.view(np.ndarray), axis=1) < dist)
+    assert np.all(np.count_nonzero(logical_ops_x.view(np.ndarray), axis=1) == dist)
+    assert np.all(np.count_nonzero(logical_ops_z.view(np.ndarray), axis=1) == dist)
 
 
 def test_distance_css() -> None:

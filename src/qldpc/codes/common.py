@@ -196,6 +196,7 @@ class AbstractCode(abc.ABC):
                 f"A parity check matrix must be two-dimensional, not of shape {self._matrix.shape};"
                 " pass one row per check or, for no checks, an array of shape (0, n) with n columns"
             )
+        _mark_read_only(self._matrix)
 
     @property
     def name(self) -> str:
@@ -401,7 +402,7 @@ class ClassicalCode(AbstractCode):
         """Generator of this code: a matrix whose rows form a basis for all code words."""
         if self._generator is None:
             self._generator = self.matrix.null_space()
-        return self._generator
+        return _mark_read_only(self._generator)
 
     def set_generator(self, generator: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Self:
         """Set the generator matrix of this code."""
@@ -1509,7 +1510,7 @@ class QuditCode(AbstractCode):
 
         # return logical operators if known and not asked to recompute
         if not (self._logical_ops is None or recompute):
-            return self._logical_ops
+            return _mark_read_only(self._logical_ops)
 
         # For a subsystem code, extract the logical operators as a symplectic basis of the gauge
         # group's centralizer C(G): the operators commuting with every gauge generator.  The
@@ -1521,7 +1522,7 @@ class QuditCode(AbstractCode):
                 centralizer, promise_full_rank=True
             )
             self._logical_ops = logical_ops
-            return self._logical_ops
+            return _mark_read_only(self._logical_ops)
 
         # construct the standard-form parity check matrix
         (
@@ -1561,7 +1562,7 @@ class QuditCode(AbstractCode):
         logical_ops = np.vstack([logicals_x, logicals_z]).view(self.field)
 
         self._logical_ops = logical_ops
-        return logical_ops
+        return _mark_read_only(logical_ops)
 
     def get_standard_form_data(
         self,
@@ -1790,7 +1791,7 @@ class QuditCode(AbstractCode):
         if canonicalized and not _is_row_reduced(self._stabilizer_ops):
             self._stabilizer_ops = self.get_stabilizer_ops(recompute=True)
 
-        return self._stabilizer_ops
+        return _mark_read_only(self._stabilizer_ops)
 
     def get_gauge_ops(
         self,
@@ -1820,7 +1821,7 @@ class QuditCode(AbstractCode):
 
         if self._gauge_ops is None or recompute:
             self._gauge_ops = self.dual().get_logical_ops(recompute=recompute)
-        return self._gauge_ops
+        return _mark_read_only(self._gauge_ops)
 
     def get_destabilizer_ops(
         self, pauli: PauliXZLike | None = None, *, symplectic: bool = True
@@ -2932,7 +2933,8 @@ class CSSCode(QuditCode):
     @functools.cached_property
     def matrix(self) -> galois.FieldArray:
         """Overall parity check matrix."""
-        return scipy.linalg.block_diag(self.matrix_x, self.matrix_z).view(self.field)
+        matrix = scipy.linalg.block_diag(self.matrix_x, self.matrix_z).view(self.field)
+        return _mark_read_only(matrix)
 
     @property
     def graph_x(self) -> nx.DiGraph:
@@ -3192,7 +3194,7 @@ class CSSCode(QuditCode):
 
         # return logical operators if known and not asked to recompute
         if not (self._logical_ops is None or recompute):
-            return self._logical_ops
+            return _mark_read_only(self._logical_ops)
 
         # construct the standard-form parity check matrices
         (
@@ -3247,7 +3249,7 @@ class CSSCode(QuditCode):
         logical_ops = scipy.linalg.block_diag(logicals_x.T, logicals_z.T).view(self.field)
 
         self._logical_ops = logical_ops
-        return logical_ops
+        return _mark_read_only(logical_ops)
 
     def get_standard_form_data_xz(
         self,
@@ -4092,9 +4094,11 @@ class CSSCode(QuditCode):
         if candidate_logical_op is None:
             raise ValueError(_DECODING_FAILURE_MESSAGE)
 
-        assert self._logical_ops is not None
-        logical_ops = np.reshape(self._logical_ops, (2, self.dimension, 2, len(self)), copy=False)
-        logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
+        # cached logical operators are read-only, so replace them by an updated copy
+        logical_ops = self.get_logical_ops().copy()
+        blocks = np.reshape(logical_ops, (2, self.dimension, 2, len(self)), copy=False)
+        blocks[pauli, logical_index, pauli, :] = candidate_logical_op
+        self._logical_ops = logical_ops
         return self
 
     def reduce_logical_ops(
@@ -4657,6 +4661,18 @@ def _require_symplectic(symplectic: bool) -> None:
 
 ####################################################################################################
 # helper methods
+
+
+def _mark_read_only(array: galois.FieldArray) -> galois.FieldArray:
+    """Mark an array as read-only, and return it.
+
+    Codes mark the arrays that they store or cache as read-only, since changing one in place would
+    leave the code's cached properties stale.  A parity check matrix is marked when it is built,
+    while generator matrices and operators are marked by the getters that return them, since many
+    methods store those.
+    """
+    array.flags.writeable = False
+    return array
 
 
 def _get_random_array(

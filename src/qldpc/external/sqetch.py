@@ -157,6 +157,6 @@ def _get_binary_matrices(
         check_matrix = code.get_matrix(check_pauli)
     logical_matrix = code.get_logical_ops(check_pauli)
     return (
-        np.asarray(check_matrix, dtype=np.uint8),
-        np.asarray(logical_matrix, dtype=np.uint8),
+        np.array(check_matrix, dtype=np.uint8),
+        np.array(logical_matrix, dtype=np.uint8),
     )
