@@ -189,10 +189,10 @@ def get_distance_from_checks(
     A binary word satisfies a check if their dot product is zero modulo two, and a Pauli string
     satisfies a check if they commute.  A word is trivial if it is in the row space of ``excluded``.
     For a classical code, pass its parity-check matrix, and nothing excluded, to get its distance.
-    For the X logical operators of a CSS code, pass its Z checks, and exclude its X checks, or use
-    :func:`get_distance_css`.  For a stabilizer or subsystem code given by Pauli strings, use
-    :func:`get_distance_pauli`, which finds its stabilizers.  Checks may be redundant, which can
-    speed up the connected-support method.
+    For the X logical operators of a CSS stabilizer code, pass its Z checks, and exclude its X
+    checks.  For a subsystem code, whose gauge generators do not satisfy all of its checks, use
+    :func:`get_distance_css` or :func:`get_distance_pauli`, which find its stabilizers.  Checks may
+    be redundant, which can speed up the connected-support method.
 
     Args:
         checks: A binary matrix whose rows are the checks.
