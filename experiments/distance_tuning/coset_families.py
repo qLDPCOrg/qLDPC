@@ -11,7 +11,8 @@ Pauli errors), and prints:
 
 - the predicted examinations with the disjoint family at each weight from 2 to the maximum weight;
 - the target weight at which the search builds its other families, the smallest weight from 2
-  whose predicted examinations reach the threshold;
+  whose predicted examinations reach the threshold, or None if the route keeps the disjoint family
+  without building others;
 - the number of sets of the family of the route, its summed work at the maximum weight, whether it
   scans by tails, and a fingerprint of its rows and pivots, which is the same exactly when two
   thresholds give the same family.
@@ -21,7 +22,7 @@ take the same time, apart from building the families.  The script answers no que
 
 Example:
 
-    python experiments/distance_tuning/coset_routes.py coset/pp232/css/10/10/3000 \\
+    python experiments/distance_tuning/coset_families.py coset/pp232/css/10/10/3000 \\
         --thresholds 10000 100000 1000000
 """
 
@@ -61,12 +62,16 @@ def main() -> None:
     kind, code_name, weighing, _, max_weight, _ = args.workload.split("/")
     if kind != "coset":
         raise ValueError("Only coset workloads have routes")
+    if weighing not in ("css", "physical"):
+        raise ValueError(f"Unknown weighing {weighing!r}; choose 'css' or 'physical'")
+    if int(max_weight) < 2:
+        raise ValueError("Routes build other families only for maximum weights of two or more")
     stabilizers = workloads.get_zero_state_stabilizers(code_name)
     parts = "XZ" if weighing == "css" else "P"
     for threshold in args.thresholds:
         with _tuning.use_tuning(overlapping_minimum_work=threshold):
             search = CosetLeaderSearch(stabilizers, css_weight=weighing == "css")
-            for part, bz_search in zip(parts, search._brouwer_zimmermann_searches):
+            for part, bz_search in zip(parts, search._brouwer_zimmermann_searches, strict=True):
                 print_route(part, threshold, bz_search._routes, int(max_weight))
         coset.get_css_searches.cache_clear()
         coset.get_pauli_search.cache_clear()
@@ -78,11 +83,14 @@ def print_route(part: str, threshold: int, routes: CosetRoutes[Any, Any], max_we
     examinations = {
         weight: routes._get_examinations(*disjoint, weight) for weight in range(2, max_weight + 1)
     }
-    tables, _ = routes.get_route(max_weight)
+    tables, tails = routes.get_route(max_weight)
     candidates = [disjoint, *(routes._candidates or [])]
     instance = next(family for family, family_tables in candidates if family_tables is tables)
-    target = next((weight for weight, count in examinations.items() if count >= threshold), None)
-    by_tails = routes._routes_by_weight[max_weight][1] is not None
+    # The routes build their other families once, at the target weight, only past the gate.
+    target = None
+    if routes._candidates is not None:
+        target = next(weight for weight, count in examinations.items() if count >= threshold)
+    by_tails = tails is not None
     work = sum(routes._get_works(instance, tables, max_weight))
     fingerprint = hashlib.sha256(instance.pivots.tobytes() + instance.generators.tobytes())
     print(

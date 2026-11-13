@@ -30,7 +30,7 @@ are compared with are:
 With ``--compare``, it instead compares the decisions of two traces of one workload under two
 tunings: enumeration tests, families and their gates, certificates, switches, the tables of each
 layer, and each comparison of a predicted cost with the limit.  Either way, it warns of traces that
-do not record their source (see ``sweep.get_source_fingerprint``), or that record several.
+do not record their source (see ``sweep.get_source_fingerprint``), or whose recorded sources differ.
 
 Example:
 
@@ -121,7 +121,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def warn_of_sources(traces: list[dict[str, Any]]) -> None:
-    """Warn of traces that do not record their source, or that record several."""
+    """Warn of traces that do not record their source, or whose recorded sources differ."""
     if any(trace.get("source") is None for trace in traces):
         print("WARNING: some traces do not record their source")
     sources = {

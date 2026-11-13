@@ -247,9 +247,9 @@ class SearchTuning:
     #: sets search it more slowly than enumeration.  With 21, ``distance/sparse:1000:21:50:2/-`` and
     #: ``distance/sparse:4000:21:200:2/-`` enumerate, which took them 23 and 2.1 times as long as
     #: information sets did.  The traced workloads of ``experiments/distance_tuning`` have bases of
-    #: every number of rows from 16 to 24, so every value lies next to the test of some code, and
-    #: the window of 20 is 20 alone.  To retune it, time both routes on bases near the crossover,
-    #: with rows of fewer and of more than 960 bits.
+    #: every number of rows from 16 to 24, so a step of one either way changes the route of some
+    #: traced code, and the window of 20 is 20 alone.  To retune it, time both routes on bases near
+    #: the crossover, with rows of fewer and of more than 960 bits.
     enumeration_max_dimension: int = 20
 
     #: A distance search of more than ``enumeration_max_dimension`` and fewer than 63 basis rows
@@ -257,29 +257,27 @@ class SearchTuning:
     #: rows and columns, an estimate of the cost of setting up its information sets.  Raising it
     #: enumerates more long codes of low dimension; lowering it builds information sets for more of
     #: them.  Defaults to 16, chosen among 4, 16, and 128 by the times of searches of codes of 1000
-    #: to 8000 bits.  A direct measurement of what it stands for, the time to build the disjoint
-    #: information sets of a classical code divided by its numbers of rows and columns and by the
-    #: time to enumerate one codeword, gave no single value: 0.35 to 10.5 on random and sparse codes
-    #: of 1000 and 4000 bits with 16 or 20 rows, and 57 to 97 on codes of 200 bits.  It is lower on
-    #: the longer codes because their rows, of more than 960 bits, enumerate one codeword at a time
-    #: (see ``enumeration_batch_exponent``), so the best value depends on that.  On codes of 1000
-    #: and 4000 bits with 21 to 23 rows, 16 instead of 128 made four of six sparse codes 2.1 to 23
-    #: times faster and the other two no slower, and random codes at most 1.3 seconds slower; 16 and
-    #: 128 measured alike on random codes of 8000 bits.  With ``enumeration_max_dimension`` at 18, 4
-    #: instead of 16 made ``distance/sparse:4000:19:200:2/-`` and
+    #: to 8000 bits.  What it stands for, the time to build the disjoint information sets of a
+    #: classical code divided by its numbers of rows and columns and by the time to enumerate one
+    #: codeword, has no single value: 0.35 to 10.5 on random and sparse codes of 1000 and 4000 bits
+    #: with 16 or 20 rows, whose rows of more than 960 bits enumerate one codeword at a time (see
+    #: ``enumeration_batch_exponent``), and 57 to 97 on codes of 200 bits.  Against 128, 16 made
+    #: four of six sparse codes of 1000 and 4000 bits with 21 to 23 rows 2.1 to 23 times faster and
+    #: the other two no slower, made random codes at most 1.3 seconds slower, and measured alike on
+    #: random codes of 8000 bits.  Every size test stays the same from 12.5 to 23.8, the ratios of
+    #: ``2**rows`` to the product of rows and columns of ``distance/classical:8000:7979:2/-`` and
+    #: ``distance/classical:8000:7978:2/-``, and past either edge a value helps some codes and slows
+    #: others.  At 8, ``distance/sparse:8000:21:400:2/-`` searches information sets and took 0.59 of
+    #: its time, but ``distance/classical:8000:7979:2/-`` builds its disjoint family, which took 1.7
+    #: seconds in a trace, before it enumerates.  Past 23.8, ``distance/classical:8000:7978:2/-``,
+    #: and from 25 ``distance/classical:4000:3979:2/-``, enumerate without first building their
+    #: families, but at 25 ``distance/sparse:4000:21:200:2/-`` enumerates too, which took it 2.1
+    #: times as long.  With ``enumeration_max_dimension`` at 18, so that bases of 19 and 20 rows
+    #: reach this test, 4 made ``distance/sparse:4000:19:200:2/-`` and
     #: ``distance/sparse:4000:20:200:2/-`` take 0.69 and 0.32 of their time, but
     #: ``distance/classical:8000:7980:2/-``, ``distance/classical:4000:3981:2/-``, and
-    #: ``distance/sparse:8000:20:400:2/-`` 2.0, 1.2, and 1.2 times as long.  Every size test stays
-    #: the same from 12.5 to 23.8, the ratios of ``2**rows`` to the product of rows and columns of
-    #: ``distance/classical:8000:7979:2/-`` and ``distance/classical:8000:7978:2/-``.  At 8, below
-    #: that window, ``distance/classical:8000:7979:2/-`` enumerates by work after building its
-    #: disjoint family, which took 1.7 seconds, and ``distance/sparse:8000:21:400:2/-``, of the same
-    #: ratio, searches information sets instead of enumerating, and took 0.59 of its time.  Past
-    #: 23.8, ``distance/classical:8000:7978:2/-`` enumerates by size instead of by work, the same
-    #: route.  At 25, the first route changes: ``distance/sparse:4000:21:200:2/-`` enumerates, and
-    #: ``distance/classical:4000:3979:2/-`` enumerates by size instead of by work.  So moving it
-    #: past either edge of its window helps some codes and slows others.  To retune it, measure the
-    #: time to build the disjoint information sets of codes near the threshold, divided by their
+    #: ``distance/sparse:8000:20:400:2/-`` 2.0, 1.2, and 1.2 times as long.  To retune it, measure
+    #: the time to build the disjoint information sets of codes near the threshold, divided by their
     #: numbers of rows and columns and by the time per enumerated codeword, and time both routes on
     #: sparse and random codes.
     enumeration_setup_cost_factor: int = 16
@@ -317,10 +315,10 @@ class SearchTuning:
     #: packs fewer full disjoint information sets than the nonzero columns divided by the rows; it
     #: keeps the best packing.  More orders can find more full sets, which certify sooner, but each
     #: costs a packing of the basis; zero keeps the natural order.  Defaults to 8, the middle of 0,
-    #: 8, and 16, which measured alike, while 32 made 3 of its 25 comparisons 1.02 to 1.05 times
-    #: slower, about the share of comparisons of a tuning with itself that excluded 1, and 64 made
-    #: ``hbound/pp232/2/2000`` 1.14 times slower.  To retune it, record after how many orders the
-    #: best packing stops improving, and weigh setup time against the search time saved.
+    #: 8, and 16, which measured alike, while 3 of the 25 comparisons of 32 were 1.02 to 1.05 times
+    #: slower, about as many as excluded 1 when a tuning was compared with itself (2 of 33), and 64
+    #: made ``hbound/pp232/2/2000`` 1.14 times slower.  To retune it, record after how many orders
+    #: the best packing stops improving, and weigh setup time against the search time saved.
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
@@ -330,20 +328,21 @@ class SearchTuning:
     #: predicted examinations reach it (Section 4.4 of ``brouwer_zimmermann.md``).  Lowering it
     #: tries other families sooner, and, in searches by Hamming weight, tails and completion tables,
     #: which may not repay setup; zero always tries, ``MAX_VALUE`` never.  Defaults to 100,000,
-    #: which the long coset searches ``coset/pp232/css/10/10/3000`` and
-    #: ``coset/qt7/css/10/10/3000``, of 4 and 6 minutes, favor.  Every value from ``1.6 * 10**4`` to
-    #: ``1.1 * 10**5`` gives both the same families, and their costlier searches, of Z parts, keep
-    #: theirs up to ``5.3 * 10**5`` (``coset_routes.py``).  Below that window, at 10,000, those
-    #: searches build other families, which made the two runs 3.2 and 2.1 times slower, four
-    #: searches at a time; at 10**6 and above, they build the same families as at 10,000.
+    #: inside the window of the long coset searches ``coset/pp232/css/10/10/3000`` and
+    #: ``coset/qt7/css/10/10/3000``, of 4 and 6 minutes: every value above ``1.65 * 10**4`` and up
+    #: to ``2.0 * 10**5`` gives both the same families (``coset_families.py``), and their costlier
+    #: searches, of Z parts, keep theirs up to ``5.29 * 10**5``.  Below that window, at 10,000, and
+    #: from 10**6 to 10**7, those searches of Z parts build other families, which at 10,000 made the
+    #: two runs 3.2 and 2.1 times slower, four searches at a time, on earlier library code, and
+    #: versions of them with a tenth of the queries 3.2 and 2.4 times slower, one search at a time.
     #: ``coset/lp13s5/physical/7/7/1000`` builds the same family at every value from 1000 to 10**7.
-    #: On quick coset searches, 30,000 and 10,000 made ``coset/gross/css/10/10/3000`` and
-    #: ``coset/pp110/css/8/8/2000`` take 0.57 and 0.66 of their time, four searches at a time, and
-    #: 1000 measured alike with 100,000 on them.  Distance searches decide the same from
-    #: ``8.4 * 10**4`` to ``1.4 * 10**6``, and the estimated work of the long ones is at least
-    #: ``5 * 10**11``; 1000, 10,000, and 30,000 changed none of the timed ones by more than 1.3%.
-    #: To retune it, record the routes of long coset searches with ``coset_routes.py``, and time the
-    #: values that change them.
+    #: On quick coset searches, four at a time, 10,000 and 30,000 each made
+    #: ``coset/gross/css/10/10/3000`` and ``coset/pp110/css/8/8/2000``, of 3.3 and 0.2 seconds, take
+    #: about 0.57 and 0.66 of their time, and 1000 measured alike with 100,000.  Distance searches
+    #: decide the same from ``8.4 * 10**4`` to ``1.4 * 10**6``, the long ones estimate their work at
+    #: ``5 * 10**11`` or more, and 1000, 10,000, and 30,000 changed none of the timed ones by more
+    #: than 3%.  To retune it, record the families of long coset searches with
+    #: ``coset_families.py``, and time the values that change them.
     overlapping_minimum_work: int = 100_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
@@ -360,28 +359,27 @@ class SearchTuning:
     #: tries partitioning on cheaper searches; zero always tries, and ``MAX_VALUE`` never does,
     #: unless ``partition_cost_factor`` is zero.  Were the estimates accurate, an attempt that does
     #: not pay off would add at most about ``1 / partition_work_ratio`` to the work of a search.
-    #: But the estimate of the work of a search assumes that it finds no word lighter than its upper
-    #: bound at the gate, and counts every support of every set, while completion tables and
-    #: automorphism images skip most of them: it exceeded the work done 274 and 17 times on
-    #: ``distance/classical:150:100:1/-`` and ``distance/classical:160:110:1/-``, whose searches
-    #: then found lighter words, and, on ``distance/lp13s5/X``, 24 times without automorphisms, when
-    #: tables skipped 96% of its supports, and 341 times with them.  Nor can the gate tell the
-    #: searches that partitioning helps from those that it slows.  A search that switches to
-    #: automorphism images discards a partitioned family: on the searches of the codes
-    #: ``lp13s<seed>``, which switch, partitioning made ``distance/lp13s1/X``,
+    #: But the estimate counts every support of every set and assumes that the search finds no word
+    #: lighter than its upper bound at the gate, while completion tables and automorphism images
+    #: skip most supports and searches find lighter words: it exceeded the work done 17 to 341 times
+    #: on ``distance/classical:160:110:1/-``, ``distance/classical:150:100:1/-``, and
+    #: ``distance/lp13s5/X``.  Defaults to 100, which quick runs placed: its product with
+    #: ``partition_cost_factor``, 1000, lies just above 571.7, the gate value, the estimated work
+    #: divided by ``b * k**2 * n``, of 8 of the 20 searches of the codes ``lp13s<seed>`` for seeds 1
+    #: to 10, which share their parameters; it keeps those 8 from partitioning, but not the 4 above
+    #: it.  Searches of ``lp13s<seed>`` switch to automorphism images, so partitioning finds them no
+    #: family, or one that the switch discards: it made ``distance/lp13s1/X``,
     #: ``distance/lp13s8/X``, ``distance/lp13s2/X``, and ``distance/lp13s10/X`` 3.1 to 4.0 times
-    #: slower, and took 1.2 to 1.3 seconds of the 73 to 167 of ``distance/lp13s6/Z`` and
-    #: ``distance/lp13s6/X``.  On six random classical codes ``distance/classical:128:80:<seed>/-``,
-    #: which have no automorphisms, it made the searches 1.13 to 1.72 times faster.  Their gate
-    #: values, the estimated work divided by ``b * k**2 * n`` (see ``partition_cost_factor``),
-    #: overlap: up to 24,375 for the first and from 7227 for the second.  Defaults to 100, whose
-    #: product with ``partition_cost_factor``, 1000, lies just above 571.7, the gate value of 8 of
-    #: the 20 searches of the codes ``lp13s<seed>`` for seeds 1 to 10, which it keeps from
-    #: partitioning; quick runs placed it there, and it admits four other such searches.  On long
-    #: runs, the gate decides the same for every product from 33 to ``1.4 * 10**5``, and ratios of
-    #: 10, 30, 100, and ``MAX_VALUE`` measured alike on ``hadamard/gross`` and ``hadamard/pp110``,
-    #: four searches at a time in four rounds, with ``partition_cost_factor`` at 20.  To retune it,
-    #: time searches that partition with and without it, on codes with and without automorphisms.
+    #: slower, and took 1.2 to 1.3 of the 73 to 167 seconds of ``distance/lp13s6/Z`` and
+    #: ``distance/lp13s6/X``.  It made six random classical codes
+    #: ``distance/classical:128:80:<seed>/-``, whose searches use no automorphisms, 1.13 to 1.72
+    #: times faster.  Their gate values overlap, up to 24,375 for the first and from 7227 for the
+    #: second, so no product keeps every search that partitioning slows and admits every one that it
+    #: speeds up; among the traced gate values, a product above 3022 and up to 7227 would also skip
+    #: the attempt of ``distance/lp13s1/X``.  On long runs, the gate decides the same for every
+    #: product from 33 to ``1.4 * 10**5``, and ``distance/lp13s6/X`` and ``distance/lp13s6/Z``
+    #: measured alike with partitioning off.  To retune it, time searches that partition with and
+    #: without it, on codes with and without automorphisms.
     partition_work_ratio: int = 100
 
     #: The largest coverage, the most information sets that contain any one column, that matroid
@@ -404,12 +402,12 @@ class SearchTuning:
     #: time.  It acts only through its product with ``partition_work_ratio`` (see there).  Defaults
     #: to 10, a direct measurement: partitioning took 1.45 seconds on the basis of
     #: ``distance/lp13s5/X``, 10.0 and 10.5 of these units in two traces, and 0.82 to 1.0 seconds on
-    #: ``hadamard/gross``, 4.3 to 5.4 units in six traces.  Each trace gives the time of a unit by
-    #: the time of each evaluation in the layers of its search that used no tables and had at least
-    #: 10**7 evaluations, 1.5 to 2.0 nanoseconds.  With 10 instead of 20, no traced search
-    #: partitions differently.  To refit it, divide the seconds of the ``family`` events of
-    #: ``trace.py`` of kind ``partitioned`` by the seconds per evaluation of such layers, and by the
-    #: ``unit`` that the events record.
+    #: ``hadamard/gross``, 4.3 to 5.4 units in six traces.  Each trace times a unit by one
+    #: evaluation of the layers of its search that used no tables and had at least 10**7
+    #: evaluations, at 1.5 to 2.0 nanoseconds.  10 and 20 make the same partition decision on every
+    #: traced search.  To refit it, divide the seconds of the ``family`` events of ``trace.py`` of
+    #: kind ``partitioned`` by the seconds per evaluation of such layers, and by the ``unit`` that
+    #: the events record.
     partition_cost_factor: int = 10
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
@@ -417,14 +415,14 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``).  Each linear program takes milliseconds, which only costly
     #: searches recover.  Lowering it uses them on cheaper searches; zero on every search of
     #: overlapping sets, and ``MAX_VALUE`` on none.  Defaults to 10**9, the middle of 10**8, 10**9,
-    #: and 10**10.  The timed searches decide the same under all three, since their certificates
-    #: estimate at least ``3 * 10**10``, except ``distance/gross/X``, whose certificate estimates
-    #: ``1.4 * 10**8`` and which 10**8 made 21 milliseconds slower without automorphisms; so the
-    #: windows, not the timings, locate the value.  The long runs that can solve linear programs
-    #: estimate their work at ``1.17 * 10**13`` or more, far above it, and solve 2 or 3 in under 10
-    #: milliseconds, while on all workloads, which solve at most 14 in 24 milliseconds, the
-    #: decisions stay the same from ``3.7 * 10**8`` to ``1.9 * 10**9``.  To retune it, time searches
-    #: near the threshold with and without them.
+    #: and 10**10, inside the window from ``3.7 * 10**8`` to ``1.9 * 10**9`` over which every traced
+    #: workload decides the same; they solve at most 14 linear programs, in 24 milliseconds.  The
+    #: long runs that can solve linear programs estimate their work at ``1.17 * 10**13`` or more,
+    #: far above it, and solve 2 or 3 in under 10 milliseconds.  Timings cannot separate the three
+    #: candidates: the timed searches use certificates of disjoint sets, or estimate their work at
+    #: ``3 * 10**10`` or more, except ``distance/gross/X``, at ``1.4 * 10**8``, which 10**8 made 21
+    #: milliseconds slower without automorphisms.  To retune it, time searches near the threshold
+    #: with and without them.
     lp_minimum_work: int = 1_000_000_000
 
     #: The largest denominator of the rational dual weights that the certificate from linear
@@ -444,15 +442,15 @@ class SearchTuning:
     #: Defaults to 10**8, the middle of ``3 * 10**7`` to ``3 * 10**8``, which measured alike, since
     #: the searches timed with them, of ``distance/qt7/X``, ``distance/qt7/Z``,
     #: ``distance/lp13s5/X``, and ``distance/pp232/X``, decide the same from ``1.9 * 10**7`` to
-    #: ``4.1 * 10**8``; the windows locate the value.  With 10**7, the search of ``distance/qt7/X``
-    #: decided before finding its best word, kept its family, and took 7 times as long, and with
-    #: 10**9, it and the searches of ``distance/qt7/Z`` and ``distance/lp13s5/X`` were 1.3 to 1.4
-    #: times slower.  On long runs, the decisions stay the same from ``8.5 * 10**7`` to
-    #: ``1.8 * 10**8``, between layer 4 of ``hadamard/pp110``, at ``8.44 * 10**7``, and layer 4 of
-    #: ``distance/bb288/X``.  At ``8 * 10**7``, ``hadamard/pp110`` and ``distance/pp170/X`` switch
-    #: one layer sooner, and at ``2 * 10**8``, ``distance/bb288/X`` one layer later, each with the
-    #: same later decisions; the layer that each gains or skips took at most 0.22 seconds.  To
-    #: retune it, time searches with and without automorphisms.
+    #: ``4.1 * 10**8``.  With 10**7, the search of ``distance/qt7/X`` decided before finding its
+    #: best word, kept its family, and took 7 times as long, and with 10**9, it and the searches of
+    #: ``distance/qt7/Z`` and ``distance/lp13s5/X`` were 1.3 to 1.4 times slower.  On long runs, the
+    #: decisions stay the same from ``8.5 * 10**7`` to ``1.8 * 10**8``, between layer 4 of
+    #: ``hadamard/pp110``, at ``8.44 * 10**7``, and layer 4 of ``distance/bb288/X``.  At
+    #: ``8 * 10**7``, ``hadamard/pp110`` and ``distance/pp170/X`` switch one layer sooner, and at
+    #: ``2 * 10**8``, ``distance/bb288/X`` one layer later, each with the same later decisions; the
+    #: layer that each gains or skips took at most 0.22 seconds.  To retune it, time searches with
+    #: and without automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
 
     # Fields of connected-support searches.
@@ -502,10 +500,10 @@ class SearchTuning:
     #: from 10**6 supports to ``5.9 * 10**8``, layer 5 of ``distance/bb288/X``, the smallest layer
     #: that uses tables there: the layers in between decline them, so the value matters only for
     #: quick runs.  Which layers it samples changes on long runs outside ``2.4 * 10**7`` to
-    #: ``4.2 * 10**7`` supports; at 10**6, each long search also considered one or two more kinds of
-    #: layer, sampled them in 1.5 to 53 milliseconds, and declined their tables.  To retune it, time
-    #: layers near the threshold with tables disabled and forced, and the sampling of layers that
-    #: decline them.
+    #: ``4.1 * 10**7`` supports; at 10**6, each long search also considered one or two more layer
+    #: shapes (numbers of rows and weights), sampled them in 1.5 to 53 milliseconds, and declined
+    #: their tables.  To retune it, time layers near the threshold with tables disabled and forced,
+    #: and the sampling of layers that decline them.
     completion_bound_minimum_layer_work: int = 30_000_000
 
     #: A layer of a distance search or count uses the completion tables that it considers only if
@@ -519,7 +517,7 @@ class SearchTuning:
     #: which would have taken 0.55 to 0.70, in six runs, so every limit up to 140 declines its
     #: tables.  It predicted 0.90 for layer 6 of ``hadamard/gross``, which took 0.45, so every limit
     #: below 90 declines them.  That prediction depends on its sampling: under 40 seeds of the
-    #: sampler, it ranged from 0.71 to 1.06, within 0.90 under 24 of them (``resample.py``).  Every
+    #: sampler, it ranged from 0.71 to 1.06, at most 0.90 under 24 of them (``resample.py``).  Every
     #: decision stays the same from 90 to 103, between that prediction and the 1.035 of layer 5 of
     #: ``hadamard/pp110``.  90 and 100 make the same decisions on every traced workload.  One search
     #: at a time, in four rounds, 200 made ``distance/classical:160:110:1/-`` and
@@ -557,9 +555,10 @@ class SearchTuning:
     #: 128 times less memory than blocks of 16, and skip fewer supports.  Defaults to 8, chosen by
     #: hand.  Forced on the six layers of the width data set of at least 10**9 supports that the
     #: refit data set includes, tables of 8-column blocks took 0.16 to 0.99 of the time without
-    #: tables on three of them, and 1.14 to 1.19 times as long on the other three, for which the
-    #: cost model predicted more than the limit, and so declines them.  To retune it, lower the
-    #: memory limit until that data set falls back, and compare narrower widths.
+    #: tables on three of them, and 1.14 to 1.19 times as long on the other three; the cost model
+    #: predicts more than the limit for those three, and for layer 6 of ``distance/qt7/X`` (0.99),
+    #: and so declines their tables.  To retune it, lower the memory limit until that data set falls
+    #: back, and compare narrower widths.
     completion_bound_fallback_block_bits: int = dataclasses.field(default=8, metadata=_BLOCK_WIDTHS)
 
     #: The number of tail columns in a block of the completion tables of ``CosetLeaderSearch``, a
@@ -581,11 +580,14 @@ class SearchTuning:
     #: completion tables would skip, within the budget ``completion_bound_sampling_work``; drawing
     #: them takes about 16 bytes for each sample and each row of the basis.  More samples narrow the
     #: estimate, so that tables pay on more of the layers that accept them, but take longer.
-    #: Between 1 and ``2**12``.  Defaults to 256, chosen among 128, 256, and 512 on quick runs: 128
-    #: and 256 measured alike, and 256 narrows the estimate more, while 512 made ``count/pp110/12``
-    #: 1.07 times slower in one comparison.  On long runs, the value can decide: 128 makes layer 6
-    #: of ``hadamard/gross`` predict 0.93 and decline the tables that cut it from 31 seconds to 14,
-    #: and 4096 makes it predict 0.82 (``resample.py``).  Sampling took 1 to 13 milliseconds on the
+    #: Between 1 and ``2**12``.  Defaults to 256, chosen among 128, 256, and 512 on quick runs,
+    #: three searches at a time: 128 and 256 measured alike, and 256 narrows the estimate more,
+    #: while 512 made ``count/pp110/12`` 1.07 times slower in one comparison.  One search at a time,
+    #: in 10 rounds, 512 measured alike with 256 on six quick runs, and 1024 made three of them 16
+    #: to 46 milliseconds slower, up to 1.07 times as long.  On long runs, the value can decide: 128
+    #: makes layer 6 of ``hadamard/gross`` predict 0.93 and decline the tables that cut it from 31
+    #: seconds to 14, while with 1024 samples, each traced long-run layer near the limit decides the
+    #: same under 40 sampling seeds (``resample.py``).  Sampling took 1 to 13 milliseconds on the
     #: cost data set.  To retune it, raise it while sampling stays a small share of the time of the
     #: smallest layers considered, which it is now at most 13% of (see
     #: ``completion_bound_minimum_layer_work``), and resample the layers of long runs near the
@@ -613,11 +615,11 @@ class SearchTuning:
     #: How many standard errors below the sampled share of skipped supports a search sets its
     #: estimate, the lower end of a Wilson score interval; at most 10.  Raising it declines more
     #: layers where tables would pay; lowering it lets sampling error choose tables that cost more
-    #: than they save.  Defaults to 2.0: 1.0, 2.0, and 3.0 measured alike on quick runs, and 2.0 is
-    #: a conventional confidence of about 98%.  On long runs, 3.0 makes layer 6 of
-    #: ``hadamard/gross`` predict 0.99 and decline the tables that cut it from 31 seconds to 14
-    #: (``resample.py``).  To retune it, raise it if sampling error made choices slower on the cost
-    #: data set.
+    #: than they save.  Defaults to 2.0: 1.0, 2.0, and 3.0 measured alike on quick runs, three
+    #: searches at a time, and 2.0 is a conventional confidence of about 98%.  On long runs, 3.0
+    #: makes layer 6 of ``hadamard/gross`` predict 0.99 and decline the tables that cut it from 31
+    #: seconds to 14 (``resample.py``).  To retune it, raise it if sampling error made choices
+    #: slower on the cost data set.
     completion_bound_confidence_z: float = dataclasses.field(
         default=2.0, metadata={"maximum": 10.0}
     )
@@ -629,14 +631,15 @@ class SearchTuning:
     #: which lookups cost 2 to 8 scanned supports per block.  A refit by ``fit_completion_costs.py``
     #: on the refit data set gave 0.79 scanned supports per block, plus 0.041 for each MiB of
     #: tables, from lookups that cost 0.46 to 0.85 scanned supports per block in tables of under 1
-    #: MiB, and 1.2 to 7.6 in tables of 18 to 113 MiB.  But the refit did not reproduce: for the 46
-    #: MiB of tables of ``distance/pp232/X``, it predicts 2.7 scanned supports per block, and 2.0
-    #: and 0.04 predict 3.8, while the layers of that search cost 2.5 to 4.5 in the session of the
-    #: refit and 6.0 to 9.4 in another.  So the measurements favor neither.  Lookup costs of 0.9 and
-    #: 0.05, from an earlier refit, were set aside after one run in which ``hadamard/gross`` took
-    #: 213 seconds with them instead of 185, since they make its layer 6 decline its tables, a
-    #: decision that rests on its sampling (see ``completion_bound_max_cost_percent``).  To refit
-    #: it, see :ref:`Retuning <tuning-retuning>`.
+    #: MiB, and 1.2 to 7.6 in tables of 18 to 113 MiB.  But its measurements did not reproduce: for
+    #: the 46 MiB of tables of ``distance/pp232/X``, it predicts 2.7 scanned supports per block, and
+    #: 2.0 and 0.04 predict 3.8, while the layers of that search cost 2.5 to 4.5 in the session of
+    #: the refit and 6.0 to 9.4 in another.  So the measurements favor neither.  Lookup costs of 0.9
+    #: and 0.05 make layer 6 of ``hadamard/gross`` decline its tables, a decision that rests on its
+    #: sampling (see ``completion_bound_max_cost_percent``): in traces, that layer then took 31
+    #: seconds instead of 14, and the search 179 instead of 170.  The refit makes layer 6 of
+    #: ``distance/pp170/X`` predict 0.896 and use its tables, which was not timed.  To refit it, see
+    #: :ref:`Retuning <tuning-retuning>`.
     completion_bound_lookup_block_cost: float = 2.0
 
     #: The additional cost of a lookup of completion tables, in scanned supports for each block and
@@ -684,25 +687,26 @@ class SearchTuning:
     #: ``2**information_set_batch_exponent`` supports and lookups of completion tables, counted
     #: together, in one call of compiled code, which cannot be interrupted.  Lowering it lets a
     #: keyboard interrupt take effect sooner, but returns to Python more often.  At most 62.
-    #: Defaults to 15, the smallest value beyond which larger ones measured alike: one search at a
-    #: time, in 10 rounds, 11 to 14 made ``distance/pp232/X`` 1.20, 1.10, 1.05, and 1.03 times
-    #: slower, and 11 to 13 made ``distance/qt7/Z`` 1.07, 1.04, and 1.01 times slower, while 16, 17,
-    #: 18, and 20 measured alike with 15 on both, except that 17 made ``distance/pp232/X`` take 0.96
-    #: of its time.  At 15, a call of a layer without tables takes about 0.05 to 0.07 milliseconds,
-    #: at 1.5 to 2 nanoseconds per support.  To retune it, time large layers one search at a time,
-    #: and keep the smallest value beyond which larger ones measure alike.
+    #: Defaults to 15, beyond which larger values were no slower: one search at a time, in 10
+    #: rounds, 11 to 14 made ``distance/pp232/X`` 1.20, 1.10, 1.05, and 1.03 times slower, and 11 to
+    #: 13 made ``distance/qt7/Z`` 1.07, 1.04, and 1.01 times slower, while 16, 17, 18, and 20
+    #: measured alike with 15 on both, except that 17 made ``distance/pp232/X`` take 0.96 of its
+    #: time, one of their eight comparisons.  At 15, a call of a layer without tables takes about
+    #: 0.04 to 0.09 milliseconds, at the 1.2 to 2.7 nanoseconds per support of such layers of the
+    #: traced searches.  To retune it, time large layers one search at a time, and keep the smallest
+    #: value beyond which larger ones measure alike.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: The most supports, and lookups of completion tables, counted together, that one compiled call
     #: of the scan of a count, by the BZ or brute-force method, visits; a call also ends at the end
     #: of each coefficient layer of each information set.  Lowering it makes interrupts prompter, at
     #: more overhead; ``MAX_VALUE`` lets each call finish its layer.  At least 1.  Defaults to
-    #: 65,536, twice 32,768, which measured alike with it on ``count/gross/12`` and
-    #: ``count/pp110/12`` one search at a time in 10 rounds, as did 131,072, and 2**20 six at a
-    #: time, while 16,384 made them 1.01 and 1.03 times slower one at a time, and 4096 up to 1.09
-    #: times slower six at a time.  To retune it, time long counts one search at a time and the
-    #: delay of an interrupt, and keep a margin above the smallest value whose overhead is
-    #: negligible.
+    #: 65,536, twice 32,768, the smallest value that measured alike with it on ``count/gross/12``
+    #: and ``count/pp110/12`` one search at a time in 10 rounds, a margin chosen by hand; 131,072
+    #: also measured alike one at a time, and 2**20 six at a time.  16,384 made them 1.01 and 1.03
+    #: times slower one at a time, and 4096 up to 1.09 times slower six at a time.  To retune it,
+    #: time long counts one search at a time and the delay of an interrupt, and keep a margin above
+    #: the smallest value whose overhead is negligible.
     scan_chunk_size: int = dataclasses.field(default=1 << 16, metadata={"minimum": 1})
 
     #: The most chunks of ``scan_chunk_size`` that the scan of a count visits before it returns to
@@ -876,7 +880,9 @@ LOCAL_CLIFFORD_CACHE_SIZE = 1024
 #: tuning of the setup of the search.  It takes effect when qLDPC is imported.  A larger cache uses
 #: more memory, a smaller one repeats setups, and zero disables the cache.  Only speed and memory
 #: depend on it.  Chosen by hand; a missed search of the 343-qubit state of
-#: ``coset/qt7/physical/5/5/50`` took 0.25 seconds to set up.  To retune it, record the hit rate,
-#: the setup time of a missed search, and the memory per search on workloads such as certification
-#: with ``cache_stats.py``, and keep the smallest size beyond which the hit rate stops growing.
+#: ``coset/qt7/physical/5/5/50`` took 0.25 seconds to set up.  Each search may also keep completion
+#: tables of its families, up to ``completion_bound_max_table_bytes`` for each set; the memory of an
+#: entry was not measured.  To retune it, record the hit rate, the setup time of a missed search,
+#: and the memory per search on workloads such as certification with ``cache_stats.py``, and keep
+#: the smallest size beyond which the hit rate stops growing.
 PAULI_SEARCH_CACHE_SIZE = 8
