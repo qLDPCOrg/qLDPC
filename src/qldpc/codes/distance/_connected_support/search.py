@@ -54,7 +54,7 @@ def get_distance_connected_support(
     *,
     cutoff: int,
     upper_bound: int | None = None,
-    homogeneous: bool = True,
+    symplectic: bool = False,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning | None = None,
 ) -> int:
@@ -79,8 +79,8 @@ def get_distance_connected_support(
         upper_bound: A cap on the result, if any, such as the weight of a known witness that is not
             in ``problems``, or ``max_weight + 1`` under a weight limit.  The result is the minimum
             of this bound and the distances of ``problems``.
-        homogeneous: Whether the problems have binary words, rather than the symplectic words of
-            Pauli operators (see ``SupportSearch``).  Default: True.
+        symplectic: Whether the problems have the symplectic words of Pauli operators, rather than
+            binary words (see ``SupportSearch``).  Default: False.
         get_automorphisms: A function that returns an array of generators of a group of
             permutations of the variables, or None.  Each row ``p`` of the array maps variable ``j``
             to variable ``p[j]``.  Each generator must map the words of every problem, and the row
@@ -119,7 +119,7 @@ def get_distance_connected_support(
         search = SupportSearch(
             checks,
             excluded,
-            homogeneous=homogeneous,
+            symplectic=symplectic,
             get_automorphisms=get_automorphisms,
             automorphism_minimum_states=automorphism_minimum_states,
         )
@@ -168,8 +168,8 @@ class SupportSearch:
     ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
     satisfy the checks (see ``find_vector_with_syndrome``).
 
-    A homogeneous problem has binary words, whose coordinates are the variables, and a word ``x``
-    satisfies a check ``h`` if ``h @ x = 0``.  A problem that is not homogeneous has the symplectic
+    A problem that is not symplectic has binary words, whose coordinates are the variables, and a
+    word ``x`` satisfies a check ``h`` if ``h @ x = 0``.  A symplectic problem has the symplectic
     words ``x = (a | b)`` of Pauli operators on ``n`` qubits, which are its variables, and the value
     of a qubit is the Pauli ``X``, ``Z``, or ``Y`` that ``x`` has there.  Such a word satisfies a
     check if they commute, which is if their symplectic product vanishes.
@@ -180,7 +180,7 @@ class SupportSearch:
         excluded: A binary matrix whose row space is excluded.
 
     Keyword args:
-        homogeneous: Whether the problem is homogeneous, rather than symplectic.  Default: True.
+        symplectic: Whether the problem is symplectic.  Default: False.
         get_automorphisms: A function that returns an array of generators of a group of
             permutations of the variables, or None, as in ``get_distance_connected_support``.
         automorphism_minimum_states: The search calls ``get_automorphisms`` at most once, before
@@ -189,8 +189,8 @@ class SupportSearch:
             the first weight limit.
 
     Attributes:
-        num_variables: The number of variables: the number of columns of ``checks`` if the problem
-            is homogeneous, and half of it otherwise.
+        num_variables: The number of variables: the number of columns of ``checks``, or half of it
+            if the problem is symplectic.
         weight_divisor: A divisor of the weight of every word.
         num_states: The number of states that ``find_witness`` has visited so far, over all of its
             weight limits.  The empty support at the start of the search from each root is not
@@ -210,7 +210,7 @@ class SupportSearch:
         checks: npt.ArrayLike,
         excluded: npt.ArrayLike,
         *,
-        homogeneous: bool = True,
+        symplectic: bool = False,
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         automorphism_minimum_states: int,
     ) -> None:
@@ -222,12 +222,12 @@ class SupportSearch:
         excluded = np.asarray(excluded, dtype=np.uint8)
         if checks.ndim != 2 or excluded.ndim != 2 or checks.shape[1] != excluded.shape[1]:
             raise ValueError("Checks and excluded rows must be matrices with equal widths")
-        if not homogeneous and checks.shape[1] % 2:
+        if symplectic and checks.shape[1] % 2:
             raise ValueError("Symplectic matrices must have an even number of columns")
 
-        self.num_variables = checks.shape[1] if homogeneous else checks.shape[1] // 2
+        self.num_variables = checks.shape[1] // 2 if symplectic else checks.shape[1]
         self.num_states = 0
-        self._homogeneous = homogeneous
+        self._symplectic = symplectic
         self._last_two_num_states: tuple[int, int] | None = None
         self._excluded = excluded
         self._get_automorphisms = get_automorphisms
@@ -235,7 +235,7 @@ class SupportSearch:
 
         # A symplectic check is satisfied if its dot product with a word vanishes once its halves
         # are swapped, and the excluded rows must satisfy every check.
-        if not homogeneous:
+        if symplectic:
             checks = swap_pauli_halves(checks)
         if np.any(multiply_binary(checks, excluded.T)):
             raise ValueError("The excluded rows must satisfy the checks")
@@ -267,7 +267,7 @@ class SupportSearch:
         # since their weights count qubits rather than bits.
         self._roots = np.arange(self.num_variables, dtype=np.int64)
         self._ranks = np.arange(self.num_variables, dtype=np.int64)
-        self.weight_divisor = infer_weight_divisor(get_kernel(self._checks)) if homogeneous else 1
+        self.weight_divisor = 1 if symplectic else infer_weight_divisor(get_kernel(self._checks))
 
         # Weights of checks are multiples of 1 / scale, and an overlap is at most the largest number
         # of checks of a symbol, which is taken to be at least one, so that the scale exists even
@@ -297,8 +297,9 @@ class SupportSearch:
             The sorted symbols of a witness, one for each variable of its support, or None if there
             is no witness of weight at most ``max_weight``.  A witness need not be a lightest one.
             Symbol ``k n + j`` gives variable ``j`` value ``k``, where ``n`` is the number of
-            variables.  A homogeneous problem has one value, so its symbols are its variables, and
-            a symplectic problem has the values ``X``, ``Z``, and ``Y``, in that order.
+            variables.  A problem that is not symplectic has one value, so its symbols are its
+            variables, and a symplectic problem has the values ``X``, ``Z``, and ``Y``, in that
+            order.
 
         Raises:
             ValueError: If the weight limit is less than one, or if this search asks for
@@ -437,7 +438,7 @@ class SupportSearch:
         For a symplectic problem, the columns are those of the ``X`` part, of the ``Z`` part, and
         of their sum, for the values ``X``, ``Z``, and ``Y``.
         """
-        if self._homogeneous:
+        if not self._symplectic:
             return matrix
         part_x, part_z = matrix[:, : self.num_variables], matrix[:, self.num_variables :]
         return np.hstack([part_x, part_z, part_x ^ part_z])
@@ -466,9 +467,9 @@ class SupportSearch:
         """
         basis, labels = get_nested_code_basis(get_kernel(self._checks), self._excluded)
         lifted = (
-            automorphisms
-            if self._homogeneous
-            else np.hstack([automorphisms, automorphisms + self.num_variables])
+            np.hstack([automorphisms, automorphisms + self.num_variables])
+            if self._symplectic
+            else automorphisms
         )
         automorphism_families.verify_automorphisms(basis, labels, lifted)
         orbits = automorphism_families.get_orbits(automorphisms, self.num_variables)
@@ -856,7 +857,7 @@ def _shift_other_values(
 ) -> None:
     """Add ``change`` to the levels of the symbols that give the variable of a symbol other values.
 
-    The loop is empty if every variable has one value, as for homogeneous problems.
+    The loop is empty if every variable has one value, as for problems that are not symplectic.
     """
     num_symbols = len(levels)
     for value in range(1, num_symbols // num_variables):

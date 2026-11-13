@@ -40,8 +40,8 @@ Examples of basic usage with a predefined noise model::
 
 
 ``clifford_nq_error`` sets the noise of unitary Clifford gates by their number of qubits.  Each
-Pauli product of an SPP or SPP_DAG gate counts as a gate on its qubits.  :class:`NoiseModel` lists
-the forms that this noise can take::
+Pauli product of an SPP or SPP_DAG gate counts as a gate on its qubits.
+:class:`~qldpc.circuits.NoiseModel` lists the forms that this noise can take::
 
     from qldpc.circuits.noise_model import NoiseModel, PauliChannel
 
@@ -97,17 +97,18 @@ other rules, and returns None to fall back on them::
 
 The idle errors of a noise model depend on how long qubits idle.  Its ``scheduler`` places the
 operations of a circuit in moments to find this.  The default ``ASAPScheduler()`` places gates as
-early as possible, and then resets as late as the other gates allow.  See :class:`NoiseModel` for
-idle runs, :class:`Schedule` for moments, and the :doc:`noise-model notebook
-</examples/noise_models>` for examples.
+early as possible, and then resets as late as the other gates allow.  See
+:class:`~qldpc.circuits.NoiseModel` for idle runs, :class:`~qldpc.circuits.Schedule` for moments,
+and the :doc:`noise-model notebook </examples/noise_models>` for examples.
 
 TICKs can set the timing of circuits in two ways.  With ``scheduler=TickScheduler()``, the TICKs of
 each circuit set its moments.  With ``scheduler=schedule``, for a schedule of a circuit with TICKs,
 a noise model takes the moments of each circuit from that schedule.  A circuit that noise is added
 to may then order operations differently from the scheduled circuit, for example to measure qubits
 earlier.  It must have the same REPEAT blocks, with the same repeat counts.  In each part of the
-circuit (see :class:`Schedule`), it must have the same operations on each qubit, in the same order,
-apart from their measurement-record targets.  The noisy circuit keeps the order of its input::
+circuit (see :class:`~qldpc.circuits.Schedule`), it must have the same operations on each qubit, in
+the same order, apart from their measurement-record targets.  The noisy circuit keeps the order of
+its input::
 
     from qldpc.circuits.noise_model import NoiseModel, TickScheduler
 

@@ -43,7 +43,8 @@ class NoiseRule:
             It may be any of the following:
 
             - ``PauliChannel``: a Pauli channel on ``k`` qubits, which
-              :meth:`PauliChannel.to_circuit` emits after each block of ``k`` targets.
+              :meth:`qldpc.circuits.PauliChannel.to_circuit` emits after each block of ``k``
+              targets.
             - ``PauliChannelSequence``: a sequence of independent Pauli-string error mechanisms.
             - ``Mapping[str, float]``: a ``PauliChannel``, given by its probabilities.  A Mapping
               whose probabilities are all zero adds no noise.
