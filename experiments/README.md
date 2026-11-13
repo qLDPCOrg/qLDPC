@@ -204,7 +204,6 @@ python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
 ```
 
 The option `--hadamards` applies Hadamards to the second half of the qubits of each code, and times the resulting code, which is not CSS.
-The option `--gauge K` makes the first `K` logical qubits of each code gauge qubits.
 
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
