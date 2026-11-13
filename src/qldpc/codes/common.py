@@ -82,8 +82,8 @@ _CLASSICAL_DISTANCE_BOUND_REASON = (
     " generators of the code"
 )
 _CSS_DISTANCE_BOUND_REASON = (
-    "decoder-based distance bounds decode an internal effective check matrix that stacks the checks"
-    " and logical operators of the code"
+    "decoder-based distance bounds decode an internal effective check matrix that stacks the"
+    " stabilizers and logical operators of the code"
 )
 _REDUCE_LOGICAL_OP_REASON = (
     "logical operators are found by decoding an internal effective check matrix that stacks the"
@@ -3752,10 +3752,8 @@ class CSSCode(QuditCode):
         ``backend="gap"``, but GAP may still ask on standard input before installing a missing
         GUAVA or QDistRnd package.
 
-        Every backend gives an upper bound on the distance, which is dressed for a subsystem code.
-        GAP searches dressed logical operators.  The decoder-based algorithm searches bare ones,
-        which commute with every gauge operator, so for a subsystem code its bound can stay above
-        the distance.
+        Every backend gives an upper bound on the distance, which is dressed for a subsystem code:
+        the backends search logical operators that may be multiplied by gauge operators.
 
         Args:
             num_trials: Minimize over this many independent upper bounds.  If ``None`` (the
@@ -3883,8 +3881,8 @@ class CSSCode(QuditCode):
         r"""Use a randomized algorithm to compute an upper bound on code distance.
 
         Specifically, use the algorithm described in arXiv:2308.07915, also explained below.  For a
-        subsystem code, it finds bare logical operators, which commute with every gauge operator, so
-        its bound is valid but can stay above the distance, which is dressed.
+        subsystem code, it finds dressed logical operators, which may be multiplied by gauge
+        operators (see get_distance).
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3913,6 +3911,12 @@ class CSSCode(QuditCode):
             (b) ``w_z @ w_x = 1``,
 
         where ``H_z`` is the parity check matrix of the Z-type subcode that witnesses X-type errors.
+
+        For a subsystem code, ``H_z`` is instead a basis of its Z-type stabilizers, and ``Z(w_z)``
+        is a bare logical operator from get_logical_ops, which commutes with every gauge operator.
+        A solution ``X(w_x)`` then commutes with the stabilizers, and is not a gauge operator, since
+        it anti-commutes with ``Z(w_z)``: it is a dressed logical operator.  Conversely, every
+        dressed logical X operator anti-commutes with some bare logical Z operator.
 
         Conditions (a) and (b) can be combined into the single block-matrix equation::
 
@@ -3951,7 +3955,11 @@ class CSSCode(QuditCode):
 
         # pretend without loss of generality that we are computing the X-distance
         pauli_z: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
-        matrix_z = self.get_matrix(pauli_z)
+        # Dressed logical operators need only commute with the stabilizers.  The logical operators
+        # are bare, so a word that anti-commutes with one of them is not a gauge operator.
+        matrix_z = (
+            self.get_stabilizer_ops(pauli_z) if self.is_subsystem_code else self.get_matrix(pauli_z)
+        )
         logical_ops_z = self.get_logical_ops(pauli_z)
 
         # initialize a decoder for an effective check matrix
@@ -3988,9 +3996,9 @@ class CSSCode(QuditCode):
 
         A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
         that it commutes with all logical operators except its dual.  This is essentially the same
-        method as that used in CSSCode.get_distance_bound.  For a subsystem code, the operator stays
-        bare: it commutes with every gauge operator, so its weight can exceed the distance, which is
-        dressed (see get_distance).
+        method as that used in CSSCode.get_distance_bound_with_decoder.  For a subsystem code,
+        however, the operator stays bare: it must commute with every gauge operator, not only with
+        the stabilizers, so its weight can exceed the distance, which is dressed (see get_distance).
 
         Args:
             pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"

@@ -1764,8 +1764,8 @@ def test_distance_css() -> None:
         assert code.get_distance_bound_with_decoder(Pauli.X) is codes.NO_DISTANCE
 
 
-def test_decoder_distance_bounds_of_subsystem_codes_are_bare() -> None:
-    """The decoder bounds the distance of a subsystem code by bare logical operators.
+def test_decoder_distance_bounds_of_subsystem_codes_are_dressed() -> None:
+    """The decoder bounds the distance of a subsystem code by dressed logical operators.
 
     The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
     three qubits is a dressed logical operator, although every bare logical operator has weight 3.
@@ -1773,11 +1773,21 @@ def test_decoder_distance_bounds_of_subsystem_codes_are_bare() -> None:
     """
     code = codes.CSSCode([[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]])
     for pauli in PAULIS_XZ:
-        assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 3
-        assert code.get_distance_exact(pauli) == 1
+        assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 1
     code.reduce_logical_ops()
     logical_ops = code.get_logical_ops(symplectic=True)
     assert not np.any(code.matrix @ math.symplectic_conjugate(logical_ops).T)
+
+
+def test_decoder_distance_bounds_exclude_gauge_operators() -> None:
+    """Gauge operators lighter than the distance of a subsystem code do not bound it.
+
+    The gauge generators of the 3x3 Bacon-Shor code have weight 2 and commute with its stabilizers,
+    but they are not logical operators, and its distance is 3.
+    """
+    code = codes.BaconShorCode(3)
+    for pauli in PAULIS_XZ:
+        assert code.get_distance_bound_with_decoder(pauli) == 3
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:

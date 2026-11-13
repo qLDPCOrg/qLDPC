@@ -231,7 +231,7 @@ Capability       :math:`GF(2)`                              Prime field :math:`G
 ===============  =========================================  ==============================  ===================================  ========================================
 Codes            Yes                                        Yes                             Yes                                  Yes, inferred from non-commuting checks
 Exact distance   Brouwer--Zimmermann, or connected support  Exhaustive enumeration          Exhaustive enumeration               Yes
-Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only (see upper bounds below)
+Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only
 Decoders         All built-in decoders                      GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
 Circuits         Yes                                        No                              No                                   No memory experiments
 ===============  =========================================  ==============================  ===================================  ========================================
@@ -248,7 +248,6 @@ What qLDPC computes exactly, bounds, and trusts
 
 * Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, which ``get_distance`` calls unless it is given ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
-  For a subsystem code, the decoder backend searches bare logical operators, so its bound is valid but can stay above the distance, which is dressed.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.
 * Trusted, not verified: recorded parameters of built-in families and online lookups, promises such as ``promise_equal_distance_xz``, an explicit ``is_subsystem_code=True`` hint to ``QuditCode`` or ``CSSCode``, a code-capacity ``min_error_weight`` below which errors are assumed to be corrected, and an explicit ``detector_to_time`` mapping.
