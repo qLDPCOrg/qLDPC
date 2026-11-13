@@ -502,6 +502,7 @@ Actual runtime also depends on basis construction, the width of packed words, an
 
 Exhaustive enumeration is chosen at two points, which [Section 4.2](#42-flow-and-exit-points) lists.
 It enumerates words in vectorized, packed blocks and updates them with Gray-code steps, and it does not use the BZ certificate.
+It vectorizes only rows short enough for the batch size (see `enumeration_batch_exponent`), and enumerates longer rows one word at a time.
 
 ### 3.7 Images of an information set under automorphisms
 
@@ -751,7 +752,7 @@ For the X sector of the [[288, 12, 18]] code above, with `U = 18` and the scanne
 On nine layers of `5 × 10^8` to `1.5 × 10^10` supports of that code and of three pair-partition codes, the scan of one information set without tables took 70% to 95% of the time of the scan of any family of sets.
 These two scans were measured as the kernels `_scan_one_information_set` and `_scan_brouwer_zimmermann`, before the distance and coset searches shared their scans; they are now `scan_information_set` and `scan_family` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which scan in the same order.
 With tables forced, by `completion_bound_minimum_layer_work` set to zero and `completion_bound_max_cost_percent` set to `MAX_VALUE`, three of four layers of `2 × 10^7` to `5 × 10^7` supports, of that code and of two pair-partition codes, were slower, with cost ratios up to 1.6, and the cost model predicted ratios above one for all four.
-Such small layers gain little even when tables pay, and estimating the share of skipped supports takes milliseconds, so a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports.
+Estimating the share of skipped supports takes milliseconds, so a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports, which bounds the cost of sampling; the cost model then declines tables on layers such as these.
 The share of skipped supports depends on the code, the scanned set, and the order of its rows, and other codes may gain less, or nothing when a search declines the tables.
 Skipping does not reduce the number of layers that a search must complete, and the number of prefixes still grows like that of supports for a fixed ratio `w/r`.
 
@@ -761,7 +762,7 @@ They have `6 × 10^8` to `1.5 × 10^9` supports for each basis.
 Scanning their bases one at a time with tables, including building the tables, took 0.11 to 0.30 times as long as the scan in lockstep, and the predicted costs of these layers were within 0.06 of the measured ratios.
 In layer five of the X sector of the [[288, 12, 18]] code without its automorphisms, the tables of one of nine bases paid, and the search scanned the layer in lockstep, which was 6% faster than scanning its bases one at a time.
 In layer six, with `1.4 × 10^10` supports for each basis, the tables of seven of nine bases paid, and scanning the bases one at a time took 0.81 times as long as the scan in lockstep, for a predicted cost of 0.78.
-Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search does not consider them.
+Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search that considers them declines the tables.
 
 ### 3.10 Minimum weights of cosets
 
@@ -1016,7 +1017,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The gate of routes by tails replaces the minimum layer work and the cost model of `select_completion_tables`.
   So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, whatever the work of those layers.
   `get_coset_tails` gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
-  The comment of `coset_completion_block_bits` says why its blocks are narrower than those of distance searches.
+  The comment of `coset_completion_block_bits` says how its width trades coset searches by CSS weight against those by physical weight.
 - **`select_completion_tables`** decides whether a layer of one information set, or a step of a count, uses completion tables, as [Section 3.9](#39-skipping-completions-by-completion-tables) explains; a count passes its target weight plus one in place of `U`.
   It considers the layers that `considers_tables` allows: layers of two to `r` rows with at least `completion_bound_minimum_layer_work` supports, under a tuning whose `completion_bound_max_cost_percent` and `completion_bound_max_table_bytes` are not zero.
   It uses tables if `predict_completion_cost` predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.
@@ -1136,7 +1137,7 @@ Representative correctness tests check certificate validity against exhaustive w
 `test_bounds_are_exact_relaxations` in [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py) checks completion bounds against enumerated completions.
 `test_scan_of_one_information_set` in [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py) checks that the scan finds the lightest word of a layer and weighs or skips each support exactly once, and `test_completion_tables_keep_distances_exact` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) checks whole searches against brute force.
 `test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound` in [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py) checks the bound of coset scans, including search bases of rank deficiency three, against enumeration, and `test_searches_by_tails_answer_as_searches_of_whole_words` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks the answers, skipped words, and bounds `R` of coset queries with tables, also on even codes, against searches without tables and brute force.
-In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares both homogeneous and general Pauli problems with exhaustive results.
+In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares its results with exhaustive ones on binary and general Pauli problems.
 `test_max_weight` in [core_test.py](core_test.py) checks weight-limited results against enumeration on every route, and `test_max_weight_caps_cutoff` checks a case that a weight limit without the `cutoff` cap would get wrong.
 
 Performance tests also check broad work budgets, and helper tests exercise the current implementation's interfaces.

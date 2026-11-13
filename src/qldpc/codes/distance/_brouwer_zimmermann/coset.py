@@ -65,7 +65,7 @@ class BrouwerZimmermannCosetSearch:
             integer: a word whose syndrome has only bit ``j`` set.
         check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
             bit ``c`` set.
-        is_pauli: Whether the words are packed Paulis of ``2 n`` bits, rather than X or Z parts of
+        symplectic: Whether the words are packed Paulis of ``2 n`` bits, rather than X or Z parts of
             ``n`` bits.
         max_css_single_pairs: For a search of Pauli errors by CSS weight, the most pairs of distinct
             syndromes of single-qubit X and Z errors that it tabulates (see ``_css_singles``).
@@ -79,7 +79,7 @@ class BrouwerZimmermannCosetSearch:
         inverse_rows: tuple[int, ...],
         check_columns: tuple[int, ...],
         *,
-        is_pauli: bool,
+        symplectic: bool,
         max_css_single_pairs: int = 0,
     ) -> None:
         self._routes = routes
@@ -92,9 +92,9 @@ class BrouwerZimmermannCosetSearch:
         # is separate: it is two for every search of Pauli errors, including those by CSS weight,
         # whose scale is zero, since an error weighs at least half the Hamming weight of its
         # embedded word (see ``_get_pauli_search``).
-        self.scale = 0 if css_weight and is_pauli else 1 if css_weight else 2
+        self.scale = 0 if css_weight and symplectic else 1 if css_weight else 2
         self._num_qubits = num_qubits
-        self._is_pauli = is_pauli
+        self._symplectic = symplectic
         self._inverse_rows = inverse_rows
         self._num_syndrome_bits = len(inverse_rows)
         # A query below maximum weight two bounds a coset without words of weight at most one by
@@ -104,13 +104,13 @@ class BrouwerZimmermannCosetSearch:
         # CSS weight can still hold an error of weight two, such as ``YX``, whose binary word has
         # three ones.
         num_tables = len(routes.disjoint_tables.planning)
-        self._odd_coset_lookup_bound = 3 if not is_pauli and num_tables == 2 else 2
+        self._odd_coset_lookup_bound = 3 if not symplectic and num_tables == 2 else 2
 
         # Map each syndrome of a word of weight zero or one to such a word.  For the CSS weight,
         # ``_weight_one_word`` also pairs the single-qubit X errors with the single-qubit Z errors,
         # to find ``X_i Z_j`` on distinct qubits.
         self._singles, self._x_singles, self._z_singles = tabulate_singles(
-            check_columns, num_qubits, is_pauli=is_pauli
+            check_columns, num_qubits, symplectic=symplectic
         )
 
     def get_min_weight_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
@@ -205,11 +205,11 @@ class BrouwerZimmermannCosetSearch:
     @property
     def _num_word_bits(self) -> int:
         """The number of bits of a word: ``2 n`` for Paulis, and ``n`` for X or Z parts."""
-        return 2 * self._num_qubits if self._is_pauli else self._num_qubits
+        return 2 * self._num_qubits if self._symplectic else self._num_qubits
 
     def _weight(self, word: int) -> int:
         """The weight of a word: of its Pauli, or the Hamming weight of an X or Z part."""
-        if not self._is_pauli:
+        if not self._symplectic:
             return word.bit_count()
         mask = (1 << self._num_qubits) - 1
         x, z = word & mask, (word >> self._num_qubits) & mask
@@ -219,7 +219,7 @@ class BrouwerZimmermannCosetSearch:
         """Find a word of weight zero or one with this syndrome, if there is one."""
         if syndrome in self._singles:
             return self._singles[syndrome]
-        if not (self._is_pauli and self.css_weight):
+        if not (self._symplectic and self.css_weight):
             return None
         # CSS weight one also allows X_i Z_j on distinct qubits.  Callers such as the certification
         # of fault propagation make a query for each of thousands of syndromes, so a table of these
@@ -373,7 +373,7 @@ def _get_pauli_search(
         num_qubits,
         row_ints(inverse),
         check_columns,
-        is_pauli=True,
+        symplectic=True,
         max_css_single_pairs=tuning.max_css_single_pairs,
     )
 
@@ -419,7 +419,7 @@ def _get_classical_search(
     )
     check_columns = row_ints(np.ascontiguousarray(checks.T))
     return BrouwerZimmermannCosetSearch(
-        routes, True, num_qubits, row_ints(inverse), check_columns, is_pauli=False
+        routes, True, num_qubits, row_ints(inverse), check_columns, symplectic=False
     )
 
 

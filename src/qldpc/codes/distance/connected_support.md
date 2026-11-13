@@ -39,7 +39,7 @@ A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at
 So `get_distance_pauli` searches Pauli checks as a CSS code if X-type and Z-type operators generate their group, even if the checks mix X and Z.
 A code that is CSS only up to local Cliffords, such as those Hadamards, is still searched as a code that is not CSS.
 
-The script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
+The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
 
 ## 3. The algorithm
 
@@ -229,7 +229,7 @@ The search makes each qubit a variable, whose nonzero **values** are `X`, `Z`, a
 A **symbol** is a variable with one of its values, and the word of a set of symbols on distinct variables has those values there and is the identity elsewhere.
 A symbol **flips** a check if the two anticommute on its qubit, and the syndrome of a word is the set of checks that it anticommutes with.
 The Tanner graph joins each check to the symbols that flip it.
-A homogeneous problem, such as a classical code or a sector of a CSS code, is the case of one value per variable, so its symbols are its variables.
+A problem that is not symplectic, such as a classical code or a sector of a CSS code, has one value per variable, so its symbols are its variables.
 
 Each argument of Sections 3.2 to 3.6 carries over, with symbols where it uses variables:
 
@@ -371,7 +371,7 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
 | Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
-| Symplectic problems, values, and symbols | `homogeneous` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
+| Symplectic problems, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several sectors | `get_distance_connected_support`, which `_search_css` of `core.py` calls |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |

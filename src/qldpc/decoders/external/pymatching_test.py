@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import inspect
 import pickle
 import sys
 import threading
@@ -21,6 +22,7 @@ import stim
 
 from qldpc import decoders
 from qldpc.conftest import fail_import
+from qldpc.decoders.conftest import get_type_checking_class_docstrings
 from qldpc.decoders.external import pymatching
 from qldpc.decoders.external.pymatching import (
     _get_decoder_mwpm,
@@ -184,6 +186,13 @@ def test_matching_protocol_adapter() -> None:
     assert decoder.decode_errors_detailed_batch(syndromes[:0]) == ()
     pickled = pickle.dumps(pymatching.Matching)
     assert pickle.loads(pickled) is pymatching.Matching  # noqa: S301 - trusted in-memory round trip
+
+
+def test_matching_protocol_adapter_declaration() -> None:
+    """AutoAPI documents the adapter class from its declaration, with its runtime docstring."""
+    assert get_type_checking_class_docstrings(pymatching) == {
+        "Matching": inspect.getdoc(pymatching.Matching)
+    }
 
 
 def test_pymatching_protocol_adapter_is_created_once(monkeypatch: pytest.MonkeyPatch) -> None:
