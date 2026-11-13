@@ -34,7 +34,7 @@ from .gadget import GadgetLayout
 def cheeger_constant(g: GadgetLayout) -> float:
     """Exact boundary Cheeger constant h(F) of a gadget's F matrix.
 
-    gadget notation: F → incidence; V_0 → support (Webster–Smith–Cohen arXiv:2511.15989 §II A Def 1
+    gadget notation: F → incidence; V_0 → support (Webster-Smith-Cohen arXiv:2511.15989 §II A Def 1
     / Cross et al. arXiv:2407.18393 Def 3).
 
     Computed exactly by Gray-code subset enumeration, which is tractable only for ``|V_0|`` ≤ 26.

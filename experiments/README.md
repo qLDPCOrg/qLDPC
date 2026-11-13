@@ -11,7 +11,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
-The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro–Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
+The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro-Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
 If GAP cannot be called, `abstract.SmallGroup` retrieves groups from GroupNames.org instead.
 The generators of a group from GroupNames.org can differ from those of GAP, so the same file names can then save different codes, which fail verification on a machine that uses GAP.
 qLDPC caches retrieved groups and codes on disk, so the first source that a machine uses for a group stays in use there.
@@ -75,7 +75,7 @@ The options of `run_search.py` choose the groups, the local codes, and the compl
 
 - `--groups` chooses between all groups of order at most `--max-order` in the SmallGroups library (the default), and the dihedral groups of orders 6 to `--max-order`, which are the symmetry groups of regular polygons.
   [arXiv:2508.05095](https://arxiv.org/abs/2508.05095) uses dihedral groups for the expansion of their Cayley graphs.
-- `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro–Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
+- `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro-Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
   Identifiers such as `Random-5-3-0` name random codes, here with 5 bits and 3 parity checks; `saved_codes.py` lists all identifiers.
 - `--pairs` chooses the pairs of local codes.
   By default, each base code is paired with its dual.
