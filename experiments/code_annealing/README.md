@@ -54,7 +54,7 @@ Add `--skip-figures` for the table alone, or a small `--num-samples` and `--max-
 Add `--revised` to do the same for the revised version of the paper, in `experiments/code_annealing/results/paper_revised/`.
 
 [REPRODUCTION.md](REPRODUCTION.md) maps every figure and table of the paper to its command, input, and output, and records whether it reproduces.
-`python -m experiments.code_annealing.check_claims` checks the paper's headline claims against its codes in seconds, without changing any file.
+`python -m experiments.code_annealing.check_claims` checks the paper's headline claims against its codes in seconds, without changing any file, and `--revised` checks those of the revised paper.
 [paper_data/README.md](paper_data/README.md) describes the data, and shows how to load the codes into qLDPC.
 
 ### The searches, at any scale

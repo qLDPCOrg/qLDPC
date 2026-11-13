@@ -13,6 +13,7 @@ The subdirectory `revised/` keeps the data of the revised version of the paper, 
 | `revised/annealed_codes.txt` | The 33 best CSS codes of the revised version of the paper, from 20 to 56 qubits, in the same format | The best code of each size of the campaign of `write_jobs.py`, collected by `collect_data`, which lowers stabilizer weights as above; except at [[24, 4, 5]], where the code of the paper has fewer minimum-weight logical operators | `reproduce_paper --revised`, the revised table and figures |
 | `revised/annealed_codes_swel.txt` | The 33 best SWEL codes of the revised version of the paper, in the same format | The best code of each size of the campaign, collected as above | As above |
 | `revised/scrape_qecdb_2026-11-13.txt` | The best known neighbors of the revised codes at qecdb.org on 2026-11-13 | Scraped as above, on that date.  By then the database also listed codes found after the snapshot of 2026-05-21 | `reproduce_paper --revised` (the comparison columns of the revised table) |
+| `revised/automorphisms_swel_n20_k06.txt` | Five Stim circuits that generate SWAP-transversal logical Clifford gates of the revised [[20, 6, 4]] SWEL code, which is a different code from the paper's | Found by an exhaustive search for automorphisms of the code, with every linear combination of its stabilizer generators added to its parity check matrix, and listed in the revised paper's appendix on automorphisms | `check_claims --revised` |
 
 ## Formats
 

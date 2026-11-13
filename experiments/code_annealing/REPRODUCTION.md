@@ -38,3 +38,5 @@ Not computational, so not reproduced by code: the pseudocode of adaptive anneali
 | The distances frequently meet or exceed the Gilbert-Varshamov bounds | for each code type, how many codes meet the stabilizer bound and the CSS bound (the columns delta_QGV and delta_CSS of the table): 22 and 26 of 26 CSS codes, 17 and 26 of 26 SWEL codes |
 | Many codes improve on the best codes known before the paper | for each code type, how many codes no code that qecdb.org listed on 2026-05-21 matches or betters in all of `n`, `k`, and `d`: 12 of 26 CSS codes, 14 of 26 SWEL codes |
 | The [[20, 6, 4]] SWEL code has at least 2304 SWAP-transversal logical Clifford gates modulo logical Pauli gates | the order of the group that the five generators generate: 2304 |
+
+With `--revised`, it checks the same claims for the revised paper from `paper_data/revised/`: 24 and 33 of 33 CSS codes and 18 and 33 of 33 SWEL codes meet the stabilizer and CSS bounds, 10 of 33 CSS codes and 19 of 33 SWEL codes improve on qecdb.org as of 2026-11-13, and the generators of the revised [[20, 6, 4]] SWEL code generate 2304 logical Clifford gates.
