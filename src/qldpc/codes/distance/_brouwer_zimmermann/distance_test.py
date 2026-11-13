@@ -617,11 +617,13 @@ def completion_tables(
     record = CompletionRecord(request.param == "forced", [])
     if record.forced:
         # Eight-column blocks, rather than the default sixteen, keep the tables quick to build as
-        # plain Python.
+        # plain Python, and the fewest samples that the cost model accepts keep its predictions
+        # quick.
         tune(
             completion_bound_minimum_layer_work=0,
             completion_bound_max_cost_percent=MAX_VALUE,
             completion_bound_block_bits=8,
+            completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
         )
     select = completion_bounds.select_completion_tables
     scan = affine_search.scan_information_set
@@ -766,14 +768,15 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_rows_of_an_automorphism_family_can_reach_the_cutoff() -> None:
+def test_rows_of_an_automorphism_family_can_reach_the_cutoff(tune: Tune) -> None:
     """The rows of a scanned set with images can end a search at the cutoff.
 
-    In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the first family weigh
-    more than six, and a row of the scanned set weighs six.  With a cutoff of six, the search
-    returns that weight, an upper bound on the distance, rather than scanning on to a word of
-    weight four.
+    In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the disjoint family,
+    which the search keeps, weigh more than six, and a row of the scanned set weighs six.  With a
+    cutoff of six, the search returns that weight, an upper bound on the distance, rather than
+    scanning on to a word of weight four.
     """
+    tune(overlapping_minimum_work=MAX_VALUE)
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problem = get_sector_problem(code, Pauli.Z)
     assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0) == 4
@@ -834,12 +837,15 @@ def test_completion_tables_keep_distances_exact(
 ) -> None:
     """Searches that skip hopeless completions agree with independent oracles.
 
-    Every layer uses tables, and every search below skips supports.  In each sector of this
-    [[36, 4, 4]] bivariate bicycle code, the rows of the scanned set weigh at least six, so a scan
-    must find a word of weight four, with or without an upper bound above it.  In the X sector of a
-    [[72, 4, 8]] code, with its coordinates relabelled at random and its automorphisms relabelled
-    alike, the search must scan to layer four.  A general Pauli problem checks that searched words
-    weigh twice their number of nontrivial qubits.
+    Every layer uses tables, and every search below skips supports.  The tuning keeps the searches
+    of this [[36, 4, 4]] bivariate bicycle code from building an overlapping family, which would
+    hold a word of weight four and end them before any layer.  Before layer two, they switch from
+    the disjoint family to an automorphism family, the rows of whose scanned set weigh at least six
+    in each sector, so a scan must find a word of weight four, with or without an upper bound above
+    it.  In the X
+    sector of a [[72, 4, 8]] code, with its coordinates relabelled at random and its automorphisms
+    relabelled alike, the search must scan to layer four.  A general Pauli problem checks that
+    searched words weigh twice their number of nontrivial qubits.
     """
 
     def assert_skips(distance: int) -> int:
@@ -859,7 +865,7 @@ def test_completion_tables_keep_distances_exact(
             skipped = completion_tables.skipped
             # One sixteen-column block covers the tails of this code, which makes its bounds exact,
             # so a bound that is too high changes the distance found.
-            with use_tuning(completion_bound_block_bits=16):
+            with use_tuning(completion_bound_block_bits=16, overlapping_minimum_work=MAX_VALUE):
                 distance = bz.get_distance_brouwer_zimmermann_many(
                     [get_sector_problem(code, pauli)],
                     cutoff=0,
@@ -1093,7 +1099,7 @@ def test_layers_scan_several_sets_one_at_a_time_only_if_that_pays(
 
     The predicted costs include building the tables, which a layer of several sets builds anew.  A
     layer of two sets averages their predicted costs, at the full cost for a set without tables,
-    and compares the average with the default limit of 90 percent.  A set whose tables cost half
+    and compares the average with a limit of 90 percent.  A set whose tables cost half
     as much as a scan without them takes them, and the average of 0.75 is within the limit.  A set
     whose tables would cost 95 percent scans without them.  With tables that cost 85 percent for
     one set and none for the other, the average is 0.925, so the layer scans in lockstep.
@@ -1116,7 +1122,7 @@ def test_layers_scan_several_sets_one_at_a_time_only_if_that_pays(
         ),
         cutoff=0,
         batch_size=1,
-        tuning=DEFAULT_TUNING,
+        tuning=dataclasses.replace(DEFAULT_TUNING, completion_bound_max_cost_percent=90),
         best=6,
         lower_bound=0,
     )
@@ -1176,11 +1182,12 @@ def test_searches_take_completion_limits_from_their_tuning(
 ) -> None:
     """Searches use completion tables within the limits of their tuning.
 
-    The scanned sets of both sectors of this [[36, 4, 4]] code have 20 rows and 16 tail columns, so
-    tables of one sixteen-column block take 19 * 2**16 bytes, and tables of two eight-column blocks
-    take 19 * 2 * 2**8 bytes.  A tuning that forces tables uses sixteen-column blocks, a smaller
-    memory limit eight-column blocks, and a limit of zero bytes or of zero cost, or the largest
-    threshold of layer work, no tables.
+    The tuning keeps the searches from building an overlapping family, which would hold a word of
+    weight four and end them before any layer.  Every information set of either sector of this
+    [[36, 4, 4]] code has 20 rows and 16 tail columns, so tables of one sixteen-column block take
+    19 * 2**16 bytes, and tables of two eight-column blocks take 19 * 2 * 2**8 bytes.  A tuning
+    that forces tables uses sixteen-column blocks, a smaller memory limit eight-column blocks, and a
+    limit of zero bytes or of zero cost, or the largest threshold of layer work, no tables.
     """
     block_bits: set[int] = set()
     select = completion_bounds.select_completion_tables
@@ -1194,7 +1201,11 @@ def test_searches_take_completion_limits_from_their_tuning(
     monkeypatch.setattr(completion_bounds, "select_completion_tables", recording_select)
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
-    tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=MAX_VALUE)
+    tune(
+        overlapping_minimum_work=MAX_VALUE,
+        completion_bound_minimum_layer_work=0,
+        completion_bound_max_cost_percent=MAX_VALUE,
+    )
     for limits, expected_block_bits in (
         ({}, {16}),
         ({"completion_bound_max_table_bytes": 19 * 2 * 2**8}, {8}),

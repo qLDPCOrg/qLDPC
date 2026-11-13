@@ -342,11 +342,14 @@ def test_exhausted_search_gives_the_exact_minimum() -> None:
 
 
 @pytest.mark.parametrize("css_weight", [False, True])
-def test_wide_states_span_several_packed_words(css_weight: bool) -> None:
+def test_wide_states_span_several_packed_words(css_weight: bool, tune: Tune) -> None:
     """Eleven GHZ blocks use 99 bits for the physical weight, more than one 64-bit word.
 
     For the CSS weight, the X and Z parts are searched separately, on 33 bits each.
     """
+    # Eight-column blocks, rather than the default sixteen, keep the tables quick to build as plain
+    # Python; this test is about packing, not tables.
+    tune(coset_completion_block_bits=8)
     num_blocks = 11
     matrix, syndrome = _ghz_blocks(num_blocks)
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)

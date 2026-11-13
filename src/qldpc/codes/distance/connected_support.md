@@ -39,7 +39,7 @@ A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at
 So `get_distance_pauli` searches Pauli checks as a CSS code if X-type and Z-type operators generate their group, even if the checks mix X and Z.
 A code that is CSS only up to local Cliffords, such as those Hadamards, is still searched as a code that is not CSS.
 
-The script [experiments/connected_support_distance/benchmark.py](../../../../experiments/connected_support_distance/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
+The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
 
 ## 3. The algorithm
 
