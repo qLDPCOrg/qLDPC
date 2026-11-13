@@ -48,14 +48,14 @@ def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
     order = getattr(type(vectors), "order", None)
     if order is not None and order != 2:
         raise ValueError(
-            f"Distance calculations only support binary codes, but {name} is defined over"
-            f" GF({order})"
+            f"Exact distance searches and counts only support binary codes, but {name} is defined"
+            f" over GF({order})"
         )
     array = np.asarray(_as_dense(vectors))
     if array.size and not np.all((array == 0) | (array == 1)):
         raise ValueError(
-            f"Distance calculations only support binary codes, but {name} has entries other"
-            " than 0 and 1"
+            f"Exact distance searches and counts only support binary codes, but {name} has entries"
+            " other than 0 and 1"
         )
 
 
@@ -84,16 +84,6 @@ def as_binary_matrix(
             f" {num_cols}"
         )
     return matrix
-
-
-def _as_dense(vectors: npt.ArrayLike) -> npt.ArrayLike:
-    """Convert a SciPy sparse matrix or array to a dense array, and return other input as is.
-
-    NumPy would otherwise wrap a sparse matrix in an array of one object.
-    """
-    if isinstance(vectors, scipy.sparse.sparray | scipy.sparse.spmatrix):
-        return vectors.toarray()
-    return vectors
 
 
 def get_nested_code_basis(
@@ -146,6 +136,27 @@ def multiply_binary(
     return (left.astype(np.float32) @ right.astype(np.float32) % 2).astype(np.uint8)
 
 
+def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Map ``(X | Z)`` to ``(X | Z | X xor Z)``, doubling symplectic weight.
+
+    This is the ``Saved_isometry`` reduction from https://arxiv.org/abs/2408.10743.
+    """
+    half_width = vectors.shape[1] // 2
+    vectors_x = vectors[:, :half_width]
+    vectors_z = vectors[:, half_width:]
+    return np.hstack([vectors_x, vectors_z, vectors_x ^ vectors_z])
+
+
+def _as_dense(vectors: npt.ArrayLike) -> npt.ArrayLike:
+    """Convert a SciPy sparse matrix or array to a dense array, and return other input as is.
+
+    NumPy would otherwise wrap a sparse matrix in an array of one object.
+    """
+    if isinstance(vectors, scipy.sparse.sparray | scipy.sparse.spmatrix):
+        return vectors.toarray()
+    return vectors
+
+
 ####################################################################################################
 # stabilizers of subsystem codes
 
@@ -188,14 +199,3 @@ def _get_commuting_span(
     combination ``c @ rows`` commutes with every other row exactly when ``c @ overlaps`` is zero.
     """
     return get_independent_rows(multiply_binary(get_kernel(overlaps.T), rows))
-
-
-def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-    """Map ``(X | Z)`` to ``(X | Z | X xor Z)``, doubling symplectic weight.
-
-    This is the ``Saved_isometry`` reduction from https://arxiv.org/abs/2408.10743.
-    """
-    half_width = vectors.shape[1] // 2
-    vectors_x = vectors[:, :half_width]
-    vectors_z = vectors[:, half_width:]
-    return np.hstack([vectors_x, vectors_z, vectors_x ^ vectors_z])

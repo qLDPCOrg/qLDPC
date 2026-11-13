@@ -70,19 +70,21 @@ def test_distance_requires_binary_input() -> None:
     # A GF(3) generator matrix is rejected because exact distance enumeration supports only GF(2).
     ternary_code = qldpc.codes.classical.HammingCode(3, 3)
     with pytest.raises(ValueError, match=r"only support binary codes.*GF\(3\)"):
-        qldpc.codes.distance.get_distance_classical(ternary_code.generator)
+        qldpc.codes.distance.get_distance_from_generators(ternary_code.generator)
 
     # A plain integer array with a nonbinary entry is rejected by value validation.
     with pytest.raises(ValueError, match="entries other than 0 and 1"):
-        qldpc.codes.distance.get_distance_classical(np.array([[1, 2, 0], [0, 1, 1]]))
+        qldpc.codes.distance.get_distance_from_generators(np.array([[1, 2, 0], [0, 1, 1]]))
     with pytest.raises(ValueError, match="entries other than 0 and 1"):
-        qldpc.codes.distance.get_distance_quantum(
-            np.array([[1, 1, 0, 0]]), np.array([[0, 0, 2, 0]]), homogeneous=True
+        qldpc.codes.distance.get_distance_from_generators(
+            np.array([[1, 1, 0, 0]]), np.array([[0, 0, 2, 0]])
         )
 
     # A binary generator matrix is accepted with either a plain integer dtype or a GF(2) dtype.
-    assert qldpc.codes.distance.get_distance_classical(np.array([[1, 1, 1]])) == 3
-    assert qldpc.codes.distance.get_distance_classical(qldpc.codes.HammingCode(4).generator) == 3
+    assert qldpc.codes.distance.get_distance_from_generators(np.array([[1, 1, 1]])) == 3
+    assert (
+        qldpc.codes.distance.get_distance_from_generators(qldpc.codes.HammingCode(4).generator) == 3
+    )
 
 
 def test_symplectic_to_hamming_doubles_weights() -> None:

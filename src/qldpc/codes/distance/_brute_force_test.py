@@ -20,8 +20,8 @@ from .conftest import count_set_bits
 
 
 @pytest.mark.parametrize("batch_exponent", [1, 3, 13])
-def test_get_distance_classical(batch_exponent: int, tune: Tune) -> None:
-    """get_distance_classical visits every nontrivial XOR combination of generators exactly once."""
+def test_brute_force_visits_every_code_word_once(batch_exponent: int, tune: Tune) -> None:
+    """Exhaustive enumeration visits every nontrivial XOR combination of generators exactly once."""
     tune(enumeration_batch_exponent=batch_exponent)
     generators = np.random.default_rng(137).integers(2, size=(9, 137))
 
@@ -37,7 +37,7 @@ def test_get_distance_classical(batch_exponent: int, tune: Tune) -> None:
         return bitwise_count(arr, out=out)
 
     with mock.patch.object(np, "bitwise_count", _mock_bitwise_count):
-        distance = qldpc.codes.distance.get_distance_classical(
+        distance = qldpc.codes.distance.get_distance_from_generators(
             np.vstack([generators, generators[0], generators[0] ^ generators[1]]),
             method="brute_force",
         )
@@ -57,10 +57,12 @@ def test_get_distance_classical(batch_exponent: int, tune: Tune) -> None:
     assert distance == expected_distance
 
 
-@pytest.mark.parametrize("homogeneous", [True, False], ids=["hamming", "symplectic"])
+@pytest.mark.parametrize("symplectic", [False, True], ids=["hamming", "symplectic"])
 @pytest.mark.parametrize("batch_exponent", [1, 3, 7])
-def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune) -> None:
-    """get_distance_quantum visits every stabilizer + logical-op combination exactly once.
+def test_brute_force_visits_every_nontrivial_word_once(
+    symplectic: bool, batch_exponent: int, tune: Tune
+) -> None:
+    """Exhaustive enumeration visits every stabilizer + logical-op combination exactly once.
 
     The spy records each enumerated word through its weight function: ``np.bitwise_count`` for
     Hamming weights, and ``symplectic_weight`` for symplectic weights.
@@ -74,14 +76,14 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
     """
     tune(enumeration_batch_exponent=batch_exponent)
     rng = np.random.default_rng(97)
-    num_stabilizers, num_bits = (4, 97) if homogeneous else (3, 98)
+    num_stabilizers, num_bits = (3, 98) if symplectic else (4, 97)
     stabilizers = rng.integers(2, size=(num_stabilizers, num_bits))
     logical_ops = rng.integers(2, size=(5, num_bits))
 
     # The weight spy records every nonzero logical combination combined with every stabilizer
     # combination, including the empty one.
     observed_bitstrings: list[tuple[int, ...]] = []
-    weight_function = np.bitwise_count if homogeneous else _brute_force.symplectic_weight
+    weight_function = _brute_force.symplectic_weight if symplectic else np.bitwise_count
 
     def _spy_weight(
         arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
@@ -90,21 +92,21 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
         return weight_function(arr, out=out)
 
     spy = (
-        mock.patch.object(np, "bitwise_count", _spy_weight)
-        if homogeneous
-        else mock.patch("qldpc.codes.distance._brute_force.symplectic_weight", _spy_weight)
+        mock.patch("qldpc.codes.distance._brute_force.symplectic_weight", _spy_weight)
+        if symplectic
+        else mock.patch.object(np, "bitwise_count", _spy_weight)
     )
     with spy:
-        distance = qldpc.codes.distance.get_distance_quantum(
+        distance = qldpc.codes.distance.get_distance_from_generators(
             np.vstack([logical_ops, logical_ops[0] ^ stabilizers[0]]),
             np.vstack([stabilizers, stabilizers[0]]),
-            homogeneous=homogeneous,
+            symplectic=symplectic,
             method="brute_force",
         )
 
     # Symplectic words are packed with their X and Z bits interleaved.
-    stabilizer_bits = stabilizers if homogeneous else _brute_force.riffle(stabilizers)
-    logical_bits = logical_ops if homogeneous else _brute_force.riffle(logical_ops)
+    stabilizer_bits = _brute_force.riffle(stabilizers) if symplectic else stabilizers
+    logical_bits = _brute_force.riffle(logical_ops) if symplectic else logical_ops
     int_stabilizers = pack_bits(np.asarray(stabilizer_bits, dtype=np.uint8))
     int_logical_ops = pack_bits(np.asarray(logical_bits, dtype=np.uint8))
     expected_bitstrings = np.array(
@@ -120,7 +122,7 @@ def test_get_distance_quantum(homogeneous: bool, batch_exponent: int, tune: Tune
     assert len(observed_bitstrings) == len(expected_bitstrings)
     assert set(observed_bitstrings) == set(map(tuple, expected_bitstrings.tolist()))
 
-    if not homogeneous:
+    if symplectic:
         expected_bitstrings = (expected_bitstrings | expected_bitstrings >> 1) & 0x5555555555555555
     expected_distance = count_set_bits(expected_bitstrings).sum(-1).min()
     assert distance == expected_distance
@@ -133,8 +135,8 @@ def test_get_distance_empty_stabilizers_symplectic() -> None:
     still handles the empty input.
     """
     # The symplectic vector [1, 0 | 0, 0] is an X operator on qubit 0 with symplectic weight 1.
-    distance = qldpc.codes.distance.get_distance_quantum(
-        [[1, 0, 0, 0]], [], homogeneous=False, method="brute_force"
+    distance = qldpc.codes.distance.get_distance_from_generators(
+        [[1, 0, 0, 0]], [], symplectic=True, method="brute_force"
     )
     assert distance == 1
 
@@ -147,7 +149,9 @@ def test_cutoff_early_exit(tune: Tune) -> None:
     """
     # The pre-loop vectorized block contains a codeword with Hamming weight 1.
     assert (
-        qldpc.codes.distance.get_distance_classical([[1, 0, 0, 0]], cutoff=1, method="brute_force")
+        qldpc.codes.distance.get_distance_from_generators(
+            [[1, 0, 0, 0]], cutoff=1, method="brute_force"
+        )
         == 1
     )
 
@@ -155,17 +159,19 @@ def test_cutoff_early_exit(tune: Tune) -> None:
     tune(enumeration_batch_exponent=1)
     generators = [[1, 0, 1], [0, 1, 0]]
     assert (
-        qldpc.codes.distance.get_distance_classical(generators, cutoff=1, method="brute_force") == 1
+        qldpc.codes.distance.get_distance_from_generators(
+            generators, cutoff=1, method="brute_force"
+        )
+        == 1
     )
 
     # The stabilizer sweep finds a Hamming-weight-1 operator only after XORing a stabilizer row.
     logical_ops = [[0, 0, 1, 1, 1]]
     stabilizers = [[1, 0, 0, 1, 0], [0, 1, 1, 1, 1]]
-    distance = qldpc.codes.distance.get_distance_quantum(
+    distance = qldpc.codes.distance.get_distance_from_generators(
         logical_ops,
         stabilizers,
         cutoff=1,
-        homogeneous=True,
         method="brute_force",
     )
     assert distance == 1

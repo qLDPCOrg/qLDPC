@@ -202,6 +202,56 @@ def test_deprecated_get_distance_bound() -> None:
             _deprecations.core.get_distance_bound(subsystem_code)
 
 
+def test_deprecated_distance_functions() -> None:
+    """The deprecated distance functions warn at their caller, and find the distances they found.
+
+    get_distance_quantum read its rows as symplectic unless homogeneous was True.
+    """
+    generator = np.asarray(codes.HammingCode(3).generator)
+    five_qubit_code = codes.FiveQubitCode()
+    logical_ops, stabilizers = five_qubit_code.get_logical_ops(), five_qubit_code.matrix
+    searches = [
+        (lambda: codes.get_distance_classical(generator), 3),  # type: ignore[attr-defined]
+        (
+            lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
+                generator[:1], generator[1:], homogeneous=True, method="brute_force"
+            ),
+            3,
+        ),
+        (
+            lambda: codes.get_distance_quantum(logical_ops, stabilizers),  # type: ignore[attr-defined]
+            3,
+        ),
+    ]
+    for search, distance in searches:
+        with pytest.warns(
+            DeprecationWarning, match="use qldpc.codes.distance.get_distance_from_gen"
+        ):
+            assert search() == distance
+
+    # The block_size argument gives the batches that it gave before it was deprecated: exhaustive
+    # enumeration took it as its exponent, and scans of information sets took at most it, clamped to
+    # the range of the fields.
+    from qldpc.codes.distance import _tuning
+
+    assert _deprecations.core._get_block_size_tuning(None) == {}
+    with _tuning.use_tuning(information_set_batch_exponent=10):
+        for block_size, batches in (
+            (4, (4, 4)),
+            (12, (12, 10)),
+            (100, (62, 10)),
+            (-3, (0, 0)),
+            (True, (1, 1)),
+        ):
+            with pytest.warns(DeprecationWarning, match="use_tuning"):
+                changes = _deprecations.core._get_block_size_tuning(block_size)
+            assert tuple(changes.values()) == batches
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert codes.get_distance_classical(generator, block_size=2) == 3  # type: ignore[attr-defined]
+    assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
+
+
 def test_deprecated_get_primitive_central_idempotents() -> None:
     """The deprecated function gives the primitive central idempotents of a GAP group."""
     from qldpc.external import _groups

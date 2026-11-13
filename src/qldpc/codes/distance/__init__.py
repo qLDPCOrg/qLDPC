@@ -34,8 +34,10 @@ from .core import (
     NO_DISTANCE,
     DistanceMethod,
     NoDistance,
-    get_distance_classical,
-    get_distance_quantum,
+    get_distance_css,
+    get_distance_from_checks,
+    get_distance_from_generators,
+    get_distance_pauli,
 )
 from .logical_counts import (
     CSSLogicalCounter,
@@ -54,8 +56,10 @@ __all__ = [
     "NoDistance",
     "compile_search_setup",
     "count_logical_ops_css",
-    "get_distance_classical",
-    "get_distance_quantum",
+    "get_distance_css",
+    "get_distance_from_checks",
+    "get_distance_from_generators",
+    "get_distance_pauli",
 ]
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations

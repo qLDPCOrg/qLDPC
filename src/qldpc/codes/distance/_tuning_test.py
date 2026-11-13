@@ -288,8 +288,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(basis_families, "get_partitioned_family", "tuning")
     record(basis_families.BasisFamily, "get_search_certificate", "lp_max_denominator")
     record(bz, "get_nested_distance_brute_force", "batch_exponent", prefix="bz ")
-    record(core, "get_distance_quantum_brute_force", "batch_exponent", prefix="classical ")
-    record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="quantum ")
+    record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="core ")
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
@@ -331,9 +330,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         counter.count_logical_ops(method="brute_force")
         lc.CSSLogicalCounter(code).count_logical_ops(method="macwilliams")
         # A basis of one row is small enough to enumerate under either method.
-        core.get_distance_classical([[1, 1, 1, 0]])
-        core.get_distance_classical([[1, 1, 1, 0]], method="brute_force")
-        core.get_distance_quantum([[1, 1, 0]], [[0, 1, 1]], homogeneous=True, method="brute_force")
+        core.get_distance_from_generators([[1, 1, 1, 0]])
+        core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
 
     expected = {
         "max_dimension": {3},
@@ -343,8 +341,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "tuning": {tuning},
         "lp_max_denominator": {97},
         "bz batch_exponent": {6},
-        "classical batch_exponent": {6},
-        "quantum batch_exponent": {6},
+        "core batch_exponent": {6},
         "count batch_exponent": {6},
         "shared_walk_rank": {5},
         "chunk_size": {1000, 1001},

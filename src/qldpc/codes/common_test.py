@@ -678,9 +678,9 @@ def test_exact_code_distance_method_api() -> None:
     qudit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
     css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     for kernel, get_distance in (
-        ("get_distance_classical", lambda: classical_code.get_distance(method="brute_force")),
-        ("_get_distance_quantum", lambda: qudit_code.get_distance(method="brute_force")),
-        ("get_distance_quantum", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
+        ("get_distance_from_generators", lambda: classical_code.get_distance(method="brute_force")),
+        ("get_distance_pauli", lambda: qudit_code.get_distance(method="brute_force")),
+        ("get_distance_css", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
     ):
         with unittest.mock.patch(f"qldpc.codes.common.{kernel}", return_value=3) as mock_kernel:
             assert get_distance() == 3
@@ -699,10 +699,12 @@ def test_exact_code_distance_method_api() -> None:
     hgp_code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
     css_code = codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z)
     with unittest.mock.patch(
-        "qldpc.codes.common._get_distance_css_brouwer_zimmermann", return_value=3
+        "qldpc.codes.common.get_distance_css", return_value=3
     ) as mock_joint_distance:
         assert css_code.get_distance_exact(method="information_sets") == 3
     mock_joint_distance.assert_called_once()
+    assert mock_joint_distance.call_args.args[2] is None
+    assert mock_joint_distance.call_args.kwargs["method"] == "brouwer_zimmermann"
 
 
 def test_connected_support_method_is_only_for_binary_codes() -> None:
@@ -732,9 +734,9 @@ def test_connected_support_distances_of_classical_codes() -> None:
     code = codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]])
     with unittest.mock.patch.object(
         common,
-        "_get_distance_connected_support",
+        "get_distance_from_checks",
         autospec=True,
-        side_effect=common._get_distance_connected_support,
+        side_effect=common.get_distance_from_checks,
     ) as search:
         assert 2 <= code.get_distance_exact(cutoff=3, method="connected_support") <= 3
     assert search.call_args.kwargs["cutoff"] == 3
@@ -759,10 +761,7 @@ def test_connected_support_distances_of_qubit_codes() -> None:
     # the five-qubit code has distance 3, which a cutoff can bound without remembering it
     five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
     with unittest.mock.patch.object(
-        common,
-        "_get_distance_connected_support",
-        autospec=True,
-        side_effect=common._get_distance_connected_support,
+        common, "get_distance_pauli", autospec=True, side_effect=common.get_distance_pauli
     ) as search:
         assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_support") <= 5
     assert search.call_args.kwargs["cutoff"] == 5
@@ -791,10 +790,7 @@ def test_connected_support_distances_of_css_codes() -> None:
     # an exit at a cutoff returns an upper bound, which is not remembered
     code = codes.CSSCode(checks_x, checks_z)
     with unittest.mock.patch.object(
-        common,
-        "_get_distance_connected_support",
-        autospec=True,
-        side_effect=common._get_distance_connected_support,
+        common, "get_distance_css", autospec=True, side_effect=common.get_distance_css
     ) as search:
         assert 2 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
     assert search.call_args.kwargs["cutoff"] == 7

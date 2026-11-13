@@ -50,15 +50,12 @@ from .distance import (
     NO_DISTANCE,
     DistanceMethod,
     NoDistance,
-    get_distance_classical,
-    get_distance_quantum,
+    get_distance_css,
+    get_distance_from_checks,
+    get_distance_from_generators,
+    get_distance_pauli,
 )
-from .distance.core import (
-    _get_distance_connected_support,
-    _get_distance_css_brouwer_zimmermann,
-    _get_distance_quantum,
-    _validate_distance_method,
-)
+from .distance.core import _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
@@ -555,18 +552,12 @@ class ClassicalCode(AbstractCode):
         # we do not know the exact distance, so compute it
         distance: int | Literal[NoDistance.NAN]
         if vector is None and method == "connected_support":
-            distance = _get_distance_connected_support(
-                [(self.matrix, np.zeros((0, len(self)), dtype=np.uint8))], cutoff=cutoff
-            )
+            distance = get_distance_from_checks(self.matrix, cutoff=cutoff, method=method)
             if cutoff <= 1:
                 self._distance = int(distance)
 
         elif self.field is galois.GF2 and vector is None:
-            distance = get_distance_classical(
-                self.generator,
-                cutoff=cutoff,
-                method=method,
-            )
+            distance = get_distance_from_generators(self.generator, cutoff=cutoff, method=method)
             if cutoff <= 1:
                 self._distance = int(distance)
 
@@ -584,26 +575,28 @@ class ClassicalCode(AbstractCode):
             if not np.any(self.matrix @ vector):
                 return 0
             if self.field is galois.GF2 and method == "connected_support":
+                # The vector itself is within the cutoff, or bounds the weight of its coset.
+                weight = int(np.count_nonzero(vector))
+                if weight <= cutoff:
+                    return weight
                 # With one more bit b and the checks [H | Hv], the words with b = 1 are those of the
                 # coset of the vector, with b appended, and the words with b = 0 are the code
                 # words, which the search excludes.  So the coset weighs one less than the search
-                # finds, and the cutoff and the upper bound from the vector itself are one more.
+                # finds, and the cutoff is one more.
                 matrix = self.matrix.view(np.ndarray)
                 checks = np.hstack([matrix, (matrix @ vector.view(np.ndarray))[:, None] % 2])
                 code_words = np.hstack(
                     [self.generator.view(np.ndarray), np.zeros((len(self.generator), 1), int)]
                 )
-                weight = _get_distance_connected_support(
-                    [(checks, code_words)],
-                    cutoff=cutoff + 1,
-                    upper_bound=int(np.count_nonzero(vector)) + 1,
+                found = get_distance_from_checks(
+                    checks, code_words, cutoff=cutoff + 1, method=method, max_weight=weight
                 )
-                return weight - 1
+                return int(found) - 1
             if self.field is galois.GF2:
                 # The vector is one logical operator modulo the code, so search its coset.
                 return int(
-                    get_distance_quantum(
-                        [vector], self.generator, homogeneous=True, cutoff=cutoff, method=method
+                    get_distance_from_generators(
+                        [vector], self.generator, cutoff=cutoff, method=method
                     )
                 )
             distance = int(np.count_nonzero(vector))
@@ -2005,26 +1998,12 @@ class QuditCode(AbstractCode):
 
         # we do not know the exact distance, so compute it
         distance: int | Literal[NoDistance.NAN]
-        if method == "connected_support":
-            # A dressed logical operator commutes with the stabilizers, and is trivial if it is in
-            # the gauge group, which the rows of self.matrix generate.
-            checks = self.get_stabilizer_ops() if self.is_subsystem_code else self.matrix
-            distance = _get_distance_connected_support(
-                [(checks, self.matrix)],
+        if self.field is galois.GF2:
+            distance = get_distance_pauli(
+                self.matrix,
                 cutoff=cutoff,
-                homogeneous=False,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
-            )
-
-        elif self.field is galois.GF2:
-            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops()
-            distance = _get_distance_quantum(
-                logical_ops,
-                stabilizers,
-                cutoff=cutoff,
-                homogeneous=False,
                 method=method,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
+                automorphisms=lambda: self._found_qudit_automorphisms,
             )
 
         else:
@@ -3646,18 +3625,8 @@ class CSSCode(QuditCode):
             )
 
         # we do not know the exact distance, so compute it
-        if self.field is galois.GF2 and method in ("brouwer_zimmermann", "connected_support"):
+        if self.field is galois.GF2:
             distance = self._get_distance_of_sectors([pauli], method, cutoff=cutoff)
-
-        elif self.field is galois.GF2:
-            logical_ops, stabilizers = self._get_logical_ops_and_trivial_ops(pauli)
-            distance = get_distance_quantum(
-                logical_ops,
-                stabilizers,
-                cutoff=cutoff,
-                homogeneous=True,
-                method=method,
-            )
 
         else:
             warnings.warn(
@@ -4340,51 +4309,30 @@ class CSSCode(QuditCode):
             min_error_weight,
         )
 
-    def _get_parity_check_sector(
-        self, pauli: PauliXZ
-    ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Parity checks whose kernel holds the operators of one type, and a matrix of trivial ones.
-
-        The checks are the stabilizers of the opposite type.  The rows of the second matrix are the
-        gauge generators of type ``pauli``, which include its stabilizers, and their row space holds
-        the operators of that type that act trivially.
-        """
-        # The rows of the matrix of a stabilizer code can be redundant, which strengthens the
-        # search, while the stabilizers of a subsystem code need to be computed.
-        opposite: PauliXZ = Pauli.Z if pauli is Pauli.X else Pauli.X
-        checks = (
-            self.get_stabilizer_ops(opposite)
-            if self.is_subsystem_code
-            else self.get_matrix(opposite)
-        )
-        return checks, self.get_matrix(pauli)
-
     def _get_distance_of_sectors(
         self,
         paulis: Sequence[PauliXZ],
-        method: Literal["brouwer_zimmermann", "connected_support"],
+        method: DistanceMethod,
         *,
         cutoff: int,
         upper_bound: int | None = None,
-    ) -> int:
+    ) -> int | Literal[NoDistance.NAN]:
         """The minimum distance of the logical operators of the given types, over GF(2).
 
-        The search uses the automorphisms of this code.  It searches connected supports if
-        ``method`` is ``"connected_support"``, and is Brouwer-Zimmermann otherwise.  A result at or
-        below ``cutoff`` can be an upper bound.
+        The search uses the automorphisms of this code.  ``upper_bound``, if given, is the weight of
+        a known logical operator of another type, which ends the search if it is at most ``cutoff``,
+        and otherwise limits it.  A result at or below ``cutoff`` can be an upper bound.
         """
-        if method == "connected_support":
-            return _get_distance_connected_support(
-                [self._get_parity_check_sector(pauli) for pauli in paulis],
-                cutoff=cutoff,
-                upper_bound=upper_bound,
-                get_automorphisms=lambda: self._found_qudit_automorphisms,
-            )
-        return _get_distance_css_brouwer_zimmermann(
-            [self._get_logical_ops_and_trivial_ops(pauli) for pauli in paulis],
+        if upper_bound is not None and upper_bound <= cutoff:
+            return upper_bound
+        return get_distance_css(
+            self.matrix_x,
+            self.matrix_z,
+            paulis[0] if len(paulis) == 1 else None,
             cutoff=cutoff,
-            upper_bound=upper_bound,
-            get_automorphisms=lambda: self._found_qudit_automorphisms,
+            method=method,
+            max_weight=None if upper_bound is None else upper_bound - 1,
+            automorphisms=lambda: self._found_qudit_automorphisms,
         )
 
     def _get_distance_exact(
