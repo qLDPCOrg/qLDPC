@@ -1,6 +1,39 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact binary distance calculations, logical-operator counts, and distance method selectors.
+"""Exact distances of binary codes, counts of their logical operators, and searches of cosets.
+
+The functions and classes of this package take plain binary arrays, so that programs can use them
+without building code objects, and the distance methods of the code classes of :mod:`qldpc.codes`
+call them.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Task
+     - Entry point
+   * - The distance of a classical code, from its generator or parity-check matrix
+     - :func:`get_distance_from_generators` or :func:`get_distance_from_checks`
+   * - The minimum weight of a nontrivial logical operator of a quantum code, from its logical
+       operators and its stabilizers, or from checks and the rows to exclude
+     - :func:`get_distance_from_generators` or :func:`get_distance_from_checks`, with
+       ``symplectic=True`` for Pauli strings
+   * - The distance, or the X- or Z-distance, of a CSS stabilizer or subsystem code, from its X and
+       Z checks
+     - :func:`get_distance_css`, with ``pauli`` choosing the type
+   * - The distance of a stabilizer or subsystem code, from its checks as Pauli strings
+     - :func:`get_distance_pauli`
+   * - The number of logical operators of a given weight in a CSS code
+     - :class:`CSSLogicalCounter`, or :func:`count_logical_ops_css` for one count
+   * - Whether Pauli errors with given syndromes on a stabilizer state weigh at most a given weight,
+       and the minimum weights of such errors
+     - :class:`CosetLeaderSearch`
+   * - Many counts of similar codes, faster
+     - :func:`compile_search_setup`
+
+Matrices are binary: NumPy arrays, nested lists, ``galois`` arrays over GF(2), or SciPy sparse
+matrices.  A Pauli string on ``n`` qubits is a row ``[P_x|P_z]`` of ``2 n`` entries, the supports of
+its X and Z parts.  The ``method`` argument of the distance searches takes a
+:data:`DistanceMethod`, and a search without a nontrivial word returns :data:`NO_DISTANCE`.
 
 The inner loops of the exact searches are compiled by numba the first time that they are used, and
 the compiled code is cached on disk.  The cache is a directory named ``qldpc-<hash>``, where the

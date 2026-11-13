@@ -133,7 +133,7 @@ Distances across packages
 Exact distances of binary codes use an optimized `Brouwer--Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
 Binary codes with sparse parity checks can instead use ``method="connected_support"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_.
 All exact methods can take exponential time.
-A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.core.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.core.NoDistance`).
+A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
 Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
@@ -146,6 +146,14 @@ An explicit ``num_trials`` runs that many trials, and never returns a worse boun
 ``forget_distance()`` discards remembered distances and bounds.
 :class:`~qldpc.codes.distance.CSSLogicalCounter` and :func:`~qldpc.codes.distance.count_logical_ops_css` count the logical operators of a given weight in a binary CSS code, given its X-type and Z-type checks as binary matrices.
 ``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.
+
+The exact distances are also public functions of :mod:`qldpc.codes.distance` on plain binary arrays, for programs that need distances without building code objects, and the code methods call these functions.
+:func:`~qldpc.codes.distance.get_distance_from_generators` and :func:`~qldpc.codes.distance.get_distance_from_checks` take a generator or parity-check matrix, and optionally a matrix whose rows span the trivial words.
+:func:`~qldpc.codes.distance.get_distance_css` takes the X-type and Z-type checks of a CSS code, and :func:`~qldpc.codes.distance.get_distance_pauli` takes the parity checks of a stabilizer or subsystem code as Pauli strings.
+A Pauli string is a row ``[P_x|P_z]`` of ``2 n`` entries, as in ``QuditCode``, and the functions that also take binary words read rows as Pauli strings only with ``symplectic=True``.
+Checks that do not commute are the gauge generators of a subsystem code, whose logical operators are dressed.
+The functions take the ``method`` and ``cutoff`` of ``get_distance_exact``, and also a weight limit ``max_weight``, above which they stop searching, and they return ``NO_DISTANCE`` if every word is trivial.
+They also accept permutations of the bits or qubits that preserve the code, which speed up the Brouwer--Zimmermann and connected-support searches.
 
 From codes to logical error rates
 ---------------------------------

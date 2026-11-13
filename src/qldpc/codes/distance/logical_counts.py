@@ -64,6 +64,15 @@ _Sector = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 LogicalCountMethod = Literal[
     "brouwer_zimmermann", "macwilliams", "brute_force", "information_sets", "weight_enumerator"
 ]
+"""The methods of exact counts of logical operators.
+
+- ``"brouwer_zimmermann"``, the default, and its alias ``"information_sets"``: a scan of the words
+  of each weight in several information sets.
+- ``"macwilliams"``, and its alias ``"weight_enumerator"``: the weight distributions of the spaces
+  of the checks, through the MacWilliams identities.  It does not support subsystem codes, full
+  Pauli counts of codes that are not self-dual, or checks of rank above 63.
+- ``"brute_force"``: the enumeration of every word, for small codes and tests.
+"""
 
 _CanonicalLogicalCountMethod = Literal["brouwer_zimmermann", "macwilliams", "brute_force"]
 

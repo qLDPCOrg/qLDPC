@@ -352,11 +352,11 @@ The names below are in `_connected_support/search.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
-`CSSCode._get_distance_of_sectors` in `src/qldpc/codes/common.py` builds the sectors and calls `_get_distance_connected_support` of `core.py`, which passes the active tuning to the search.
-`ClassicalCode.get_distance_exact` and `QuditCode.get_distance_exact` call it with their problems, and `SupportSearch` validates every problem.
+`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search, finding the stabilizers of subsystem codes, and pass it the active tuning, and `SupportSearch` validates every problem.
+The `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes reject the method.
 `logical_counts.py` does not accept the method, since counting needs every word of a weight, and not one witness.
-`get_distance_classical` and `get_distance_quantum` reject it, since their inputs are generators and not parity checks.
+`get_distance_from_generators` rejects it, since its inputs are generators and not parity checks.
 The closed forms of hypergraph product codes search their classical seed codes with the method that they are given.
 `_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
 

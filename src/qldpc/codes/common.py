@@ -60,9 +60,14 @@ from .monte_carlo import ErrorRateFunc
 
 Slice = slice | npt.NDArray[np.int_] | list[int]
 
-# The values of the backend argument of get_distance_bound, which selects how it computes an upper
-# bound.
 DistanceBackend = Literal["auto", "decoder", "gap", "sqetch"]
+"""The backends with which the ``get_distance_bound`` methods of codes bound a distance from above.
+
+- ``"auto"``, the default: an available backend that the code supports.
+- ``"decoder"``: a decoder, which classical codes and CSS codes support.
+- ``"gap"``: the QDistRnd package of GAP, which quantum codes support.
+- ``"sqetch"``: the optional GPU estimator sqetch, which binary CSS codes support.
+"""
 
 _GAP_DISTANCE_BOUND_KWARGS = frozenset({"maxav"})
 _SQETCH_DISTANCE_BOUND_KWARGS = frozenset({"d_target", "k_sub", "batch_size", "seed", "device"})
