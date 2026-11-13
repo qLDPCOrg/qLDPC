@@ -95,7 +95,7 @@ def main() -> None:
     for weight in sorted(captured):
         prediction = captured[weight]
         costs = [predict(prediction, seed=seed) for seed in range(args.num_seeds)]
-        if costs and costs[0] != prediction.cost:
+        if costs[0] != prediction.cost:
             raise RuntimeError("Seed 0 does not reproduce the captured prediction")
         within = sum(completion_bounds.is_within_cost_limit(c, prediction.tuning) for c in costs)
         limit = prediction.tuning.completion_bound_max_cost_percent / 100

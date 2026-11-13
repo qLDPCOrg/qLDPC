@@ -617,11 +617,13 @@ def completion_tables(
     record = CompletionRecord(request.param == "forced", [])
     if record.forced:
         # Eight-column blocks, rather than the default sixteen, keep the tables quick to build as
-        # plain Python.
+        # plain Python, and the fewest samples that the cost model accepts keep its predictions
+        # quick.
         tune(
             completion_bound_minimum_layer_work=0,
             completion_bound_max_cost_percent=MAX_VALUE,
             completion_bound_block_bits=8,
+            completion_bound_samples=64,
         )
     select = completion_bounds.select_completion_tables
     scan = affine_search.scan_information_set
@@ -835,13 +837,14 @@ def test_completion_tables_keep_distances_exact(
 ) -> None:
     """Searches that skip hopeless completions agree with independent oracles.
 
-    Every layer uses tables, and every search below skips supports.  In each sector of this
-    [[36, 4, 4]] bivariate bicycle code, the rows of the scanned set of the disjoint family, which
-    the searches keep, weigh at least six, so a scan must find a word of weight four, with or
-    without an upper bound above it.  In the X sector of a
-    [[72, 4, 8]] code, with its coordinates relabelled at random and its automorphisms relabelled
-    alike, the search must scan to layer four.  A general Pauli problem checks that searched words
-    weigh twice their number of nontrivial qubits.
+    Every layer uses tables, and every search below skips supports.  The searches of this
+    [[36, 4, 4]] bivariate bicycle code keep their disjoint family, since an overlapping family
+    would hold a word of weight four and end them before any layer.  Before layer two, they switch
+    to an automorphism family, the rows of whose scanned set weigh at least six in each sector, so
+    a scan must find a word of weight four, with or without an upper bound above it.  In the X
+    sector of a [[72, 4, 8]] code, with its coordinates relabelled at random and its automorphisms
+    relabelled alike, the search must scan to layer four.  A general Pauli problem checks that
+    searched words weigh twice their number of nontrivial qubits.
     """
 
     def assert_skips(distance: int) -> int:
@@ -1178,8 +1181,9 @@ def test_searches_take_completion_limits_from_their_tuning(
 ) -> None:
     """Searches use completion tables within the limits of their tuning.
 
-    The searches keep the disjoint family, whose scanned sets in both sectors of this [[36, 4, 4]]
-    code have 20 rows and 16 tail columns, so tables of one sixteen-column block take
+    The searches keep their disjoint family, since an overlapping family would hold a word of
+    weight four and end them before any layer.  Every information set of either sector of this
+    [[36, 4, 4]] code has 20 rows and 16 tail columns, so tables of one sixteen-column block take
     19 * 2**16 bytes, and tables of two eight-column blocks take 19 * 2 * 2**8 bytes.  A tuning
     that forces tables uses sixteen-column blocks, a smaller memory limit eight-column blocks, and a
     limit of zero bytes or of zero cost, or the largest threshold of layer work, no tables.

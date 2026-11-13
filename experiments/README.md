@@ -227,7 +227,7 @@ Six more scripts explain what a tuning changes.
 [`coset_families.py`](distance_tuning/coset_families.py) prints the families that `overlapping_minimum_work` gives the BZ searches of a coset workload, and [`resample.py`](distance_tuning/resample.py) recomputes the predicted costs of completion tables of a search's layers under other samplings.
 [`fit_completion_costs.py`](distance_tuning/fit_completion_costs.py) traces searches with completion tables disabled, forced, and at the defaults, and refits the cost model that chooses them.
 [`cache_stats.py`](distance_tuning/cache_stats.py) reports the hit rates of the caches of exact searches over a sequence of workloads.
-Completion tables saved less when several searches ran at once (see the Retuning section), so time them one search at a time.
+Completion tables save less when several searches run at once (see "Before measuring" in [`distance_tuning/README.md`](distance_tuning/README.md)), so time them one search at a time.
 
 ## Lattice surgery
 

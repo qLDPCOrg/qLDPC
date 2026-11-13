@@ -8,9 +8,9 @@ warms up and then times one workload under one arm.  Each round runs every arm o
 workload, in an order that alternates between rounds, so that drifts of the load of the machine
 affect every arm alike.  With ``--jobs`` above one, groups of trials, each one round of one
 workload, run at once, while the arms of a group run one after another on one worker, so that they
-share the conditions of the machine as closely as possible.  Completion tables saved less when
-several searches ran at once (see the Retuning section of ``qldpc.codes.distance._tuning``), so
-compare their cost models with ``--jobs 1``.
+share the conditions of the machine as closely as possible.  Completion tables save less when
+several searches run at once (see "Before measuring" in the README of this directory), so compare
+their cost models with ``--jobs 1``.
 
 Each trial appends one JSON line to ``trials.jsonl`` in the results directory, with the sweep's tag,
 the arm, the round, the commit and a hash of the differences of the source from it, the load
