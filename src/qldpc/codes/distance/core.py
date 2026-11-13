@@ -644,8 +644,8 @@ def _get_sparser_stabilizers(
     ``get_pauli_stabilizers`` derives, and ``kept_stabilizers`` holds the gauge generators that are
     stabilizers.  The checks are ``kept_stabilizers``, as given, followed by ``stabilizers`` made
     sparser in up to ``max_distance_sparsifying_rounds`` rounds (Section 3.9 of
-    ``connected_support.md``), except the rows of ``kept_stabilizers`` that are heavier than every
-    sparser row.
+    ``connected_support.md``).  Rows of ``kept_stabilizers`` that are heavier than every sparser row
+    are left out.
     """
     rows = stabilizers
     if tuning.max_distance_sparsifying_rounds:
@@ -656,9 +656,10 @@ def _get_sparser_stabilizers(
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
         )
 
-    # The sparser rows span the stabilizers, and kept rows heavier than all of them slow the search.
-    max_weight = get_row_weights(rows, homogeneous=homogeneous).max(initial=0)
-    light = get_row_weights(kept_stabilizers, homogeneous=homogeneous) <= max_weight
+    # Drop the kept rows that are heavier than every sparser row, since they slow the search, and
+    # the sparser rows alone span the stabilizers.
+    max_sparser_weight = get_row_weights(rows, homogeneous=homogeneous).max(initial=0)
+    light = get_row_weights(kept_stabilizers, homogeneous=homogeneous) <= max_sparser_weight
     return np.vstack([kept_stabilizers[light], rows])
 
 

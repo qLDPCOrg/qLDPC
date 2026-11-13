@@ -346,7 +346,8 @@ A search of the derived basis takes more than three minutes, and a search of the
 So with `method="connected_support"`, the search of a subsystem code gets two sets of checks:
 
 - The gauge generators that commute with every gauge generator are stabilizers.
-  The search keeps them as given, with any redundant rows, except those heavier than every row of the second set.
+  The search keeps them as given, with any redundant rows.
+  It drops those heavier than every row of the second set.
 - The rounds of row reductions in random orders of [Section 3.8](#38-vectors-with-a-given-syndrome) find sparser rows with the span of the derived basis.
   `max_distance_sparsifying_rounds`, a field of `SearchTuning`, limits the rounds.
 
