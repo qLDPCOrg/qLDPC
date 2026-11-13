@@ -34,7 +34,6 @@ Prose style
 
 * Use the serial (Oxford) comma before the conjunction in a list of three or more items, as in ``X, Y, and Z``.
 * Docstrings use the section format of the Google convention, such as ``Args:`` and ``Returns:``.
-  An ``Args`` section, if any, lists every argument, as the lint check requires.
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
 * Keep one prose sentence per physical source line in repository ``.rst`` and ``.md`` files and notebook Markdown cells.
   Put ``First sentence.`` and ``Second sentence.`` on separate source lines; leave code blocks, equations, and table syntax intact.
