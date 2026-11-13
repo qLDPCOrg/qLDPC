@@ -268,13 +268,14 @@ class SearchTuning:
     overlapping_attempts_per_set: int = 2
 
     #: A search builds families by matroid partitioning only if its estimated work is at least this
-    #: multiple of the estimated cost of partitioning (see ``partition_cost_factor``).  Lowering it
-    #: tries partitioning on cheaper searches; zero always tries, and ``MAX_VALUE`` never does
-    #: unless ``partition_cost_factor`` is zero.  The estimated work can exceed the work done many
-    #: times over, so the ratio does not bound the time that an attempt wastes.  Defaults to 500, a
-    #: judgment call: no value separated the timed searches that partitioning slows, which switch to
-    #: automorphism images, from those that it speeds up; 500 misclassified the fewest.  To retune
-    #: it, time searches with and without partitioning, on codes with and without automorphisms.
+    #: multiple of the estimated cost of partitioning (see ``partition_cost_factor``); zero always
+    #: tries, and ``MAX_VALUE`` never does unless ``partition_cost_factor`` is zero.  A search that
+    #: would switch to automorphism images skips partitioning if they do no more work than any
+    #: partitioned family could.  The estimated work can far exceed the work done, so the ratio does
+    #: not bound the time that an attempt wastes.  Defaults to 500, a judgment call made before such
+    #: searches skipped partitioning, when no value separated them, which partitioning slowed, from
+    #: those that it sped up; 500 misclassified the fewest.  To retune it, time searches with and
+    #: without partitioning, on codes with and without automorphisms.
     partition_work_ratio: int = 500
 
     #: The largest coverage, the most information sets that contain any one column, that matroid

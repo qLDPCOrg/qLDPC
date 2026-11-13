@@ -194,6 +194,20 @@ def test_partitioned_families_replace_costlier_ones() -> None:
     assert len(get_family(partition_cost_factor=0, partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
     assert not len(get_family(max_partition_coverage=1).ranks)
+
+    # A family that the search would switch to rules partitioning out if it does no more work than
+    # any partitioned family could, and only then.
+    tuning = dataclasses.replace(DEFAULT_TUNING, partition_work_ratio=0)
+    for competing_work, partitions in ((0, False), (disjoint.certificate.work(5), True)):
+        competing = basis_families.get_partitioned_family(
+            basis,
+            labels,
+            disjoint,
+            5,
+            tuning,
+            get_competing_work=functools.partial(int, competing_work),
+        )
+        assert bool(len(competing.ranks)) == partitions
     family = get_family()
     assert family.max_coverage > 1
     assert family.certificate.work(5) < disjoint.certificate.work(5)

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from collections.abc import Callable
 from typing import NamedTuple, TypeVar
 
 import numpy as np
@@ -360,6 +361,8 @@ def get_partitioned_family(
     basis_family: BasisFamily,
     upper_bound: int,
     tuning: SearchTuning,
+    *,
+    get_competing_work: Callable[[], int] | None = None,
 ) -> BasisFamily:
     """Stage four: a basis family of information sets with bounded coverage, if it does less work.
 
@@ -378,6 +381,11 @@ def get_partitioned_family(
     coverage ``b``, or if no family of at most ``tuning.max_information_sets`` full sets could do
     less work: some column of ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k``
     rows and ``n`` nonzero columns.
+
+    ``get_competing_work``, if given, returns the estimated work of a family that the search would
+    switch to instead, such as a family of automorphism images, and the switch would discard any
+    family of this stage.  It is called only if partitioning would otherwise run, and no family is
+    built if that work is at most the least work that a family of this stage could do.
     """
     max_sets = tuning.max_information_sets
     max_coverage = tuning.max_partition_coverage
@@ -401,6 +409,11 @@ def get_partitioned_family(
         get_capped_binomials(dimension),
     )
     if best_work <= optimistic_work:
+        return best
+
+    # Skip partitioning if the search would switch to a family that does no more work than any
+    # family of this stage could, since the switch would discard it.
+    if get_competing_work is not None and get_competing_work() <= optimistic_work:
         return best
 
     # Build a family for each coverage, and keep the one that does the least work.

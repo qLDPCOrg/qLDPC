@@ -21,7 +21,7 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
-from .._information_sets import basis_families, certificates, completion_bounds
+from .._information_sets import basis_families, certificates, completion_bounds, matroid_partition
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
 from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
 from . import affine_instance, affine_search
@@ -765,6 +765,42 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
                 [problem], cutoff=0, get_automorphisms=get_automorphisms
             )
         assert get_automorphisms.call_count == expected_calls
+
+
+@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+def test_searches_skip_partitioning_that_their_automorphism_family_would_discard(
+    tune: Tune,
+) -> None:
+    """A search does not partition if it would switch to an automorphism family that does less work.
+
+    The translations of this multivariate bicycle code give an automorphism family that does no more
+    work than any partitioned family could, so the switch would discard a partitioned family, and
+    the search builds the automorphism family once.  Without automorphisms, whether none are passed
+    or none are found, or with the identity alone, which gives no cheaper family, the same search
+    partitions.
+    """
+    tune(partition_work_ratio=0)
+    code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    problem = get_sector_problem(code, Pauli.X)
+    identity = np.arange(len(code))[None]
+    expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0)
+    get_information_sets = matroid_partition.get_information_sets_with_coverage
+    for get_automorphisms, partitions in (
+        (code._get_qudit_automorphisms, False),
+        (lambda: identity, True),
+        (lambda: None, True),
+        (None, True),
+    ):
+        recorder = None if get_automorphisms is None else mock.Mock(wraps=get_automorphisms)
+        with mock.patch.object(
+            matroid_partition, "get_information_sets_with_coverage", wraps=get_information_sets
+        ) as partition:
+            distance = bz.get_distance_brouwer_zimmermann_many(
+                [problem], cutoff=0, get_automorphisms=recorder
+            )
+        assert distance == expected
+        assert partition.called == partitions
+        assert recorder is None or recorder.call_count == 1
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
