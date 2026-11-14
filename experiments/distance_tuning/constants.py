@@ -336,10 +336,10 @@ def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
                 switch_seconds += event["seconds"]
             if event["event"] != "layer":
                 continue
-            if event["tables"] is None and event["set_evaluations"] >= LARGE_LAYER:
+            if event["tables"] is None and event["evaluated"] >= LARGE_LAYER:
                 seconds += event["seconds"] - event["choose_seconds"]
                 seconds -= switch_seconds if event["switch_work"] is not None else 0.0
-                evaluations += event["set_evaluations"]
+                evaluations += event["evaluated"]
             switch_seconds = 0.0
         if evaluations:
             rates[trace["workload"]] = seconds / evaluations
