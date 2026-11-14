@@ -781,9 +781,63 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
         )
         while not search.finished:
             search.advance()
-        assert search.best == bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0)
+        assert (
+            search.best == bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0) == 8
+        )
         assert switch_decisions == expected
         assert get_automorphisms.call_count == get_family.call_count == 1
+
+
+def test_a_decline_at_the_end_of_setup_is_reconsidered_before_a_costly_layer(
+    switch_decisions: list[tuple[int, bool]],
+) -> None:
+    """A search that declines at the end of setup reconsiders the switch once its best weight drops.
+
+    Setup of this random [45, 16, 9] basis tries matroid partitioning, so it first finds the
+    automorphisms, the identity alone, which give no cheaper family.  It partitions, and at the end
+    of setup, with rows of weight ten, declines the switch.  Layer two finds a word of weight nine.
+    Under a threshold of zero, the search reconsiders before layer three, and declines again.  Under
+    a threshold that no layer reaches, it does not reconsider.
+    """
+    rows = [
+        "110100010001010110111011100110110110011100111",
+        "011011101011000011001011111000101110001010101",
+        "100101000101010111001110101000010011111011111",
+        "111101001100110000100000001100010011011111000",
+        "110010001101111111000101101001000100101100000",
+        "100010011000101010110100010011101000011101011",
+        "111111011100010010010001000110001000101010110",
+        "000100000000111111010000111010011111011010000",
+        "101011110111000101110101000110111101011000111",
+        "110100101100111101110010110000001000010110100",
+        "111011000100110101100001001000000001011011101",
+        "011101111001000011000000010010011001001011010",
+        "101011100001101010101101111000111010101101101",
+        "010011010011011001010101011111101000010000001",
+        "110101000111000111001100101110000000010101011",
+        "101111100100100000001101000000010111010110000",
+    ]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    labels = _no_labels(basis)
+    identity = np.arange(basis.shape[1])[None]
+    expected_distance = qldpc.codes.distance.get_distance_from_generators(
+        basis, method="brute_force"
+    )
+    get_information_sets = matroid_partition.get_information_sets_with_coverage
+    for minimum_layer_work, expected in ((0, [(10, False), (9, False)]), (10**9, [(10, False)])):
+        switch_decisions.clear()
+        with (
+            use_tuning(partition_work_ratio=0, automorphism_minimum_layer_work=minimum_layer_work),
+            mock.patch.object(
+                matroid_partition, "get_information_sets_with_coverage", wraps=get_information_sets
+            ) as partition,
+        ):
+            distance = bz.get_distance_brouwer_zimmermann_many(
+                [(basis, labels)], cutoff=0, get_automorphisms=lambda: identity
+            )
+        assert distance == expected_distance == 9
+        assert partition.called
+        assert switch_decisions == expected
 
 
 def test_a_late_switch_weighs_the_layers_left_in_the_current_family(

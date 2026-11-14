@@ -268,16 +268,17 @@ class SearchTuning:
     #: that loses no certified bound.
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
-    #: The work of a coefficient layer, in candidate/set evaluations, before which a distance search
-    #: first considers switching to the images of one information set under automorphisms
-    #: (Section 3.7 of ``brouwer_zimmermann.md``), which it does if they predict less work than its
-    #: family has left.  It reconsiders a decline before such a layer once its best weight drops, so
-    #: an early decline is not final.  Lowering it pays for finding automorphisms on cheaper
-    #: searches; raising it delays switches; zero considers before the first layer, and
-    #: ``MAX_VALUE`` never.  Defaults to the break-even value, the cost of finding them and building
-    #: the images: about 3.5 * 10**6 evaluations on five quantum codes, rounded on a 1-2-5 grid.  To
-    #: rederive it, convert the seconds of that step, which ``experiments/distance_tuning/trace.py``
-    #: records, to evaluations.
+    #: The least work of a coefficient layer, in candidate/set evaluations, before which a distance
+    #: search that would not partition first considers switching to automorphism images (Section 3.7
+    #: of ``brouwer_zimmermann.md``); one that would partition first considers it at the end of
+    #: setup.  After declining, a search reconsiders before such a layer once its best weight drops.
+    #: Lowering it pays for finding automorphisms on cheaper searches; raising it delays the
+    #: considerations before layers; zero considers before the first layer, and ``MAX_VALUE`` never.
+    #: Defaults to the break-even value: finding automorphisms and building their images took a
+    #: median of 4.6 ms on the codes qt7, lp13s5, lp13s8, pp232, and gross of
+    #: ``experiments/distance_tuning``, or 3.5 * 10**6 evaluations at the median 1.32 ns per
+    #: evaluation of layers of at least 10**7 evaluations without tables, rounded on a 1-2-5 grid;
+    #: its ``trace.py`` records both.
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-support searches.
