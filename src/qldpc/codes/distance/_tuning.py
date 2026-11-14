@@ -205,13 +205,13 @@ class SearchTuning:
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
-    #: packs fewer full disjoint information sets than a packing can keep (Section 4.4 of
-    #: ``brouwer_zimmermann.md``); it keeps the best packing.  More orders can find more full sets,
-    #: which certify sooner, but each costs a packing of the basis; zero keeps the natural order.
-    #: Defaults to 8, chosen by hand; on the quick distance searches timed, the natural order
-    #: already packs the most sets, so no value changed them, while 64 slowed one coset search.  To
-    #: retune it, record after how many orders the best packing stops improving, and weigh setup
-    #: time against the search time saved.
+    #: packs fewer full disjoint information sets than the bound of Section 4.4 of
+    #: ``brouwer_zimmermann.md``, which a basis may not reach; it keeps the best packing.  More
+    #: orders can find more full sets, which certify sooner, but each costs a packing of the basis;
+    #: zero keeps the natural order.  Defaults to 8, chosen by hand; on the quick distance searches
+    #: timed, the natural order already packs the most sets, so no value changed them, while 64
+    #: slowed one coset search.  To retune it, record after how many orders the best packing stops
+    #: improving, and weigh setup time against the search time saved.
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
@@ -351,11 +351,11 @@ class SearchTuning:
 
     #: The number of tail columns in a block of the completion tables of distance searches and
     #: counts, a power of two up to 16.  Wider blocks skip more supports, but the table of a block
-    #: has ``2**width`` bytes for each row of the basis: 1 builds fastest and skips least, and 16
-    #: the reverse.  A basis whose tables exceed ``completion_bound_max_table_bytes`` at this width
-    #: gets none.  Defaults to 16, which on every layer of the width data set of at least
-    #: ``5 * 10**8`` supports skipped more supports, in less time, than 8.  To retune it, force each
-    #: width on that data set and keep the fastest.
+    #: has ``2**width`` bytes for each row of the basis (see ``completion_bound_max_table_bytes``
+    #: for tables that do not fit): 1 builds fastest and skips least, and 16 the reverse.  Defaults
+    #: to 16, which on every layer of the width data set of at least ``5 * 10**8`` supports skipped
+    #: more supports, in less time, than 8.  To retune it, force each width on that data set and
+    #: keep the fastest.
     completion_bound_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The number of tail columns in a block of the completion tables of ``CosetLeaderSearch``, a

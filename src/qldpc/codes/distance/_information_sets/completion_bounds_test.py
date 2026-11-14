@@ -219,6 +219,14 @@ def test_selection_follows_its_policy() -> None:
     assert cb.select_completion_tables(rows, 6, 6, None, no_memory) is None
     assert cb.select_completion_tables(rows[:5], 7, 7, None, FORCED) is None
 
+    # Tables use blocks of the width of the tuning.  Four-column tables of these rows take
+    # 59 * 6 * 16 bytes, in which sixteen-column ones do not fit.
+    small = dataclasses.replace(FORCED, completion_bound_max_table_bytes=59 * 6 * 16)
+    narrow = dataclasses.replace(small, completion_bound_block_bits=4)
+    narrow_tables = cb.select_completion_tables(rows, 6, 6, None, narrow)
+    assert narrow_tables is not None and narrow_tables.block_bits == 4
+    assert cb.select_completion_tables(rows, 6, 6, None, small) is None
+
 
 def test_tunings_consider_tables_for_large_enough_layers_of_two_or_more_rows() -> None:
     """A tuning considers tables for layers from two rows to every row, with enough supports.
