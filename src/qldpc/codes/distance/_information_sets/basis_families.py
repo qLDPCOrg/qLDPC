@@ -376,11 +376,11 @@ def get_partitioned_family(
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
     than the work of ``basis_family``, and otherwise a family with no sets.  No family is built if
-    the estimated work of ``basis_family`` is below ``tuning.partition_work_ratio`` times the
-    estimated work of partitioning, ``tuning.partition_cost_factor * b * k**2 * n`` for each
-    coverage ``b``, or if no family of at most ``tuning.max_information_sets`` full sets could do
-    less work: some column of ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k``
-    rows and ``n`` nonzero columns.
+    the estimated work of ``basis_family`` is below ``tuning.partition_work_ratio`` times the sum of
+    ``b * k**2 * n`` over the coverages ``b``, which approximates the cost of partitioning, or if no
+    family of at most ``tuning.max_information_sets`` full sets could do less work: some column of
+    ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k`` rows and ``n`` nonzero
+    columns.
 
     ``get_competing_work``, if given, returns the estimated work of a family that the search would
     switch to instead, such as a family of automorphism images, and the switch would discard any
@@ -397,8 +397,8 @@ def get_partitioned_family(
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     total_coverage = sum(range(2, max_coverage + 1))
-    partition_work = tuning.partition_cost_factor * total_coverage * dimension**2 * num_columns
-    if max_coverage < 2 or best_work < tuning.partition_work_ratio * partition_work:
+    partition_unit = total_coverage * dimension**2 * num_columns
+    if max_coverage < 2 or best_work < tuning.partition_work_ratio * partition_unit:
         return best
     optimistic_work = _estimate_optimistic_work(
         dimension,
@@ -608,13 +608,9 @@ def _get_disjoint_sets_for_columns(
         if rank < dimension:
             break
 
-        # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Also
-        # drop columns that are zero in the reduced matrix, so that the next pass has a pivot.
-        pivot_set = set(pivots)
-        active_columns = np.asarray(
-            [col for col in active_columns if col not in pivot_set and np.any(working[:, col])],
-            dtype=int,
-        )
+        # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Row
+        # operations keep the given nonzero columns nonzero, so each pass has a pivot.
+        active_columns = active_columns[~np.isin(active_columns, pivots)]
 
     return information_sets
 

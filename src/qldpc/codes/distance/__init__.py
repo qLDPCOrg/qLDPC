@@ -56,12 +56,12 @@ directory, such as one that many jobs share, to avoid this.
 in the current process only, for programs that count the logical operators of very many similar
 codes.
 
-Exact distance searches and logical-operator counts choose between routes, such as exhaustive
-enumeration and searches of overlapping information sets, by cost models, and bound their batches,
-memory, and caches.  The defaults of their settings suit typical searches.  For very costly
-searches, the page :doc:`/exact_search_tuning` of the documentation leads from symptoms and routes
-to the private settings that control them.  It also says how to change these settings, and what
-changing them can and cannot affect.
+Exact distance searches and logical-operator counts choose between routes, such as searches of
+disjoint or overlapping information sets, by cost models, and bound their batches, memory, and
+caches.  The defaults of their settings suit typical searches.  For very costly searches, the page
+:doc:`/exact_search_tuning` of the documentation leads from symptoms and routes to the private
+settings that control them.  It also says how to change these settings, and what changing them can
+and cannot affect.
 
 Contributors can find a map of the modules in the `README of the package
 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md>`_.

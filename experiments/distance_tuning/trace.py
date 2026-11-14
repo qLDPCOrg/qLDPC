@@ -8,28 +8,25 @@ runs a ``distance``, ``hadamard``, or ``count`` workload once under the given tu
 trace ``ccount`` workloads: their compiled setup calls the stages directly, past the wrappers.  It
 records:
 
-- each test of whether to enumerate every codeword instead of searching information sets: by size,
-  with the dimension ``k``, the length ``n``, and ``2**k / (k * n)``, and by work, with the
-  candidates of each route;
 - each family of information sets that the search builds (disjoint, overlapping, or by matroid
   partitioning), with its number of sets and the seconds that building it took, and the quantities
   that the gates of overlapping families and of partitioning compare: for overlapping families, the
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
-  search and the cost of partitioning, in candidate/set evaluations, the least work that any
-  partitioned family could do, and whether it tried (``partitioned``), even if it then found no
-  family.  Before trying, a search with automorphisms asks for them, verifies them, and
-  builds their family, and skips partitioning if that family does no more work than the least work
-  of a partitioned family.  The trace records that family's work (``competing_work``) and the
-  seconds those steps took (``competing_seconds``), which the seconds of partitioning include;
+  search and the unit of ``partition_work_ratio``, in candidate/set evaluations, the least work that
+  any partitioned family could do, and whether it tried (``partitioned``), even if it then found no
+  family.  Before trying, a search with automorphisms asks for them, verifies them, and builds their
+  family, and skips partitioning if that family does no more work than the least work of a
+  partitioned family.  The trace records that family's work (``competing_work``) and the seconds
+  those steps took (``competing_seconds``), which the seconds of partitioning include;
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
 - each attempt to switch to a family of automorphism images, including one at the end of setup if
   setup found the automorphisms, the seconds it took, which then exclude finding them and building
   their family, and whether the search switched;
-- the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step
-  considers completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted
-  cost with the limit, with the rows and weight of the prediction before it;
+- the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step considers
+  completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted cost with the
+  limit, with the rows and weight of the prediction before it;
 - each prediction of the cost of completion tables, as a share of the cost of a scan without them,
   with the number of rows and the weight of its layer or step, the seconds it took, and the seconds
   since the workload started, which also time the steps of counts;
@@ -40,15 +37,15 @@ records:
   supports that it evaluated and skipped, its candidate/set evaluations (each support of a scan in
   lockstep counts once for each of its sets), and the lookups of completion tables that it made, the
   width of the blocks of its tables if any, with their bytes and number of blocks, the seconds spent
-  choosing tables (which, for a layer of one set, include building them) and building them, and
-  its seconds in all.
+  choosing tables (which, for a layer of one set, include building them) and building them, and its
+  seconds in all.
 
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
-``--setup-only``, it stops before the first layer of the first distance search, after its
-families, or before the first enumeration of codewords; it does not stop counts.  The thresholds of
-``SearchTuning`` decide where these stages start, so a trace shows which decisions a threshold can
-flip, and what each stage costs, before timing the tunings that flip them with ``sweep.py``.
+``--setup-only``, it stops before the first layer of the first distance search, after its families;
+it does not stop counts.  The thresholds of ``SearchTuning`` decide where these stages start, so a
+trace shows which decisions a threshold can flip, and what each stage costs, before timing the
+tunings that flip them with ``sweep.py``.
 
 Example:
 
@@ -153,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--setup-only",
         action="store_true",
-        help="stop a distance search before its first layer or enumeration, after its setup",
+        help="stop a distance search before its first layer, after its setup",
     )
     return parser.parse_args()
 
@@ -182,9 +179,6 @@ def install_wrappers() -> None:
         (affine_search, "scan_family", wrap_scan),
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
-        (distance, "enumeration_is_cheaper_than_setup", wrap_enumeration_by_size),
-        (distance, "_enumeration_is_cheaper_than_search", wrap_enumeration_by_work),
-        (distance, "get_nested_distance_brute_force", wrap_enumerate),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
     ]
     for owner, name, wrap in patches:
@@ -260,16 +254,15 @@ def get_partition_gate(
     """The quantities that ``basis_families.get_partitioned_family`` compares to skip it.
 
     These are the estimated work of the family that partitioning would replace, in candidate/set
-    evaluations, and the estimated cost of partitioning in the same unit, which the search
-    multiplies by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), the
-    unit ``b * k**2 * n``, summed over coverages ``b``, that ``partition_cost_factor`` multiplies,
-    and the least work that any partitioned family could do, which a search with automorphisms
-    compares with the work of their family.
+    evaluations, the unit ``b * k**2 * n``, summed over coverages ``b``, that the search multiplies
+    by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), and the least work
+    that any partitioned family could do, which a search with automorphisms compares with the work
+    of their family.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     total_coverage = sum(range(2, tuning.max_partition_coverage + 1))
-    cost = tuning.partition_cost_factor * total_coverage * dimension**2 * num_columns
+    unit = total_coverage * dimension**2 * num_columns
     work = basis_family.certificate.work(upper_bound)
     optimistic_work = basis_families._estimate_optimistic_work(
         dimension,
@@ -283,13 +276,12 @@ def get_partition_gate(
         "rows": dimension,
         "columns": num_columns,
         "estimated_work": int(work),
-        "estimated_cost": int(cost),
-        "unit": total_coverage * dimension**2 * num_columns,
+        "unit": unit,
         "ratio": tuning.partition_work_ratio,
         "optimistic_work": int(optimistic_work),
         "partitioned": bool(
             tuning.max_partition_coverage >= 2
-            and work >= tuning.partition_work_ratio * cost
+            and work >= tuning.partition_work_ratio * unit
             and work > optimistic_work
         ),
     }
@@ -328,68 +320,6 @@ def get_overlapping_gate(
     if optimistic_work >= work:
         return gate | {"stage": "cannot do less work"}
     return gate | {"stage": "built"}
-
-
-def wrap_enumeration_by_size(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each test of whether to enumerate codewords instead of building information sets."""
-
-    @functools.wraps(function)
-    def wrapper(dimension: int, length: int, max_dimension: int, factor: int) -> bool:
-        result = function(dimension, length, max_dimension, factor)
-        EVENTS.append(
-            {
-                "event": "enumeration",
-                "test": "size",
-                "dimension": dimension,
-                "length": length,
-                "words_per_setup_unit": (
-                    2**dimension / (dimension * length) if dimension < 63 else math.inf
-                ),
-                "enumerate": result,
-            }
-        )
-        return result
-
-    return wrapper
-
-
-def wrap_enumeration_by_work(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each test of whether to enumerate codewords instead of searching information sets."""
-
-    @functools.wraps(function)
-    def wrapper(*, num_logical_rows: int, certificate: Any, upper_bound: int) -> bool:
-        result = function(
-            num_logical_rows=num_logical_rows, certificate=certificate, upper_bound=upper_bound
-        )
-        dimension = certificate.dimension
-        EVENTS.append(
-            {
-                "event": "enumeration",
-                "test": "work",
-                "dimension": dimension,
-                "exhaustive": ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows),
-                "estimated_work": int(certificate.work(upper_bound)),
-                "enumerate": result,
-            }
-        )
-        return result
-
-    return wrapper
-
-
-def wrap_enumerate(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the seconds of each enumeration of codewords, or stop before it after the setup."""
-
-    @functools.wraps(function)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        if SETUP_ONLY:
-            raise SetupDone
-        start = time.perf_counter()
-        result = function(*args, **kwargs)
-        EVENTS.append({"event": "enumerate", "seconds": time.perf_counter() - start})
-        return result
-
-    return wrapper
 
 
 def wrap_linear_program(function: Callable[..., Any]) -> Callable[..., Any]:

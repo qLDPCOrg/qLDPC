@@ -57,6 +57,13 @@ def test_information_set_packing() -> None:
     basis = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
     assert get_family(basis, None).ranks.tolist() == [2, 1]
 
+    # Each set takes its pivots from the remaining columns in the given order, so a random column
+    # order shapes every set of a packing.
+    basis = np.array([[1, 0, 1, 0, 1, 1], [0, 1, 0, 1, 1, 1]], dtype=np.uint8)
+    columns = np.array([4, 5, 1, 0, 3, 2])
+    sets = basis_families._get_disjoint_sets_for_columns(basis, np.eye(2, dtype=np.uint8), columns)
+    assert [list(pivots) for *_, pivots in sets] == [[4, 1], [5, 0], [3, 2]]
+
 
 def test_a_basis_family_stacks_its_sets() -> None:
     """The sets of a basis family are reduced on their pivots, which are padded for partial sets."""
@@ -189,10 +196,11 @@ def test_partitioned_families_replace_costlier_ones() -> None:
         tuning = dataclasses.replace(DEFAULT_TUNING, **fields)
         return basis_families.get_partitioned_family(basis, labels, disjoint, 5, tuning)
 
-    # A family needs a set to hold, a coverage of two or more, and partitioning that pays.
+    # A family needs a set to hold, a coverage of two or more, and partitioning that pays.  Even a
+    # ratio of one rules partitioning out here, since the disjoint family does less work than the
+    # 9 * 4**2 * 10 evaluations of the unit of the ratio, for the coverages two to four.
     assert not len(get_family(partition_work_ratio=2**62).ranks)
-    assert not len(get_family(partition_cost_factor=2**40, partition_work_ratio=1).ranks)
-    assert len(get_family(partition_cost_factor=0, partition_work_ratio=1).ranks)
+    assert not len(get_family(partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
     assert not len(get_family(max_partition_coverage=1).ranks)
     family = get_family()

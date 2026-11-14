@@ -2,14 +2,14 @@
 
 """Settings and constants that tune the speed and memory of exact distance searches and counts.
 
-Exact distances and logical-operator counts choose between routes, such as exhaustive enumeration
-and searches of disjoint or overlapping information sets, and bound their batches, memory, and
-caches.  :class:`SearchTuning` collects the values that tune a search, from the thresholds that
-choose a route to the coefficients of cost models and the sizes of batches.  The tables of the page
-:doc:`/exact_search_tuning` of the documentation, which renders this docstring, map routes and
-symptoms to these values.  Section 4.4 of ``brouwer_zimmermann.md`` says where each heuristic of a
-Brouwer-Zimmermann search uses them, and Sections 3.5, 3.8, and 3.9 of ``connected_support.md``
-where the connected-support searches use theirs.
+Exact distances and logical-operator counts choose between routes, such as searches of disjoint or
+overlapping information sets, and bound their batches, memory, and caches.  :class:`SearchTuning`
+collects the values that tune a search, from the thresholds that choose a route to the coefficients
+of cost models and the sizes of batches.  The tables of the page :doc:`/exact_search_tuning` of the
+documentation, which renders this docstring, map routes and symptoms to these values.  Section 4.4
+of ``brouwer_zimmermann.md`` says where each heuristic of a Brouwer-Zimmermann search uses them, and
+Sections 3.5, 3.8, and 3.9 of ``connected_support.md`` where the connected-support searches use
+theirs.
 
 This module is private.  Its names, fields, defaults, and constants can change in any release,
 without a deprecation period or any other warning, so code that uses it should pin the exact version
@@ -96,9 +96,9 @@ Otherwise it is the simplest choice, such as a round value among candidates that
 difference; some of those candidates made the same decisions on every search timed, so their timings
 could differ only by noise.  A comment calls a value a judgment call where it trades one kind of
 search against another.  Timings of the same work varied up to two- or threefold between sessions on
-the one machine used, so comments state outcomes roughly.  The comment of each field other than the
-two switches of enumeration says how its value was chosen: by these sweeps, by the measurements on
-the data sets below, or by hand, or that this is not recorded.
+the one machine used, so comments state outcomes roughly.  The comment of each field says how its
+value was chosen: by these sweeps, by the measurements on the data sets below, or by hand, or that
+this is not recorded.
 
 The cost model and the block widths of the completion tables of distance searches and counts
 (Section 3.9 of ``brouwer_zimmermann.md``) rest on measurements, made before these sweeps on an
@@ -175,9 +175,6 @@ class SearchTuning:
     Every integer field is a Python integer between zero and ``MAX_VALUE``, unless its comment
     states narrower bounds, and every float field is a finite, non-negative float.
 
-    Counts with the BZ method always scan information sets, rather than enumerate every word.  The
-    distance searches that find their default weights consult both ``allow_enumeration`` fields.
-
     The comment above each field says what it decides and in what unit, what raising or lowering it
     does, how its default was chosen, and what to measure to retune it (see :ref:`Retuning
     <tuning-retuning>`, which also describes the width and cost data sets).
@@ -185,46 +182,14 @@ class SearchTuning:
 
     # Fields of exhaustive enumeration.
 
-    #: Whether a distance search may enumerate every nontrivial word, instead of building
-    #: information sets, when its basis is small (see ``enumeration_max_dimension`` and
-    #: ``enumeration_setup_cost_factor``).  False makes small searches build information sets, which
-    #: can be much slower; they may still enumerate later (see ``allow_enumeration_by_work``).  A
-    #: switch for tests that force a route, not a calibration.  Defaults to True.
-    allow_enumeration_by_size: bool = True
-
-    #: Whether a distance search may enumerate every nontrivial word after choosing its information
-    #: sets, when there are no more such words than the estimated work of searching those sets.
-    #: False makes such searches scan their information sets instead.  A switch for tests that force
-    #: a route, not a calibration.  Defaults to True.
-    allow_enumeration_by_work: bool = True
-
-    #: A distance search enumerates every nontrivial word, instead of building information sets, if
-    #: its basis has at most this many rows.  Raising it enumerates larger bases, whose number of
-    #: words doubles with each row; lowering it makes small searches pay for setup.  Defaults to 20;
-    #: how it was first measured is not recorded, and it predates larger enumeration batches for
-    #: long rows, which made enumerating rows of about 600 bits or more much faster and can
-    #: move the crossover on long codes.  To retune it, time both routes on bases near the
-    #: crossover.
-    enumeration_max_dimension: int = 20
-
-    #: A distance search of more than ``enumeration_max_dimension`` and fewer than 63 basis rows
-    #: also enumerates every word if ``2**rows`` is at most this factor times its numbers of rows
-    #: and columns, an estimate of the cost of setting up its information sets.  Raising it
-    #: enumerates more long codes of low dimension; lowering it builds information sets for more of
-    #: them.  Defaults to 16, a judgment call: against 128, it made searches of most of the sparse
-    #: codes of low dimension measured much faster, at a small cost to those of random ones.  Those
-    #: measurements predate larger enumeration batches, which made rows of about 600 bits or
-    #: more much faster to enumerate.  To retune it, time both routes on long codes near the
-    #: crossover.
-    enumeration_setup_cost_factor: int = 16
-
-    #: The exponent of the batches of exhaustive enumeration, which handles at most
-    #: ``2**enumeration_batch_exponent`` words at a time in a few arrays of at most
-    #: ``2**(enumeration_batch_exponent + 3)`` bytes each, and checks for a keyboard interrupt
-    #: between batches.  Raising it can speed up enumeration, at the cost of memory; lowering it
-    #: saves memory and makes interrupts prompter, but adds overhead.  At most 62.  Defaults to 15,
-    #: chosen by hand.  To retune it, time enumerations of bases of 16 to 24 rows, and keep the
-    #: smallest value beyond which they get no faster.
+    #: The exponent of the batches of exhaustive enumeration, which finds distances by the method
+    #: ``"brute_force"``, including the distance that a count of logical operators by that method
+    #: finds first.  Enumeration handles at most ``2**enumeration_batch_exponent`` words at a time
+    #: in a few arrays of at most ``2**(enumeration_batch_exponent + 3)`` bytes each, and checks for
+    #: a keyboard interrupt between batches.  Raising it can speed up enumeration, at the cost of
+    #: memory; lowering it saves memory and makes interrupts prompter, but adds overhead.  At most
+    #: 62.  Defaults to 15, chosen by hand.  To retune it, time enumerations of bases of 16 to 24
+    #: rows, and keep the smallest value beyond which they get no faster.
     enumeration_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     # Fields of information-set families.
@@ -268,16 +233,15 @@ class SearchTuning:
     #: attempts, and weigh setup time against the search time saved.
     overlapping_attempts_per_set: int = 2
 
-    #: A search builds families by matroid partitioning only if its estimated work is at least this
-    #: multiple of the estimated cost of partitioning (see ``partition_cost_factor``).  Lowering it
-    #: tries partitioning on cheaper searches; zero always tries, and ``MAX_VALUE`` never does
-    #: unless ``partition_cost_factor`` is zero.  Searches given automorphisms switch to their
-    #: images instead if those do no more work than any partitioned family could.  Estimated work
-    #: can far exceed the work done, so the ratio does not bound wasted time.  Defaults to 500, a
-    #: judgment call: no value separated the timed searches that partitioning slowed from those that
-    #: it sped up; 500 misclassified the fewest.  To retune it, time searches with and without
-    #: partitioning.
-    partition_work_ratio: int = 500
+    #: A search tries matroid partitioning only if its estimated work, in candidate/set evaluations,
+    #: reaches this multiple of the sum of ``b * k**2 * n`` over the coverages ``b`` that it tries,
+    #: for ``k`` rows and ``n`` nonzero columns; partitioning took up to about ten such sums on the
+    #: two searches timed.  Lowering it tries partitioning on cheaper searches; zero always tries,
+    #: and ``MAX_VALUE`` never does.  Searches given automorphisms switch to their images instead if
+    #: those do no more work than any partitioned family could.  Defaults to 5000, a judgment call:
+    #: no value separated the timed searches that partitioning slowed from those that it sped up.
+    #: To retune it, time searches with and without partitioning.
+    partition_work_ratio: int = 5000
 
     #: The largest coverage, the most information sets that contain any one column, that matroid
     #: partitioning tries; it tries each coverage from two to this value.  Larger values can find
@@ -286,14 +250,6 @@ class SearchTuning:
     #: record which coverage gives the cheapest family, and weigh the time of each further coverage
     #: against the search time it saves.
     max_partition_coverage: int = 4
-
-    #: The estimated cost of partitioning ``b`` copies of the ``n`` nonzero columns of a basis of
-    #: ``k`` rows, in units of ``b * k**2 * n`` candidate/set evaluations.  An underestimate wastes
-    #: time on partitioning that cannot repay itself; an overestimate skips families that would save
-    #: time.  Defaults to 10, the higher end of what partitioning took on the two searches whose
-    #: partitioning was timed.  To refit it, time ``get_information_sets_with_coverage`` of
-    #: ``_information_sets/matroid_partition.py`` in candidate/set evaluations.
-    partition_cost_factor: int = 10
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
     #: information sets also bounds unvisited words by linear programming (Section 3.1 of
@@ -558,17 +514,12 @@ class SearchTuning:
         Python integer keeps a tuning from compiling code again.
 
         Raises:
-            TypeError: If a field whose default is a bool is not a bool, or another field is not a
-                number of the type of its default, or is a bool.
+            TypeError: If a field is not a number of the type of its default, or is a bool.
             ValueError: If an integer field is outside its bounds or choices, or a float field is
                 negative, above its bound, or not finite.
         """
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
-            if isinstance(field.default, bool):
-                if not isinstance(value, bool):
-                    raise TypeError(f"{field.name} must be a bool, not {value!r}")
-                continue
             if isinstance(field.default, float):
                 if isinstance(value, bool) or not isinstance(value, numbers.Real):
                     raise TypeError(f"{field.name} must be a real number, not {value!r}")

@@ -7,7 +7,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import math
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from typing import Any
 from unittest import mock
 
@@ -21,8 +21,9 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
+from .. import _brute_force
 from .._information_sets import basis_families, certificates, completion_bounds, matroid_partition
-from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
+from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
 from . import affine_instance, affine_search
 from . import distance as bz
@@ -138,19 +139,6 @@ SETUP_EXIT_CASES = [
         False,
         id="scan-cutoff",
     ),
-    # Brute force is cheaper than the information-set search prepared for this quotient.
-    pytest.param(
-        [[1, 0, 0, 0, 1, 0, 1, 1, 0]],
-        [
-            [0, 1, 0, 0, 0, 0, 1, 0, 1],
-            [0, 0, 1, 0, 1, 0, 1, 0, 1],
-            [0, 0, 0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 1, 1, 0, 1],
-        ],
-        0,
-        False,
-        id="brute-force",
-    ),
     # Rows of an overlapping replacement family reach the cutoff.
     pytest.param(
         [[1, 0, 0, 0, 0, 0, 0, 1, 1, 1]],
@@ -196,9 +184,6 @@ def test_brouwer_zimmermann_setup_exits(
         logicals, stabilizers, cutoff=0, method="brute_force"
     )
 
-    # Forbid only enumeration by size, so that these small inputs reach the information-set search,
-    # and may still enumerate if that costs less than the search of their information sets.
-    tune(allow_enumeration_by_size=False)
     if overlap:
         tune(overlapping_minimum_work=0)
     distance = qldpc.codes.distance.get_distance_from_generators(
@@ -207,29 +192,28 @@ def test_brouwer_zimmermann_setup_exits(
     assert expected <= distance <= max(cutoff, expected)
 
 
-def test_enumeration_by_work_can_be_forbidden(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
-    """The "brute-force" case enumerates its quotient after setup only if the tuning allows it."""
-    case = next(case for case in SETUP_EXIT_CASES if case.id == "brute-force")
-    values: Sequence[Any] = case.values
-    logicals, stabilizers = values[:2]
+def test_searches_never_enumerate_every_word() -> None:
+    """A search scans information sets, even where enumerating every word would cost less.
+
+    The quotient of this logical row by four excluded rows has 16 eligible words, fewer than the
+    estimated work of the search of its information sets.
+    """
+    logicals = [[1, 0, 0, 0, 1, 0, 1, 1, 0]]
+    stabilizers = [
+        [0, 1, 0, 0, 0, 0, 1, 0, 1],
+        [0, 0, 1, 0, 1, 0, 1, 0, 1],
+        [0, 0, 0, 1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 1, 1, 0, 1],
+    ]
     expected = qldpc.codes.distance.get_distance_from_generators(
         logicals, stabilizers, method="brute_force"
     )
-    enumerations = []
-    original = bz.get_nested_distance_brute_force
-
-    def enumerate_words(*args: Any, **kwargs: Any) -> int:
-        enumerations.append(args)
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(bz, "get_nested_distance_brute_force", enumerate_words)
-    tune(allow_enumeration_by_size=False)
-    for allowed in (True, False):
-        enumerations.clear()
-        with use_tuning(allow_enumeration_by_work=allowed):
-            distance = qldpc.codes.distance.get_distance_from_generators(logicals, stabilizers)
-        assert distance == expected
-        assert bool(enumerations) == allowed
+    with mock.patch.object(
+        _brute_force, "_get_distance_brute_force", wraps=_brute_force._get_distance_brute_force
+    ) as enumerate_words:
+        distance = qldpc.codes.distance.get_distance_from_generators(logicals, stabilizers)
+    assert distance == expected
+    enumerate_words.assert_not_called()
 
 
 def test_brouwer_zimmermann_setup_cutoffs() -> None:
@@ -253,7 +237,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
             cutoff=2,
             weight_divisor=1,
             upper_bound=4,
-            tuning=SearchTuning(allow_enumeration_by_size=False),
+            tuning=DEFAULT_TUNING,
         )
         == 2
     )
@@ -269,7 +253,6 @@ def test_an_upper_bound_acts_as_a_known_witness() -> None:
         assert distance == expected
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_shared_search() -> None:
     """A shared Brouwer-Zimmermann search returns the minimum distance across nested codes."""
     rng = np.random.default_rng(119)
@@ -300,7 +283,6 @@ def test_brouwer_zimmermann_shared_search() -> None:
     assert actual == min(expected_a, expected_b)
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     """A search that reaches the first stage takes its result from the given function instead.
 
@@ -330,7 +312,6 @@ def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     first_stage.assert_not_called()
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_sector_certificates() -> None:
     """A completed sector's certificate must not finish a different sector's search."""
     generators = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
@@ -383,7 +364,6 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
     assert {id(search) for search in searches} <= advanced
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_subsystem_code() -> None:
     """Information-set search treats the gauge operators of a subsystem code as trivial.
 
@@ -394,7 +374,6 @@ def test_brouwer_zimmermann_subsystem_code() -> None:
     assert code.get_distance_exact() == 3
 
 
-@pytest.mark.usefixtures("force_information_sets")
 @pytest.mark.parametrize("length", [64, 65, 257])
 def test_brouwer_zimmermann_packed_widths(length: int) -> None:
     """Information-set weights are exact across uint64 words and for weights above 255."""
@@ -442,7 +421,6 @@ def test_brouwer_zimmermann_overlap_mb(get_candidate_count: Callable[[], int]) -
     assert 0 < get_candidate_count() < 1_000_000
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> None:
     """Compare witness-improving overlap enumeration with an exhaustive quotient oracle."""
 
@@ -486,7 +464,7 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
 
 @pytest.fixture
 def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
-    """Count row-weight evaluations, scanned supports, and lookups across BZ and exhaustive routes.
+    """Count the row-weight evaluations, scanned supports, and lookups of BZ searches.
 
     A scan of one information set counts each support that it weighs and each bound that it looks
     up, but not the supports that it skips.
@@ -516,14 +494,14 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
         num_candidates += len(arr)
         return bitwise_count(arr, out=out)
 
-    # Row weights and exhaustive enumeration count every packed word with np.bitwise_count.
+    # Row weights count every packed word with np.bitwise_count.
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
     monkeypatch.setattr(affine_search, "scan_family", counting_scan)
     monkeypatch.setattr(affine_search, "scan_information_set", counting_one_set_scan)
     return lambda: num_candidates
 
 
-@pytest.mark.usefixtures("force_information_sets", "completion_tables")
+@pytest.mark.usefixtures("completion_tables")
 def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
     """A [22, 7, 5] code whose search finds a word of weight five only in its second set.
 
@@ -549,7 +527,6 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
     assert qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0) == 5
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_a_search_through_the_costly_stages_finds_the_distance(
     tune: Tune, costly_stages: CostlyStages
 ) -> None:
@@ -636,7 +613,7 @@ def completion_tables(
         assert record.lookups
 
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.usefixtures("switch_before_any_layer")
 def test_automorphism_family_searches_scan_every_layer_they_certify(
     completion_tables: CompletionRecord,
 ) -> None:
@@ -664,7 +641,7 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
         )
 
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer", "completion_tables")
+@pytest.mark.usefixtures("switch_before_any_layer", "completion_tables")
 def test_automorphism_family_searches_find_exact_distances() -> None:
     """Searches given automorphisms agree with brute force, alone or sharing witnesses.
 
@@ -691,7 +668,6 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
     ) == code.get_distance(method="brute_force")
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
     tune: Tune, completion_tables: CompletionRecord
 ) -> None:
@@ -739,7 +715,6 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
         assert len(built) == 2 and built[1][0] is None
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
     """A search asks for automorphisms once, and only before a costly layer or matroid partitioning.
 
@@ -757,7 +732,6 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
         assert get_automorphisms.call_count == expected_calls
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tune) -> None:
     """A search skips partitioning, and switches at once, if automorphism images do no more work.
 
@@ -834,7 +808,6 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
     assert switched == [False]
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_a_switch_at_the_end_of_setup_can_certify_the_distance(tune: Tune) -> None:
     """A search whose switch at the end of setup certifies a lighter word returns its weight.
 
@@ -856,7 +829,7 @@ def test_a_switch_at_the_end_of_setup_can_certify_the_distance(tune: Tune) -> No
 
 
 @pytest.mark.parametrize("partition_work_ratio", [MAX_VALUE, 0])
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.usefixtures("switch_before_any_layer")
 def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
     tune: Tune, partition_work_ratio: int
 ) -> None:
@@ -878,7 +851,7 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
     assert distance == 6
 
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.usefixtures("switch_before_any_layer")
 def test_searches_reject_wrong_automorphisms() -> None:
     """A permutation that does not preserve a problem fails loudly when a search would use it."""
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
@@ -937,7 +910,7 @@ def _get_family(
     return family, certificates.Certificate(num_rows, tuple(ranks.tolist()))
 
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.usefixtures("switch_before_any_layer")
 @pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
 def test_completion_tables_keep_distances_exact(
     pytestconfig: pytest.Config, completion_tables: CompletionRecord
@@ -1043,7 +1016,7 @@ def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
     assert search.advance() == 1
 
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.usefixtures("switch_before_any_layer")
 @pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
 def test_joint_searches_with_completion_tables(
     completion_tables: CompletionRecord, monkeypatch: pytest.MonkeyPatch
@@ -1085,7 +1058,6 @@ def test_joint_searches_with_completion_tables(
         assert all(search.completion_tables is None for search in searches)
 
 
-@pytest.mark.usefixtures("force_information_sets")
 @pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
 @pytest.mark.parametrize("mixed", [False, True])
 def test_layers_of_several_sets_scan_each_set_with_its_tables(
@@ -1283,7 +1255,7 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_scans_in_lockstep() -
     )
 
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
+@pytest.mark.usefixtures("switch_before_any_layer")
 def test_searches_take_completion_limits_from_their_tuning(
     tune: Tune, monkeypatch: pytest.MonkeyPatch
 ) -> None:

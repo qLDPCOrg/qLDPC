@@ -19,8 +19,8 @@ Start from a symptom
 
    * - Symptom
      - What to try first, then measure
-   * - A search of a small problem, or of a long code of low dimension, spends its time on setup
-     - Raise :attr:`~SearchTuning.enumeration_max_dimension` or :attr:`~SearchTuning.enumeration_setup_cost_factor` to enumerate every word instead.
+   * - A distance search of a classical code of low dimension, whose distance is a large fraction of its length, is slow
+     - Pass ``method="brute_force"`` to enumerate every word instead.
    * - A hard distance search spends its time in its last, costliest layers
      - Raise :attr:`~SearchTuning.completion_bound_max_cost_percent` or lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` to use completion tables in more layers; raise :attr:`~SearchTuning.max_information_sets`; lower :attr:`~SearchTuning.lp_minimum_work` or :attr:`~SearchTuning.automorphism_minimum_layer_work`.
    * - A cheap search spends its time building families of information sets
@@ -64,14 +64,14 @@ Routes and the names that control them
      - Fields of :class:`SearchTuning`
      - Constants
      - Guide
-   * - Exhaustive enumeration of small problems, instead of building information sets
-     - :attr:`SearchTuning.allow_enumeration_by_size`, :attr:`SearchTuning.allow_enumeration_by_work`, :attr:`SearchTuning.enumeration_max_dimension`, :attr:`SearchTuning.enumeration_setup_cost_factor`, :attr:`SearchTuning.enumeration_batch_exponent`
+   * - Exhaustive enumeration, which ``method="brute_force"`` runs
+     - :attr:`SearchTuning.enumeration_batch_exponent`
      -
-     - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-exhaustive-enumeration-as-a-fallback>`__
+     - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration>`__
    * - Estimating the work of searches of information sets, which chooses between their routes
      -
      - :data:`BINOMIAL_CACHE_SIZE`
-     - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-exhaustive-enumeration-as-a-fallback>`__
+     - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration>`__
    * - Packing the columns into disjoint information sets
      - :attr:`SearchTuning.disjoint_random_column_orders`
      -
@@ -81,7 +81,7 @@ Routes and the names that control them
      -
      - `Section 3.1 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#31-overlapping-search-bases>`__
    * - Building families by matroid partitioning
-     - :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.partition_work_ratio`, :attr:`SearchTuning.max_partition_coverage`, :attr:`SearchTuning.partition_cost_factor`
+     - :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.partition_work_ratio`, :attr:`SearchTuning.max_partition_coverage`
      -
      - `Section 3.1 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#31-overlapping-search-bases>`__
    * - Ending a search of overlapping sets sooner with a certificate from linear programming

@@ -30,7 +30,6 @@ from ._tuning import use_tuning
 from .conftest import get_random_full_rank_matrix, get_span
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_information_set_search() -> None:
     """Information-set search excludes stabilizers, finds logical products, and honors cutoffs."""
     # The Hamming-weight-one stabilizer is lighter than every logical operator.  With batches of one
@@ -513,7 +512,6 @@ def test_distances_of_known_noncss_codes(
     assert code.get_distance_exact() == expected_distance
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
     """Searches use qubit permutations for binary words, and lift them for Pauli strings.
 
@@ -543,7 +541,6 @@ def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
             search(automorphisms=transposition[None])
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_random_cross_checks() -> None:
     """Information-set search agrees with exhaustive enumeration on random nested codes."""
     rng = np.random.default_rng(118)
@@ -570,7 +567,7 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
         )
 
 
-def test_max_weight(request: pytest.FixtureRequest) -> None:
+def test_max_weight() -> None:
     """A weight limit returns the smaller of the distance and max_weight + 1, on every route."""
     rng = np.random.default_rng(7)
     basis = get_random_full_rank_matrix(rng, 4, 7)
@@ -596,13 +593,10 @@ def test_max_weight(request: pytest.FixtureRequest) -> None:
         for method in ["brouwer_zimmermann", "brute_force"]:
             check(distance_with_limit, distance, method)
 
-    # Small problems take exhaustive routes by default, so also force the BZ search.  The Pauli case
-    # also checks the doubled bound.
-    request.getfixturevalue("force_information_sets")
+    # The Pauli case checks the bound that the BZ route doubles.
     check(pauli, pauli_distance, "brouwer_zimmermann")
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_max_weight_caps_cutoff() -> None:
     """A large cutoff cannot make the search give up on a word within the limit.
 

@@ -63,7 +63,7 @@ Users reach it through the public functions and classes below, which take plain 
 | The connected-support search, of distances and of vectors with a given syndrome | `_connected_support/search.py` |
 | The connected-support coset searches of the coset-leader search | `_connected_support/coset.py` |
 | How the connected-support searches make their checks sparser with the same span | `_connected_support/sparse_checks.py` |
-| Exhaustive enumeration, for small codes, fallbacks, and the `brute_force` method, with its packed symplectic weights | `_brute_force.py` |
+| Exhaustive enumeration, which the `brute_force` method runs, with its packed symplectic weights | `_brute_force.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
@@ -75,7 +75,7 @@ Users reach it through the public functions and classes below, which take plain 
 | Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-support search uses too | `_information_sets/automorphism_families.py` |
 | Completion tables, which bound the words that complete the first rows of a BZ support with two more rows: a distance search skips the supports whose words cannot be lighter than its best word, a count those whose words all weigh more than its target weight, and a BZ coset query on a route by tails those whose words all weigh more than its maximum weight. A BZ search for the minimum weight of a coset skips those too, and those whose words cannot be lighter than its lightest word so far. Also the choice of whether to build them | `_information_sets/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
-| The settings that a search reads when it starts, such as the thresholds that choose between exhaustive enumeration, the kinds of information-set families, and completion tables, the threshold of states before which a connected-support search asks for automorphisms, the coefficients of cost models, memory limits, and batch sizes (`SearchTuning`, `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
+| The settings that a search reads when it starts, such as the thresholds that choose the kinds of information-set families and completion tables, the threshold of states before which a connected-support search asks for automorphisms, the coefficients of cost models, memory limits, and batch sizes (`SearchTuning`, `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
 | Binary input checks, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -86,9 +86,9 @@ From the top:
 
 1. `logical_counts.py`, which takes `NoDistance` from `core.py`, and `coset_leaders.py`, which takes `DistanceMethod` from it.
 2. `core.py`.
-3. The methods `_brouwer_zimmermann/`, `_connected_support/`, and `_counting/`.
-4. `_information_sets/`, `_cosets.py`, `min_weight_bounds.py`, and `_brute_force.py`, which the methods build on.
-   The connected-support search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`, and the Brouwer-Zimmermann distance search uses `_brute_force.py` for its exhaustive routes.
+3. The methods `_brouwer_zimmermann/`, `_connected_support/`, `_counting/`, and `_brute_force.py`.
+4. `_information_sets/`, `_cosets.py`, and `min_weight_bounds.py`, which the methods build on.
+   The connected-support search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`.
 5. `_tuning.py`.
 6. `_binary.py`.
 

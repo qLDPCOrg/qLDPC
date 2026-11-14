@@ -16,17 +16,10 @@ from qldpc import _compilation, codes, math
 from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
 from qldpc.objects import Pauli, PauliXZ
 
-from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
 from ._information_sets import basis_families, certificates
 from .coset_leaders import CosetLeaderSearch
-
-
-@pytest.fixture
-def force_information_sets(tune: Tune) -> None:
-    """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
-    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
 
 
 @pytest.fixture
