@@ -42,7 +42,7 @@ import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Literal, SupportsIndex, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, SupportsIndex, TypeVar
 
 import stim
 
@@ -58,9 +58,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
     from qldpc.abstract.groups import NestedSequence
-    from qldpc.codes import DistanceMethod, NoDistance, QuditCode
+    from qldpc.codes import CSSCode, DistanceMethod, NoDistance, QuditCode
+    from qldpc.decoders import DeferredErrorDecoderInput
     from qldpc.decoders.dems import ErrorMechanism
-    from qldpc.objects import TannerGraph
+    from qldpc.objects import PauliXZLike, TannerGraph
 
 # the type of physical error rates that qldpc.codes.monte_carlo.ErrorRateFunc formerly accepted
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
@@ -529,6 +530,7 @@ def install_deprecated_methods() -> None:
     from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
     from qldpc.decoders.dems import DetectorErrorModelArrays
+    from qldpc.objects import PAULIS_XZ, Pauli
 
     _attach_tanner_graph_methods(ClassicalCode, symplectic=False)
     _attach_tanner_graph_methods(QuditCode, symplectic=True)
@@ -664,6 +666,43 @@ def install_deprecated_methods() -> None:
         )
         return QuditCode(self._matrix) if self.symplectic else ClassicalCode(self._matrix)
 
+    @_deprecated_method(CSSCode)
+    def reduce_logical_op(
+        self: CSSCode,
+        pauli: PauliXZLike,
+        logical_index: int,
+        *,
+        decoder: DeferredErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> CSSCode:
+        """Deprecated method that tries to reduce the weight of a logical operator."""
+        warn_deprecated(
+            f"{type(self).__name__}.reduce_logical_op is DEPRECATED, since it does not reliably"
+            " reduce weight, and will be removed in a future release",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        _reduce_logical_op(self, pauli, logical_index, decoder, decoder_kwargs)
+        return self
+
+    @_deprecated_method(CSSCode)
+    def reduce_logical_ops(
+        self: CSSCode,
+        pauli: PauliXZLike | None = None,
+        *,
+        decoder: DeferredErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> CSSCode:
+        """Deprecated method that tries to reduce the weights of logical operators."""
+        warn_deprecated(
+            f"{type(self).__name__}.reduce_logical_ops is DEPRECATED, since it does not reliably"
+            " reduce weight, and will be removed in a future release",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        for pauli_xz in PAULIS_XZ if pauli is None else [Pauli.coerce_xz(pauli)]:
+            for logical_index in range(self.dimension):
+                _reduce_logical_op(self, pauli_xz, logical_index, decoder, decoder_kwargs)
+        return self
+
 
 def _attach_tanner_graph_methods(cls: type, *, symplectic: bool) -> None:
     """Attach deprecated static methods that convert between matrices and Tanner graphs."""
@@ -693,6 +732,60 @@ def _attach_tanner_graph_methods(cls: type, *, symplectic: bool) -> None:
         )
         field = getattr(graph, "field", galois.GF2)
         return TannerGraph(graph, field=field, symplectic=symplectic).to_matrix()
+
+
+def _reduce_logical_op(
+    code: CSSCode,
+    pauli: PauliXZLike,
+    logical_index: int,
+    decoder: DeferredErrorDecoderInput,
+    decoder_kwargs: dict[str, Any],
+) -> None:
+    """Replace a logical operator of a CSS code by one that a decoder finds.
+
+    The new operator has a trivial syndrome, and commutes with every logical operator except the
+    dual of the one that it replaces.
+    """
+    import numpy as np
+
+    from qldpc.codes.common import _DECODING_FAILURE_MESSAGE, _decode
+    from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
+    from qldpc.objects import Pauli
+
+    from .decoders import merge_legacy_decoder_args
+
+    pauli = Pauli.coerce_xz(pauli)
+    if not 0 <= logical_index < code.dimension:
+        raise ValueError(
+            f"logical_index must lie in range({code.dimension}) (provided: {logical_index})"
+        )
+    reject_prebuilt_decoder(
+        decoder,
+        "logical operators are found by decoding an internal effective check matrix that stacks"
+        " the checks and dual logical operators of the code",
+    )
+
+    # effective check matrix = syndromes and dual-pauli logical operators
+    checks = code.get_code(pauli.swap_xz())
+    dual_logical_ops = code.get_logical_ops(pauli.swap_xz())
+    effective_check_matrix = np.vstack([checks.matrix, dual_logical_ops]).view(code.field)
+
+    # enforce that the new logical operator commutes with everything except its dual
+    effective_syndrome = code.field.Zeros(checks.num_checks + code.dimension)
+    effective_syndrome[checks.num_checks + logical_index] = 1
+
+    if decoder_kwargs:
+        decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
+    error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
+    candidate_logical_op = _decode(error_decoder, effective_check_matrix, effective_syndrome)
+    if candidate_logical_op is None:
+        raise ValueError(_DECODING_FAILURE_MESSAGE)
+
+    # cached logical operators are read-only, so replace them by an updated copy
+    logical_ops = code.get_logical_ops().copy()
+    blocks = np.reshape(logical_ops, (2, code.dimension, 2, len(code)), copy=False)
+    blocks[pauli, logical_index, pauli, :] = candidate_logical_op
+    code._logical_ops = logical_ops
 
 
 def _deprecated_method(

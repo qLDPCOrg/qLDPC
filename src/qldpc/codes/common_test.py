@@ -1150,8 +1150,6 @@ def test_non_css_operator_layout_and_argument_validation() -> None:
         codes.FiveQubitCode().get_logical_ops(symplectic=False)
     with pytest.raises(ValueError, match="is_subsystem_code=False contradicts"):
         codes.QuditCode(codes.BaconShorCode(3), is_subsystem_code=False)
-    with pytest.raises(ValueError, match="logical_index must lie in"):
-        codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 1)
     with pytest.raises(ValueError, match="pauli_bias must have three entries"):
         codes.SurfaceCode(3).get_logical_error_rate_func(10, pauli_bias=(1, 1))
 
@@ -1675,7 +1673,7 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code.num_checks_x == code_x.num_checks
     assert code.num_checks_z == code_z.num_checks
     assert code.num_checks == code.num_checks_x + code.num_checks_z
-    assert code == codes.CSSCode(code.code_x, code.code_z)
+    assert code == codes.CSSCode(code.get_code(Pauli.X), code.get_code("Z"))
 
     # equivalence to QuditCode with the same parity check matrix
     assert code.is_equiv_to(codes.QuditCode(code.matrix))
@@ -1785,16 +1783,11 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
             stabs = code.get_stabilizer_ops(pauli.swap_xz())
             assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
-    # successfully construct and reduce logical operators in a code with "over-complete" checks
+    # successfully construct logical operators in a code with "over-complete" checks
     dist = 4
     code = codes.ToricCode(dist, rotated=True)
     assert code.canonicalized.num_checks < code.num_checks
     assert code.get_code_params() == (dist**2, 2, dist)
-    code.reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
-    logical_ops_x = code.get_logical_ops(Pauli.X)
-    logical_ops_z = code.get_logical_ops(Pauli.Z, symplectic=True)
-    assert np.all(np.count_nonzero(logical_ops_x.view(np.ndarray), axis=1) == dist)
-    assert np.all(np.count_nonzero(logical_ops_z.view(np.ndarray), axis=1) == dist)
 
 
 def test_distance_css() -> None:
@@ -1850,14 +1843,10 @@ def test_decoder_distance_bounds_of_subsystem_codes_are_dressed() -> None:
 
     The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
     three qubits is a dressed logical operator, although every bare logical operator has weight 3.
-    Reduced logical operators stay bare: they commute with every gauge generator.
     """
     code = codes.CSSCode([[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]])
     for pauli in PAULIS_XZ:
         assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 1
-    code.reduce_logical_ops()
-    logical_ops = code.get_logical_ops(symplectic=True)
-    assert not np.any(code.matrix @ math.symplectic_conjugate(logical_ops).T)
 
 
 def test_decoder_distance_bounds_exclude_gauge_operators() -> None:
@@ -2026,12 +2015,8 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
         code.get_distance_bound(decoder=decoder)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         code.get_distance_bound_with_decoder(Pauli.X, decoder=decoder)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
-        code.reduce_logical_ops(decoder=decoder)  # type: ignore[arg-type]
 
     # the static_decoder argument has been removed, in favor of decoder=
-    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
-        code.reduce_logical_ops(static_decoder=decoder)
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
         code.get_distance_bound(static_decoder=decoder)
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
@@ -2054,7 +2039,6 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
 
     # decoder specifications are used to build a decoder for each internal matrix
     assert code.get_distance_bound(decoder=decoders.lookup(max_weight=3)) == 3
-    assert code.reduce_logical_ops(decoder=decoders.lookup(max_weight=3))
 
 
 def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
@@ -2082,8 +2066,6 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     code = codes.SurfaceCode(3)
     code.forget_distance()
     assert code.get_distance_bound(decoder=erasing_decoder) == 3
-    code.reduce_logical_ops(decoder=erasing_decoder)
-    assert all(np.count_nonzero(op) == 3 for op in code.get_logical_ops().view(np.ndarray))
 
     # a trial whose decoding fails moves on to another problem
     for _ in range(20):
@@ -2106,7 +2088,6 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
             ),
             1,
         ),
-        (lambda: codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 0, decoder=failing_decoder), 1),
     ]:
         with count_decodings() as decode, pytest.raises(ValueError, match="failed to infer"):
             search()

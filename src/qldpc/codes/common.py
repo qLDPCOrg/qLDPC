@@ -85,10 +85,6 @@ _CSS_DISTANCE_BOUND_REASON = (
     "decoder-based distance bounds decode an internal effective check matrix that stacks the"
     " stabilizers and logical operators of the code"
 )
-_REDUCE_LOGICAL_OP_REASON = (
-    "logical operators are found by decoding an internal effective check matrix that stacks the"
-    " checks and dual logical operators of the code"
-)
 _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome matrix"
 
 
@@ -4052,105 +4048,6 @@ class CSSCode(QuditCode):
         """Forget the known distances (and known distance bounds) of this code."""
         self._distance_x = self._distance_z = self._distance = None
         self._distance_bound_x = self._distance_bound_z = self._distance_bound = None
-        return self
-
-    def reduce_logical_op(
-        self,
-        pauli: PauliXZLike,
-        logical_index: int,
-        *,
-        decoder: decoders.DeferredErrorDecoderInput = None,
-        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
-    ) -> Self:
-        """Reduce the weight of a logical operator.
-
-        A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
-        that it commutes with all logical operators except its dual.  This is essentially the same
-        method as that used in CSSCode.get_distance_bound_with_decoder.  For a subsystem code,
-        however, the operator stays bare, so its weight can exceed the distance, which is dressed
-        (see get_distance).
-
-        Args:
-            pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"
-                and "Z" (case-insensitive) are also accepted.
-            logical_index: The index of the logical operator to reduce.
-            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
-                select the default.  It is built for an internal effective check matrix that stacks
-                the checks and dual logical operators of the code.
-            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
-                ``decoder=`` instead.
-
-        Returns:
-            This code, with a reduced logical operator.
-
-        Raises:
-            ValueError: If logical_index is out of range, or if the decoder fails to infer an error
-                that reproduces its syndrome.
-        """
-        pauli = Pauli.coerce_xz(pauli)
-        if not 0 <= logical_index < self.dimension:
-            raise ValueError(
-                f"logical_index must lie in range({self.dimension}) (provided: {logical_index})"
-            )
-        reject_prebuilt_decoder(decoder, _REDUCE_LOGICAL_OP_REASON)
-
-        # effective check matrix = syndromes and dual-pauli logical operators
-        code = self.get_code(pauli.swap_xz())
-        dual_logical_ops = self.get_logical_ops(pauli.swap_xz())
-        effective_check_matrix = np.vstack([code.matrix, dual_logical_ops]).view(self.field)
-        dual_op_index = code.num_checks + logical_index
-
-        # enforce that the new logical operator commutes with everything except its dual
-        effective_syndrome = self.field.Zeros(code.num_checks + self.dimension)
-        effective_syndrome[dual_op_index] = 1
-
-        if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
-            decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
-        error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
-        candidate_logical_op = _decode(error_decoder, effective_check_matrix, effective_syndrome)
-        if candidate_logical_op is None:
-            raise ValueError(_DECODING_FAILURE_MESSAGE)
-
-        # cached logical operators are read-only, so replace them by an updated copy
-        logical_ops = self.get_logical_ops().copy()
-        blocks = np.reshape(logical_ops, (2, self.dimension, 2, len(self)), copy=False)
-        blocks[pauli, logical_index, pauli, :] = candidate_logical_op
-        self._logical_ops = logical_ops
-        return self
-
-    def reduce_logical_ops(
-        self,
-        pauli: PauliXZLike | None = None,
-        *,
-        decoder: decoders.DeferredErrorDecoderInput = None,
-        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
-    ) -> Self:
-        """Reduce the weight of all logical operators.
-
-        For a subsystem code, the reduced operators stay bare (see reduce_logical_op).
-
-        Args:
-            pauli: The type of logical operators to reduce: Pauli.X, Pauli.Z, or None (the default)
-                to reduce both X-type and Z-type logical operators.  The strings "X" and "Z"
-                (case-insensitive) are also accepted.
-            decoder: Decoder input used to reduce each logical operator; see
-                help(reduce_logical_op).
-            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
-                ``decoder=`` instead.
-
-        Returns:
-            This code, with reduced logical operators.
-        """
-        pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-        if pauli is None:
-            # DEPRECATED: see qldpc._deprecations
-            self.reduce_logical_ops(Pauli.X, decoder=decoder, **decoder_kwargs)
-            # DEPRECATED: see qldpc._deprecations
-            self.reduce_logical_ops(Pauli.Z, decoder=decoder, **decoder_kwargs)
-        else:
-            for logical_index in range(self.dimension):
-                # DEPRECATED: see qldpc._deprecations
-                self.reduce_logical_op(pauli, logical_index, decoder=decoder, **decoder_kwargs)
         return self
 
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
