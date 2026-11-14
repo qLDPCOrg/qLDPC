@@ -274,9 +274,9 @@ class SearchTuning:
     #: unless ``partition_cost_factor`` is zero.  Searches given automorphisms switch to their
     #: images instead if those do no more work than any partitioned family could.  Estimated work
     #: can far exceed the work done, so the ratio does not bound wasted time.  Defaults to 500, a
-    #: judgment call made before that switch: no value separated the timed searches that
-    #: partitioning slowed, which later switched to images, from those that it sped up; 500
-    #: misclassified the fewest.  To retune it, time searches with and without partitioning.
+    #: judgment call: no value separated the timed searches that partitioning slowed from those that
+    #: it sped up; 500 misclassified the fewest.  To retune it, time searches with and without
+    #: partitioning.
     partition_work_ratio: int = 500
 
     #: The largest coverage, the most information sets that contain any one column, that matroid
