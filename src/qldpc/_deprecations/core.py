@@ -765,14 +765,14 @@ def _reduce_logical_op(
         " the checks and dual logical operators of the code",
     )
 
-    # effective check matrix = syndromes and dual-pauli logical operators
-    checks = code.get_code(pauli.swap_xz())
+    # effective check matrix = parity checks and dual-pauli logical operators
+    check_code = code.get_code(pauli.swap_xz())
     dual_logical_ops = code.get_logical_ops(pauli.swap_xz())
-    effective_check_matrix = np.vstack([checks.matrix, dual_logical_ops]).view(code.field)
+    effective_check_matrix = np.vstack([check_code.matrix, dual_logical_ops]).view(code.field)
 
     # enforce that the new logical operator commutes with everything except its dual
-    effective_syndrome = code.field.Zeros(checks.num_checks + code.dimension)
-    effective_syndrome[checks.num_checks + logical_index] = 1
+    effective_syndrome = code.field.Zeros(check_code.num_checks + code.dimension)
+    effective_syndrome[check_code.num_checks + logical_index] = 1
 
     if decoder_kwargs:
         decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)

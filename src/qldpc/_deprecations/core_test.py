@@ -100,7 +100,7 @@ def test_star_imports_do_not_warn() -> None:
 
 
 def test_deprecated_methods() -> None:
-    """Deprecated methods warn and delegate to their replacements."""
+    """Deprecated methods warn, and return what they returned before."""
     classical_code = codes.RepetitionCode(3)
     qudit_code = codes.QuditCode(codes.FiveQubitCode())
     css_code = codes.SteaneCode()
@@ -134,21 +134,23 @@ def test_deprecated_methods() -> None:
 
 def test_deprecated_reduce_logical_ops() -> None:
     """The deprecated reduction of logical operators stores the operators that a decoder finds."""
-    dist = 4
-    code: Any = codes.ToricCode(dist, rotated=True)
+    dist = 3
+    code = codes.ToricCode(dist, rotated=False)
+    reduce_logical_op = code.reduce_logical_op  # type: ignore[attr-defined]
+    reduce_logical_ops = code.reduce_logical_ops  # type: ignore[attr-defined]
     with pytest.warns(DeprecationWarning, match="reduce_logical_ops is DEPRECATED"):
-        code.reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
+        reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
     assert np.all(np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=1) == dist)
 
     # an invalid index, a failed decoding, and a removed decoder argument raise errors
     for reduce, error, message in [
-        (lambda: code.reduce_logical_op("X", 2), ValueError, "logical_index must lie in"),
+        (lambda: reduce_logical_op("X", 2), ValueError, "logical_index must lie in"),
         (
-            lambda: code.reduce_logical_op("X", 0, decoder=decoders.lookup(max_weight=0)),
+            lambda: reduce_logical_op("X", 0, decoder=decoders.lookup(max_weight=0)),
             ValueError,
             "failed to infer",
         ),
-        (lambda: code.reduce_logical_ops(static_decoder=None), TypeError, "static_decoder"),
+        (lambda: reduce_logical_ops(static_decoder=None), TypeError, "static_decoder"),
     ]:
         with pytest.warns(DeprecationWarning), pytest.raises(error, match=message):
             reduce()

@@ -1674,7 +1674,7 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code.num_checks_x == code_x.num_checks
     assert code.num_checks_z == code_z.num_checks
     assert code.num_checks == code.num_checks_x + code.num_checks_z
-    assert code == codes.CSSCode(code.get_code(Pauli.X), code.get_code("Z"))
+    assert code == codes.CSSCode(code.get_code("X"), code.get_code(Pauli.Z))
 
     # equivalence to QuditCode with the same parity check matrix
     assert code.is_equiv_to(codes.QuditCode(code.matrix))
@@ -1784,7 +1784,7 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
             stabs = code.get_stabilizer_ops(pauli.swap_xz())
             assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
-    # successfully construct logical operators in a code with "over-complete" checks
+    # a code with "over-complete" checks has the expected parameters
     dist = 4
     code = codes.ToricCode(dist, rotated=True)
     assert code.canonicalized.num_checks < code.num_checks
