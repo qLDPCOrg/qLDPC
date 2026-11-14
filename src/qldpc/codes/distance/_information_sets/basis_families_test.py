@@ -290,6 +290,22 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
         disjoint = basis_families.get_disjoint_family(basis, None, random_column_orders=0)
         assert not len(basis_families.get_maximum_disjoint_family(basis, disjoint).ranks)
 
+    # A maximum family keeps the limit of a packing: 8 information sets of three rows fit here, but
+    # a packing keeps 7, so no family replaces those 7, and 3 of them are replaced by 7.
+    three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
+    capped = basis_families.get_disjoint_family(three_rows, None, random_column_orders=0)
+    assert not len(basis_families.get_maximum_disjoint_family(three_rows, capped).ranks)
+    smaller = basis_families.BasisFamily(
+        capped.generators[:3],
+        capped.labels[:3],
+        capped.pivots[:3],
+        capped.ranks[:3],
+        capped.weight_divisor,
+        1,
+    )
+    family = basis_families.get_maximum_disjoint_family(three_rows, smaller)
+    assert family.ranks.tolist() == [3] * 7
+
 
 def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pytest.Config) -> None:
     """Families of random information sets, with uneven coverage, have valid certificates."""

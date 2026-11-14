@@ -458,9 +458,10 @@ def get_maximum_disjoint_family(
     partial set than another packing would.  Matroid partitioning with coverage one finds the most
     disjoint information sets, and the largest partial set on the columns that they leave (see
     ``matroid_partition``).  The sets of the family have no labels.  Like a greedy packing, each
-    family holds information sets and then at most one partial set.  For such families, if the
-    pivots of ``basis_family`` use every nonzero column, no other family has larger ranks, so this
-    skips partitioning.
+    family holds information sets and then at most one partial set, and at most as many information
+    sets as a packing keeps (see ``_get_max_full_sets``).  For such families, if the pivots of
+    ``basis_family`` use every nonzero column, or it already holds that many information sets, no
+    other family can do better within that limit, so this skips partitioning.
 
     Returns:
         That family, if its tuple of ranks is lexicographically larger than that of
@@ -471,10 +472,14 @@ def get_maximum_disjoint_family(
     no_labels = np.empty((dimension, 0), dtype=np.uint8)
     if int(basis_family.ranks.sum()) == num_columns:
         return _get_no_replacement(basis_family, basis, no_labels)
+    full_set_limit = _get_max_full_sets(dimension)
+    if int(np.count_nonzero(basis_family.ranks == dimension)) >= full_set_limit:
+        return _get_no_replacement(basis_family, basis, no_labels)
 
-    # A disjoint family has at most num_columns // dimension information sets, and a partial set.
+    # A disjoint family has at most num_columns // dimension information sets and a partial set,
+    # but a family at the limit of a packing holds that many information sets and no partial set.
     column_sets = matroid_partition.get_information_sets_with_coverage(
-        basis, 1, num_columns // dimension + 1, keep_partial=True
+        basis, 1, min(num_columns // dimension + 1, full_set_limit), keep_partial=True
     )
     ranks = np.array([len(columns) for columns in column_sets], dtype=np.int64)
     if tuple(ranks.tolist()) <= tuple(basis_family.ranks.tolist()):
