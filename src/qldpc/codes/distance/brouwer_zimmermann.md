@@ -887,8 +887,8 @@ Numba compiles each search separately for None and for a record of tails, so the
 Every route by tails of a family gives the latest record `CosetTails` of the family.
 The record holds the tails of the rows of each search basis, and of the words with unit syndromes, from which a query adds up the tail of each offset.
 It also holds the completion tables of the search bases that the queries of the route scan in layers of two or more rows, if they fit in `completion_bound_max_table_bytes`.
-The routes build the tails of a family once, and the tables of each of its search bases once, for the first route that needs them (`get_coset_tails` and `completion_bounds.get_table_bytes_within`).
-They build the new tables of a record in place, in the array of the new record, so that a build holds them once.
+The routes build the tails of a family once, and the tables of each of its search bases once, for the first route that needs them (`get_coset_tails` and `completion_bounds.CompletionTables.build`).
+They build the tables that a record gains in place, in the array of the new record, so that a build holds them once; a record that already has tables holds those twice until the routes replace it.
 They keep only the latest record of a family, so they hold the tables of each search basis once.
 A query by tails scans each layer of two or more rows of a search basis that has tables with `scan_coset_layer_by_tails_with_tables`.
 It scans the other layers with `scan_coset_layer_by_tails`.

@@ -153,7 +153,9 @@ def get_coset_tails(
     completion tables of each set of ``sets``, unless they would exceed ``max_table_bytes`` bytes or
     be empty (see ``completion_bounds.get_table_bytes_within``).  That record holds the tables of
     each set once, and is ``record`` itself if it adds no tables.  The function builds the new
-    tables in place in the array of that record, so that it never holds two copies of them.
+    tables in place in the array of that record, so that it never holds two copies of them; it
+    copies the earlier tables of ``record`` into that array, so that they are held twice until the
+    caller drops ``record``.
     """
     # Build the tails of the family once, with a layout of no tables.
     if record is None:

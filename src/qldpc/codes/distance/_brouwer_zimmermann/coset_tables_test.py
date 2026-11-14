@@ -128,8 +128,8 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
     assert [get_set_tables(first, index) for index in range(2)] == [expected[0].tables.tolist(), []]
 
 
-def test_records_of_tails_hold_the_tables_that_they_add_once() -> None:
-    """A record of tails that gains tables holds the new tables once while it builds them.
+def test_records_of_tails_build_the_tables_that_they_add_in_place() -> None:
+    """``get_coset_tails`` holds the tables that a record gains once while it builds them.
 
     NumPy reports its arrays to tracemalloc.  The record of a random code of 24 rows and 96 columns
     gains the tables of a second set, of about 50 kB on blocks of eight columns.  The traced memory
@@ -149,13 +149,16 @@ def test_records_of_tails_hold_the_tables_that_they_add_once() -> None:
         )
 
     first = get_record([0], None)
+    was_tracing = tracemalloc.is_tracing()
     tracemalloc.start()
     try:
+        tracemalloc.reset_peak()
         before = tracemalloc.get_traced_memory()[0]
         second = get_record([1], first)
         peak = tracemalloc.get_traced_memory()[1]
     finally:
-        tracemalloc.stop()
+        if not was_tracing:
+            tracemalloc.stop()
     added = len(second.completion_tables) - len(first.completion_tables)
     assert added > 40_000
     assert peak - before < len(second.completion_tables) + added // 2

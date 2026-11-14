@@ -142,6 +142,7 @@ def test_tables_within_a_limit_fit_only_if_they_skip_something_and_build_in_plac
     tables = cb.CompletionTables.build(rows, 8)
     num_bytes = len(tables.tables)
     assert cb.get_table_bytes_within(rows, 8, num_bytes) == num_bytes
+    assert cb.get_table_bytes_within(rows, 8, MAX_VALUE) == num_bytes
     assert cb.get_table_bytes_within(rows, 8, num_bytes - 1) == 0
     assert cb.get_table_bytes_within(np.zeros_like(rows), 8, MAX_VALUE) == 0
     assert cb.get_table_bytes_within(rows[:1], 8, MAX_VALUE) == 0
@@ -150,6 +151,9 @@ def test_tables_within_a_limit_fit_only_if_they_skip_something_and_build_in_plac
     cb.CompletionTables.build(rows, 8, out=array[1:-1])
     np.testing.assert_array_equal(array[1:-1], tables.tables)
     assert array[0] == array[-1] == 255
+    for size in (num_bytes - 1, num_bytes + 1):
+        with pytest.raises(AssertionError):
+            cb.CompletionTables.build(rows, 8, out=np.empty(size, dtype=np.uint8))
 
 
 def test_sampled_supports_are_counted_exactly(pytestconfig: pytest.Config) -> None:
