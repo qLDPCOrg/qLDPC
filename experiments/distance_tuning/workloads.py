@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Named codes and workloads for timing and retuning the exact distance searches of qLDPC.
+"""Named codes and workloads on which the exact distance searches of qLDPC are timed and traced.
 
 A code name is one of:
 
@@ -9,10 +9,13 @@ A code name is one of:
 - ``bb288``: ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]]
   code of the width data set of ``qldpc.codes.distance._tuning``;
 - ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, also of that data set;
+- ``qgolay``: the [[23, 1, 7]] quantum Golay code, which is self-dual;
+- ``qrm:<order>:<size>``: ``QuantumReedMullerCode(order, size)``, which is self-dual;
 - ``lp<order>s<seed>``: the lifted product of a 3 x 4 matrix of monomials of
   ``CyclicGroup(order)``, whose exponents NumPy's default generator draws from ``seed``, such as
   ``lp13s5`` and ``lp13s8``;
 - ``surface:<d>`` and ``toric:<d>``: rotated surface and toric codes of distance ``d``;
+- ``utoric:<rows>:<cols>``: the unrotated toric code ``ToricCode(rows, cols, rotated=False)``;
 - ``classical:<bits>:<checks>:<seed>``: ``ClassicalCode.random(bits, checks, seed=seed)``;
 - ``sparse:<bits>:<dimension>:<row_weight>:<seed>``: a classical code of low distance, whose
   generator matrix has ``dimension`` rows of ``row_weight`` ones each, in random columns that
@@ -23,11 +26,15 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
 
 - ``distance/<code>/<sector>``: ``get_distance_exact`` of a quantum code, for the sector ``X``,
   ``Z``, or ``both``, or of a classical code, whose sector must be ``-``;
+- ``csdistance/<code>/<sector>``: the same, by the connected-support method;
 - ``hadamard/<code>``: ``get_distance_exact`` of the code that Hadamards on the second half of the
   qubits of a CSS code make, which is not CSS;
 - ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method;
 - ``ccount/<code>/<weight>``: the same count, in a process whose warm-up first calls
   ``compile_search_setup`` (see ``trial.py``);
+- ``mcount/<code>/<num_codes>``: counts by the MacWilliams method of the logical operators at the
+  distance of ``num_codes`` codes, each the CSS code deformed by a CNOT on a pair of qubits that
+  NumPy's default generator draws from seed 0, as a search over deformed codes counts them;
 - ``coset/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``: the minimum weights,
   up to ``max_weight``, that a ``CosetLeaderSearch`` on the logical state ``|0...0>`` of a CSS code
   finds for the syndromes of random Pauli errors of ``error_weight`` qubits, by ``css`` or
@@ -54,6 +61,7 @@ Each workload returns a short string of its result, which every tuning must repr
 from __future__ import annotations
 
 import functools
+import hashlib
 import pathlib
 from collections.abc import Callable
 from typing import Literal
@@ -64,7 +72,7 @@ import stim
 from sympy.abc import x, y
 
 from qldpc import abstract, circuits, codes
-from qldpc.codes.distance import CosetLeaderSearch, CSSLogicalCounter
+from qldpc.codes.distance import CosetLeaderSearch, CSSLogicalCounter, DistanceMethod
 from qldpc.objects import Pauli
 
 ####################################################################################################
@@ -174,6 +182,11 @@ def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
         return codes.BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)
     if kind == "qt7":
         return codes.QTCode.random(abstract.CyclicGroup(7), codes.HammingCode(3), seed=1)
+    if kind == "qgolay":
+        return codes.QuantumGolayCode()
+    if kind == "qrm":
+        order, size = map(int, args.split(":"))
+        return codes.QuantumReedMullerCode(order, size)
     if kind.startswith("lp") and "s" in kind:
         order, seed = map(int, kind[2:].split("s"))
         return get_lifted_product_code(order, seed)
@@ -181,6 +194,9 @@ def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
         return codes.SurfaceCode(int(args))
     if kind == "toric":
         return codes.ToricCode(int(args), rotated=True)
+    if kind == "utoric":
+        rows, cols = map(int, args.split(":"))
+        return codes.ToricCode(rows, cols, rotated=False)
     if kind == "classical":
         bits, checks, seed = map(int, args.split(":"))
         return codes.ClassicalCode.random(bits, checks, seed=seed)
@@ -232,21 +248,23 @@ def run_workload(name: str) -> str:
     return WORKLOADS[kind](*args)
 
 
-def run_distance(code_name: str, sector: str) -> str:
-    """The exact distance of a code, for one sector of a CSS code."""
+def run_distance(
+    code_name: str, sector: str, *, method: DistanceMethod = "brouwer_zimmermann"
+) -> str:
+    """The exact distance of a code, for one sector of a CSS code, by a method."""
     code = get_code(code_name)
     code.forget_distance()
     if isinstance(code, codes.CSSCode):
         if sector == "both":
-            return str(code.get_distance_exact())
+            return str(code.get_distance_exact(method=method))
         if sector == "X":
-            return str(code.get_distance_exact(Pauli.X))
+            return str(code.get_distance_exact(Pauli.X, method=method))
         if sector == "Z":
-            return str(code.get_distance_exact(Pauli.Z))
+            return str(code.get_distance_exact(Pauli.Z, method=method))
         raise ValueError(f"Unknown sector {sector!r}; choose 'X', 'Z', or 'both'")
     if sector != "-":
         raise ValueError(f"A classical code has no sector {sector!r}; use '-'")
-    return str(code.get_distance_exact())
+    return str(code.get_distance_exact(method=method))
 
 
 def run_hadamard_distance(code_name: str) -> str:
@@ -269,6 +287,28 @@ def run_count(code_name: str, weight: str) -> str:
     code = get_css_code(code_name)
     counts = CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(int(weight))
     return f"{counts.weight}:{counts.count_x}:{counts.count_z}"
+
+
+def run_deformed_counts(code_name: str, num_codes: str) -> str:
+    """Count by MacWilliams the logical operators of codes that one CNOT deforms from a CSS code.
+
+    The result is a hash of the weight and counts of each code, which are too many to print.
+    """
+    counter = get_counter(code_name)
+    rng = np.random.default_rng(0)
+    results = []
+    for _ in range(int(num_codes)):
+        control, target = rng.choice(counter.num_qubits, size=2, replace=False)
+        deformed = counter.deformed_cnot(int(control), int(target))
+        counts = deformed.count_logical_ops(method="macwilliams")
+        results.append(f"{counts.weight}:{counts.count_x}:{counts.count_z}")
+    return hashlib.sha256(",".join(results).encode()).hexdigest()[:16]
+
+
+@functools.cache
+def get_counter(code_name: str) -> CSSLogicalCounter:
+    """The counter of a named CSS code, from which deformed counters start."""
+    return CSSLogicalCounter.from_code(get_css_code(code_name))
 
 
 def run_cosets(
@@ -402,9 +442,11 @@ def get_noisy_memory_circuit(code_name: str, basis: str) -> stim.Circuit:
 
 WORKLOADS: dict[str, Callable[..., str]] = {
     "distance": run_distance,
+    "csdistance": functools.partial(run_distance, method="connected_support"),
     "hadamard": run_hadamard_distance,
     "count": run_count,
     "ccount": run_count,
+    "mcount": run_deformed_counts,
     "coset": run_cosets,
     "hcoset": functools.partial(run_cosets, hadamards=True),
     "hbound": run_weight_one_bounds,

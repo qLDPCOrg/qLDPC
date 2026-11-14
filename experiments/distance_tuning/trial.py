@@ -33,6 +33,7 @@ from qldpc import codes
 from qldpc.codes.distance import (
     CosetLeaderSearch,
     CSSLogicalCounter,
+    DistanceMethod,
     _tuning,
     compile_search_setup,
 )
@@ -53,8 +54,10 @@ FORCE_EVERY_ROUTE = {
     "partition_work_ratio": 0,
     "lp_minimum_work": 0,
     "automorphism_minimum_layer_work": 0,
+    "automorphism_minimum_states": 0,
     "completion_bound_minimum_layer_work": 0,
     "completion_bound_max_cost_percent": _tuning.MAX_VALUE,
+    "macwilliams_shared_walk_rank": 0,
 }
 
 # The codes of the warm-up.  Searches and caches remember results for them, so no timed workload
@@ -142,15 +145,18 @@ def warm_up(kind: str) -> None:
         kind = "count"
     for changes in ({}, FORCE_EVERY_ROUTE):
         with _tuning.use_tuning(**changes):
-            if kind == "distance":
+            if kind in ("distance", "csdistance"):
+                method: DistanceMethod = (
+                    "connected_support" if kind == "csdistance" else "brouwer_zimmermann"
+                )
                 classical = workloads.get_code("classical:40:20:0")
                 classical.forget_distance()
-                classical.get_distance_exact()
+                classical.get_distance_exact(method=method)
                 for name in ("surface:5", "toric:4"):
                     code = workloads.get_css_code(name)
                     for pauli in (Pauli.X, None):
                         code.forget_distance()
-                        code.get_distance_exact(pauli)
+                        code.get_distance_exact(pauli, method=method)
             elif kind == "hadamard":
                 hadamard_code = workloads.get_hadamard_code("surface:5")
                 hadamard_code.forget_distance()
@@ -161,6 +167,8 @@ def warm_up(kind: str) -> None:
                     (codes.ToricCode(4, rotated=True), 4),
                 ):
                     CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(weight)
+            elif kind == "mcount":
+                workloads.run_deformed_counts("surface:5", "2")
             elif kind == "certify":
                 for weighing in ("css", "physical"):
                     workloads.run_certification("surface:5", weighing, "3")

@@ -1,63 +1,75 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compare tunings of the exact distance searches on workloads, in paired, resumable trials.
+"""Compare the whole current tuning of the exact searches with a whole proposed one, by timing.
 
-A sweep compares arms, each a set of changes to the fields of ``SearchTuning``, on workloads (see
-``workloads.py``).  Each trial runs ``trial.py`` in a new process, limited to one thread, which
-warms up and then times one workload under one arm.  Each round runs every arm once on each
-workload, in an order that alternates between rounds, so that drifts of the load of the machine
-affect every arm alike.  With ``--jobs`` above one, groups of trials, each one round of one
-workload, run at once, while the arms of a group run one after another on one worker, so that they
-share the conditions of the machine as closely as possible.  Completion tables save less when
-several searches run at once (see "Before measuring" in the README of this directory), so compare
-their cost models with ``--jobs 1``.
+The comparison confirms a change of tuning whose values rules and measured constants give (see the
+Retuning section of ``qldpc.codes.distance._tuning``), and never chooses a value.  It times
+workloads (see ``workloads.py``) under two arms: the current tuning, the defaults of
+``SearchTuning``, and the proposed tuning, those defaults with the changes that ``--proposed``
+gives.  With ``--worktrees``, the arms are instead the defaults of two checkouts of qLDPC, the
+current one first, each of which runs its own ``trial.py`` and imports its own source, with the
+Python of this process.
 
-Each trial appends one JSON line to ``trials.jsonl`` in the results directory, with the sweep's tag,
-the arm, the round, the commit and a hash of the differences of the source from it, the load
-average, and the record of ``trial.py``, or the error or timeout of the trial.  A sweep skips trials
-that the file already holds, so an interrupted sweep resumes where it stopped.
-``collect_results.py`` summarizes the file.
+Each trial runs ``trial.py`` in a new process, limited to one thread, which warms up and then times
+one workload under one arm, and the trials run one at a time.  Each round runs both arms on each
+workload, one after the other, in an order that alternates between rounds and between workloads, so
+that drifts of the load of the machine affect both arms alike.  Each arm keeps the bytecode of its
+source in its own directory of the results directory, so that, after its first trial, neither arm
+compiles modules within its timed searches.  Before any trial, the script checks that each arm
+imports qLDPC from the ``src`` of its checkout.
 
-``--repeat`` times the workload several times in each trial's process, and ``collect_results.py``
-takes the median of the repetitions.  The first repetition also does work that codes remember and
-that does not depend on the tuning (see ``trial.py``), so with three or more repetitions the median
-leaves it out.  Distance, hadamard, and count workloads repeat their searches; a workload of
-``CosetLeaderSearch`` reuses its cached searches.
+Each trial appends one JSON line to ``trials.jsonl`` in the results directory, with the tag of the
+comparison, the arm, the round, the checkout, changes, and source of each arm (see
+``get_source_fingerprint``), the load average, and the record of ``trial.py``, or the error or
+timeout of the trial.  A comparison skips the trials that the file already holds, so an interrupted
+comparison resumes where it stopped, and running a finished one again prints its summary.
 
-Arms are given either as ``--field`` and ``--values``, which compares values of one field, or as
-``--arms``, a JSON list of objects of changes.  ``--base`` adds changes to every arm.  The first
-arm is the reference of ``collect_results.py``, so list the current default first.
+The summary pairs the arms of each round, among the trials of the arms, workloads, and repetitions
+that the command gives.  For each workload, it gives the successful trials of each arm, the median
+wall seconds of each arm (of a trial, the median of its repetitions), and the median, over rounds,
+of the difference and of the ratio of the proposed arm's time to the current arm's, with the least
+and greatest ratio, a distribution-free 95% confidence interval of the median ratio from six rounds
+(see ``get_median_interval``), and the median peak resident memory of each arm, in MiB.  Ratios of
+one round share the conditions of the machine, so their spread measures noise better than the
+spread of times.  It flags a workload whose arms disagree on a result, which no tuning may change
+except a distance search with an early exit.  It prints the summary, and writes it to
+``summary-<tag>.csv`` in the results directory.
 
-Run sweeps under a guard of memory and time that allows ``--jobs`` processes.
+``--repeat`` times the workload several times in each trial's process.  The first repetition also
+does work that codes remember and that does not depend on the tuning (see ``trial.py``), so with
+three or more repetitions the median leaves it out.  Distance, hadamard, and count workloads repeat
+their searches; a workload of ``CosetLeaderSearch`` reuses its cached searches.
+
+Run comparisons under a guard of memory and time.
 
 Examples:
 
-    python experiments/distance_tuning/sweep.py --tag noise --rounds 10 \\
-        --workloads distance/gross/X count/gross/12 --arms '[{}, {}]'
-    python experiments/distance_tuning/sweep.py --tag max-sets --rounds 6 \\
-        --workloads distance/pp232/X distance/lp13s5/X --field max_information_sets \\
-        --values 16 8 24 32
+    python experiments/distance_tuning/sweep.py --tag lower-aut --rounds 3 \\
+        --workloads csdistance/lp13s5/X csdistance/surface:17/X \\
+        --proposed '{"automorphism_minimum_states": 50000}'
+    python experiments/distance_tuning/sweep.py --tag branch --rounds 3 \\
+        --workloads distance/qt7/X count/gross/12 --worktrees ../qLDPC-main .
 """
 
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
+import csv
 import hashlib
 import json
+import math
 import os
 import pathlib
 import statistics
 import subprocess
 import sys
-import threading
 import time
-from collections.abc import Iterator
 from typing import Any
 
 DIRECTORY = pathlib.Path(__file__).resolve().parent
 REPOSITORY = DIRECTORY.parent.parent
 TRIALS_NAME = "trials.jsonl"  # name of the file of trials in the results directory
+ARMS = ("current", "proposed")
 
 # Environment variables that limit a trial to one thread.
 SINGLE_THREAD = {
@@ -72,44 +84,72 @@ SINGLE_THREAD = {
     )
 }
 
+# columns of the summary file
+CSV_FIELDS = (
+    "workload",
+    "trials_current",
+    "trials_proposed",
+    "failed",
+    "median_wall_current",
+    "median_wall_proposed",
+    "median_difference",
+    "median_ratio",
+    "ci_low",
+    "ci_high",
+    "min_ratio",
+    "max_ratio",
+    "median_maxrss_mib_current",
+    "median_maxrss_mib_proposed",
+)
+
 
 def main() -> None:
-    """Run the trials of a sweep that the results directory lacks."""
+    """Run the trials of a comparison that the results directory lacks, and summarize them."""
     args = parse_args()
-    arms = get_arms(args)
     args.results_dir.mkdir(parents=True, exist_ok=True)
     path = args.results_dir / TRIALS_NAME
-    source = get_source_fingerprint()
-    done = get_done_keys(path)
-    groups = [
-        [
-            {
-                "tag": args.tag,
-                "workload": workload,
-                "round": round_index,
-                "position": position,
-                "arm_index": arm_index,
-                "arm": arm,
-                "source": source,
-                "timeout": args.timeout,
-                "repeat": args.repeat,
-            }
-            for position, (arm_index, arm) in enumerate(order_arms(arms, round_index))
-        ]
-        for round_index in range(args.rounds)
-        for workload in args.workloads
-    ]
-    groups = [[trial for trial in group if get_key(trial) not in done] for group in groups]
-    groups = [group for group in groups if group]
-    num_trials = sum(map(len, groups))
-    print(f"{num_trials} trials to run, in {len(groups)} groups", flush=True)
+    arms = get_arms(args)
+    for name, settings in arms.items():
+        check_import(settings, get_environment(settings, name, args.results_dir))
 
-    lock = threading.Lock()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
-        # Each group's arms run one after another, in their alternating order, on one worker.
-        futures = [executor.submit(run_group, group, path, lock) for group in groups]
-        for future in concurrent.futures.as_completed(futures):
-            future.result()
+    # The trials of every round, whose order of arms alternates between rounds and workloads.
+    trials = []
+    for round_index in range(args.rounds):
+        for workload_index, workload in enumerate(args.workloads):
+            order = ARMS if (round_index + workload_index) % 2 == 0 else ARMS[::-1]
+            for arm in order:
+                trial = {
+                    "tag": args.tag,
+                    "workload": workload,
+                    "round": round_index,
+                    "arm": arm,
+                    "arms": arms,
+                    "repeat": args.repeat,
+                }
+                trials.append(trial | {"key": get_key(trial)})
+
+    # Run the trials that the file lacks, and save each.
+    done = {trial["key"] for trial in iter_trials(path)}
+    to_run = [trial for trial in trials if trial["key"] not in done]
+    print(f"{len(to_run)} of {len(trials)} trials to run", flush=True)
+    for trial in to_run:
+        record = run_trial(trial, args.timeout, args.results_dir)
+        with path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(record) + "\n")
+        status = record["status"]
+        wall = f"{statistics.median(record['wall']):.3f} s" if status == "ok" else status
+        print(f"{trial['workload']} round {trial['round']} {trial['arm']}: {wall}", flush=True)
+
+    # Summarize the trials of this comparison.
+    keys = {trial["key"] for trial in trials}
+    rows = summarize([trial for trial in iter_trials(path) if trial["key"] in keys])
+    with (args.results_dir / f"summary-{args.tag}.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as file:
+        writer = csv.DictWriter(file, CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    print_rows(rows)
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,21 +157,22 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--tag", required=True, help="a name of the sweep, recorded with trials")
+    parser.add_argument(
+        "--tag", required=True, help="a name of the comparison, recorded with trials"
+    )
     parser.add_argument("--workloads", nargs="+", required=True, help="workload names")
-    parser.add_argument("--field", help="a field of SearchTuning whose values to compare")
     parser.add_argument(
-        "--values", nargs="+", help="values of --field, as JSON, such as 16 or 2.0 or true"
-    )
-    parser.add_argument("--arms", help="a JSON list of objects of changes, one for each arm")
-    parser.add_argument(
-        "--base", default="{}", help="a JSON object of changes for every arm (default: none)"
+        "--proposed", help="a JSON object of changes to the defaults, the proposed tuning"
     )
     parser.add_argument(
-        "--rounds", type=int, default=6, help="rounds of every arm (default: %(default)s)"
+        "--worktrees",
+        nargs=2,
+        type=pathlib.Path,
+        metavar=("CURRENT", "PROPOSED"),
+        help="two checkouts of qLDPC whose defaults to compare, instead of --proposed",
     )
     parser.add_argument(
-        "--jobs", type=int, default=1, help="trials that run at once (default: %(default)s)"
+        "--rounds", type=int, default=3, help="rounds of both arms (default: %(default)s)"
     )
     parser.add_argument(
         "--repeat",
@@ -153,31 +194,27 @@ def parse_args() -> argparse.Namespace:
         help="the directory of trials.jsonl (default: results/ beside this script)",
     )
     args = parser.parse_args()
-    if (args.field is None) == (args.arms is None) or (args.field is None) != (args.values is None):
-        parser.error("give either --field and --values, or --arms")
+    if (args.proposed is None) == (args.worktrees is None):
+        parser.error("give either --proposed or --worktrees")
     return args
 
 
-def get_arms(args: argparse.Namespace) -> list[dict[str, Any]]:
-    """The changes of each arm, with the base changes."""
-    base = json.loads(args.base)
-    if args.arms is not None:
-        arms = json.loads(args.arms)
+def get_arms(args: argparse.Namespace) -> dict[str, dict[str, Any]]:
+    """The checkout, the changes of the tuning, and the source of each arm."""
+    if args.worktrees is not None:
+        checkouts = [worktree.resolve() for worktree in args.worktrees]
+        changes: list[dict[str, Any]] = [{}, {}]
     else:
-        arms = [{args.field: json.loads(value)} for value in args.values]
-    return [base | arm for arm in arms]
-
-
-def order_arms(arms: list[dict[str, Any]], round_index: int) -> list[tuple[int, dict[str, Any]]]:
-    """The indices and changes of the arms in the order of a round.
-
-    The order is forward in even rounds and backward in odd ones, rotated by half the round index,
-    so that over twice as many rounds as arms, every arm takes every position.
-    """
-    indexed = list(enumerate(arms))
-    shift = (round_index // 2) % len(arms)
-    rotated = indexed[shift:] + indexed[:shift]
-    return rotated if round_index % 2 == 0 else rotated[::-1]
+        checkouts = [REPOSITORY, REPOSITORY]
+        changes = [{}, json.loads(args.proposed)]
+    return {
+        arm: {
+            "checkout": str(checkout),
+            "changes": arm_changes,
+            "source": get_source_fingerprint(checkout),
+        }
+        for arm, checkout, arm_changes in zip(ARMS, checkouts, changes)
+    }
 
 
 ####################################################################################################
@@ -185,60 +222,34 @@ def order_arms(arms: list[dict[str, Any]], round_index: int) -> list[tuple[int, 
 
 
 def get_key(trial: dict[str, Any]) -> str:
-    """A hash of what determines a trial's result.
-
-    It leaves out the position and the timeout, and the number of repetitions if it is one, so that
-    the trials of sweeps from before ``--repeat`` keep their keys.
-    """
-    names = ("tag", "workload", "round", "arm_index", "arm", "source")
+    """A hash of what determines a trial's result."""
+    names = ("tag", "workload", "round", "arm", "arms", "repeat")
     fields = {name: trial[name] for name in names}
-    if trial.get("repeat", 1) != 1:
-        fields["repeat"] = trial["repeat"]
     return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def get_done_keys(path: pathlib.Path) -> set[str]:
-    """The keys of the trials that a file of trials holds."""
-    if not path.exists():
-        return set()
-    with path.open(encoding="utf-8") as file:
-        return {json.loads(line)["key"] for line in file if line.strip()}
-
-
-def run_group(group: list[dict[str, Any]], path: pathlib.Path, lock: threading.Lock) -> None:
-    """Run the trials of one round of one workload, one after another, and save each."""
-    for trial in group:
-        record = run_trial(trial)
-        line = json.dumps(record)
-        with lock:
-            with path.open("a", encoding="utf-8") as file:
-                file.write(line + "\n")
-            status = record["status"]
-            wall = f"{statistics.median(record['wall']):.3f} s" if status == "ok" else status
-            arm = f"arm {trial['arm_index']} {trial['arm']}"
-            print(f"{trial['workload']} round {trial['round']} {arm}: {wall}", flush=True)
-
-
-def run_trial(trial: dict[str, Any]) -> dict[str, Any]:
-    """Run one trial in a new process."""
+def run_trial(trial: dict[str, Any], timeout: float, results_dir: pathlib.Path) -> dict[str, Any]:
+    """Run one trial in a new process, and return its record."""
+    arm = trial["arms"][trial["arm"]]
+    checkout = pathlib.Path(arm["checkout"])
     command = [
         sys.executable,
-        str(DIRECTORY / "trial.py"),
+        str(checkout / "experiments" / "distance_tuning" / "trial.py"),
         trial["workload"],
         "--tuning",
-        json.dumps(trial["arm"]),
+        json.dumps(arm["changes"]),
         "--repeat",
-        str(trial.get("repeat", 1)),
+        str(trial["repeat"]),
     ]
-    record = trial | {"key": get_key(trial), "load": os.getloadavg(), "start": time.time()}
+    record = trial | {"load": os.getloadavg(), "start": time.time()}
     try:
         process = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            timeout=trial["timeout"],
-            env=os.environ | SINGLE_THREAD,
-            cwd=REPOSITORY,
+            timeout=timeout,
+            env=get_environment(arm, trial["arm"], results_dir),
+            cwd=checkout,
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -248,26 +259,143 @@ def run_trial(trial: dict[str, Any]) -> dict[str, Any]:
     return record | {"status": "ok"} | json.loads(process.stdout.strip().splitlines()[-1])
 
 
-def get_source_fingerprint() -> dict[str, str]:
-    """The commit of the source of qLDPC, and a hash of its uncommitted differences."""
-    commit = git("rev-parse", "HEAD").strip()
-    diff = git("diff", "HEAD", "--", "src")
+def get_environment(arm: dict[str, Any], name: str, results_dir: pathlib.Path) -> dict[str, str]:
+    """The environment of the processes of an arm: one thread, its source, and its bytecode."""
+    environment = os.environ | SINGLE_THREAD
+    paths = [str(pathlib.Path(arm["checkout"]) / "src"), os.environ.get("PYTHONPATH")]
+    environment["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
+    environment["PYTHONPYCACHEPREFIX"] = str(results_dir / "pycache" / name)
+    environment.pop("PYTHONDONTWRITEBYTECODE", None)
+    return environment
+
+
+def check_import(arm: dict[str, Any], environment: dict[str, str]) -> None:
+    """Check that the processes of an arm import qLDPC from the source of its checkout."""
+    expected = (pathlib.Path(arm["checkout"]) / "src" / "qldpc").resolve()
+    process = subprocess.run(
+        [sys.executable, "-c", "import pathlib, qldpc; print(pathlib.Path(qldpc.__file__).parent)"],
+        capture_output=True,
+        text=True,
+        env=environment,
+        cwd=arm["checkout"],
+        check=True,
+    )
+    imported = pathlib.Path(process.stdout.strip()).resolve()
+    if imported != expected:
+        raise RuntimeError(f"The arm of {arm['checkout']} imports qLDPC from {imported}")
+
+
+def get_source_fingerprint(repository: pathlib.Path = REPOSITORY) -> dict[str, str]:
+    """The commit of a checkout of qLDPC, and a hash of the uncommitted changes of its source."""
+    commit = git(repository, "rev-parse", "HEAD").strip()
+    diff = git(repository, "diff", "HEAD", "--", "src")
     return {"commit": commit, "diff": hashlib.sha256(diff.encode()).hexdigest()[:16]}
 
 
-def git(*args: str) -> str:
-    """The output of a git command in the repository."""
+def git(repository: pathlib.Path, *args: str) -> str:
+    """The output of a git command in a repository."""
     return subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=True, cwd=REPOSITORY
+        ["git", *args], capture_output=True, text=True, check=True, cwd=repository
     ).stdout
 
 
-def iter_trials(path: pathlib.Path) -> Iterator[dict[str, Any]]:
-    """The trials of a file of trials."""
+def iter_trials(path: pathlib.Path) -> list[dict[str, Any]]:
+    """The trials of a file of trials, if it exists."""
+    if not path.exists():
+        return []
     with path.open(encoding="utf-8") as file:
-        for line in file:
-            if line.strip():
-                yield json.loads(line)
+        return [json.loads(line) for line in file if line.strip()]
+
+
+####################################################################################################
+# summary
+
+
+def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row for each workload of a comparison."""
+    by_workload: dict[str, list[dict[str, Any]]] = {}
+    for trial in trials:
+        by_workload.setdefault(trial["workload"], []).append(trial)
+    rows = []
+    for workload, group in by_workload.items():
+        ok = {arm: [t for t in group if t["arm"] == arm and t["status"] == "ok"] for arm in ARMS}
+        walls = {arm: {t["round"]: get_wall(t) for t in ok[arm]} for arm in ARMS}
+        rounds = sorted(walls["current"].keys() & walls["proposed"].keys())
+        ratios = sorted(walls["proposed"][r] / walls["current"][r] for r in rounds)
+        differences = [walls["proposed"][r] - walls["current"][r] for r in rounds]
+        ci_low, ci_high = get_median_interval(ratios)
+        results = {result for arm in ARMS for t in ok[arm] for result in t["results"]}
+        if len(results) > 1:
+            print(f"WARNING: the arms disagree on {workload}: {sorted(results)}")
+        rows.append(
+            {
+                "workload": workload,
+                "trials_current": len(ok["current"]),
+                "trials_proposed": len(ok["proposed"]),
+                "failed": len(group) - len(ok["current"]) - len(ok["proposed"]),
+                "median_wall_current": median(list(walls["current"].values())),
+                "median_wall_proposed": median(list(walls["proposed"].values())),
+                "median_difference": median(differences),
+                "median_ratio": median(ratios),
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+                "min_ratio": min(ratios, default=None),
+                "max_ratio": max(ratios, default=None),
+                "median_maxrss_mib_current": median([t["maxrss"] / 2**20 for t in ok["current"]]),
+                "median_maxrss_mib_proposed": median([t["maxrss"] / 2**20 for t in ok["proposed"]]),
+            }
+        )
+    return rows
+
+
+def get_wall(trial: dict[str, Any]) -> float:
+    """The wall seconds of a trial: the median of its repetitions."""
+    return statistics.median(trial["wall"])
+
+
+def get_median_interval(values: list[float]) -> tuple[float | None, float | None]:
+    """A confidence interval of at least 95% of the median of sorted values, or Nones.
+
+    The interval runs from the ``k``-th smallest to the ``k``-th largest value, for the largest
+    ``k`` such that fewer than ``k`` of ``n`` independent values fall below the median with
+    probability at most 2.5%.  It needs no assumption about the distribution of the values, but at
+    least six of them.
+    """
+    num_values = len(values)
+    rank, tail = 0, 0.0
+    while True:
+        tail += math.comb(num_values, rank) / 2**num_values
+        if tail > 0.025:
+            break
+        rank += 1
+    if rank == 0:
+        return None, None
+    return values[rank - 1], values[num_values - rank]
+
+
+def median(values: list[float]) -> float | None:
+    """The median of some values, or None if there are none."""
+    return statistics.median(values) if values else None
+
+
+def print_rows(rows: list[dict[str, Any]]) -> None:
+    """Print the rows of the summary as a table."""
+
+    def show(value: float | None, digits: int) -> str:
+        return "-" if value is None else f"{value:.{digits}f}"
+
+    for row in rows:
+        print(
+            f"{row['workload']:36s} n={row['trials_current']}/{row['trials_proposed']}"
+            f" fail={row['failed']}"
+            f" wall={show(row['median_wall_current'], 3)}/{show(row['median_wall_proposed'], 3)}"
+            f" diff={show(row['median_difference'], 3)}"
+            f" ratio={show(row['median_ratio'], 3)}"
+            f" ci=[{show(row['ci_low'], 3)}, {show(row['ci_high'], 3)}]"
+            f" [{show(row['min_ratio'], 3)}, {show(row['max_ratio'], 3)}]"
+            f" rss={show(row['median_maxrss_mib_current'], 0)}"
+            f"/{show(row['median_maxrss_mib_proposed'], 0)} MiB"
+        )
 
 
 if __name__ == "__main__":
