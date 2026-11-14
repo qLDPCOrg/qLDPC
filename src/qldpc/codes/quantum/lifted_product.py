@@ -14,7 +14,7 @@ import qldpc
 from qldpc import abstract
 from qldpc.abstract.linalg import get_howell_dual
 
-from ..common import CSSCode
+from ..common import CSSCode, _mark_read_only
 from .hypergraph_product import HGPCode, SHPCode, _check_same_ring
 from .two_block import _get_abelian_block_translations
 
@@ -116,8 +116,8 @@ class LPCode(CSSCode):
         """Lifted product of two RingArrays, as in arXiv:2012.04068."""
         if matrix_b is None:
             matrix_b = matrix_a
-        self.matrix_a = abstract.RingArray(matrix_a)
-        self.matrix_b = abstract.RingArray(matrix_b)
+        self.matrix_a = _mark_read_only(abstract.RingArray(matrix_a).copy())
+        self.matrix_b = _mark_read_only(abstract.RingArray(matrix_b).copy())
 
         ring = self.matrix_a.ring
         field = ring.field
@@ -126,9 +126,8 @@ class LPCode(CSSCode):
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
 
         # identify the number of qudits in each sector
-        self.sector_size = ring.lift_dim * np.outer(
-            self.matrix_a.shape[::-1],
-            self.matrix_b.shape[::-1],
+        self.sector_size = _mark_read_only(
+            ring.lift_dim * np.outer(self.matrix_a.shape[::-1], self.matrix_b.shape[::-1])
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
@@ -331,8 +330,8 @@ class SLPCode(CSSCode):
         """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302."""
         if matrix_b is None:
             matrix_b = matrix_a
-        self.matrix_a = abstract.RingArray(matrix_a)
-        self.matrix_b = abstract.RingArray(matrix_b)
+        self.matrix_a = _mark_read_only(abstract.RingArray(matrix_a).copy())
+        self.matrix_b = _mark_read_only(abstract.RingArray(matrix_b).copy())
 
         ring = self.matrix_a.ring
         field = ring.field

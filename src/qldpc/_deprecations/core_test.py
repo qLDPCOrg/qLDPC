@@ -100,7 +100,7 @@ def test_star_imports_do_not_warn() -> None:
 
 
 def test_deprecated_methods() -> None:
-    """Deprecated methods warn and delegate to their replacements."""
+    """Deprecated methods warn, and return what they returned before."""
     classical_code = codes.RepetitionCode(3)
     qudit_code = codes.QuditCode(codes.FiveQubitCode())
     css_code = codes.SteaneCode()
@@ -112,6 +112,8 @@ def test_deprecated_methods() -> None:
         (bb_code, "modular_inverse", (((1, 1), (0, 1)), 1, 0), (1, 2), "BBCode"),
         (qudit_code, "get_dual_subsystem_code", (), qudit_code.dual(), "QuditCode"),
         (qudit_code, "conjugate", (), qudit_code.conjugated(), "QuditCode"),
+        (css_code, "reduce_logical_op", ("X", 0), css_code, "SteaneCode"),
+        (css_code, "reduce_logical_ops", (), css_code, "SteaneCode"),
         (css_code, "conjugate", (), css_code.conjugated().to_css(), "SteaneCode"),
     ]
     for code, method_name, args, expected, class_name in cases:
@@ -128,6 +130,31 @@ def test_deprecated_methods() -> None:
     assert puncture.__module__ == codes.ClassicalCode.__module__
     assert puncture.__qualname__ == "ClassicalCode.puncture"
     assert str(inspect.signature(puncture)).startswith("(self, bits")
+
+
+def test_deprecated_reduce_logical_ops() -> None:
+    """The deprecated reduction of logical operators stores the operators that a decoder finds."""
+    # the first code starts with a heavy X-type operator at index 0, the second with a heavy Z-type
+    # operator at index 1
+    for dist, code in [(4, codes.ToricCode(4)), (3, codes.ToricCode(3, rotated=False))]:
+        reduce_logical_ops = code.reduce_logical_ops  # type: ignore[attr-defined]
+        with pytest.warns(DeprecationWarning, match="reduce_logical_ops is DEPRECATED"):
+            reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
+        assert np.all(np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=1) == dist)
+    reduce_logical_op = code.reduce_logical_op  # type: ignore[attr-defined]
+
+    # an invalid index, a failed decoding, and a removed decoder argument raise errors
+    for reduce, error, message in [
+        (lambda: reduce_logical_op("X", 2), ValueError, "logical_index must lie in"),
+        (
+            lambda: reduce_logical_op("X", 0, decoder=decoders.lookup(max_weight=0)),
+            ValueError,
+            "failed to infer",
+        ),
+        (lambda: reduce_logical_ops(static_decoder=None), TypeError, "static_decoder"),
+    ]:
+        with pytest.warns(DeprecationWarning), pytest.raises(error, match=message):
+            reduce()
 
 
 def test_deprecated_tanner_graph_methods() -> None:

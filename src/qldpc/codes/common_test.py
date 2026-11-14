@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
+import copy
 import functools
 import inspect
 import itertools
+import pickle
 import random
 import unittest.mock
 import warnings
@@ -86,10 +88,11 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     # puncture and shorten a code
     for field in [2, 3]:
-        code = codes.ClassicalCode.random(6, 4, field=field)
-        bits_to_remove = np.random.choice(range(len(code)), size=2, replace=False)
-        bits_to_keep = [bit for bit in range(len(code)) if bit not in bits_to_remove]
-        code._matrix[:2, bits_to_remove] = 1  # ensure we have nontrivial row-reduction to do
+        matrix = codes.ClassicalCode.random(6, 4, field=field).matrix.copy()
+        bits_to_remove = np.random.choice(range(matrix.shape[1]), size=2, replace=False)
+        bits_to_keep = [bit for bit in range(matrix.shape[1]) if bit not in bits_to_remove]
+        matrix[:2, bits_to_remove] = 1  # ensure we have nontrivial row-reduction to do
+        code = codes.ClassicalCode(matrix)
         punctured_code = code.punctured(bits_to_remove)
         assert punctured_code.is_equiv_to(
             codes.ClassicalCode.from_generator(code.generator[:, bits_to_keep])
@@ -149,12 +152,43 @@ def test_field_array_construction() -> None:
             codes.ClassicalCode(list(matrix), field=field)
 
 
-def test_codes_copy_their_matrices() -> None:
-    """Changing the array that built a code does not change the code."""
+def test_codes_protect_their_arrays() -> None:
+    """Codes copy arrays that they are given, and their stored arrays and graphs are read-only."""
     for matrix in (np.array([[1, 1, 0], [0, 1, 1]]), galois.GF(2)([[1, 1, 0], [0, 1, 1]])):
         code = codes.ClassicalCode(matrix)
         matrix[0, 0] = 0
         assert code.matrix[0, 0] == 1
+
+    # setters copy their input too
+    qudit_code, classical_code = codes.FiveQubitCode(), codes.RepetitionCode(2)
+    logical_ops, generator = qudit_code.get_logical_ops().copy(), classical_code.generator.copy()
+    qudit_code.set_logical_ops(logical_ops)
+    classical_code.set_generator(generator)
+    logical_ops[:] = generator[:] = 0
+    assert np.any(qudit_code.get_logical_ops()) and np.any(classical_code.generator)
+
+    # Writing into an array that a code stores raises, also after copying or pickling the code.
+    # Subsystem codes cache their stabilizer and gauge operators, so use one.
+    subsystem_code = codes.SHPCode(codes.RepetitionCode(2))
+    for array in (
+        codes.RepetitionCode(2).matrix,
+        subsystem_code.matrix,
+        subsystem_code.code_x.generator,
+        subsystem_code.get_logical_ops(),
+        subsystem_code.get_stabilizer_ops(),
+        subsystem_code.get_gauge_ops(),
+        codes.HGPCode(codes.RepetitionCode(2)).sector_size,
+        copy.deepcopy(codes.RepetitionCode(2)).matrix,
+        # this pickle holds the CSSCode.matrix cached above, which unpickling must mark again
+        pickle.loads(pickle.dumps(subsystem_code)).matrix,  # noqa: S301 - trusted round trip
+    ):
+        with pytest.raises(ValueError, match="read-only"):
+            array[0, 0] = 0
+
+    # the cached Tanner graphs of classical and quantum codes are frozen
+    for graph in (codes.RepetitionCode(2).graph, subsystem_code.graph):
+        with pytest.raises(nx.NetworkXError, match="Frozen"):
+            graph.add_edge(0, 1)
 
 
 def test_check_matrix_shapes() -> None:
@@ -1117,8 +1151,6 @@ def test_non_css_operator_layout_and_argument_validation() -> None:
         codes.FiveQubitCode().get_logical_ops(symplectic=False)
     with pytest.raises(ValueError, match="is_subsystem_code=False contradicts"):
         codes.QuditCode(codes.BaconShorCode(3), is_subsystem_code=False)
-    with pytest.raises(ValueError, match="logical_index must lie in"):
-        codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 1)
     with pytest.raises(ValueError, match="pauli_bias must have three entries"):
         codes.SurfaceCode(3).get_logical_error_rate_func(10, pauli_bias=(1, 1))
 
@@ -1642,7 +1674,7 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code.num_checks_x == code_x.num_checks
     assert code.num_checks_z == code_z.num_checks
     assert code.num_checks == code.num_checks_x + code.num_checks_z
-    assert code == codes.CSSCode(code.code_x, code.code_z)
+    assert code == codes.CSSCode(code.get_code("X"), code.get_code(Pauli.Z))
 
     # equivalence to QuditCode with the same parity check matrix
     assert code.is_equiv_to(codes.QuditCode(code.matrix))
@@ -1752,16 +1784,11 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
             stabs = code.get_stabilizer_ops(pauli.swap_xz())
             assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
-    # successfully construct and reduce logical operators in a code with "over-complete" checks
+    # a code with "over-complete" checks has the expected parameters
     dist = 4
     code = codes.ToricCode(dist, rotated=True)
     assert code.canonicalized.num_checks < code.num_checks
     assert code.get_code_params() == (dist**2, 2, dist)
-    code.reduce_logical_ops()
-    logical_ops_x = code.get_logical_ops(Pauli.X)
-    logical_ops_z = code.get_logical_ops(Pauli.Z, symplectic=True)
-    assert not np.any(np.count_nonzero(logical_ops_x.view(np.ndarray), axis=1) < dist)
-    assert not np.any(np.count_nonzero(logical_ops_z.view(np.ndarray), axis=1) < dist)
 
 
 def test_distance_css() -> None:
@@ -1817,14 +1844,10 @@ def test_decoder_distance_bounds_of_subsystem_codes_are_dressed() -> None:
 
     The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
     three qubits is a dressed logical operator, although every bare logical operator has weight 3.
-    Reduced logical operators stay bare: they commute with every gauge generator.
     """
     code = codes.CSSCode([[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]])
     for pauli in PAULIS_XZ:
         assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 1
-    code.reduce_logical_ops()
-    logical_ops = code.get_logical_ops(symplectic=True)
-    assert not np.any(code.matrix @ math.symplectic_conjugate(logical_ops).T)
 
 
 def test_decoder_distance_bounds_exclude_gauge_operators() -> None:
@@ -1993,12 +2016,8 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
         code.get_distance_bound(decoder=decoder)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         code.get_distance_bound_with_decoder(Pauli.X, decoder=decoder)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
-        code.reduce_logical_ops(decoder=decoder)  # type: ignore[arg-type]
 
     # the static_decoder argument has been removed, in favor of decoder=
-    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
-        code.reduce_logical_ops(static_decoder=decoder)
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
         code.get_distance_bound(static_decoder=decoder)
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
@@ -2021,7 +2040,6 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
 
     # decoder specifications are used to build a decoder for each internal matrix
     assert code.get_distance_bound(decoder=decoders.lookup(max_weight=3)) == 3
-    assert code.reduce_logical_ops(decoder=decoders.lookup(max_weight=3))
 
 
 def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
@@ -2049,8 +2067,6 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     code = codes.SurfaceCode(3)
     code.forget_distance()
     assert code.get_distance_bound(decoder=erasing_decoder) == 3
-    code.reduce_logical_ops(decoder=erasing_decoder)
-    assert all(np.count_nonzero(op) == 3 for op in code.get_logical_ops().view(np.ndarray))
 
     # a trial whose decoding fails moves on to another problem
     for _ in range(20):
@@ -2073,7 +2089,6 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
             ),
             1,
         ),
-        (lambda: codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 0, decoder=failing_decoder), 1),
     ]:
         with count_decodings() as decode, pytest.raises(ValueError, match="failed to infer"):
             search()

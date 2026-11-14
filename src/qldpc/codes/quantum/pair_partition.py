@@ -15,7 +15,7 @@ import sympy
 
 from qldpc import abstract
 
-from ..common import CSSCode
+from ..common import CSSCode, _mark_read_only
 from .two_block import _get_block_translations
 
 ####################################################################################################
@@ -121,8 +121,8 @@ class PairPartitionCode(CSSCode):
         if lift_size < 1:
             raise ValueError(f"The lift size must be positive (got {lift_size})")
         self.lift_size = lift_size
-        self.exponents_x = self._validate_exponents(exponents_x, "X") % lift_size
-        self.exponents_z = self._validate_exponents(exponents_z, "Z") % lift_size
+        self.exponents_x = _mark_read_only(self._validate_exponents(exponents_x, "X") % lift_size)
+        self.exponents_z = _mark_read_only(self._validate_exponents(exponents_z, "Z") % lift_size)
         if self.exponents_x.shape != self.exponents_z.shape:
             raise ValueError(
                 "The X-type and Z-type exponent arrays of a PairPartitionCode must have the same"
