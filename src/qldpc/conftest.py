@@ -21,7 +21,7 @@ import galois
 import grimp
 import pytest
 
-from qldpc import _compilation, abstract, codes, external
+from qldpc import _compilation, abstract, external
 
 # A comment that lets an import break the layering rule of check_import_layering.
 _LAYERING_EXCEPTION = re.compile(r"#\s*layering-exception:\s*\S")
@@ -262,7 +262,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Switch the set-up code of distance and count searches to compiled code before every"
-        " test, as qldpc.codes.distance.compile_search_setup() does.",
+        " test, as qldpc.codes.distance.compile_search_setup() does, but compile each function"
+        " when it is first called.",
     )
 
 
@@ -341,20 +342,15 @@ def _defines_compiled_functions(path: pathlib.Path) -> bool:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     """With ``--compile-search-setup``, switch the set-up code of searches to compiled code.
 
-    The code is compiled by ``compile_search_setup`` before the first test of each process.
-    Fixtures such as ``plain_search_setup`` of the distance tests may switch it back to plain Python
-    for one test, so this hook switches it to compiled code before every test, ahead of the test's
-    fixtures.
+    Unlike ``compile_search_setup``, this does not compile the code up front: each function is
+    compiled when a test first calls it, and kept for the rest of the process.  So each test process
+    compiles only the functions that its tests call, which shortens the run.  The tests of
+    ``compile_search_setup`` check its compilation up front.  Fixtures such as
+    ``plain_search_setup`` of the distance tests may switch the code back to plain Python for one
+    test, so this hook switches it to compiled code before every test, ahead of the test's fixtures.
     """
     if item.config.getoption("--compile-search-setup"):
-        compile_search_setup_once()
         _compilation.set_on_request_functions_compiled(True)
-
-
-@functools.cache
-def compile_search_setup_once() -> None:
-    """Compile the set-up code of searches, the first time that this is called in a process."""
-    codes.distance.compile_search_setup()
 
 
 ####################################################################################################
