@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, SupportsIndex
@@ -756,7 +757,19 @@ def compile_search_setup() -> None:
     """
     set_on_request_functions_compiled(True)
     try:
-        _warm_up_compiled_functions()
+        # Temporary, for the CI timing experiment: warm up under a lock across processes.
+        if os.environ.get("QLDPC_EXPERIMENT_LOCK") == "1":
+            import fcntl
+
+            from qldpc import _compilation
+
+            directory = _compilation._get_cache_directory(_compilation._PACKAGE_DIRECTORY)
+            assert directory is not None
+            with open(directory / "compile_search_setup.lock", "w") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                _warm_up_compiled_functions()
+        else:
+            _warm_up_compiled_functions()
     except BaseException:
         # Do not leave a process that was refused, or interrupted, partly compiled.
         set_on_request_functions_compiled(False)

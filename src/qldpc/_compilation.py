@@ -214,7 +214,16 @@ def set_on_request_functions_compiled(compiled: bool) -> None:
     compiled = compiled and not is_compilation_disabled()
     for item in _ON_REQUEST_FUNCTIONS:
         if compiled and item.compiled is None:
-            item.compiled = numba.njit(item.function)
+            # Temporary, for the CI timing experiment: cache the compiled code on disk.
+            directory = (
+                _get_cache_directory(_PACKAGE_DIRECTORY)
+                if os.environ.get("QLDPC_EXPERIMENT_DISK") == "1"
+                else None
+            )
+            dispatcher = (
+                None if directory is None else _compile_with_cache_in(item.function, directory, "never")
+            )
+            item.compiled = numba.njit(item.function) if dispatcher is None else dispatcher
         item.namespace[item.name] = item.compiled if compiled else item.function
 
 
