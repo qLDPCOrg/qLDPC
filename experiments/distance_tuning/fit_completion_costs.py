@@ -28,8 +28,8 @@ least ``--min-supports`` supports that a forced trace scanned with tables, it co
   bytes and steps grow together, so the fit scales both by the median ratio of measured to
   predicted builds.
   Searches with tables forced keep the tables of one information set at a time.  A set reuses its
-  tables only if no other set has chosen tables since it did, so a layer of several sets builds
-  tables for each information set that it scans.  So every layer that builds tables counts, for
+  tables only if no other set has chosen tables since it did, so a layer that scans several
+  information sets builds tables for each of them.  So every layer that builds tables counts, for
   each table that it builds, with the seconds per candidate/set evaluation of the search's layers
   of at least ``--min-supports`` supports with tables disabled.
 
@@ -275,14 +275,14 @@ def measure(
     # A layer builds its tables while choosing them.
     scan_cost = (forced["seconds"] - forced["choose_seconds"]) / seconds_per_support
 
-    # The lookups of the cost model with a kept-first-row ratio of one, for the sets that the layer
-    # scanned.  The fits use only layers of one set, whose lookups and skipped supports all belong
-    # to that set.
+    # The lookups of the cost model with a kept-first-row ratio of one, for a layer of one set, the
+    # only kind that the script prints a ratio for or fits, since its lookups and skipped supports
+    # all belong to that set.
     num_sets = forced["scanned_sets"]
     single_set = num_sets == 1
     share = forced["skipped"] / max(1, forced["skipped"] + forced["evaluated"])
-    kept_lookups = (1 - share) * math.comb(rows, weight - 1) * num_sets
-    prefix_lookups = math.comb(rows, weight - 2) * num_sets
+    kept_lookups = (1 - share) * math.comb(rows, weight - 1)
+    prefix_lookups = math.comb(rows, weight - 2)
 
     return {
         "weight": weight,

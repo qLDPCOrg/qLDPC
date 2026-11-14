@@ -1034,7 +1034,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 - **Cutoff.**
   The docstring of `get_distance_from_generators` in [core.py](core.py) states the contracts of `cutoff` and of an early exit, which the other distance functions share.
   They all default to `cutoff=1`, which gives the exact distance for a valid nontrivial binary problem, because a distance is at least one.
-  A `cutoff` of zero or less never triggers an early exit for such a problem, and `advance` clamps negative values to `-1` before it calls the compiled scan.
+  A `cutoff` of zero or less never triggers an early exit for such a problem, and `_scan_cutoff` clamps negative values to `-1`, which `_scan_information_set` passes to the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
 - **Weight limit.**
   The same docstring states the contract of `max_weight`, and what inputs without nontrivial words give.
