@@ -48,8 +48,8 @@ DistanceMethod = Literal[
   knows sparser ones can pass them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also the
   fastest method for classical codes of low dimension whose distance is a large fraction of their
-  length.  On such codes, the time of a ``"brouwer_zimmermann"`` search grows with the square of
-  the length, and on long codes of very low dimension, so does the memory of its setup.
+  length.  On such codes, the time of a ``"brouwer_zimmermann"`` search and the memory of its setup
+  grow with the square of the length.
 
 :class:`~qldpc.codes.distance.CosetLeaderSearch` and
 :func:`~qldpc.circuits.certify_bounded_fault_propagation`, which uses it, reject ``"brute_force"``.

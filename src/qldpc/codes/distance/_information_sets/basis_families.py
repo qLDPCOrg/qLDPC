@@ -609,11 +609,8 @@ def _get_disjoint_sets_for_columns(
             break
 
         # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Row
-        # operations keep nonzero columns nonzero, so dropping zero columns only guards against a
-        # caller that passes them, which would leave a pass without a pivot.
-        active_columns = active_columns[
-            ~np.isin(active_columns, pivots) & np.any(working[:, active_columns], axis=0)
-        ]
+        # operations keep the given nonzero columns nonzero, so each pass has a pivot.
+        active_columns = active_columns[~np.isin(active_columns, pivots)]
 
     return information_sets
 

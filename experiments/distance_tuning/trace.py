@@ -24,9 +24,9 @@ records:
 - each attempt to switch to a family of automorphism images, including one at the end of setup if
   setup found the automorphisms, the seconds it took, which then exclude finding them and building
   their family, and whether the search switched;
-- the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step
-  considers completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted
-  cost with the limit, with the rows and weight of the prediction before it;
+- the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step considers
+  completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted cost with the
+  limit, with the rows and weight of the prediction before it;
 - each prediction of the cost of completion tables, as a share of the cost of a scan without them,
   with the number of rows and the weight of its layer or step, the seconds it took, and the seconds
   since the workload started, which also time the steps of counts;
@@ -37,8 +37,8 @@ records:
   supports that it evaluated and skipped, its candidate/set evaluations (each support of a scan in
   lockstep counts once for each of its sets), and the lookups of completion tables that it made, the
   width of the blocks of its tables if any, with their bytes and number of blocks, the seconds spent
-  choosing tables (which, for a layer of one set, include building them) and building them, and
-  its seconds in all.
+  choosing tables (which, for a layer of one set, include building them) and building them, and its
+  seconds in all.
 
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With

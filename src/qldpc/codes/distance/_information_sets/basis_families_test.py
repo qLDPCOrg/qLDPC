@@ -57,8 +57,8 @@ def test_information_set_packing() -> None:
     basis = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
     assert get_family(basis, None).ranks.tolist() == [2, 1]
 
-    # Each set takes its pivots from the remaining columns in the given order, which is how random
-    # column orders reach every set of a packing.
+    # Each set takes its pivots from the remaining columns in the given order, so a random column
+    # order shapes every set of a packing.
     basis = np.array([[1, 0, 1, 0, 1, 1], [0, 1, 0, 1, 1, 1]], dtype=np.uint8)
     columns = np.array([4, 5, 1, 0, 3, 2])
     sets = basis_families._get_disjoint_sets_for_columns(basis, np.eye(2, dtype=np.uint8), columns)
