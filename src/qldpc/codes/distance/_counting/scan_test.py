@@ -111,7 +111,7 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
         return replacement
 
     monkeypatch.setattr(basis_families, "get_overlapping_family", record)
-    tune(overlapping_minimum_work=0)
+    tune(overlapping_minimum_work=0, max_information_sets=16)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     weights = range(len(code) + 1)
     for weight in weights:

@@ -21,7 +21,7 @@ of ``brouwer_zimmermann.md``), after the word of its syndrome if no word of its 
 ``max_weight`` are one more than the largest work of a table of the disjoint family: the
 examinations of the costliest query that finds no light enough word, without completion tables, and
 at most that number with them.  The gate compares them with its threshold, the field
-``overlapping_minimum_work`` of the tuning.  Below the threshold, the route of ``max_weight`` is the
+``coset_route_minimum_work`` of the tuning.  Below the threshold, the route of ``max_weight`` is the
 disjoint family.  Otherwise, the routes try to build two other families once, at the target weight,
 the smallest maximum weight from two whose predicted examinations reach the threshold.  They keep
 each that they find:
@@ -117,7 +117,7 @@ class CosetRoutes:
         num_x_columns: The number of the first columns of the embedded words that count as their X
             part (see ``coset_tables.get_search_tables``).
         minimum_work: The threshold of the gate and of the routes by tails, the field
-            ``overlapping_minimum_work`` of the tuning.  A query whose predicted examinations with
+            ``coset_route_minimum_work`` of the tuning.  A query whose predicted examinations with
             the disjoint family are below it keeps that family.  A route is a route by tails if the
             predicted examinations with its own family reach it.
         max_sets: The most sets of a family of overlapping information sets, the field

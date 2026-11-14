@@ -744,7 +744,7 @@ A step of a count scans one layer of one set.
 `_StepTables` of [_counting/scan.py](_counting/scan.py) chooses tables in the same way for each step of two or more rows of an information set.
 A count keeps the tables of the sets that it has used, within `completion_bound_max_table_bytes` in all between steps, and also holds the tables that it is building.
 Its steps scan the sets of a layer in turn, so when the tables of all sets do not fit, it rebuilds them in each layer, which the prediction counts.
-A coset search uses tables only on its routes by tails, whose queries are predicted to examine at least `overlapping_minimum_work` words even with the family of their route ([Section 4.4](#44-heuristics-and-cost-models)), and neither samples supports nor predicts costs.
+A coset search uses tables only on its routes by tails, whose queries are predicted to examine at least `coset_route_minimum_work` words even with the family of their route ([Section 4.4](#44-heuristics-and-cost-models)), and neither samples supports nor predicts costs.
 It builds the tables of each search basis of the family of such a route that its queries scan in a layer of two or more rows.
 It builds them once, on blocks of `coset_completion_block_bits` columns, and only if they fit in `completion_bound_max_table_bytes`.
 
@@ -809,7 +809,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
-The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults and say how each was chosen, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
+The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults, and the class of each default or, for a field in no class, how its default was chosen, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
 Sections 3.5 and 3.8 of [connected_support.md](connected_support.md) describe the fields of the connected-support searches.
 
 ### 4.1 Module map and layering
@@ -990,13 +990,15 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The function removes such a search basis when the blocks that are information sets reach `U` by layer `d`, so the removal leaves the result unchanged and saves enumeration.
   It removes nothing if no block is an information set.
 - **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as the fields `max_sets` and `minimum_work` of its `OverlappingFamilyPolicy`.
+  The routes of coset searches (`CosetRoutes` below) pass a `minimum_work` of zero instead, since their own gate, `coset_route_minimum_work`, decides when they build the family.
   It returns a basis family with no sets if no block is an information set, if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
-- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to `max_partition_coverage`.
+- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two up to `ceil(m*r/N)`, where `m` is `max_information_sets`.
+  That is the least coverage at which `m` full sets could fit, by counting their pivots, and coverage one is the disjoint packing of the earlier stages.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
-  It tries this only if its estimated work is at least `partition_work_ratio` times the sum of `b*r^2*N` over the coverages `b` that it tries, which approximates the cost of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
+  It tries this only if its estimated work is at least `partition_work_ratio` times the sum of `b^2*r^2*N` over the coverages `b` that it tries, to which the cost of partitioning is roughly proportional, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
   A distance search with automorphisms also skips it if the work estimate of its automorphism family is at most the least work that the optimistic coverage allows, and switches to that family instead ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
@@ -1007,7 +1009,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The work of a table of a search at `ω` is the work of `plan_steps` from layer zero, without the search bases that a query skips.
   Besides the word of its syndrome, a query at `ω` with no light enough word examines or skips as many words as the work of the table of its parity.
   So its predicted examinations without tables are one more than the largest work of a table.
-  The gate compares the predicted examinations of the disjoint family with its threshold, `overlapping_minimum_work`.
+  The gate compares the predicted examinations of the disjoint family with its threshold, `coset_route_minimum_work`.
   Below the threshold, the query keeps the disjoint family.
   Otherwise, the routes try to build two families once, at the smallest `ω_T ≥ 2` at which the predicted examinations reach the threshold, so that the families do not depend on the order of queries.
   The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`.
@@ -1022,7 +1024,6 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The gate of routes by tails replaces the minimum layer work and the cost model of `select_completion_tables`.
   So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, whatever the work of those layers.
   `get_coset_tails` gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
-  The comment of `coset_completion_block_bits` says how its width trades coset searches by CSS weight against those by physical weight.
 - **`select_completion_tables`** decides whether an information set in a layer of a distance search, or a step of a count, uses completion tables, as [Section 3.9](#39-skipping-completions-by-completion-tables) explains; a count passes its target weight plus one in place of `U`.
   It considers the layers that `considers_tables` allows: layers of two to `r` rows with at least `completion_bound_minimum_layer_work` supports, under a tuning whose `completion_bound_max_cost_percent` and `completion_bound_max_table_bytes` are not zero.
   It uses tables if `predict_completion_cost` predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.

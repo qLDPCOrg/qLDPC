@@ -526,7 +526,12 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     information sets from matroid partitioning, whose columns lie in up to two of them, and bounds
     unvisited words by linear programming.
     """
-    tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
+    tune(
+        overlapping_minimum_work=0,
+        lp_minimum_work=0,
+        partition_work_ratio=0,
+        max_information_sets=16,
+    )
     basis = _get_costly_basis()
     assert (
         qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
@@ -827,7 +832,11 @@ def test_a_decline_at_the_end_of_setup_is_reconsidered_before_a_costly_layer(
     for minimum_layer_work, expected in ((0, [(10, False), (9, False)]), (10**9, [(10, False)])):
         switch_decisions.clear()
         with (
-            use_tuning(partition_work_ratio=0, automorphism_minimum_layer_work=minimum_layer_work),
+            use_tuning(
+                partition_work_ratio=0,
+                max_information_sets=16,
+                automorphism_minimum_layer_work=minimum_layer_work,
+            ),
             mock.patch.object(
                 matroid_partition, "get_information_sets_with_coverage", wraps=get_information_sets
             ) as partition,
@@ -880,7 +889,7 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
     partitions after finding automorphisms still considers the switch at the end of setup.
     ``test_a_search_through_the_costly_stages_finds_the_distance`` partitions without automorphisms.
     """
-    tune(partition_work_ratio=0)
+    tune(partition_work_ratio=0, max_information_sets=16)
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     problem = get_sector_problem(code, Pauli.X)
     identity = np.arange(len(code))[None]

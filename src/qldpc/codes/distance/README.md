@@ -140,8 +140,8 @@ So for the CSS weight, the representative of a part within `max_weight` can diff
 
 - `disjoint_random_column_orders` configures every BZ search.
 - `max_css_single_pairs` configures the BZ searches by CSS weight that are not split into two classical searches.
-- `overlapping_minimum_work`, `max_information_sets`, and `overlapping_attempts_per_set` configure the families of information sets with which a BZ search answers costly queries (see `_brouwer_zimmermann/coset_routes.py`).
-  The threshold `overlapping_minimum_work` also decides which queries of the BZ searches by physical weight, and of the classical searches, weigh words without the pivot columns of each set of their family, and skip the words that tables of bounds prove to weigh more than `max_weight`.
+- `coset_route_minimum_work`, `max_information_sets`, and `overlapping_attempts_per_set` configure the families of information sets with which a BZ search answers costly queries (see `_brouwer_zimmermann/coset_routes.py`).
+  The threshold `coset_route_minimum_work` also decides which queries of the BZ searches by physical weight, and of the classical searches, weigh words without the pivot columns of each set of their family, and skip the words that tables of bounds prove to weigh more than `max_weight`.
   `coset_completion_block_bits` and `completion_bound_max_table_bytes` configure these tables.
 - `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` configure how the connected-support coset searches make their checks sparser.
 
@@ -158,7 +158,7 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer-Zi
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
 - Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
-  Say, in this order, what it decides and in what unit; how a smaller or larger value changes a search, including the effects of its smallest and largest values; how its default was chosen and on what data, or that this is not recorded, in one clause; and what to measure to retune it.
+  Say, in this order, what it decides and in what unit; how a smaller or larger value changes a search, including the effects of its smallest and largest values; and, in one clause, the class of its default, with the rule and the measured constant of a derived value, as the "Retuning" section of the module docstring defines them, or, for a field in no class, how its default was chosen, or that this is not recorded.
   Keep each comment readable without knowing the method that uses the value, and within about 120 words.
   State each fact in one place: link to a formula that the code computes, such as a cost model, rather than restating it, and put procedures that several values share, such as fitting a cost model, in the "Retuning" section of the module docstring.
   Do not put a colon on the first line of a comment, since Sphinx then reads the text before it as a type.

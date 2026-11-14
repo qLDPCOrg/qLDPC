@@ -652,7 +652,7 @@ def test_oracles_answer_exactly_with_other_families(
     except in the search of Pauli errors by CSS weight, which has none.  Every single query, and
     every batch, at every maximum weight, agrees with exhaustive minima.
     """
-    tune(overlapping_minimum_work=0)
+    tune(coset_route_minimum_work=0)
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
     assert_exact_answers(oracle, matrix, css_weight)
     num_qubits = len(matrix)
@@ -667,8 +667,8 @@ def test_oracles_answer_exactly_with_other_families(
     "tuning",
     [
         {},
-        {"overlapping_minimum_work": 0},
-        {"overlapping_minimum_work": 0, "completion_bound_max_table_bytes": 0},
+        {"coset_route_minimum_work": 0},
+        {"coset_route_minimum_work": 0, "completion_bound_max_table_bytes": 0},
     ],
     ids=["disjoint", "tables", "no-tables"],
 )

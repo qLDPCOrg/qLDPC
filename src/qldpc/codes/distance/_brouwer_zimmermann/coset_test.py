@@ -164,7 +164,9 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
     classical searches, and a search of Pauli errors by physical weight, are shared by oracles built
     under different values of it, and a search of Pauli errors by CSS weight is not.  That search
     alone has no completion tables, so it alone is shared by oracles built under different values of
-    ``coset_completion_block_bits``.
+    ``coset_completion_block_bits``.  Every search reads the threshold of its routes,
+    ``coset_route_minimum_work``, and none reads ``overlapping_minimum_work``, which gates the
+    families of distance searches and counts.
     """
     orders: list[int] = []
     get_disjoint_family = basis_families.get_disjoint_family
@@ -195,6 +197,8 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
         changes: list[tuple[dict[str, Any], bool]] = [
             ({"max_css_single_pairs": 0}, paulis_by_css_weight),
             ({"coset_completion_block_bits": 4}, not paulis_by_css_weight),
+            ({"coset_route_minimum_work": 0}, True),
+            ({"overlapping_minimum_work": 0}, False),
         ]
         for change, reads in changes:
             orders.clear()
@@ -236,7 +240,7 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     monkeypatch.setattr(completion_bounds, "build_tables_within", record_tables)
     coset._get_pauli_search.cache_clear()
     with use_tuning(
-        overlapping_minimum_work=0,
+        coset_route_minimum_work=0,
         max_information_sets=5,
         overlapping_attempts_per_set=3,
         coset_completion_block_bits=4,
@@ -273,12 +277,12 @@ def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
         for minimum_work in (0, MAX_VALUE):
             coset._get_css_searches.cache_clear()
             coset._get_pauli_search.cache_clear()
-            with use_tuning(overlapping_minimum_work=minimum_work):
+            with use_tuning(coset_route_minimum_work=minimum_work):
                 oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
                 answers[minimum_work] = [oracle.get_min_weight_bound(*query) for query in queries]
         assert answers[0] != answers[MAX_VALUE]
         for minimum_work in (0, MAX_VALUE, 0):
-            tune(overlapping_minimum_work=minimum_work)
+            tune(coset_route_minimum_work=minimum_work)
             oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
             answers_now = [oracle.get_min_weight_bound(*query) for query in queries]
             assert answers_now == answers[minimum_work]
@@ -326,7 +330,7 @@ def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune
     disjoint family by CSS weight, and its search by CSS weight reads its generators from the
     stabilizers themselves.
     """
-    tune(overlapping_minimum_work=0)
+    tune(coset_route_minimum_work=0)
     first, second = ROUTED_CSS_WEIGHT_STATE, ROUTED_PHYSICAL_STATES[1]
     coset._get_pauli_search.cache_clear()
     array = first.copy()
@@ -493,7 +497,7 @@ def test_cosets_match_brute_force_with_other_families(
     (see ``_assert_classical_cosets_match_brute_force``).  At the threshold zero, the queries also
     run the searches by tails.
     """
-    tune(overlapping_minimum_work=0)
+    tune(coset_route_minimum_work=0)
     _assert_classical_cosets_match_brute_force(code)
 
 
@@ -524,10 +528,10 @@ def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, t
             for syndrome in range(1 << len(checks))
         }
 
-    tune(overlapping_minimum_work=0)
+    tune(coset_route_minimum_work=0)
     answers = [get_answers(order) for order in ("up", "down", "random")]
     assert answers[0] == answers[1] == answers[2]
-    with use_tuning(overlapping_minimum_work=MAX_VALUE):
+    with use_tuning(coset_route_minimum_work=MAX_VALUE):
         assert get_answers("up") != answers[0]
 
 
@@ -959,7 +963,7 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     checks = get_kernel(generators)
     tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     search = coset._get_classical_search(
-        generators, checks, tuning._replace(overlapping_minimum_work=0)
+        generators, checks, tuning._replace(coset_route_minimum_work=0)
     )
     syndromes = np.flatnonzero(_classical_minima(checks) > 2).tolist()
     assert syndromes
@@ -993,7 +997,7 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
     tuning = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     search = coset._get_classical_search(
-        OVERLAPPING_ROUTES_CODE, checks, tuning._replace(overlapping_minimum_work=0)
+        OVERLAPPING_ROUTES_CODE, checks, tuning._replace(coset_route_minimum_work=0)
     )
     minima = _classical_minima(checks)
     missed = [
@@ -1058,8 +1062,8 @@ def _assert_min_weights_match_brute_force(
     "tuning",
     [
         {},
-        {"overlapping_minimum_work": 0},
-        {"overlapping_minimum_work": 0, "completion_bound_max_table_bytes": 0},
+        {"coset_route_minimum_work": 0},
+        {"coset_route_minimum_work": 0, "completion_bound_max_table_bytes": 0},
     ],
     ids=["disjoint", "tables", "no-tables"],
 )
@@ -1107,7 +1111,7 @@ def test_min_weights_of_cosets_match_brute_force(
     )
 
 
-@pytest.mark.parametrize("tuning", [{}, {"overlapping_minimum_work": 0}], ids=["words", "tails"])
+@pytest.mark.parametrize("tuning", [{}, {"coset_route_minimum_work": 0}], ids=["words", "tails"])
 def test_min_weight_searches_above_max_weight_examine_as_queries(
     tuning: dict[str, int], tune: Tune
 ) -> None:

@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Print the routes that ``overlapping_minimum_work`` gives the BZ searches of a coset workload.
+"""Print the routes that ``coset_route_minimum_work`` gives the BZ searches of a coset workload.
 
 A ``coset`` workload asks each BZ search of ``CosetLeaderSearch`` for the minimum weights of its
 cosets up to a maximum weight, which it answers with the route of that weight (see
 ``qldpc.codes.distance._brouwer_zimmermann.coset_routes``).  For each threshold given, the script
-builds the search of the workload's state under that value of ``overlapping_minimum_work``, chooses
+builds the search of the workload's state under that value of ``coset_route_minimum_work``, chooses
 the route of the maximum weight of each of its BZ searches (the X and Z parts of a CSS state, or the
 Pauli errors), and prints:
 
@@ -55,7 +55,7 @@ def main() -> None:
         nargs="+",
         type=int,
         default=[10**3, 10**4, 3 * 10**4, 10**5, 3 * 10**5, 10**6, 10**7],
-        help="values of overlapping_minimum_work (default: %(default)s)",
+        help="values of coset_route_minimum_work (default: %(default)s)",
     )
     args = parser.parse_args()
     parts = args.workload.split("/")
@@ -71,7 +71,7 @@ def main() -> None:
     max_weight = min(int(max_weight_text), len(stabilizers))
     labels = "XZ" if weighing == "css" else "P"
     for threshold in args.thresholds:
-        with _tuning.use_tuning(overlapping_minimum_work=threshold):
+        with _tuning.use_tuning(coset_route_minimum_work=threshold):
             search = CosetLeaderSearch(stabilizers, css_weight=weighing == "css")
             for label, bz_search in zip(labels, search._brouwer_zimmermann_searches, strict=True):
                 print_route(label, threshold, bz_search._routes, max_weight)

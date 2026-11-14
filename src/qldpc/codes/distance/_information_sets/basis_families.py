@@ -368,19 +368,18 @@ def get_partitioned_family(
 
     ``basis_family`` is the family that a search would otherwise use for the independent binary
     ``basis``, whose quotient labels ``labels`` have no columns if it has none.  For each maximum
-    coverage from two to ``tuning.max_partition_coverage``, matroid partitioning finds the most full
-    information sets, up to ``tuning.max_information_sets``, that contain no column more often than
-    that coverage (see ``matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer
-    (2016), which shows that such families can do less work than those of the Brouwer-Zimmermann
-    algorithm.
+    coverage from two up to the least at which ``tuning.max_information_sets`` full sets could fit,
+    by counting their pivots (see ``_get_least_coverage``), matroid partitioning finds the most full
+    information sets, up to that limit, that contain no column more often than that coverage (see
+    ``matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
+    that such families can do less work than those of the Brouwer-Zimmermann algorithm.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
     than the work of ``basis_family``, and otherwise a family with no sets.  No family is built if
     the estimated work of ``basis_family`` is below ``tuning.partition_work_ratio`` times the sum of
-    ``b * k**2 * n`` over the coverages ``b``, which approximates the cost of partitioning, or if no
-    family of at most ``tuning.max_information_sets`` full sets could do less work: some column of
-    ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k`` rows and ``n`` nonzero
-    columns.
+    ``b**2 * k**2 * n`` over the coverages ``b``, for ``k`` rows and ``n`` nonzero columns, a unit
+    roughly proportional to the cost of partitioning, or if no family of at most
+    ``tuning.max_information_sets`` full sets could do less work.
 
     ``get_competing_work``, if given, returns the estimated work of a family that the search would
     switch to instead, such as a family of automorphism images, and the switch would discard any
@@ -388,16 +387,17 @@ def get_partitioned_family(
     built if that work is at most the least work that a family of this stage could do.
     """
     max_sets = tuning.max_information_sets
-    max_coverage = tuning.max_partition_coverage
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
 
     # Skip partitioning if it would cost too much for this search, if it would try no coverage, or
     # if no family of full sets could do less work, which is certain if no sets are allowed.
+    # Coverage one is the disjoint packing of the earlier stages.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    total_coverage = sum(range(2, max_coverage + 1))
-    partition_unit = total_coverage * dimension**2 * num_columns
+    max_coverage, partition_unit = _get_partition_coverage_and_unit(
+        max_sets, dimension, num_columns
+    )
     if max_coverage < 2 or best_work < tuning.partition_work_ratio * partition_unit:
         return best
     optimistic_work = _estimate_optimistic_work(
@@ -636,6 +636,27 @@ def _get_disjoint_sets_for_columns(
     return information_sets
 
 
+def _get_partition_coverage_and_unit(
+    max_sets: int, dimension: int, num_columns: int
+) -> tuple[int, int]:
+    """The largest coverage that matroid partitioning tries, and the unit of its gate.
+
+    The basis has ``dimension`` rows and ``num_columns`` nonzero columns.  Partitioning tries each
+    coverage ``b`` from two up to ``_get_least_coverage(max_sets, dimension, num_columns)``, and the
+    unit that ``partition_work_ratio`` multiplies is the sum of ``b**2 * dimension**2 *
+    num_columns`` over these coverages.  This computes the bound itself, in Python integers, rather
+    than call that helper, which is compiled with 64-bit integers that ``max_sets`` up to
+    ``MAX_VALUE`` would overflow.
+    """
+    max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
+    if max_coverage < 2:
+        return max_coverage, 0
+
+    # The sum of b**2 from 2 to B is B (B + 1) (2B + 1) / 6 - 1.
+    sum_of_squares = max_coverage * (max_coverage + 1) * (2 * max_coverage + 1) // 6 - 1
+    return max_coverage, sum_of_squares * dimension**2 * num_columns
+
+
 ####################################################################################################
 # certificate estimates of the stages
 
@@ -682,16 +703,28 @@ def _estimate_optimistic_work(
     """Return a lower bound on the estimated work of a family of at most ``max_sets`` full sets.
 
     The basis has ``dimension`` rows and ``num_columns`` nonzero columns, and ``binomials`` are
-    ``get_capped_binomials(dimension)``.  Some column of ``m`` full sets is in at least ``ceil(m *
-    dimension / num_columns)`` of them, so no such family is certified with a smaller maximum
-    coverage.  Returns ``WORK_CAP`` if ``max_sets`` is zero.
+    ``get_capped_binomials(dimension)``.  No family of ``m`` full sets is certified with a maximum
+    coverage below ``_get_least_coverage(m, dimension, num_columns)``.
     """
     optimistic_work = WORK_CAP
     for num_sets in range(1, max_sets + 1):
-        coverage = (num_sets * dimension + num_columns - 1) // num_columns
+        coverage = _get_least_coverage(num_sets, dimension, num_columns)
         full_ranks = np.full(num_sets, dimension, dtype=np.int64)
         work = estimate_certificate_work(
             dimension, full_ranks, weight_divisor, coverage, upper_bound, binomials
         )
         optimistic_work = min(optimistic_work, work)
     return optimistic_work
+
+
+@always_compiled
+def _get_least_coverage(num_sets: int, dimension: int, num_columns: int) -> int:
+    """A lower bound on the maximum coverage of ``num_sets`` full information sets of a basis.
+
+    The basis has ``dimension`` rows and ``num_columns`` nonzero columns.  The sets have
+    ``num_sets * dimension`` pivots in all, so some column is in at least
+    ``ceil(num_sets * dimension / num_columns)`` of them: the least coverage at which they could
+    fit, by counting their pivots.  A word of low weight can force more, since every information set
+    contains a column of its support.
+    """
+    return (num_sets * dimension + num_columns - 1) // num_columns

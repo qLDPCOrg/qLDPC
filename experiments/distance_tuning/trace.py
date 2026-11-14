@@ -12,12 +12,13 @@ records:
   partitioning), with its number of sets and the seconds that building it took, and the quantities
   that the gates of overlapping families and of partitioning compare: for overlapping families, the
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
-  search and the unit of ``partition_work_ratio``, in candidate/set evaluations, the least work that
-  any partitioned family could do, and whether it tried (``partitioned``), even if it then found no
-  family.  Before trying, a search with automorphisms asks for them, verifies them, and builds their
-  family, and skips partitioning if that family does no more work than the least work of a
-  partitioned family.  The trace records that family's work (``competing_work``) and the seconds
-  those steps took (``competing_seconds``), which the seconds of partitioning include;
+  search, the largest coverage that it tries, and the unit of ``partition_work_ratio``, in
+  candidate/set evaluations, the least work that any partitioned family could do, and whether it
+  tried (``partitioned``), even if it then found no family.  Before trying, a search with
+  automorphisms asks for them, verifies them, and builds their family, and skips partitioning if
+  that family does no more work than the least work of a partitioned family.  The trace records that
+  family's work (``competing_work``) and the seconds those steps took (``competing_seconds``), which
+  the seconds of partitioning include;
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
@@ -263,15 +264,17 @@ def get_partition_gate(
     """The quantities that ``basis_families.get_partitioned_family`` compares to skip it.
 
     These are the estimated work of the family that partitioning would replace, in candidate/set
-    evaluations, the unit ``b * k**2 * n``, summed over coverages ``b``, that the search multiplies
-    by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), and the least work
-    that any partitioned family could do, which a search with automorphisms compares with the work
-    of their family.
+    evaluations, the largest coverage that it tries, the unit ``b**2 * k**2 * n``, summed over the
+    coverages ``b`` from two to that one, that the search multiplies by ``partition_work_ratio``
+    (see ``basis_families._get_partition_coverage_and_unit``), and the least work that any
+    partitioned family could do, which a search with automorphisms compares with the work of their
+    family.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    total_coverage = sum(range(2, tuning.max_partition_coverage + 1))
-    unit = total_coverage * dimension**2 * num_columns
+    max_coverage, unit = basis_families._get_partition_coverage_and_unit(
+        tuning.max_information_sets, dimension, num_columns
+    )
     work = basis_family.certificate.work(upper_bound)
     optimistic_work = basis_families._estimate_optimistic_work(
         dimension,
@@ -285,11 +288,12 @@ def get_partition_gate(
         "rows": dimension,
         "columns": num_columns,
         "estimated_work": int(work),
+        "max_coverage": max_coverage,
         "unit": unit,
         "ratio": tuning.partition_work_ratio,
         "optimistic_work": int(optimistic_work),
         "partitioned": bool(
-            tuning.max_partition_coverage >= 2
+            max_coverage >= 2
             and work >= tuning.partition_work_ratio * unit
             and work > optimistic_work
         ),
