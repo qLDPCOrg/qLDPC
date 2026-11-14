@@ -14,10 +14,10 @@ records:
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
   search and the unit of ``partition_work_ratio``, in candidate/set evaluations, the least work that
   any partitioned family could do, and whether it tried (``partitioned``), even if it then found no
-  family.  Before trying, a search with automorphisms asks for them, verifies them, and
-  builds their family, and skips partitioning if that family does no more work than the least work
-  of a partitioned family.  The trace records that family's work (``competing_work``) and the
-  seconds those steps took (``competing_seconds``), which the seconds of partitioning include;
+  family.  Before trying, a search with automorphisms asks for them, verifies them, and builds their
+  family, and skips partitioning if that family does no more work than the least work of a
+  partitioned family.  The trace records that family's work (``competing_work``) and the seconds
+  those steps took (``competing_seconds``), which the seconds of partitioning include;
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
@@ -42,10 +42,10 @@ records:
 
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
-``--setup-only``, it stops before the first layer of the first distance search, after its
-families; it does not stop counts.  The thresholds of ``SearchTuning`` decide where these stages
-start, so a trace shows which decisions a threshold can flip, and what each stage costs, before
-timing the tunings that flip them with ``sweep.py``.
+``--setup-only``, it stops before the first layer of the first distance search, after its families;
+it does not stop counts.  The thresholds of ``SearchTuning`` decide where these stages start, so a
+trace shows which decisions a threshold can flip, and what each stage costs, before timing the
+tunings that flip them with ``sweep.py``.
 
 Example:
 

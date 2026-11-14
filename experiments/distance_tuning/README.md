@@ -67,7 +67,6 @@ The main cause, a sizing of enumeration batches that did not vectorize rows of m
 ## 5. Check the sensitivity of long runs
 
 The long runs, of a minute or more one search at a time, are `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, `distance/classical:160:110:1/-`, the classical codes of 4000 and 8000 bits with 21 to 23 rows, and the coset searches `coset/pp232/css/10/10/3000`, `coset/qt7/css/10/10/3000`, and `coset/lp13s5/physical/7/7/1000`.
-The sparse codes of 4000 bits with 21 to 23 rows, which took tens of seconds when BZ searches enumerated their words, are traced with them, and the windows below count them among the long runs (`--long`).
 The check `c1-gate` (section 7) found two more long runs, `distance/lp13s6/X` and `distance/lp13s6/Z`, which the windows do not cover.
 The classical codes of 4000 and 8000 bits spend about a minute and several minutes of that in work that does not depend on the tuning (see "Before measuring").
 Coset searches read none of the thresholds that `windows.py` covers but `overlapping_minimum_work`, whose families on coset searches `coset_families.py` prints; `resample.py` shows whether a layer near the cost limit decides by its sampling draw.
@@ -158,12 +157,11 @@ for w in distance/classical:1000:{976..979}:2/- distance/classical:4000:{3977..3
 done
 python experiments/distance_tuning/windows.py traces/*.json --long distance/{bb288,pp170}/X \
     hadamard/{gross,pp110} distance/classical:160:110:1/- \
-    distance/classical:4000:{3977..3979}:2/- distance/classical:8000:{7977..7979}:2/- \
-    distance/sparse:4000:{21..23}:200:2/-
+    distance/classical:4000:{3977..3979}:2/- distance/classical:8000:{7977..7979}:2/-
 ```
 
 These sweeps produced the ratios behind the current values, and `collect_results.py --tags <tag>` summarizes each.
-The sweeps `p2-enum`, `p2-confirm`, `p2-factor`, `v-maxdim`, and `c4-setup` timed the fields of an exhaustive enumeration that BZ searches of small problems then ran instead of searching information sets, and the measurement of `enumeration_batch_exponent` that section 4 cites timed that enumeration.
+The sweeps `p2-enum`, `p2-confirm`, `p2-factor`, `v-maxdim`, and `c4-setup` timed the fields of an exhaustive enumeration that BZ searches of small problems then ran instead of searching information sets, and the measurements that section 4 cites timed that enumeration.
 That enumeration and the fields that chose it were later removed from BZ searches, and the commands are in the Git history of this file.
 
 ### noise-j10
