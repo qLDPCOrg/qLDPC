@@ -8,7 +8,8 @@ cost of a step into the value of its gate, and "Derived values" in the README of
 tables the measurements.  The script re-derives ``partition_work_ratio``,
 ``completion_bound_minimum_layer_work``, ``overlapping_minimum_work``, ``lp_minimum_work``, and
 ``completion_bound_max_cost_percent``, but not yet ``automorphism_minimum_layer_work``, whose
-comment says how it was measured.  It measures:
+comment says how it was measured, nor the coefficients of the cost model of completion tables,
+which ``fit_completion_costs.py`` fits.  It measures:
 
 - the seconds of one candidate/set evaluation: for each traced search, the seconds of its layers of
   at least ``10**7`` evaluations without completion tables, less the seconds of choosing tables and

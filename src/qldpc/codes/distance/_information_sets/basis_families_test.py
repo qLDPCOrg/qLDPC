@@ -273,7 +273,7 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
             labels,
             disjoint,
             upper_bound,
-            dataclasses.replace(DEFAULT_TUNING, **changes),
+            dataclasses.replace(tuning, **changes),
             get_competing_work=get_competing_work,
         )
         get_competing_work.assert_not_called()

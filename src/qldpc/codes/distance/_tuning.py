@@ -80,8 +80,8 @@ which it fixes when it is imported.  Change those by editing this module, and st
 
 Retuning:
 
-qLDPC sets tuning values by rules, not by timing.  The comment of every field but three puts its
-default in one of four classes:
+qLDPC sets tuning values by rules, not by timing.  The comment of each field puts its default in
+one of four classes, or says that it is in none:
 
 - A derived value follows from a rule and a measured constant of the machine.  The gate of an
   optional step, such as building a family of information sets or solving linear programs, breaks
@@ -195,9 +195,9 @@ class SearchTuning:
     states narrower bounds, and every float field is a finite, non-negative float.
 
     The comment above each field says what it decides and in what unit, what raising or lowering it
-    does, and, for every field but three, the class of its default, with the rule and constant of a
-    derived value (see :ref:`Retuning <tuning-retuning>`, which also describes the width and cost
-    data sets).
+    does, and the class of its default or, for a field in no class, how its default was chosen, with
+    the rule and constant of a derived value (see :ref:`Retuning <tuning-retuning>`, which also
+    describes the width and cost data sets).
     """
 
     # Fields of exhaustive enumeration.
@@ -242,14 +242,15 @@ class SearchTuning:
     overlapping_minimum_work: int = 2_000_000
 
     #: The predicted examinations of a query of a Brouwer-Zimmermann search of ``CosetLeaderSearch``
-    #: with its disjoint information sets, from which the search tries a maximum disjoint and an
-    #: overlapping family, and takes the one with the least work.  In searches by Hamming weight, a
-    #: query that reaches it even with that family also weighs words by their tails and skips
-    #: completions by tables (see ``_brouwer_zimmermann/coset_routes.py``).  It also sets the weight
-    #: that the overlapping family is aimed at, the least from two whose queries reach it.  Lowering
-    #: it builds these for cheaper queries, with more memory, and aims lower; zero builds them at
-    #: the first query, and ``MAX_VALUE`` never.  Defaults to ``2 * 10**4``, chosen by hand,
-    #: preferring speed to memory: it sets three decisions, and no break-even rule covers the aim.
+    #: with its disjoint information sets, from which the search also tries a maximum disjoint and
+    #: an overlapping family; each query takes the family, the disjoint one included, with the least
+    #: work.  In searches by Hamming weight, a query that reaches it even with that family also
+    #: weighs words by their tails and skips completions by tables (see
+    #: ``_brouwer_zimmermann/coset_routes.py``).  It also sets the weight that the overlapping
+    #: family is aimed at, the least from two whose queries reach it.  Lowering it builds these for
+    #: cheaper queries, with more memory, and aims lower; zero builds them at the first query, and
+    #: ``MAX_VALUE`` never.  Defaults to ``2 * 10**4``, chosen by hand, preferring speed to memory:
+    #: it sets three decisions, and no break-even rule covers the aim.
     coset_route_minimum_work: int = 20_000
 
     #: The column orders that building a family of overlapping information sets tries for each set

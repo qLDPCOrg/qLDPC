@@ -1,7 +1,7 @@
 # Retuning the exact distance searches
 
 This page tables the machine constants from which some defaults of Brouwer-Zimmermann (BZ) searches are derived, and walks through a retuning of the fields of `SearchTuning` that BZ searches read, like the retuning that set the earlier values.
-The [Retuning section](../../src/qldpc/codes/distance/_tuning.py) of the module docstring of `qldpc.codes.distance._tuning` states the classes of values, their rules, and how to change them, and the comment of each field names the class of its default or, for a field in no class, how its default was chosen.
+The [Retuning section](../../src/qldpc/codes/distance/_tuning.py) of the module docstring of `qldpc.codes.distance._tuning` states the classes of values, their rules, and how to change them, and the comment of each field names the class of its default or, for a field in no class, how its default was chosen or that this is not recorded.
 The [experiments README](../README.md#distance-tuning) introduces the scripts.
 Sweeps write their trials to `results/`, which Git ignores, so this page keeps the commands of the sweeps behind the earlier values.
 
@@ -28,7 +28,7 @@ On an Apple M3 Max that also ran other work, on the library code that follows #8
 
 These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases.
 The constant of linear programming rose by about a third when BZ searches stopped scanning several information sets in lockstep (#869): in paired runs of the script at the same load, the search took 0.17 s (`1.2 * 10**8` to `1.3 * 10**8` evaluations) before that change, and 0.22 s (`1.8 * 10**8`) after it, with 11 programs in each.
-Of the edges of their rounding, the geometric means of neighboring values, the constant of `overlapping_minimum_work` lies nearest, 5 to 23% below `3.16 * 10**6`; that of `partition_work_ratio` lies 20 to 22% above 3.16, and that of `lp_minimum_work` 27 to 28% above `1.41 * 10**8`.
+Of the edges of their rounding, the geometric means of neighboring values, the constant of `overlapping_minimum_work` lies nearest, 5 to 23% below `3.16 * 10**6`; that of `partition_work_ratio` lies 20 to 22% above 3.16, that of `completion_bound_minimum_layer_work` 20 to 22% below `3.16 * 10**7`, and that of `lp_minimum_work` 27 to 28% above `1.41 * 10**8`.
 `overlapping_minimum_work` gates only distance searches and counts; the routes of coset searches have their own threshold, `coset_route_minimum_work`, chosen by hand, whose comment says why no rule derives it.
 
 Matroid partitioning tries each coverage `b` from two up to `ceil(m k / n)`, for `m = max_information_sets`, `k` rows, and `n` nonzero columns: the least coverage at which `m` full sets could fit, by counting their pivots.
@@ -151,9 +151,9 @@ Their `overlapping_minimum_work` also gated the routes of coset searches, which 
 Partitioning then tried coverages from two up to a field, later removed, whose default was 4; the arm of `p3-aut` and of `p3-noaut` that set it to 2 now repeats their first arm, and the sweep `c2-coverage`, which timed only that field, is in the Git history of this file.
 The measurements of one search, and the traces of the windows of section 5, ran at the earlier defaults; to repeat them on the current code, add `{"partition_work_ratio": 5000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000, "automorphism_minimum_layer_work": 100000000}` to their tunings, whose own settings take precedence.
 Of the tuning, only partitioning then differs, in the coverages that it tries and in the unit of its gate; but #869 and #870 also change traced decisions, since searches no longer scan several sets in lockstep, and reconsider a declined switch to automorphism images.
-`fit_completion_costs.py`, `cache_stats.py`, and `coset_families.py` take no `--tuning`, so their measurements cannot be repeated by adding the earlier defaults.
+`fit_completion_costs.py`, `cache_stats.py`, `coset_families.py`, and `resample.py` take no `--tuning`, so their measurements cannot be repeated by adding the earlier defaults; the `--changes` of `resample.py` apply only to the predictions that it recomputes, not to the run that it captures.
 
-Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`.
+Measurements of one search mostly use `trace.py`, `trial.py`, or `fit_completion_costs.py`.
 Those of `automorphism_minimum_layer_work`, at `10**7` and past the edges of the windows, checked its window around `10**8`, its default then, not around its current default:
 
 | Measurement | Command |

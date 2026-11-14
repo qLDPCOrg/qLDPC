@@ -180,8 +180,8 @@ def get_gates(trace: dict[str, Any]) -> list[tuple[str, Gate]]:
                 ("completion_bound_max_cost_percent", Gate(100 * event["cost"], workload, detail))
             )
         elif kind == "family" and event["kind"] == "partitioned" and "estimated_work" in event:
-            # A search that tries no coverage, since max_information_sets full sets fit with
-            # coverage one, has a unit of zero and never partitions.
+            # A search that tries no coverage, since max_information_sets full sets could fit with
+            # coverage one, by counting their pivots, has a unit of zero and never partitions.
             unit = event["unit"]
             if not unit:
                 continue
