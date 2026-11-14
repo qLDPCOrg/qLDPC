@@ -30,7 +30,7 @@ from ._binary import (
 from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_nested_distance_brute_force
 from ._connected_support.search import get_distance_connected_support
-from ._connected_support.sparse_checks import get_sparser_rows
+from ._connected_support.sparse_checks import get_row_weights, get_sparser_rows
 from ._tuning import SearchTuning, get_tuning
 
 DistanceMethod = Literal[
@@ -479,7 +479,7 @@ def get_distance_pauli(
     stabilizers = get_pauli_stabilizers(gauge)
 
     # get_pauli_stabilizers returns new rows only for a subsystem code.  Its gauge generators that
-    # commute with every gauge generator are stabilizers, which the search keeps among its checks.
+    # commute with every gauge generator are stabilizers, which can join the search's checks.
     kept_stabilizers = None
     if method == "connected_support" and stabilizers is not gauge:
         overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
@@ -644,7 +644,8 @@ def _get_sparser_stabilizers(
     ``get_pauli_stabilizers`` derives, and ``kept_stabilizers`` holds the gauge generators that are
     stabilizers.  The checks are ``kept_stabilizers``, as given, followed by ``stabilizers`` made
     sparser in up to ``max_distance_sparsifying_rounds`` rounds (Section 3.9 of
-    ``connected_support.md``).
+    ``connected_support.md``).  Rows of ``kept_stabilizers`` that are heavier than every sparser row
+    are left out.
     """
     rows = stabilizers
     if tuning.max_distance_sparsifying_rounds:
@@ -654,7 +655,12 @@ def _get_sparser_stabilizers(
             max_rounds=tuning.max_distance_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
         )
-    return np.vstack([kept_stabilizers, rows])
+
+    # Drop the kept rows that are heavier than every sparser row, since they slow the search, and
+    # the sparser rows alone span the stabilizers.
+    max_sparser_weight = get_row_weights(rows, symplectic=symplectic).max(initial=0)
+    light = get_row_weights(kept_stabilizers, symplectic=symplectic) <= max_sparser_weight
+    return np.vstack([kept_stabilizers[light], rows])
 
 
 def _search_generators(

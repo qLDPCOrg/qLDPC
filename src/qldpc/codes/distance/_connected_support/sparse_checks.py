@@ -63,11 +63,11 @@ def get_sparser_rows(
     # weight leaves the rows as they are.  Row-reducing the transposed candidates, sorted by weight,
     # takes as pivots the first candidates that are independent of those before them.
     rng = np.random.default_rng(_SPARSIFYING_SEED)
-    weights = _get_row_weights(rows, symplectic=symplectic)
+    weights = get_row_weights(rows, symplectic=symplectic)
     rounds_unchanged = 0
     for _ in range(max_rounds):
         reduced, _, _ = row_reduce_binary(matrix, columns=rng.permutation(matrix.shape[1]))
-        reduced_weights = _get_row_weights(reduced, symplectic=symplectic)
+        reduced_weights = get_row_weights(reduced, symplectic=symplectic)
         light = reduced_weights < weights.max()
         previous_total = weights.sum()
         if np.any(light):
@@ -85,6 +85,14 @@ def get_sparser_rows(
     # of ``matrix`` is the identity, so their product with it is the transform.
     rows, _ = _sparsify(rows, symplectic=symplectic)
     return rows, multiply_binary(rows, get_unit_syndrome_words(matrix).T)
+
+
+def get_row_weights(rows: npt.NDArray[np.uint8], *, symplectic: bool) -> npt.NDArray[np.int64]:
+    """The weights of rows, as ``_sparsify`` counts them: of nonzero entries, or of qubits."""
+    if not symplectic:
+        return rows.sum(axis=1, dtype=np.int64)
+    half = rows.shape[1] // 2
+    return (rows[:, :half] | rows[:, half:]).sum(axis=1, dtype=np.int64)
 
 
 def _sparsify(
@@ -136,11 +144,3 @@ def _sparsify(
     if symplectic:
         parts.append(unpack_bits(part_z, num_variables))
     return np.hstack(parts), transform
-
-
-def _get_row_weights(rows: npt.NDArray[np.uint8], *, symplectic: bool) -> npt.NDArray[np.int64]:
-    """The weights of rows, as ``_sparsify`` counts them: of nonzero entries, or of qubits."""
-    if not symplectic:
-        return rows.sum(axis=1, dtype=np.int64)
-    half = rows.shape[1] // 2
-    return (rows[:, :half] | rows[:, half:]).sum(axis=1, dtype=np.int64)

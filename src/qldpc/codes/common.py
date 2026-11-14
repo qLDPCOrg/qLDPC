@@ -2100,12 +2100,12 @@ class QuditCode(AbstractCode):
     ) -> int | Literal[NoDistance.NAN]:
         """Use a randomized algorithm to compute an upper bound on code distance.
 
-        For a stabilizer code, use GAP's QDistRnd package to compute a distance bound.  By default,
-        ``backend="auto"`` uses GAP only if a GAP binding or executable can be called (see
-        :func:`qldpc.external.gap.is_callable`), and raises an error otherwise.  An explicit
-        ``backend="gap"`` instead falls back to a manual workflow when GAP cannot be called: after
-        asking on standard input whether to proceed, it prints GAP commands, copies them to the
-        system clipboard, and reads GAP's output from standard input (see
+        With ``backend="auto"`` or ``"gap"``, use GAP's QDistRnd package to bound the distance of a
+        stabilizer code.  By default, ``backend="auto"`` uses GAP only if a GAP binding or
+        executable can be called (see :func:`qldpc.external.gap.is_callable`), and raises an error
+        otherwise.  An explicit ``backend="gap"`` instead falls back to a manual workflow when GAP
+        cannot be called: after asking on standard input whether to proceed, it prints GAP commands,
+        copies them to the system clipboard, and reads GAP's output from standard input (see
         :func:`qldpc.external.gap.get_output`).  With either backend, GAP may ask on standard input
         before installing a missing GUAVA or QDistRnd package.
 
@@ -2120,10 +2120,12 @@ class QuditCode(AbstractCode):
                 bound if no bound is known.
             cutoff: Exit early once the upper bound falls to or below this cutoff.
             backend: Distance-bound backend.  ``"auto"`` (the default) and ``"gap"`` work as
-                described above; ``"decoder"`` and ``"sqetch"`` require a CSSCode and are rejected
-                here.
-            **bound_kwargs: Keyword arguments to pass to GAP/QDistRnd.  Recognized options are
-                {gap_options}; see https://qec-pages.github.io/QDistRnd/doc/chap4.html.
+                described above.  ``"decoder"`` and ``"sqetch"`` bound the code with
+                ``CSSCode.get_distance_bound``, and need X-type and Z-type operators to generate the
+                group of its checks.
+            **bound_kwargs: Keyword arguments to pass to GAP/QDistRnd, or to
+                ``CSSCode.get_distance_bound`` with ``"decoder"`` or ``"sqetch"``.  Recognized GAP
+                options are {gap_options}; see https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
         Returns:
             An upper bound on distance if it is defined, or ``NO_DISTANCE`` otherwise.  The returned
@@ -2134,16 +2136,13 @@ class QuditCode(AbstractCode):
             NotImplementedError: If GAP cannot be called with ``backend="auto"`` for a stabilizer
                 code, or if the manual workflow is declined with ``backend="gap"``.
             TypeError: If num_trials is not an integer or None.
-            ValueError: If backend is not ``"auto"`` or ``"gap"``, if given options that
-                GAP/QDistRnd does not recognize, if given options for GAP with ``backend="auto"``
-                when GAP cannot be called, or if the code is a subsystem code that is not CSS.
+            ValueError: If backend is unknown, if given options that the backend does not
+                recognize, if given options for GAP with ``backend="auto"`` when GAP cannot be
+                called, or if X-type and Z-type operators do not generate the group of the checks,
+                and the code is a subsystem code or backend is ``"decoder"`` or ``"sqetch"``.
         """
         _validate_distance_backend(backend)
         _validate_num_trials(num_trials)
-        if backend not in ("auto", "gap"):
-            raise ValueError(
-                f"The {backend!r} distance backend is only available for CSSCode instances."
-            )
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
         known_bound = self._distance_bound
@@ -2154,19 +2153,31 @@ class QuditCode(AbstractCode):
         if num_trials == 0 or (cutoff is not None and best_bound <= cutoff):
             return best_bound
 
-        if unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS):
+        # Check GAP's options here, and leave those of the decoder and sqetch backends to
+        # CSSCode.get_distance_bound.
+        css_only_backend = backend in ("decoder", "sqetch")
+        if not css_only_backend and (
+            unknown_gap := sorted(set(bound_kwargs) - _GAP_DISTANCE_BOUND_KWARGS)
+        ):
             raise ValueError(f"Arguments not recognized by GAP/QDistRnd: {unknown_gap}")
 
-        # Of subsystem codes, the backends support only CSS ones.  The checks generate the same
-        # group as their X and Z parts exactly if the ranks of the parts add up to theirs.
-        if self.is_subsystem_code:
+        # Bound a subsystem code, and any code with the decoder or sqetch backend, as a CSSCode,
+        # which needs checks that generate a CSS group.  They do exactly if the ranks of their X and
+        # Z parts add up to theirs.
+        if css_only_backend or self.is_subsystem_code:
             matrix_x, matrix_z = self.matrix[:, : len(self)], self.matrix[:, len(self) :]
             if self.rank != np.linalg.matrix_rank(matrix_x) + np.linalg.matrix_rank(matrix_z):
+                if css_only_backend:
+                    raise ValueError(
+                        f"The {backend!r} distance backend needs checks that generate a CSS group"
+                    )
                 raise ValueError(
                     "No distance-bound backend supports a subsystem code whose gauge group is not"
                     " CSS; get_distance_exact computes its exact distance"
                 )
-            css_code = CSSCode(matrix_x, matrix_z, self.field, is_subsystem_code=True)
+            css_code = CSSCode(
+                matrix_x, matrix_z, self.field, is_subsystem_code=self._is_subsystem_code
+            )
             bound = css_code.get_distance_bound(
                 num_trials, cutoff=cutoff, backend=backend, **bound_kwargs
             )
@@ -2175,13 +2186,14 @@ class QuditCode(AbstractCode):
 
         if _resolve_distance_backend(backend, bound_kwargs, is_binary=False) != "gap":
             raise NotImplementedError(
-                "Bounding the distance of a QuditCode that is not a CSSCode requires GAP/QDistRnd,"
-                ' but GAP cannot be called; pass backend="gap" to use GAP manually'
+                'With backend="auto", bounding the distance of a QuditCode that is not a CSSCode'
+                ' requires GAP/QDistRnd, but GAP cannot be called; pass backend="gap" to use GAP'
+                ' manually, or backend="decoder" if its checks generate a CSS group'
             )
         if not external.gap.is_installed():
             raise NotImplementedError(
-                "Bounding the distance of a QuditCode that is not a CSSCode without GAP is not"
-                " supported"
+                'Bounding the distance of a QuditCode that is not a CSSCode with backend="gap" is'
+                " not supported without GAP"
             )
 
         maxav = bound_kwargs.get("maxav", "fail")
