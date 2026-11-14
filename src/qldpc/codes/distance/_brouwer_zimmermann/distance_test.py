@@ -850,8 +850,8 @@ def test_a_late_switch_weighs_the_layers_left_in_the_current_family(
     first considers the switch before that layer, after its two disjoint sets have completed layers
     one and two and found a word of weight eight.  Layer three of one of these sets then certifies
     that weight, at 455 candidate/set evaluations, while the estimate for the images of one set,
-    575, counts the rows of layer one and layers two and three of the images' set, which the switch
-    would scan from layer two.  So the search declines, though the whole search of the disjoint
+    575, counts the rows of layer one and layers two and three of that set, which the switch would
+    scan from layer two.  So the search declines, though the whole search of the disjoint
     sets, at 695 evaluations, predicts more work than the images.
     """
     tune(

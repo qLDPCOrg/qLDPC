@@ -270,16 +270,14 @@ class SearchTuning:
 
     #: The least work of a coefficient layer, in candidate/set evaluations, before which a distance
     #: search that would not partition considers switching to automorphism images (Section 3.7 of
-    #: ``brouwer_zimmermann.md``); one that would partition considers it at the end of setup.  After
-    #: declining, a search reconsiders before such a layer once its best weight drops.  Lowering it
-    #: pays for finding automorphisms on cheaper searches; zero considers before the first layer,
-    #: and ``MAX_VALUE`` never.  Defaults to ``5 * 10**6``, derived by break-even: finding
-    #: automorphisms and building their images took up to 7.3 ms on the workloads
-    #: ``distance/qt7/X``, ``lp13s5/X``, ``lp13s8/X``, ``pp232/X``, and ``hadamard/gross`` of
-    #: ``experiments/distance_tuning``, about ``5.6 * 10**6`` evaluations at 1.32 ns each, which
-    #: rounds by ratio to 1, 2, or 5 times a power of ten.  That rate is the median, over six of its
-    #: workloads, of the seconds per evaluation of layers of at least ``10**7`` evaluations without
-    #: tables, net of choosing and building tables, linear programs, their planning, and the switch.
+    #: ``brouwer_zimmermann.md``); one that would partition considers it at the end of setup.  A
+    #: search that declined reconsiders once its best weight drops.  Lowering it pays for
+    #: automorphisms on cheaper searches; zero considers before the first layer, and ``MAX_VALUE``
+    #: never.  Defaults to ``5 * 10**6``, derived by break-even: finding automorphisms and building
+    #: their images took at most 7.33 ms, on ``hadamard/gross`` of ``experiments/distance_tuning``,
+    #: or about ``5.6 * 10**6`` evaluations at 1.32 ns each, the median over six of its workloads of
+    #: the net seconds per evaluation of layers of at least ``10**7`` evaluations without tables.
+    #: Rounding that count by ratio to 1, 2, or 5 times a power of ten gives the default.
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-support searches.
