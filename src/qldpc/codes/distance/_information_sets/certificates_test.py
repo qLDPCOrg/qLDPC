@@ -53,17 +53,27 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
         ranks_array = np.array(ranks, dtype=np.int64)
         binomials = certificates.get_capped_binomials(dimension)
         for upper_bound in range(1, 2 * dimension + 2):
-            candidates = 0
-            for weight, count in steps:
-                candidates += math.comb(dimension, weight)
-                if step_oracle[weight, count] >= upper_bound:
-                    break
-            assert certificate.work(upper_bound) == candidates
+            # The work from a first layer counts the steps from that layer on, through the first
+            # one that certifies the upper bound.
+            works = []
+            for first_layer in range(1, dimension + 1):
+                candidates = 0
+                for weight, count in steps:
+                    if weight >= first_layer:
+                        candidates += math.comb(dimension, weight)
+                        if step_oracle[weight, count] >= upper_bound:
+                            break
+                works.append(candidates)
+            assert certificate.work(upper_bound) == works[0]
+            assert [
+                certificate.work(upper_bound, first_layer)
+                for first_layer in range(1, dimension + 1)
+            ] == works
             assert (
                 certificates.estimate_certificate_work(
                     dimension, ranks_array, weight_divisor, max_coverage, upper_bound, binomials
                 )
-                == candidates
+                == works[0]
             )
             for step in steps:
                 assert certificate.certifies(*step, upper_bound) == (

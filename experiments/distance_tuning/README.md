@@ -103,7 +103,6 @@ These measures reach only so far:
 - The final set of values was not timed as a whole.
 - The estimated work of a distance search, which `overlapping_minimum_work`, `partition_work_ratio`, and `lp_minimum_work` read, can exceed the work done many times over, by a margin that varies between searches, so these thresholds stand for no fixed amount of time.
 - Coset searches choose the family of information sets that answers each maximum weight by the words that a query would weigh or skip, not by time, so they can choose a slower family.
-- A distance search decides at most once whether to switch to automorphism images, and does not revisit that choice as it finds lighter words.
 
 These limits can cost searches time or memory, but never change an exact result.
 
@@ -115,9 +114,11 @@ In `final-short-f`, it sets three fields to the values that its command gives.
 Its first arm also set the factor of the enumeration that BZ searches then ran to 128, against 16 in the second, so only that arm enumerated `distance/sparse:1000:21:50:2/-`; the command leaves that factor out.
 Some sweeps, such as `p3-noaut`, also set a field in every arm.
 The `--base` of each command gives the defaults of its time where they differ from the current ones, so that each command compares the same values on the current code, and the commands leave out fields that were later removed.
+The exception is `automorphism_minimum_layer_work`: every command ran with it at `10**8`, its default then, unless an arm set it, and the `--base` of each command leaves that out.
 The commands ran with a ratio and a cost factor of partitioning, whose product they give as `partition_work_ratio`.
 
-Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`:
+Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`.
+Those of `automorphism_minimum_layer_work`, at `10**7` and past the edges of the windows, checked its window around `10**8`, its default then, not around its current default:
 
 | Measurement | Command |
 | --- | --- |

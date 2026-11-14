@@ -24,9 +24,11 @@ are compared with are:
   replace, if it reaches the threshold, after the checks that come before it;
 - ``lp_minimum_work``: the estimated work of a certificate of overlapping sets, which may solve
   linear programs if it reaches the threshold;
-- ``automorphism_minimum_layer_work``: the work of each layer before the switch to automorphism
-  images, which the switch decides at the first layer that reaches the threshold; a search whose
-  setup found automorphisms decides the switch at the end of setup, and has no such layer.
+- ``automorphism_minimum_layer_work``: the work of each layer before which a search would consider
+  the switch to automorphism images if that work reached the threshold.  A search first considers
+  the switch before the first layer that reaches the threshold, and after declining, before each
+  later layer that does, once its best weight has dropped.  A search whose setup found automorphisms
+  first considers the switch at the end of setup, before any layer.
 
 With ``--compare``, it instead compares the decisions of two traces of one workload under two
 tunings: families and their gates, certificates, switches, the tables of each layer, and each
