@@ -132,16 +132,24 @@ def test_tables_fit_their_memory_limit() -> None:
     assert not cb._tables_fit(4, 0, 16, 2**30)
 
 
-def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -> None:
-    """Tables are built only within their limit, and not for tails without ones or a single row."""
+def test_tables_within_a_limit_fit_only_if_they_skip_something_and_build_in_place() -> None:
+    """Tables fit only within their limit, and not for tails without ones or a single row.
+
+    Tables built in place in a given array fill exactly that array, with the tables that a build
+    without one returns.
+    """
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 4, 40))
     tables = cb.CompletionTables.build(rows, 8)
-    built = cb.build_tables_within(rows, 8, len(tables.tables))
-    assert built is not None
-    np.testing.assert_array_equal(built.tables, tables.tables)
-    assert cb.build_tables_within(rows, 8, len(tables.tables) - 1) is None
-    assert cb.build_tables_within(np.zeros_like(rows), 8, MAX_VALUE) is None
-    assert cb.build_tables_within(rows[:1], 8, MAX_VALUE) is None
+    num_bytes = len(tables.tables)
+    assert cb.get_table_bytes_within(rows, 8, num_bytes) == num_bytes
+    assert cb.get_table_bytes_within(rows, 8, num_bytes - 1) == 0
+    assert cb.get_table_bytes_within(np.zeros_like(rows), 8, MAX_VALUE) == 0
+    assert cb.get_table_bytes_within(rows[:1], 8, MAX_VALUE) == 0
+
+    array = np.full(num_bytes + 2, 255, dtype=np.uint8)
+    cb.CompletionTables.build(rows, 8, out=array[1:-1])
+    np.testing.assert_array_equal(array[1:-1], tables.tables)
+    assert array[0] == array[-1] == 255
 
 
 def test_sampled_supports_are_counted_exactly(pytestconfig: pytest.Config) -> None:
