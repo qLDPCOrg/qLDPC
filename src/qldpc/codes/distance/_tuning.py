@@ -351,8 +351,8 @@ class SearchTuning:
 
     #: The number of tail columns in a block of the completion tables of distance searches and
     #: counts, a power of two up to 16.  Wider blocks skip more supports, but the table of a block
-    #: has ``2**width`` bytes for each row of the basis (see ``completion_bound_max_table_bytes``
-    #: for tables that do not fit): 1 builds fastest and skips least, and 16 the reverse.  Defaults
+    #: has ``2**width`` bytes for each row of the basis: 1 builds fastest and skips least, and 16
+    #: the reverse.  ``completion_bound_max_table_bytes`` says which bases get no tables.  Defaults
     #: to 16, which on every layer of the width data set of at least ``5 * 10**8`` supports skipped
     #: more supports, in less time, than 8.  To retune it, force each width on that data set and
     #: keep the fastest.

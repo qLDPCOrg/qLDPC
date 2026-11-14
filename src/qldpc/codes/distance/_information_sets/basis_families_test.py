@@ -285,7 +285,9 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
             )
         _assert_certificate_bounds_unvisited_words(basis, family)
 
-    # A packing whose sets use every nonzero column skips partitioning.
+    # A packing whose sets use every nonzero column, as that of PARTIAL_BASIS does, skips
+    # partitioning.  That of one_full_set leaves a column, so it partitions, but no family replaces
+    # it.
     one_full_set = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
     partition = matroid_partition.get_information_sets_with_coverage
     for basis, num_partitions in ((PARTIAL_BASIS, 0), (one_full_set, 1)):
@@ -298,7 +300,7 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
 
     # A maximum family keeps the limit of a packing: 8 information sets of three rows fit here, but
     # a packing keeps 7.  So no family replaces those 7, and partitioning is skipped.  A family of 7
-    # replaces one of 3 of them.
+    # replaces a family that holds only 3 of them.
     three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
     capped = basis_families.get_disjoint_family(three_rows, None, random_column_orders=0)
     smaller = basis_families.BasisFamily(

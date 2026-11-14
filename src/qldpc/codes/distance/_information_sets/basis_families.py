@@ -546,8 +546,8 @@ def _get_disjoint_sets(
     """Construct a large deterministic packing of disjoint information sets.
 
     The natural column order is tried first, and then up to ``random_column_orders`` random orders,
-    until one reaches a bound on its full sets, which a basis may not reach: the nonzero columns
-    divided by the rows, or the limit of ``_get_full_set_limit`` if that is smaller.
+    until one reaches a bound on its full sets.  The bound is the nonzero columns divided by the
+    rows, or the limit of ``_get_full_set_limit`` if that is smaller, and a basis may not reach it.
     """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
