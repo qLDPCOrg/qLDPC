@@ -809,7 +809,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
-The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults and say how each was chosen, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
+The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults and name the class of each default, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
 Sections 3.5 and 3.8 of [connected_support.md](connected_support.md) describe the fields of the connected-support searches.
 
 ### 4.1 Module map and layering
@@ -994,10 +994,10 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
 - **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two up to `ceil(m*r/N)`, where `m` is `max_information_sets`.
-  That is the least coverage at which `m` full sets fit, and coverage one is the disjoint packing of the earlier stages.
+  That is the least coverage at which `m` full sets could fit, by counting their pivots, and coverage one is the disjoint packing of the earlier stages.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
-  It tries this only if its estimated work is at least `partition_work_ratio` times the sum of `b*r^2*N` over the coverages `b` that it tries, which approximates the cost of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
+  It tries this only if its estimated work is at least `partition_work_ratio` times the sum of `b^2*r^2*N` over the coverages `b` that it tries, to which the cost of partitioning is roughly proportional, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
   A distance search with automorphisms also skips it if the work estimate of its automorphism family is at most the least work that the optimistic coverage allows, and switches to that family instead ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
@@ -1023,7 +1023,6 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The gate of routes by tails replaces the minimum layer work and the cost model of `select_completion_tables`.
   So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, whatever the work of those layers.
   `get_coset_tails` gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
-  The comment of `coset_completion_block_bits` says how its width trades coset searches by CSS weight against those by physical weight.
 - **`select_completion_tables`** decides whether an information set in a layer of a distance search, or a step of a count, uses completion tables, as [Section 3.9](#39-skipping-completions-by-completion-tables) explains; a count passes its target weight plus one in place of `U`.
   It considers the layers that `considers_tables` allows: layers of two to `r` rows with at least `completion_bound_minimum_layer_work` supports, under a tuning whose `completion_bound_max_cost_percent` and `completion_bound_max_table_bytes` are not zero.
   It uses tables if `predict_completion_cost` predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.

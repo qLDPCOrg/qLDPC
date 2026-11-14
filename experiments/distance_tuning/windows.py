@@ -16,10 +16,10 @@ are compared with are:
   layer or step that uses them;
 - ``completion_bound_max_cost_percent``: each predicted cost of completion tables, in percent, which
   a layer accepts if it is at most the threshold;
-- ``partition_work_ratio``: the estimated work of a search divided by the sum of ``b * k**2 * n``
-  over the coverages ``b``.  A search tries matroid partitioning if this quotient reaches the
-  threshold.  If it has automorphisms, it first asks for them, may skip partitioning, and considers
-  the switch at the end of setup (see ``trace.py``);
+- ``partition_work_ratio``: the estimated work of a search divided by the sum of
+  ``b**2 * k**2 * n`` over the coverages ``b``.  A search tries matroid partitioning if this
+  quotient reaches the threshold.  If it has automorphisms, it first asks for them, may skip
+  partitioning, and considers the switch at the end of setup (see ``trace.py``);
 - ``overlapping_minimum_work``: the estimated work of a family that an overlapping family may
   replace, if it reaches the threshold, after the checks that come before it;
 - ``lp_minimum_work``: the estimated work of a certificate of overlapping sets, which may solve

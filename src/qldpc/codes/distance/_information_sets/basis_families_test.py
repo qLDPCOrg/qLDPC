@@ -210,23 +210,25 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(matroid_partition, "get_information_sets_with_coverage", record_coverage)
 
     def get_family(**changes: int) -> basis_families.BasisFamily:
-        fields: dict[str, Any] = {"partition_work_ratio": 0, **changes}
+        fields: dict[str, Any] = {"partition_work_ratio": 0, "max_information_sets": 16, **changes}
         tuning = dataclasses.replace(DEFAULT_TUNING, **fields)
         coverages.clear()
         return basis_families.get_partitioned_family(basis, labels, disjoint, 5, tuning)
 
     # A family needs a set to hold, a coverage of two or more, and partitioning that pays.  Even a
     # ratio of one rules partitioning out here, since the disjoint family does less work than the
-    # 27 * 4**2 * 10 evaluations of the unit of the ratio, for the coverages two to seven.
+    # 139 * 4**2 * 10 evaluations of the unit of the ratio, for the coverages two to seven.
     assert not len(get_family(partition_work_ratio=2**62).ranks)
     assert not len(get_family(partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
 
-    # Partitioning tries each coverage from two up to the least at which the most sets allowed fit
-    # in the 10 nonzero columns: ceil(16 * 4 / 10) = 7, but ceil(2 * 4 / 10) = 1 for two sets.
+    # Partitioning tries each coverage from two up to the least at which the most sets allowed could
+    # fit in the 10 nonzero columns, by counting their pivots: ceil(16 * 4 / 10) = 7, but
+    # ceil(2 * 4 / 10) = 1 for two sets, and none for no sets, with a unit of zero.
     assert not len(get_family(max_information_sets=2).ranks) and not coverages
+    assert basis_families._get_partition_coverage_and_unit(0, len(basis), 10) == (0, 0)
     family = get_family()
-    assert coverages == list(range(2, 8))
+    assert sorted(coverages) == list(range(2, 8))
     assert family.max_coverage > 1
     assert family.certificate.work(5) < disjoint.certificate.work(5)
     for generators, set_labels, pivots in zip(*family[:3], strict=True):
@@ -275,6 +277,37 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
             get_competing_work=get_competing_work,
         )
         get_competing_work.assert_not_called()
+
+
+def test_partitioning_runs_once_work_reaches_its_unit() -> None:
+    """Matroid partitioning runs only if the work of a search reaches a multiple of its unit.
+
+    The unit is the sum of ``b**2 * k**2 * n`` over the coverages ``b`` that partitioning tries, for
+    ``k`` rows and ``n`` nonzero columns.  Five full sets of this basis of 20 rows, whose disjoint
+    information sets have ranks 20, 20, and 5, could fit in its 45 nonzero columns from the coverage
+    ceil(5 * 20 / 45) = 3, so partitioning tries the coverages two and three.
+    """
+    basis = np.hstack([np.eye(20), np.eye(20), np.eye(20)[:, :5]]).astype(np.uint8)
+    labels = np.eye(len(basis), dtype=np.uint8)
+    disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
+    assert disjoint.ranks.tolist() == [20, 20, 5]
+    unit = (2**2 + 3**2) * 20**2 * 45
+    ratio = disjoint.certificate.work(19) // unit
+
+    # At a ratio of three or more, any unit up to three quarters of this one, such as its last term
+    # alone, would let partitioning run at the next ratio too.
+    assert ratio >= 3
+
+    # Partitioning asks for the work of a competing family only if it would otherwise run.
+    for partition_work_ratio, runs in ((ratio, True), (ratio + 1, False)):
+        get_competing_work = mock.Mock(return_value=0)
+        tuning = dataclasses.replace(
+            DEFAULT_TUNING, max_information_sets=5, partition_work_ratio=partition_work_ratio
+        )
+        basis_families.get_partitioned_family(
+            basis, labels, disjoint, 19, tuning, get_competing_work=get_competing_work
+        )
+        assert get_competing_work.called == runs
 
 
 def test_maximum_disjoint_families_replace_smaller_packings() -> None:

@@ -209,7 +209,7 @@ The option `--hadamards` applies Hadamards to the second half of the qubits of e
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
 
-[`distance_tuning/sweep.py`](distance_tuning/sweep.py) compares tunings of the Brouwer-Zimmermann searches (see the [tuning page](../docs/source/exact_search_tuning.rst)), as the Retuning section of `qldpc.codes.distance._tuning` describes.
+[`distance_tuning/sweep.py`](distance_tuning/sweep.py) compares tunings of the Brouwer-Zimmermann searches (see the [tuning page](../docs/source/exact_search_tuning.rst)); such a comparison confirms a change of values, and never chooses them (see the Retuning section of `qldpc.codes.distance._tuning`).
 Each arm of a sweep is a set of changes to the fields of `SearchTuning`, and each trial times one workload of [`workloads.py`](distance_tuning/workloads.py), such as a distance, a count of logical operators, or queries of `CosetLeaderSearch`, under one arm, in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)).
 Rounds alternate the order of the arms, and an interrupted sweep resumes where it stopped.
 [`collect_results.py`](distance_tuning/collect_results.py) summarizes the ratio of each arm's time to the first arm's in the same round, and flags arms that disagree on a result.

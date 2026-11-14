@@ -264,17 +264,17 @@ def get_partition_gate(
     """The quantities that ``basis_families.get_partitioned_family`` compares to skip it.
 
     These are the estimated work of the family that partitioning would replace, in candidate/set
-    evaluations, the largest coverage that it tries, the unit ``b * k**2 * n``, summed over the
+    evaluations, the largest coverage that it tries, the unit ``b**2 * k**2 * n``, summed over the
     coverages ``b`` from two to that one, that the search multiplies by ``partition_work_ratio``
-    (see the source of ``get_partitioned_family``), and the least work that any partitioned family
-    could do, which a search with automorphisms compares with the work of their family.
+    (see ``basis_families._get_partition_coverage_and_unit``), and the least work that any
+    partitioned family could do, which a search with automorphisms compares with the work of their
+    family.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    max_coverage = int(
-        basis_families._get_least_coverage(tuning.max_information_sets, dimension, num_columns)
+    max_coverage, unit = basis_families._get_partition_coverage_and_unit(
+        tuning.max_information_sets, dimension, num_columns
     )
-    unit = sum(range(2, max_coverage + 1)) * dimension**2 * num_columns
     work = basis_family.certificate.work(upper_bound)
     optimistic_work = basis_families._estimate_optimistic_work(
         dimension,

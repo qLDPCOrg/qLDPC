@@ -5,18 +5,18 @@
 The derived values of ``qldpc.codes.distance._tuning`` follow from rules and from a few constants of
 the machine (see the Retuning section of its module docstring, and "Derived values" in the README
 of this directory).  Each gate of an optional step breaks even: the step runs once the work that it
-acts on, in candidate/set evaluations, reaches the measured cost of the step, rounded to 1, 2, or 5
-times a power of ten.  The script measures:
+acts on, in candidate/set evaluations, reaches the measured cost of the step, the costliest of its
+measurements, rounded to 1, 2, or 5 times a power of ten.  The script measures:
 
 - the seconds of one candidate/set evaluation: for each traced search, the seconds of its layers of
   at least ``10**7`` evaluations without completion tables, less the seconds of choosing tables and
   of the automorphism switch within them, divided by their evaluations, and the median over the
   searches.  It converts the other constants into evaluations;
-- matroid partitioning, per unit of the sum of ``b * k**2 * n`` over the coverages ``b`` that a
-  search tries, which ``partition_work_ratio`` multiplies: the median over the traced runs;
-- the costliest prediction of the cost of completion tables, which samples supports: the largest,
-  over the layers of the traced searches, of the median seconds of their predictions;
-- building a family of overlapping information sets: the median over the families built;
+- matroid partitioning, per unit of the sum of ``b**2 * k**2 * n`` over the coverages ``b`` that a
+  search tries, which ``partition_work_ratio`` multiplies: the costliest of the traced runs;
+- the costliest prediction of the cost of completion tables, which samples supports, over the
+  layers of the traced searches;
+- building a family of overlapping information sets: the costliest of the families built;
 - the linear programming of a search of a large basis, ``distance/qt7/X`` of 181 rows: the seconds
   that its certificates spend in their bounds (planning, the checks of ``Certificate.certifies``,
   and the programs), with automorphisms off so that the search keeps its certificate throughout.
@@ -26,9 +26,12 @@ layers time scans, and partitioning forced on one of them.  It traces the setup 
 of a large basis, with partitioning forced and automorphisms off, and times the linear programming
 of another search, which ``--linear-programs-of`` runs.  Each measurement runs in a new
 single-threaded process, which first warms up as ``trial.py`` does.  The script saves each
-measurement in ``constants/`` in the results directory, skips those already saved, and prints each
-constant, in seconds and in evaluations, and each derived value beside its default.  Run it on a
-quiet machine.  It takes a few minutes.
+measurement in ``constants/`` in the results directory, with the source of qLDPC that it ran on
+(see ``sweep.get_source_fingerprint``), and skips those already saved from the current source.  So
+it measures every constant again after a commit or a change to ``src/``, and it reports nothing
+while a measurement of other source remains.  It prints each constant, in seconds and in
+evaluations, and each derived value beside its default.  Run it on a quiet machine.  It takes a few
+minutes.
 
 Example:
 
@@ -152,8 +155,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def measure(directory: pathlib.Path, timeout: float) -> None:
-    """Run each measurement that the directory lacks, in new single-threaded processes."""
+    """Run each measurement that the directory lacks for the current source, in new processes.
+
+    Each runs single-threaded, and replaces any measurement of other source.
+    """
     directory.mkdir(parents=True, exist_ok=True)
+    source = sweep.get_source_fingerprint()
     commands = {
         name: [
             str(sweep.DIRECTORY / "trace.py"),
@@ -176,7 +183,7 @@ def measure(directory: pathlib.Path, timeout: float) -> None:
     ]
     for name, command in commands.items():
         path = directory / f"{name}.json"
-        if path.exists():
+        if path.exists() and json.loads(path.read_text(encoding="utf-8")).get("source") == source:
             continue
         try:
             process = subprocess.run(
@@ -206,6 +213,7 @@ def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib
     the cost of linear programming in the search.
     """
     trial.check_workload(workload)
+    source = sweep.get_source_fingerprint()
     record: dict[str, Any] = {"bound_seconds": 0.0, "programs": 0}
     depth = [0]
 
@@ -241,7 +249,8 @@ def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib
         start = time.perf_counter()
         result = workloads.run_workload(workload)
         seconds = time.perf_counter() - start
-    record |= {"workload": workload, "tuning": changes, "result": result, "seconds": seconds}
+    record |= {"workload": workload, "tuning": changes, "source": source}
+    record |= {"result": result, "seconds": seconds}
     output.write_text(json.dumps(record, indent=1), encoding="utf-8")
 
 
@@ -250,17 +259,22 @@ def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib
 
 
 def report(directory: pathlib.Path) -> None:
-    """Print the constants and the derived values, from the measurements in the directory."""
-    traces = {
-        name: json.loads((directory / f"{name}.json").read_text(encoding="utf-8"))
-        for name, *_ in TRACES
-        if (directory / f"{name}.json").exists()
-    }
-    path = directory / "linear-programs.json"
-    linear_programs = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
-    if len(traces) < len(TRACES) or linear_programs is None:
+    """Print the constants and the derived values, from the measurements in the directory.
+
+    Print nothing else if a measurement is missing, or was made on other source code.
+    """
+    names = [name for name, *_ in TRACES] + ["linear-programs"]
+    paths = {name: directory / f"{name}.json" for name in names}
+    if not all(path.exists() for path in paths.values()):
         print("Some measurements are missing; run the script again.")
         return
+    traces = {name: json.loads(path.read_text(encoding="utf-8")) for name, path in paths.items()}
+    source = sweep.get_source_fingerprint()
+    stale = [name for name, record in traces.items() if record.get("source") != source]
+    if stale:
+        print(f"Measurements of other source code: {', '.join(stale)}; run the script again.")
+        return
+    linear_programs = traces.pop("linear-programs")
 
     evaluation = get_evaluation_seconds(traces)
     constants = {
@@ -278,7 +292,8 @@ def report(directory: pathlib.Path) -> None:
         evaluations = constant.seconds / evaluation.seconds
         print(f"{name:<32} {constant.seconds:>10.3g} {evaluations:>12.3g}  {constant.description}")
 
-    # Each gate breaks even with the cost of its step, rounded to 1, 2, or 5 times a power of ten.
+    # Each gate breaks even with the costliest measurement of its step, rounded to 1, 2, or 5 times
+    # a power of ten.
     # The cost limit of completion tables compares two estimates of one unit.
     derived = {
         "partition_work_ratio": constants["partitioning, per unit"],
@@ -335,38 +350,34 @@ def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_partition_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The median seconds of matroid partitioning, per unit of ``partition_work_ratio``."""
+    """The costliest seconds of matroid partitioning, per unit of ``partition_work_ratio``."""
     runs = [
         (trace["workload"], event)
         for trace in traces.values()
         for event in trace["events"]
         if event["event"] == "family" and event["kind"] == "partitioned" and event["partitioned"]
     ]
-    description = "median of " + ", ".join(
+    description = "costliest of " + ", ".join(
         f"{workload} (coverages up to {event['max_coverage']}): "
-        f"{event['seconds'] / event['unit'] * 1e9:.1f} ns"
+        f"{event['seconds'] / event['unit'] * 1e9:.2f} ns"
         for workload, event in runs
     )
-    return Constant(
-        statistics.median(event["seconds"] / event["unit"] for _, event in runs), description
-    )
+    return Constant(max(event["seconds"] / event["unit"] for _, event in runs), description)
 
 
 def get_prediction_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The largest, over layers, of the median seconds of their predictions that sample."""
-    groups: dict[tuple[str, int, int], list[float]] = {}
-    for trace in traces.values():
-        for event in trace["events"]:
-            if event["event"] == "predict" and event["block_bits"]:
-                key = (trace["workload"], event["rows"], event["weight"])
-                groups.setdefault(key, []).append(event["seconds"])
-    medians = {key: statistics.median(seconds) for key, seconds in groups.items()}
-    (workload, rows, weight), seconds = max(medians.items(), key=lambda item: item[1])
+    """The costliest seconds of a prediction that samples, over the layers of the traces."""
+    seconds, workload, rows, weight = max(
+        (event["seconds"], trace["workload"], event["rows"], event["weight"])
+        for trace in traces.values()
+        for event in trace["events"]
+        if event["event"] == "predict" and event["block_bits"]
+    )
     return Constant(seconds, f"{workload}: the layer of weight {weight}, of {rows} rows")
 
 
 def get_overlapping_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The median seconds of building a family of overlapping information sets."""
+    """The costliest seconds of building a family of overlapping information sets."""
     builds = [
         (trace["workload"], event["rows"], event["seconds"])
         for trace in traces.values()
@@ -375,10 +386,10 @@ def get_overlapping_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
         and event["kind"] == "overlapping"
         and event.get("stage") == "built"
     ]
-    description = "median of " + ", ".join(
+    description = "costliest of " + ", ".join(
         f"{workload} ({rows} rows): {seconds * 1e3:.2f} ms" for workload, rows, seconds in builds
     )
-    return Constant(statistics.median(seconds for *_, seconds in builds), description)
+    return Constant(max(seconds for *_, seconds in builds), description)
 
 
 if __name__ == "__main__":

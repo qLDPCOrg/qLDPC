@@ -86,15 +86,15 @@ one of four classes:
 - A derived value follows from a rule and a measured constant of the machine.  The gate of an
   optional step, such as building a family of information sets or solving linear programs, breaks
   even: the step runs once the work that it acts on, in candidate/set evaluations, reaches the
-  measured cost of the step, rounded to 1, 2, or 5 times a power of ten.  A limit that compares two
-  estimates in one unit breaks even at equality, and the coefficients of a cost model are fitted to
-  measurements of what they stand for.
-- A budget is a limit that the maintainer sets on memory, interrupt latency, or setup effort.  A
-  batch or chunk size is the smallest whose overhead per call is negligible, a property of the
-  machine rather than of the codes searched.
+  measured cost of the step, the costliest of its measurements, rounded to 1, 2, or 5 times a power
+  of ten.  A limit that compares two estimates in one unit breaks even at equality, and the
+  coefficients of a cost model are fitted to measurements of what they stand for.
+- A budget is a limit that the maintainer sets on memory, interrupt latency, or setup effort.  Each
+  batch or chunk size is a size whose overhead per call is negligible on this machine; to change
+  one, take the smallest such size, which depends on the machine rather than on the codes searched.
 - A convention is a statistical or numerical setting, and its comment says what it guarantees.
 - The widest allowed: the blocks of completion tables take the widest width that searches accept,
-  since wider blocks never skip less, and a budget bounds their memory.
+  since wider blocks never skip less where their tables fit, and a budget bounds their memory.
 
 Fields whose comments name no class are not yet in one, and their comments say how their values
 were chosen.
@@ -141,7 +141,8 @@ To refit the cost model of completion tables, which ``predict_completion_cost`` 
 3. Fit the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
    ``completion_bound_table_byte_cost``, and ``completion_bound_build_step_cost``, to the measured
-   lookups, scans, and builds, and round the coefficients of builds up.
+   lookups, scans, and builds.  The builds measure one scale of the last two, whose ratio of one to
+   two was set by hand; scale both, and round each up to 1, 2, or 5 times a power of ten.
 
 ``fit_completion_costs.py`` of ``experiments/distance_tuning`` takes these steps.  Accept values
 if, at the defaults, no layer is slower than the faster of the other two arms by more than the
@@ -210,12 +211,13 @@ class SearchTuning:
 
     #: The most information sets in a family of overlapping sets, or in a family found by matroid
     #: partitioning, which tries each coverage from two up to the least at which this many full sets
-    #: fit (see ``get_partitioned_family`` in ``_information_sets/basis_families.py``).  Distance
-    #: searches and counts build both, and coset searches build overlapping ones for costly queries.
-    #: More sets can skip costly layers, but setup grows roughly with the square of this limit, or
-    #: its cube when partitioning, and dominates cheap searches.  Zero disables both, but not the
-    #: maximum disjoint family that a coset search finds with coverage one.  Defaults to 16, a
-    #: budget of setup effort (see :ref:`Retuning <tuning-retuning>`).
+    #: could fit, by counting their pivots (see ``get_partitioned_family`` in
+    #: ``_information_sets/basis_families.py``).  Distance searches and counts build both, and coset
+    #: searches build overlapping ones for costly queries.  More sets can skip costly layers, but
+    #: setup grows roughly with the square of this limit, or its cube when partitioning, and
+    #: dominates cheap searches.  Zero disables both, but not the maximum disjoint family that a
+    #: coset search finds with coverage one.  Defaults to 16, a budget of setup effort (see
+    #: :ref:`Retuning <tuning-retuning>`).
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
@@ -243,15 +245,15 @@ class SearchTuning:
     overlapping_attempts_per_set: int = 2
 
     #: A search tries matroid partitioning only if its estimated work, in candidate/set evaluations,
-    #: reaches this multiple of the sum of ``b * k**2 * n`` over the coverages ``b`` that it tries,
-    #: for ``k`` rows and ``n`` nonzero columns (see ``get_partitioned_family`` in
+    #: reaches this multiple of the sum of ``b**2 * k**2 * n`` over the coverages ``b`` that it
+    #: tries, for ``k`` rows and ``n`` nonzero columns (see ``get_partitioned_family`` in
     #: ``_information_sets/basis_families.py``).  Lowering it tries partitioning on cheaper
     #: searches; zero always tries, and ``MAX_VALUE`` never does.  Searches given automorphisms
     #: switch to their images instead if those do no more work than any partitioned family could.
-    #: Defaults to 20, a derived value (see :ref:`Retuning <tuning-retuning>`): partitioning took
-    #: about 17 evaluations for each unit of that sum on two searches, which tried coverages up to 6
-    #: and 9.
-    partition_work_ratio: int = 20
+    #: Defaults to 5, a derived value (see :ref:`Retuning <tuning-retuning>`): partitioning took 3.3
+    #: to 4.0 evaluations for each unit of that sum on a search that tried coverages up to 6, and
+    #: less on one that tried coverages up to 9.
+    partition_work_ratio: int = 5
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
     #: information sets also bounds unvisited words by linear programming (Section 3.1 of
@@ -325,8 +327,8 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling, or tens on
     #: large bases.  Lowering it considers smaller layers; zero every layer, and ``MAX_VALUE`` none.
     #: Defaults to ``2 * 10**7``, a derived value (see :ref:`Retuning <tuning-retuning>`): the
-    #: costliest prediction measured, on a basis of 181 rows, took about ``2.4 * 10**7``
-    #: evaluations.
+    #: costliest prediction measured, on bases of 175 and 181 rows, took ``2.4 * 10**7`` to
+    #: ``2.5 * 10**7`` evaluations.
     completion_bound_minimum_layer_work: int = 20_000_000
 
     #: A layer of a distance search or count uses the completion tables that it considers only if
@@ -353,7 +355,8 @@ class SearchTuning:
     #: has ``2**width`` bytes for each row of the basis: 1 builds fastest and skips least, and 16
     #: the reverse.  ``completion_bound_max_table_bytes`` says which bases get no tables.  Defaults
     #: to 16, the widest allowed (see :ref:`Retuning <tuning-retuning>`): wider blocks never skip
-    #: fewer supports, and ``completion_bound_max_table_bytes`` bounds their memory.
+    #: fewer supports where their tables fit, and ``completion_bound_max_table_bytes`` bounds their
+    #: memory.
     completion_bound_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The number of tail columns in a block of the completion tables of ``CosetLeaderSearch``, a
@@ -361,7 +364,8 @@ class SearchTuning:
     #: queries, within ``completion_bound_max_table_bytes`` for each set.  Wider blocks skip more
     #: completions but cost more memory and time (see ``completion_bound_block_bits``).  Defaults to
     #: 16, the widest allowed (see :ref:`Retuning <tuning-retuning>`): wider blocks never skip fewer
-    #: completions, and ``completion_bound_max_table_bytes`` bounds their memory.
+    #: completions where their tables fit, and ``completion_bound_max_table_bytes`` bounds their
+    #: memory.
     coset_completion_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The number of random supports from which a search estimates the share of a layer that
@@ -385,8 +389,8 @@ class SearchTuning:
     #: The most work that a search spends bounding sampled supports, in units of one pair of rows on
     #: one block of the tables; summing the first rows of a support costs one unit for each row of
     #: the basis.  Raising it allows more samples on large bases, at more cost; zero takes no
-    #: samples, so the search declines tables.  Defaults to ``5 * 10**7``, a budget of latency (see
-    #: :ref:`Retuning <tuning-retuning>`): sampling takes tens of milliseconds on large bases.
+    #: samples, so the search declines tables.  Defaults to ``5 * 10**7``, a budget of setup effort
+    #: (see :ref:`Retuning <tuning-retuning>`): sampling takes tens of milliseconds on large bases.
     completion_bound_sampling_work: int = 50_000_000
 
     #: How many standard errors below the sampled share of skipped supports a search sets its
@@ -424,17 +428,19 @@ class SearchTuning:
     #: The cost of building completion tables, in scanned supports for each byte of tables; with
     #: ``completion_bound_build_step_cost``, it predicts the cost of a build.  An underestimate
     #: builds tables that small layers do not repay; an overestimate declines tables that would save
-    #: time.  Defaults to 0.1, a derived value (see :ref:`Retuning <tuning-retuning>`): with
-    #: ``completion_bound_build_step_cost``, set from the builds of the cost data set and rounded
-    #: up, so that it predicts builds about 1.5 times slower than measured.
+    #: time.  Defaults to 0.1, a derived value (see :ref:`Retuning <tuning-retuning>`): the builds
+    #: of the cost data set measure one scale of it and ``completion_bound_build_step_cost``, whose
+    #: ratio of one to two was set by hand, and both are rounded up, so that they predict builds
+    #: about 1.5 times slower than measured.
     completion_bound_table_byte_cost: float = 0.1
 
     #: The cost of building completion tables, in scanned supports for each step of the
     #: breadth-first searches that fill them, as ``_estimate_build_cost`` in
     #: ``_information_sets/completion_bounds.py`` counts steps.  Raising it makes searches decline
     #: tables that are costly to build; lowering it lets them build tables that small layers do not
-    #: repay.  Defaults to 0.2, a derived value (see :ref:`Retuning <tuning-retuning>`): set with
-    #: ``completion_bound_table_byte_cost``.
+    #: repay.  Defaults to 0.2, a derived value (see :ref:`Retuning <tuning-retuning>`): scaled and
+    #: rounded up with ``completion_bound_table_byte_cost``, at twice its value, a ratio set by
+    #: hand.
     completion_bound_build_step_cost: float = 0.2
 
     # Fields of batches and memory limits.

@@ -1,44 +1,37 @@
 # Retuning the exact distance searches
 
-This page tables the rules and the machine constants from which some defaults of Brouwer-Zimmermann (BZ) searches are derived, and walks through a retuning of the fields of `SearchTuning` that BZ searches read, like the retuning that set the earlier values.
-The Retuning section of the module docstring of [`qldpc.codes.distance._tuning`](../../src/qldpc/codes/distance/_tuning.py) states the classes of values and how to change them, and the comment of each field names the class of its default.
+This page tables the machine constants from which some defaults of Brouwer-Zimmermann (BZ) searches are derived, and walks through a retuning of the fields of `SearchTuning` that BZ searches read, like the retuning that set the earlier values.
+The [Retuning section](../../src/qldpc/codes/distance/_tuning.py) of the module docstring of `qldpc.codes.distance._tuning` states the classes of values, their rules, and how to change them, and the comment of each field names the class of its default.
 The [experiments README](../README.md#distance-tuning) introduces the scripts.
 Sweeps write their trials to `results/`, which Git ignores, so this page keeps the commands of the sweeps behind the earlier values.
 
 ## Derived values
 
-[`constants.py`](constants.py) measures the constants of a machine on a few quick searches, single-threaded, and prints the values that they give:
+[`constants.py`](constants.py) measures the constants of a machine on a few quick searches, single-threaded, and prints the values that the rules of the Retuning section give:
 
 ```bash
 python experiments/distance_tuning/constants.py
 ```
 
-It takes a few minutes, and saves its measurements in `results/constants/`; run it on a quiet machine, under a guard of time and memory.
-Each gate breaks even: the step that it gates runs once the work that it acts on, in candidate/set evaluations, reaches the measured cost of the step, rounded to 1, 2, or 5 times a power of ten.
-On an Apple M3 Max, one candidate/set evaluation took 1.25 ns, the median over five searches of 1.2 to 2.1 ns, and four runs of the script gave these constants and values:
+It takes a few minutes; run it on a quiet machine, under a guard of time and memory.
+It saves each measurement in `results/constants/` with the commit and the uncommitted changes of `src/` that it ran on, and measures again any that ran on other source, so it measures every constant again after a commit or a change to `src/`.
+On an Apple M3 Max that also ran other work, one candidate/set evaluation took 1.25 to 1.46 ns, the median over five searches of 1.2 to 2.4 ns, and six runs of the script gave these constants, each the costliest of its measurements, and values:
 
 | Field | Value | The step, and its cost |
 | --- | --- | --- |
-| `partition_work_ratio` | 20 | Matroid partitioning: 21 to 23 ns, or 17 to 18 evaluations, for each unit `b k^2 n` of its cost model, on `distance/classical:128:80:6/-`, and `distance/lp13s5/X` with automorphisms off, which try coverages up to 6 and 9 |
-| `completion_bound_minimum_layer_work` | `2 * 10**7` | The costliest prediction of the cost of completion tables, the median over the predictions of one layer: 30 to 31 ms, or `2.4 * 10**7` to `2.5 * 10**7` evaluations, on layer 4 of `distance/qt7/X`, of 181 rows |
-| `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets, the median over four builds on bases of 48 to 181 rows: 2.7 to 2.9 ms, or `2.2 * 10**6` to `2.3 * 10**6` evaluations |
-| `lp_minimum_work` | `10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.16 s, or `1.3 * 10**8` evaluations, for planning and programs |
+| `partition_work_ratio` | 5 | Matroid partitioning, for each unit `b^2 k^2 n` of its gate: 4.6 to 5.8 ns, or 3.3 to 4.0 evaluations, on `distance/classical:128:80:6/-`, which tries coverages up to 6; `distance/lp13s5/X` with automorphisms off, which tries coverages up to 9, took 3.3 to 4.2 ns, or 2.4 to 2.9 evaluations |
+| `completion_bound_minimum_layer_work` | `2 * 10**7` | A prediction of the cost of completion tables, which samples supports: 30 to 36 ms, or `2.4 * 10**7` to `2.5 * 10**7` evaluations, on layer 4 of `distance/qt7/X`, of 181 rows, in five runs, and of `distance/lp13s5/X`, of 175 rows, in one |
+| `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets: 2.9 to 3.6 ms, or `2.3 * 10**6` to `2.6 * 10**6` evaluations, on `distance/qt7/X` or `distance/lp13s5/X`, of 181 and 175 rows; its build on the 48 rows of `distance/classical:128:80:6/-` took 0.6 to 1.2 ms |
+| `lp_minimum_work` | `10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.16 to 0.20 s, or `1.2 * 10**8` to `1.3 * 10**8` evaluations, for planning and programs |
 | `completion_bound_max_cost_percent` | 100 | None: the limit compares two estimates in one unit |
 
-These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases, and partitioning costs more for each unit at higher coverages (about 14.5 ns at coverages up to 4).
-The value of `lp_minimum_work` lies within 10% of the edge between `10**8` and `2 * 10**8`.
+These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases.
+Two constants lie near the edges of their rounding, the geometric means of neighboring values: that of `lp_minimum_work` lies 5 to 18% below `1.41 * 10**8`, and that of `partition_work_ratio` 3 to 26% above 3.16.
 
-Matroid partitioning tries each coverage from two up to `ceil(m k / n)`, for `m = max_information_sets`, `k` rows, and `n` nonzero columns: the least coverage at which `m` full sets fit.
-The other fields fall in the classes of the Retuning section:
-
-| Class | Fields | Rule |
-| --- | --- | --- |
-| Derived | `completion_bound_lookup_block_cost`, `completion_bound_lookup_block_cost_per_mib`, `completion_bound_kept_first_row_ratio`, `completion_bound_table_byte_cost`, `completion_bound_build_step_cost` | Coefficients of the cost model of completion tables, fitted by `fit_completion_costs.py` as the Retuning section describes |
-| Budget | `completion_bound_max_table_bytes`, `completion_bound_sampling_work`, `max_css_single_pairs`; `max_information_sets`, `disjoint_random_column_orders`, `overlapping_attempts_per_set`, and the three fields of sparsifying rounds; the sizes of batches and chunks | Limits of memory, interrupt latency, and setup effort, which the maintainer sets; a batch or chunk is the smallest whose overhead per call is negligible |
-| Convention | `completion_bound_samples`, `completion_bound_min_samples`, `completion_bound_confidence_z`, `lp_dual_max_denominator` | What each guarantees, as its comment says |
-| Widest allowed | `completion_bound_block_bits`, `coset_completion_block_bits` | 16, since wider blocks never skip less, and the memory budget bounds their cost |
-
-The comments of the other fields say how their values were chosen.
+Matroid partitioning tries each coverage `b` from two up to `ceil(m k / n)`, for `m = max_information_sets`, `k` rows, and `n` nonzero columns: the least coverage at which `m` full sets could fit, by counting their pivots.
+Its cost grows about with the square of each coverage that it tries.
+On the bases of 48 rows and 128 columns of `distance/classical:128:80:1/-` and `distance/classical:128:80:6/-`, with `max_information_sets` 8, 16, 32, and 64, it tried coverages up to 3, 6, 12, and 24, and took 13, 21, 42, and 105 ns for each `b k^2 n`, but 4.6 to 5.0 ns for each `b^2 k^2 n` up to the coverage 12, and 6.4 ns at 24.
+Setup-only traces of these searches, by `trace.py <workload> --setup-only --tuning '{"max_information_sets": <m>}'`, record the seconds, the largest coverage, and the rows and columns of each partitioning.
 
 ## Before measuring
 
@@ -118,7 +111,8 @@ Time a long run, one search at a time and in 4 or more paired rounds, only where
 
 A value over-fits when it suits the workloads, the machine, and the conditions that chose it, but not others.
 The derived values were not chosen by timing candidates, but their rules were chosen while studying the key workloads, and their constants were measured on a few of those, so they carry the sizes of those searches.
-The other values were chosen in-sample, on dozens of workloads, on one Apple M3 Max that often ran other work, and mostly on earlier library code.
+The earlier values were chosen in-sample, on dozens of workloads, on one Apple M3 Max that often ran other work, and mostly on earlier library code.
+The current values that are not derived are budgets, conventions, or the widest allowed, as the Retuning section defines them, or the exceptions whose comments say how they were chosen.
 These measures limit how much that matters:
 
 - The distance searches and counts among the long runs were traced, and `windows.py` found how far each threshold can move before one of their decisions changes; where that range is broad, the precise value matters only for quick runs.
@@ -132,7 +126,7 @@ These measures reach only so far:
 - Some candidates made no clear difference only because the searches timed make the same decisions under them, so those timings do not test the value.
 - Many comparisons were made, so a candidate set aside by one small difference may have been set aside by chance.
 - `coset_completion_block_bits` trades one kind of search against another: blocks of 16 columns made most CSS coset searches several times faster, but searches by physical weight slower on two of three codes.
-- The number of samples of completion tables rests on a few long-run layers and searches, and the cost model errs in both directions, so a cost limit at break-even accepts some tables that cost more than they save.
+- The cost model of completion tables errs in both directions, so a cost limit at break-even accepts some tables that cost more than they save.
 - Two workloads of fault-propagation certificates, used to choose no value, ran no slower with the values decided last, with the cost limit then at 100, but their queries are too cheap to test the values that changed.
 - The estimated work of a distance search, which `overlapping_minimum_work`, `partition_work_ratio`, and `lp_minimum_work` read, can exceed the work done many times over, by a margin that varies between searches, so these thresholds stand for no fixed amount of time, and their gates break even with the estimated work, not with the work done.
 - Coset searches choose the family of information sets that answers each maximum weight by the words that a query would weigh or skip, not by time, so they can choose a slower family.
@@ -146,11 +140,13 @@ That arm is usually the defaults of its time, in some sweeps with `completion_bo
 In `final-short-f`, it sets three fields to the values that its command gives.
 Its first arm also set the factor of the enumeration that BZ searches then ran to 128, against 16 in the second, so only that arm enumerated `distance/sparse:1000:21:50:2/-`; the command leaves that factor out.
 Some sweeps, such as `p3-noaut`, also set a field in every arm.
-The `--base` of each command gives the defaults of its time where they differ from the current ones, so that each command compares the same values on the current code, and the commands leave out fields that were later removed.
+The `--base` of each command gives the defaults of its time where they differ from the current ones, and the command's own settings take precedence over them.
+So each command compares the same values on the current code, except that `partition_work_ratio` now multiplies a sum of `b^2 k^2 n` rather than of `b k^2 n`, and the commands leave out fields that were later removed.
 The exception is `automorphism_minimum_layer_work`: every command ran with it at `10**8`, its default then, unless an arm set it, and the `--base` of each command leaves that out.
 The commands ran with a ratio and a cost factor of partitioning, whose product they give as `partition_work_ratio`.
 Partitioning then tried coverages from two up to a field, later removed, whose default was 4; the arm of `p3-aut` and of `p3-noaut` that set it to 2 now repeats their first arm, and the sweep `c2-coverage`, which timed only that field, is in the Git history of this file.
-The measurements of one search, and the traces of the windows of section 5, ran at the earlier defaults; to repeat them on the current code, add `{"partition_work_ratio": 5000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000}` to their tunings; only the coverages of partitioning then differ.
+The measurements of one search, and the traces of the windows of section 5, ran at the earlier defaults; to repeat them on the current code, add `{"partition_work_ratio": 5000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000}` to their tunings, whose own settings take precedence.
+Only partitioning then differs, in the coverages that it tries and in the unit of its gate.
 
 Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`.
 Those of `automorphism_minimum_layer_work`, at `10**7` and past the edges of the windows, checked its window around `10**8`, its default then, not around its current default:
@@ -163,16 +159,16 @@ Those of `automorphism_minimum_layer_work`, at `10**7` and past the edges of the
 | Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X` for the predictions, and `fit_completion_costs.py collect --repeats 3 --workloads distance/pp232/X 'distance/classical:150:100:1/-'`, then `fit_completion_costs.py fit`, for the measured costs; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
 | Cost coefficients | `fit_completion_costs.py collect --repeats 3 --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X distance/pp110/X distance/gross/X 'distance/classical:150:100:1/-' 'distance/classical:128:80:1/-'`, then `fit_completion_costs.py fit --min-supports 1e8` |
 | Windows of the thresholds | the commands below the table |
-| Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each with `--output` to a file outside the directory of the traces of the windows, and compared with its trace at the defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05, "completion_bound_samples": 256}'`, whose layer 6 declines its tables, for the time of that layer without them |
-| Layer 7 of `distance/classical:128:80:6/-` at the limits of 90 and 100 | `trace.py 'distance/classical:128:80:6/-' --tuning '{"completion_bound_max_cost_percent": 100}'`, the same with `"completion_bound_samples": 256` added, and at the defaults, compared by `windows.py --compare` and by their `layer` events |
+| Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each with `--output` to a file outside the directory of the traces of the windows, and compared with its trace at the earlier defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05, "completion_bound_samples": 256}'`, whose layer 6 declines its tables, for the time of that layer without them |
+| Layer 7 of `distance/classical:128:80:6/-` at the limits of 90 and 100 | `trace.py 'distance/classical:128:80:6/-' --tuning '{"completion_bound_max_cost_percent": 100}'`, the same with `"completion_bound_samples": 256` added, and at the earlier defaults, compared by `windows.py --compare` and by their `layer` events |
 | Gate values of partitioning across codes | `trace.py distance/lp13s<seed>/<sector> --setup-only` for seeds 1 to 10 and sectors `X` and `Z`, and `trace.py 'distance/classical:128:80:<seed>/-' --setup-only` for seeds 2 to 6; a gate value is the `estimated_work` of the `family` event of kind `partitioned` divided by its `unit` |
 | Families of `overlapping_minimum_work` | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000`; `coset_families.py <w> --thresholds 20000 24000 30000` for `coset/gross/css/10/10/3000`, `coset/pp110/css/8/8/2000`, `coset/pp232/css/10/10/3000`, and `coset/qt7/css/10/10/3000` |
 | Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`, and `resample.py hadamard/pp110 --weights 5` and `resample.py distance/bb288/X --weights 5`; for the sampling budget, `resample.py hadamard/gross --weights 6 --num-seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
-| Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the defaults |
+| Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the earlier defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
 | Cache sizes | `cache_stats.py --cycles 2 coset/gross/css/6/6/100 coset/pp110/css/6/6/100 coset/qt7/physical/5/5/50 hbound/pp232/2/100 distance/qt7/X distance/lp13s5/X count/gross/12` |
 
-These commands trace the workloads behind the windows of section 5, at the defaults, and print the windows; the classical codes of the second loop, whose searches then enumerated many words, are traced only through their setup.
+These commands trace the workloads behind the windows of section 5, at the earlier defaults, and print the windows; the classical codes of the second loop, whose searches then enumerated many words, are traced only through their setup.
 Keep other traces out of `traces/`, since `windows.py` requires its traces to share one tuning.
 
 ```bash
@@ -195,7 +191,7 @@ python experiments/distance_tuning/windows.py traces/*.json --long distance/{bb2
     distance/classical:4000:{3977..3979}:2/- distance/classical:8000:{7977..7979}:2/-
 ```
 
-These sweeps produced the ratios behind the earlier values, and behind the current values that are not derived, and `collect_results.py --tags <tag>` summarizes each.
+These sweeps produced the ratios behind the earlier values, and `collect_results.py --tags <tag>` summarizes each.
 The sweeps `p2-enum`, `p2-confirm`, `p2-factor`, `v-maxdim`, and `c4-setup` timed the fields of an exhaustive enumeration that BZ searches of small problems then ran instead of searching information sets, and the measurements that section 4 cites timed that enumeration.
 That enumeration and the fields that chose it were later removed from BZ searches, and the commands are in the Git history of this file.
 
