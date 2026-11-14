@@ -18,15 +18,17 @@ from .._information_sets import completion_bounds
 from . import affine_search
 
 
-def test_family_scan() -> None:
-    """Chunked scans of a family enumerate each combination of basis rows once.
+def test_scans_of_sets_of_any_rank() -> None:
+    """Chunked scans of a set enumerate each combination of its rows once, whatever its rank.
 
-    The chunked scans preserve resumption state and multiword labels.
+    A word weighs its rows below the rank of the set plus its packed tail.  The chunked scans
+    preserve resumption state and multiword labels.
     """
     rng = np.random.default_rng(120)
+    no_tables = completion_bounds.NO_TABLES
 
-    # The scan input uses full-rank, partial-rank, and rank-zero information sets.  The last two
-    # information sets store labels only in their second packed word.
+    # The sets have full rank, partial rank, and rank zero.  The last two use fewer packed words
+    # than they store, and store labels only in their second packed word.
     for dimension in range(1, 7):
         generators = rng.integers(0, 2**64, (3, dimension, 5), dtype=np.uint64)
         labels = np.zeros((3, dimension, 2), dtype=np.uint64)
@@ -34,80 +36,58 @@ def test_family_scan() -> None:
         ranks = np.array([dimension, dimension // 2, 0], dtype=np.int64)
         widths = np.array([5, 2, 1], dtype=np.int64)
         label_widths = np.array([0, 2, 2], dtype=np.int64)
-        for weight in range(1, dimension + 1):
-            support = np.zeros(weight, dtype=np.int64)
-            prefixes = np.zeros((weight + 1, 3, 5), dtype=np.uint64)
+        for index, weight in itertools.product(range(3), range(1, dimension + 1)):
+            selected = slice(index, index + 1)
+            arguments = (
+                generators[selected],
+                labels[selected],
+                ranks[selected],
+                widths[selected],
+                label_widths[selected],
+                np.zeros(weight, dtype=np.int64),
+                np.zeros((weight + 1, 1, 5), dtype=np.uint64),
+            )
+            support = arguments[5]
             depth, best, expected = 0, 1000, 1000
             for indices in itertools.combinations(range(dimension), weight):
-                # Update the expected running minimum from the current combination of basis rows.
-                for index in range(3):
-                    words = np.bitwise_xor.reduce(generators[index, indices, : widths[index]])
-                    eligible = not label_widths[index] or np.any(
-                        np.bitwise_xor.reduce(labels[index, indices], axis=0)
-                    )
-                    candidate = sum(int(word).bit_count() for word in words)
-                    candidate += sum(row < ranks[index] for row in indices)
-                    if eligible:
-                        expected = min(expected, candidate)
+                # Update the expected running minimum from the current combination of rows.
+                words = np.bitwise_xor.reduce(generators[index, indices, : widths[index]])
+                eligible = not label_widths[index] or np.any(
+                    np.bitwise_xor.reduce(labels[index, indices], axis=0)
+                )
+                candidate = sum(int(word).bit_count() for word in words)
+                candidate += sum(row < ranks[index] for row in indices)
+                if eligible:
+                    expected = min(expected, candidate)
 
-                # Scan one basis-row combination and compare the running minimum and kernel state.
-                best, depth, visited = affine_search.scan_family(
-                    generators,
-                    labels,
-                    ranks,
-                    widths,
-                    label_widths,
-                    support,
-                    prefixes,
+                # Scan one combination of rows, and compare the running minimum and kernel state.
+                best, depth, *visited = affine_search.scan_information_set(
+                    *arguments,
                     depth,
                     best,
                     0,
                     1,
+                    no_tables.tables,
+                    no_tables.offsets,
+                    no_tables.block_bits,
                 )
-                assert visited == 1 and best == expected
+                assert visited == [1, 0, 0] and best == expected
                 # The last selected row index has advanced in preparation for the next chunk.
                 np.testing.assert_array_equal(support[:-1], indices[:-1])
                 assert support[-1] == indices[-1] + 1
 
-            # One more kernel call reports completion after all basis-row combinations are visited.
-            best, depth, visited = affine_search.scan_family(
-                generators,
-                labels,
-                ranks,
-                widths,
-                label_widths,
-                support,
-                prefixes,
+            # One more kernel call reports completion after every combination of rows is visited.
+            best, depth, *visited = affine_search.scan_information_set(
+                *arguments,
                 depth,
                 best,
                 0,
                 1,
+                no_tables.tables,
+                no_tables.offsets,
+                no_tables.block_bits,
             )
-            assert (best, depth, visited) == (expected, -1, 0)
-
-
-def test_family_scans_weigh_every_set_of_the_support_that_reaches_the_cutoff() -> None:
-    """A scan returns at the cutoff only after it weighs the support in every set.
-
-    Two information sets of two rows each scan layer one.  At the first support, the word of the
-    first set weighs one plus two, which reaches the cutoff three, and the word of the second set
-    weighs one plus zero, so the scan returns one after one support.
-    """
-    generators = np.array([[[0b11], [0b111]], [[0], [0b1]]], dtype=np.uint64)
-    best, _, visited = affine_search.scan_family(
-        generators,
-        np.zeros((2, 2, 0), dtype=np.uint64),
-        np.full(2, 2, dtype=np.int64),
-        np.ones(2, dtype=np.int64),
-        np.zeros(2, dtype=np.int64),
-        np.zeros(1, dtype=np.int64),
-        np.zeros((2, 2, 1), dtype=np.uint64),
-        0,
-        10,
-        3,
-        100,
-    )
-    assert (best, visited) == (1, 1)
+            assert (best, depth, visited) == (expected, -1, [0, 0, 0])
 
 
 def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
@@ -157,6 +137,7 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                             affine_search.scan_information_set(
                                 generators,
                                 labels,
+                                np.array([dimension]),
                                 widths,
                                 label_widths,
                                 support,

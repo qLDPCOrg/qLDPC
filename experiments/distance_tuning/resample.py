@@ -2,11 +2,11 @@
 
 """Recompute the predicted costs of completion tables of a search's layers under other samplings.
 
-A layer of one scanned set decides whether to use completion tables by comparing a predicted cost
-with ``completion_bound_max_cost_percent`` (see ``predict_completion_cost`` and
-``is_within_cost_limit`` in ``qldpc.codes.distance._information_sets.completion_bounds``); a layer
-of several sets also weighs the mean cost over its sets.  The prediction samples random supports of
-the layer with a fixed seed, so a layer whose prediction lies near the limit may decide by the draw.
+Each information set that a layer scans decides whether to use completion tables by comparing a
+predicted cost with ``completion_bound_max_cost_percent`` (see ``predict_completion_cost`` and
+``is_within_cost_limit`` in ``qldpc.codes.distance._information_sets.completion_bounds``).  The
+prediction samples random supports of the layer with a fixed seed, so a layer whose prediction lies
+near the limit may decide by the draw.
 The script runs a ``distance``, ``hadamard``, or ``count`` workload in this process, with the
 active defaults, until each of the given weights has made a finite prediction, and stops it before
 scanning the layer of the last of them; it scans the layers of the others.  It then recomputes the

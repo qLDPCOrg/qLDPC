@@ -19,27 +19,29 @@ least ``--min-supports`` supports that a forced trace scanned with tables, it co
 - the measured cost of the layer with tables, without choosing and building them, as a share of its
   cost with tables disabled, and the cost that ``predict_completion_cost`` predicted for it;
 - the ratio of its lookups to the lookups of the cost model with a kept-first-row ratio of one,
-  which estimates ``completion_bound_kept_first_row_ratio``;
+  which estimates ``completion_bound_kept_first_row_ratio``, for a layer of one set;
 - its excess cost over the scan of the supports that it kept, per lookup and block, which a fit
   of ``completion_bound_lookup_block_cost`` and ``completion_bound_lookup_block_cost_per_mib``
-  models;
+  models, for a layer of one set;
 - the seconds of building its tables, which ``completion_bound_table_byte_cost`` and
   ``completion_bound_build_step_cost`` model, as ``_estimate_build_cost`` counts bytes and steps;
   bytes and steps grow together, so the fit scales both by the median ratio of measured to
   predicted builds.
-  Searches with tables forced build them in their first layers, and reuse them, so every layer
-  that builds tables counts, with the seconds per candidate/set evaluation of the search's layers
+  Searches with tables forced keep the tables of one information set at a time.  A set reuses its
+  tables only if no other set has chosen tables since it did, so a layer that scans several
+  information sets builds tables for each of them.  So every layer that builds tables counts, for
+  each table that it builds, with the seconds per candidate/set evaluation of the search's layers
   of at least ``--min-supports`` supports with tables disabled.
 
 It prints these layers, with whether the defaults used tables on them and how many sets they scan,
 and the fitted coefficients next to the current ones.  The fits of lookups and of the
-kept-first-row ratio use only the layers that scan one set, as the cost model assumes: a layer that
-scans one set chooses one width of tables, and with tables disabled, a layer of several sets scans
-them in lockstep, whose cost per support differs.  The fit of the kept-first-row ratio uses the
-layers with blocks of ``completion_bound_block_bits`` columns, and leaves out layers that skip more
-than ``--max-share`` of their supports, whose few lookups beyond those of prefixes it cannot
-resolve; it prints the median for each width.
-Medians over repeats replace single times.
+kept-first-row ratio use only the layers that scan one set, as the cost model assumes: such a layer
+chooses one width of tables, and its skipped supports and lookups belong to that set.  The fit of
+the kept-first-row ratio uses the layers with blocks of ``completion_bound_block_bits`` columns, and
+leaves out layers that skip more than ``--max-share`` of their supports, whose few lookups beyond
+those of prefixes it cannot resolve; it prints the median for each width.
+Medians over repeats replace single times.  ``fit`` skips, with a warning, traces that do not count
+the sets that each layer scanned, which an older ``trace.py`` made; collect them again.
 
 Examples:
 
@@ -201,12 +203,18 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
     # The measurements of each aligned layer, and of each build, over repeats.
     layers: dict[tuple[str, int], list[dict[str, Any]]] = collections.defaultdict(list)
     builds: dict[tuple[str, int], list[dict[str, Any]]] = collections.defaultdict(list)
-    lacking_set_evaluations: set[str] = set()
     for (workload, _), arms in sorted(traces.items()):
         if set(arms) != set(ARMS):
             print(f"WARNING: {workload} lacks the traces of {sorted(set(ARMS) - set(arms))}")
             continue
         sequences = {arm: get_layers(record) for arm, record in arms.items()}
+        if any(
+            "scanned_sets" not in layer
+            for layers_of_arm in sequences.values()
+            for layer in layers_of_arm
+        ):
+            print(f"WARNING: the traces of {workload} do not count scanned sets; skipping it")
+            continue
         if (
             len({tuple(layer["weight"] for layer in sequence) for sequence in sequences.values()})
             > 1
@@ -214,15 +222,13 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
             print(f"WARNING: the layers of {workload} differ between tunings; skipping it")
             continue
         large = [layer for layer in sequences["disabled"] if layer["evaluated"] >= min_supports]
-        if any("set_evaluations" not in layer for layer in large):
-            lacking_set_evaluations.add(workload)
         for arm in ("forced", "forced8"):
             predictions = get_predictions(arms[arm])
             if large:
-                # A scan in lockstep evaluates each support for each set, so the unit of builds is
-                # the candidate/set evaluation.  A trace without set_evaluations counts supports.
+                # The unit of builds is the candidate/set evaluation, a support that a scan
+                # evaluates in its set.
                 seconds_per_evaluation = sum(layer["seconds"] for layer in large) / sum(
-                    layer.get("set_evaluations", layer["evaluated"]) for layer in large
+                    layer["evaluated"] for layer in large
                 )
                 for index, layer in enumerate(sequences[arm]):
                     if layer["build_seconds"] > 0:
@@ -234,8 +240,6 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
                     continue
                 measured = measure(layer, disabled, default, predictions)
                 layers[f"{workload} {arm}", index].append(measured)
-    for workload in sorted(lacking_set_evaluations):
-        print(f"WARNING: {workload} lacks set_evaluations; builds use supports")
 
     rows = [summarize(workload, index, group) for (workload, index), group in layers.items()]
     build_rows = [summarize(workload, index, group) for (workload, index), group in builds.items()]
@@ -268,20 +272,17 @@ def measure(
     scanned = disabled["evaluated"]
     seconds_per_support = disabled["seconds"] / scanned
 
-    # A layer of one set builds its tables while choosing them, and a layer of several sets builds
-    # them while scanning.
-    overhead = forced["choose_seconds"]
-    if not isinstance(forced["tables"], int):
-        overhead += forced["build_seconds"]
-    scan_cost = (forced["seconds"] - overhead) / seconds_per_support
+    # A layer builds its tables while choosing them.
+    scan_cost = (forced["seconds"] - forced["choose_seconds"]) / seconds_per_support
 
-    # The lookups of the cost model with a kept-first-row ratio of one, for the sets scanned: a
-    # layer of one set chooses one width of tables, and a layer of several sets one for each set.
-    single_set = isinstance(forced["tables"], int)
-    num_sets = 1 if single_set else len(forced["tables"])
+    # The lookups of the cost model with a kept-first-row ratio of one, for a layer of one set, the
+    # only kind that the script prints a ratio for or fits, since its lookups and skipped supports
+    # all belong to that set.
+    num_sets = forced["scanned_sets"]
+    single_set = num_sets == 1
     share = forced["skipped"] / max(1, forced["skipped"] + forced["evaluated"])
-    kept_lookups = (1 - share) * math.comb(rows, weight - 1) * num_sets
-    prefix_lookups = math.comb(rows, weight - 2) * num_sets
+    kept_lookups = (1 - share) * math.comb(rows, weight - 1)
+    prefix_lookups = math.comb(rows, weight - 2)
 
     return {
         "weight": weight,
@@ -305,12 +306,12 @@ def measure(
 def measure_build(layer: dict[str, Any], seconds_per_evaluation: float) -> dict[str, Any]:
     """The cost of building the tables of a layer, and their bytes and steps.
 
-    The bytes and steps are those that ``_estimate_build_cost`` counts, for the tables of each set
-    of the layer, which all have the size of the largest.
+    The bytes and steps are those that ``_estimate_build_cost`` counts, for each of the tables that
+    the layer built, which all have the size of the largest.
     """
     rows = layer["dimension"]
     block_bits = layer["tables"] if isinstance(layer["tables"], int) else max(layer["tables"])
-    num_built = 1 if isinstance(layer["tables"], int) else sum(map(bool, layer["tables"]))
+    num_built = layer["builds"]
     table_entries = layer["table_bytes"] // max(1, rows - 1)
     steps = table_entries * (block_bits + 1) * block_bits + layer["blocks"] * rows**2 // 2
     return {
@@ -338,13 +339,20 @@ def print_layers(rows: list[dict[str, Any]]) -> None:
         f" {'MiB':>5s}"
     )
     for row in rows:
+        # Some sets of a layer of several sets may look up no bounds, such as a set of deficient
+        # rank, and the trace does not say which lookups and skipped supports belong to which set,
+        # so the lookups of such a layer have no ratio to the cost model's.
+        if row["sets"] == 1:
+            lookups = f" {row['lookup_ratio']:5.2f} {row['excess_per_lookup_block']:6.2f}"
+        else:
+            lookups = f" {'-':>5s} {'-':>6s}"
         print(
             f"{row['workload']:42s} {row['weight']:2d} {row['rows']:4d} {row['sets']:4d}"
             f" {row['scanned']:8.1e}"
             f" {row['share']:5.3f} {row['predicted']:6.3f} {row['measured']:6.3f}"
             f" {row['measured_with_overhead']:6.3f}"
             f" {'yes' if row['default_uses_tables'] else 'no':>4s}"
-            f" {row['lookup_ratio']:5.2f} {row['excess_per_lookup_block']:6.2f}"
+            f"{lookups}"
             f" {row['table_mib']:5.0f}"
         )
 

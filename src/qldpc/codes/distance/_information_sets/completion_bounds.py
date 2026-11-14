@@ -27,10 +27,9 @@ Tables of the least weights on each block, for every value of ``p`` on the block
 make each bound a few lookups.  They cost memory and time to build, so ``predict_completion_cost``
 estimates from a sample of supports how much of a layer the bound would skip, and
 ``select_completion_tables`` uses tables only if their predicted cost is within the limits of the
-search's tuning.  A distance search predicts the cost of the tables of each information set of a
-layer that scans several, and chooses for itself whether to scan them one at a time.  The estimate
-only guides these choices: a search skips completions only when a computed bound proves that they
-cannot lower ``U``.
+search's tuning.  A distance search chooses the tables of each information set of a layer in this
+way.  The estimate only guides these choices: a search skips completions only when a computed bound
+proves that they cannot lower ``U``.
 ``considers_tables`` states which layers a tuning considers for tables at all.  Coset searches build
 the tables of the bases of their costliest queries without sampling, if they fit within a limit (see
 ``_brouwer_zimmermann/coset_routes.py``, and ``build_tables_within``).
