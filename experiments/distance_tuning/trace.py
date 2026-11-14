@@ -34,11 +34,11 @@ records:
   sets (of the family of automorphism images, for the layer that switches to it), its supports,
   whether the search can still switch to automorphism images and, if so, the work of the layer that
   the switch compares (scanned sets times supports), the best weight and lower bound after it, the
-  supports that it evaluated and skipped, its candidate/set evaluations (each support of a scan in
-  lockstep counts once for each of its sets), and the lookups of completion tables that it made, the
-  width of the blocks of its tables if any, with their bytes and number of blocks, the seconds spent
-  choosing tables (which, for a layer of one set, include building them) and building them, and its
-  seconds in all.
+  supports that it evaluated and skipped in the sets that it scanned, which count candidate/set
+  evaluations, and the lookups of completion tables that it made, the width of the blocks of the
+  tables that it chose if any (a list with an entry for each set that chose, zero for none, if
+  several did), with the bytes and number of blocks of the largest, the seconds spent choosing
+  tables, which include building them, and building them, and its seconds in all.
 
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
@@ -171,12 +171,10 @@ def install_wrappers() -> None:
         (basis_families.BasisFamily, "get_search_certificate", wrap_certificate),
         (search_class, "advance", wrap_advance),
         (search_class, "_switch_to_automorphism_family", wrap_switch),
-        (search_class, "_choose_tables_of_sets", wrap_choose),
         (completion_bounds, "select_completion_tables", wrap_select),
         (completion_bounds, "predict_completion_cost", wrap_predict),
         (tables_class, "build", lambda build: staticmethod(wrap_build(build))),
         (affine_search, "scan_information_set", wrap_scan),
-        (affine_search, "scan_family", wrap_scan),
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
@@ -410,10 +408,9 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             "can_switch": can_switch,
             "switch_work": None,
             "evaluated": 0,
-            "set_evaluations": 0,
             "lookups": 0,
             "skipped": 0,
-            "tables": None,
+            "tables": [],
             "table_bytes": 0,
             "blocks": 0,
             "choose_seconds": 0.0,
@@ -432,6 +429,10 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             layer, CURRENT_LAYER = CURRENT_LAYER, None
         layer["seconds"] = time.perf_counter() - start
         layer["sets"] = len(search.instance.certificate.ranks)
+        # The width of the blocks of the tables that the layer chose, or of those of each set that
+        # chose, or None if it chose none.
+        choices = layer["tables"]
+        layer["tables"] = None if not any(choices) else choices[0] if len(choices) == 1 else choices
         # A search that switches to automorphism images scans its set again from layer two.
         if search.uses_automorphism_family and not uses_automorphism_family:
             layer["weight"] = 2
@@ -445,7 +446,7 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_select(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the tables of a layer of one set, and the seconds spent choosing them."""
+    """Record the tables that a set of a layer chooses, and the seconds spent choosing them."""
 
     @functools.wraps(function)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -453,7 +454,7 @@ def wrap_select(function: Callable[..., Any]) -> Callable[..., Any]:
         tables = function(*args, **kwargs)
         if CURRENT_LAYER is not None:
             CURRENT_LAYER["choose_seconds"] += time.perf_counter() - start
-            CURRENT_LAYER["tables"] = None if tables is None else int(tables.block_bits)
+            CURRENT_LAYER["tables"].append(0 if tables is None else int(tables.block_bits))
             if tables is not None:
                 record_tables(tables)
         return tables
@@ -483,21 +484,6 @@ def wrap_predict(function: Callable[..., Any]) -> Callable[..., Any]:
             }
         )
         return cost, block_bits
-
-    return wrapper
-
-
-def wrap_choose(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the tables of a layer of several sets, and the seconds spent choosing them."""
-
-    @functools.wraps(function)
-    def wrapper(search: Any, *args: Any) -> Any:
-        start = time.perf_counter()
-        block_bits = function(search, *args)
-        if CURRENT_LAYER is not None:
-            CURRENT_LAYER["choose_seconds"] += time.perf_counter() - start
-            CURRENT_LAYER["tables"] = block_bits
-        return block_bits
 
     return wrapper
 
@@ -532,12 +518,8 @@ def wrap_scan(function: Callable[..., Any]) -> Callable[..., Any]:
         result = function(*args)
         if CURRENT_LAYER is not None:
             CURRENT_LAYER["evaluated"] += int(result[2])
-            # A scan in lockstep weighs each support in each of its sets.
-            num_sets = 1 if len(result) == 5 else len(args[0])
-            CURRENT_LAYER["set_evaluations"] += int(result[2]) * num_sets
-            if len(result) == 5:
-                CURRENT_LAYER["lookups"] += int(result[3])
-                CURRENT_LAYER["skipped"] += int(result[4])
+            CURRENT_LAYER["lookups"] += int(result[3])
+            CURRENT_LAYER["skipped"] += int(result[4])
         return result
 
     return wrapper

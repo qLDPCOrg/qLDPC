@@ -176,14 +176,13 @@ class _BrouwerZimmermannSearch:
     cache builds the family at most once, and the search switches to it if it predicts less work
     (see ``_switch_to_automorphism_family``).
 
-    A layer of two or more rows that scans one set whose block is an information set uses
-    ``affine_search.scan_information_set``.  Such a layer may skip the supports whose last two rows
-    cannot complete a word lighter than the best weight, with tables that the completion fields of
-    ``tuning`` choose (see ``completion_bounds``).  ``completion_tables`` keeps the most recently
-    chosen tables of such a layer for reuse, until the basis changes or the search finishes.  A
-    layer of two or more rows that scans several sets, all of whose blocks are information sets,
-    scans them one at a time in the same way if tables pay for some of them and for the whole layer
-    (see ``_choose_tables_of_sets``), and otherwise scans them in lockstep.
+    A layer scans its sets one at a time, in the order of the family, with
+    ``affine_search.scan_information_set``.  A set whose block is an information set may skip the
+    supports whose last two rows cannot complete a word lighter than the best weight, with tables
+    that the completion fields of ``tuning`` choose for it (see ``completion_bounds``).
+    ``completion_tables`` keeps the most recently chosen tables, of the set
+    ``completion_tables_set``, for reuse in later layers of that set, until the search chooses
+    tables for another set, the basis changes, or the search finishes.
     """
 
     instance: affine_instance.AffineInstance
@@ -198,6 +197,7 @@ class _BrouwerZimmermannSearch:
     completion_tables: completion_bounds.CompletionTables | None = field(
         default=None, init=False, repr=False
     )
+    completion_tables_set: int = field(default=0, init=False, repr=False)
 
     @property
     def dimension(self) -> int:
@@ -224,8 +224,10 @@ class _BrouwerZimmermannSearch:
 
         The search scans at most the fewest leading sets whose completion of the layer certifies the
         best weight at the start of the layer, or every set if no fewer do (see
-        ``Certificate.get_num_sets_to_certify``).  A search that uses an automorphism family scans
-        its one set, which completes the layer for the whole family.
+        ``Certificate.get_num_sets_to_certify``).  It scans them one at a time, and stops after
+        fewer once the sets that it has scanned certify a lighter best weight that the layer found.
+        A search that uses an automorphism family scans its one set, which completes the layer for
+        the whole family.
         """
         if self.finished:
             return self.best
@@ -254,31 +256,16 @@ class _BrouwerZimmermannSearch:
             self._switch_to_automorphism_family()
             return self.advance()
 
-        # Scan one information set alone, several one at a time if completion tables pay for some
-        # of them and for the whole layer, or else every scanned set in lockstep.  A scan of several
-        # sets one at a time may stop after fewer sets, once they certify the best weight.
-        scans_information_sets = weight >= 2 and bool(
-            np.all(instance.ranks[:num_scanned] == self.dimension)
-        )
-        block_bits = (
-            self._choose_tables_of_sets(weight, num_scanned)
-            if scans_information_sets and num_scanned > 1
-            else None
-        )
-        if scans_information_sets and num_scanned == 1:
-            tables = self._select_completion_tables(weight)
-            if not self._scan_information_set(
-                0, weight, completion_bounds.NO_TABLES if tables is None else tables
-            ):
+        # Scan the sets one at a time, in the order of the family.  Each set completes a step of the
+        # layer, so the scan stops after the first set whose step certifies the best weight
+        # (Sections 2.5 and 3.9 of ``brouwer_zimmermann.md``).  ``certifies`` solves a linear
+        # program only if the program could certify that weight.
+        for index in range(num_scanned):
+            if not self._scan_information_set(index, weight):
                 return self.best
-        elif block_bits is None:
-            if not self._scan_sets_in_lockstep(weight, num_scanned):
-                return self.best
-        else:
-            num_completed_in_turn = self._scan_sets_in_turn(weight, block_bits)
-            if num_completed_in_turn is None:
-                return self.best
-            num_completed = num_completed_in_turn
+            if index + 1 < num_scanned and certificate.certifies(weight, index + 1, self.best):
+                num_completed = index + 1
+                break
 
         # The first ``num_completed`` sets have completed the layer, so the family certificate may
         # advance.  The bound of a family scanned before a switch to an automorphism family still
@@ -299,14 +286,13 @@ class _BrouwerZimmermannSearch:
         """
         return max(-1, self.cutoff)
 
-    def _scan_information_set(
-        self, index: int, weight: int, tables: completion_bounds.CompletionTables
-    ) -> bool:
-        """Scan a layer of the set ``index``, whose block is an information set.
+    def _scan_information_set(self, index: int, weight: int) -> bool:
+        """Scan a layer of the set ``index``, with the completion tables that it chooses, if any.
 
-        ``tables`` are the completion tables of the rows of the set, or
-        ``completion_bounds.NO_TABLES``.  Returns False if the scan stopped at the cutoff.
+        The block of the set need not be an information set.  Returns False if the scan stopped at
+        the cutoff.
         """
+        tables = self._select_completion_tables(index, weight)
         instance = self.instance
         selected = slice(index, index + 1)
         support = np.zeros(weight, dtype=np.int64)
@@ -318,6 +304,7 @@ class _BrouwerZimmermannSearch:
             self.best, depth, _, _, _ = affine_search.scan_information_set(
                 instance.generators[selected],
                 instance.labels[selected],
+                instance.ranks[selected],
                 instance.widths[selected],
                 instance.label_widths[selected],
                 support,
@@ -334,115 +321,33 @@ class _BrouwerZimmermannSearch:
                 return False
         return True
 
-    def _scan_sets_in_lockstep(self, weight: int, num_scanned: int) -> bool:
-        """Scan a layer of the first ``num_scanned`` sets in lockstep.
+    def _select_completion_tables(
+        self, index: int, weight: int
+    ) -> completion_bounds.CompletionTables:
+        """Choose the completion tables of a layer of the set ``index``.
 
-        Returns False if the scan stopped at the cutoff.
-        """
-        instance = self.instance
-        scanned = slice(0, num_scanned)
-        support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros(
-            (weight + 1, num_scanned, instance.generators.shape[2]), dtype=np.uint64
-        )
-
-        # Scan in chunks, returning early once the upper bound reaches the cutoff.
-        depth = 0
-        while depth >= 0:
-            self.best, depth, _ = affine_search.scan_family(
-                instance.generators[scanned],
-                instance.labels[scanned],
-                instance.ranks[scanned],
-                instance.widths[scanned],
-                instance.label_widths[scanned],
-                support,
-                prefixes,
-                depth,
-                self.best,
-                self._scan_cutoff,
-                self.batch_size,
-            )
-            if self.best <= self.cutoff:
-                return False
-        return True
-
-    def _choose_tables_of_sets(self, weight: int, num_scanned: int) -> list[int] | None:
-        """Choose whether to scan a layer of several information sets one at a time, with tables.
-
-        A set gets completion tables if their predicted cost is within the limit of the tuning (see
-        ``completion_bounds.predict_completion_cost``).  The layer scans its sets one at a time if
-        some set gets tables, and if the predicted cost of the layer is within that limit too,
-        counting the full cost for each set without tables.  Scanning the sets one at a time
-        without tables costs about as much as scanning them in lockstep.
+        Only a set whose block is an information set can have tables.  It reuses the tables that the
+        search keeps if they are its own.  Otherwise the search frees them before choosing, so that
+        it holds the tables of one set at a time.  The search keeps the chosen tables.
 
         Returns:
-            The width of the blocks of the tables of each set, or zero for a set without tables, or
-            None if the layer scans its sets in lockstep.
-        """
-        costs, block_bits = [], []
-        for index in range(num_scanned):
-            cost, bits = completion_bounds.predict_completion_cost(
-                self.instance.generators[index, :, : self.instance.widths[index]],
-                weight,
-                self.best,
-                reuse=False,
-                tuning=self.tuning,
-            )
-            if not completion_bounds.is_within_cost_limit(cost, self.tuning):
-                cost, bits = 1.0, 0
-            costs.append(cost)
-            block_bits.append(bits)
-        if any(block_bits) and completion_bounds.is_within_cost_limit(
-            sum(costs) / num_scanned, self.tuning
-        ):
-            return block_bits
-        return None
-
-    def _scan_sets_in_turn(self, weight: int, block_bits: list[int]) -> int | None:
-        """Scan a layer of information sets one at a time, in the order of the family.
-
-        Each set is scanned by ``_scan_information_set``, with tables on blocks of its entry of
-        ``block_bits`` columns, built just before its scan, or without tables for an entry of zero.
-        So the search holds the tables of one set at a time.  Each set scanned completes a step of
-        the layer, so the scan stops after the first set whose step certifies the best weight
-        (Section 3.9 of ``brouwer_zimmermann.md``).
-
-        Returns:
-            The number of leading sets that have completed the layer: those up to the set whose step
-            certifies the best weight, or every set.  None if the scan stopped at the cutoff.
+            The chosen tables, or ``completion_bounds.NO_TABLES``.
         """
         instance = self.instance
-        for index, bits in enumerate(block_bits):
-            rows = instance.generators[index, :, : instance.widths[index]]
-            tables = (
-                completion_bounds.CompletionTables.build(rows, bits)
-                if bits
-                else completion_bounds.NO_TABLES
-            )
-            if not self._scan_information_set(index, weight, tables):
-                return None
-            del tables
-
-            # Stop once the sets that have completed the layer certify the best weight.
-            # ``certifies`` solves a linear program only if the program could certify that weight.
-            if instance.certificate.certifies(weight, index + 1, self.best):
-                return index + 1
-        return len(block_bits)
-
-    def _select_completion_tables(self, weight: int) -> completion_bounds.CompletionTables | None:
-        """Choose the completion tables of a layer of one information set, or None.
-
-        The search reuses its tables while it scans the same set, and keeps the chosen tables.
-        """
+        if instance.ranks[index] < self.dimension:
+            return completion_bounds.NO_TABLES
+        if self.completion_tables_set != index:
+            self.completion_tables = None
         tables = completion_bounds.select_completion_tables(
-            self.instance.generators[0, :, : self.instance.widths[0]],
+            instance.generators[index, :, : instance.widths[index]],
             weight,
             self.best,
             current=self.completion_tables,
             tuning=self.tuning,
         )
-        if tables is not None:
-            self.completion_tables = tables
+        if tables is None:
+            return completion_bounds.NO_TABLES
+        self.completion_tables, self.completion_tables_set = tables, index
         return tables
 
     def _switch_to_automorphism_family(self) -> None:

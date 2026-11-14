@@ -61,7 +61,7 @@ def test_brouwer_zimmermann_search_state() -> None:
 
     # An interrupted coefficient-weight layer leaves the lower-bound certificate unchanged.
     with (
-        mock.patch.object(affine_search, "scan_family", side_effect=KeyboardInterrupt),
+        mock.patch.object(affine_search, "scan_information_set", side_effect=KeyboardInterrupt),
         pytest.raises(KeyboardInterrupt),
     ):
         search.advance()
@@ -111,11 +111,8 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
             get_automorphism_family=get_automorphism_family,
         )
         # Skip the scan of the layer itself, which no search could finish.
-        with (
-            mock.patch.object(affine_search, "scan_family", return_value=(dimension, -1, 0)),
-            mock.patch.object(
-                affine_search, "scan_information_set", return_value=(dimension, -1, 0, 0, 0)
-            ),
+        with mock.patch.object(
+            affine_search, "scan_information_set", return_value=(dimension, -1, 0, 0, 0)
         ):
             search.advance()
         assert get_automorphism_family.call_count == expected_calls
@@ -466,22 +463,15 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
 def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     """Count the row-weight evaluations, scanned supports, and lookups of BZ searches.
 
-    A scan of one information set counts each support that it weighs and each bound that it looks
-    up, but not the supports that it skips.
+    A scan of a set counts each support that it weighs and each bound that it looks up, but not the
+    supports that it skips.
     """
     num_candidates = 0
-    original_scan = affine_search.scan_family
-    original_one_set_scan = affine_search.scan_information_set
+    original_scan = affine_search.scan_information_set
 
-    def counting_scan(*args: Any) -> tuple[int, int, int]:
+    def counting_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal num_candidates
-        best, depth, visited = original_scan(*args)
-        num_candidates += visited * len(args[2])
-        return best, depth, visited
-
-    def counting_one_set_scan(*args: Any) -> tuple[int, int, int, int, int]:
-        nonlocal num_candidates
-        result = original_one_set_scan(*args)
+        result = original_scan(*args)
         num_candidates += result[2] + result[3]
         return result
 
@@ -496,8 +486,7 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
 
     # Row weights count every packed word with np.bitwise_count.
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
-    monkeypatch.setattr(affine_search, "scan_family", counting_scan)
-    monkeypatch.setattr(affine_search, "scan_information_set", counting_one_set_scan)
+    monkeypatch.setattr(affine_search, "scan_information_set", counting_scan)
     return lambda: num_candidates
 
 
@@ -507,8 +496,7 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
 
     Its two disjoint information sets reach the certificate six once both complete layer two, and
     the first word of weight five is in layer two of the second set.  A search that counted the
-    second set's layer without scanning it would return six.  With tables in every layer, the
-    search scans the sets of layer two one at a time.
+    second set's layer without scanning it would return six.
     """
     rows = [
         "1000100010001101001110",
@@ -985,12 +973,12 @@ def test_completion_tables_keep_distances_exact(
     )
 
 
-def test_sets_that_are_not_information_sets_use_the_general_scan() -> None:
+def test_sets_that_are_not_information_sets_weigh_only_their_pivot_rows() -> None:
     """A set of rank zero has no pivot ones, so its words weigh only their packed rows.
 
     Its two rows weigh three and two, and their sum weighs one.  A scan that counted a pivot one for
-    each row, as the scan of one information set does, would find no word lighter than two, even
-    with completion tables in every layer.
+    each row, as for an information set, would find no word lighter than two, even under a tuning
+    that forces completion tables in every layer.
     """
     search = bz._BrouwerZimmermannSearch(
         affine_instance.AffineInstance(
@@ -1068,38 +1056,38 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
     This random code with 10 rows and 40 columns has four disjoint information sets, so a search
     must scan several of them in some layers.  The oracle enumerates every nonzero word.  The
     tables of each scan must be those of the rows that it scans, since tables of other rows could
-    skip lighter words.  The forced tuning gives every set tables, unless the test takes the tables
-    of the first set of each such layer away, which every such layer scans.
+    skip lighter words.  The forced tuning gives every set tables, unless the test declines every
+    other choice of tables, so that a set that declines them must scan without the tables of the
+    set before it.
     """
-    choose = bz._BrouwerZimmermannSearch._choose_tables_of_sets
-    scan_in_turn = bz._BrouwerZimmermannSearch._scan_sets_in_turn
+    select = completion_bounds.select_completion_tables
+    scan_set = bz._BrouwerZimmermannSearch._scan_information_set
     scan = affine_search.scan_information_set
-    scans_in_turn = {"with tables": 0, "without tables": 0}
-    in_turn = False
+    num_choices, scanned_index = 0, 0
+    later_scans = {"with tables": 0, "without tables": 0}
 
-    def mixing_choose(search: bz._BrouwerZimmermannSearch, *args: Any) -> list[int] | None:
-        block_bits = choose(search, *args)
-        return [0, *block_bits[1:]] if mixed and block_bits is not None else block_bits
+    def mixing_select(*args: Any, **kwargs: Any) -> completion_bounds.CompletionTables | None:
+        nonlocal num_choices
+        num_choices += 1
+        tables = select(*args, **kwargs)
+        return None if mixed and num_choices % 2 else tables
 
-    def recording_scan_in_turn(search: bz._BrouwerZimmermannSearch, *args: Any) -> int | None:
-        nonlocal in_turn
-        in_turn = True
-        try:
-            return scan_in_turn(search, *args)
-        finally:
-            in_turn = False
+    def recording_scan_set(search: bz._BrouwerZimmermannSearch, index: int, weight: int) -> bool:
+        nonlocal scanned_index
+        scanned_index = index
+        return scan_set(search, index, weight)
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
-        rows, widths, tables, block_bits = args[0], args[2], args[10], args[12]
-        if in_turn:
-            scans_in_turn["with tables" if len(tables) else "without tables"] += 1
+        rows, widths, tables, block_bits = args[0], args[3], args[11], args[13]
+        if scanned_index:
+            later_scans["with tables" if len(tables) else "without tables"] += 1
         if len(tables):
             own = completion_bounds.CompletionTables.build(rows[0, :, : widths[0]], block_bits)
             assert np.array_equal(tables, own.tables)
         return scan(*args)
 
-    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "_choose_tables_of_sets", mixing_choose)
-    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "_scan_sets_in_turn", recording_scan_in_turn)
+    monkeypatch.setattr(completion_bounds, "select_completion_tables", mixing_select)
+    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "_scan_information_set", recording_scan_set)
     monkeypatch.setattr(affine_search, "scan_information_set", checking_scan)
     generators = get_random_full_rank_matrix(np.random.default_rng(0), 10, 40)
     distance = bz.get_distance_brouwer_zimmermann_many(
@@ -1109,24 +1097,21 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
         generators, cutoff=0, method="brute_force"
     )
     assert completion_tables.skipped
-    assert scans_in_turn["with tables"]
-    assert bool(scans_in_turn["without tables"]) == mixed
+    assert later_scans["with tables"]
+    assert bool(later_scans["without tables"]) == mixed
 
 
-@pytest.mark.parametrize(("forced", "cutoff"), [(True, 0), (True, 5), (False, 0)])
-def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(
-    forced: bool, cutoff: int
-) -> None:
-    """A search that scans sets one at a time stops after the set whose completion certifies.
+@pytest.mark.parametrize("cutoff", [0, 5])
+def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(cutoff: int) -> None:
+    """A search stops a layer after the set whose completion of it certifies the best weight.
 
     The two sets of this code are disjoint information sets, the first three columns and the next
     three, and their rows weigh six, seven, and six, and six, nine, and six.  After both sets
     complete layer one, the search certifies weight four.  In layer two, it needs both sets to
     certify its best weight of six, but the first set finds a word of weight five, the sum of the
-    first two rows.  Its completion of the layer then certifies weight five, so a search that scans
-    the sets one at a time with tables scans no other set.  Without tables, it scans both sets in
-    lockstep, and certifies six.  With a cutoff of five, a scan of the sets one at a time stops at
-    the word of weight five, before it certifies more than weight four.
+    first two rows.  Its completion of the layer then certifies weight five, so the search scans no
+    other set.  With a cutoff of five, the scan stops at the word of weight five, before it
+    certifies more than weight four.
     """
     generators = np.array(
         [
@@ -1137,90 +1122,38 @@ def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(
         dtype=np.uint8,
     )
     family, certificate = _get_family(generators, [[0, 1, 2], [3, 4, 5]])
-    tuning = dataclasses.replace(
-        DEFAULT_TUNING,
-        completion_bound_minimum_layer_work=0 if forced else MAX_VALUE,
-        completion_bound_max_cost_percent=MAX_VALUE,
-    )
     search = bz._BrouwerZimmermannSearch(
         affine_instance.get_distance_instance(family, certificate),
         cutoff=cutoff,
         batch_size=1 << 20,
-        tuning=tuning,
+        tuning=TABLES_DISABLED,
         best=6,
         lower_bound=certificate.lower_bound(1),
         next_weight=2,
     )
     scanned: list[int] = []
-    scan_one, scan_family = affine_search.scan_information_set, affine_search.scan_family
+    scan_set = bz._BrouwerZimmermannSearch._scan_information_set
 
-    def recording_scan_one(*args: Any) -> tuple[int, int, int, int, int]:
-        scanned.append(len(args[0]))
-        return scan_one(*args)
+    def recording_scan_set(search: bz._BrouwerZimmermannSearch, index: int, weight: int) -> bool:
+        scanned.append(index)
+        return scan_set(search, index, weight)
 
-    def recording_scan_family(*args: Any) -> tuple[int, int, int]:
-        scanned.append(len(args[0]))
-        return scan_family(*args)
-
-    with (
-        mock.patch.object(affine_search, "scan_information_set", recording_scan_one),
-        mock.patch.object(affine_search, "scan_family", recording_scan_family),
+    with mock.patch.object(
+        bz._BrouwerZimmermannSearch, "_scan_information_set", recording_scan_set
     ):
         assert search.advance() == 5
-    assert search.finished and search.lower_bound == (4 if cutoff else 5 if forced else 6)
-    assert scanned == ([1] if forced else [2])
+    assert search.finished and search.lower_bound == (4 if cutoff else 5)
+    assert scanned == [0]
 
 
-def test_layers_scan_several_sets_one_at_a_time_only_if_that_pays(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A layer scans several sets one at a time if tables pay for some, and for the whole layer.
-
-    The predicted costs include building the tables, which a layer of several sets builds anew.  A
-    layer of two sets averages their predicted costs, at the full cost for a set without tables,
-    and compares the average with a limit of 90 percent.  A set whose tables cost half
-    as much as a scan without them takes them, and the average of 0.75 is within the limit.  A set
-    whose tables would cost 95 percent scans without them.  With tables that cost 85 percent for
-    one set and none for the other, the average is 0.925, so the layer scans in lockstep.
-    """
-    costs: list[float] = []
-
-    def predict(*args: Any, **kwargs: Any) -> tuple[float, int]:
-        assert not kwargs["reuse"]
-        cost = costs.pop(0)
-        return cost, 0 if cost == math.inf else 16
-
-    monkeypatch.setattr(completion_bounds, "predict_completion_cost", predict)
-    search = bz._BrouwerZimmermannSearch(
-        affine_instance.AffineInstance(
-            generators=np.zeros((2, 3, 1), dtype=np.uint64),
-            labels=np.zeros((2, 3, 0), dtype=np.uint64),
-            widths=np.ones(2, dtype=np.int64),
-            pivots=np.zeros((2, 3), dtype=np.int64),
-            certificate=certificates.Certificate(3, (3, 3)),
-        ),
-        cutoff=0,
-        batch_size=1,
-        tuning=dataclasses.replace(DEFAULT_TUNING, completion_bound_max_cost_percent=90),
-        best=6,
-        lower_bound=0,
-    )
-    for set_costs, expected in (
-        ([0.5, math.inf], [16, 0]),
-        ([0.5, 0.95], [16, 0]),
-        ([0.85, math.inf], None),
-    ):
-        costs[:] = set_costs
-        assert search._choose_tables_of_sets(2, 2) == expected
-
-
-def test_a_layer_with_a_set_that_is_not_an_information_set_scans_in_lockstep() -> None:
-    """A layer of several sets scans them one at a time only if each is an information set.
+def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
+    """A layer that scans an information set and a set of deficient rank finds the lightest word.
 
     The second set of this code, on columns three to five, has rank two, so its third row has no
-    pivot.  The lightest rows of both sets weigh five, and the lightest word weighs four.  A scan of
-    one information set counts a pivot one for each row, so it would overstate the weights of the
-    words of the second set, and the search, with tables in every layer, would certify weight five.
+    pivot.  The lightest rows of both sets weigh five, and the lightest word, which the second set
+    finds in layer two, weighs four.  A scan that counted a pivot one for each row would overstate
+    the weights of the words of the second set, and the search, with tables in every layer, would
+    certify weight five.
     """
     generators = np.array(
         [
