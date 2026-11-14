@@ -2,8 +2,8 @@
 
 """Recompute the predicted costs of completion tables of a search's layers under other samplings.
 
-Each set that a layer scans decides whether to use completion tables by comparing a predicted cost
-with ``completion_bound_max_cost_percent`` (see ``predict_completion_cost`` and
+Each information set that a layer scans decides whether to use completion tables by comparing a
+predicted cost with ``completion_bound_max_cost_percent`` (see ``predict_completion_cost`` and
 ``is_within_cost_limit`` in ``qldpc.codes.distance._information_sets.completion_bounds``).  The
 prediction samples random supports of the layer with a fixed seed, so a layer whose prediction lies
 near the limit may decide by the draw.

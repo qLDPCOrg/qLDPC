@@ -722,7 +722,7 @@ A search for the minimum weight of a coset skips at `h(ω)` too until it finds a
 #### When a search uses the tables
 
 A distance search scans each search basis of a layer by itself, with `scan_information_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), with or without tables.
-Only a basis whose block is an information set can have tables; the scan of a basis of deficient rank counts the pivot ones of each word by its rank, as the coset searches below do.
+Only a basis whose block is an information set can have tables; the scan of a basis of deficient rank counts the pivot ones of each word by its rank, as coset searches do (see "Coset searches" above).
 A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), which use the tables as described below.
 Tables of a basis with `r = 150` rows and 138 tail columns, in blocks of sixteen columns, take 75 MiB, and about a twentieth of a second to build on the machine described below.
 That is worthwhile for a layer of `10^10` supports, but not for an easy search.
@@ -759,6 +759,8 @@ Such layers were measured with `U` fixed at the best weight of the search: layer
 They have `6 × 10^8` to `1.5 × 10^9` supports for each basis.
 Scanning their bases with tables, including building the tables, took 0.11 to 0.30 times as long as scanning them without tables, and the predicted costs of these layers were within 0.06 of the measured ratios.
 In layer six of the X sector of the [[288, 12, 18]] code without its automorphisms, with `1.4 × 10^10` supports for each basis, the tables of seven of nine bases paid, and the layer took 0.81 times as long as without tables, for a predicted cost of 0.78, averaged over its bases.
+These ratios compare with the scan without tables that searches made when they were measured, which weighed each support of a layer in all its bases at once.
+On the layers measured, scanning the bases one at a time without tables, as searches do now, took 0.89 to 1.12 times as long as that scan, so the cost ratios of these layers may now differ by about that factor.
 Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search that considers them declines the tables.
 
 ### 3.10 Minimum weights of cosets

@@ -973,12 +973,11 @@ def test_completion_tables_keep_distances_exact(
     )
 
 
-def test_sets_that_are_not_information_sets_weigh_only_their_pivot_rows() -> None:
+def test_sets_that_are_not_information_sets_count_pivot_ones_only_below_their_rank() -> None:
     """A set of rank zero has no pivot ones, so its words weigh only their packed rows.
 
     Its two rows weigh three and two, and their sum weighs one.  A scan that counted a pivot one for
-    each row, as for an information set, would find no word lighter than two, even under a tuning
-    that forces completion tables in every layer.
+    each row, as for an information set, would find no word lighter than two.
     """
     search = bz._BrouwerZimmermannSearch(
         affine_instance.AffineInstance(
@@ -990,13 +989,7 @@ def test_sets_that_are_not_information_sets_weigh_only_their_pivot_rows() -> Non
         ),
         cutoff=-1,
         batch_size=1,
-        tuning=dataclasses.replace(
-            DEFAULT_TUNING,
-            automorphism_minimum_layer_work=MAX_VALUE,
-            completion_bound_minimum_layer_work=0,
-            completion_bound_max_cost_percent=MAX_VALUE,
-            completion_bound_max_table_bytes=MAX_VALUE,
-        ),
+        tuning=TABLES_DISABLED,
         best=10,
         lower_bound=0,
     )
@@ -1053,18 +1046,20 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 ) -> None:
     """Searches that scan the sets of a layer one at a time, each with tables or none, are exact.
 
-    This random code with 10 rows and 40 columns has four disjoint information sets, so a search
-    must scan several of them in some layers.  The oracle enumerates every nonzero word.  The
-    tables of each scan must be those of the rows that it scans, since tables of other rows could
-    skip lighter words.  The forced tuning gives every set tables, unless the test declines every
-    other choice of tables, so that a set that declines them must scan without the tables of the
-    set before it.
+    This random code with 10 rows and 36 columns has three disjoint information sets and a partial
+    set, so a search scans several sets in layer two, and the first set again in layer three.  The
+    oracle enumerates every nonzero word.  The tables of each scan must be those of the rows that it
+    scans, since tables of other rows could skip lighter words, also when the first set returns
+    after the others.  The forced tuning gives every information set tables, unless the test
+    declines every other choice of tables, so that a set that declines them must scan without the
+    tables of the set before it.
     """
     select = completion_bounds.select_completion_tables
     scan_set = bz._BrouwerZimmermannSearch._scan_information_set
     scan = affine_search.scan_information_set
-    num_choices, scanned_index = 0, 0
+    num_choices, scanned_index, returned_to_first_set = 0, 0, False
     later_scans = {"with tables": 0, "without tables": 0}
+    returns_with_tables = 0
 
     def mixing_select(*args: Any, **kwargs: Any) -> completion_bounds.CompletionTables | None:
         nonlocal num_choices
@@ -1073,15 +1068,18 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
         return None if mixed and num_choices % 2 else tables
 
     def recording_scan_set(search: bz._BrouwerZimmermannSearch, index: int, weight: int) -> bool:
-        nonlocal scanned_index
+        nonlocal scanned_index, returned_to_first_set
+        returned_to_first_set = index == 0 and scanned_index > 0
         scanned_index = index
         return scan_set(search, index, weight)
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        nonlocal returns_with_tables
         rows, widths, tables, block_bits = args[0], args[3], args[11], args[13]
         if scanned_index:
             later_scans["with tables" if len(tables) else "without tables"] += 1
         if len(tables):
+            returns_with_tables += returned_to_first_set
             own = completion_bounds.CompletionTables.build(rows[0, :, : widths[0]], block_bits)
             assert np.array_equal(tables, own.tables)
         return scan(*args)
@@ -1089,7 +1087,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
     monkeypatch.setattr(completion_bounds, "select_completion_tables", mixing_select)
     monkeypatch.setattr(bz._BrouwerZimmermannSearch, "_scan_information_set", recording_scan_set)
     monkeypatch.setattr(affine_search, "scan_information_set", checking_scan)
-    generators = get_random_full_rank_matrix(np.random.default_rng(0), 10, 40)
+    generators = get_random_full_rank_matrix(np.random.default_rng(4), 10, 36)
     distance = bz.get_distance_brouwer_zimmermann_many(
         [(generators, _no_labels(generators))], cutoff=0
     )
@@ -1099,6 +1097,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
     assert completion_tables.skipped
     assert later_scans["with tables"]
     assert bool(later_scans["without tables"]) == mixed
+    assert returns_with_tables
 
 
 @pytest.mark.parametrize("cutoff", [0, 5])
@@ -1152,8 +1151,7 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
     The second set of this code, on columns three to five, has rank two, so its third row has no
     pivot.  The lightest rows of both sets weigh five, and the lightest word, which the second set
     finds in layer two, weighs four.  A scan that counted a pivot one for each row would overstate
-    the weights of the words of the second set, and the search, with tables in every layer, would
-    certify weight five.
+    the weights of the words of the second set, and the search would certify weight five.
     """
     generators = np.array(
         [
@@ -1168,11 +1166,7 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
         affine_instance.get_distance_instance(family, certificate),
         cutoff=0,
         batch_size=1 << 20,
-        tuning=dataclasses.replace(
-            DEFAULT_TUNING,
-            completion_bound_minimum_layer_work=0,
-            completion_bound_max_cost_percent=MAX_VALUE,
-        ),
+        tuning=TABLES_DISABLED,
         best=5,
         lower_bound=certificate.lower_bound(1),
         next_weight=2,

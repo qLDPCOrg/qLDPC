@@ -3,18 +3,17 @@
 """Compiled scans of the layers of Brouwer-Zimmermann searches of binary spaces and their cosets.
 
 A BZ search scans the words of an affine space ``u + V`` layer by layer: layer ``w`` of a search
-basis holds the sums of its offset and ``w`` of its rows (see ``brouwer_zimmermann.md``).  Each
-scan covers one search basis.  The distance search scans ``V`` itself, with zero offsets and
-quotient labels that tell eligible words from excluded ones, and keeps only the best weight.  The
-coset search of ``CosetLeaderSearch`` scans a coset, with the offset of each basis, and keeps the
-lightest word.  On its routes by tails (see
-``coset_routes``), a coset search that weighs Hamming weights scans the tails of the rows and
-offsets instead, without the pivot columns of each basis, and keeps the support of the lightest
-word, from which it rebuilds the word.  A search for the minimum weight of a coset needs only the
-weight, and rebuilds no word.  In layers of two or more rows, a coset search also skips the
-completions of a prefix that completion tables of the tails show to lie beyond the maximum weight of
-its query, and, in a search for the minimum weight of a coset, also those that cannot be lighter
-than its lightest word so far.
+basis holds the sums of its offset and ``w`` of its rows (see ``brouwer_zimmermann.md``).  Each scan
+covers one search basis.  The distance search scans ``V`` itself, with zero offsets and quotient
+labels that tell eligible words from excluded ones, and keeps only the best weight.  The coset
+search of ``CosetLeaderSearch`` scans a coset, with the offset of each basis, and keeps the lightest
+word.  On its routes by tails (see ``coset_routes``), a coset search that weighs Hamming weights
+scans the tails of the rows and offsets instead, without the pivot columns of each basis, and keeps
+the support of the lightest word, from which it rebuilds the word.  A search for the minimum weight
+of a coset needs only the weight, and rebuilds no word.  In layers of two or more rows, a coset
+search also skips the completions of a prefix that completion tables of the tails show to lie beyond
+the maximum weight of its query, and, in a search for the minimum weight of a coset, also those that
+cannot be lighter than its lightest word so far.
 
 Every scan of this module runs one body, ``_scan``, which its compiled entry points call with
 constant flags.  Numba includes the body in each entry point, which compiles it for those flags, so

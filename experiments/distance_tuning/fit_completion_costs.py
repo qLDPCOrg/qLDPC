@@ -27,9 +27,11 @@ least ``--min-supports`` supports that a forced trace scanned with tables, it co
   ``completion_bound_build_step_cost`` model, as ``_estimate_build_cost`` counts bytes and steps;
   bytes and steps grow together, so the fit scales both by the median ratio of measured to
   predicted builds.
-  Searches with tables forced build them in their first layers, and reuse them, so every layer
-  that builds tables counts, with the seconds per candidate/set evaluation of the search's layers
-  of at least ``--min-supports`` supports with tables disabled.
+  Searches with tables forced keep the tables of one information set at a time, so a set reuses
+  its tables only if it was the last before it to choose tables, and a layer builds the tables of
+  every other information set that it scans.  So every layer that builds tables counts, for each
+  table that it builds, with the seconds per candidate/set evaluation of the search's layers of at
+  least ``--min-supports`` supports with tables disabled.
 
 It prints these layers, with whether the defaults used tables on them and how many sets they scan,
 and the fitted coefficients next to the current ones.  The fits of lookups and of the
@@ -38,7 +40,8 @@ chooses one width of tables, and its skipped supports and lookups belong to that
 the kept-first-row ratio uses the layers with blocks of ``completion_bound_block_bits`` columns, and
 leaves out layers that skip more than ``--max-share`` of their supports, whose few lookups beyond
 those of prefixes it cannot resolve; it prints the median for each width.
-Medians over repeats replace single times.
+Medians over repeats replace single times.  ``fit`` skips, with a warning, traces that do not count
+the sets that each layer scanned, which an older ``trace.py`` made; collect them again.
 
 Examples:
 
@@ -205,6 +208,13 @@ def fit(directory: pathlib.Path, min_supports: float, max_share: float) -> None:
             print(f"WARNING: {workload} lacks the traces of {sorted(set(ARMS) - set(arms))}")
             continue
         sequences = {arm: get_layers(record) for arm, record in arms.items()}
+        if any(
+            "scanned_sets" not in layer
+            for layers_of_arm in sequences.values()
+            for layer in layers_of_arm
+        ):
+            print(f"WARNING: the traces of {workload} do not count scanned sets; skipping it")
+            continue
         if (
             len({tuple(layer["weight"] for layer in sequence) for sequence in sequences.values()})
             > 1
@@ -265,10 +275,11 @@ def measure(
     # A layer builds its tables while choosing them.
     scan_cost = (forced["seconds"] - forced["choose_seconds"]) / seconds_per_support
 
-    # The lookups of the cost model with a kept-first-row ratio of one, for the sets scanned: a
-    # layer of one set chooses one width of tables, and a layer of several sets one for each set.
-    single_set = isinstance(forced["tables"], int)
-    num_sets = 1 if single_set else len(forced["tables"])
+    # The lookups of the cost model with a kept-first-row ratio of one, for the sets that the layer
+    # scanned.  The fits use only layers of one set, whose lookups and skipped supports all belong
+    # to that set.
+    num_sets = forced["scanned_sets"]
+    single_set = num_sets == 1
     share = forced["skipped"] / max(1, forced["skipped"] + forced["evaluated"])
     kept_lookups = (1 - share) * math.comb(rows, weight - 1) * num_sets
     prefix_lookups = math.comb(rows, weight - 2) * num_sets
@@ -295,12 +306,12 @@ def measure(
 def measure_build(layer: dict[str, Any], seconds_per_evaluation: float) -> dict[str, Any]:
     """The cost of building the tables of a layer, and their bytes and steps.
 
-    The bytes and steps are those that ``_estimate_build_cost`` counts, for the tables of each set
-    of the layer, which all have the size of the largest.
+    The bytes and steps are those that ``_estimate_build_cost`` counts, for each of the tables that
+    the layer built, which all have the size of the largest.
     """
     rows = layer["dimension"]
     block_bits = layer["tables"] if isinstance(layer["tables"], int) else max(layer["tables"])
-    num_built = 1 if isinstance(layer["tables"], int) else sum(map(bool, layer["tables"]))
+    num_built = layer["builds"]
     table_entries = layer["table_bytes"] // max(1, rows - 1)
     steps = table_entries * (block_bits + 1) * block_bits + layer["blocks"] * rows**2 // 2
     return {
