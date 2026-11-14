@@ -187,7 +187,7 @@ def test_overlapping_family_guards() -> None:
     assert not len(_get_overlapping_family(small, None, disjoint, 3, minimum_work=0).ranks)
 
 
-def test_partitioned_families_replace_costlier_ones() -> None:
+def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPatch) -> None:
     """Matroid partitioning replaces a disjoint family only in costly searches, and only if cheaper.
 
     This [11, 4] basis has disjoint information sets of ranks four, four, and two, and information
@@ -199,19 +199,34 @@ def test_partitioned_families_replace_costlier_ones() -> None:
     disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
     assert disjoint.ranks.tolist() == [4, 4, 2]
 
+    # Record the coverages that partitioning tries.
+    coverages: list[int] = []
+    get_sets = matroid_partition.get_information_sets_with_coverage
+
+    def record_coverage(basis: npt.NDArray[np.uint8], coverage: int, max_sets: int) -> Any:
+        coverages.append(coverage)
+        return get_sets(basis, coverage, max_sets)
+
+    monkeypatch.setattr(matroid_partition, "get_information_sets_with_coverage", record_coverage)
+
     def get_family(**changes: int) -> basis_families.BasisFamily:
         fields: dict[str, Any] = {"partition_work_ratio": 0, **changes}
         tuning = dataclasses.replace(DEFAULT_TUNING, **fields)
+        coverages.clear()
         return basis_families.get_partitioned_family(basis, labels, disjoint, 5, tuning)
 
     # A family needs a set to hold, a coverage of two or more, and partitioning that pays.  Even a
     # ratio of one rules partitioning out here, since the disjoint family does less work than the
-    # 9 * 4**2 * 10 evaluations of the unit of the ratio, for the coverages two to four.
+    # 27 * 4**2 * 10 evaluations of the unit of the ratio, for the coverages two to seven.
     assert not len(get_family(partition_work_ratio=2**62).ranks)
     assert not len(get_family(partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
-    assert not len(get_family(max_partition_coverage=1).ranks)
+
+    # Partitioning tries each coverage from two up to the least at which the most sets allowed fit
+    # in the 10 nonzero columns: ceil(16 * 4 / 10) = 7, but ceil(2 * 4 / 10) = 1 for two sets.
+    assert not len(get_family(max_information_sets=2).ranks) and not coverages
     family = get_family()
+    assert coverages == list(range(2, 8))
     assert family.max_coverage > 1
     assert family.certificate.work(5) < disjoint.certificate.work(5)
     for generators, set_labels, pivots in zip(*family[:3], strict=True):
@@ -242,18 +257,20 @@ def test_partitioned_families_replace_costlier_ones() -> None:
             get_competing_work=functools.partial(int, competing_work),
         )
         assert bool(len(partitioned.ranks)) == partitions
-    gate_changes: list[dict[str, Any]] = [
-        {"partition_work_ratio": 2**62},
-        {"partition_work_ratio": 0, "max_information_sets": 0},
-        {"partition_work_ratio": 0, "max_partition_coverage": 1},
+    # For the weight four, the disjoint family already does the least work that any family could.
+    gate_changes: list[tuple[dict[str, Any], int]] = [
+        ({"partition_work_ratio": 2**62}, 5),
+        ({"partition_work_ratio": 0, "max_information_sets": 0}, 5),
+        ({"partition_work_ratio": 0, "max_information_sets": 2}, 5),
+        ({"partition_work_ratio": 0}, 4),
     ]
-    for changes in gate_changes:
+    for changes, upper_bound in gate_changes:
         get_competing_work = mock.Mock(return_value=0)
         basis_families.get_partitioned_family(
             basis,
             labels,
             disjoint,
-            5,
+            upper_bound,
             dataclasses.replace(DEFAULT_TUNING, **changes),
             get_competing_work=get_competing_work,
         )

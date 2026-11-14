@@ -993,7 +993,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   It returns a basis family with no sets if no block is an information set, if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
-- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to `max_partition_coverage`.
+- **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two up to `ceil(m*r/N)`, where `m` is `max_information_sets`.
+  That is the least coverage at which `m` full sets fit, and coverage one is the disjoint packing of the earlier stages.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
   It tries this only if its estimated work is at least `partition_work_ratio` times the sum of `b*r^2*N` over the coverages `b` that it tries, which approximates the cost of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
