@@ -128,6 +128,49 @@ def test_brute_force_visits_every_nontrivial_word_once(
     assert distance == expected_distance
 
 
+@pytest.mark.parametrize("num_bits", [300, 1000])
+def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
+    """A batch of exhaustive enumeration holds more than half of its packed integers, at most all.
+
+    Each word packs into one 64-bit integer for every 64 bits, so longer words fit fewer to a batch
+    of at most 2**batch_exponent integers.  Words of five integers, not a power of two, check that a
+    batch rounds its number of words down, and words of 16 integers check that long words still
+    share batches.
+    """
+    batch_exponent = 9
+    sizes = _get_batch_sizes(num_bits, batch_exponent, tune)
+    assert 2 ** (batch_exponent - 1) < max(sizes) <= 2**batch_exponent
+
+
+def test_brute_force_batches_hold_one_word_that_needs_more(tune: Tune) -> None:
+    """A word that alone needs more than 2**batch_exponent packed integers is weighed alone."""
+    assert set(_get_batch_sizes(129, 1, tune)) == {3}
+
+
+def _get_batch_sizes(num_bits: int, batch_exponent: int, tune: Tune) -> list[int]:
+    """The numbers of packed integers in the batches of an enumeration of random words."""
+    tune(enumeration_batch_exponent=batch_exponent)
+    rng = np.random.default_rng(num_bits)
+    logical_ops = rng.integers(2, size=(4, num_bits))
+    stabilizers = rng.integers(2, size=(8, num_bits))
+
+    # The weight spy records the number of packed integers in each batch that it weighs.
+    sizes: list[int] = []
+    bitwise_count = np.bitwise_count
+
+    def _spy_weight(
+        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
+    ) -> npt.NDArray[np.uint64]:
+        sizes.append(arr.size)
+        return bitwise_count(arr, out=out)
+
+    with mock.patch.object(np, "bitwise_count", _spy_weight):
+        qldpc.codes.distance.get_distance_from_generators(
+            logical_ops, stabilizers, method="brute_force"
+        )
+    return sizes
+
+
 def test_get_distance_empty_stabilizers_symplectic() -> None:
     """A symplectic-weight distance with no stabilizers returns the min logical operator weight.
 
