@@ -310,6 +310,7 @@ def test_get_small_group_structure() -> None:
     # fail to retrieve structure from GAP
     with (
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value=""),
         pytest.raises(ValueError, match="Group not recognized"),
     ):
@@ -318,6 +319,7 @@ def test_get_small_group_structure() -> None:
     # retrieve structure from GAP
     with (
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
+        unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
         unittest.mock.patch("qldpc.external.gap.get_output", return_value=structure),
     ):
         assert _groups.get_small_group_structure(order, index) == structure

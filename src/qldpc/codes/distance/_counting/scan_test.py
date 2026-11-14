@@ -153,14 +153,16 @@ FORCED_TABLES: dict[str, Any] = {
 }
 
 
-@pytest.mark.parametrize("chunk_size", [1, 3, 1 << 16])
+@pytest.mark.parametrize("chunk_size, seed", [(1, 0), (3, 1), (1 << 16, 2)])
 def test_counts_with_completion_tables_match_enumeration(
-    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int, seed: int
 ) -> None:
     """Steps that skip completions still count every word, also when they stop at every lookup.
 
     Some completions of these codes have bounds equal to the target weight, so a scan that skipped
-    them, rather than only heavier ones, would lose words that this enumeration counts.
+    them, rather than only heavier ones, would lose words that this enumeration counts.  Each chunk
+    size counts a different random code; each of these codes alone catches that error at every
+    chunk size.
     """
     selected: list[completion_bounds.CompletionTables] = []
     select = completion_bounds.select_completion_tables
@@ -173,9 +175,8 @@ def test_counts_with_completion_tables_match_enumeration(
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", record)
     tune(overlapping_minimum_work=0, scan_chunk_size=chunk_size, **FORCED_TABLES)
-    for seed in range(3):
-        code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
-        assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
+    code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
+    assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert selected
 
 
