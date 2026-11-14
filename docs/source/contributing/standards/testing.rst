@@ -15,6 +15,8 @@ This standard covers what tests should guard and the conditions under which they
   A test of behavior that only compiled code has must also pass as plain Python, and must be in a test file that a compiled run selects, unless it compiles its own functions even in the coverage gate, as ``src/qldpc/_compilation_test.py`` does.
 * Tests run with network sockets disabled.
   Mock only external boundaries such as web, subprocess, clipboard, prompt, and optional-package paths, or a module's own thin wrappers around them, never the logic under test, and do not add a live-service test.
+* A test may wrap a function so that the wrapper records its arguments or results and passes them through unchanged, to observe behavior that no result of the code under test shows.
+  Such a wrapper is not a mock, since the function still runs.
 * Disk caches are bypassed while pytest is imported, so tests must not depend on cache persistence.
 * Pytest turns every ``DeprecationWarning`` and ``FutureWarning`` into an error, so tests use the modern API, and test deprecated usage and future-change warnings with ``pytest.warns`` (see :doc:`deprecations`).
   This applies to warnings from other packages too; avoid the call that triggers one, or add a narrow ``ignore`` entry to ``filterwarnings`` in ``pyproject.toml``.
