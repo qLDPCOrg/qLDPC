@@ -19,19 +19,19 @@ least ``--min-supports`` supports that a forced trace scanned with tables, it co
 - the measured cost of the layer with tables, without choosing and building them, as a share of its
   cost with tables disabled, and the cost that ``predict_completion_cost`` predicted for it;
 - the ratio of its lookups to the lookups of the cost model with a kept-first-row ratio of one,
-  which estimates ``completion_bound_kept_first_row_ratio``;
+  which estimates ``completion_bound_kept_first_row_ratio``, for a layer of one set;
 - its excess cost over the scan of the supports that it kept, per lookup and block, which a fit
   of ``completion_bound_lookup_block_cost`` and ``completion_bound_lookup_block_cost_per_mib``
-  models;
+  models, for a layer of one set;
 - the seconds of building its tables, which ``completion_bound_table_byte_cost`` and
   ``completion_bound_build_step_cost`` model, as ``_estimate_build_cost`` counts bytes and steps;
   bytes and steps grow together, so the fit scales both by the median ratio of measured to
   predicted builds.
-  Searches with tables forced keep the tables of one information set at a time, so a set reuses
-  its tables only if it was the last before it to choose tables, and a layer builds the tables of
-  every other information set that it scans.  So every layer that builds tables counts, for each
-  table that it builds, with the seconds per candidate/set evaluation of the search's layers of at
-  least ``--min-supports`` supports with tables disabled.
+  Searches with tables forced keep the tables of one information set at a time.  A set reuses its
+  tables only if no other set has chosen tables since it did, so a layer of several sets builds
+  tables for each information set that it scans.  So every layer that builds tables counts, for
+  each table that it builds, with the seconds per candidate/set evaluation of the search's layers
+  of at least ``--min-supports`` supports with tables disabled.
 
 It prints these layers, with whether the defaults used tables on them and how many sets they scan,
 and the fitted coefficients next to the current ones.  The fits of lookups and of the
@@ -339,13 +339,20 @@ def print_layers(rows: list[dict[str, Any]]) -> None:
         f" {'MiB':>5s}"
     )
     for row in rows:
+        # Some sets of a layer of several sets may look up no bounds, such as a set of deficient
+        # rank, and the trace does not say which lookups and skipped supports belong to which set,
+        # so the lookups of such a layer have no ratio to the cost model's.
+        if row["sets"] == 1:
+            lookups = f" {row['lookup_ratio']:5.2f} {row['excess_per_lookup_block']:6.2f}"
+        else:
+            lookups = f" {'-':>5s} {'-':>6s}"
         print(
             f"{row['workload']:42s} {row['weight']:2d} {row['rows']:4d} {row['sets']:4d}"
             f" {row['scanned']:8.1e}"
             f" {row['share']:5.3f} {row['predicted']:6.3f} {row['measured']:6.3f}"
             f" {row['measured_with_overhead']:6.3f}"
             f" {'yes' if row['default_uses_tables'] else 'no':>4s}"
-            f" {row['lookup_ratio']:5.2f} {row['excess_per_lookup_block']:6.2f}"
+            f"{lookups}"
             f" {row['table_mib']:5.0f}"
         )
 

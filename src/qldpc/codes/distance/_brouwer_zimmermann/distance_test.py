@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import gc
 import math
+import weakref
 from collections.abc import Callable, Iterator
 from typing import Any
 from unittest import mock
@@ -1151,7 +1153,9 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
     The second set of this code, on columns three to five, has rank two, so its third row has no
     pivot.  The lightest rows of both sets weigh five, and the lightest word, which the second set
     finds in layer two, weighs four.  A scan that counted a pivot one for each row would overstate
-    the weights of the words of the second set, and the search would certify weight five.
+    the weights of the words of the second set, and the search would certify weight five.  The
+    tuning forces tables, so the search holds the tables of the first set when it scans the second,
+    which must scan without them.
     """
     generators = np.array(
         [
@@ -1166,7 +1170,11 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
         affine_instance.get_distance_instance(family, certificate),
         cutoff=0,
         batch_size=1 << 20,
-        tuning=TABLES_DISABLED,
+        tuning=dataclasses.replace(
+            DEFAULT_TUNING,
+            completion_bound_minimum_layer_work=0,
+            completion_bound_max_cost_percent=MAX_VALUE,
+        ),
         best=5,
         lower_bound=certificate.lower_bound(1),
         next_weight=2,
@@ -1180,6 +1188,44 @@ def test_a_layer_with_a_set_that_is_not_an_information_set_is_exact() -> None:
         )
         == 4
     )
+
+
+def test_searches_hold_the_tables_of_one_set_at_a_time(
+    tune: Tune, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A search frees the tables of one set before it builds the tables of another.
+
+    With tables forced, the search of this random code with 10 rows and 36 columns scans several
+    sets in layer two, and the first set again in layer three.  When it builds tables, no tables
+    that it built before are alive, so it never holds the tables of more than one set.
+    """
+    tune(
+        completion_bound_minimum_layer_work=0,
+        completion_bound_max_cost_percent=MAX_VALUE,
+        completion_bound_block_bits=8,
+        completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
+    )
+    build = completion_bounds.CompletionTables.build
+    built: list[weakref.ref[completion_bounds.CompletionTables]] = []
+
+    def checking_build(
+        rows: npt.NDArray[np.uint64], block_bits: int
+    ) -> completion_bounds.CompletionTables:
+        gc.collect()
+        assert all(ref() is None for ref in built)
+        tables = build(rows, block_bits)
+        built.append(weakref.ref(tables))
+        return tables
+
+    monkeypatch.setattr(completion_bounds.CompletionTables, "build", staticmethod(checking_build))
+    generators = get_random_full_rank_matrix(np.random.default_rng(4), 10, 36)
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [(generators, _no_labels(generators))], cutoff=0
+    )
+    assert distance == qldpc.codes.distance.get_distance_from_generators(
+        generators, cutoff=0, method="brute_force"
+    )
+    assert len(built) > 1
 
 
 @pytest.mark.usefixtures("switch_before_any_layer")

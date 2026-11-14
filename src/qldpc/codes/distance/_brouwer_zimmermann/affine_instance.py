@@ -52,8 +52,8 @@ class AffineInstance:
             axes, and no words for a problem without labels.
         widths: The number of words of ``generators`` that each scanned set uses.
         label_widths: The number of words of ``labels`` that each scanned set uses.  Every set
-            uses all of them, and the array holds a number for each set because the compiled scans
-            take a width for each set.
+            uses all of them, and the array holds a number for each set because each compiled scan
+            takes the one-element slice of the arrays of the set that it scans.
         pivots: The pivot columns of each scanned set, padded with -1, with shape ``(num_sets,
             dimension)``.  They are columns of the full rows, and are bit positions of the rows of
             ``generators`` only in a coset instance.
