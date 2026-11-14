@@ -106,4 +106,4 @@ The five coefficients of the cost model keep values measured on the cost data se
 
 These limits can cost searches time or memory, but never change an exact result.
 
-At commit fcb6490e2 (#870), this page described the timing campaign that chose the earlier values, and recorded the commands of its sweeps.
+At commit 1a2c05293 (#871), this page described the timing campaign that chose the earlier values, and recorded the commands of its sweeps.
