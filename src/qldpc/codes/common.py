@@ -2037,8 +2037,7 @@ class QuditCode(AbstractCode):
                 Tanner graph of the stabilizers, which can be fast only for sparse stabilizers, and
                 is not always fast for them.  Its guide, ``connected_support.md`` in
                 ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.  Nonbinary
-                calculations use exhaustive enumeration, and reject
-                ``"connected_support"``.
+                calculations use exhaustive enumeration, and reject ``"connected_support"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
