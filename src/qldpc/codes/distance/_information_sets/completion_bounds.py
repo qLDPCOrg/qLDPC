@@ -167,8 +167,8 @@ def predict_completion_cost(
     if not considers_tables(num_rows, weight, tuning):
         return math.inf, 0
     num_bits = _get_num_tail_bits(rows)
-    block_bits = _get_block_bits(num_rows, num_bits, tuning)
-    if not block_bits:
+    block_bits = tuning.completion_bound_block_bits
+    if not _tables_fit(num_rows, num_bits, block_bits, tuning.completion_bound_max_table_bytes):
         return math.inf, 0
 
     # Estimate a conservative share of the supports of the layer that tables would skip.
@@ -278,14 +278,6 @@ def _get_block_offsets(num_bits: int, block_bits: int) -> npt.NDArray[np.int64]:
 def _get_table_bytes(num_rows: int, offsets: npt.NDArray[np.int64]) -> int:
     """Return the size of the tables of a basis, one row of tables for each row but the last."""
     return (num_rows - 1) * int(offsets[-1])
-
-
-def _get_block_bits(num_rows: int, num_bits: int, tuning: SearchTuning) -> int:
-    """Return the block width of the tuning if its tables fit, or else 0."""
-    block_bits = tuning.completion_bound_block_bits
-    if _tables_fit(num_rows, num_bits, block_bits, tuning.completion_bound_max_table_bytes):
-        return block_bits
-    return 0
 
 
 def _tables_fit(num_rows: int, num_bits: int, block_bits: int, max_bytes: int) -> bool:

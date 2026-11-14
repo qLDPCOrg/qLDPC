@@ -459,7 +459,7 @@ def get_maximum_disjoint_family(
     disjoint information sets, and the largest partial set on the columns that they leave (see
     ``matroid_partition``).  The sets of the family have no labels.  Like a greedy packing, each
     family holds information sets and then at most one partial set, and at most as many information
-    sets as a packing keeps (see ``_get_max_full_sets``).  For such families, if the pivots of
+    sets as a packing keeps (see ``_get_full_set_limit``).  For such families, if the pivots of
     ``basis_family`` use every nonzero column, or it already holds that many information sets, no
     other family can do better within that limit, so this skips partitioning.
 
@@ -472,12 +472,13 @@ def get_maximum_disjoint_family(
     no_labels = np.empty((dimension, 0), dtype=np.uint8)
     if int(basis_family.ranks.sum()) == num_columns:
         return _get_no_replacement(basis_family, basis, no_labels)
-    full_set_limit = _get_max_full_sets(dimension)
+    full_set_limit = _get_full_set_limit(dimension)
     if int(np.count_nonzero(basis_family.ranks == dimension)) >= full_set_limit:
         return _get_no_replacement(basis_family, basis, no_labels)
 
     # A disjoint family has at most num_columns // dimension information sets and a partial set,
-    # but a family at the limit of a packing holds that many information sets and no partial set.
+    # but a family at the limit of a packing holds ``full_set_limit`` information sets and no
+    # partial set.
     column_sets = matroid_partition.get_information_sets_with_coverage(
         basis, 1, min(num_columns // dimension + 1, full_set_limit), keep_partial=True
     )
@@ -546,7 +547,7 @@ def _get_disjoint_sets(
 
     The natural column order is tried first, and then up to ``random_column_orders`` random orders,
     until one reaches the most full sets that a packing keeps: the nonzero columns divided by the
-    rows, or ``2**rows - 1`` if that is smaller (see ``_get_max_full_sets``).
+    rows, or ``2**rows - 1`` if that is smaller (see ``_get_full_set_limit``).
     """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
@@ -560,7 +561,7 @@ def _get_disjoint_sets(
     # sets use disjoint nonzero columns, and a packing stops at its limit of full sets, so there are
     # at most this many, and possibly fewer.  Return if the natural order already reaches this
     # bound.
-    max_full_sets = min(len(nonzero_columns) // len(basis), _get_max_full_sets(len(basis)))
+    max_full_sets = min(len(nonzero_columns) // len(basis), _get_full_set_limit(len(basis)))
     if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
         return best
 
@@ -585,14 +586,10 @@ def _get_disjoint_sets(
     return best
 
 
-def _get_max_full_sets(dimension: int) -> int:
+def _get_full_set_limit(dimension: int) -> int:
     """The most full disjoint information sets that a packing of ``dimension`` basis rows keeps.
 
-    The layers of one information set reach all ``2**dimension - 1`` nonzero combinations of rows,
-    so scanning a layer of more sets than that would examine more candidates than enumerating every
-    word.  Only bases with more than ``dimension * (2**dimension - 1)`` nonzero columns have room
-    for more, and the limit keeps the memory of their packing from growing with the square of their
-    length.
+    Section 4.4 of ``brouwer_zimmermann.md`` gives the reason for the limit.
     """
     return (1 << dimension) - 1
 
@@ -604,11 +601,11 @@ def _get_disjoint_sets_for_columns(
 ) -> list[_DisjointSet]:
     """Construct disjoint information sets, with pivots from the nonzero ``columns`` in order.
 
-    It stops after ``_get_max_full_sets(len(basis))`` full sets.
+    It stops after ``_get_full_set_limit(len(basis))`` full sets.
     """
     # Start with every given column available as a pivot, and with the basis as it is.
     dimension = len(basis)
-    max_full_sets = _get_max_full_sets(dimension)
+    full_set_limit = _get_full_set_limit(dimension)
     active_columns = columns
     working = basis
     working_labels = labels
@@ -629,7 +626,7 @@ def _get_disjoint_sets_for_columns(
         # A set with fewer pivots than rows is partial.  The columns that remain span at most
         # ``rank`` dimensions, so no later set could be full, and this is the last one.  A packing
         # also stops at its limit of full sets.
-        if rank < dimension or len(information_sets) == max_full_sets:
+        if rank < dimension or len(information_sets) == full_set_limit:
             break
 
         # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Row

@@ -15,7 +15,7 @@ import pytest
 
 from qldpc._binary import pack_bits
 
-from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning
+from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from . import completion_bounds as cb
 
 # A tuning that considers every layer, uses tables whatever they cost, and allows any size.
@@ -27,11 +27,6 @@ FORCED = dataclasses.replace(
     completion_bound_max_cost_percent=MAX_VALUE,
     completion_bound_max_table_bytes=MAX_VALUE,
 )
-
-
-def _with_table_bytes(max_table_bytes: int) -> SearchTuning:
-    """The default tuning with a memory limit for completion tables."""
-    return dataclasses.replace(DEFAULT_TUNING, completion_bound_max_table_bytes=max_table_bytes)
 
 
 def get_random_tails(
@@ -121,22 +116,20 @@ def test_bounds_ignore_ones_past_the_tails() -> None:
 
 
 def test_tables_fit_their_memory_limit() -> None:
-    """Tables use the blocks of the tuning if they fit, and otherwise none.
+    """Tables fit only within their memory limit.
 
-    Tables of tails without ones skip nothing, so a search builds none.
+    Tables of tails without ones skip nothing, so they never fit.
     """
     # Three rows of tables of three sixteen-column blocks (the last of eight columns) take
     # 3 * (2 * 2**16 + 2**8) bytes.
     fitting_bytes = 3 * (2 * 2**16 + 2**8)
-    assert cb._get_block_bits(4, 40, _with_table_bytes(fitting_bytes)) == 16
-    assert cb._get_block_bits(4, 40, _with_table_bytes(fitting_bytes - 1)) == 0
+    assert cb._tables_fit(4, 40, 16, fitting_bytes)
+    assert not cb._tables_fit(4, 40, 16, fitting_bytes - 1)
     # With blocks of four columns, the tables of the same tails take 3 * 10 * 16 bytes.
-    narrow = dataclasses.replace(DEFAULT_TUNING, completion_bound_block_bits=4)
-    for max_table_bytes, block_bits in ((480, 4), (479, 0)):
-        tuning = dataclasses.replace(narrow, completion_bound_max_table_bytes=max_table_bytes)
-        assert cb._get_block_bits(4, 40, tuning) == block_bits
+    assert cb._tables_fit(4, 40, 4, 480)
+    assert not cb._tables_fit(4, 40, 4, 479)
     assert cb._get_num_tail_bits(np.zeros((4, 2), dtype=np.uint64)) == 0
-    assert cb._get_block_bits(4, 0, _with_table_bytes(2**30)) == 0
+    assert not cb._tables_fit(4, 0, 16, 2**30)
 
 
 def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -> None:

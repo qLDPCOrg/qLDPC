@@ -20,7 +20,7 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 
 from .._tuning import DEFAULT_TUNING, SearchTuning
 from ..conftest import get_random_full_rank_matrix
-from . import basis_families, certificates
+from . import basis_families, certificates, matroid_partition
 
 # The default numbers of column orders of disjoint families, and denominators of LP dual weights.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
@@ -291,10 +291,10 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
         assert not len(basis_families.get_maximum_disjoint_family(basis, disjoint).ranks)
 
     # A maximum family keeps the limit of a packing: 8 information sets of three rows fit here, but
-    # a packing keeps 7, so no family replaces those 7, and 3 of them are replaced by 7.
+    # a packing keeps 7, so no family replaces those 7 and partitioning is skipped, and 3 of them
+    # are replaced by 7.
     three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
     capped = basis_families.get_disjoint_family(three_rows, None, random_column_orders=0)
-    assert not len(basis_families.get_maximum_disjoint_family(three_rows, capped).ranks)
     smaller = basis_families.BasisFamily(
         capped.generators[:3],
         capped.labels[:3],
@@ -303,7 +303,14 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
         capped.weight_divisor,
         1,
     )
-    family = basis_families.get_maximum_disjoint_family(three_rows, smaller)
+    partition = matroid_partition.get_information_sets_with_coverage
+    with mock.patch.object(
+        matroid_partition, "get_information_sets_with_coverage", wraps=partition
+    ) as spy:
+        assert not len(basis_families.get_maximum_disjoint_family(three_rows, capped).ranks)
+        spy.assert_not_called()
+        family = basis_families.get_maximum_disjoint_family(three_rows, smaller)
+        spy.assert_called_once()
     assert family.ranks.tolist() == [3] * 7
 
 
