@@ -566,10 +566,11 @@ class ClassicalCode(AbstractCode):
             method: Binary exact-distance method, including vector distances.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
                 ``"brute_force"`` enumerates code words.  ``"connected_support"`` searches supports
-                that are connected in the Tanner graph of the parity checks, which is fast for
-                sparse parity checks.  Its guide, ``connected_support.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.  Nonbinary
-                calculations use exhaustive enumeration, and reject ``"connected_support"``.
+                that are connected in the Tanner graph of the parity checks, which can be fast only
+                for sparse parity checks, and is not always fast for them.  Its guide,
+                ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
+                explains it.  Nonbinary calculations use exhaustive enumeration, and reject
+                ``"connected_support"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
@@ -2033,9 +2034,10 @@ class QuditCode(AbstractCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the stabilizers, which is fast for sparse stabilizers.  Its guide,
-                ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
-                explains it.  Nonbinary calculations use exhaustive enumeration, and reject
+                Tanner graph of the stabilizers, which can be fast only for sparse stabilizers, and
+                is not always fast for them.  Its guide, ``connected_support.md`` in
+                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.  Nonbinary
+                calculations use exhaustive enumeration, and reject
                 ``"connected_support"``.
 
         Returns:
@@ -3678,9 +3680,9 @@ class CSSCode(QuditCode):
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
                 operator.  ``"connected_support"`` searches supports that are connected in the
-                Tanner graph of the stabilizers, which is fast for sparse stabilizers.  Its
-                guide, ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC
-                repository, explains it.
+                Tanner graph of the stabilizers, which can be fast only for sparse stabilizers, and
+                is not always fast for them.  Its guide, ``connected_support.md`` in
+                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.
                 Closed forms that search classical codes, such as those of hypergraph product
                 codes, search them with the same method.  Nonbinary calculations use exhaustive
                 enumeration, and reject ``"connected_support"``.

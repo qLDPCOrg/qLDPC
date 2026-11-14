@@ -82,7 +82,8 @@ class CosetLeaderSearch:
             `Brouwer-Zimmermann guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
             ``"connected_support"`` grows errors from the syndrome through generators of the
-            stabilizer group, which it first makes sparser, and is fast if they are sparse (see the
+            stabilizer group, which it first makes sparser, and can be fast only if they are sparse
+            (see the
             `connected-support guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
             It weighs errors by CSS weight only on CSS states.  For a class without an error within
