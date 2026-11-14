@@ -269,16 +269,14 @@ class SearchTuning:
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
     #: The least work of a coefficient layer, in candidate/set evaluations, before which a distance
-    #: search that would not partition first considers switching to automorphism images (Section 3.7
-    #: of ``brouwer_zimmermann.md``); one that would partition first considers it at the end of
-    #: setup.  After declining, a search reconsiders before such a layer once its best weight drops.
-    #: Lowering it pays for finding automorphisms on cheaper searches; raising it delays the
-    #: considerations before layers; zero considers before the first layer, and ``MAX_VALUE`` never.
-    #: Defaults to the break-even value: finding automorphisms and building their images took a
-    #: median of 4.6 ms on the codes qt7, lp13s5, lp13s8, pp232, and gross of
-    #: ``experiments/distance_tuning``, or 3.5 * 10**6 evaluations at the median 1.32 ns per
-    #: evaluation of layers of at least 10**7 evaluations without tables, rounded on a 1-2-5 grid;
-    #: its ``trace.py`` records both.
+    #: search that would not partition considers switching to automorphism images (Section 3.7 of
+    #: ``brouwer_zimmermann.md``); one that would partition considers it at the end of setup.  After
+    #: declining, a search reconsiders before such a layer once its best weight drops.  Zero
+    #: considers before the first layer, and ``MAX_VALUE`` never.  Derived by break-even: finding
+    #: automorphisms and building their images took up to 7.3 ms on qt7, lp13s5, lp13s8, pp232, and
+    #: gross of ``experiments/distance_tuning``, about 5.6 * 10**6 evaluations at 1.32 ns each, the
+    #: median over these searches of the net seconds per evaluation of their layers of at least
+    #: 10**7 evaluations without tables, rounded by ratio to 1, 2, or 5 times a power of ten.
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-support searches.

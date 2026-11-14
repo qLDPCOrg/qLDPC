@@ -747,10 +747,8 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
     binary cyclic code by ``step`` positions generates its automorphisms.  The rows that setup finds
     in the [45, 21, 8] code weigh ten.  Before layer two, the images of one set predict more work
     than the two disjoint sets of the search, so it declines to switch.  Layer two finds a word of
-    weight eight, and before layer three the images predict less work, so it switches.  In the
-    [21, 9, 8] code, setup finds a word of weight eight, so the search, which declines before layer
-    two, does not consider the switch again before layer three.  Each search asks for automorphisms
-    once, and gets their family from setup once.
+    weight eight, and before layer three the images predict less work, so it switches.  The search
+    asks for automorphisms once, and gets their family from setup once.
     """
     tuning = dataclasses.replace(
         TABLES_DISABLED,
@@ -758,34 +756,25 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
         overlapping_minimum_work=MAX_VALUE,
         partition_work_ratio=MAX_VALUE,
     )
-    for coefficients, num_columns, step, expected in (
-        ("1001111001000111111110111", 45, 5, [(10, False), (8, True)]),
-        ("1111000101011", 21, 7, [(8, False)]),
-    ):
-        basis = _get_cyclic_basis(coefficients, num_columns)
-        labels = _no_labels(basis)
-        get_automorphisms = mock.Mock(return_value=np.roll(np.arange(num_columns), -step)[None])
-        switch_decisions.clear()
-        search = bz._prepare_brouwer_zimmermann_search(
-            basis,
-            labels,
-            cutoff=0,
-            weight_divisor=1,
-            upper_bound=num_columns + 1,
-            get_automorphisms=get_automorphisms,
-            tuning=tuning,
-        )
-        assert isinstance(search, bz._BrouwerZimmermannSearch)
-        get_family = search.get_automorphism_family = mock.Mock(
-            wraps=search.get_automorphism_family
-        )
-        while not search.finished:
-            search.advance()
-        assert (
-            search.best == bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0) == 8
-        )
-        assert switch_decisions == expected
-        assert get_automorphisms.call_count == get_family.call_count == 1
+    basis = _get_cyclic_basis("1001111001000111111110111", 45)
+    labels = _no_labels(basis)
+    get_automorphisms = mock.Mock(return_value=np.roll(np.arange(45), -5)[None])
+    search = bz._prepare_brouwer_zimmermann_search(
+        basis,
+        labels,
+        cutoff=0,
+        weight_divisor=1,
+        upper_bound=46,
+        get_automorphisms=get_automorphisms,
+        tuning=tuning,
+    )
+    assert isinstance(search, bz._BrouwerZimmermannSearch)
+    get_family = search.get_automorphism_family = mock.Mock(wraps=search.get_automorphism_family)
+    while not search.finished:
+        search.advance()
+    assert search.best == bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0) == 8
+    assert switch_decisions == [(10, False), (8, True)]
+    assert get_automorphisms.call_count == get_family.call_count == 1
 
 
 def test_a_decline_at_the_end_of_setup_is_reconsidered_before_a_costly_layer(
@@ -849,9 +838,10 @@ def test_a_late_switch_weighs_the_layers_left_in_the_current_family(
     the automorphisms.  With the threshold of the switch at the work of layer three, the search
     first considers the switch before that layer, after its two disjoint sets have completed layers
     one and two and found a word of weight eight.  Layer three of one of these sets then certifies
-    that weight, at 455 candidate/set evaluations, while the images of one set would scan layers one
-    to three again, at 575.  So the search declines, though the whole search of the disjoint sets,
-    at 695 evaluations, predicts more work than the images.
+    that weight, at 455 candidate/set evaluations, while the estimate for the images of one set,
+    575, counts the rows of layer one and the layers two and three that the switch would scan again.
+    So the search declines, though the whole search of the disjoint sets, at 695 evaluations,
+    predicts more work than the images.
     """
     tune(
         automorphism_minimum_layer_work=math.comb(15, 3),

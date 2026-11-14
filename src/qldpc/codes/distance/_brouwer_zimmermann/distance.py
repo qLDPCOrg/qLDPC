@@ -369,7 +369,9 @@ class _BrouwerZimmermannSearch:
         It would until it switches, or finds that the problem has no such family.  After it declines
         the switch, it would only once its best weight has dropped.  At the same best weight, the
         switch compares the same work of the automorphism family with the work left in the current
-        family, which only falls as the search completes layers, so it would decline again.
+        family, which only falls as the search completes layers, so it would decline again.  This
+        property is False right after any consideration, which ends the recursion of ``advance``
+        after it considers the switch.
         """
         if self.get_automorphism_family is not None:
             return True
