@@ -177,6 +177,7 @@ def test_codes_protect_their_arrays() -> None:
         subsystem_code.get_logical_ops(),
         subsystem_code.get_stabilizer_ops(),
         subsystem_code.get_gauge_ops(),
+        codes.HGPCode(codes.RepetitionCode(2)).sector_size,
         copy.deepcopy(codes.RepetitionCode(2)).matrix,
         # this pickle holds the CSSCode.matrix cached above, which unpickling must mark again
         pickle.loads(pickle.dumps(subsystem_code)).matrix,  # noqa: S301 - trusted round trip

@@ -14,7 +14,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any, Literal, Self, get_args
+from typing import Any, Literal, Self, TypeVar, get_args
 
 import galois
 import numpy as np
@@ -90,6 +90,8 @@ _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome
 
 # a decoder, a check matrix, and a syndrome for the decoder to decode
 _DecodingProblem = tuple[decoders.ErrorDecoder, galois.FieldArray, galois.FieldArray]
+
+_ArrayT = TypeVar("_ArrayT", bound=npt.NDArray[Any])
 
 # the number of spare decoding problems that a randomized decoder search draws to replace failed
 # ones, an arbitrary limit that keeps a hopeless search finite
@@ -4577,14 +4579,15 @@ def _require_symplectic(symplectic: bool) -> None:
 # helper methods
 
 
-def _mark_read_only(array: galois.FieldArray) -> galois.FieldArray:
+def _mark_read_only(array: _ArrayT) -> _ArrayT:
     """Mark an array as read-only, and return it.
 
     Codes mark their parity check matrices, generator matrices, and logical, stabilizer, and gauge
     operators read-only, since changing one in place would leave the code's cached properties stale.
     A parity check matrix is marked when it is built, and again when its code is copied or
     unpickled.  Generator matrices and operators are marked by the getters that return them, since
-    many methods store them.
+    many methods store them.  Some code families, such as HGPCode, also mark the arrays that their
+    constructors store as public attributes.
     """
     array.flags.writeable = False
     return array

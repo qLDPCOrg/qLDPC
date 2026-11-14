@@ -34,7 +34,7 @@ from ..classical import (
     RingCode,
     SimplexCode,
 )
-from ..common import ClassicalCode, CSSCode
+from ..common import ClassicalCode, CSSCode, _mark_read_only
 from ..distance import NO_DISTANCE, DistanceMethod, NoDistance
 
 ####################################################################################################
@@ -147,9 +147,11 @@ class HGPCode(CSSCode):
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
 
         # identify the number of qudits in each sector
-        self.sector_size = np.outer(
-            [self.code_a.num_bits, self.code_a.num_checks],
-            [self.code_b.num_bits, self.code_b.num_checks],
+        self.sector_size = _mark_read_only(
+            np.outer(
+                [self.code_a.num_bits, self.code_a.num_checks],
+                [self.code_b.num_bits, self.code_b.num_checks],
+            )
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
