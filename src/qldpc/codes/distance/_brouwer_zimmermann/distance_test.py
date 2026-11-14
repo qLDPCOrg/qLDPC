@@ -818,6 +818,9 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
     with (
         use_tuning(automorphism_minimum_layer_work=10**9),
         mock.patch.object(
+            matroid_partition, "get_information_sets_with_coverage", wraps=get_information_sets
+        ) as partition,
+        mock.patch.object(
             bz._BrouwerZimmermannSearch, "_switch_to_automorphism_family", _spy_switch
         ),
     ):
@@ -827,7 +830,29 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
             )
             == 6
         )
+    assert partition.called
     assert switched == [False]
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_switch_at_the_end_of_setup_can_certify_the_distance(tune: Tune) -> None:
+    """A search whose switch at the end of setup certifies a lighter word returns its weight.
+
+    In the X sector of this bivariate bicycle code, the rows of the automorphism family include a
+    word lighter than any that setup had found, and its certificate then proves that weight, so the
+    search finishes in setup.
+    """
+    tune(partition_work_ratio=0)
+    code = qldpc.codes.BBCode({x: 6, y: 2}, x**3 * y + x**2 * y + x, x**5 + x**3 * y + x)
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        code.get_logical_ops(Pauli.X), code.get_stabilizer_ops(Pauli.X), method="brute_force"
+    )
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [get_sector_problem(code, Pauli.X)],
+        cutoff=0,
+        get_automorphisms=code._get_qudit_automorphisms,
+    )
+    assert distance == expected
 
 
 @pytest.mark.parametrize("partition_work_ratio", [MAX_VALUE, 0])

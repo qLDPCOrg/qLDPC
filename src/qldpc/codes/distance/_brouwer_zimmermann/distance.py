@@ -213,9 +213,9 @@ class _BrouwerZimmermannSearch:
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
     If the search would partition, setup calls it first, and has the search consider the switch at
     the end of setup.  Otherwise the search calls it before the first layer whose scan would cost at
-    least ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  Either way, it is
-    called at most once, and the search switches to the automorphism family if it predicts less
-    work (see ``_switch_to_automorphism_family``).
+    least ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  Either way, setup's
+    cache builds the family at most once, and the search switches to it if it predicts less work
+    (see ``_switch_to_automorphism_family``).
 
     A layer of two or more rows that scans one set whose block is an information set uses
     ``affine_search.scan_information_set``.  Such a layer may skip the supports whose last two rows
