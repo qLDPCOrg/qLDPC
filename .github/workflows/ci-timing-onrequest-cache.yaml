@@ -1,0 +1,61 @@
+# Temporary: times the compiled distance run on CI's runners with the compiled-on-request code kept
+# in memory (as on main), cached on disk, or cached on disk and compiled once under a lock across
+# processes, with repeats.  It runs only on pushes to the branch ci/timing-onrequest-cache, which is
+# never merged.  Each test step prints TIMING lines: the runner's CPUs, the step's wall and CPU
+# time, and each test process's wall, CPU, and numba compile time (see experiments/ci_timing/).
+
+name: CI timing experiment (on-request cache)
+
+on:
+  push:
+    branches: [ ci/timing-onrequest-cache ]
+
+permissions:
+  contents: read
+
+jobs:
+  distance:
+    name: "distance: ${{ matrix.variant }} #${{ matrix.rep }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Keep each test worker to one Numba thread, as the compiled runs do.
+      NUMBA_NUM_THREADS: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [ "in memory (main)", "disk cache", "disk cache, locked warm-up" ]
+        rep: [ 1, 2, 3, 4 ]
+        include:
+          - { variant: "in memory (main)", disk: "0", eager: "0", lock: "0" }
+          - { variant: "disk cache", disk: "1", eager: "0", lock: "0" }
+          - { variant: "disk cache, locked warm-up", disk: "1", eager: "1", lock: "1" }
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: 3.14
+          enable-cache: true
+      - name: Install package and dependencies
+        run: uv sync --compile-bytecode --extra bliss --extra decoders --extra gap --group ci-test
+      - name: Describe the runner
+        run: |
+          echo "TIMING runner nproc=$(nproc)"
+          lscpu | grep -E '^(Model name|Thread\(s\) per core|Core\(s\) per socket|Socket\(s\)):' \
+            | sed 's/^/TIMING runner /'
+      - name: Run the tests
+        env:
+          QLDPC_EXPERIMENT_DISK: ${{ matrix.disk }}
+          QLDPC_EXPERIMENT_EAGER: ${{ matrix.eager }}
+          QLDPC_EXPERIMENT_LOCK: ${{ matrix.lock }}
+          PROFILE_OUT: ${{ runner.temp }}/profile
+          PYTHONPATH: ${{ github.workspace }}/experiments/ci_timing
+        run: |
+          TIMEFORMAT='TIMING step real=%R user=%U sys=%S'
+          status=0
+          time uv run --extra bliss --extra decoders --extra gap --group ci-test python -m pytest \
+            src/qldpc/codes/distance --compile-search-setup -p profile_plugin -n 4 \
+            --dist=loadfile || status=$?
+          python3 experiments/ci_timing/summarize.py "$PROFILE_OUT"
+          exit $status
