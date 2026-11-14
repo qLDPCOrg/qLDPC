@@ -164,8 +164,8 @@ class SupportSearch:
     A word is a vector ``x`` that satisfies every check, and its support is the set of variables on
     which it is nonzero.  Its weight is the size of its support.  The row space of ``excluded`` must
     satisfy every check, and the words outside it are the witnesses.  The search grows a support
-    through the checks that it leaves unsatisfied (see ``connected_support.md``), so it is fast if
-    ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
+    through the checks that it leaves unsatisfied (see ``connected_support.md``), so it can be fast
+    only if ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
     satisfy the checks (see ``find_vector_with_syndrome``).
 
     A problem that is not symplectic has binary words, whose coordinates are the variables, and a

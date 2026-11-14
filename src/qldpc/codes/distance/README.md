@@ -126,7 +126,7 @@ For the CSS weight, it searches the Z part of a class only if its X part is with
 
 With `method="connected_support"`, each coset search is a `ConnectedSupportCosetSearch` in `_connected_support/coset.py`, which runs `SupportSearch` of `_connected_support/search.py` from the syndrome of a query (Section 3.8 of `connected_support.md`).
 It searches through the unsatisfied stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
-It is fast if its checks are sparse.
+It can be fast only if its checks are sparse.
 Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its checks with sparser ones that span the same space, which can fall short of the sparsest generators.
 The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only on CSS states, whose X and Z parts it searches separately.
 A syndrome with an error of weight at most one gets the weight of its lightest errors as a lower bound.

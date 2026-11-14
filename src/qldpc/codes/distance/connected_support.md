@@ -39,6 +39,15 @@ A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at
 So `get_distance_pauli` searches Pauli checks as a CSS code if X-type and Z-type operators generate their group, even if the checks mix X and Z.
 A code that is CSS only up to local Cliffords, such as those Hadamards, is still searched as a code that is not CSS.
 
+Dense checks make the search slow unless the distance is small.
+Sparse checks do not ensure that it is fast, and no exact method of qLDPC is faster than the others on every code with sparse checks.
+In timings of the distance of one sector, on one machine, with a limit of 60 s, the connected-support search was faster than the Brouwer-Zimmermann search on most of the quantum LDPC codes timed (surface, toric, bivariate bicycle, lifted-product, quantum Tanner, and pair-partition codes), by up to several hundred times (lower bounds, where the Brouwer-Zimmermann search reached the limit).
+In longer runs, it was more than a thousand times faster on the [[288, 12, 18]] bivariate bicycle code, whose Brouwer-Zimmermann search took several minutes.
+But it took several times as long on the [[170, 8, 20]] pair-partition code, where both searches took minutes.
+On random regular classical LDPC codes of 48 to 240 bits, it was faster when each check had 6 or 8 bits, slightly slower with 10 or 12, and much slower with 14 or more, usually by hundreds of times or more (lower bounds, where it reached the limit).
+The weight of the checks does not order codes of different families either: the connected-support search was faster on quantum Tanner codes whose checks have 16 bits, and on the [[276, 98, 14]] pair-partition code, whose checks have 12, but slower on the [[170, 8, 20]] pair-partition code, whose checks have 10.
+So the sparsity of the checks alone does not say which method is faster.
+
 The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
 
 ## 3. The algorithm

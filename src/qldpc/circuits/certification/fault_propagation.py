@@ -109,7 +109,7 @@ def certify_bounded_fault_propagation(
             ``"information_sets"``, searches cosets of the stabilizer group by information sets.
             ``"connected_support"`` grows errors from their syndromes through generators of the
             stabilizer group.  It first replaces the generators with sparser ones that generate the
-            same group, and is fast if they are sparse (see the `connected-support guide
+            same group, and can be fast only if they are sparse (see the `connected-support guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
             Both certify the same circuits, and find the same smallest violating fault, but the
             ``output_pauli`` of a counterexample may be another equivalent error, and with
