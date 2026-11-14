@@ -610,11 +610,9 @@ def _get_disjoint_sets_for_columns(
 
         # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Also
         # drop columns that are zero in the reduced matrix, so that the next pass has a pivot.
-        pivot_set = set(pivots)
-        active_columns = np.asarray(
-            [col for col in active_columns if col not in pivot_set and np.any(working[:, col])],
-            dtype=int,
-        )
+        active_columns = active_columns[
+            ~np.isin(active_columns, pivots) & np.any(working[:, active_columns], axis=0)
+        ]
 
     return information_sets
 
