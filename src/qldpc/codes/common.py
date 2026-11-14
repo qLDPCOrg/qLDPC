@@ -198,6 +198,13 @@ class AbstractCode(abc.ABC):
             )
         _mark_read_only(self._matrix)
 
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a copied or unpickled code, and mark its parity check matrix read-only again."""
+        self.__dict__.update(state)
+        for name in ("_matrix", "matrix"):  # CSSCode caches its matrix as the property "matrix"
+            if name in state:
+                _mark_read_only(state[name])
+
     @property
     def name(self) -> str:
         """The name of this code."""
@@ -384,7 +391,7 @@ class ClassicalCode(AbstractCode):
     @functools.cached_property
     def graph(self) -> TannerGraph:
         """Tanner graph of this code."""
-        return TannerGraph.from_matrix(self.matrix)
+        return nx.freeze(TannerGraph.from_matrix(self.matrix))
 
     def get_weight(self) -> int:
         """Compute the weight of the largest parity check."""
@@ -406,7 +413,7 @@ class ClassicalCode(AbstractCode):
 
     def set_generator(self, generator: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Self:
         """Set the generator matrix of this code."""
-        generator = np.asanyarray(generator).view(self.field)
+        generator = np.array(generator).view(self.field)
         if np.any(self.matrix @ generator.T):
             raise ValueError("Provided generator matrix has nontrivial syndromes")
 
@@ -1221,7 +1228,7 @@ class QuditCode(AbstractCode):
     @functools.cached_property
     def graph(self) -> TannerGraph:
         """Tanner graph of this code."""
-        return TannerGraph.from_matrix(self.matrix, symplectic=True)
+        return nx.freeze(TannerGraph.from_matrix(self.matrix, symplectic=True))
 
     def maybe_to_css(self) -> QuditCode:
         """Try to convert this QuditCode into a CSSCode.
@@ -1633,7 +1640,7 @@ class QuditCode(AbstractCode):
         skip_validation: bool = False,
     ) -> Self:
         """Set the logical operators of this code to the provided logical operators."""
-        logical_ops = np.asanyarray(logical_ops).view(self.field)
+        logical_ops = np.array(logical_ops).view(self.field)
         if not skip_validation:
             dimension = len(logical_ops) // 2
             # A valid logical basis has symplectic Gram matrix equal to the block anti-diagonal
@@ -4665,9 +4672,9 @@ def _mark_read_only(array: galois.FieldArray) -> galois.FieldArray:
     """Mark an array as read-only, and return it.
 
     Codes mark the arrays that they store or cache as read-only, since changing one in place would
-    leave the code's cached properties stale.  A parity check matrix is marked when it is built,
-    while generator matrices and operators are marked by the getters that return them, since many
-    methods store those.
+    leave the code's cached properties stale.  A parity check matrix is marked when it is built, and
+    again when the code is copied or unpickled, while generator matrices and operators are marked by
+    the getters that return them, since many methods store those.
     """
     array.flags.writeable = False
     return array

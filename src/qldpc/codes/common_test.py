@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
+import copy
 import functools
 import inspect
 import itertools
+import pickle
 import random
 import unittest.mock
 import warnings
@@ -151,14 +153,21 @@ def test_field_array_construction() -> None:
 
 
 def test_codes_copy_their_matrices() -> None:
-    """Codes copy the arrays that build them, and the arrays that they store are read-only."""
+    """Codes copy arrays that they are given, and their stored arrays and graphs are read-only."""
     for matrix in (np.array([[1, 1, 0], [0, 1, 1]]), galois.GF(2)([[1, 1, 0], [0, 1, 1]])):
         code = codes.ClassicalCode(matrix)
         matrix[0, 0] = 0
         assert code.matrix[0, 0] == 1
 
-    # writing into an array that a code stores raises; a subsystem code caches its stabilizer and
-    # gauge operators
+    # setters copy their input too
+    qudit_code = codes.FiveQubitCode()
+    logical_ops = qudit_code.get_logical_ops().copy()
+    qudit_code.set_logical_ops(logical_ops)
+    logical_ops[:] = 0
+    assert np.any(qudit_code.get_logical_ops())
+
+    # writing into an array that a code stores raises, also after copying or pickling the code; a
+    # subsystem code caches its stabilizer and gauge operators
     subsystem_code = codes.SHPCode(codes.RepetitionCode(2))
     for array in (
         codes.RepetitionCode(2).matrix,
@@ -167,9 +176,16 @@ def test_codes_copy_their_matrices() -> None:
         subsystem_code.get_logical_ops(),
         subsystem_code.get_stabilizer_ops(),
         subsystem_code.get_gauge_ops(),
+        copy.deepcopy(codes.RepetitionCode(2)).matrix,
+        pickle.loads(pickle.dumps(subsystem_code)).matrix,  # noqa: S301 - trusted round trip
     ):
         with pytest.raises(ValueError, match="read-only"):
             array[0, 0] = 0
+
+    # the cached Tanner graphs of classical and quantum codes are frozen
+    for graph in (codes.RepetitionCode(2).graph, subsystem_code.graph):
+        with pytest.raises(nx.NetworkXError, match="Frozen"):
+            graph.add_edge(0, 1)
 
 
 def test_check_matrix_shapes() -> None:
