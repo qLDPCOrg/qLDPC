@@ -230,12 +230,12 @@ The optimizations are:
 
 - [Section 3.4](#34-quotient-labels-for-the-stabilizer-test) tests whether a candidate word lies in `S` by XORing precomputed labels.
 - [Section 3.5](#35-packed-enumeration-with-pivot-column-deletion) packs words into machine words, reuses partial XORs, and avoids storing pivot columns.
-- [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) estimates the work of a search, with which searches choose their search bases ([Section 4.4](#44-heuristics-and-cost-models)), and describes the exhaustive enumeration that `method="brute_force"` runs instead of BZ.
 - [Section 3.9](#39-skipping-completions-by-completion-tables) skips the supports whose last two rows provably cannot complete a word lighter than `U`, or, in a count or a coset query, a word within its weight.
 - [Section 3.10](#310-minimum-weights-of-cosets) finds the minimum weight of a coset up to a maximum weight with one search, rather than with queries at increasing maximum weights.
 
 [Section 3.7](#37-images-of-an-information-set-under-automorphisms) is both an extension and an optimization, for problems that a group of coordinate permutations preserves.
 It certifies with the images of one information set under the group, and scans only that set.
+[Section 3.6](#36-work-estimates-and-exhaustive-enumeration) defines the work estimate with which searches choose their search bases ([Section 4.4](#44-heuristics-and-cost-models)), and describes the exhaustive enumeration that `method="brute_force"` runs instead of BZ.
 [Section 3.8](#38-worked-example) illustrates [Section 3.1](#31-overlapping-search-bases) and [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) with an example.
 
 ### 3.1 Overlapping search bases

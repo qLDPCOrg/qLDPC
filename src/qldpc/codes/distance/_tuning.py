@@ -183,13 +183,13 @@ class SearchTuning:
     # Fields of exhaustive enumeration.
 
     #: The exponent of the batches of exhaustive enumeration, which finds distances by the method
-    #: ``"brute_force"``, also for counts of logical operators.  Enumeration handles at most
-    #: ``2**enumeration_batch_exponent`` words at a time in a few arrays of at most
-    #: ``2**(enumeration_batch_exponent + 3)`` bytes each, and checks for a keyboard interrupt
-    #: between batches.  Raising it can speed up enumeration, at the cost of memory; lowering it
-    #: saves memory and makes interrupts prompter, but adds overhead.  At most 62.  Defaults to 15,
-    #: chosen by hand.  To retune it, time enumerations of bases of 16 to 24 rows, and keep the
-    #: smallest value beyond which they get no faster.
+    #: ``"brute_force"``, including the distance that a count of logical operators by that method
+    #: finds first.  Enumeration handles at most ``2**enumeration_batch_exponent`` words at a time
+    #: in a few arrays of at most ``2**(enumeration_batch_exponent + 3)`` bytes each, and checks for
+    #: a keyboard interrupt between batches.  Raising it can speed up enumeration, at the cost of
+    #: memory; lowering it saves memory and makes interrupts prompter, but adds overhead.  At most
+    #: 62.  Defaults to 15, chosen by hand.  To retune it, time enumerations of bases of 16 to 24
+    #: rows, and keep the smallest value beyond which they get no faster.
     enumeration_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     # Fields of information-set families.
@@ -233,16 +233,14 @@ class SearchTuning:
     #: attempts, and weigh setup time against the search time saved.
     overlapping_attempts_per_set: int = 2
 
-    #: A search tries matroid partitioning only if its estimated work reaches this multiple of
-    #: ``b * k**2 * n`` candidate/set evaluations, summed over the coverages ``b`` from two to
-    #: ``max_partition_coverage``, for ``k`` rows and ``n`` nonzero columns.  That sum approximates
-    #: the cost of partitioning, which took up to about ten times it on the two searches timed.
-    #: Zero always tries, and ``MAX_VALUE`` never does.  Searches given automorphisms switch to
-    #: their images instead if those do no more work than any partitioned family could.  Estimated
-    #: work can far exceed the work done, so the ratio does not bound wasted time.  Defaults to
-    #: 5000, a judgment call: no value separated the timed searches that partitioning slowed from
-    #: those that it sped up; 5000 misclassified the fewest.  To retune it, time searches with and
-    #: without partitioning.
+    #: A search tries matroid partitioning only if its estimated work, in candidate/set evaluations,
+    #: reaches this multiple of the sum of ``b * k**2 * n`` over the coverages ``b`` that it tries,
+    #: for ``k`` rows and ``n`` nonzero columns; partitioning took up to about ten such sums on the
+    #: two searches timed.  Lowering it tries partitioning on cheaper searches; zero always tries,
+    #: and ``MAX_VALUE`` never does.  Searches given automorphisms switch to their images instead if
+    #: those do no more work than any partitioned family could.  Defaults to 5000, a judgment call:
+    #: no value separated the timed searches that partitioning slowed from those that it sped up.
+    #: To retune it, time searches with and without partitioning.
     partition_work_ratio: int = 5000
 
     #: The largest coverage, the most information sets that contain any one column, that matroid

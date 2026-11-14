@@ -376,10 +376,10 @@ def get_partitioned_family(
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
     than the work of ``basis_family``, and otherwise a family with no sets.  No family is built if
-    the estimated work of ``basis_family`` is below ``tuning.partition_work_ratio`` times the sum
-    of ``b * k**2 * n`` over the coverages ``b``, which approximates the cost of partitioning, or if
-    no family of at most ``tuning.max_information_sets`` full sets could do less work: some column
-    of ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k`` rows and ``n`` nonzero
+    the estimated work of ``basis_family`` is below ``tuning.partition_work_ratio`` times the sum of
+    ``b * k**2 * n`` over the coverages ``b``, which approximates the cost of partitioning, or if no
+    family of at most ``tuning.max_information_sets`` full sets could do less work: some column of
+    ``m`` such sets is in at least ``ceil(m * k / n)`` of them, for ``k`` rows and ``n`` nonzero
     columns.
 
     ``get_competing_work``, if given, returns the estimated work of a family that the search would

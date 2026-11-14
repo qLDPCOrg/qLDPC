@@ -1768,7 +1768,7 @@ def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
 
-    # a bare CSSCode has no specialized exact-distance method, so it falls back to brute force
+    # a bare CSSCode has no specialized exact-distance method, so it runs the generic exact search
     bare_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     assert bare_code.get_distance_exact() == 3
 

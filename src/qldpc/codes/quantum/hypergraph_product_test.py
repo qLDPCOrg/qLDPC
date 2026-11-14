@@ -48,7 +48,7 @@ def test_hypergraph_product(
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
     # the closed-form X and Z distances agree with those of a plain CSS code with the same checks
-    if field == 2:  # the brute-force kernel behind the generic route is binary
+    if field == 2:  # the Brouwer-Zimmermann search behind the generic route is binary
         plain = codes.CSSCode(code.matrix_x, code.matrix_z)
         with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
             assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)

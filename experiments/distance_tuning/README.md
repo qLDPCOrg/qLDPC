@@ -66,7 +66,7 @@ The main cause, a sizing of enumeration batches that did not vectorize rows of m
 
 ## 5. Check the sensitivity of long runs
 
-The long runs, of a minute or more one search at a time, are `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, `distance/classical:160:110:1/-`, `distance/classical:1000:976:2/-`, the classical codes of 4000 and 8000 bits with 21 to 23 rows, and the coset searches `coset/pp232/css/10/10/3000`, `coset/qt7/css/10/10/3000`, and `coset/lp13s5/physical/7/7/1000`.
+The long runs, of a minute or more one search at a time, are `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, `distance/classical:160:110:1/-`, the classical codes of 4000 and 8000 bits with 21 to 23 rows, and the coset searches `coset/pp232/css/10/10/3000`, `coset/qt7/css/10/10/3000`, and `coset/lp13s5/physical/7/7/1000`.
 The sparse codes of 4000 bits with 21 to 23 rows, which took tens of seconds when BZ searches enumerated their words, are traced with them, and the windows below count them among the long runs (`--long`).
 The check `c1-gate` (section 7) found two more long runs, `distance/lp13s6/X` and `distance/lp13s6/Z`, which the windows do not cover.
 The classical codes of 4000 and 8000 bits spend about a minute and several minutes of that in work that does not depend on the tuning (see "Before measuring").
@@ -114,8 +114,9 @@ These limits can cost searches time or memory, but never change an exact result.
 The commands below ran on the library code of their time, at the commits that `trials.jsonl` records, and each compares its arms with its first arm, as its command gives it.
 That arm is usually the defaults of its time, in some sweeps with `completion_bound_minimum_layer_work` at `3 * 10**7`.
 In `final-short-f`, it sets three fields to the values that its command gives.
+Its first arm also set the factor of the enumeration that BZ searches then ran to 128, against 16 in the second, so only that arm enumerated `distance/sparse:1000:21:50:2/-`; the command leaves that factor out.
 Some sweeps, such as `p3-noaut`, also set a field in every arm.
-The `--base` of each command gives the defaults of its time where they differ from the current ones, so that each command compares the same values on the current code.
+The `--base` of each command gives the defaults of its time where they differ from the current ones, so that each command compares the same values on the current code, and the commands leave out fields that were later removed.
 The commands ran with a ratio and a cost factor of partitioning, whose product they give as `partition_work_ratio`.
 
 Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`:
@@ -123,7 +124,6 @@ Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.
 | Measurement | Command |
 | --- | --- |
 | Partitioning: estimates, costs, and gates | `trace.py distance/lp13s5/X --tuning '{"partition_work_ratio": 100}' --output R1.json`, the same with `"automorphism_minimum_layer_work": 4611686018427387904`, and `trace.py hadamard/gross --output R3.json`; `trace.py <workload> --setup-only` for the gates of other workloads |
-| `enumeration_batch_exponent` | `trial.py 'distance/classical:1000:980:2/-' --repeat 3`, under a tuning that then made the BZ search enumerate every word, and with `"enumeration_batch_exponent": 30` |
 | `automorphism_minimum_layer_work` at `10**7` | `trace.py distance/qt7/X --tuning '{"automorphism_minimum_layer_work": 10000000}'` |
 | Sampling of `completion_bound_minimum_layer_work` | `trace.py <workload> --tuning '{"completion_bound_samples": 256}' --output <file>`, and with automorphisms off, summing the `seconds` of the `predict` events before each `layer` event |
 | Predictions of the cost model, and `completion_bound_block_bits` | `trace.py distance/classical:150:100:1/-` and `trace.py distance/pp232/X` for the predictions, and `fit_completion_costs.py collect --repeats 3 --workloads distance/pp232/X 'distance/classical:150:100:1/-'`, then `fit_completion_costs.py fit`, for the measured costs; `trace.py distance/qt7/X --tuning '{"completion_bound_block_bits": 8}'` |
@@ -157,14 +157,14 @@ for w in distance/classical:1000:{976..979}:2/- distance/classical:4000:{3977..3
     trace "$w" --setup-only
 done
 python experiments/distance_tuning/windows.py traces/*.json --long distance/{bb288,pp170}/X \
-    hadamard/{gross,pp110} distance/classical:160:110:1/- distance/classical:1000:976:2/- \
+    hadamard/{gross,pp110} distance/classical:160:110:1/- \
     distance/classical:4000:{3977..3979}:2/- distance/classical:8000:{7977..7979}:2/- \
     distance/sparse:4000:{21..23}:200:2/-
 ```
 
 These sweeps produced the ratios behind the current values, and `collect_results.py --tags <tag>` summarizes each.
-The sweeps `p2-enum`, `p2-confirm`, `p2-factor`, `v-maxdim`, and `c4-setup` timed the fields of an exhaustive enumeration that BZ searches of small problems then ran instead of searching information sets.
-Those fields were later removed, with that enumeration, and the commands of those sweeps are in the Git history of this file.
+The sweeps `p2-enum`, `p2-confirm`, `p2-factor`, `v-maxdim`, and `c4-setup` timed the fields of an exhaustive enumeration that BZ searches of small problems then ran instead of searching information sets, and the measurement of `enumeration_batch_exponent` that section 4 cites timed that enumeration.
+That enumeration and the fields that chose it were later removed from BZ searches, and the commands are in the Git history of this file.
 
 ### noise-j10
 

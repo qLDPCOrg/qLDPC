@@ -141,10 +141,10 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
     """Exact distances and counts are the same under tunings that take different routes.
 
     By default, and with every threshold below at ``MAX_VALUE``, the distance searches of this code
-    scan one information set.  With every threshold below at zero, the searches take a family found
-    by matroid partitioning instead, whose certificate ends them before they scan.  Neither route
-    uses completion tables, which the tests of ``_brouwer_zimmermann/distance_test.py`` force
-    instead.
+    scan one information set.  With every threshold below at zero, the distance searches take a
+    family of overlapping information sets, whose certificate ends them during setup, and the counts
+    scan families found by matroid partitioning.  No route uses completion tables, which the tests
+    of ``_brouwer_zimmermann/distance_test.py`` force instead.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
