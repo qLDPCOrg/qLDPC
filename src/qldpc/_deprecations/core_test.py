@@ -134,13 +134,14 @@ def test_deprecated_methods() -> None:
 
 def test_deprecated_reduce_logical_ops() -> None:
     """The deprecated reduction of logical operators stores the operators that a decoder finds."""
-    dist = 3
-    code = codes.ToricCode(dist, rotated=False)
+    # the first code starts with a heavy X-type operator at index 0, the second with a heavy Z-type
+    # operator at index 1
+    for dist, code in [(4, codes.ToricCode(4)), (3, codes.ToricCode(3, rotated=False))]:
+        reduce_logical_ops = code.reduce_logical_ops  # type: ignore[attr-defined]
+        with pytest.warns(DeprecationWarning, match="reduce_logical_ops is DEPRECATED"):
+            reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
+        assert np.all(np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=1) == dist)
     reduce_logical_op = code.reduce_logical_op  # type: ignore[attr-defined]
-    reduce_logical_ops = code.reduce_logical_ops  # type: ignore[attr-defined]
-    with pytest.warns(DeprecationWarning, match="reduce_logical_ops is DEPRECATED"):
-        reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
-    assert np.all(np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=1) == dist)
 
     # an invalid index, a failed decoding, and a removed decoder argument raise errors
     for reduce, error, message in [
