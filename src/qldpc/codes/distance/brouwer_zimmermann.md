@@ -980,7 +980,9 @@ With an early-exit cutoff above one, a different search order can find a differe
 The Tuning section of [README.md](README.md) explains how searches read the thresholds of these heuristics.
 
 - **`get_disjoint_family`** builds the disjoint family greedily in natural column order.
-  If that does not reach the maximum number of blocks that are information sets, it tries `disjoint_random_column_orders` fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
+  It keeps at most `2**r - 1` blocks that are information sets of a basis of `r` rows: the layers of one such block already reach every nonzero combination of rows, so a search of more blocks would examine more candidates than enumerating every word.
+  Only long bases of very few rows have room for more, and the limit keeps their setup from growing with the square of their length.
+  If the natural order does not reach the maximum number of blocks that are information sets, it tries `disjoint_random_column_orders` fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
   It also infers the divisor `2` when every basis row has even weight, and combines it with any divisor supplied by the caller.
 - **`prune_family`** is exact, not heuristic.

@@ -551,9 +551,10 @@ def _get_disjoint_sets(
     )
 
     # A full set has ``len(basis)`` pivots, and only the last set of a packing can have fewer.  Full
-    # sets use disjoint nonzero columns, so there are at most this many, and possibly fewer.  Return
-    # if the natural order already reaches this bound.
-    max_full_sets = len(nonzero_columns) // len(basis)
+    # sets use disjoint nonzero columns, and a packing stops at its limit of full sets, so there are
+    # at most this many, and possibly fewer.  Return if the natural order already reaches this
+    # bound.
+    max_full_sets = min(len(nonzero_columns) // len(basis), _get_max_full_sets(len(basis)))
     if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
         return best
 
@@ -578,14 +579,29 @@ def _get_disjoint_sets(
     return best
 
 
+def _get_max_full_sets(dimension: int) -> int:
+    """The most full disjoint information sets that a packing of ``dimension`` rows keeps.
+
+    The layers of one information set reach all ``2**dimension - 1`` nonzero combinations of rows,
+    so a search of more sets than that would examine more candidates than enumerating every word of
+    one set.  Only long bases of very few rows have room for more, and stopping there keeps the
+    setup of their searches from growing with the square of their length.
+    """
+    return (1 << dimension) - 1
+
+
 def _get_disjoint_sets_for_columns(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     columns: npt.NDArray[np.int_],
 ) -> list[_DisjointSet]:
-    """Construct disjoint information sets, with pivots from the nonzero ``columns`` in order."""
+    """Construct disjoint information sets, with pivots from the nonzero ``columns`` in order.
+
+    It stops after ``_get_max_full_sets(len(basis))`` full sets.
+    """
     # Start with every given column available as a pivot, and with the basis as it is.
     dimension = len(basis)
+    max_full_sets = _get_max_full_sets(dimension)
     active_columns = columns
     working = basis
     working_labels = labels
@@ -605,7 +621,7 @@ def _get_disjoint_sets_for_columns(
 
         # A set with fewer pivots than rows is partial.  The columns that remain span at most
         # ``rank`` dimensions, so no later set could be full, and this is the last one.
-        if rank < dimension:
+        if rank < dimension or len(information_sets) == max_full_sets:
             break
 
         # Make the pivot columns unavailable, so that later sets are disjoint from this one.  Row
