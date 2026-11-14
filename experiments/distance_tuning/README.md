@@ -1,7 +1,7 @@
 # Retuning the exact distance searches
 
 This page tables the rules and the machine constants from which some defaults of Brouwer-Zimmermann (BZ) searches are derived, and walks through a retuning of the fields of `SearchTuning` that BZ searches read, like the retuning that set the earlier values.
-The Retuning section of the module docstring of [`qldpc.codes.distance._tuning`](../../src/qldpc/codes/distance/_tuning.py) states the kinds of values and how to change them, and the comment of each field says which kind its default is and what to measure to retune it.
+The Retuning section of the module docstring of [`qldpc.codes.distance._tuning`](../../src/qldpc/codes/distance/_tuning.py) states the classes of values and how to change them, and the comment of each field names the class of its default.
 The [experiments README](../README.md#distance-tuning) introduces the scripts.
 Sweeps write their trials to `results/`, which Git ignores, so this page keeps the commands of the sweeps behind the earlier values.
 
@@ -29,14 +29,14 @@ These constants carry the sizes of the searches measured: predictions, overlappi
 The value of `lp_minimum_work` lies within 10% of the edge between `10**8` and `2 * 10**8`.
 
 Matroid partitioning tries each coverage from two up to `ceil(m k / n)`, for `m = max_information_sets`, `k` rows, and `n` nonzero columns: the least coverage at which `m` full sets fit.
-The other kinds of value follow other rules:
+The other fields fall in the classes of the Retuning section:
 
-| Kind | Fields | Rule |
+| Class | Fields | Rule |
 | --- | --- | --- |
-| Caps of effort | `max_information_sets` 16, `disjoint_random_column_orders` 8, `overlapping_attempts_per_set` 2 | A round value inside a range of values that make the same setup decisions on nine key distance searches (`distance/qt7/X`, `distance/qt7/Z`, `distance/lp13s5/X`, `distance/pp232/X`, `distance/gross/X`, and `distance/classical:<bits>:<checks>:<seed>/-` for 128:80:1, 128:80:6, 140:90:1, and 150:100:1), checked with `trace.py --setup-only` and `windows.py --compare`: up to 32 sets but not 8 or 64, up to 64 orders, and up to 8 attempts |
-| Statistical conventions | `completion_bound_samples`, `completion_bound_min_samples`, `completion_bound_confidence_z` | A stated precision of the estimate from samples |
-| Coefficients of the cost model of completion tables | `completion_bound_lookup_block_cost`, `completion_bound_lookup_block_cost_per_mib`, `completion_bound_kept_first_row_ratio`, `completion_bound_table_byte_cost`, `completion_bound_build_step_cost` | Fitted by `fit_completion_costs.py`, as the Retuning section describes |
-| Budgets | `completion_bound_max_table_bytes`, `completion_bound_sampling_work`, `max_css_single_pairs`, and the sizes of batches and chunks | Policies of memory and latency |
+| Derived | `completion_bound_lookup_block_cost`, `completion_bound_lookup_block_cost_per_mib`, `completion_bound_kept_first_row_ratio`, `completion_bound_table_byte_cost`, `completion_bound_build_step_cost` | Coefficients of the cost model of completion tables, fitted by `fit_completion_costs.py` as the Retuning section describes |
+| Budget | `completion_bound_max_table_bytes`, `completion_bound_sampling_work`, `max_css_single_pairs`; `max_information_sets`, `disjoint_random_column_orders`, `overlapping_attempts_per_set`, and the three fields of sparsifying rounds; the sizes of batches and chunks | Limits of memory, interrupt latency, and setup effort, which the maintainer sets; a batch or chunk is the smallest whose overhead per call is negligible |
+| Convention | `completion_bound_samples`, `completion_bound_min_samples`, `completion_bound_confidence_z`, `lp_dual_max_denominator` | What each guarantees, as its comment says |
+| Widest allowed | `completion_bound_block_bits`, `coset_completion_block_bits` | 16, since wider blocks never skip less, and the memory budget bounds their cost |
 
 The comments of the other fields say how their values were chosen.
 
@@ -131,7 +131,7 @@ These measures reach only so far:
 
 - Some candidates made no clear difference only because the searches timed make the same decisions under them, so those timings do not test the value.
 - Many comparisons were made, so a candidate set aside by one small difference may have been set aside by chance.
-- The judgment call `coset_completion_block_bits` trades one kind of search against another.
+- `coset_completion_block_bits` trades one kind of search against another: blocks of 16 columns made most CSS coset searches several times faster, but searches by physical weight slower on two of three codes.
 - The number of samples of completion tables rests on a few long-run layers and searches, and the cost model errs in both directions, so a cost limit at break-even accepts some tables that cost more than they save.
 - Two workloads of fault-propagation certificates, used to choose no value, ran no slower with the values decided last, with the cost limit then at 100, but their queries are too cheap to test the values that changed.
 - The estimated work of a distance search, which `overlapping_minimum_work`, `partition_work_ratio`, and `lp_minimum_work` read, can exceed the work done many times over, by a margin that varies between searches, so these thresholds stand for no fixed amount of time, and their gates break even with the estimated work, not with the work done.
