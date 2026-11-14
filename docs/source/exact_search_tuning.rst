@@ -21,6 +21,8 @@ Start from a symptom
      - What to try first, then measure
    * - A distance search of a classical code of low dimension, whose distance is a large fraction of its length, is slow
      - Pass ``method="brute_force"`` to enumerate every word instead.
+   * - A distance search of a quantum LDPC code is slow
+     - Pass ``method="connected_support"``, which is often much faster on such codes, though not on all of them (`Section 2 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#2-what-the-cost-of-the-search-depends-on>`__ of the connected-support guide).
    * - A hard distance search spends its time in its last, costliest layers
      - Raise :attr:`~SearchTuning.completion_bound_max_cost_percent` or lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` to use completion tables in more layers.
        For a basis too large for its tables, raise :attr:`~SearchTuning.completion_bound_max_table_bytes` or lower :attr:`~SearchTuning.completion_bound_block_bits`.

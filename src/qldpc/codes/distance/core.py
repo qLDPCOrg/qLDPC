@@ -42,10 +42,13 @@ DistanceMethod = Literal[
   Brouwer-Zimmermann algorithm, which enumerates words of increasing weight in several information
   sets, and stops once a lower bound that the sets prove meets the lightest word found.
 - ``"connected_support"``: a search of the words whose supports the parity checks of a code connect,
-  which is fast for codes with sparse checks.  Functions that take generators rather than checks
-  reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` derive
-  its stabilizers from its gauge generators, and search sparser generators of them.  A caller who
-  knows sparser ones can pass them to :func:`get_distance_from_checks`.
+  which can be fast only for codes with sparse checks.  On quantum LDPC codes it is often much
+  faster than ``"brouwer_zimmermann"``, but sparse checks do not ensure that: it can be much slower
+  on some quantum LDPC codes of high distance, and on classical LDPC codes whose checks are only
+  moderately sparse.  Functions that take generators rather than checks reject it.  For a subsystem
+  code, :func:`get_distance_css` and :func:`get_distance_pauli` derive its stabilizers from its
+  gauge generators, and search sparser generators of them.  A caller who knows sparser ones can pass
+  them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also the
   fastest method for classical codes of low dimension whose distance is a large fraction of their
   length.  On such codes, the time of a ``"brouwer_zimmermann"`` search and the memory of its setup
