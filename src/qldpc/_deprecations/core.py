@@ -492,7 +492,7 @@ def get_primitive_central_idempotents(
 def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager[object]:
     """Warn about a deprecated block_size argument, if given, and return a context that applies it.
 
-    Within the context, the active tuning has the batches that block_size gave before it was
+    Within the context, the active tuning has the batch exponents that block_size gave before it was
     deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
     information sets took at most it.  As before, any integer, including a bool, is accepted, and an
     exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive

@@ -267,9 +267,9 @@ def test_deprecated_distance_functions() -> None:
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=name):
             get_distance_quantum(logical_ops, stabilizers, homogeneous=True)
 
-    # The block_size argument gives the batches that it gave before it was deprecated: exhaustive
-    # enumeration took it as its exponent, and scans of information sets took at most it, clamped to
-    # the range of the fields.
+    # The block_size argument gives the batch exponents that it gave before it was deprecated:
+    # exhaustive enumeration took it as its exponent, and scans of information sets took at most
+    # it, clamped to the range of the fields.
     from qldpc.codes.distance import _tuning
 
     with _tuning.use_tuning(information_set_batch_exponent=10) as active_tuning:

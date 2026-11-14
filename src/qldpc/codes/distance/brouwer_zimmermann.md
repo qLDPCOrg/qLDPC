@@ -502,7 +502,7 @@ Actual runtime also depends on basis construction, the width of packed words, an
 
 Exhaustive enumeration is chosen at two points, which [Section 4.2](#42-flow-and-exit-points) lists.
 It enumerates words in vectorized, packed blocks and updates them with Gray-code steps, and it does not use the BZ certificate.
-It vectorizes only rows short enough for the batch size (see `enumeration_batch_exponent`), and enumerates longer rows one word at a time.
+Each batch holds at least one word and, if a word fits, at most `2**enumeration_batch_exponent` packed 64-bit integers (see `enumeration_batch_exponent`), so longer rows enumerate fewer words at a time.
 
 ### 3.7 Images of an information set under automorphisms
 
@@ -1141,7 +1141,7 @@ Representative correctness tests check certificate validity against exhaustive w
 `test_bounds_are_exact_relaxations` in [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py) checks completion bounds against enumerated completions.
 `test_scan_of_one_information_set` in [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py) checks that the scan finds the lightest word of a layer and weighs or skips each support exactly once, and `test_completion_tables_keep_distances_exact` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) checks whole searches against brute force.
 `test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound` in [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py) checks the bound of coset scans, including search bases of rank deficiency three, against enumeration, and `test_searches_by_tails_answer_as_searches_of_whole_words` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks the answers, skipped words, and bounds `R` of coset queries with tables, also on even codes, against searches without tables and brute force.
-In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares both homogeneous and general Pauli problems with exhaustive results.
+In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares its results with exhaustive ones on binary and general Pauli problems.
 `test_max_weight` in [core_test.py](core_test.py) checks weight-limited results against enumeration on every route, and `test_max_weight_caps_cutoff` checks a case that a weight limit without the `cutoff` cap would get wrong.
 
 Performance tests also check broad work budgets, and helper tests exercise the current implementation's interfaces.

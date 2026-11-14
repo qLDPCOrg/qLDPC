@@ -845,7 +845,7 @@ def _get_distance(
                 labels,
                 cutoff=0,
                 batch_exponent=tuning.enumeration_batch_exponent,
-                homogeneous=True,
+                symplectic=False,
             )
             for basis, labels in sectors
         )

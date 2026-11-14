@@ -25,7 +25,7 @@ _SPARSIFYING_SEED = 0
 def get_sparser_rows(
     matrix: npt.NDArray[np.uint8],
     *,
-    homogeneous: bool,
+    symplectic: bool,
     max_rounds: int,
     rounds_without_improvement: int,
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
@@ -45,7 +45,7 @@ def get_sparser_rows(
 
     Args:
         matrix: Independent rows.
-        homogeneous: False if the rows are symplectic, and True otherwise.
+        symplectic: Whether the rows are symplectic.
         max_rounds: The maximum number of rounds, or zero for the rows of ``_sparsify``.
         rounds_without_improvement: The number of rounds in a row without a lower total weight after
             which the rounds stop.
@@ -54,7 +54,7 @@ def get_sparser_rows(
         The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.  The
         total weight of the rows is at most that of the rows of ``_sparsify``.
     """
-    rows, transform = _sparsify(matrix, homogeneous=homogeneous)
+    rows, transform = _sparsify(matrix, symplectic=symplectic)
     if not len(rows):
         return rows, transform
 
@@ -63,11 +63,11 @@ def get_sparser_rows(
     # weight leaves the rows as they are.  Row-reducing the transposed candidates, sorted by weight,
     # takes as pivots the first candidates that are independent of those before them.
     rng = np.random.default_rng(_SPARSIFYING_SEED)
-    weights = _get_row_weights(rows, homogeneous=homogeneous)
+    weights = get_row_weights(rows, symplectic=symplectic)
     rounds_unchanged = 0
     for _ in range(max_rounds):
         reduced, _, _ = row_reduce_binary(matrix, columns=rng.permutation(matrix.shape[1]))
-        reduced_weights = _get_row_weights(reduced, homogeneous=homogeneous)
+        reduced_weights = get_row_weights(reduced, symplectic=symplectic)
         light = reduced_weights < weights.max()
         previous_total = weights.sum()
         if np.any(light):
@@ -83,12 +83,20 @@ def get_sparser_rows(
     # Add rows to each other where that helps, and find the transform from the given rows.  The rows
     # are in the span of ``matrix``, whose product with the transpose of ``get_unit_syndrome_words``
     # of ``matrix`` is the identity, so their product with it is the transform.
-    rows, _ = _sparsify(rows, homogeneous=homogeneous)
+    rows, _ = _sparsify(rows, symplectic=symplectic)
     return rows, multiply_binary(rows, get_unit_syndrome_words(matrix).T)
 
 
+def get_row_weights(rows: npt.NDArray[np.uint8], *, symplectic: bool) -> npt.NDArray[np.int64]:
+    """The weights of rows, as ``_sparsify`` counts them: of nonzero entries, or of qubits."""
+    if not symplectic:
+        return rows.sum(axis=1, dtype=np.int64)
+    half = rows.shape[1] // 2
+    return (rows[:, :half] | rows[:, half:]).sum(axis=1, dtype=np.int64)
+
+
 def _sparsify(
-    matrix: npt.NDArray[np.uint8], *, homogeneous: bool
+    matrix: npt.NDArray[np.uint8], *, symplectic: bool
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Rows with the span of the given rows, made sparser by adding rows to each other.
 
@@ -99,19 +107,19 @@ def _sparsify(
 
     Args:
         matrix: The rows.
-        homogeneous: False if the rows are symplectic, and True otherwise.
+        symplectic: Whether the rows are symplectic.
 
     Returns:
         The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.
     """
     # Pack the X and Z parts, or the rows and zeros, so that a weight counts the nonzero qubits.
     num_rows, width = matrix.shape
-    num_variables = width if homogeneous else width // 2
+    num_variables = width // 2 if symplectic else width
     part_x = pack_bits(np.ascontiguousarray(matrix[:, :num_variables]))
     part_z = (
-        np.zeros_like(part_x)
-        if homogeneous
-        else pack_bits(np.ascontiguousarray(matrix[:, num_variables:]))
+        pack_bits(np.ascontiguousarray(matrix[:, num_variables:]))
+        if symplectic
+        else np.zeros_like(part_x)
     )
     transform = np.eye(num_rows, dtype=np.uint8)
     weights = np.bitwise_count(part_x | part_z).sum(axis=1, dtype=np.int64)
@@ -133,14 +141,6 @@ def _sparsify(
                 improved = True
 
     parts = [unpack_bits(part_x, num_variables)]
-    if not homogeneous:
+    if symplectic:
         parts.append(unpack_bits(part_z, num_variables))
     return np.hstack(parts), transform
-
-
-def _get_row_weights(rows: npt.NDArray[np.uint8], *, homogeneous: bool) -> npt.NDArray[np.int64]:
-    """The weights of rows, as ``_sparsify`` counts them: of nonzero entries, or of qubits."""
-    if homogeneous:
-        return rows.sum(axis=1, dtype=np.int64)
-    half = rows.shape[1] // 2
-    return (rows[:, :half] | rows[:, half:]).sum(axis=1, dtype=np.int64)

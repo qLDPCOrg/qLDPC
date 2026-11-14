@@ -24,7 +24,7 @@ def get_nested_distance_brute_force(
     *,
     cutoff: int,
     batch_exponent: int,
-    homogeneous: bool,
+    symplectic: bool,
 ) -> int:
     """Find the minimum weight of an eligible word of a nested-code basis by exhaustive enumeration.
 
@@ -39,7 +39,7 @@ def get_nested_distance_brute_force(
         basis[~eligible],
         cutoff=cutoff,
         batch_exponent=batch_exponent,
-        homogeneous=homogeneous,
+        symplectic=symplectic,
     )
 
 
@@ -49,7 +49,7 @@ def _get_distance_brute_force(
     *,
     cutoff: int,
     batch_exponent: int,
-    homogeneous: bool,
+    symplectic: bool,
 ) -> int:
     """Find the minimum weight of a nontrivial logical operator by exhaustive enumeration.
 
@@ -61,21 +61,23 @@ def _get_distance_brute_force(
         logical_ops: Binary rows that, together with the stabilizers, generate the logical space.
         stabilizers: Binary rows that generate the excluded (stabilizer) space.
         cutoff: Return early once the lightest operator seen has weight at most this cutoff.
-        batch_exponent: Calculations are vectorized over at most ``2**batch_exponent`` words.
-        homogeneous: If True, rows are weighed by Hamming weight.  If False, rows are symplectic
+        batch_exponent: Calculations are vectorized over at most ``2**batch_exponent`` packed
+            64-bit integers, so over fewer words if they are longer than 64 bits, and over one
+            word if it alone needs more.
+        symplectic: If False, rows are weighed by Hamming weight.  If True, rows are symplectic
             vectors, with X support in their first half and Z support in their second half, and
             are weighed by symplectic weight.
 
     Returns:
         The minimum weight of a nontrivial logical operator or, after an early exit, the weight (at
         most cutoff) of the lightest operator seen.  Without logical_ops, the result is one more
-        than the largest possible weight: the number of columns if homogeneous, and otherwise the
-        number of qubits.
+        than the largest possible weight: the number of qubits if symplectic, and otherwise the
+        number of columns.
     """
     num_bits = np.shape(logical_ops)[-1]
 
-    weight_func = np.bitwise_count if homogeneous else symplectic_weight
-    if not homogeneous:
+    weight_func = symplectic_weight if symplectic else np.bitwise_count
+    if symplectic:
         logical_ops = riffle(logical_ops)
         stabilizers = riffle(stabilizers)
 
@@ -83,13 +85,15 @@ def _get_distance_brute_force(
     int_stabilizers = pack_bits(np.asarray(stabilizers, dtype=np.uint8))
     num_stabilizers = len(int_stabilizers)
 
-    # Choose how many generators to vectorize over, so that most calculations act on at most
-    # ``2**batch_exponent`` words.  Rows of more packed words allow fewer generators, and never
-    # fewer than zero.
+    # Choose how many generators to vectorize over, so that a batch holds at most
+    # ``2**batch_exponent`` packed integers, or one word if it alone needs more.  Each row packs
+    # into ``ints_per_row`` of them, so the batch gives up one generator each time ``ints_per_row``
+    # doubles, and never has fewer than zero.
+    ints_per_row = int_logical_ops.shape[-1]
     num_vectorized_ops = max(
         0,
         min(
-            batch_exponent + 1 - int_logical_ops.shape[-1],
+            batch_exponent - (ints_per_row - 1).bit_length(),
             len(int_logical_ops) + len(int_stabilizers),
         ),
     )
@@ -117,7 +121,7 @@ def _get_distance_brute_force(
 
     # Until an operator is weighed, the lightest weight seen is one more than any operator can have,
     # and an early exit must not return it.
-    min_weight = (num_bits if homogeneous else num_bits // 2) + 1
+    min_weight = (num_bits // 2 if symplectic else num_bits) + 1
 
     # Min weight of the block containing logical ops, if any, with weights cast to uint64 as above.
     logical_block = arrayf[2**num_stabilizers :]

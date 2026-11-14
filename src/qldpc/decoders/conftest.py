@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 import itertools
 import random
+import types
 
 import galois
 import numpy as np
@@ -43,3 +46,20 @@ def surface_code_problem(pytestconfig: pytest.Config) -> SurfaceCodeProblem:
         # a few weight-2 errors are stabilizers, which leave decoders nothing to decode
         if np.any(syndrome):
             return code, error, syndrome
+
+
+def get_type_checking_class_docstrings(module: types.ModuleType) -> dict[str, str | None]:
+    """Map the classes that AutoAPI documents from a module's TYPE_CHECKING blocks to docstrings.
+
+    AutoAPI reads source statically, and documents only the first definition in each if block.
+    """
+    docstrings = {}
+    for block in ast.parse(inspect.getsource(module)).body:
+        if isinstance(block, ast.If) and ast.unparse(block.test) == "TYPE_CHECKING":
+            first = next(
+                (node for node in block.body if not isinstance(node, ast.Import | ast.ImportFrom)),
+                None,
+            )
+            if isinstance(first, ast.ClassDef):
+                docstrings[first.name] = ast.get_docstring(first)
+    return docstrings
