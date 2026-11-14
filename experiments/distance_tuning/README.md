@@ -15,18 +15,19 @@ python experiments/distance_tuning/constants.py
 
 It takes a few minutes; run it on a quiet machine, under a guard of time and memory.
 It saves each measurement in `results/constants/` with the commit and the uncommitted changes of `src/` that it ran on, and measures again any that ran on other source, so it measures every constant again after a commit or a change to `src/`.
-On an Apple M3 Max that also ran other work, one candidate/set evaluation took 1.25 to 1.46 ns, the median over five searches of 1.2 to 2.4 ns, and six runs of the script gave these constants, each the costliest of its measurements, and values:
+On an Apple M3 Max that also ran other work, one candidate/set evaluation took 1.22 to 1.36 ns, the median over five searches of 1.2 to 2.0 ns, and five runs of the script gave these constants, each the costliest of its measurements, and values:
 
 | Field | Value | The step, and its cost |
 | --- | --- | --- |
-| `partition_work_ratio` | 5 | Matroid partitioning, for each unit `b^2 k^2 n` of its gate: 4.6 to 5.8 ns, or 3.3 to 4.0 evaluations, on `distance/classical:128:80:6/-`, which tries coverages up to 6; `distance/lp13s5/X` with automorphisms off, which tries coverages up to 9, took 3.3 to 4.2 ns, or 2.4 to 2.9 evaluations |
-| `completion_bound_minimum_layer_work` | `2 * 10**7` | A prediction of the cost of completion tables, which samples supports: 30 to 36 ms, or `2.4 * 10**7` to `2.5 * 10**7` evaluations, on layer 4 of `distance/qt7/X`, of 181 rows, in five runs, and of `distance/lp13s5/X`, of 175 rows, in one |
-| `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets: 2.9 to 3.6 ms, or `2.3 * 10**6` to `2.6 * 10**6` evaluations, on `distance/qt7/X` or `distance/lp13s5/X`, of 181 and 175 rows; its build on the 48 rows of `distance/classical:128:80:6/-` took 0.6 to 1.2 ms |
-| `lp_minimum_work` | `10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.16 to 0.20 s, or `1.2 * 10**8` to `1.3 * 10**8` evaluations, for planning and programs |
+| `partition_work_ratio` | 5 | Matroid partitioning, for each unit `b^2 k^2 n` of its gate: 4.7 to 4.8 ns, or 3.4 to 3.9 evaluations, on `distance/classical:128:80:6/-`, which tries coverages up to 6; `distance/lp13s5/X` with automorphisms off, which tries coverages up to 9, took 3.4 to 3.5 ns, or 2.5 to 2.8 evaluations |
+| `completion_bound_minimum_layer_work` | `2 * 10**7` | A prediction of the cost of completion tables, which samples supports: 30 to 31 ms, or `2.2 * 10**7` to `2.5 * 10**7` evaluations, on layer 4 of `distance/qt7/X`, of 181 rows |
+| `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets: 3.1 to 3.3 ms, or `2.3 * 10**6` to `2.7 * 10**6` evaluations, on `distance/qt7/X`, of 181 rows; the builds on the 175 rows of `distance/lp13s5/X` took 2.7 to 3.2 ms, and on the 48 rows of `distance/classical:128:80:6/-` 0.6 ms |
+| `lp_minimum_work` | `2 * 10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.22 to 0.23 s, or `1.6 * 10**8` to `1.85 * 10**8` evaluations, for planning and programs |
 | `completion_bound_max_cost_percent` | 100 | None: the limit compares two estimates in one unit |
 
 These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases.
-Two constants lie near the edges of their rounding, the geometric means of neighboring values: that of `lp_minimum_work` lies 5 to 18% below `1.41 * 10**8`, and that of `partition_work_ratio` 3 to 26% above 3.16.
+The constant of linear programming rose by about a third when BZ searches stopped scanning several information sets in lockstep (#869): in paired runs of the script at the same load, the search took 0.17 s (`1.2 * 10**8` to `1.3 * 10**8` evaluations) before that change, and 0.22 s (`1.8 * 10**8`) after it, with 11 programs in each.
+Two constants lie near the edges of their rounding, the geometric means of neighboring values: that of `lp_minimum_work` lies 14 to 31% above `1.41 * 10**8`, and that of `partition_work_ratio` 8 to 22% above 3.16.
 
 Matroid partitioning tries each coverage `b` from two up to `ceil(m k / n)`, for `m = max_information_sets`, `k` rows, and `n` nonzero columns: the least coverage at which `m` full sets could fit, by counting their pivots.
 Its cost grows about with the square of each coverage that it tries.

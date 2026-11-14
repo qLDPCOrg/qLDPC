@@ -250,8 +250,8 @@ class SearchTuning:
     #: ``_information_sets/basis_families.py``).  Lowering it tries partitioning on cheaper
     #: searches; zero always tries, and ``MAX_VALUE`` never does.  Searches given automorphisms
     #: switch to their images instead if those do no more work than any partitioned family could.
-    #: Defaults to 5, a derived value (see :ref:`Retuning <tuning-retuning>`): partitioning took 3.3
-    #: to 4.0 evaluations for each unit of that sum on a search that tried coverages up to 6, and
+    #: Defaults to 5, a derived value (see :ref:`Retuning <tuning-retuning>`): partitioning took 3.4
+    #: to 3.9 evaluations for each unit of that sum on a search that tried coverages up to 6, and
     #: less on one that tried coverages up to 9.
     partition_work_ratio: int = 5
 
@@ -260,9 +260,10 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``).  Each linear program, with the exact checks that plan the steps
     #: of its certificate, takes milliseconds, which only costly searches recover.  Lowering it uses
     #: them on cheaper searches; zero on every search of overlapping sets, and ``MAX_VALUE`` on
-    #: none.  Defaults to ``10**8``, a derived value (see :ref:`Retuning <tuning-retuning>`): the
-    #: linear programming of a search of a basis of 181 rows took about ``1.3 * 10**8`` evaluations.
-    lp_minimum_work: int = 100_000_000
+    #: none.  Defaults to ``2 * 10**8``, a derived value (see :ref:`Retuning <tuning-retuning>`):
+    #: the linear programming of a search of a basis of 181 rows, planning included, took
+    #: ``1.6 * 10**8`` to ``1.85 * 10**8`` evaluations.
+    lp_minimum_work: int = 200_000_000
 
     #: The largest denominator of the rational dual weights that the certificate from linear
     #: programming takes from the floating-point solution of its solver.  Every positive value is
@@ -327,7 +328,7 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling, or tens on
     #: large bases.  Lowering it considers smaller layers; zero every layer, and ``MAX_VALUE`` none.
     #: Defaults to ``2 * 10**7``, a derived value (see :ref:`Retuning <tuning-retuning>`): the
-    #: costliest prediction measured, on bases of 175 and 181 rows, took ``2.4 * 10**7`` to
+    #: costliest prediction measured, on a basis of 181 rows, took ``2.2 * 10**7`` to
     #: ``2.5 * 10**7`` evaluations.
     completion_bound_minimum_layer_work: int = 20_000_000
 
