@@ -21,7 +21,7 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
-from .._information_sets import basis_families, certificates, completion_bounds
+from .._information_sets import basis_families, certificates, completion_bounds, matroid_partition
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
 from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
 from . import affine_instance, affine_search
@@ -560,17 +560,7 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     unvisited words by linear programming.
     """
     tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
-    rows = [
-        "100000010110010010011",
-        "010000010100101111100",
-        "001000000111011111100",
-        "000100010101000101010",
-        "000010010110000011000",
-        "000001010011000111011",
-        "000000110001110101011",
-        "000000001110001010110",
-    ]
-    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    basis = _get_costly_basis()
     assert (
         qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
         == 6
@@ -751,10 +741,10 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
 
 @pytest.mark.usefixtures("force_information_sets")
 def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
-    """A search asks for automorphisms once, and only before a layer that costs enough to repay.
+    """A search asks for automorphisms once, and only before a costly layer or matroid partitioning.
 
     Finding automorphisms can cost more than an easy search, so a search that finishes before any
-    costly layer does not ask for them.
+    costly layer, without partitioning, does not ask for them.
     """
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     problem = get_sector_problem(code, Pauli.X)
@@ -767,16 +757,118 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
         assert get_automorphisms.call_count == expected_calls
 
 
+@pytest.mark.usefixtures("force_information_sets")
+def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tune) -> None:
+    """A search skips partitioning, and switches at once, if automorphism images do no more work.
+
+    The translations of this multivariate bicycle code give an automorphism family that does no more
+    work than any partitioned family could, so the search builds that family once, and switches to
+    it at once, under a threshold that none of its layers reaches.  With the identity alone, which
+    gives no cheaper family, or if none are found, the same search partitions, and does not switch.
+    Under a threshold above the cap of work estimates, it asks for no automorphisms.  A search that
+    partitions after finding automorphisms still considers the switch at the end of setup.
+    ``test_a_search_through_the_costly_stages_finds_the_distance`` partitions without automorphisms.
+    """
+    tune(partition_work_ratio=0)
+    code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
+    problem = get_sector_problem(code, Pauli.X)
+    identity = np.arange(len(code))[None]
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        code.get_logical_ops(Pauli.X), code.get_stabilizer_ops(Pauli.X), method="brute_force"
+    )
+    get_information_sets = matroid_partition.get_information_sets_with_coverage
+    switch = bz._BrouwerZimmermannSearch._switch_to_automorphism_family
+
+    # The switch spy records whether each search that considers a switch makes it.  A search that
+    # partitions in setup may finish there, and consider none.
+    switched: list[bool] = []
+
+    def _spy_switch(search: bz._BrouwerZimmermannSearch) -> None:
+        switch(search)
+        switched.append(search.uses_automorphism_family)
+
+    for get_automorphisms, minimum_layer_work, partitions in (
+        (code._get_qudit_automorphisms, 10**9, False),
+        (code._get_qudit_automorphisms, MAX_VALUE, True),
+        (lambda: identity, 0, True),
+        (lambda: None, 0, True),
+    ):
+        recorder = mock.Mock(wraps=get_automorphisms)
+        switched.clear()
+        with (
+            use_tuning(automorphism_minimum_layer_work=minimum_layer_work),
+            mock.patch.object(
+                matroid_partition, "get_information_sets_with_coverage", wraps=get_information_sets
+            ) as partition,
+            mock.patch.object(
+                bz._BrouwerZimmermannSearch, "_switch_to_automorphism_family", _spy_switch
+            ),
+        ):
+            distance = bz.get_distance_brouwer_zimmermann_many(
+                [problem], cutoff=0, get_automorphisms=recorder
+            )
+        assert distance == expected
+        assert partition.called == partitions
+        assert recorder.call_count == (minimum_layer_work != MAX_VALUE)
+        assert any(switched) != partitions
+
+    # The identity gives this [21, 8, 6] basis no cheaper family, so its search partitions, and then
+    # considers and declines the switch at the end of setup.
+    switched.clear()
+    with (
+        use_tuning(automorphism_minimum_layer_work=10**9),
+        mock.patch.object(
+            matroid_partition, "get_information_sets_with_coverage", wraps=get_information_sets
+        ) as partition,
+        mock.patch.object(
+            bz._BrouwerZimmermannSearch, "_switch_to_automorphism_family", _spy_switch
+        ),
+    ):
+        assert (
+            qldpc.codes.distance.get_distance_from_generators(
+                _get_costly_basis(), cutoff=0, automorphisms=np.arange(21)[None]
+            )
+            == 6
+        )
+    assert partition.called
+    assert switched == [False]
+
+
+@pytest.mark.usefixtures("force_information_sets")
+def test_a_switch_at_the_end_of_setup_can_certify_the_distance(tune: Tune) -> None:
+    """A search whose switch at the end of setup certifies a lighter word returns its weight.
+
+    In the X sector of this bivariate bicycle code, the rows of the automorphism family include a
+    word lighter than any that setup had found, and its certificate then proves that weight, so the
+    search finishes in setup.
+    """
+    tune(partition_work_ratio=0)
+    code = qldpc.codes.BBCode({x: 6, y: 2}, x**3 * y + x**2 * y + x, x**5 + x**3 * y + x)
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        code.get_logical_ops(Pauli.X), code.get_stabilizer_ops(Pauli.X), method="brute_force"
+    )
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [get_sector_problem(code, Pauli.X)],
+        cutoff=0,
+        get_automorphisms=code._get_qudit_automorphisms,
+    )
+    assert distance == expected
+
+
+@pytest.mark.parametrize("partition_work_ratio", [MAX_VALUE, 0])
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_rows_of_an_automorphism_family_can_reach_the_cutoff(tune: Tune) -> None:
+def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
+    tune: Tune, partition_work_ratio: int
+) -> None:
     """The rows of a scanned set with images can end a search at the cutoff.
 
     In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the disjoint family,
     which the search keeps, weigh more than six, and a row of the scanned set weighs six.  With a
     cutoff of six, the search returns that weight, an upper bound on the distance, rather than
-    scanning on to a word of weight four.
+    scanning on to a word of weight four.  It does so whether it switches before its first layer,
+    or at the end of setup, after asking for automorphisms to decide whether to partition.
     """
-    tune(overlapping_minimum_work=MAX_VALUE)
+    tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=partition_work_ratio)
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problem = get_sector_problem(code, Pauli.Z)
     assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0) == 4
@@ -798,6 +890,21 @@ def test_searches_reject_wrong_automorphisms() -> None:
             cutoff=0,
             get_automorphisms=lambda: transposition[None],
         )
+
+
+def _get_costly_basis() -> npt.NDArray[np.uint8]:
+    """A basis of a [21, 8, 6] code whose search reaches matroid partitioning when tuned to."""
+    rows = [
+        "100000010110010010011",
+        "010000010100101111100",
+        "001000000111011111100",
+        "000100010101000101010",
+        "000010010110000011000",
+        "000001010011000111011",
+        "000000110001110101011",
+        "000000001110001010110",
+    ]
+    return np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
 
 
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

@@ -521,38 +521,38 @@ def test_compiled_module_tests_are_those_of_modules_with_compiled_functions(
     }
 
 
-def test_the_compile_search_setup_option_compiles_once_and_switches_on_before_each_test(
+def test_the_compile_search_setup_option_switches_on_before_each_test_and_compiles_on_first_call(
     request: pytest.FixtureRequest, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With ``--compile-search-setup``, each process compiles the set-up code of searches once.
+    """With ``--compile-search-setup``, the set-up code of searches is compiled when first called.
 
-    Before each test, the compiled-on-request functions are switched to their compiled versions.
-    Without the option, nothing is compiled.
+    Before each test, the compiled-on-request functions are switched to their compiled versions,
+    which compile nothing up front.  Without the option, nothing is switched.  Neither way calls
+    ``compile_search_setup``.
     """
     calls: list[None] = []
     monkeypatch.setattr(qldpc.codes.distance, "compile_search_setup", lambda: calls.append(None))
-    # Start from an empty cache, as a new process does.
-    conftest.compile_search_setup_once.cache_clear()
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", [])
     plain = _compilation.compiled_on_request(_scaled_sum)
 
-    # Without the option, nothing is compiled.
+    # Without the option, nothing is switched.
     monkeypatch.setattr(pytestconfig.option, "compile_search_setup", False)
     conftest.pytest_runtest_setup(request.node)
-    assert globals()["_scaled_sum"] is plain and not calls
+    assert globals()["_scaled_sum"] is plain
 
     # Two tests in a row, each of which switches the functions back to plain Python.
     monkeypatch.setattr(pytestconfig.option, "compile_search_setup", True)
     try:
         for _ in range(2):
             conftest.pytest_runtest_setup(request.node)
-            assert isinstance(globals()["_scaled_sum"], numba.core.registry.CPUDispatcher)
+            compiled = globals()["_scaled_sum"]
+            assert isinstance(compiled, numba.core.registry.CPUDispatcher)
+            assert not compiled.signatures
             _compilation.set_on_request_functions_compiled(False)
             assert globals()["_scaled_sum"] is plain
     finally:
         _compilation.set_on_request_functions_compiled(False)
-        conftest.compile_search_setup_once.cache_clear()
-    assert calls == [None]
+    assert not calls
 
 
 @pytest.mark.parametrize(
