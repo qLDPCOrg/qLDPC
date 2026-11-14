@@ -205,12 +205,13 @@ class SearchTuning:
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
-    #: packs fewer full disjoint information sets than the nonzero columns divided by the rows; it
-    #: keeps the best packing.  More orders can find more full sets, which certify sooner, but each
-    #: costs a packing of the basis; zero keeps the natural order.  Defaults to 8, chosen by hand;
-    #: on the quick distance searches timed, the natural order already packs the most sets, so no
-    #: value changed them, while 64 slowed one coset search.  To retune it, record after how many
-    #: orders the best packing stops improving, and weigh setup time against the search time saved.
+    #: packs fewer full disjoint information sets than the bound of Section 4.4 of
+    #: ``brouwer_zimmermann.md``, which a basis may not reach; it keeps the best packing.  More
+    #: orders can find more full sets, which certify sooner, but each costs a packing of the basis;
+    #: zero keeps the natural order.  Defaults to 8, chosen by hand; on the quick distance searches
+    #: timed, the natural order already packs the most sets, so no value changed them, while 64
+    #: slowed one coset search.  To retune it, record after how many orders the best packing stops
+    #: improving, and weigh setup time against the search time saved.
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
@@ -341,27 +342,21 @@ class SearchTuning:
     #: The most bytes of completion tables that a distance search keeps for each problem, a count
     #: for each sector besides the tables that it is building, and a coset search of
     #: ``CosetLeaderSearch`` for each set of a family.  Distance searches and counts use blocks of
-    #: ``completion_bound_block_bits`` columns, or of ``completion_bound_fallback_block_bits`` if
-    #: those do not fit, or none.  Zero disables tables, and ``MAX_VALUE`` removes the limit.
-    #: Defaults to 256 MiB, chosen by hand: it fits blocks of 16 columns for bases of up to about
-    #: 500 rows and 140 tail columns.  To retune it, choose the memory that tables may use.
+    #: ``completion_bound_block_bits`` columns if their tables fit, and otherwise none, so a basis
+    #: too large for them gets tables only if this limit is raised or the blocks narrowed.  Zero
+    #: disables tables, and ``MAX_VALUE`` removes the limit.  Defaults to 256 MiB, chosen by hand:
+    #: it fits blocks of 16 columns for bases of up to about 500 rows and 140 tail columns.  To
+    #: retune it, choose the memory that tables may use.
     completion_bound_max_table_bytes: int = 256 * 2**20
 
     #: The number of tail columns in a block of the completion tables of distance searches and
     #: counts, a power of two up to 16.  Wider blocks skip more supports, but the table of a block
     #: has ``2**width`` bytes for each row of the basis: 1 builds fastest and skips least, and 16
-    #: the reverse.  Defaults to 16, which on every layer of the width data set of at least
-    #: ``5 * 10**8`` supports skipped more supports, in less time, than 8.  To retune it, force each
-    #: width on that data set and keep the fastest.
+    #: the reverse.  ``completion_bound_max_table_bytes`` says which bases get no tables.  Defaults
+    #: to 16, which on every layer of the width data set of at least ``5 * 10**8`` supports skipped
+    #: more supports, in less time, than 8.  To retune it, force each width on that data set and
+    #: keep the fastest.
     completion_bound_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
-
-    #: The width of the blocks of completion tables when blocks of ``completion_bound_block_bits``
-    #: columns would exceed ``completion_bound_max_table_bytes``.  Blocks of 8 columns need about
-    #: 128 times less memory than blocks of 16, and skip fewer supports.  Defaults to 8, chosen by
-    #: hand; forced on the largest layers of the width data set, it saved time on some and cost time
-    #: on others, where the cost model declines it.  To retune it, lower the memory limit until that
-    #: data set falls back, and compare narrower widths.
-    completion_bound_fallback_block_bits: int = dataclasses.field(default=8, metadata=_BLOCK_WIDTHS)
 
     #: The number of tail columns in a block of the completion tables of ``CosetLeaderSearch``, a
     #: power of two up to 16.  Its searches by Hamming weight build tables for their costliest

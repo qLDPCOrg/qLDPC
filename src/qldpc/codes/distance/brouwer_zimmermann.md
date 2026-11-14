@@ -111,6 +111,7 @@ Each `G_i` is row reduced on a **block** `B_i`, a set of column indices, and the
 We call such a collection of search bases a **disjoint family of search bases**.
 These blocks are chosen greedily: `B_1` is an information set, `B_2` is an information set among the columns not in `B_1`, and so on, until the remaining columns no longer contain an information set.
 If any columns remain at that point, they form one last block, which has rank less than `r`.
+qLDPC stops after `2^r - 1` blocks that are information sets ([Section 4.4](#44-heuristics-and-cost-models)), and then leaves any remaining columns out.
 
 Each block `B_i` that is an information set gives a systematic basis, as in [Section 2.3](#23-systematic-bases-and-information-sets).
 Only the last block, `B_m`, can have rank `r_m < r`, and then it is not an information set.
@@ -729,7 +730,7 @@ It then estimates the share of supports that the tables would skip, from the bou
 It predicts the cost of the layer from this share, the number of lookups, and the cost of building tables that it does not have yet.
 Each lookup costs a few plain support evaluations for each block of the tables, and more for larger tables, which miss the processor's caches more often.
 The search uses tables if the predicted cost is at most `completion_bound_max_cost_percent` percent of the cost without them.
-By default, tables use blocks of sixteen columns, or of eight columns if the tables would otherwise exceed `completion_bound_max_table_bytes`; the fields `completion_bound_block_bits` and `completion_bound_fallback_block_bits` set these widths.
+By default, tables use blocks of sixteen columns, which the field `completion_bound_block_bits` sets, and a layer whose tables would exceed `completion_bound_max_table_bytes` gets none.
 A search keeps its tables for later layers, and drops them when its basis changes, as when it switches to an automorphism family.
 It frees them when it finishes, but the search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
 A layer of a distance search that scans several search bases, all information sets, first predicts the cost of tables for each basis in the same way, with the cost of building them.
@@ -980,7 +981,9 @@ With an early-exit cutoff above one, a different search order can find a differe
 The Tuning section of [README.md](README.md) explains how searches read the thresholds of these heuristics.
 
 - **`get_disjoint_family`** builds the disjoint family greedily in natural column order.
-  If that does not reach the maximum number of blocks that are information sets, it tries `disjoint_random_column_orders` fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
+  It keeps at most `2**r - 1` blocks that are information sets of a basis of `r` rows: the layers of one such block already reach every nonzero combination of rows, so scanning a layer of more blocks would examine more candidates than enumerating every word.
+  Only bases with more than `r (2**r - 1)` nonzero columns have room for more, and the limit keeps the memory of their packing from growing with the square of their length.
+  If the natural order does not reach that limit, or `floor(N / r)` blocks if that is smaller, it tries `disjoint_random_column_orders` fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
   Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
   It also infers the divisor `2` when every basis row has even weight, and combines it with any divisor supplied by the caller.
 - **`prune_family`** is exact, not heuristic.
@@ -1007,7 +1010,9 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The gate compares the predicted examinations of the disjoint family with its threshold, `overlapping_minimum_work`.
   Below the threshold, the query keeps the disjoint family.
   Otherwise, the routes try to build two families once, at the smallest `ω_T ≥ 2` at which the predicted examinations reach the threshold, so that the families do not depend on the order of queries.
-  The first holds the most disjoint information sets and then the largest partial set, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, and the routes keep it only if it has more information sets or a larger partial set than the greedy packing.
+  The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`.
+  Below that limit, it also holds the largest partial set on the columns that they leave.
+  The routes keep it only if it has more information sets or a larger partial set than the greedy packing.
   The second is an overlapping family of `get_overlapping_family`, aimed at the Hamming weight `η ω_T + 1` for the weight factor `η` of [Section 4.1](#41-module-map-and-layering), and the routes keep it only if the stage finds one that does less work than the family that it starts from.
   The route of `ω` is the family with the least work at `ω`, summed over its tables, and among families of equal work, the disjoint family, then the maximum disjoint one.
   A search for minimum weights up to `ω` ([Section 3.10](#310-minimum-weights-of-cosets)) takes the route of `ω`, or of the number of qubits if that is smaller, since no coset has a larger minimum weight.

@@ -15,7 +15,7 @@ import pytest
 
 from qldpc._binary import pack_bits
 
-from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning
+from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from . import completion_bounds as cb
 
 # A tuning that considers every layer, uses tables whatever they cost, and allows any size.
@@ -27,11 +27,6 @@ FORCED = dataclasses.replace(
     completion_bound_max_cost_percent=MAX_VALUE,
     completion_bound_max_table_bytes=MAX_VALUE,
 )
-
-
-def _with_table_bytes(max_table_bytes: int) -> SearchTuning:
-    """The default tuning with a memory limit for completion tables."""
-    return dataclasses.replace(DEFAULT_TUNING, completion_bound_max_table_bytes=max_table_bytes)
 
 
 def get_random_tails(
@@ -121,24 +116,20 @@ def test_bounds_ignore_ones_past_the_tails() -> None:
 
 
 def test_tables_fit_their_memory_limit() -> None:
-    """Tables use the blocks of the tuning that fit, or else its fallback blocks.
+    """Tables fit only within their memory limit.
 
-    Tables of tails without ones skip nothing, so a search builds none.
+    Tables of tails without ones skip nothing, so they never fit.
     """
-    # Three rows of tables of five eight-column blocks take 3 * 5 * 256 bytes.
-    assert cb._get_block_bits(4, 40, _with_table_bytes(3 * 5 * 256)) == 8
-    assert cb._get_block_bits(4, 40, _with_table_bytes(3 * 5 * 256 - 1)) == 0
-    assert cb._get_block_bits(4, 40, _with_table_bytes(2**30)) == 16
-    # With blocks of four columns, and two as the fallback, the tables of the same tails take
-    # 3 * 10 * 16 and 3 * 20 * 4 bytes.
-    narrow = dataclasses.replace(
-        DEFAULT_TUNING, completion_bound_block_bits=4, completion_bound_fallback_block_bits=2
-    )
-    for max_table_bytes, block_bits in ((480, 4), (479, 2), (239, 0)):
-        tuning = dataclasses.replace(narrow, completion_bound_max_table_bytes=max_table_bytes)
-        assert cb._get_block_bits(4, 40, tuning) == block_bits
+    # Three rows of tables of three sixteen-column blocks (the last of eight columns) take
+    # 3 * (2 * 2**16 + 2**8) bytes.
+    fitting_bytes = 3 * (2 * 2**16 + 2**8)
+    assert cb._tables_fit(4, 40, 16, fitting_bytes)
+    assert not cb._tables_fit(4, 40, 16, fitting_bytes - 1)
+    # With blocks of four columns, the tables of the same tails take 3 * 10 * 16 bytes.
+    assert cb._tables_fit(4, 40, 4, 480)
+    assert not cb._tables_fit(4, 40, 4, 479)
     assert cb._get_num_tail_bits(np.zeros((4, 2), dtype=np.uint64)) == 0
-    assert cb._get_block_bits(4, 0, _with_table_bytes(2**30)) == 0
+    assert not cb._tables_fit(4, 0, 16, 2**30)
 
 
 def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -> None:
@@ -227,6 +218,16 @@ def test_selection_follows_its_policy() -> None:
     no_memory = dataclasses.replace(FORCED, completion_bound_max_table_bytes=1)
     assert cb.select_completion_tables(rows, 6, 6, None, no_memory) is None
     assert cb.select_completion_tables(rows[:5], 7, 7, None, FORCED) is None
+
+    # Tables use blocks of the width of the tuning.  Four-column tables of these rows take
+    # 59 * 6 * 16 bytes: one row of tables for each row but the last, with 6 blocks of 16 entries.
+    # Sixteen-column tables do not fit in that.
+    small = dataclasses.replace(FORCED, completion_bound_max_table_bytes=59 * 6 * 16)
+    narrow = dataclasses.replace(small, completion_bound_block_bits=4)
+    narrow_tables = cb.select_completion_tables(rows, 6, 6, None, narrow)
+    assert narrow_tables is not None and narrow_tables.block_bits == 4
+    wide = dataclasses.replace(small, completion_bound_block_bits=16)
+    assert cb.select_completion_tables(rows, 6, 6, None, wide) is None
 
 
 def test_tunings_consider_tables_for_large_enough_layers_of_two_or_more_rows() -> None:

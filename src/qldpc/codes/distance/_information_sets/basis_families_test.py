@@ -20,7 +20,7 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 
 from .._tuning import DEFAULT_TUNING, SearchTuning
 from ..conftest import get_random_full_rank_matrix
-from . import basis_families, certificates
+from . import basis_families, certificates, matroid_partition
 
 # The default numbers of column orders of disjoint families, and denominators of LP dual weights.
 ORDERS = DEFAULT_TUNING.disjoint_random_column_orders
@@ -56,6 +56,14 @@ def test_information_set_packing() -> None:
     # Only one column carries the second row, so no column order packs a second full set.
     basis = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
     assert get_family(basis, None).ranks.tolist() == [2, 1]
+
+    # A packing of a basis of k rows keeps at most 2**k - 1 full sets, however many fit, and a
+    # natural order that reaches that limit needs no random orders: here 8 sets fit, and 7 stay.
+    three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
+    packing = basis_families._get_disjoint_sets_for_columns
+    with mock.patch.object(basis_families, "_get_disjoint_sets_for_columns", wraps=packing) as spy:
+        assert get_family(three_rows, None).ranks.tolist() == [3] * 7
+    assert spy.call_count == 1
 
     # Each set takes its pivots from the remaining columns in the given order, so a random column
     # order shapes every set of a packing.
@@ -277,10 +285,40 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
             )
         _assert_certificate_bounds_unvisited_words(basis, family)
 
+    # A packing whose sets use every nonzero column, as that of PARTIAL_BASIS does, skips
+    # partitioning.  That of one_full_set leaves a column, so it partitions, but no family replaces
+    # it.
     one_full_set = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
-    for basis in (PARTIAL_BASIS, one_full_set):
+    partition = matroid_partition.get_information_sets_with_coverage
+    for basis, num_partitions in ((PARTIAL_BASIS, 0), (one_full_set, 1)):
         disjoint = basis_families.get_disjoint_family(basis, None, random_column_orders=0)
-        assert not len(basis_families.get_maximum_disjoint_family(basis, disjoint).ranks)
+        with mock.patch.object(
+            matroid_partition, "get_information_sets_with_coverage", wraps=partition
+        ) as spy:
+            assert not len(basis_families.get_maximum_disjoint_family(basis, disjoint).ranks)
+        assert spy.call_count == num_partitions
+
+    # A maximum family keeps the limit of a packing: 8 information sets of three rows fit here, but
+    # a packing keeps 7.  So no family replaces those 7, and partitioning is skipped.  A family of 7
+    # replaces a family that holds only 3 of them.
+    three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
+    capped = basis_families.get_disjoint_family(three_rows, None, random_column_orders=0)
+    smaller = basis_families.BasisFamily(
+        capped.generators[:3],
+        capped.labels[:3],
+        capped.pivots[:3],
+        capped.ranks[:3],
+        capped.weight_divisor,
+        1,
+    )
+    with mock.patch.object(
+        matroid_partition, "get_information_sets_with_coverage", wraps=partition
+    ) as spy:
+        assert not len(basis_families.get_maximum_disjoint_family(three_rows, capped).ranks)
+        spy.assert_not_called()
+        family = basis_families.get_maximum_disjoint_family(three_rows, smaller)
+        spy.assert_called_once()
+    assert family.ranks.tolist() == [3] * 7
 
 
 def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pytest.Config) -> None:
