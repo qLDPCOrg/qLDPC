@@ -140,8 +140,8 @@ So for the CSS weight, the representative of a part within `max_weight` can diff
 
 - `disjoint_random_column_orders` configures every BZ search.
 - `max_css_single_pairs` configures the BZ searches by CSS weight that are not split into two classical searches.
-- `overlapping_minimum_work`, `max_information_sets`, and `overlapping_attempts_per_set` configure the families of information sets with which a BZ search answers costly queries (see `_brouwer_zimmermann/coset_routes.py`).
-  The threshold `overlapping_minimum_work` also decides which queries of the BZ searches by physical weight, and of the classical searches, weigh words without the pivot columns of each set of their family, and skip the words that tables of bounds prove to weigh more than `max_weight`.
+- `coset_route_minimum_work`, `max_information_sets`, and `overlapping_attempts_per_set` configure the families of information sets with which a BZ search answers costly queries (see `_brouwer_zimmermann/coset_routes.py`).
+  The threshold `coset_route_minimum_work` also decides which queries of the BZ searches by physical weight, and of the classical searches, weigh words without the pivot columns of each set of their family, and skip the words that tables of bounds prove to weigh more than `max_weight`.
   `coset_completion_block_bits` and `completion_bound_max_table_bytes` configure these tables.
 - `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` configure how the connected-support coset searches make their checks sparser.
 

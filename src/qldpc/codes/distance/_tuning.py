@@ -97,7 +97,7 @@ one of four classes:
   since wider blocks never skip less where their tables fit, and a budget bounds their memory.
 
 Fields whose comments name no class are not yet in one, and their comments say how their values
-were chosen.
+were chosen, such as ``coset_route_minimum_work``, chosen by hand.
 
 A value changes only because its rule, a measured constant of the machine, or a stated budget
 changes.  To set the values on a machine, rerun ``constants.py`` of ``experiments/distance_tuning``,
@@ -228,14 +228,26 @@ class SearchTuning:
     #: <tuning-retuning>`).
     disjoint_random_column_orders: int = 8
 
-    #: The estimated work of a search, in examinations (candidate/set evaluations), below which it
-    #: keeps its disjoint information sets.  It also gates the coset searches of
-    #: ``CosetLeaderSearch``, which build other families for the smallest weight whose queries reach
-    #: it.  Lowering it tries other families sooner, and, in searches by Hamming weight, tails and
-    #: completion tables, which may not repay setup; zero always tries, ``MAX_VALUE`` never.
-    #: Defaults to ``2 * 10**6``, a derived value (see :ref:`Retuning <tuning-retuning>`): building
-    #: an overlapping family took about ``2.3 * 10**6`` evaluations, on bases of 48 to 181 rows.
+    #: The estimated work of a distance search or count, in candidate/set evaluations, below which
+    #: it keeps its disjoint information sets rather than try a family of overlapping ones.
+    #: Lowering it tries that family on cheaper searches, where it may not repay its setup; zero
+    #: always tries, and ``MAX_VALUE`` never does.  Defaults to ``2 * 10**6``, a derived value (see
+    #: :ref:`Retuning <tuning-retuning>`): building an overlapping family took ``2.3 * 10**6`` to
+    #: ``2.7 * 10**6`` evaluations on a basis of 181 rows.
     overlapping_minimum_work: int = 2_000_000
+
+    #: The predicted examinations of a query of a Brouwer-Zimmermann search of
+    #: ``CosetLeaderSearch``, with its disjoint information sets, from which the search tries other
+    #: families, a maximum disjoint and an overlapping one, and the query takes the family with the
+    #: least work.  In searches by Hamming weight, a query whose examinations reach it even with
+    #: that family also weighs words by their tails and skips completions by tables (see
+    #: ``_brouwer_zimmermann/coset_routes.py``).  It also sets the weight at which the overlapping
+    #: family is aimed, the least from two whose queries reach it.  Lowering it builds these for
+    #: cheaper queries, with more memory, and aims lower; zero builds them at the first query, aimed
+    #: at the weight two, and ``MAX_VALUE`` never.  Defaults to ``2 * 10**4``, chosen by hand,
+    #: preferring speed to memory: it sets these three decisions, and no break-even rule covers the
+    #: aim.
+    coset_route_minimum_work: int = 20_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
     #: that it may add; an order that repeats an existing set still counts.  Distance searches and

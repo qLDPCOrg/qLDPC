@@ -49,6 +49,7 @@ else:
 # compiled code of every route that a timed search may take.
 FORCE_EVERY_ROUTE = {
     "overlapping_minimum_work": 0,
+    "coset_route_minimum_work": 0,
     "partition_work_ratio": 0,
     "lp_minimum_work": 0,
     "automorphism_minimum_layer_work": 0,

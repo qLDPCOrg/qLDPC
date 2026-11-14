@@ -304,8 +304,8 @@ class _CosetTuning(NamedTuple):
 
     ``disjoint_random_column_orders`` configures the disjoint information sets of the search.  Only
     a search of Pauli errors by CSS weight reads ``max_css_single_pairs``, for its lookups.  The
-    fields from ``overlapping_minimum_work`` to ``overlapping_attempts_per_set`` configure the
-    families with which the search answers costly queries, and ``overlapping_minimum_work`` also
+    fields from ``coset_route_minimum_work`` to ``overlapping_attempts_per_set`` configure the
+    families with which the search answers costly queries, and ``coset_route_minimum_work`` also
     chooses its routes by tails, whose queries weigh words by their tails and skip completions by
     tables, if it weighs Hamming weights (see ``coset_routes``).  The last two fields configure
     those tables, which the search of Pauli errors by CSS weight does not have.  The search builds
@@ -314,7 +314,7 @@ class _CosetTuning(NamedTuple):
 
     disjoint_random_column_orders: int
     max_css_single_pairs: int
-    overlapping_minimum_work: int
+    coset_route_minimum_work: int
     max_information_sets: int
     overlapping_attempts_per_set: int
     completion_bound_max_table_bytes: int
@@ -438,7 +438,7 @@ def _get_routes(
     with the weight factor ``weight_factor`` (see ``affine_instance.get_coset_instance``).  They
     build the tables of every family with ``inverse`` and ``num_x_columns`` (see
     ``coset_tables.get_search_tables``).  If ``by_tails`` is True, the routes whose queries are
-    predicted to examine at least ``tuning.overlapping_minimum_work`` words with their own family
+    predicted to examine at least ``tuning.coset_route_minimum_work`` words with their own family
     are routes by tails, and otherwise no route is.
     """
     instance = affine_instance.get_coset_instance(
@@ -451,7 +451,7 @@ def _get_routes(
         instance,
         inverse,
         num_x_columns,
-        minimum_work=tuning.overlapping_minimum_work,
+        minimum_work=tuning.coset_route_minimum_work,
         max_sets=tuning.max_information_sets,
         attempts_per_set=tuning.overlapping_attempts_per_set,
         by_tails=by_tails,

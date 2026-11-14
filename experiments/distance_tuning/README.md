@@ -28,6 +28,7 @@ On an Apple M3 Max that also ran other work, one candidate/set evaluation took 1
 These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases.
 The constant of linear programming rose by about a third when BZ searches stopped scanning several information sets in lockstep (#869): in paired runs of the script at the same load, the search took 0.17 s (`1.2 * 10**8` to `1.3 * 10**8` evaluations) before that change, and 0.22 s (`1.8 * 10**8`) after it, with 11 programs in each.
 Two constants lie near the edges of their rounding, the geometric means of neighboring values: that of `lp_minimum_work` lies 14 to 31% above `1.41 * 10**8`, and that of `partition_work_ratio` 8 to 22% above 3.16.
+`overlapping_minimum_work` gates only distance searches and counts; the routes of coset searches have their own threshold, `coset_route_minimum_work`, chosen by hand, whose comment says why no rule derives it.
 
 Matroid partitioning tries each coverage `b` from two up to `ceil(m k / n)`, for `m = max_information_sets`, `k` rows, and `n` nonzero columns: the least coverage at which `m` full sets could fit, by counting their pivots.
 Its cost grows about with the square of each coverage that it tries.
@@ -62,7 +63,7 @@ Earlier fields change what later fields see, so take them in this order:
 4. Linear programming and automorphisms: `lp_minimum_work`, `automorphism_minimum_layer_work`.
    A search that switches to automorphism images discards its family, so these fields change which layers the next ones see.
 5. Completion tables: first the threshold `completion_bound_minimum_layer_work`, which decides which layers consider tables, then the cost model (`fit_completion_costs.py`, one search at a time), the limit, the sampling, and the widths.
-6. Coset searches: `coset_completion_block_bits`, `max_css_single_pairs`, and the shared family fields, on coset workloads.
+6. Coset searches: `coset_route_minimum_work`, `coset_completion_block_bits`, `max_css_single_pairs`, and the shared family fields, on coset workloads.
 7. Caches, with `cache_stats.py`.
 
 Before timing a stage, trace a few searches with `trace.py` to see which decisions its fields can change; a threshold that no workload reaches cannot be tuned on them.
@@ -98,7 +99,7 @@ The main cause, a sizing of enumeration batches that did not vectorize rows of m
 The long runs, of a minute or more one search at a time, are `distance/bb288/X`, `distance/pp170/X`, `hadamard/gross`, `hadamard/pp110`, `distance/classical:160:110:1/-`, the classical codes of 4000 and 8000 bits with 21 to 23 rows, and the coset searches `coset/pp232/css/10/10/3000`, `coset/qt7/css/10/10/3000`, and `coset/lp13s5/physical/7/7/1000`.
 The check `c1-gate` (section 7) found two more long runs, `distance/lp13s6/X` and `distance/lp13s6/Z`, which the windows do not cover.
 The classical codes of 4000 and 8000 bits spend about a minute and several minutes of that in work that does not depend on the tuning (see "Before measuring").
-Coset searches read none of the thresholds that `windows.py` covers but `overlapping_minimum_work`, whose families on coset searches `coset_families.py` prints; `resample.py` shows whether a layer near the cost limit decides by its sampling draw.
+Coset searches read none of the thresholds that `windows.py` covers; `coset_families.py` prints the families that their own threshold, `coset_route_minimum_work`, gives them; `resample.py` shows whether a layer near the cost limit decides by its sampling draw.
 
 Trace the long runs, and a set of quick ones, at the defaults, and give the traces to `windows.py`, which prints, for each threshold, the nearest decision on either side of it, for the workloads named by `--long` and for all.
 A threshold whose window on long runs is wide, or whose candidates measured alike on long runs, is robust there, and its precise value matters only for quick runs.
@@ -113,7 +114,7 @@ Time a long run, one search at a time and in 4 or more paired rounds, only where
 A value over-fits when it suits the workloads, the machine, and the conditions that chose it, but not others.
 The derived values were not chosen by timing candidates, but their rules were chosen while studying the key workloads, and their constants were measured on a few of those, so they carry the sizes of those searches.
 The earlier values were chosen in-sample, on dozens of workloads, on one Apple M3 Max that often ran other work, and mostly on earlier library code.
-The current values that are not derived are budgets, conventions, or the widest allowed, as the Retuning section defines them, or the exceptions whose comments say how they were chosen.
+The current values that are not derived are budgets, conventions, or the widest allowed, as the Retuning section defines them, or the exceptions whose comments say how they were chosen, such as `coset_route_minimum_work`.
 These measures limit how much that matters:
 
 - The distance searches and counts among the long runs were traced, and `windows.py` found how far each threshold can move before one of their decisions changes; where that range is broad, the precise value matters only for quick runs.
@@ -145,6 +146,7 @@ The `--base` of each command gives the defaults of its time where they differ fr
 So each command compares the same values on the current code, except that `partition_work_ratio` now multiplies a sum of `b^2 k^2 n` rather than of `b k^2 n`, and the commands leave out fields that were later removed.
 The exception is `automorphism_minimum_layer_work`: every command ran with it at `10**8`, its default then, unless an arm set it, and the `--base` of each command leaves that out.
 The commands ran with a ratio and a cost factor of partitioning, whose product they give as `partition_work_ratio`.
+Their `overlapping_minimum_work` also gated the routes of coset searches, which `coset_route_minimum_work` now gates, so to repeat a setting of it, in an arm or a `--base`, on coset workloads, set both.
 Partitioning then tried coverages from two up to a field, later removed, whose default was 4; the arm of `p3-aut` and of `p3-noaut` that set it to 2 now repeats their first arm, and the sweep `c2-coverage`, which timed only that field, is in the Git history of this file.
 The measurements of one search, and the traces of the windows of section 5, ran at the earlier defaults; to repeat them on the current code, add `{"partition_work_ratio": 5000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000}` to their tunings, whose own settings take precedence.
 Only partitioning then differs, in the coverages that it tries and in the unit of its gate.
@@ -163,7 +165,7 @@ Those of `automorphism_minimum_layer_work`, at `10**7` and past the edges of the
 | Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each with `--output` to a file outside the directory of the traces of the windows, and compared with its trace at the earlier defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05, "completion_bound_samples": 256}'`, whose layer 6 declines its tables, for the time of that layer without them |
 | Layer 7 of `distance/classical:128:80:6/-` at the limits of 90 and 100 | `trace.py 'distance/classical:128:80:6/-' --tuning '{"completion_bound_max_cost_percent": 100}'`, the same with `"completion_bound_samples": 256` added, and at the earlier defaults, compared by `windows.py --compare` and by their `layer` events |
 | Gate values of partitioning across codes | `trace.py distance/lp13s<seed>/<sector> --setup-only` for seeds 1 to 10 and sectors `X` and `Z`, and `trace.py 'distance/classical:128:80:<seed>/-' --setup-only` for seeds 2 to 6; a gate value is the `estimated_work` of the `family` event of kind `partitioned` divided by its `unit` |
-| Families of `overlapping_minimum_work` | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000`; `coset_families.py <w> --thresholds 20000 24000 30000` for `coset/gross/css/10/10/3000`, `coset/pp110/css/8/8/2000`, `coset/pp232/css/10/10/3000`, and `coset/qt7/css/10/10/3000` |
+| Families of `coset_route_minimum_work`, then `overlapping_minimum_work` | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000`; `coset_families.py <w> --thresholds 20000 24000 30000` for `coset/gross/css/10/10/3000`, `coset/pp110/css/8/8/2000`, `coset/pp232/css/10/10/3000`, and `coset/qt7/css/10/10/3000` |
 | Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`, and `resample.py hadamard/pp110 --weights 5` and `resample.py distance/bb288/X --weights 5`; for the sampling budget, `resample.py hadamard/gross --weights 6 --num-seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
 | Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the earlier defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |

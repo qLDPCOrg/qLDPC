@@ -30,7 +30,7 @@ Start from a symptom
    * - A cheap search spends its time building families of information sets
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
    * - Queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method at moderate maximum weights, or its searches for minimum weights up to them in residual-weight estimates, are slow
-     - Lower :attr:`~SearchTuning.overlapping_minimum_work`, so that cheaper queries try a family of overlapping information sets, or a disjoint family with more information sets or a larger partial set.
+     - Lower :attr:`~SearchTuning.coset_route_minimum_work`, so that cheaper queries try a family of overlapping information sets, or a disjoint family with more information sets or a larger partial set.
        In the BZ searches by physical weight, and in the searches of the X and Z parts of errors for the CSS weight on CSS states, a query also weighs words without the pivot columns of each set, and skips completions by tables on blocks of :attr:`~SearchTuning.coset_completion_block_bits` columns, if its predicted examinations with the family that it takes reach the threshold too.
        A search for minimum weights up to a maximum weight takes the family of a query at that weight, or at the number of qubits if that is smaller.
        :class:`~qldpc.codes.distance.CosetLeaderSearch` builds these families once for each cached coset search, and their tails and tables once for each family (see :data:`CSS_SEARCH_CACHE_SIZE` and :data:`PAULI_SEARCH_CACHE_SIZE`).
@@ -41,7 +41,7 @@ Start from a symptom
      - For distance searches and counts, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code, and to the scan of each sector of a count.
        For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
        For the BZ engine of :class:`~qldpc.codes.distance.CosetLeaderSearch`, lower :attr:`~SearchTuning.max_css_single_pairs`.
-       For its completion tables, lower :attr:`~SearchTuning.coset_completion_block_bits`, or :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each set of a family.
+       For its completion tables, lower :attr:`~SearchTuning.coset_completion_block_bits`, or :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each set of a family, or raise :attr:`~SearchTuning.coset_route_minimum_work`, so that fewer queries build other families and their tables.
        For the caches, edit their constants.
        No value limits the memory of a whole process.
    * - A keyboard interrupt takes long to take effect
@@ -137,11 +137,11 @@ Routes and the names that control them
      - :data:`KRAWTCHOUK_CACHE_SIZE`
      -
    * - Searches of the lightest Pauli errors by CSS weight on a CSS state, by the Brouwer-Zimmermann method
-     - :attr:`SearchTuning.disjoint_random_column_orders`, and for costly queries :attr:`SearchTuning.overlapping_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, :attr:`SearchTuning.coset_completion_block_bits`, :attr:`SearchTuning.completion_bound_max_table_bytes`
+     - :attr:`SearchTuning.disjoint_random_column_orders`, and for costly queries :attr:`SearchTuning.coset_route_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, :attr:`SearchTuning.coset_completion_block_bits`, :attr:`SearchTuning.completion_bound_max_table_bytes`
      - :data:`CSS_SEARCH_CACHE_SIZE`
      - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
    * - Searches of the lightest Pauli errors by physical weight, or by CSS weight on another stabilizer state, by the Brouwer-Zimmermann method
-     - :attr:`SearchTuning.disjoint_random_column_orders`, by CSS weight :attr:`SearchTuning.max_css_single_pairs`, and for costly queries :attr:`SearchTuning.overlapping_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, and by physical weight :attr:`SearchTuning.coset_completion_block_bits`, :attr:`SearchTuning.completion_bound_max_table_bytes`
+     - :attr:`SearchTuning.disjoint_random_column_orders`, by CSS weight :attr:`SearchTuning.max_css_single_pairs`, and for costly queries :attr:`SearchTuning.coset_route_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, and by physical weight :attr:`SearchTuning.coset_completion_block_bits`, :attr:`SearchTuning.completion_bound_max_table_bytes`
      - :data:`PAULI_SEARCH_CACHE_SIZE`
      - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
    * - Counts of deformed codes

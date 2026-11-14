@@ -744,7 +744,7 @@ A step of a count scans one layer of one set.
 `_StepTables` of [_counting/scan.py](_counting/scan.py) chooses tables in the same way for each step of two or more rows of an information set.
 A count keeps the tables of the sets that it has used, within `completion_bound_max_table_bytes` in all between steps, and also holds the tables that it is building.
 Its steps scan the sets of a layer in turn, so when the tables of all sets do not fit, it rebuilds them in each layer, which the prediction counts.
-A coset search uses tables only on its routes by tails, whose queries are predicted to examine at least `overlapping_minimum_work` words even with the family of their route ([Section 4.4](#44-heuristics-and-cost-models)), and neither samples supports nor predicts costs.
+A coset search uses tables only on its routes by tails, whose queries are predicted to examine at least `coset_route_minimum_work` words even with the family of their route ([Section 4.4](#44-heuristics-and-cost-models)), and neither samples supports nor predicts costs.
 It builds the tables of each search basis of the family of such a route that its queries scan in a layer of two or more rows.
 It builds them once, on blocks of `coset_completion_block_bits` columns, and only if they fit in `completion_bound_max_table_bytes`.
 
@@ -990,6 +990,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The function removes such a search basis when the blocks that are information sets reach `U` by layer `d`, so the removal leaves the result unchanged and saves enumeration.
   It removes nothing if no block is an information set.
 - **`get_overlapping_family`** tries to lower the work estimate of the disjoint family, with the thresholds `max_information_sets` and `overlapping_minimum_work`, which it receives as the fields `max_sets` and `minimum_work` of its `OverlappingFamilyPolicy`.
+  The routes of coset searches (`CosetRoutes` below) pass a `minimum_work` of zero instead, since their own gate, `coset_route_minimum_work`, decides when they build the family.
   It returns a basis family with no sets if no block is an information set, if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
@@ -1008,7 +1009,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The work of a table of a search at `ω` is the work of `plan_steps` from layer zero, without the search bases that a query skips.
   Besides the word of its syndrome, a query at `ω` with no light enough word examines or skips as many words as the work of the table of its parity.
   So its predicted examinations without tables are one more than the largest work of a table.
-  The gate compares the predicted examinations of the disjoint family with its threshold, `overlapping_minimum_work`.
+  The gate compares the predicted examinations of the disjoint family with its threshold, `coset_route_minimum_work`.
   Below the threshold, the query keeps the disjoint family.
   Otherwise, the routes try to build two families once, at the smallest `ω_T ≥ 2` at which the predicted examinations reach the threshold, so that the families do not depend on the order of queries.
   The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`.

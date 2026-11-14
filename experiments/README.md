@@ -224,7 +224,7 @@ python experiments/distance_tuning/collect_results.py --tags max-sets
 Seven more scripts explain what a tuning changes, or derive it.
 [`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of one distance search or count, such as the families of information sets that it builds and the completion tables of each layer.
 [`windows.py`](distance_tuning/windows.py) reads traces and finds the interval of each threshold over which their decisions stay the same, or compares the decisions of two traces.
-[`coset_families.py`](distance_tuning/coset_families.py) prints the families that `overlapping_minimum_work` gives the BZ searches of a coset workload, and [`resample.py`](distance_tuning/resample.py) recomputes the predicted costs of completion tables of a search's layers under other samplings.
+[`coset_families.py`](distance_tuning/coset_families.py) prints the families that `coset_route_minimum_work` gives the BZ searches of a coset workload, and [`resample.py`](distance_tuning/resample.py) recomputes the predicted costs of completion tables of a search's layers under other samplings.
 [`fit_completion_costs.py`](distance_tuning/fit_completion_costs.py) traces searches with completion tables disabled, forced, and at the defaults, and refits the cost model that chooses them.
 [`constants.py`](distance_tuning/constants.py) measures the costs of the steps that thresholds gate, and prints the derived values of those thresholds (see "Derived values" in [`distance_tuning/README.md`](distance_tuning/README.md)).
 [`cache_stats.py`](distance_tuning/cache_stats.py) reports the hit rates of the caches of exact searches over a sequence of workloads.
