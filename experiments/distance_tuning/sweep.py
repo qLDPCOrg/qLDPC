@@ -37,16 +37,19 @@ except a distance search with an early exit.  It prints the summary, and writes 
 
 ``--repeat`` times the workload several times in each trial's process.  The first repetition also
 does work that codes remember and that does not depend on the tuning (see ``trial.py``), so with
-three or more repetitions the median leaves it out.  Distance, hadamard, and count workloads repeat
-their searches; a workload of ``CosetLeaderSearch`` reuses its cached searches.
+three or more repetitions the median leaves it out.  But a code also remembers the automorphisms
+that a search finds, and whether a search finds them depends on the tuning, so time a change of
+when searches ask for automorphisms with one repetition.  Distance, hadamard, and count workloads
+repeat their searches; a workload of ``CosetLeaderSearch`` reuses its cached searches.
 
 Run comparisons under a guard of memory and time.
 
-Examples:
+Examples, the first of which proposes the earlier value of ``automorphism_minimum_states``,
+``10**5``, and so repeats the confirmation of its derived value with the arms swapped:
 
-    python experiments/distance_tuning/sweep.py --tag lower-aut --rounds 3 \\
+    python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \\
         --workloads csdistance/lp13s5/X csdistance/surface:17/X \\
-        --proposed '{"automorphism_minimum_states": 50000}'
+        --proposed '{"automorphism_minimum_states": 100000}'
     python experiments/distance_tuning/sweep.py --tag branch --rounds 3 \\
         --workloads distance/qt7/X count/gross/12 --worktrees ../qLDPC-main .
 """
@@ -56,6 +59,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -129,7 +133,7 @@ def main() -> None:
                 trials.append(trial | {"key": get_key(trial)})
 
     # Run the trials that the file lacks, and save each.
-    done = {trial["key"] for trial in iter_trials(path)}
+    done = {trial["key"] for trial in read_trials(path)}
     to_run = [trial for trial in trials if trial["key"] not in done]
     print(f"{len(to_run)} of {len(trials)} trials to run", flush=True)
     for trial in to_run:
@@ -142,7 +146,7 @@ def main() -> None:
 
     # Summarize the trials of this comparison.
     keys = {trial["key"] for trial in trials}
-    rows = summarize([trial for trial in iter_trials(path) if trial["key"] in keys])
+    rows = summarize([trial for trial in read_trials(path) if trial["key"] in keys])
     with (args.results_dir / f"summary-{args.tag}.csv").open(
         "w", newline="", encoding="utf-8"
     ) as file:
@@ -285,6 +289,18 @@ def check_import(arm: dict[str, Any], environment: dict[str, str]) -> None:
         raise RuntimeError(f"The arm of {arm['checkout']} imports qLDPC from {imported}")
 
 
+def check_local_import() -> None:
+    """Check that this process imports qLDPC from the ``src`` of the checkout of these scripts."""
+    spec = importlib.util.find_spec("qldpc")
+    imported = pathlib.Path(spec.origin).resolve().parent if spec and spec.origin else None
+    expected = (REPOSITORY / "src" / "qldpc").resolve()
+    if imported != expected:
+        raise RuntimeError(
+            f"This process imports qLDPC from {imported}, not from {expected}; run the script with"
+            " the Python of its checkout"
+        )
+
+
 def get_source_fingerprint(repository: pathlib.Path = REPOSITORY) -> dict[str, str]:
     """The commit of a checkout of qLDPC, and a hash of the uncommitted changes of its source."""
     commit = git(repository, "rev-parse", "HEAD").strip()
@@ -299,7 +315,7 @@ def git(repository: pathlib.Path, *args: str) -> str:
     ).stdout
 
 
-def iter_trials(path: pathlib.Path) -> list[dict[str, Any]]:
+def read_trials(path: pathlib.Path) -> list[dict[str, Any]]:
     """The trials of a file of trials, if it exists."""
     if not path.exists():
         return []

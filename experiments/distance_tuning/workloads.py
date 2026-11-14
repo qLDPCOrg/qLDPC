@@ -10,7 +10,8 @@ A code name is one of:
   code of the width data set of ``qldpc.codes.distance._tuning``;
 - ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, also of that data set;
 - ``qgolay``: the [[23, 1, 7]] quantum Golay code, which is self-dual;
-- ``qrm:<order>:<size>``: ``QuantumReedMullerCode(order, size)``, which is self-dual;
+- ``qrm:<order>:<size>``: ``QuantumReedMullerCode(order, size)``, which is self-dual, for ``mcount``
+  workloads: qLDPC knows its distance in closed form, so a distance workload of it searches nothing;
 - ``lp<order>s<seed>``: the lifted product of a 3 x 4 matrix of monomials of
   ``CyclicGroup(order)``, whose exponents NumPy's default generator draws from ``seed``, such as
   ``lp13s5`` and ``lp13s8``;

@@ -103,12 +103,11 @@ The two fields whose comments name no class, ``coset_route_minimum_work`` and
 ``macwilliams_shared_walk_rank``, are in none, and their comments say how their values were chosen.
 
 A value changes only because its rule, a measured constant of the machine, or a stated budget
-changes.  To set the values on a machine, rerun ``constants.py`` of ``experiments/distance_tuning``,
-which measures every constant that a derived value needs, on a few quick searches and on the cost
-data set below, and prints the values that they give beside the defaults.  It does not yet
-re-derive ``automorphism_minimum_layer_work``, whose comment says how it was measured.  The README
-of that directory tables, for an Apple M3 Max, the steps, their measured costs, and the values that
-they give.
+changes.  To set the values on a machine, rerun ``constants.py`` of ``experiments/distance_tuning``.
+It measures the constants of every derived value but ``automorphism_minimum_layer_work``, whose
+comment says how it was measured, on a few quick searches and on the cost data set below, and
+prints the values that they give beside the defaults.  The README of that directory tables, for an
+Apple M3 Max, the steps, their measured costs, and the values that they give.
 
 Timing confirms a change, and never chooses a value.  Before timing, record the rule, the values
 that it gives, the decisions that it should change, and how large a difference in time must be to
@@ -128,9 +127,13 @@ Max, from two data sets:
   ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, and of two lifted-product codes of
   3 x 4 random monomials of ``CyclicGroup(13)``, drawn with NumPy's default generator from seeds 5
   and 8.
-- The cost data set holds nine layers of the X sector of that bivariate bicycle code and of the
-  [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]] pair-partition codes, ``pp232``, ``pp170``,
-  and ``pp276`` of ``experiments/distance_tuning/workloads.py``.
+- The cost data set holds the layers of at least ``10**7`` supports of the X sector of that
+  bivariate bicycle code and of the [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]]
+  pair-partition codes, ``pp232``, ``pp170``, and ``pp276`` of
+  ``experiments/distance_tuning/workloads.py``.  The current coefficients were measured on nine
+  such layers.
+
+The default width of the blocks is the widest allowed, not the outcome of the comparison of widths.
 
 The functions ``predict_completion_cost`` and ``_estimate_build_cost`` of
 ``_information_sets/completion_bounds.py`` compute the cost model of completion tables.  To measure
@@ -503,7 +506,8 @@ class SearchTuning:
     #: both; below it, a second walk costs less than the test.  Lowering it tests on smaller codes;
     #: zero whenever the ranks are equal, and ``MAX_VALUE`` never.  Counters known to be self-dual,
     #: and counts of full Pauli operators, skip the test.  Defaults to 14, chosen by hand: on the
-    #: ``mcount`` workloads of ``experiments/distance_tuning``, the costliest test took as long as a
+    #: workloads ``mcount/qgolay/8``, ``mcount/qrm:2:6/4``, and ``mcount/qrm:2:7/1`` of
+    #: ``experiments/distance_tuning``, with the test forced, the costliest test took as long as a
     #: walk of ``2 * 10**4`` to ``3.4 * 10**4`` steps, so breaking even gives 14 in some runs and 15
     #: in others, and either changes a count by tens of microseconds.
     macwilliams_shared_walk_rank: int = 14

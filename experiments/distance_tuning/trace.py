@@ -66,7 +66,15 @@ With ``--compare``, it instead compares the decisions of two saved traces of one
 traces under two tunings or of two checkouts: families and their gates, certificates, switches to
 automorphism images, the tables of each layer, each comparison of a predicted cost with the limit,
 the weight limits before which connected-support searches ask for automorphisms, and the tests and
-walks of counts by the MacWilliams method.
+walks of counts by the MacWilliams method.  If the tunings differ only in thresholds and every
+decision is the same, so is the search, apart from the time of the decisions themselves.  Traces
+record the number of sets of each family, not the sets, so ``--compare`` may not tell apart
+searches whose families differ only in their sets, such as families that partitioning builds at
+other coverages.  Nor does it compare the states that a connected-support search visits within a
+weight limit, which budgets such as ``max_distance_sparsifying_rounds`` change.
+
+The script traces the qLDPC of its own checkout, and refuses to run if this process imports qLDPC
+from elsewhere.  To trace another checkout, run that checkout's script with its own Python.
 
 Examples:
 
@@ -143,6 +151,7 @@ def main() -> None:
         return
     if args.workload.split("/")[0] not in TRACED_KINDS:
         raise ValueError(f"Only workloads of the kinds {', '.join(TRACED_KINDS)} can be traced")
+    sweep.check_local_import()
     trial.check_workload(args.workload)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -210,7 +219,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def install_wrappers() -> None:
-    """Wrap the stages of BZ searches, in this process, to record events."""
+    """Wrap the stages of the exact searches, in this process, to record events."""
     search_class = distance._BrouwerZimmermannSearch
     tables_class = completion_bounds.CompletionTables
     patches: list[tuple[object, str, Callable[[Any], Any]]] = [

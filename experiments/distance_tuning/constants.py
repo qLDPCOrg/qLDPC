@@ -78,8 +78,11 @@ does.  The script saves each measurement in ``constants/`` in the results direct
 source of qLDPC that it ran on (see ``sweep.get_source_fingerprint``), and skips those already
 saved from the current source.  So it measures every constant again after a commit or a change to
 ``src/``, and it reports no value while a measurement of it from other source remains.  The quick
-measurements take a few minutes, and the traces of the cost data set take hours; an interrupted run
-resumes where it stopped.  Run it on a quiet machine, under a guard of time and memory.
+measurements take a few minutes, after which the script prints the derived values.  It then traces
+the cost data set, which takes hours, and prints the coefficients of the cost model.  An
+interrupted run resumes where it stopped.  It measures the qLDPC of its own checkout, and refuses to
+run if this process imports qLDPC from elsewhere.  Run it on a quiet machine, under a guard of time
+and memory.
 
 Example:
 
@@ -201,12 +204,14 @@ class Constant:
 def main() -> None:
     """Measure the constants, or time the linear programming of one search."""
     args = parse_args()
+    sweep.check_local_import()
     if args.linear_programs_of is not None:
         time_linear_programs(args.linear_programs_of, json.loads(args.tuning), args.output)
         return
     directory = args.results_dir / CONSTANTS_NAME
-    measure(directory, args.timeout)
+    measure(get_quick_commands(directory), directory, args.timeout)
     report(directory)
+    measure(get_cost_model_commands(directory / COST_MODEL_NAME), directory, args.timeout)
     report_cost_model(directory / COST_MODEL_NAME)
 
 
@@ -245,14 +250,8 @@ def parse_args() -> argparse.Namespace:
 # measurements
 
 
-def measure(directory: pathlib.Path, timeout: float) -> None:
-    """Run each measurement that the directory lacks for the current source, in new processes.
-
-    Each runs single-threaded, and replaces any measurement of other source.  The quick measurements
-    run first, and then the traces of the cost data set, whose order of tunings alternates between
-    repeats.
-    """
-    source = sweep.get_source_fingerprint()
+def get_quick_commands(directory: pathlib.Path) -> dict[pathlib.Path, list[str]]:
+    """The file and the arguments, up to that file, of each quick measurement."""
     commands = {
         directory / f"{name}.json": get_trace_command(workload, changes, setup_only)
         for name, workload, changes, setup_only in TRACES
@@ -266,12 +265,30 @@ def measure(directory: pathlib.Path, timeout: float) -> None:
         json.dumps(changes),
         "--output",
     ]
+    return commands
+
+
+def get_cost_model_commands(directory: pathlib.Path) -> dict[pathlib.Path, list[str]]:
+    """The file and the arguments of each trace of the cost data set, whose order alternates."""
+    commands = {}
     for repeat in range(COST_MODEL_REPEATS):
         for workload in COST_DATA_SET:
             arms = list(COST_MODEL_ARMS) if repeat % 2 == 0 else list(COST_MODEL_ARMS)[::-1]
             for arm in arms:
-                path = get_cost_model_path(directory / COST_MODEL_NAME, workload, arm, repeat)
+                path = get_cost_model_path(directory, workload, arm, repeat)
                 commands[path] = get_trace_command(workload, COST_MODEL_ARMS[arm], False)
+    return commands
+
+
+def measure(
+    commands: dict[pathlib.Path, list[str]], directory: pathlib.Path, timeout: float
+) -> None:
+    """Run each measurement that lacks a file of the current source, in new processes.
+
+    Each command gives the arguments of a measurement up to its file, which lies under
+    ``directory``.  Each runs single-threaded, and replaces any measurement of other source.
+    """
+    source = sweep.get_source_fingerprint()
     for path, command in commands.items():
         if is_current(path, source):
             continue
@@ -533,7 +550,7 @@ def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
         seconds = states = 0.0
         for event in trace["events"]:
             if event["event"] == "weight limit" and event["states"] >= LARGE_LIMIT:
-                seconds += event["seconds"] - get_ask(event)
+                seconds += event["seconds"] - get_seconds_of_ask(event)
                 states += event["states"]
         if states:
             rates[trace["workload"]] = seconds / states
@@ -546,7 +563,7 @@ def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The costliest seconds of asking for automorphisms in a connected-support search."""
     asks = [
-        (trace["workload"], get_ask(event))
+        (trace["workload"], get_seconds_of_ask(event))
         for trace in traces.values()
         for event in trace["events"]
         if event["event"] == "weight limit" and event["asked"]
@@ -557,7 +574,7 @@ def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     return Constant(max(seconds for _, seconds in asks), description)
 
 
-def get_ask(event: dict[str, Any]) -> float:
+def get_seconds_of_ask(event: dict[str, Any]) -> float:
     """The seconds of asking for automorphisms before a weight limit, or zero if it did not ask."""
     return event.get("find_seconds", 0.0) + event.get("verify_seconds", 0.0)
 
@@ -660,7 +677,6 @@ def measure_layer(
     # only kind whose ratio the script prints or measures, since its lookups and skipped supports
     # all belong to that set.
     num_sets = forced["scanned_sets"]
-    single_set = num_sets == 1
     share = forced["skipped"] / max(1, forced["skipped"] + forced["evaluated"])
     kept_lookups = (1 - share) * math.comb(rows, weight - 1)
     prefix_lookups = math.comb(rows, weight - 2)
@@ -675,8 +691,7 @@ def measure_layer(
         "measured_with_overhead": forced["seconds"] / disabled["seconds"],
         "default_uses_tables": default["tables"] is not None,
         "sets": num_sets,
-        "single_set": single_set,
-        "block_bits": forced["tables"] if single_set else 0,
+        "block_bits": forced["tables"] if num_sets == 1 else 0,
         "lookup_ratio": (forced["lookups"] - prefix_lookups) / max(1.0, kept_lookups),
         "excess_per_lookup_block": (scan_cost - forced["evaluated"])
         / max(1, forced["lookups"] * forced["blocks"]),
@@ -741,7 +756,7 @@ def print_layers(rows: list[dict[str, Any]]) -> None:
 def print_coefficients(rows: list[dict[str, Any]], build_rows: list[dict[str, Any]]) -> None:
     """Measure the coefficients of the cost model, and print them with their defaults."""
     tuning = _tuning.DEFAULT_TUNING
-    rows = [row for row in rows if row["single_set"]]
+    rows = [row for row in rows if row["sets"] == 1]
     if not rows:
         print("No layers of one set to measure")
         return

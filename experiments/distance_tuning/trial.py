@@ -6,17 +6,17 @@ The script enters ``_tuning.use_tuning`` with the given changes, warms up the co
 workload's kind on small codes, and then times the workload, ``--repeat`` times in this process.
 Each repetition repeats the search, but codes remember work that does not depend on the tuning, such
 as the generator matrix of a classical code given by its checks, and coset searches reuse their
-cached setups, so later repetitions can be much faster than the first.  It prints one JSON object:
-the workload, the tuning, the result of each repetition, their wall and CPU seconds, and the peak
-resident memory after the warm-up and after the repetitions.
+cached setups, so later repetitions can be much faster than the first.  Codes also remember the
+automorphisms that a search finds, and whether a search finds them depends on the tuning.  It
+prints one JSON object: the workload, the tuning, the result of each repetition, their wall and CPU
+seconds, and the peak resident memory after the warm-up and after the repetitions.
 
 ``sweep.py`` runs this script in a new process for each trial.  To run it directly, limit it to
 one thread, as ``sweep.py`` does, with ``NUMBA_NUM_THREADS=1`` and ``OMP_NUM_THREADS=1``.
 
 Example:
 
-    python experiments/distance_tuning/trial.py distance/gross/X \\
-        --tuning '{"max_information_sets": 8}'
+    python experiments/distance_tuning/trial.py distance/gross/X
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ if TYPE_CHECKING:
 else:
     import workloads
 
-# Changes that make small searches take every route of the BZ method, so that warming up loads the
-# compiled code of every route that a timed search may take.
+# Changes that make small searches take every route of the exact searches, so that warming up loads
+# the compiled code of every route that a timed search may take.
 FORCE_EVERY_ROUTE = {
     "overlapping_minimum_work": 0,
     "coset_route_minimum_work": 0,
