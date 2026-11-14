@@ -15,13 +15,18 @@ records:
   partitioning), with its number of sets and the seconds that building it took, and the quantities
   that the gates of overlapping families and of partitioning compare: for overlapping families, the
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
-  search and the cost of partitioning, in candidate/set evaluations, and whether the gate let it
-  try (``partitioned``), even if it then found no family;
+  search and the cost of partitioning, in candidate/set evaluations, the least work that any
+  partitioned family could do, and whether it tried (``partitioned``), even if it then found no
+  family.  Before trying, a search with automorphisms asks for them, verifies them, and
+  builds their family, and skips partitioning if that family does no more work than the least work
+  of a partitioned family.  The trace records that family's work (``competing_work``) and the
+  seconds those steps took (``competing_seconds``), which the seconds of partitioning include;
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
-- each attempt to switch to a family of automorphism images, the seconds it took, and whether the
-  search switched;
+- each attempt to switch to a family of automorphism images, including one at the end of setup if
+  setup found the automorphisms, the seconds it took, which then exclude finding them and building
+  their family, and whether the search switched;
 - the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step
   considers completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted
   cost with the limit, with the rows and weight of the prediction before it;
@@ -211,22 +216,42 @@ def wrap_certificate(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_family(kind: str, function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the seconds of building a family, and its number of sets."""
+    """Record the seconds of building a family, and its number of sets.
+
+    Partitioning of a search with automorphisms may first build their family, to compare its work
+    (see ``get_partition_gate``); the seconds of partitioning then include building that family.
+    """
 
     @functools.wraps(function)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        competing: dict[str, Any] = {}
+        get_competing_work = kwargs.get("get_competing_work")
+        if get_competing_work is not None:
+            kwargs["get_competing_work"] = functools.partial(
+                record_competing_work, get_competing_work, competing
+            )
         start = time.perf_counter()
         family = function(*args, **kwargs)
         seconds = time.perf_counter() - start
         event = {"event": "family", "kind": kind, "sets": len(family.ranks), "seconds": seconds}
         if kind == "partitioned" and len(args) == 5:
-            event |= get_partition_gate(*args)
+            event |= get_partition_gate(*args) | competing
+            if competing and competing["competing_work"] <= event["optimistic_work"]:
+                event["partitioned"] = False
         if kind == "overlapping" and len(args) == 5:
             event |= get_overlapping_gate(*args)
         EVENTS.append(event)
         return family
 
     return wrapper
+
+
+def record_competing_work(get_competing_work: Callable[[], int], record: dict[str, Any]) -> int:
+    """Record the work of the family that would rule partitioning out, and the seconds it took."""
+    start = time.perf_counter()
+    work = get_competing_work()
+    record |= {"competing_work": int(work), "competing_seconds": time.perf_counter() - start}
+    return work
 
 
 def get_partition_gate(
@@ -236,14 +261,24 @@ def get_partition_gate(
 
     These are the estimated work of the family that partitioning would replace, in candidate/set
     evaluations, and the estimated cost of partitioning in the same unit, which the search
-    multiplies by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), and the
-    unit ``b * k**2 * n``, summed over coverages ``b``, that ``partition_cost_factor`` multiplies.
+    multiplies by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), the
+    unit ``b * k**2 * n``, summed over coverages ``b``, that ``partition_cost_factor`` multiplies,
+    and the least work that any partitioned family could do, which a search with automorphisms
+    compares with the work of their family.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     total_coverage = sum(range(2, tuning.max_partition_coverage + 1))
     cost = tuning.partition_cost_factor * total_coverage * dimension**2 * num_columns
     work = basis_family.certificate.work(upper_bound)
+    optimistic_work = basis_families._estimate_optimistic_work(
+        dimension,
+        num_columns,
+        basis_family.weight_divisor,
+        upper_bound,
+        tuning.max_information_sets,
+        basis_families.get_capped_binomials(dimension),
+    )
     return {
         "rows": dimension,
         "columns": num_columns,
@@ -251,7 +286,12 @@ def get_partition_gate(
         "estimated_cost": int(cost),
         "unit": total_coverage * dimension**2 * num_columns,
         "ratio": tuning.partition_work_ratio,
-        "partitioned": bool(work >= tuning.partition_work_ratio * cost),
+        "optimistic_work": int(optimistic_work),
+        "partitioned": bool(
+            tuning.max_partition_coverage >= 2
+            and work >= tuning.partition_work_ratio * cost
+            and work > optimistic_work
+        ),
     }
 
 

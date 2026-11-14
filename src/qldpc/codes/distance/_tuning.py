@@ -271,11 +271,12 @@ class SearchTuning:
     #: A search builds families by matroid partitioning only if its estimated work is at least this
     #: multiple of the estimated cost of partitioning (see ``partition_cost_factor``).  Lowering it
     #: tries partitioning on cheaper searches; zero always tries, and ``MAX_VALUE`` never does
-    #: unless ``partition_cost_factor`` is zero.  The estimated work can exceed the work done many
-    #: times over, so the ratio does not bound the time that an attempt wastes.  Defaults to 500, a
-    #: judgment call: no value separated the timed searches that partitioning slows, which switch to
-    #: automorphism images, from those that it speeds up; 500 misclassified the fewest.  To retune
-    #: it, time searches with and without partitioning, on codes with and without automorphisms.
+    #: unless ``partition_cost_factor`` is zero.  Searches given automorphisms switch to their
+    #: images instead if those do no more work than any partitioned family could.  Estimated work
+    #: can far exceed the work done, so the ratio does not bound wasted time.  Defaults to 500, a
+    #: judgment call: no value separated the timed searches that partitioning slowed from those that
+    #: it sped up; 500 misclassified the fewest.  To retune it, time searches with and without
+    #: partitioning.
     partition_work_ratio: int = 500
 
     #: The largest coverage, the most information sets that contain any one column, that matroid
@@ -312,13 +313,13 @@ class SearchTuning:
 
     #: A distance search asks at most once for the automorphisms that its caller passes.  It asks
     #: before scanning its first coefficient layer of at least this estimated work, in candidate/set
-    #: evaluations.  It then searches the images of one information set under them if that predicts
-    #: less work (Section 3.7 of ``brouwer_zimmermann.md``).  Finding them, as the
-    #: ``get_distance_exact`` methods of binary quantum codes do, takes milliseconds.  Lowering this
-    #: threshold pays that cost on cheaper searches.  A threshold of zero asks before the first
-    #: layer, and ``MAX_VALUE`` never asks.  Defaults to 10**8, between ``3 * 10**7`` and
-    #: ``3 * 10**8``, over which the quick searches timed decide alike.  To retune it, time searches
-    #: with and without automorphisms.
+    #: evaluations, or before matroid partitioning if it would partition.  It then searches the
+    #: images of one information set under them if that predicts less work (Section 3.7 of
+    #: ``brouwer_zimmermann.md``).  Finding them, as the ``get_distance_exact`` methods of binary
+    #: quantum codes do, takes milliseconds.  Lowering this threshold pays that cost on cheaper
+    #: searches.  A threshold of zero asks before the first layer, and ``MAX_VALUE`` never asks.
+    #: Defaults to 10**8, between ``3 * 10**7`` and ``3 * 10**8``, over which the quick searches
+    #: timed decide alike.  To retune it, time searches with and without automorphisms.
     automorphism_minimum_layer_work: int = 100_000_000
 
     # Fields of connected-support searches.
