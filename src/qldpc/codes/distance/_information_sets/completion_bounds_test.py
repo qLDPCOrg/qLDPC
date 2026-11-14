@@ -121,20 +121,18 @@ def test_bounds_ignore_ones_past_the_tails() -> None:
 
 
 def test_tables_fit_their_memory_limit() -> None:
-    """Tables use the blocks of the tuning that fit, or else its fallback blocks.
+    """Tables use the blocks of the tuning if they fit, and otherwise none.
 
     Tables of tails without ones skip nothing, so a search builds none.
     """
-    # Three rows of tables of five eight-column blocks take 3 * 5 * 256 bytes.
-    assert cb._get_block_bits(4, 40, _with_table_bytes(3 * 5 * 256)) == 8
-    assert cb._get_block_bits(4, 40, _with_table_bytes(3 * 5 * 256 - 1)) == 0
-    assert cb._get_block_bits(4, 40, _with_table_bytes(2**30)) == 16
-    # With blocks of four columns, and two as the fallback, the tables of the same tails take
-    # 3 * 10 * 16 and 3 * 20 * 4 bytes.
-    narrow = dataclasses.replace(
-        DEFAULT_TUNING, completion_bound_block_bits=4, completion_bound_fallback_block_bits=2
-    )
-    for max_table_bytes, block_bits in ((480, 4), (479, 2), (239, 0)):
+    # Three rows of tables of three sixteen-column blocks (the last of eight columns) take
+    # 3 * (2 * 2**16 + 2**8) bytes.
+    fitting_bytes = 3 * (2 * 2**16 + 2**8)
+    assert cb._get_block_bits(4, 40, _with_table_bytes(fitting_bytes)) == 16
+    assert cb._get_block_bits(4, 40, _with_table_bytes(fitting_bytes - 1)) == 0
+    # With blocks of four columns, the tables of the same tails take 3 * 10 * 16 bytes.
+    narrow = dataclasses.replace(DEFAULT_TUNING, completion_bound_block_bits=4)
+    for max_table_bytes, block_bits in ((480, 4), (479, 0)):
         tuning = dataclasses.replace(narrow, completion_bound_max_table_bytes=max_table_bytes)
         assert cb._get_block_bits(4, 40, tuning) == block_bits
     assert cb._get_num_tail_bits(np.zeros((4, 2), dtype=np.uint64)) == 0

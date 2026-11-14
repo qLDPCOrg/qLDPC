@@ -57,10 +57,13 @@ def test_information_set_packing() -> None:
     basis = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
     assert get_family(basis, None).ranks.tolist() == [2, 1]
 
-    # A packing of a basis of k rows keeps at most 2**k - 1 full sets, however many fit.
-    assert get_family(np.ones((1, 9), dtype=np.uint8), None).ranks.tolist() == [1]
-    two_rows = np.array([[1, 0, 1] * 4, [0, 1, 1] * 4], dtype=np.uint8)
-    assert get_family(two_rows, None).ranks.tolist() == [2, 2, 2]
+    # A packing of a basis of k rows keeps at most 2**k - 1 full sets, however many fit, and a
+    # natural order that reaches that limit needs no random orders: here 8 sets fit, and 7 stay.
+    three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
+    packing = basis_families._get_disjoint_sets_for_columns
+    with mock.patch.object(basis_families, "_get_disjoint_sets_for_columns", wraps=packing) as spy:
+        assert get_family(three_rows, None).ranks.tolist() == [3] * 7
+    assert spy.call_count == 1
 
     # Each set takes its pivots from the remaining columns in the given order, so a random column
     # order shapes every set of a packing.

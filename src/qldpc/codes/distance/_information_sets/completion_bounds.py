@@ -120,9 +120,8 @@ def select_completion_tables(
     from random supports of the layer, a conservative lower bound on the share that tables would
     skip.  It predicts the cost of scanning the layer with tables, counting the cost of building
     them unless the search passes its tables of ``rows`` as ``current``.  Tables use blocks of
-    ``tuning.completion_bound_block_bits`` columns, or of
-    ``tuning.completion_bound_fallback_block_bits`` if those would need more than
-    ``tuning.completion_bound_max_table_bytes`` bytes.
+    ``tuning.completion_bound_block_bits`` columns, and a layer whose tables would need more than
+    ``tuning.completion_bound_max_table_bytes`` bytes gets none.
 
     Returns:
         Tables, possibly ``current``, if the predicted cost is at most
@@ -282,13 +281,10 @@ def _get_table_bytes(num_rows: int, offsets: npt.NDArray[np.int64]) -> int:
 
 
 def _get_block_bits(num_rows: int, num_bits: int, tuning: SearchTuning) -> int:
-    """Choose the blocks of the tuning, or its fallback blocks, whose tables fit, or else 0."""
-    for block_bits in (
-        tuning.completion_bound_block_bits,
-        tuning.completion_bound_fallback_block_bits,
-    ):
-        if _tables_fit(num_rows, num_bits, block_bits, tuning.completion_bound_max_table_bytes):
-            return block_bits
+    """Return the block width of the tuning if its tables fit, or else 0."""
+    block_bits = tuning.completion_bound_block_bits
+    if _tables_fit(num_rows, num_bits, block_bits, tuning.completion_bound_max_table_bytes):
+        return block_bits
     return 0
 
 

@@ -540,7 +540,8 @@ def _get_disjoint_sets(
     """Construct a large deterministic packing of disjoint information sets.
 
     The natural column order is tried first, and then up to ``random_column_orders`` random orders,
-    until one reaches the most full sets that the columns could allow.
+    until one reaches the most full sets that a packing keeps: the nonzero columns divided by the
+    rows, or ``2**rows - 1`` if that is smaller (see ``_get_max_full_sets``).
     """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
@@ -580,12 +581,13 @@ def _get_disjoint_sets(
 
 
 def _get_max_full_sets(dimension: int) -> int:
-    """The most full disjoint information sets that a packing of ``dimension`` rows keeps.
+    """The most full disjoint information sets that a packing of ``dimension`` basis rows keeps.
 
     The layers of one information set reach all ``2**dimension - 1`` nonzero combinations of rows,
-    so a search of more sets than that would examine more candidates than enumerating every word of
-    one set.  Only long bases of very few rows have room for more, and stopping there keeps the
-    setup of their searches from growing with the square of their length.
+    so scanning a layer of more sets than that would examine more candidates than enumerating every
+    word.  Only bases with more than ``dimension * (2**dimension - 1)`` nonzero columns have room
+    for more, and the limit keeps the memory of their packing from growing with the square of their
+    length.
     """
     return (1 << dimension) - 1
 
@@ -620,7 +622,8 @@ def _get_disjoint_sets_for_columns(
         information_sets.append((working, working_labels, pivots))
 
         # A set with fewer pivots than rows is partial.  The columns that remain span at most
-        # ``rank`` dimensions, so no later set could be full, and this is the last one.
+        # ``rank`` dimensions, so no later set could be full, and this is the last one.  A packing
+        # also stops at its limit of full sets.
         if rank < dimension or len(information_sets) == max_full_sets:
             break
 

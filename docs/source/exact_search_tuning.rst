@@ -109,7 +109,7 @@ Routes and the names that control them
      -
      - `Section 3.9 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#39-skipping-completions-by-completion-tables>`__
    * - The memory and the blocks of completion tables
-     - :attr:`SearchTuning.completion_bound_max_table_bytes`, :attr:`SearchTuning.completion_bound_block_bits`, :attr:`SearchTuning.completion_bound_fallback_block_bits`, and in :class:`~qldpc.codes.distance.CosetLeaderSearch` :attr:`SearchTuning.coset_completion_block_bits`
+     - :attr:`SearchTuning.completion_bound_max_table_bytes`, :attr:`SearchTuning.completion_bound_block_bits`, and in :class:`~qldpc.codes.distance.CosetLeaderSearch` :attr:`SearchTuning.coset_completion_block_bits`
      -
      -
    * - Estimating how much completion tables would skip

@@ -1264,9 +1264,8 @@ def test_searches_take_completion_limits_from_their_tuning(
     The tuning keeps the searches from building an overlapping family, which would hold a word of
     weight four and end them before any layer.  Every information set of either sector of this
     [[36, 4, 4]] code has 20 rows and 16 tail columns, so tables of one sixteen-column block take
-    19 * 2**16 bytes, and tables of two eight-column blocks take 19 * 2 * 2**8 bytes.  A tuning
-    that forces tables uses sixteen-column blocks, a smaller memory limit eight-column blocks, and a
-    limit of zero bytes or of zero cost, or the largest threshold of layer work, no tables.
+    19 * 2**16 bytes.  A tuning that forces tables uses sixteen-column blocks, and one byte less
+    memory, a limit of zero cost, or the largest threshold of layer work gives no tables.
     """
     block_bits: set[int] = set()
     select = completion_bounds.select_completion_tables
@@ -1287,8 +1286,7 @@ def test_searches_take_completion_limits_from_their_tuning(
     )
     for limits, expected_block_bits in (
         ({}, {16}),
-        ({"completion_bound_max_table_bytes": 19 * 2 * 2**8}, {8}),
-        ({"completion_bound_max_table_bytes": 0}, set()),
+        ({"completion_bound_max_table_bytes": 19 * 2**16 - 1}, set()),
         ({"completion_bound_max_cost_percent": 0}, set()),
         ({"completion_bound_minimum_layer_work": MAX_VALUE}, set()),
     ):
