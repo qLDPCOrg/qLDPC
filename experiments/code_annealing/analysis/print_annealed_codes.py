@@ -6,10 +6,10 @@ Run with ``python -m experiments.code_annealing.analysis.print_annealed_codes``.
 with ``--num-qubits``, ``--num-logicals``, and ``--code-type``.  Each line shows the code type, the
 code size, the file that holds the code, the role of the code in its run (a record, or a code that
 a chain checkpoint holds), and the exact (distance, number of minimum-weight X-only plus Z-only
-logical operators, mean stabilizer weight).  The mean weight is that of generators lowered by
-``reduce_weights``.  Every code is rechecked, so this takes as long as counting the logical
-operators of all of them.  Pass explicit checkpoints, which bring their records along, to summarize
-runs saved elsewhere, and ``--csv`` to keep every exact count of every selected code in
+logical operators, mean stabilizer weight).  The mean weight is that of the minimum-weight
+generators of ``reduce_weights``.  Every code is rechecked, so this takes as long as counting the
+logical operators of all of them.  Pass explicit checkpoints, which bring their records along, to
+summarize runs saved elsewhere, and ``--csv`` to keep every exact count of every selected code in
 ``data/saved_codes.csv`` of the results directory.
 """
 

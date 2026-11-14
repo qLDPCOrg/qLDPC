@@ -192,24 +192,33 @@ def get_reduced_weights(code: CSSCode) -> list[int]:
 
 
 def reduce_weights(matrix: npt.ArrayLike) -> npt.NDArray[np.uint8]:
-    """Lower the weights of independent generators by adding rows to each other.
+    """Generators of the space that the rows of a matrix span, with the least possible weights.
 
-    A row is replaced by its sum with another row whenever that is lighter, until no sum is.  The
-    result spans the same space, with greedily low weights; it need not be the lowest possible.
+    This lists all ``2**r`` words of the space of ``r`` independent rows, and takes them in order of
+    weight whenever they are independent of the words already taken.  The resulting generators have
+    the least possible total weight, and the least possible maximum weight.
     """
     rows = np.array(matrix, dtype=np.uint8)
-    improved = True
-    while improved:
-        improved = False
-        for ii in range(len(rows)):
-            sums = rows ^ rows[ii]
-            sums[ii] = rows[ii]
-            weights = sums.sum(axis=1, dtype=int)
-            jj = int(np.argmin(weights))
-            if weights[jj] < rows[ii].sum(dtype=int):
-                rows[ii] = sums[jj]
-                improved = True
-    return rows
+    words = np.zeros((1, rows.shape[1]), dtype=np.uint8)
+    for row in rows:
+        words = np.concatenate([words, words ^ row])
+    words = words[np.argsort(words.sum(axis=1), kind="stable")]
+
+    # Keep each word that is independent of the words already kept, which ``reduced`` holds in
+    # echelon form: each row has a zero at the first one of every earlier row.
+    chosen: list[npt.NDArray[np.uint8]] = []
+    reduced: list[npt.NDArray[np.uint8]] = []
+    for word in words:
+        remainder = word.copy()
+        for basis_row in reduced:
+            if remainder[np.argmax(basis_row)]:
+                remainder ^= basis_row
+        if remainder.any():
+            chosen.append(word)
+            reduced.append(remainder)
+            if len(chosen) == len(rows):
+                break
+    return np.array(chosen, dtype=np.uint8).reshape(-1, rows.shape[1])
 
 
 ####################################################################################################

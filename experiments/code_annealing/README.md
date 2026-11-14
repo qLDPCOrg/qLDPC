@@ -200,7 +200,7 @@ experiments/code_annealing/
 
 The tests cover what could go wrong unnoticed.
 That is the search modules of `core/`, and the numbers that the scripts derive from codes beyond the exact counts.
-Those numbers are the supports of minimum-weight logical operators (`analysis/half_supports.py` and `analysis/min_weight_supports.py`), and the low-weight generators of code files (`reduce_weights`).
+Those numbers are the supports of minimum-weight logical operators (`analysis/half_supports.py` and `analysis/min_weight_supports.py`), and the minimum-weight generators of code files (`reduce_weights`).
 The tests compare with small codes whose answers are derived by hand, or with brute force, rather than repeating the code that they test.
 The other scripts and helpers have no tests: they are plain formulas or file handling, and when one of them breaks, its output shows it.
 The tests are offline and local-only, and do not run in CI.

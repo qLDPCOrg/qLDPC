@@ -8,6 +8,7 @@ they are checked against small codes whose supports are derived by hand.
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import galois
@@ -66,16 +67,28 @@ def test_only_the_sector_of_the_lighter_logicals_has_minimum_weight_supports(lig
     )
 
 
-def test_reduced_generators_span_the_same_space_and_no_sum_of_two_is_lighter() -> None:
-    # Adding the rows 1111 and 1110 gives 0001, which is lighter than 1111, and no further sum is
-    # lighter than a row.
-    reduced = reduce_weights([[1, 1, 1, 1], [1, 1, 1, 0]])
-    assert {tuple(row) for row in reduced} == {(0, 0, 0, 1), (1, 1, 1, 0)}
+def test_reduced_generators_have_the_least_weights_of_any_generators_of_the_same_space() -> None:
+    # Every set of generators of the space, found by trying all sets of nonzero words, is an oracle.
     rng = np.random.default_rng(0)
-    for _ in range(20):
-        matrix = galois.GF2.Random((5, 12), seed=rng)
+    for _ in range(10):
+        matrix = galois.GF2.Random((3, 7), seed=rng)
+        if np.linalg.matrix_rank(matrix) < 3:
+            continue
+        words = [
+            row
+            for row in (
+                galois.GF2(list(coefficients)) @ matrix
+                for coefficients in itertools.product((0, 1), repeat=3)
+            )
+            if row.any()
+        ]
+        bases = [
+            subset
+            for subset in itertools.combinations(words, 3)
+            if np.linalg.matrix_rank(galois.GF2(np.array(subset))) == 3
+        ]
         rows = reduce_weights(matrix).astype(int)
         assert np.array_equal(galois.GF2(rows).row_reduce(), matrix.row_reduce())
-        weights = rows.sum(axis=1)
-        sums = (rows[:, None, :] ^ rows[None, :, :]).sum(axis=2)
-        assert all(sums[ii, jj] >= weights[ii] for ii in range(5) for jj in range(5) if ii != jj)
+        weights = [int(np.count_nonzero(row)) for row in rows]
+        assert sum(weights) == min(sum(int(np.count_nonzero(w)) for w in basis) for basis in bases)
+        assert max(weights) == min(max(int(np.count_nonzero(w)) for w in basis) for basis in bases)
