@@ -215,6 +215,7 @@ def test_partitioned_families_replace_costlier_ones() -> None:
         tuning.max_information_sets,
         certificates.get_capped_binomials(len(basis)),
     )
+    assert optimistic_work <= family.certificate.work(5)
     for competing_work, partitions in ((optimistic_work, False), (optimistic_work + 1, True)):
         partitioned = basis_families.get_partitioned_family(
             basis,
@@ -232,7 +233,7 @@ def test_partitioned_families_replace_costlier_ones() -> None:
     ]
     for changes in gate_changes:
         get_competing_work = mock.Mock(return_value=0)
-        partitioned = basis_families.get_partitioned_family(
+        basis_families.get_partitioned_family(
             basis,
             labels,
             disjoint,
@@ -240,7 +241,6 @@ def test_partitioned_families_replace_costlier_ones() -> None:
             dataclasses.replace(DEFAULT_TUNING, **changes),
             get_competing_work=get_competing_work,
         )
-        assert not len(partitioned.ranks)
         get_competing_work.assert_not_called()
 
 

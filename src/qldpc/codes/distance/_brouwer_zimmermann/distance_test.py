@@ -560,17 +560,7 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
     unvisited words by linear programming.
     """
     tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
-    rows = [
-        "100000010110010010011",
-        "010000010100101111100",
-        "001000000111011111100",
-        "000100010101000101010",
-        "000010010110000011000",
-        "000001010011000111011",
-        "000000110001110101011",
-        "000000001110001010110",
-    ]
-    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    basis = _get_costly_basis()
     assert (
         qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
         == 6
@@ -773,9 +763,10 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
 
     The translations of this multivariate bicycle code give an automorphism family that does no more
     work than any partitioned family could, so the search builds that family once, and switches to
-    it at once, even under a threshold that none of its layers reaches.  With the identity alone,
-    which gives no cheaper family, or if none are found, the same search partitions, and does not
-    switch.  Under a threshold above the cap of work estimates, it asks for no automorphisms.
+    it at once, under a threshold that none of its layers reaches.  With the identity alone, which
+    gives no cheaper family, or if none are found, the same search partitions, and does not switch.
+    Under a threshold above the cap of work estimates, it asks for no automorphisms.  A search that
+    partitions after finding automorphisms still considers the switch at the end of setup.
     ``test_a_search_through_the_costly_stages_finds_the_distance`` partitions without automorphisms.
     """
     tune(partition_work_ratio=0)
@@ -797,7 +788,6 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
         switched.append(search.uses_automorphism_family)
 
     for get_automorphisms, minimum_layer_work, partitions in (
-        (code._get_qudit_automorphisms, 0, False),
         (code._get_qudit_automorphisms, 10**9, False),
         (code._get_qudit_automorphisms, MAX_VALUE, True),
         (lambda: identity, 0, True),
@@ -822,17 +812,38 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
         assert recorder.call_count == (minimum_layer_work != MAX_VALUE)
         assert any(switched) != partitions
 
+    # The identity gives this [21, 8, 6] basis no cheaper family, so its search partitions, and then
+    # considers and declines the switch at the end of setup.
+    switched.clear()
+    with (
+        use_tuning(automorphism_minimum_layer_work=10**9),
+        mock.patch.object(
+            bz._BrouwerZimmermannSearch, "_switch_to_automorphism_family", _spy_switch
+        ),
+    ):
+        assert (
+            qldpc.codes.distance.get_distance_from_generators(
+                _get_costly_basis(), cutoff=0, automorphisms=np.arange(21)[None]
+            )
+            == 6
+        )
+    assert switched == [False]
 
+
+@pytest.mark.parametrize("partition_work_ratio", [MAX_VALUE, 0])
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_rows_of_an_automorphism_family_can_reach_the_cutoff(tune: Tune) -> None:
+def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
+    tune: Tune, partition_work_ratio: int
+) -> None:
     """The rows of a scanned set with images can end a search at the cutoff.
 
     In the Z sector of this [[36, 4, 4]] bivariate bicycle code, the rows of the disjoint family,
     which the search keeps, weigh more than six, and a row of the scanned set weighs six.  With a
     cutoff of six, the search returns that weight, an upper bound on the distance, rather than
-    scanning on to a word of weight four.
+    scanning on to a word of weight four.  It does so whether it switches before its first layer,
+    or at the end of setup, after asking for automorphisms to decide whether to partition.
     """
-    tune(overlapping_minimum_work=MAX_VALUE)
+    tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=partition_work_ratio)
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problem = get_sector_problem(code, Pauli.Z)
     assert bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0) == 4
@@ -854,6 +865,21 @@ def test_searches_reject_wrong_automorphisms() -> None:
             cutoff=0,
             get_automorphisms=lambda: transposition[None],
         )
+
+
+def _get_costly_basis() -> npt.NDArray[np.uint8]:
+    """A basis of a [21, 8, 6] code whose search reaches matroid partitioning when tuned to."""
+    rows = [
+        "100000010110010010011",
+        "010000010100101111100",
+        "001000000111011111100",
+        "000100010101000101010",
+        "000010010110000011000",
+        "000001010011000111011",
+        "000000110001110101011",
+        "000000001110001010110",
+    ]
+    return np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
 
 
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

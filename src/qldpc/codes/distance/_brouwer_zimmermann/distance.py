@@ -211,11 +211,11 @@ class _BrouwerZimmermannSearch:
     the search skipped, so a bound on the distance is ``min(lower_bound, best)``.
 
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
-    The search calls it once, before the first layer whose scan would cost at least
-    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations, unless setup built that
-    family already, to decide whether to partition, and then had the search consider it at once.
-    The search switches to the automorphism family if it predicts less work (see
-    ``_switch_to_automorphism_family``).
+    If the search would partition, setup calls it first, and has the search consider the switch at
+    the end of setup.  Otherwise the search calls it before the first layer whose scan would cost at
+    least ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  Either way, it is
+    called at most once, and the search switches to the automorphism family if it predicts less
+    work (see ``_switch_to_automorphism_family``).
 
     A layer of two or more rows that scans one set whose block is an information set uses
     ``affine_search.scan_information_set``.  Such a layer may skip the supports whose last two rows
@@ -671,9 +671,12 @@ def _prepare_brouwer_zimmermann_search(
     )
 
     # A search whose setup found automorphisms, to decide whether to partition, has paid for them,
-    # so it considers switching to their family at once rather than before a costly layer.
+    # so it considers switching to their family at once rather than before a costly layer.  The rows
+    # of that family can lower the best weight, and its certificate can finish the search.
     if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
         search._switch_to_automorphism_family()
+        if search.finished:
+            return search.best
     return search
 
 

@@ -931,6 +931,7 @@ The disjoint family, its pruning, and any overlapping or partitioned replacement
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
 | Exhaustive by work | Runs exhaustive enumeration if the tuning field `allow_enumeration_by_work` is true and `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
+| Switch at the end of setup | If setup found automorphisms, to decide whether to partition, the search considers switching to their family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); returns if then `U ≤ cutoff` or `L(1) ≥ U` |
 | Ready search | Returns a `_BrouwerZimmermannSearch` that scans from layer two |
 
 Exhaustive enumeration is chosen automatically at two points: preparation's size check, and preparation's work check.
@@ -1065,7 +1066,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   Successive compiled batches that scan the same sets reuse their local `support` and `prefixes` arrays.
   Once the leading search bases that `advance` scans have completed a layer, it may raise `lower_bound`, since the certificate of [Section 2.5](#25-the-stopping-certificate) can advance within a layer.
   It increments `next_weight`, the coefficient weight of the next layer, only once every search basis has completed that layer.
-  Before a costly layer, `advance` may switch the search to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`; setup may already have done so, if it found automorphisms to decide whether to partition.
+  Before a costly layer, `advance` may switch the search to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
+  If setup asked for automorphisms before partitioning, it has already considered this switch, and `advance` does not consider it again.
   If the scan of a layer stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan.
   A switch earlier in the same call still takes effect.
   A subsequent call that is still permitted to advance restarts the unfinished layer from its first support.

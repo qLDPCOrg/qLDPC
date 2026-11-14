@@ -16,8 +16,8 @@ records:
   that the gates of overlapping families and of partitioning compare: for overlapping families, the
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
   search and the cost of partitioning, in candidate/set evaluations, the least work that any
-  partitioned family could do, and whether the gates let it try (``partitioned``), even if it then
-  found no family.  Before trying, a search with automorphisms asks for them, verifies them, and
+  partitioned family could do, and whether it tried (``partitioned``), even if it then found no
+  family.  Before trying, a search with automorphisms asks for them, verifies them, and
   builds their family, and skips partitioning if that family does no more work than the least work
   of a partitioned family.  The trace records that family's work (``competing_work``) and the
   seconds those steps took (``competing_seconds``), which the seconds of partitioning include;
