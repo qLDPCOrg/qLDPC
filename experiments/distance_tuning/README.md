@@ -104,6 +104,12 @@ These measures reach only so far:
 - The cost limit and the number of samples of completion tables rest on a few long-run layers and searches, and the cost model errs in both directions.
 - Two workloads of fault-propagation certificates, used to choose no value, ran no slower with the values decided last, with the cost limit then at 100, but their queries are too cheap to test the values that changed.
 - The final set of values was not timed as a whole.
+- The estimated work of a distance search, which `overlapping_minimum_work`, `partition_work_ratio`, and `lp_minimum_work` read, often overstates the work done by a wide margin that varies between searches, so these thresholds stand for no fixed amount of time.
+- The cost model of completion tables was fitted on layers that scan one set, and takes a scan of several sets one at a time without tables to cost about as much as their scan in lockstep.
+- Coset searches choose the family of information sets that answers each maximum weight by the words that a query would weigh or skip, not by time, so they can choose a slower family.
+- A distance search decides at most once whether to switch to automorphism images, and does not revisit that choice as it finds lighter words.
+
+These limits affect only the speed of searches, never their exact results.
 
 ## 7. Reproduce the measurements
 
