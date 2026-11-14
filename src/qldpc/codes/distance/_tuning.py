@@ -289,11 +289,11 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``); one that would partition considers it at the end of setup.  A
     #: search that declined reconsiders once its best weight drops.  Lowering it pays for
     #: automorphisms on cheaper searches; zero considers before the first layer, and ``MAX_VALUE``
-    #: never.  Defaults to ``5 * 10**6``, derived by break-even: finding automorphisms and building
-    #: their images took at most 7.33 ms, on ``hadamard/gross`` of ``experiments/distance_tuning``,
-    #: or about ``5.6 * 10**6`` evaluations at 1.32 ns each, the median over six of its workloads of
-    #: the net seconds per evaluation of layers of at least ``10**7`` evaluations without tables.
-    #: Rounding that count by ratio to 1, 2, or 5 times a power of ten gives the default.
+    #: never.  Defaults to ``5 * 10**6``, a derived value (see :ref:`Retuning <tuning-retuning>`):
+    #: finding automorphisms and building their images took at most 7.33 ms, on ``hadamard/gross``
+    #: of ``experiments/distance_tuning``, or about ``5.6 * 10**6`` evaluations at 1.32 ns each, the
+    #: median over six of its workloads of the net seconds per evaluation of layers of at least
+    #: ``10**7`` evaluations without tables.
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-support searches.

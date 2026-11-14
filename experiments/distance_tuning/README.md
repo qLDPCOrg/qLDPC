@@ -24,6 +24,7 @@ On an Apple M3 Max that also ran other work, one candidate/set evaluation took 1
 | `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets: 3.1 to 3.3 ms, or `2.3 * 10**6` to `2.7 * 10**6` evaluations, on `distance/qt7/X`, of 181 rows; the builds on the 175 rows of `distance/lp13s5/X` took 2.7 to 3.2 ms, and on the 48 rows of `distance/classical:128:80:6/-` 0.6 ms |
 | `lp_minimum_work` | `2 * 10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.22 to 0.23 s, or `1.6 * 10**8` to `1.85 * 10**8` evaluations, for planning and programs |
 | `completion_bound_max_cost_percent` | 100 | None: the limit compares two estimates in one unit |
+| `automorphism_minimum_layer_work` | `5 * 10**6` | Finding automorphisms and building their images: at most 7.33 ms, on `hadamard/gross`, or about `5.6 * 10**6` evaluations at 1.32 ns, an earlier measurement of nine searches that `constants.py` does not yet repeat |
 
 These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases.
 The constant of linear programming rose by about a third when BZ searches stopped scanning several information sets in lockstep (#869): in paired runs of the script at the same load, the search took 0.17 s (`1.2 * 10**8` to `1.3 * 10**8` evaluations) before that change, and 0.22 s (`1.8 * 10**8`) after it, with 11 programs in each.
@@ -148,7 +149,7 @@ The exception is `automorphism_minimum_layer_work`: every command ran with it at
 The commands ran with a ratio and a cost factor of partitioning, whose product they give as `partition_work_ratio`.
 Their `overlapping_minimum_work` also gated the routes of coset searches, which `coset_route_minimum_work` now gates, so to repeat a setting of it, in an arm or a `--base`, on coset workloads, set both.
 Partitioning then tried coverages from two up to a field, later removed, whose default was 4; the arm of `p3-aut` and of `p3-noaut` that set it to 2 now repeats their first arm, and the sweep `c2-coverage`, which timed only that field, is in the Git history of this file.
-The measurements of one search, and the traces of the windows of section 5, ran at the earlier defaults; to repeat them on the current code, add `{"partition_work_ratio": 5000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000}` to their tunings, whose own settings take precedence.
+The measurements of one search, and the traces of the windows of section 5, ran at the earlier defaults; to repeat them on the current code, add `{"partition_work_ratio": 5000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000, "automorphism_minimum_layer_work": 100000000}` to their tunings, whose own settings take precedence.
 Only partitioning then differs, in the coverages that it tries and in the unit of its gate.
 
 Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`.
