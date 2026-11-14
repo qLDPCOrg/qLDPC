@@ -189,10 +189,11 @@ def test_partitioned_families_replace_costlier_ones() -> None:
         tuning = dataclasses.replace(DEFAULT_TUNING, **fields)
         return basis_families.get_partitioned_family(basis, labels, disjoint, 5, tuning)
 
-    # A family needs a set to hold, a coverage of two or more, and partitioning that pays.
+    # A family needs a set to hold, a coverage of two or more, and partitioning that pays.  Even a
+    # ratio of one rules partitioning out here, since the disjoint family does less work than the
+    # 9 * 4**2 * 10 evaluations of the unit of the ratio, for the coverages two to four.
     assert not len(get_family(partition_work_ratio=2**62).ranks)
-    assert not len(get_family(partition_cost_factor=2**40, partition_work_ratio=1).ranks)
-    assert len(get_family(partition_cost_factor=0, partition_work_ratio=1).ranks)
+    assert not len(get_family(partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
     assert not len(get_family(max_partition_coverage=1).ranks)
     family = get_family()

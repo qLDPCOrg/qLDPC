@@ -307,7 +307,6 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         overlapping_attempts_per_set=3,
         partition_work_ratio=0,
         max_partition_coverage=3,
-        partition_cost_factor=7,
         lp_minimum_work=0,
         lp_dual_max_denominator=97,
         enumeration_batch_exponent=6,

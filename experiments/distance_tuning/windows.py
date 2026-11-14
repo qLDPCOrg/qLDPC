@@ -16,10 +16,10 @@ are compared with are:
   layer or step that uses them;
 - ``completion_bound_max_cost_percent``: each predicted cost of completion tables, in percent, which
   a layer accepts if it is at most the threshold;
-- the product of ``partition_work_ratio`` and ``partition_cost_factor``: the estimated work of a
-  search divided by ``b * k**2 * n``.  A search tries matroid partitioning if this quotient reaches
-  the product.  If it has automorphisms, it first asks for them, may skip partitioning, and
-  considers the switch at the end of setup (see ``trace.py``);
+- ``partition_work_ratio``: the estimated work of a search divided by ``b * k**2 * n``, summed over
+  the coverages ``b``.  A search tries matroid partitioning if this quotient reaches the threshold.
+  If it has automorphisms, it first asks for them, may skip partitioning, and considers the switch
+  at the end of setup (see ``trace.py``);
 - ``overlapping_minimum_work``: the estimated work of a family that an overlapping family may
   replace, if it reaches the threshold, after the checks that come before it;
 - ``lp_minimum_work``: the estimated work of a certificate of overlapping sets, which may solve
@@ -78,7 +78,7 @@ def main() -> None:
     thresholds = get_thresholds(tuning)
     gates: dict[str, list[Gate]] = {field: [] for field in thresholds}
     for trace in traces:
-        for field, gate in get_gates(trace, tuning):
+        for field, gate in get_gates(trace):
             gates[field].append(gate)
     for field, threshold in thresholds.items():
         found = gates[field]
@@ -150,19 +150,18 @@ def get_tuning(traces: list[dict[str, Any]]) -> _tuning.SearchTuning:
 
 
 def get_thresholds(tuning: _tuning.SearchTuning) -> dict[str, float]:
-    """The thresholds of a tuning, with the partition fields as their product."""
+    """The thresholds of a tuning."""
     return {
         "completion_bound_minimum_layer_work": tuning.completion_bound_minimum_layer_work,
         "completion_bound_max_cost_percent": tuning.completion_bound_max_cost_percent,
-        "partition_work_ratio * partition_cost_factor": tuning.partition_work_ratio
-        * tuning.partition_cost_factor,
+        "partition_work_ratio": tuning.partition_work_ratio,
         "overlapping_minimum_work": tuning.overlapping_minimum_work,
         "lp_minimum_work": tuning.lp_minimum_work,
         "automorphism_minimum_layer_work": tuning.automorphism_minimum_layer_work,
     }
 
 
-def get_gates(trace: dict[str, Any], tuning: _tuning.SearchTuning) -> list[tuple[str, Gate]]:
+def get_gates(trace: dict[str, Any]) -> list[tuple[str, Gate]]:
     """The decisions of the thresholds in a trace, with the quantities compared with them."""
     workload = trace["workload"]
     gates = []
@@ -179,14 +178,14 @@ def get_gates(trace: dict[str, Any], tuning: _tuning.SearchTuning) -> list[tuple
                 ("completion_bound_max_cost_percent", Gate(100 * event["cost"], workload, detail))
             )
         elif kind == "family" and event["kind"] == "partitioned" and "estimated_work" in event:
-            # Older traces record the cost of partitioning, but not its unit.
-            factor = tuning.partition_cost_factor
-            unit = event.get("unit", event["estimated_cost"] / factor if factor else 0)
+            # A tuning that tries no coverage has a unit of zero, and never partitions.
+            unit = event["unit"]
             if not unit:
                 continue
             detail = f"k={event['rows']} n={event['columns']}"
-            field = "partition_work_ratio * partition_cost_factor"
-            gates.append((field, Gate(event["estimated_work"] / unit, workload, detail)))
+            gates.append(
+                ("partition_work_ratio", Gate(event["estimated_work"] / unit, workload, detail))
+            )
         elif (
             kind == "family"
             and event["kind"] == "overlapping"

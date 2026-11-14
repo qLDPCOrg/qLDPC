@@ -12,8 +12,8 @@ records:
   partitioning), with its number of sets and the seconds that building it took, and the quantities
   that the gates of overlapping families and of partitioning compare: for overlapping families, the
   check that stopped the attempt and the estimated work, and for partitioning, the work of the
-  search and the cost of partitioning, in candidate/set evaluations, the least work that any
-  partitioned family could do, and whether it tried (``partitioned``), even if it then found no
+  search and the unit of ``partition_work_ratio``, in candidate/set evaluations, the least work that
+  any partitioned family could do, and whether it tried (``partitioned``), even if it then found no
   family.  Before trying, a search with automorphisms asks for them, verifies them, and
   builds their family, and skips partitioning if that family does no more work than the least work
   of a partitioned family.  The trace records that family's work (``competing_work``) and the
@@ -254,16 +254,15 @@ def get_partition_gate(
     """The quantities that ``basis_families.get_partitioned_family`` compares to skip it.
 
     These are the estimated work of the family that partitioning would replace, in candidate/set
-    evaluations, and the estimated cost of partitioning in the same unit, which the search
-    multiplies by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), the
-    unit ``b * k**2 * n``, summed over coverages ``b``, that ``partition_cost_factor`` multiplies,
-    and the least work that any partitioned family could do, which a search with automorphisms
-    compares with the work of their family.
+    evaluations, the unit ``b * k**2 * n``, summed over coverages ``b``, that the search multiplies
+    by ``partition_work_ratio`` (see the source of ``get_partitioned_family``), and the least work
+    that any partitioned family could do, which a search with automorphisms compares with the work
+    of their family.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     total_coverage = sum(range(2, tuning.max_partition_coverage + 1))
-    cost = tuning.partition_cost_factor * total_coverage * dimension**2 * num_columns
+    unit = total_coverage * dimension**2 * num_columns
     work = basis_family.certificate.work(upper_bound)
     optimistic_work = basis_families._estimate_optimistic_work(
         dimension,
@@ -277,13 +276,12 @@ def get_partition_gate(
         "rows": dimension,
         "columns": num_columns,
         "estimated_work": int(work),
-        "estimated_cost": int(cost),
-        "unit": total_coverage * dimension**2 * num_columns,
+        "unit": unit,
         "ratio": tuning.partition_work_ratio,
         "optimistic_work": int(optimistic_work),
         "partitioned": bool(
             tuning.max_partition_coverage >= 2
-            and work >= tuning.partition_work_ratio * cost
+            and work >= tuning.partition_work_ratio * unit
             and work > optimistic_work
         ),
     }

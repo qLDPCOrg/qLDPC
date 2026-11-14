@@ -994,7 +994,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 - **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two to `max_partition_coverage`.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
-  It tries this only if its estimated work is at least `partition_work_ratio` times an estimate of the work of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
+  It tries this only if its estimated work is at least `partition_work_ratio` times the sum of `b*r^2*N` over the coverages `b` that it tries, which approximates the cost of partitioning, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
   A distance search with automorphisms also skips it if the work estimate of its automorphism family is at most the least work that the optimistic coverage allows, and switches to that family instead ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.

@@ -233,16 +233,17 @@ class SearchTuning:
     #: attempts, and weigh setup time against the search time saved.
     overlapping_attempts_per_set: int = 2
 
-    #: A search builds families by matroid partitioning only if its estimated work is at least this
-    #: multiple of the estimated cost of partitioning (see ``partition_cost_factor``).  Lowering it
-    #: tries partitioning on cheaper searches; zero always tries, and ``MAX_VALUE`` never does
-    #: unless ``partition_cost_factor`` is zero.  Searches given automorphisms switch to their
-    #: images instead if those do no more work than any partitioned family could.  Estimated work
-    #: can far exceed the work done, so the ratio does not bound wasted time.  Defaults to 500, a
-    #: judgment call: no value separated the timed searches that partitioning slowed from those that
-    #: it sped up; 500 misclassified the fewest.  To retune it, time searches with and without
-    #: partitioning.
-    partition_work_ratio: int = 500
+    #: A search tries matroid partitioning only if its estimated work reaches this multiple of
+    #: ``b * k**2 * n`` candidate/set evaluations, summed over the coverages ``b`` from two to
+    #: ``max_partition_coverage``, for ``k`` rows and ``n`` nonzero columns.  That sum approximates
+    #: the cost of partitioning, which took up to about ten times it on the two searches timed.
+    #: Zero always tries, and ``MAX_VALUE`` never does.  Searches given automorphisms switch to
+    #: their images instead if those do no more work than any partitioned family could.  Estimated
+    #: work can far exceed the work done, so the ratio does not bound wasted time.  Defaults to
+    #: 5000, a judgment call: no value separated the timed searches that partitioning slowed from
+    #: those that it sped up; 5000 misclassified the fewest.  To retune it, time searches with and
+    #: without partitioning.
+    partition_work_ratio: int = 5000
 
     #: The largest coverage, the most information sets that contain any one column, that matroid
     #: partitioning tries; it tries each coverage from two to this value.  Larger values can find
@@ -251,14 +252,6 @@ class SearchTuning:
     #: record which coverage gives the cheapest family, and weigh the time of each further coverage
     #: against the search time it saves.
     max_partition_coverage: int = 4
-
-    #: The estimated cost of partitioning ``b`` copies of the ``n`` nonzero columns of a basis of
-    #: ``k`` rows, in units of ``b * k**2 * n`` candidate/set evaluations.  An underestimate wastes
-    #: time on partitioning that cannot repay itself; an overestimate skips families that would save
-    #: time.  Defaults to 10, the higher end of what partitioning took on the two searches whose
-    #: partitioning was timed.  To refit it, time ``get_information_sets_with_coverage`` of
-    #: ``_information_sets/matroid_partition.py`` in candidate/set evaluations.
-    partition_cost_factor: int = 10
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
     #: information sets also bounds unvisited words by linear programming (Section 3.1 of
