@@ -184,13 +184,13 @@ def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
 
     def record(problems: Any, **kwargs: Any) -> Any:
         widths = [np.shape(sector_checks)[1] for sector_checks, _ in problems]
-        searched.append((widths, kwargs.get("homogeneous", True)))
+        searched.append((widths, kwargs.get("symplectic", False)))
         return get_distance_connected_support(problems, **kwargs)
 
     get_distance_connected_support = core.get_distance_connected_support
     monkeypatch.setattr(core, "get_distance_connected_support", record)
     assert core.get_distance_pauli(checks, method="connected_support") == 3
-    assert searched == [([7, 7], True)]
+    assert searched == [([7, 7], False)]
 
 
 @pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])

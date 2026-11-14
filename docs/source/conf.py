@@ -106,38 +106,120 @@ def _resolve_package_reexports(
     """Resolve references to names that a qLDPC package re-exports from one of its modules.
 
     AutoAPI documents each object only in the module that defines it (see autoapi_options), but type
-    annotations name objects by the paths that code imports them from, such as qldpc.objects.Pauli.
-    This handler resolves such a reference to the documented object that the package re-exports.
+    annotations and docstrings name objects by the paths that code imports them from, such as
+    qldpc.objects.Pauli.  This handler resolves such a reference, or a reference to a member of such
+    an object, such as qldpc.abstract.GroupMember.to_matrix, to the documented object.
     """
     if node.get("refdomain") != "py":
         return None
-    package_name, _, attribute = node.get("reftarget", "").rpartition(".")
-    if not package_name.startswith("qldpc"):
+    names = node.get("reftarget", "").split(".")
+    if names[0] != "qldpc":
         return None
-    try:
-        package = importlib.import_module(package_name)
-    except ImportError:
+    # split the target into a package, a name that it re-exports, and the name of a member, if any
+    for index in range(len(names) - 1, 0, -1):
+        try:
+            package = importlib.import_module(".".join(names[:index]))
+            break
+        except ImportError:
+            pass
+    else:
         return None
+    attribute = names[index]
     if attribute not in getattr(package, "__all__", ()):
         return None
 
     objects = env.get_domain("py").objects
-    targets = [
+    definitions = [
         name
         for name in objects
-        if name.startswith(f"{package_name}.")
+        if name.startswith(f"{package.__name__}.")
         and name.endswith(f".{attribute}")
         and getattr(sys.modules.get(name.rpartition(".")[0]), attribute, None)
         is getattr(package, attribute)
     ]
-    if len(targets) != 1:
+    if len(definitions) != 1:
+        return None
+    target = ".".join([definitions[0], *names[index + 1 :]])
+    if target not in objects:
         return None
     from sphinx.util.nodes import make_refnode
 
-    entry = objects[targets[0]]
-    return make_refnode(
-        app.builder, node["refdoc"], entry.docname, entry.node_id, contnode, targets[0]
+    entry = objects[target]
+    return make_refnode(app.builder, node["refdoc"], entry.docname, entry.node_id, contnode, target)
+
+
+_PYTHON_DOCS = "https://docs.python.org/3/library"
+
+# The documentation of the external objects that the API reference names in code style (see
+# _resolve_external_references), keyed by the names that references use, with names from typing
+# qualified.  The strict docs build must not need network access, so it cannot fetch the inventories
+# that intersphinx would use to find these.
+_EXTERNAL_DOCS = {
+    "UserWarning": f"{_PYTHON_DOCS}/exceptions.html#UserWarning",
+    "ValueError": f"{_PYTHON_DOCS}/exceptions.html#ValueError",
+    "abc.ABC": f"{_PYTHON_DOCS}/abc.html#abc.ABC",
+    "collections.abc.Hashable": f"{_PYTHON_DOCS}/collections.abc.html#collections.abc.Hashable",
+    "collections.abc.Mapping": f"{_PYTHON_DOCS}/collections.abc.html#collections.abc.Mapping",
+    "enum.Enum": f"{_PYTHON_DOCS}/enum.html#enum.Enum",
+    "enum.ReprEnum": f"{_PYTHON_DOCS}/enum.html#enum.ReprEnum",
+    "float": f"{_PYTHON_DOCS}/functions.html#float",
+    "int": f"{_PYTHON_DOCS}/functions.html#int",
+    "list": f"{_PYTHON_DOCS}/stdtypes.html#list",
+    "typing.Any": f"{_PYTHON_DOCS}/typing.html#typing.Any",
+    "typing.Generic": f"{_PYTHON_DOCS}/typing.html#typing.Generic",
+    "typing.NamedTuple": f"{_PYTHON_DOCS}/typing.html#typing.NamedTuple",
+    "typing.Protocol": f"{_PYTHON_DOCS}/typing.html#typing.Protocol",
+    "ldpc.BeliefFindDecoder": "https://software.roffe.eu/ldpc/ldpc/belief_find_decoder.html",
+    "ldpc.BpOsdDecoder": "https://software.roffe.eu/ldpc/ldpc/bposd_decoder.html",
+    "ldpc.bplsd_decoder.BpLsdDecoder": "https://software.roffe.eu/ldpc/ldpc/bplsd_decoder.html",
+    "qldpc._utils.networkx.DiGraph": (
+        "https://networkx.org/documentation/stable/reference/classes/digraph.html"
+    ),
+    "numpy.dtype": "https://numpy.org/doc/stable/reference/generated/numpy.dtype.html",
+    "numpy.ndarray": "https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html",
+    "numpy.object_": "https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.object_",
+    "pymatching.Matching": (
+        "https://pymatching.readthedocs.io/en/stable/api.html#pymatching.matching.Matching"
+    ),
+    "sympy.combinatorics.Permutation": (
+        "https://docs.sympy.org/latest/modules/combinatorics/permutations.html"
+        "#sympy.combinatorics.permutations.Permutation"
+    ),
+}
+
+
+def _resolve_external_references(
+    app: typing.Any, env: typing.Any, node: typing.Any, contnode: typing.Any
+) -> typing.Any:
+    """Link references to the objects in _EXTERNAL_DOCS to their documentation.
+
+    Only references in code style, such as those in docstrings and lists of base classes, are
+    linked.  Signatures and lists of raised exceptions also name external objects that
+    _EXTERNAL_DOCS omits, such as bool and TypeError, so linking names there would link some names
+    but not others.
+
+    An unqualified name from typing, such as Protocol, resolves only in a module that imports it
+    from typing.
+    """
+    from docutils import nodes
+
+    if node.get("refdomain") != "py" or not isinstance(contnode, nodes.literal):
+        return None
+    target = node.get("reftarget", "")
+    module_name = node.get("py:module")
+    if (
+        module_name
+        and hasattr(typing, target)
+        and getattr(importlib.import_module(module_name), target, None) is getattr(typing, target)
+    ):
+        target = f"typing.{target}"
+    if target not in _EXTERNAL_DOCS:
+        return None
+    reference = nodes.reference(
+        "", "", internal=False, refuri=_EXTERNAL_DOCS[target], reftitle=target
     )
+    reference.append(contnode)
+    return reference
 
 
 def _warn_on_missing_tuning_reference(
@@ -172,6 +254,7 @@ def setup(app: typing.Any) -> None:
     """Register Sphinx event handlers."""
     app.connect("autoapi-skip-member", _skip_decoder_specification_helpers)
     app.connect("missing-reference", _resolve_package_reexports)
+    app.connect("missing-reference", _resolve_external_references)
     app.connect("missing-reference", _warn_on_missing_tuning_reference, priority=900)
 
 

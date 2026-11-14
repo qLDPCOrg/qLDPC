@@ -96,6 +96,18 @@ class HGPCode(CSSCode):
 
     The latter construction is less intuitive, but more efficient.
 
+    The parity check matrices of the hypergraph product code are::
+
+        matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]
+        matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]
+
+    Here ``H1`` and ``H2`` are the parity check matrices of ``code_a`` and ``code_b``, and
+    ``I[m/n][1/2]`` are identity matrices, with ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
+
+    A minus sign in one sector of matrix_x or matrix_z is necessary to satisfy CSS code requirements
+    with nonbinary fields.  The placement of this sign is chosen for consistency with the tensor
+    product of chain complexes.
+
     References:
 
     - https://errorcorrectionzoo.org/c/hypergraph_product
@@ -124,20 +136,7 @@ class HGPCode(CSSCode):
         *,
         set_logicals: bool = True,
     ) -> None:
-        """Hypergraph product of two classical codes, as in arXiv:0903.0566.
-
-        The parity check matrices of the hypergraph product code are:
-
-        ``matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]``
-        ``matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]``
-
-        Here ``(H1, H2) == (matrix_a, matrix_b)``, and ``I[m/n][1/2]`` are identity matrices, with
-        ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
-
-        A minus sign in one sector of matrix_x or matrix_z is necessary to satisfy CSS code
-        requirements with nonbinary fields.  The placement of this sign is chosen for consistency
-        with the tensor product of chain complexes.
-        """
+        """Hypergraph product of two classical codes, as in arXiv:0903.0566."""
         if code_b is None:
             code_b = code_a
         self.code_a = ClassicalCode(code_a, field)
@@ -422,7 +421,8 @@ class HGPCode(CSSCode):
 class CHGPCode(HGPCode):
     """Cyclic hypergraph product code, called a CxC code in arXiv:2511.09683.
 
-    A CHGPCode is a hypergraph product of classical CyclicCodes.
+    A CHGPCode is a hypergraph product of classical CyclicCodes.  If given only one block length or
+    one polynomial, a CHGPCode uses it for both CyclicCodes.
 
     References:
 
@@ -436,10 +436,7 @@ class CHGPCode(HGPCode):
         poly_b: sympy.Basic | None = None,
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
-        """Construct a CHGPCode from two classical block lengths and two univariate polynomials.
-
-        If provided only one block length or one polynomial, use it for both underlying CyclicCodes.
-        """
+        """Construct a CHGPCode from two classical block lengths and two univariate polynomials."""
         if isinstance(dims, Iterable):
             bits_a, bits_b = dims
         else:
@@ -452,7 +449,8 @@ class CHGPCode(HGPCode):
 class CRCode(HGPCode):
     """Repeated cyclic hypergraph product code, called a CxR code in arXiv:2511.09683.
 
-    A CRCode is a hypergraph product of a CyclicCode and a RingCode.
+    A CRCode is a hypergraph product of a CyclicCode and a RingCode.  The block length of the
+    RingCode used in the hypergraph product is set to the distance of the CyclicCode.
 
     References:
 
@@ -462,11 +460,7 @@ class CRCode(HGPCode):
     def __init__(
         self, bits: int, poly: sympy.Basic, field: int | type[galois.FieldArray] | None = None
     ) -> None:
-        """Construct a CRCode from the block length and univariate polynomial of a CyclicCode.
-
-        The block length of the RingCode used in the hypergraph product is set to the distance of
-        the CyclicCode.
-        """
+        """Construct a CRCode from the block length and univariate polynomial of a CyclicCode."""
         cyclic_code = CyclicCode(bits, poly, field)
         distance = cyclic_code.get_distance()
         if distance is NO_DISTANCE:

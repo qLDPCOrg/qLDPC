@@ -418,7 +418,7 @@ def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
     found = []
     search = get_search(
         *QUBIT_PROBLEMS["five-qubit"],
-        homogeneous=False,
+        symplectic=True,
         get_automorphisms=lambda: found.append(True),
         automorphism_minimum_states=10**6,
     )
@@ -579,9 +579,9 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
         supports = get_symplectic_witness_supports(problem)
         distance = min(support.bit_count() for support in supports)
         assert distance >= 2
-        assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
+        assert cs.get_distance_connected_support([problem], cutoff=0, symplectic=True) == distance
         for max_weight in range(1, num_qubits + 1):
-            witness = get_search(*problem, homogeneous=False).find_witness(max_weight)
+            witness = get_search(*problem, symplectic=True).find_witness(max_weight)
             assert (witness is None) == (max_weight < distance)
             assert witness is None or (
                 len(witness) <= max_weight and is_symplectic_witness(problem, witness)
@@ -593,7 +593,7 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
             if support.bit_count() == distance
         }
         for root in range(num_qubits):
-            search = get_search(*problem, homogeneous=False)
+            search = get_search(*problem, symplectic=True)
             search._roots = np.array([root])
             witness = search.find_witness(distance)
             assert (witness is not None) == (root in least_qubits)
@@ -604,8 +604,8 @@ def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """The cyclic shift of the five-qubit code leaves one root, and so fewer states."""
     problem = QUBIT_PROBLEMS["five-qubit"]
     shift = (np.arange(5) + 1) % 5
-    plain = get_search(*problem, homogeneous=False)
-    symmetric = get_search(*problem, homogeneous=False, get_automorphisms=lambda: shift[None])
+    plain = get_search(*problem, symplectic=True)
+    symmetric = get_search(*problem, symplectic=True, get_automorphisms=lambda: shift[None])
     for search in (plain, symmetric):
         assert search.find_witness(2) is None
         witness = search.find_witness(3)
@@ -684,8 +684,8 @@ def test_a_problem_without_logical_operators_has_no_distance() -> None:
     # The Pauli X on one qubit is excluded, and the identity and X are the operators that commute
     # with it, so a symplectic problem on one qubit has no distance either.
     one_qubit = (np.array([[1, 0]], dtype=np.uint8), np.array([[1, 0]], dtype=np.uint8))
-    assert not get_search(*one_qubit, homogeneous=False).has_witnesses
-    assert cs.get_distance_connected_support([one_qubit], cutoff=0, homogeneous=False) == 2
+    assert not get_search(*one_qubit, symplectic=True).has_witnesses
+    assert cs.get_distance_connected_support([one_qubit], cutoff=0, symplectic=True) == 2
 
 
 def test_degenerate_checks() -> None:
@@ -704,10 +704,10 @@ def test_degenerate_checks() -> None:
 
 
 def get_vector(
-    symbols: npt.NDArray[np.int64], width: int, homogeneous: bool
+    symbols: npt.NDArray[np.int64], width: int, symplectic: bool
 ) -> npt.NDArray[np.uint8]:
     """The binary or symplectic vector of the symbols of a search."""
-    if not homogeneous:
+    if symplectic:
         return get_symplectic_vector(symbols, width // 2)
     vector = np.zeros(width, dtype=np.uint8)
     vector[symbols] = 1
@@ -720,17 +720,17 @@ def get_vector(
 # pure state: the five-qubit code, with its logical X.  zero-checks has only zero checks, and the
 # syndrome 11 of identity needs every variable, so a query reaches the limit of their number.
 SYNDROME_PROBLEMS = {
-    "nested-restrictions": (PROBLEMS["nested-restrictions"][0], True),
+    "nested-restrictions": (PROBLEMS["nested-restrictions"][0], False),
     "copied-and-zero-checks": (
         np.vstack([np.zeros((1, 7)), PROBLEMS["steane-X"][0][2:], PROBLEMS["steane-X"][0]]),
-        True,
+        False,
     ),
     "five-qubit-state": (
         np.vstack([QUBIT_PROBLEMS["five-qubit"][0], [[1] * 5 + [0] * 5]]),
-        False,
+        True,
     ),
-    "zero-checks": (np.zeros((2, 3)), True),
-    "identity": (np.eye(2), True),
+    "zero-checks": (np.zeros((2, 3)), False),
+    "identity": (np.eye(2), False),
 }
 
 
@@ -741,19 +741,19 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
     An enumeration of every vector gives the least weight of each syndrome, and a syndrome that no
     vector has, of any weight, has no vector within any limit.
     """
-    checks, homogeneous = SYNDROME_PROBLEMS[name]
+    checks, symplectic = SYNDROME_PROBLEMS[name]
     checks = np.asarray(checks, dtype=np.uint8)
     width = checks.shape[1]
-    num_variables = width if homogeneous else width // 2
-    products = checks if homogeneous else np.roll(checks, num_variables, axis=1)
+    num_variables = width // 2 if symplectic else width
+    products = np.roll(checks, num_variables, axis=1) if symplectic else checks
     least_weights: dict[tuple[int, ...], int] = {}
     for entries in itertools.product([0, 1], repeat=width):
         vector = np.array(entries, dtype=np.uint8)
-        support = vector if homogeneous else vector[:num_variables] | vector[num_variables:]
+        support = (vector[:num_variables] | vector[num_variables:]) if symplectic else vector
         syndrome = tuple(products @ vector % 2)
         least_weights[syndrome] = min(least_weights.get(syndrome, width), int(np.sum(support)))
 
-    search = get_search(checks, np.zeros((0, width)), homogeneous=homogeneous)
+    search = get_search(checks, np.zeros((0, width)), symplectic=symplectic)
     for syndrome in itertools.product([0, 1], repeat=len(checks)):
         least_weight = least_weights.get(syndrome, num_variables + 1)
         for max_weight in range(num_variables + 1):
@@ -762,7 +762,7 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
             if symbols is not None:
                 assert len(symbols) <= max_weight and list(symbols) == sorted(symbols)
                 assert len(set(symbols % num_variables)) == len(symbols)
-                vector = get_vector(symbols, width, homogeneous)
+                vector = get_vector(symbols, width, symplectic)
                 assert tuple(products @ vector % 2) == syndrome
 
     # Syndrome queries are not states of witness searches.
@@ -824,8 +824,8 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
     own stamps in the memos.  A memo that kept stale values could still find correct vectors, with
     different pruning, but would likely change the number of states.
     """
-    checks, homogeneous = SYNDROME_PROBLEMS[name]
-    search = get_search(checks, np.zeros((0, np.shape(checks)[1])), homogeneous=homogeneous)
+    checks, symplectic = SYNDROME_PROBLEMS[name]
+    search = get_search(checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic)
     for bits in itertools.product([0, 1], repeat=len(search._checks)):
         if not any(bits):
             continue
@@ -880,5 +880,5 @@ def test_invalid_problems_are_rejected() -> None:
         cs.get_distance_connected_support([], cutoff=0)
     with pytest.raises(ValueError, match="even number of columns"):
         get_search(
-            np.ones((1, 3), dtype=np.uint8), np.ones((0, 3), dtype=np.uint8), homogeneous=False
+            np.ones((1, 3), dtype=np.uint8), np.ones((0, 3), dtype=np.uint8), symplectic=True
         )
