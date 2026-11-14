@@ -314,7 +314,7 @@ class ClassicalCode(AbstractCode):
     """Classical linear error-correcting code over a finite field ``F_q``.
 
     A classical binary code ``C = {x}`` is a set of vectors x (with entries in ``F_q``) called code
-    words.  We consider only linear codes, for which any linear combination of code words is also
+    words.  We consider only linear codes, for which any linear combination of code words is also a
     code word.
 
     Operationally, we define a classical code by a parity check matrix H with dimensions
