@@ -8,9 +8,6 @@ runs a ``distance``, ``hadamard``, or ``count`` workload once under the given tu
 trace ``ccount`` workloads: their compiled setup calls the stages directly, past the wrappers.  It
 records:
 
-- each test of whether to enumerate every codeword instead of searching information sets: by size,
-  with the dimension ``k``, the length ``n``, and ``2**k / (k * n)``, and by work, with the
-  candidates of each route;
 - each family of information sets that the search builds (disjoint, overlapping, or by matroid
   partitioning), with its number of sets and the seconds that building it took, and the quantities
   that the gates of overlapping families and of partitioning compare: for overlapping families, the
@@ -46,9 +43,9 @@ records:
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
 ``--setup-only``, it stops before the first layer of the first distance search, after its
-families, or before the first enumeration of codewords; it does not stop counts.  The thresholds of
-``SearchTuning`` decide where these stages start, so a trace shows which decisions a threshold can
-flip, and what each stage costs, before timing the tunings that flip them with ``sweep.py``.
+families; it does not stop counts.  The thresholds of ``SearchTuning`` decide where these stages
+start, so a trace shows which decisions a threshold can flip, and what each stage costs, before
+timing the tunings that flip them with ``sweep.py``.
 
 Example:
 
@@ -153,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--setup-only",
         action="store_true",
-        help="stop a distance search before its first layer or enumeration, after its setup",
+        help="stop a distance search before its first layer, after its setup",
     )
     return parser.parse_args()
 
@@ -182,9 +179,6 @@ def install_wrappers() -> None:
         (affine_search, "scan_family", wrap_scan),
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
-        (distance, "enumeration_is_cheaper_than_setup", wrap_enumeration_by_size),
-        (distance, "_enumeration_is_cheaper_than_search", wrap_enumeration_by_work),
-        (distance, "get_nested_distance_brute_force", wrap_enumerate),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
     ]
     for owner, name, wrap in patches:
@@ -328,68 +322,6 @@ def get_overlapping_gate(
     if optimistic_work >= work:
         return gate | {"stage": "cannot do less work"}
     return gate | {"stage": "built"}
-
-
-def wrap_enumeration_by_size(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each test of whether to enumerate codewords instead of building information sets."""
-
-    @functools.wraps(function)
-    def wrapper(dimension: int, length: int, max_dimension: int, factor: int) -> bool:
-        result = function(dimension, length, max_dimension, factor)
-        EVENTS.append(
-            {
-                "event": "enumeration",
-                "test": "size",
-                "dimension": dimension,
-                "length": length,
-                "words_per_setup_unit": (
-                    2**dimension / (dimension * length) if dimension < 63 else math.inf
-                ),
-                "enumerate": result,
-            }
-        )
-        return result
-
-    return wrapper
-
-
-def wrap_enumeration_by_work(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each test of whether to enumerate codewords instead of searching information sets."""
-
-    @functools.wraps(function)
-    def wrapper(*, num_logical_rows: int, certificate: Any, upper_bound: int) -> bool:
-        result = function(
-            num_logical_rows=num_logical_rows, certificate=certificate, upper_bound=upper_bound
-        )
-        dimension = certificate.dimension
-        EVENTS.append(
-            {
-                "event": "enumeration",
-                "test": "work",
-                "dimension": dimension,
-                "exhaustive": ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows),
-                "estimated_work": int(certificate.work(upper_bound)),
-                "enumerate": result,
-            }
-        )
-        return result
-
-    return wrapper
-
-
-def wrap_enumerate(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the seconds of each enumeration of codewords, or stop before it after the setup."""
-
-    @functools.wraps(function)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        if SETUP_ONLY:
-            raise SetupDone
-        start = time.perf_counter()
-        result = function(*args, **kwargs)
-        EVENTS.append({"event": "enumerate", "seconds": time.perf_counter() - start})
-        return result
-
-    return wrapper
 
 
 def wrap_linear_program(function: Callable[..., Any]) -> Callable[..., Any]:

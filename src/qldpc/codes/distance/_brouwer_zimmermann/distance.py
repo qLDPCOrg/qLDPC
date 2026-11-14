@@ -13,8 +13,8 @@ fixed-weight logical counting shares.  Its ``basis_families.py`` builds the fami
 images of one information set under automorphisms, and ``completion_bounds.py`` the tables that let
 a scan skip hopeless supports.  Beside this module, ``affine_search.py`` holds the compiled scans of
 layers, and ``affine_instance.py`` packs the sets of a search with their certificate.  The coset
-searches share both.  This module owns witness discovery, early exits, exhaustive dispatch, and the
-resumable scans of layers in chunks.
+searches share both.  This module owns witness discovery, early exits, and the resumable scans of
+layers in chunks.
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits
 
 from .._binary import get_eligible_rows
-from .._brute_force import get_nested_distance_brute_force
 from .._information_sets import (
     automorphism_families,
     basis_families,
@@ -146,46 +145,6 @@ def get_distance_brouwer_zimmermann_many(
             if best <= cutoff:
                 return best
     return best
-
-
-####################################################################################################
-# cost models
-
-
-def enumeration_is_cheaper_than_setup(
-    dimension: int, length: int, max_dimension: int, setup_cost_factor: int
-) -> bool:
-    """Estimate whether enumerating every codeword is cheaper than building information sets.
-
-    Setup costs dominate the Brouwer-Zimmermann search for small dimensions, up to
-    ``max_dimension``.  For long, low-dimensional codes, byte-wise elimination for each information
-    set can cost more than packed ``uint64`` enumeration of all ``2**dimension`` codewords, which
-    ``setup_cost_factor`` times the dimension and the length estimates.  Below 63 rows, the count of
-    codewords fits a native integer.
-    """
-    return dimension <= max_dimension or (
-        dimension < 63 and 1 << dimension <= setup_cost_factor * dimension * length
-    )
-
-
-def _enumeration_is_cheaper_than_search(
-    *,
-    num_logical_rows: int,
-    certificate: certificates.Certificate,
-    upper_bound: int,
-) -> bool:
-    """Estimate whether exhaustive nested-code enumeration will outperform BZ.
-
-    The BZ estimate pessimistically assumes that the search must certify the current upper bound,
-    whereas lighter witnesses usually end the search sooner.  Although the vectorized exhaustive
-    kernel is a few times cheaper per candidate than the serial Numba BZ kernel, whole-search
-    timings near this boundary favor BZ until the exhaustive count reaches roughly the estimated BZ
-    count, so the two counts are compared directly.
-    """
-    dimension = certificate.dimension
-    bz_candidates = certificate.work(upper_bound)
-    exhaustive_candidates = ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows)
-    return exhaustive_candidates <= bz_candidates
 
 
 ####################################################################################################
@@ -526,13 +485,13 @@ def _prepare_brouwer_zimmermann_search(
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning,
 ) -> int | _BrouwerZimmermannSearch:
-    """Prepare one BZ search, or return immediately when another route is cheaper.
+    """Prepare one BZ search, or return its result if setup already settles it.
 
     The basis family stages of ``basis_families`` run in order, with distance-specific witness,
-    cutoff, certificate, and exhaustive exits between them.  ``tuning`` sets the thresholds of the
-    stages and exits.  ``get_disjoint_basis_family``, if given, returns the result of the first
-    stage.  ``get_automorphisms``, if given, lets the search switch to an automorphism family before
-    a costly layer (see ``_BrouwerZimmermannSearch``).  If the search would partition, setup builds
+    cutoff, and certificate exits between them.  ``tuning`` sets the thresholds of the stages.
+    ``get_disjoint_basis_family``, if given, returns the result of the first stage.
+    ``get_automorphisms``, if given, lets the search switch to an automorphism family before a
+    costly layer (see ``_BrouwerZimmermannSearch``).  If the search would partition, setup builds
     that family first, skips matroid partitioning if that family predicts no more work than any
     partitioned family could, and has the search consider switching to it at once.
     """
@@ -547,21 +506,6 @@ def _prepare_brouwer_zimmermann_search(
     )
     if best <= cutoff:
         return best
-
-    if tuning.allow_enumeration_by_size and enumeration_is_cheaper_than_setup(
-        dimension,
-        basis.shape[1],
-        tuning.enumeration_max_dimension,
-        tuning.enumeration_setup_cost_factor,
-    ):
-        distance = get_nested_distance_brute_force(
-            basis,
-            labels,
-            cutoff=cutoff,
-            batch_exponent=tuning.enumeration_batch_exponent,
-            symplectic=False,
-        )
-        return min(best, distance)
 
     # The disjoint basis family's certificate also uses any inferred even ambient parity.
     basis_family = (
@@ -639,20 +583,6 @@ def _prepare_brouwer_zimmermann_search(
         lower_bound = basis_family.certificate.lower_bound(completed_weight)
         if lower_bound >= best:
             return best
-
-    if tuning.allow_enumeration_by_work and _enumeration_is_cheaper_than_search(
-        num_logical_rows=int(np.count_nonzero(get_eligible_rows(labels))),
-        certificate=basis_family.certificate,
-        upper_bound=best,
-    ):
-        distance = get_nested_distance_brute_force(
-            basis,
-            labels,
-            cutoff=cutoff,
-            batch_exponent=tuning.enumeration_batch_exponent,
-            symplectic=False,
-        )
-        return min(best, distance)
 
     search = _BrouwerZimmermannSearch(
         affine_instance.get_distance_instance(

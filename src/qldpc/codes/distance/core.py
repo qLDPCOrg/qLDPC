@@ -46,7 +46,8 @@ DistanceMethod = Literal[
   reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` derive
   its stabilizers from its gauge generators, and search sparser generators of them.  A caller who
   knows sparser ones can pass them to :func:`get_distance_from_checks`.
-- ``"brute_force"``: the enumeration of every word, for small codes and tests.
+- ``"brute_force"``: the enumeration of every word, for small codes and tests, and the fastest
+  method for classical codes of low dimension whose distance is a large fraction of their length.
 
 :class:`~qldpc.codes.distance.CosetLeaderSearch` and
 :func:`~qldpc.circuits.certify_bounded_fault_propagation`, which uses it, reject ``"brute_force"``.

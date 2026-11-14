@@ -27,8 +27,8 @@ NO_WORD_BOUND = np.iinfo(np.int64).max
 
 # Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
 # the cap, and a sum saturates at WORK_CAP, so an estimate is exact only if it reaches neither cap.
-# Searches that reach a cap are infeasible, so their order, against other basis families or
-# exhaustive enumeration, does not matter.
+# Searches that reach a cap are infeasible, so their order against other basis families does not
+# matter.
 _BINOMIAL_CAP = 1 << 50
 WORK_CAP = 1 << 61
 

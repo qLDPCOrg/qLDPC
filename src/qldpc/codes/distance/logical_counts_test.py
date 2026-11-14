@@ -328,12 +328,8 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
         return family
 
     monkeypatch.setattr(basis_families, "get_overlapping_family", record)
-    # Make the distance search build information sets, and every search try overlapping families.
-    tune(
-        allow_enumeration_by_size=False,
-        allow_enumeration_by_work=False,
-        overlapping_minimum_work=0,
-    )
+    # Make every search try overlapping families.
+    tune(overlapping_minimum_work=0)
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
 
     # A count of the same weight, without the distance search, builds the families of the scans.

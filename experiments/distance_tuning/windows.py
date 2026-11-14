@@ -26,14 +26,12 @@ are compared with are:
   linear programs if it reaches the threshold;
 - ``automorphism_minimum_layer_work``: the work of each layer before the switch to automorphism
   images, which the switch decides at the first layer that reaches the threshold; a search whose
-  setup found automorphisms decides the switch at the end of setup, and has no such layer;
-- ``enumeration_max_dimension`` and ``enumeration_setup_cost_factor``: the dimension ``k`` and the
-  ratio ``2**k / (k * n)`` of each test of enumeration by size.
+  setup found automorphisms decides the switch at the end of setup, and has no such layer.
 
 With ``--compare``, it instead compares the decisions of two traces of one workload under two
-tunings: enumeration tests, families and their gates, certificates, switches, the tables of each
-layer, and each comparison of a predicted cost with the limit.  Either way, it warns of traces that
-do not record their source (see ``sweep.get_source_fingerprint``), or whose recorded sources differ.
+tunings: families and their gates, certificates, switches, the tables of each layer, and each
+comparison of a predicted cost with the limit.  Either way, it warns of traces that do not record
+their source (see ``sweep.get_source_fingerprint``), or whose recorded sources differ.
 
 Example:
 
@@ -63,11 +61,7 @@ class Gate(NamedTuple):
 
 
 # Thresholds that decide when the quantity is at most the threshold, rather than at least.
-AT_MOST = {
-    "completion_bound_max_cost_percent",
-    "enumeration_max_dimension",
-    "enumeration_setup_cost_factor",
-}
+AT_MOST = {"completion_bound_max_cost_percent"}
 
 
 def main() -> None:
@@ -165,8 +159,6 @@ def get_thresholds(tuning: _tuning.SearchTuning) -> dict[str, float]:
         "overlapping_minimum_work": tuning.overlapping_minimum_work,
         "lp_minimum_work": tuning.lp_minimum_work,
         "automorphism_minimum_layer_work": tuning.automorphism_minimum_layer_work,
-        "enumeration_max_dimension": tuning.enumeration_max_dimension,
-        "enumeration_setup_cost_factor": tuning.enumeration_setup_cost_factor,
     }
 
 
@@ -206,13 +198,6 @@ def get_gates(trace: dict[str, Any], tuning: _tuning.SearchTuning) -> list[tuple
             )
         elif kind == "certificate" and event.get("overlapping"):
             gates.append(("lp_minimum_work", Gate(event["work"], workload, "")))
-        elif kind == "enumeration" and event["test"] == "size":
-            dimension, ratio = event["dimension"], event["words_per_setup_unit"]
-            detail = f"k={dimension} n={event['length']} ratio={ratio:.4g}"
-            if dimension >= 63 or ratio > tuning.enumeration_setup_cost_factor:
-                gates.append(("enumeration_max_dimension", Gate(dimension, workload, detail)))
-            if tuning.enumeration_max_dimension < dimension < 63:
-                gates.append(("enumeration_setup_cost_factor", Gate(ratio, workload, detail)))
         elif kind == "layer" and event.get("can_switch"):
             # trace.py numbers the layer of a switch as layer 2 of the new family.
             switched = event["automorphism_family"]
@@ -271,9 +256,7 @@ def get_decisions(trace: dict[str, Any]) -> list[tuple[Any, ...]]:
     decisions: list[tuple[Any, ...]] = []
     for event in trace["events"]:
         kind = event["event"]
-        if kind == "enumeration":
-            decisions.append((kind, event["test"], event["dimension"], event["enumerate"]))
-        elif kind == "family":
+        if kind == "family":
             decisions.append(
                 (kind, event["kind"], event["sets"], event.get("stage"), event.get("partitioned"))
             )

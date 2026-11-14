@@ -230,7 +230,7 @@ The optimizations are:
 
 - [Section 3.4](#34-quotient-labels-for-the-stabilizer-test) tests whether a candidate word lies in `S` by XORing precomputed labels.
 - [Section 3.5](#35-packed-enumeration-with-pivot-column-deletion) packs words into machine words, reuses partial XORs, and avoids storing pivot columns.
-- [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) enumerates every word when that is cheaper than running BZ.
+- [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) estimates the work of a search, with which searches choose their search bases ([Section 4.4](#44-heuristics-and-cost-models)), and describes the exhaustive enumeration that `method="brute_force"` runs instead of BZ.
 - [Section 3.9](#39-skipping-completions-by-completion-tables) skips the supports whose last two rows provably cannot complete a word lighter than `U`, or, in a count or a coset query, a word within its weight.
 - [Section 3.10](#310-minimum-weights-of-cosets) finds the minimum weight of a coset up to a maximum weight with one search, rather than with queries at increasing maximum weights.
 
@@ -475,13 +475,10 @@ A word of a coset is the offset of a search basis plus a sum of its rows, and th
 The tail of a word keeps every column but the pivot columns, including columns on which no row has a one, since an offset can have ones there.
 These queries also skip completions by tables of the tails ([Section 3.9](#39-skipping-completions-by-completion-tables)).
 
-### 3.6 Exhaustive enumeration as a fallback
+### 3.6 Work estimates and exhaustive enumeration
 
-For small or low-dimensional problems, the setup cost of BZ exceeds the cost of enumerating every eligible word.
-Algorithm 2.11 of Grassl's chapter (page 300) makes a similar choice: it compares the work estimate of BZ with the number of codewords of the code or of its dual, and computes the weight distribution when that is cheaper.
-With `q = dim(V/S)` as in [Section 3.4](#34-quotient-labels-for-the-stabilizer-test), the number of eligible words is `(2^q - 1) * 2^(r-q)`.
-
-The estimated cost of BZ is a work estimate in candidate/set evaluations.
+A search estimates its own work to choose between families of search bases, and to decide whether costly stages pay off ([Section 4.4](#44-heuristics-and-cost-models)).
+The estimate counts candidate/set evaluations.
 Let `m` be the number of search bases, and let `(t*, j*)` be the first step, in the order of [Section 2.5](#25-the-stopping-certificate), after which the certificate reaches `U`: the first `j*` bases have completed layer `t*`.
 The certificate is the one of [Section 3.1](#31-overlapping-search-bases), rounded as in [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple), for the ranks and maximum coverage of the family of search bases under consideration.
 The estimate is
@@ -494,15 +491,17 @@ qLDPC computes this estimate with `plan_steps`, which finds where the search sto
 Searches whose certificates solve no linear programs find their stopping steps the same way ([Section 4.1](#41-module-map-and-layering)).
 The estimate is pessimistic, because it assumes that no lighter witness is found before the certificate reaches `U`.
 The sum starts at `w = 1`, so it includes the systematic rows.
-When the comparison with exhaustive enumeration is made, layer one has already been checked, so `W` slightly overestimates the remaining BZ work.
 A coset search of [Section 4.1](#41-module-map-and-layering) estimates the work of a query at a maximum weight `ω` in the same way, from layer zero, which holds the offset, to the first step whose bound exceeds `ω`.
 The estimate leaves out the search bases that the query skips.
 If no word of the coset weighs at most `ω`, the query examines, or skips by completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)), exactly that many words besides the word of its syndrome, and otherwise at most that many.
 Actual runtime also depends on basis construction, the width of packed words, and early improvements of the witness, so `W` is not a runtime guarantee.
 
-Exhaustive enumeration is chosen at two points, which [Section 4.2](#42-flow-and-exit-points) lists.
-It enumerates words in vectorized, packed blocks and updates them with Gray-code steps, and it does not use the BZ certificate.
+Exhaustive enumeration, which `method="brute_force"` runs and BZ searches never do, examines every eligible word.
+With `q = dim(V/S)` as in [Section 3.4](#34-quotient-labels-for-the-stabilizer-test), there are `(2^q - 1) * 2^(r-q)` eligible words.
+Exhaustive enumeration takes them in vectorized, packed blocks, updates them with Gray-code steps, and uses no certificate.
 Each batch holds at least one word and, if a word fits, at most `2**enumeration_batch_exponent` packed 64-bit integers (see `enumeration_batch_exponent`), so longer rows enumerate fewer words at a time.
+For classical codes of low dimension whose distance is a large fraction of their length, the setup and work of BZ can cost more than enumerating every word, and `method="brute_force"` is then faster.
+Algorithm 2.11 of Grassl's chapter (page 300) makes this choice itself: it compares the work estimate of BZ with the number of codewords of the code or of its dual, and computes the weight distribution when that is cheaper.
 
 ### 3.7 Images of an information set under automorphisms
 
@@ -523,7 +522,7 @@ Every other eligible word weighs as much as an examined word, and hence at least
 So once that certificate reaches `U`, no eligible word is lighter than `U`, and the search stops with the exact distance, just as in [Section 2.5](#25-the-stopping-certificate).
 
 The search therefore scans only `I`, and every image completes each layer when `I` does.
-Each layer costs `binom(r, t)` candidate/set evaluations however many images the family has, so the work estimate of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) becomes `W = sum_{w=1}^{t*} binom(r, w)`, where `t*` is the first layer after which the certificate reaches `U`.
+Each layer costs `binom(r, t)` candidate/set evaluations however many images the family has, so the work estimate of [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) becomes `W = sum_{w=1}^{t*} binom(r, w)`, where `t*` is the first layer after which the certificate reaches `U`.
 Every image completes a layer together, so the certificate advances once per layer, rather than in the steps within a layer of [Section 2.5](#25-the-stopping-certificate).
 
 A column `c` in an orbit `O` of `G` lies in `g(I)` for `|I ∩ O| |G| / |O|` elements `g`, since `G` maps each column of `I ∩ O` to `c` equally often.
@@ -550,7 +549,7 @@ With more orbits, the exchanges are a heuristic.
 #### When a search uses an automorphism family
 
 Finding automorphisms can take milliseconds, as long as many whole searches take.
-Before a search finds a light witness, its work estimate of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) is too pessimistic to tell such easy searches apart.
+Before a search finds a light witness, its work estimate of [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) is too pessimistic to tell such easy searches apart.
 A search therefore starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases), and asks for automorphisms at most once.
 A search that would try matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)) asks first, since a switch would discard any partitioned family.
 It skips partitioning if their automorphism family's work estimate is at most the least work that any partitioned family could reach.
@@ -826,7 +825,7 @@ The set-up functions of both searches can be compiled on request, through [_comp
 The code that only counting uses is in the `_counting` package.
 `build_overlapping_family_policy` in [_information_sets/basis_families.py](_information_sets/basis_families.py) builds the policy of every caller of the overlapping stage, with its fixed-seed generator, so a change to it applies to the distance search, the counts, and the coset routes of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
 The distance search and the counts call it through `get_overlapping_family_policy`, which reads the settings of the policy from the tuning.
-[core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_support/search.py](_connected_support/search.py), which [connected_support.md](connected_support.md) describes, and [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py) calls [_brute_force.py](_brute_force.py) for its exhaustive routes.
+[core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_support/search.py](_connected_support/search.py), which [connected_support.md](connected_support.md) describes.
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 The distance functions of [core.py](core.py) build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector that they search, and pass the resulting problems to `get_distance_brouwer_zimmermann_many`, with `get_distance_css` passing both sectors of a CSS code at once.
@@ -867,7 +866,7 @@ It stops at its **stopping step**, the first step whose bound exceeds the maximu
 It skips each rank-deficient search basis whose deficiency keeps it out of the bound of that step.
 `find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds the stopping steps of the coset searches, and of the distance searches whose certificates solve no linear programs, by a binary search of steps whose bounds never decrease.
 A certificate that solves linear programs checks steps in order instead, through `Certificate.plan` (see below).
-`plan_steps` also adds up the work of the steps up to the stopping step ([Section 3.6](#36-exhaustive-enumeration-as-a-fallback)).
+`plan_steps` also adds up the work of the steps up to the stopping step ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
 Each family of a coset search keeps the bounds of its steps in a **planning buffer**, with a table for each parity of the cosets if the search rounds to parity, and one table otherwise.
 A query takes the table of the parity of the word of its syndrome.
 Each table has one more row that caches a stopping step.
@@ -925,16 +924,12 @@ The disjoint family, its pruning, and any overlapping or partitioned replacement
 | Preparation stage | Outcome |
 | --- | --- |
 | Initial row witness | Returns if `U ≤ cutoff`, where `U` includes the lightest eligible row and any supplied bound (from another sector or a weight limit) |
-| Exhaustive by size | Runs exhaustive enumeration if the tuning field `allow_enumeration_by_size` is true and `enumeration_is_cheaper_than_setup(dimension, length)` approves |
 | Rows of the disjoint family | Returns if checking the rows of every search basis gives `U ≤ cutoff` |
 | Certificate of the disjoint family | Returns if `L(1) ≥ U` |
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
-| Exhaustive by work | Runs exhaustive enumeration if the tuning field `allow_enumeration_by_work` is true and `_enumeration_is_cheaper_than_search` finds that the eligible-word count is at most the estimated BZ work of [Section 3.6](#36-exhaustive-enumeration-as-a-fallback) |
 | Switch at the end of setup | If setup found automorphisms, to decide whether to partition, the search considers switching to their family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); returns if then `U ≤ cutoff` or `L(1) ≥ U` |
 | Ready search | Returns a `_BrouwerZimmermannSearch` that scans from layer two |
-
-Exhaustive enumeration is chosen automatically at two points: preparation's size check, and preparation's work check.
 
 | Search location | Outcome |
 | --- | --- |
@@ -942,7 +937,7 @@ Exhaustive enumeration is chosen automatically at two points: preparation's size
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `get_distance_brouwer_zimmermann_many` | Returns the shared best bound when it is at most `cutoff` after an advance, or when no search can advance |
 
-The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, and `test_enumeration_by_work_can_be_forbidden` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
+The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, and `test_rows_of_an_automorphism_family_can_reach_the_cutoff` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
 
 ### 4.3 Concept-to-code glossary
 
@@ -1029,11 +1024,10 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   A layer of a distance search that scans several information sets predicts the cost of the tables of each set in the same way, in `_choose_tables_of_sets`, and scans the sets one at a time if tables pay for some set and the predicted cost of the layer, at the full cost for each set without tables, is within that limit too.
   Random supports only estimate the value of tables; a search skips supports only when `w` plus their computed bound reaches `U`, and a count only when it exceeds the target weight.
   Its cost model was fitted to the scan of a distance search; counting weighs full rows and labels, so its scans cost more for each support, and the model then predicts conservatively.
-- **`Certificate.work`, `estimate_automorphism_family_work`, `_enumeration_is_cheaper_than_search`, and `enumeration_is_cheaper_than_setup`** are cost models, which Sections [3.6](#36-exhaustive-enumeration-as-a-fallback) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
+- **`Certificate.work` and `estimate_automorphism_family_work`** are cost models, which Sections [3.6](#36-work-estimates-and-exhaustive-enumeration) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
   `Certificate.work` and `estimate_automorphism_family_work` are the work of plans of `plan_steps`, which finds where searches stop with `find_stopping_step`.
   Searches whose certificates solve no linear programs find their stopping steps the same way ([Section 4.1](#41-module-map-and-layering)).
-  `enumeration_is_cheaper_than_setup` compares the setup cost of BZ with packed enumeration of all words, with the fields `enumeration_max_dimension` and `enumeration_setup_cost_factor`.
 
 ### 4.5 Behavior spanning files
 
@@ -1053,8 +1047,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   Binary input (`symplectic=False`) represents a classical problem, or a pure-X or pure-Z problem with one support bit per qubit.
   Symplectic input (`symplectic=True`) uses general Pauli rows, as in [Section 2.7](#27-pauli-weight-as-hamming-weight).
   For symplectic input, the BZ route maps rows to Hamming coordinates, doubles `cutoff`, passes `weight_divisor=2`, and halves the result.
-  The exhaustive routes inside preparation receive the same Hamming-coordinate basis, so they use the doubled `cutoff`.
-  Only `method="brute_force"` uses native symplectic weights and the original `cutoff`.
+  `method="brute_force"` uses native symplectic weights and the original `cutoff`.
 - **Independence.**
   Callers need not supply independent generators.
   `_search_generators` in `core.py` makes them independent: without excluded rows it uses `get_independent_rows`, and with them it uses `get_nested_code_basis`.
@@ -1143,7 +1136,7 @@ Representative correctness tests check certificate validity against exhaustive w
 `test_bounds_are_exact_relaxations` in [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py) checks completion bounds against enumerated completions.
 `test_scan_of_one_information_set` in [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py) checks that the scan finds the lightest word of a layer and weighs or skips each support exactly once, and `test_completion_tables_keep_distances_exact` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) checks whole searches against brute force.
 `test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound` in [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py) checks the bound of coset scans, including search bases of rank deficiency three, against enumeration, and `test_searches_by_tails_answer_as_searches_of_whole_words` in [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py) checks the answers, skipped words, and bounds `R` of coset queries with tables, also on even codes, against searches without tables and brute force.
-In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` forces the BZ route and compares its results with exhaustive ones on binary and general Pauli problems.
+In [core_test.py](core_test.py), `test_brouwer_zimmermann_random_cross_checks` compares the results of the BZ route with exhaustive ones on binary and general Pauli problems.
 `test_max_weight` in [core_test.py](core_test.py) checks weight-limited results against enumeration on every route, and `test_max_weight_caps_cutoff` checks a case that a weight limit without the `cutoff` cap would get wrong.
 
 Performance tests also check broad work budgets, and helper tests exercise the current implementation's interfaces.

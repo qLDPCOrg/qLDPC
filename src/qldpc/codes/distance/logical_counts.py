@@ -802,7 +802,7 @@ def _warm_up_compiled_functions() -> None:
     counter.count_logical_ops(method="brouwer_zimmermann")
     counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
 
-    # The distance search of so small a code is exhaustive, so call the stages that it uses here.
+    # The distance search of so small a code ends before some of its stages, so call them here.
     # Any upper bound compiles them; this one exceeds the distance of the code, 3.  The default
     # tuning makes these calls build families whatever the active tuning, since compilation, not a
     # search, is their purpose.
