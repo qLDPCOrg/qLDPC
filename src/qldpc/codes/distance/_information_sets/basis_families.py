@@ -636,6 +636,27 @@ def _get_disjoint_sets_for_columns(
     return information_sets
 
 
+def _get_partition_coverage_and_unit(
+    max_sets: int, dimension: int, num_columns: int
+) -> tuple[int, int]:
+    """The largest coverage that matroid partitioning tries, and the unit of its gate.
+
+    The basis has ``dimension`` rows and ``num_columns`` nonzero columns.  Partitioning tries each
+    coverage ``b`` from two up to ``_get_least_coverage(max_sets, dimension, num_columns)``, and the
+    unit that ``partition_work_ratio`` multiplies is the sum of ``b**2 * dimension**2 *
+    num_columns`` over these coverages.  This computes the bound itself, in Python integers, rather
+    than call that helper, which is compiled with 64-bit integers that ``max_sets`` up to
+    ``MAX_VALUE`` would overflow.
+    """
+    max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
+    if max_coverage < 2:
+        return max_coverage, 0
+
+    # The sum of b**2 from 2 to B is B (B + 1) (2B + 1) / 6 - 1.
+    sum_of_squares = max_coverage * (max_coverage + 1) * (2 * max_coverage + 1) // 6 - 1
+    return max_coverage, sum_of_squares * dimension**2 * num_columns
+
+
 ####################################################################################################
 # certificate estimates of the stages
 
@@ -707,23 +728,3 @@ def _get_least_coverage(num_sets: int, dimension: int, num_columns: int) -> int:
     contains a column of its support.
     """
     return (num_sets * dimension + num_columns - 1) // num_columns
-
-
-def _get_partition_coverage_and_unit(
-    max_sets: int, dimension: int, num_columns: int
-) -> tuple[int, int]:
-    """The largest coverage that matroid partitioning tries, and the unit of its gate.
-
-    The basis has ``dimension`` rows and ``num_columns`` nonzero columns.  Partitioning tries each
-    coverage ``b`` from two up to ``_get_least_coverage(max_sets, dimension, num_columns)``, and the
-    unit that ``partition_work_ratio`` multiplies is the sum of ``b**2 * dimension**2 *
-    num_columns`` over these coverages.  Both are computed in Python integers, which do not overflow
-    for any ``max_sets``.
-    """
-    max_coverage = -(-max_sets * dimension // num_columns)
-    if max_coverage < 2:
-        return max_coverage, 0
-
-    # The sum of b**2 over b from 1 to B is B (B + 1) (2B + 1) / 6.
-    sum_of_squares = max_coverage * (max_coverage + 1) * (2 * max_coverage + 1) // 6 - 1
-    return max_coverage, sum_of_squares * dimension**2 * num_columns

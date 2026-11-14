@@ -1,7 +1,7 @@
 # Retuning the exact distance searches
 
 This page tables the machine constants from which some defaults of Brouwer-Zimmermann (BZ) searches are derived, and walks through a retuning of the fields of `SearchTuning` that BZ searches read, like the retuning that set the earlier values.
-The [Retuning section](../../src/qldpc/codes/distance/_tuning.py) of the module docstring of `qldpc.codes.distance._tuning` states the classes of values, their rules, and how to change them, and the comment of each field names the class of its default.
+The [Retuning section](../../src/qldpc/codes/distance/_tuning.py) of the module docstring of `qldpc.codes.distance._tuning` states the classes of values, their rules, and how to change them, and the comment of each field names the class of its default or, for a field in no class, how its default was chosen.
 The [experiments README](../README.md#distance-tuning) introduces the scripts.
 Sweeps write their trials to `results/`, which Git ignores, so this page keeps the commands of the sweeps behind the earlier values.
 
@@ -15,20 +15,20 @@ python experiments/distance_tuning/constants.py
 
 It takes a few minutes; run it on a quiet machine, under a guard of time and memory.
 It saves each measurement in `results/constants/` with the commit and the uncommitted changes of `src/` that it ran on, and measures again any that ran on other source, so it measures every constant again after a commit or a change to `src/`.
-On an Apple M3 Max that also ran other work, one candidate/set evaluation took 1.22 to 1.36 ns, the median over five searches of 1.2 to 2.0 ns, and five runs of the script gave these constants, each the costliest of its measurements, and values:
+On an Apple M3 Max that also ran other work, on the library code that follows #869 and #870, one candidate/set evaluation took 1.17 to 1.20 ns, the median over five searches of 1.15 to 1.95 ns, and three runs of the script gave these constants, each the costliest of its measurements, and values:
 
 | Field | Value | The step, and its cost |
 | --- | --- | --- |
-| `partition_work_ratio` | 5 | Matroid partitioning, for each unit `b^2 k^2 n` of its gate: 4.7 to 4.8 ns, or 3.4 to 3.9 evaluations, on `distance/classical:128:80:6/-`, which tries coverages up to 6; `distance/lp13s5/X` with automorphisms off, which tries coverages up to 9, took 3.4 to 3.5 ns, or 2.5 to 2.8 evaluations |
-| `completion_bound_minimum_layer_work` | `2 * 10**7` | A prediction of the cost of completion tables, which samples supports: 30 to 31 ms, or `2.2 * 10**7` to `2.5 * 10**7` evaluations, on layer 4 of `distance/qt7/X`, of 181 rows |
-| `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets: 3.1 to 3.3 ms, or `2.3 * 10**6` to `2.7 * 10**6` evaluations, on `distance/qt7/X`, of 181 rows; the builds on the 175 rows of `distance/lp13s5/X` took 2.7 to 3.2 ms, and on the 48 rows of `distance/classical:128:80:6/-` 0.6 ms |
-| `lp_minimum_work` | `2 * 10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.22 to 0.23 s, or `1.6 * 10**8` to `1.85 * 10**8` evaluations, for planning and programs |
+| `partition_work_ratio` | 5 | Matroid partitioning, for each unit `b^2 k^2 n` of its gate: 4.53 to 4.56 ns, or 3.81 to 3.86 evaluations, on `distance/classical:128:80:6/-`, which tries coverages up to 6; `distance/lp13s5/X` with automorphisms off, which tries coverages up to 9, took 3.23 to 3.26 ns, or 2.7 to 2.8 evaluations |
+| `completion_bound_minimum_layer_work` | `2 * 10**7` | A prediction of the cost of completion tables, which samples supports: 29.5 to 29.7 ms, or `2.48 * 10**7` to `2.53 * 10**7` evaluations, on layer 4 of `distance/qt7/X`, of 181 rows |
+| `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets: 2.89 to 3.57 ms, or `2.44 * 10**6` to `2.99 * 10**6` evaluations, on `distance/qt7/X`, of 181 rows; the builds on the 175 rows of `distance/lp13s5/X` took 2.7 to 3.0 ms, and on the 48 rows of `distance/classical:128:80:6/-` 0.5 to 0.6 ms |
+| `lp_minimum_work` | `2 * 10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.21 s, or `1.79 * 10**8` to `1.81 * 10**8` evaluations, for planning and programs |
 | `completion_bound_max_cost_percent` | 100 | None: the limit compares two estimates in one unit |
 | `automorphism_minimum_layer_work` | `5 * 10**6` | Finding automorphisms and building their images: at most 7.33 ms, on `hadamard/gross`, or about `5.6 * 10**6` evaluations at 1.32 ns, an earlier measurement of nine searches that `constants.py` does not yet repeat |
 
 These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases.
 The constant of linear programming rose by about a third when BZ searches stopped scanning several information sets in lockstep (#869): in paired runs of the script at the same load, the search took 0.17 s (`1.2 * 10**8` to `1.3 * 10**8` evaluations) before that change, and 0.22 s (`1.8 * 10**8`) after it, with 11 programs in each.
-Two constants lie near the edges of their rounding, the geometric means of neighboring values: that of `lp_minimum_work` lies 14 to 31% above `1.41 * 10**8`, and that of `partition_work_ratio` 8 to 22% above 3.16.
+Of the edges of their rounding, the geometric means of neighboring values, the constant of `overlapping_minimum_work` lies nearest, 5 to 23% below `3.16 * 10**6`; that of `partition_work_ratio` lies 20 to 22% above 3.16, and that of `lp_minimum_work` 27 to 28% above `1.41 * 10**8`.
 `overlapping_minimum_work` gates only distance searches and counts; the routes of coset searches have their own threshold, `coset_route_minimum_work`, chosen by hand, whose comment says why no rule derives it.
 
 Matroid partitioning tries each coverage `b` from two up to `ceil(m k / n)`, for `m = max_information_sets`, `k` rows, and `n` nonzero columns: the least coverage at which `m` full sets could fit, by counting their pivots.
@@ -116,21 +116,21 @@ A value over-fits when it suits the workloads, the machine, and the conditions t
 The derived values were not chosen by timing candidates, but their rules were chosen while studying the key workloads, and their constants were measured on a few of those, so they carry the sizes of those searches.
 The earlier values were chosen in-sample, on dozens of workloads, on one Apple M3 Max that often ran other work, and mostly on earlier library code.
 The current values that are not derived are budgets, conventions, or the widest allowed, as the Retuning section defines them, or the exceptions whose comments say how they were chosen, such as `coset_route_minimum_work`.
-These measures limit how much that matters:
+For the earlier values, these measures limited how much that mattered:
 
-- The distance searches and counts among the long runs were traced, and `windows.py` found how far each threshold can move before one of their decisions changes; where that range is broad, the precise value matters only for quick runs.
-- Where candidates made no clear difference, the value is a round number among them, not the one that happened to time fastest.
-- Where a value rests on a mechanism, changing the quantity that the mechanism names moved the outcome as it implies.
-- The last checks, whose sweeps in section 7 have tags of a `c` and a digit, had their predictions written down first, and several were refuted.
+- The distance searches and counts among the long runs were traced around the earlier defaults, and `windows.py` found how far each threshold could move before one of their decisions changed; where that range was broad, the precise value mattered only for quick runs.
+- Where candidates made no clear difference, the value was a round number among them, not the one that happened to time fastest.
+- Where a value rested on a mechanism, changing the quantity that the mechanism names moved the outcome as it implied.
+- The last checks of those values, whose sweeps in section 7 have tags of a `c` and a digit, had their predictions written down first, and several were refuted.
 - A tuning timed against itself set the noise floor that a difference had to exceed.
 
 These measures reach only so far:
 
-- Some candidates made no clear difference only because the searches timed make the same decisions under them, so those timings do not test the value.
+- Some candidates made no clear difference only because the searches timed made the same decisions under them, so those timings did not test the value.
 - Many comparisons were made, so a candidate set aside by one small difference may have been set aside by chance.
 - `coset_completion_block_bits` trades one kind of search against another: blocks of 16 columns made most CSS coset searches several times faster, but searches by physical weight slower on two of three codes.
 - The cost model of completion tables errs in both directions, so a cost limit at break-even accepts some tables that cost more than they save.
-- Two workloads of fault-propagation certificates, used to choose no value, ran no slower with the values decided last, with the cost limit then at 100, but their queries are too cheap to test the values that changed.
+- Two workloads of fault-propagation certificates, used to choose no value, ran no slower with the earlier values decided last, with the cost limit then at 100, but their queries were too cheap to test the values that changed.
 - The estimated work of a distance search, which `overlapping_minimum_work`, `partition_work_ratio`, and `lp_minimum_work` read, can exceed the work done many times over, by a margin that varies between searches, so these thresholds stand for no fixed amount of time, and their gates break even with the estimated work, not with the work done.
 - Coset searches choose the family of information sets that answers each maximum weight by the words that a query would weigh or skip, not by time, so they can choose a slower family.
 
@@ -147,10 +147,11 @@ The `--base` of each command gives the defaults of its time where they differ fr
 So each command compares the same values on the current code, except that `partition_work_ratio` now multiplies a sum of `b^2 k^2 n` rather than of `b k^2 n`, and the commands leave out fields that were later removed.
 The exception is `automorphism_minimum_layer_work`: every command ran with it at `10**8`, its default then, unless an arm set it, and the `--base` of each command leaves that out.
 The commands ran with a ratio and a cost factor of partitioning, whose product they give as `partition_work_ratio`.
-Their `overlapping_minimum_work` also gated the routes of coset searches, which `coset_route_minimum_work` now gates, so to repeat a setting of it, in an arm or a `--base`, on coset workloads, set both.
+Their `overlapping_minimum_work` also gated the routes of coset searches, which `coset_route_minimum_work` now gates, so the commands of sweeps with coset workloads set both to the same values.
 Partitioning then tried coverages from two up to a field, later removed, whose default was 4; the arm of `p3-aut` and of `p3-noaut` that set it to 2 now repeats their first arm, and the sweep `c2-coverage`, which timed only that field, is in the Git history of this file.
 The measurements of one search, and the traces of the windows of section 5, ran at the earlier defaults; to repeat them on the current code, add `{"partition_work_ratio": 5000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000, "automorphism_minimum_layer_work": 100000000}` to their tunings, whose own settings take precedence.
-Only partitioning then differs, in the coverages that it tries and in the unit of its gate.
+Of the tuning, only partitioning then differs, in the coverages that it tries and in the unit of its gate; but #869 and #870 also change traced decisions, since searches no longer scan several sets in lockstep, and reconsider a declined switch to automorphism images.
+`fit_completion_costs.py`, `cache_stats.py`, and `coset_families.py` take no `--tuning`, so their measurements cannot be repeated by adding the earlier defaults.
 
 Measurements of one search use `trace.py`, `trial.py`, or `fit_completion_costs.py`.
 Those of `automorphism_minimum_layer_work`, at `10**7` and past the edges of the windows, checked its window around `10**8`, its default then, not around its current default:
@@ -166,7 +167,7 @@ Those of `automorphism_minimum_layer_work`, at `10**7` and past the edges of the
 | Past the edges of the windows | `trace.py <long> --tuning '{"completion_bound_minimum_layer_work": 1000000}'`; `trace.py hadamard/pp110 --tuning '{"automorphism_minimum_layer_work": 80000000}'`, the same for `distance/pp170/X`, and `trace.py distance/bb288/X --tuning '{"automorphism_minimum_layer_work": 200000000}'`, each with `--output` to a file outside the directory of the traces of the windows, and compared with its trace at the earlier defaults by `windows.py --compare`; `trace.py hadamard/gross --tuning '{"completion_bound_lookup_block_cost": 0.9, "completion_bound_lookup_block_cost_per_mib": 0.05, "completion_bound_samples": 256}'`, whose layer 6 declines its tables, for the time of that layer without them |
 | Layer 7 of `distance/classical:128:80:6/-` at the limits of 90 and 100 | `trace.py 'distance/classical:128:80:6/-' --tuning '{"completion_bound_max_cost_percent": 100}'`, the same with `"completion_bound_samples": 256` added, and at the earlier defaults, compared by `windows.py --compare` and by their `layer` events |
 | Gate values of partitioning across codes | `trace.py distance/lp13s<seed>/<sector> --setup-only` for seeds 1 to 10 and sectors `X` and `Z`, and `trace.py 'distance/classical:128:80:<seed>/-' --setup-only` for seeds 2 to 6; a gate value is the `estimated_work` of the `family` event of kind `partitioned` divided by its `unit` |
-| Families of `coset_route_minimum_work`, then `overlapping_minimum_work` | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000`; `coset_families.py <w> --thresholds 20000 24000 30000` for `coset/gross/css/10/10/3000`, `coset/pp110/css/8/8/2000`, `coset/pp232/css/10/10/3000`, and `coset/qt7/css/10/10/3000` |
+| Families of `coset_route_minimum_work` (then called `overlapping_minimum_work`) | `coset_families.py coset/pp232/css/10/10/3000`, and the same for `coset/qt7/css/10/10/3000` and `coset/lp13s5/physical/7/7/1000`; `coset_families.py <w> --thresholds 20000 24000 30000` for `coset/gross/css/10/10/3000`, `coset/pp110/css/8/8/2000`, `coset/pp232/css/10/10/3000`, and `coset/qt7/css/10/10/3000` |
 | Sampling of layers near the cost limit | `resample.py hadamard/gross --weights 6` and `resample.py distance/pp170/X --weights 6 7`, and `resample.py hadamard/pp110 --weights 5` and `resample.py distance/bb288/X --weights 5`; for the sampling budget, `resample.py hadamard/gross --weights 6 --num-seeds 1 --changes '[{"completion_bound_sampling_work": 25000000}, {"completion_bound_sampling_work": 100000000}]'` |
 | Linear programs of `lp_minimum_work` | the `linear program` events of `trace.py <w>` at the earlier defaults |
 | Memory of `max_css_single_pairs` | `tracemalloc` around `_tabulate_css_singles` of `_brouwer_zimmermann/coset.py` on 255, 372, and 511 random single-qubit syndromes of full size |
@@ -207,7 +208,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 10 \
     --timeout 600 \
-    --base '{"partition_work_ratio": 200, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "lp_minimum_work": 1000000000}' \
+    --base '{"partition_work_ratio": 200, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "lp_minimum_work": 1000000000}' \
     --workloads coset/gross/physical/6/6/500 count/pp110/12 coset/pp232/physical/6/6/500 distance/lp13s5/X distance/lp13s8/X distance/qt7/Z coset/gross/css/10/10/3000 distance/qt7/X count/gross/12 distance/pp232/X first/pp232/physical/6/6/2000 \
     --arms '[{}, {}]'
 ```
@@ -220,7 +221,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 4 \
     --timeout 600 \
-    --base '{"partition_work_ratio": 200, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "lp_minimum_work": 1000000000}' \
+    --base '{"partition_work_ratio": 200, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "lp_minimum_work": 1000000000}' \
     --workloads distance/lp13s8/X distance/lp13s5/X distance/qt7/Z distance/qt7/X count/pp110/12 coset/gross/physical/6/6/500 count/gross/12 distance/pp232/X coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 first/pp232/physical/6/6/2000 \
     --arms '[{}, {}]'
 ```
@@ -233,7 +234,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
-    --base '{"partition_work_ratio": 200, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "lp_minimum_work": 1000000000}' \
+    --base '{"partition_work_ratio": 200, "completion_bound_minimum_layer_work": 100000000, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "lp_minimum_work": 1000000000}' \
     --workloads distance/lp13s5/X distance/lp13s8/X distance/qt7/X distance/qt7/Z distance/pp232/X count/gross/12 count/pp110/12 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 first/pp232/physical/6/6/2000 \
     --arms '[{}, {}]'
 ```
@@ -389,9 +390,9 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 6 \
     --timeout 1800 \
-    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
+    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
     --workloads distance/classical:130:80:1/- distance/classical:128:80:1/- distance/lp13s5/X distance/qt7/Z distance/qt7/X distance/classical:140:90:1/- coset/gross/css/10/10/3000 distance/pp232/X coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 first/pp232/physical/6/6/2000 \
-    --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "max_information_sets": 8}, {"completion_bound_minimum_layer_work": 30000000, "max_information_sets": 32}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_attempts_per_set": 1}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_attempts_per_set": 4}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 2000}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 800}, {"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 0}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 32}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000000}, {"completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 100000000}, {"completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 10000000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 10000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 1000000000}]'
+    --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "max_information_sets": 8}, {"completion_bound_minimum_layer_work": 30000000, "max_information_sets": 32}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_attempts_per_set": 1}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_attempts_per_set": 4}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 2000}, {"completion_bound_minimum_layer_work": 30000000, "partition_work_ratio": 800}, {"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 0}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 32}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000, "coset_route_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000000, "coset_route_minimum_work": 1000000}, {"completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 100000000}, {"completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 10000000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 10000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 1000000000}]'
 ```
 
 ### p3-noaut
@@ -415,7 +416,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 6 \
     --timeout 3600 \
-    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
+    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
     --workloads hbound/pp232/2/2000 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 hcoset/gross/css/4/4/500 first/pp232/physical/6/6/2000 distance/qt7/X distance/qt7/Z distance/lp13s5/X distance/pp232/X distance/classical:140:90:1/- \
     --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 16}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 32}, {"completion_bound_minimum_layer_work": 30000000, "disjoint_random_column_orders": 64}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "automorphism_minimum_layer_work": 300000000}]'
 ```
@@ -441,9 +442,9 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 4 \
     --timeout 3600 \
-    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
+    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
     --workloads coset/pp110/css/8/8/2000 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 coset/gross/css/10/10/3000 first/pp232/physical/6/6/2000 hcoset/gross/css/4/4/500 hbound/pp232/2/2000 hbound/pp372/2/2000 distance/qt7/X distance/pp232/X \
-    --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 30000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 4}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 16}, {"completion_bound_minimum_layer_work": 30000000, "max_css_single_pairs": 262144}]'
+    --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 30000, "coset_route_minimum_work": 30000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000, "coset_route_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000, "coset_route_minimum_work": 1000}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 4}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 16}, {"completion_bound_minimum_layer_work": 30000000, "max_css_single_pairs": 262144}]'
 ```
 
 ### p6-long
@@ -454,9 +455,9 @@ python experiments/distance_tuning/sweep.py \
     --rounds 4 \
     --jobs 4 \
     --timeout 3600 \
-    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
+    --base '{"partition_work_ratio": 200, "max_css_single_pairs": 65536, "completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
     --workloads coset/pp232/css/10/10/3000 coset/lp13s5/physical/7/7/1000 coset/qt7/css/10/10/3000 \
-    --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 4}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 16}]'
+    --arms '[{"completion_bound_minimum_layer_work": 30000000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 10000, "coset_route_minimum_work": 10000}, {"completion_bound_minimum_layer_work": 30000000, "overlapping_minimum_work": 1000, "coset_route_minimum_work": 1000}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 4}, {"completion_bound_minimum_layer_work": 30000000, "coset_completion_block_bits": 16}]'
 ```
 
 ### p5-costlimit-j1
@@ -493,7 +494,7 @@ python experiments/distance_tuning/sweep.py \
     --rounds 8 \
     --jobs 3 \
     --timeout 3600 \
-    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
     --workloads distance/classical:128:80:1/- distance/classical:140:90:1/- distance/classical:150:100:1/- distance/sparse:1000:21:50:2/- distance/lp13s5/X distance/lp13s8/X distance/qt7/Z distance/qt7/X distance/pp232/X count/pp110/12 count/gross/12 coset/gross/css/10/10/3000 ccount/pp110/12 coset/pp232/physical/6/6/500 hbound/pp372/2/2000 certify/gross/css/2 faultdist/toric:6/Z \
     --arms '[{"completion_bound_minimum_layer_work": 100000000, "partition_work_ratio": 200, "max_css_single_pairs": 65536}, {}]'
 ```
@@ -623,9 +624,9 @@ python experiments/distance_tuning/sweep.py \
     --rounds 4 \
     --jobs 1 \
     --timeout 900 \
-    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
     --workloads coset/pp232/css/10/10/300 coset/qt7/css/10/10/300 \
-    --arms '[{}, {"overlapping_minimum_work": 10000}]'
+    --arms '[{}, {"overlapping_minimum_work": 10000, "coset_route_minimum_work": 10000}]'
 ```
 
 ### c8-usecase
@@ -636,9 +637,9 @@ python experiments/distance_tuning/sweep.py \
     --rounds 10 \
     --jobs 1 \
     --timeout 600 \
-    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
+    --base '{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000}' \
     --workloads certify/gross/css/2 faultdist/toric:6/Z \
-    --arms '[{}, {"overlapping_minimum_work": 10000}, {"overlapping_minimum_work": 20000}]'
+    --arms '[{}, {"overlapping_minimum_work": 10000, "coset_route_minimum_work": 10000}, {"overlapping_minimum_work": 20000, "coset_route_minimum_work": 20000}]'
 ```
 
 ### c9-decided
@@ -651,7 +652,7 @@ python experiments/distance_tuning/sweep.py \
     --timeout 900 \
     --base '{"partition_work_ratio": 5000, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000}' \
     --workloads coset/gross/css/10/10/3000 coset/pp110/css/8/8/2000 coset/pp232/css/10/10/300 coset/qt7/css/10/10/300 coset/gross/physical/6/6/500 coset/pp232/physical/6/6/500 first/pp232/physical/6/6/2000 hcoset/gross/css/4/4/500 hbound/pp232/2/2000 hbound/pp372/2/2000 certify/gross/css/2 faultdist/toric:6/Z distance/lp13s1/X distance/lp13s5/X distance/classical:128:80:6/- distance/qt7/X distance/pp232/X count/pp110/12 \
-    --arms '[{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90}, {}]'
+    --arms '[{"completion_bound_samples": 256, "coset_completion_block_bits": 8, "overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000, "partition_work_ratio": 1000, "completion_bound_max_cost_percent": 90}, {}]'
 ```
 
 ### c11-revert
@@ -664,5 +665,5 @@ python experiments/distance_tuning/sweep.py \
     --timeout 600 \
     --base '{"partition_work_ratio": 5000, "completion_bound_minimum_layer_work": 30000000, "lp_minimum_work": 1000000000, "overlapping_minimum_work": 20000}' \
     --workloads distance/classical:128:80:6/- coset/pp110/css/8/8/2000 \
-    --arms '[{}, {"completion_bound_max_cost_percent": 90}, {"completion_bound_samples": 256}, {"overlapping_minimum_work": 100000}, {"partition_work_ratio": 1000}, {"coset_completion_block_bits": 8}]'
+    --arms '[{}, {"completion_bound_max_cost_percent": 90}, {"completion_bound_samples": 256}, {"overlapping_minimum_work": 100000, "coset_route_minimum_work": 100000}, {"partition_work_ratio": 1000}, {"coset_completion_block_bits": 8}]'
 ```

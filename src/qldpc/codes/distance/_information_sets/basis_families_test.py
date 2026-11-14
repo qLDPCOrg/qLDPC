@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import itertools
+import math
 from typing import Any
 from unittest import mock
 
@@ -171,7 +172,7 @@ def test_overlapping_family_guards() -> None:
     assert not len(_get_overlapping_family(basis, None, complete, 26).ranks)
     shortened = basis[:, :-1]
     disjoint = basis_families.get_disjoint_family(shortened, None, random_column_orders=ORDERS)
-    assert not len(_get_overlapping_family(shortened, None, disjoint, 26).ranks)
+    assert not len(_get_overlapping_family(shortened, None, disjoint, 26, minimum_work=0).ranks)
 
     # A zero basis has no information sets to replace.
     zeros = np.zeros((1, 3), dtype=np.uint8)
@@ -224,9 +225,8 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
 
     # Partitioning tries each coverage from two up to the least at which the most sets allowed could
     # fit in the 10 nonzero columns, by counting their pivots: ceil(16 * 4 / 10) = 7, but
-    # ceil(2 * 4 / 10) = 1 for two sets, and none for no sets, with a unit of zero.
+    # ceil(2 * 4 / 10) = 1 for two sets.
     assert not len(get_family(max_information_sets=2).ranks) and not coverages
-    assert basis_families._get_partition_coverage_and_unit(0, len(basis), 10) == (0, 0)
     family = get_family()
     assert sorted(coverages) == list(range(2, 8))
     assert family.max_coverage > 1
@@ -239,7 +239,7 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     # A family that the search would switch to rules partitioning out if it does no more work than
     # any partitioned family could, and only then.  Partitioning asks for that work only if it
     # would otherwise run.
-    tuning = dataclasses.replace(DEFAULT_TUNING, partition_work_ratio=0)
+    tuning = dataclasses.replace(DEFAULT_TUNING, partition_work_ratio=0, max_information_sets=16)
     optimistic_work = basis_families._estimate_optimistic_work(
         len(basis),
         int(np.count_nonzero(np.any(basis, axis=0))),
@@ -287,6 +287,16 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
     information sets have ranks 20, 20, and 5, could fit in its 45 nonzero columns from the coverage
     ceil(5 * 20 / 45) = 3, so partitioning tries the coverages two and three.
     """
+    # The largest coverage and the unit agree with their definitions for largest coverages from zero
+    # to eight, on a basis of 4 rows and 10 nonzero columns.
+    for max_sets in range(20):
+        max_coverage = math.ceil(max_sets * 4 / 10)
+        expected = sum(coverage**2 for coverage in range(2, max_coverage + 1)) * 4**2 * 10
+        assert basis_families._get_partition_coverage_and_unit(max_sets, 4, 10) == (
+            max_coverage,
+            expected,
+        )
+
     basis = np.hstack([np.eye(20), np.eye(20), np.eye(20)[:, :5]]).astype(np.uint8)
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=ORDERS)

@@ -80,31 +80,35 @@ which it fixes when it is imported.  Change those by editing this module, and st
 
 Retuning:
 
-qLDPC sets tuning values by rules, not by timing.  The comment of each field puts its default in
-one of four classes:
+qLDPC sets tuning values by rules, not by timing.  The comment of every field but three puts its
+default in one of four classes:
 
 - A derived value follows from a rule and a measured constant of the machine.  The gate of an
   optional step, such as building a family of information sets or solving linear programs, breaks
   even: the step runs once the work that it acts on, in candidate/set evaluations, reaches the
-  measured cost of the step, the costliest of its measurements, rounded to 1, 2, or 5 times a power
-  of ten.  A limit that compares two estimates in one unit breaks even at equality, and the
-  coefficients of a cost model are fitted to measurements of what they stand for.
-- A budget is a limit that the maintainer sets on memory, interrupt latency, or setup effort.  Each
-  batch or chunk size is a size whose overhead per call is negligible on this machine; to change
-  one, take the smallest such size, which depends on the machine rather than on the codes searched.
+  measured cost of the step, the costliest of its measurements, rounded by ratio (to the nearest in
+  logarithm) to 1, 2, or 5 times a power of ten.  A limit that compares two estimates in one unit
+  breaks even at equality, and the coefficients of a cost model are fitted to measurements of what
+  they stand for.
+- A budget is a limit that the maintainer sets on memory, interrupt latency, or setup effort.  To
+  change a batch or chunk size, take the smallest size whose overhead per call is negligible on the
+  machine that runs the searches, a property of the machine rather than of the codes searched.  The
+  current sizes were set before this rule, and not all of them meet it.
 - A convention is a statistical or numerical setting, and its comment says what it guarantees.
 - The widest allowed: the blocks of completion tables take the widest width that searches accept,
   since wider blocks never skip less where their tables fit, and a budget bounds their memory.
 
-Fields whose comments name no class are not yet in one, and their comments say how their values
-were chosen, such as ``coset_route_minimum_work``, chosen by hand.
+The three fields whose comments name no class, ``coset_route_minimum_work``,
+``automorphism_minimum_states``, and ``macwilliams_shared_walk_rank``, are in none, and their
+comments say how their values were chosen, or that this is not recorded.
 
 A value changes only because its rule, a measured constant of the machine, or a stated budget
 changes.  To set the values on a machine, rerun ``constants.py`` of ``experiments/distance_tuning``,
-which measures the constants on a few quick searches and prints the derived values, and refit the
-coefficients of the cost model of completion tables as described below.  The README of that
-directory tables the rules, the constants, and the values, whose constants were measured on an
-Apple M3 Max.
+which measures the constants on a few quick searches and prints the derived values that they give,
+and refit the coefficients of the cost model of completion tables as described below.  The script
+does not yet re-derive ``automorphism_minimum_layer_work``, whose comment says how it was measured.
+The README of that directory tables, for an Apple M3 Max, the steps, their measured costs, and the
+values that they give.
 
 Timing confirms a change, and never chooses a value.  Before timing, record the rule, the values
 that it gives, the decisions that it should change, and how large a difference in time must be to
@@ -191,8 +195,9 @@ class SearchTuning:
     states narrower bounds, and every float field is a finite, non-negative float.
 
     The comment above each field says what it decides and in what unit, what raising or lowering it
-    does, and the class of its default, with the rule and constant of a derived value (see
-    :ref:`Retuning <tuning-retuning>`, which also describes the width and cost data sets).
+    does, and, for every field but three, the class of its default, with the rule and constant of a
+    derived value (see :ref:`Retuning <tuning-retuning>`, which also describes the width and cost
+    data sets).
     """
 
     # Fields of exhaustive enumeration.
@@ -232,21 +237,19 @@ class SearchTuning:
     #: it keeps its disjoint information sets rather than try a family of overlapping ones.
     #: Lowering it tries that family on cheaper searches, where it may not repay its setup; zero
     #: always tries, and ``MAX_VALUE`` never does.  Defaults to ``2 * 10**6``, a derived value (see
-    #: :ref:`Retuning <tuning-retuning>`): building an overlapping family took ``2.3 * 10**6`` to
-    #: ``2.7 * 10**6`` evaluations on a basis of 181 rows.
+    #: :ref:`Retuning <tuning-retuning>`): building an overlapping family took up to about
+    #: ``3 * 10**6`` evaluations.
     overlapping_minimum_work: int = 2_000_000
 
-    #: The predicted examinations of a query of a Brouwer-Zimmermann search of
-    #: ``CosetLeaderSearch``, with its disjoint information sets, from which the search tries other
-    #: families, a maximum disjoint and an overlapping one, and the query takes the family with the
-    #: least work.  In searches by Hamming weight, a query whose examinations reach it even with
-    #: that family also weighs words by their tails and skips completions by tables (see
-    #: ``_brouwer_zimmermann/coset_routes.py``).  It also sets the weight at which the overlapping
-    #: family is aimed, the least from two whose queries reach it.  Lowering it builds these for
-    #: cheaper queries, with more memory, and aims lower; zero builds them at the first query, aimed
-    #: at the weight two, and ``MAX_VALUE`` never.  Defaults to ``2 * 10**4``, chosen by hand,
-    #: preferring speed to memory: it sets these three decisions, and no break-even rule covers the
-    #: aim.
+    #: The predicted examinations of a query of a Brouwer-Zimmermann search of ``CosetLeaderSearch``
+    #: with its disjoint information sets, from which the search tries a maximum disjoint and an
+    #: overlapping family, and takes the one with the least work.  In searches by Hamming weight, a
+    #: query that reaches it even with that family also weighs words by their tails and skips
+    #: completions by tables (see ``_brouwer_zimmermann/coset_routes.py``).  It also sets the weight
+    #: that the overlapping family is aimed at, the least from two whose queries reach it.  Lowering
+    #: it builds these for cheaper queries, with more memory, and aims lower; zero builds them at
+    #: the first query, and ``MAX_VALUE`` never.  Defaults to ``2 * 10**4``, chosen by hand,
+    #: preferring speed to memory: it sets three decisions, and no break-even rule covers the aim.
     coset_route_minimum_work: int = 20_000
 
     #: The column orders that building a family of overlapping information sets tries for each set
@@ -262,9 +265,8 @@ class SearchTuning:
     #: ``_information_sets/basis_families.py``).  Lowering it tries partitioning on cheaper
     #: searches; zero always tries, and ``MAX_VALUE`` never does.  Searches given automorphisms
     #: switch to their images instead if those do no more work than any partitioned family could.
-    #: Defaults to 5, a derived value (see :ref:`Retuning <tuning-retuning>`): partitioning took 3.4
-    #: to 3.9 evaluations for each unit of that sum on a search that tried coverages up to 6, and
-    #: less on one that tried coverages up to 9.
+    #: Defaults to 5, a derived value (see :ref:`Retuning <tuning-retuning>`): partitioning took up
+    #: to about 3.9 evaluations for each unit of that sum.
     partition_work_ratio: int = 5
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
@@ -273,8 +275,8 @@ class SearchTuning:
     #: of its certificate, takes milliseconds, which only costly searches recover.  Lowering it uses
     #: them on cheaper searches; zero on every search of overlapping sets, and ``MAX_VALUE`` on
     #: none.  Defaults to ``2 * 10**8``, a derived value (see :ref:`Retuning <tuning-retuning>`):
-    #: the linear programming of a search of a basis of 181 rows, planning included, took
-    #: ``1.6 * 10**8`` to ``1.85 * 10**8`` evaluations.
+    #: the linear programming of a search of a basis of 181 rows, planning included, took about
+    #: ``1.8 * 10**8`` evaluations.
     lp_minimum_work: int = 200_000_000
 
     #: The largest denominator of the rational dual weights that the certificate from linear
@@ -340,8 +342,8 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``).  Considering them takes milliseconds of sampling, or tens on
     #: large bases.  Lowering it considers smaller layers; zero every layer, and ``MAX_VALUE`` none.
     #: Defaults to ``2 * 10**7``, a derived value (see :ref:`Retuning <tuning-retuning>`): the
-    #: costliest prediction measured, on a basis of 181 rows, took ``2.2 * 10**7`` to
-    #: ``2.5 * 10**7`` evaluations.
+    #: costliest prediction measured, on a basis of 181 rows, took about ``2.5 * 10**7``
+    #: evaluations.
     completion_bound_minimum_layer_work: int = 20_000_000
 
     #: A layer of a distance search or count uses the completion tables that it considers only if
@@ -384,10 +386,12 @@ class SearchTuning:
     #: The number of random supports from which a search estimates the share of a layer that
     #: completion tables would skip, within the budget ``completion_bound_sampling_work``; drawing
     #: them takes about 16 bytes for each sample and each row of the basis.  More samples narrow the
-    #: estimate, so that tables pay on more of the layers that accept them, but take longer, up to
-    #: about the time of a layer near ``completion_bound_minimum_layer_work``.  Between 1 and
-    #: ``2**12``.  Defaults to 1024, a convention (see :ref:`Retuning <tuning-retuning>`): the
-    #: standard error of the sampled share is at most 1/64 when the search draws them all.
+    #: estimate, so that tables pay on more of the layers that accept them, but take longer: at the
+    #: default, up to about the time of a layer near ``completion_bound_minimum_layer_work``.
+    #: Between 1 and ``2**12``.  Defaults to 1024, a convention (see :ref:`Retuning
+    #: <tuning-retuning>`): the standard error of the sampled share is at most 1/64 when the search
+    #: keeps all 1024 within ``completion_bound_sampling_work``; on large bases that budget keeps
+    #: fewer, and the error is at most ``1 / (2 * sqrt(n))`` for the ``n`` that it keeps.
     completion_bound_samples: int = dataclasses.field(
         default=1024, metadata={"minimum": 1, "maximum": 2**12}
     )

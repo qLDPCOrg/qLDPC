@@ -3,10 +3,12 @@
 """Measure the machine constants of BZ searches, and print the derived values of their tuning.
 
 The derived values of ``qldpc.codes.distance._tuning`` follow from rules and from a few constants of
-the machine (see the Retuning section of its module docstring, and "Derived values" in the README
-of this directory).  Each gate of an optional step breaks even: the step runs once the work that it
-acts on, in candidate/set evaluations, reaches the measured cost of the step, the costliest of its
-measurements, rounded to 1, 2, or 5 times a power of ten.  The script measures:
+the machine.  The Retuning section of its module docstring states the rule that turns the measured
+cost of a step into the value of its gate, and "Derived values" in the README of this directory
+tables the measurements.  The script re-derives ``partition_work_ratio``,
+``completion_bound_minimum_layer_work``, ``overlapping_minimum_work``, ``lp_minimum_work``, and
+``completion_bound_max_cost_percent``, but not yet ``automorphism_minimum_layer_work``, whose
+comment says how it was measured.  It measures:
 
 - the seconds of one candidate/set evaluation: for each traced search, the seconds of its layers of
   at least ``10**7`` evaluations without completion tables, less the seconds of choosing tables and
@@ -147,7 +149,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output", type=pathlib.Path, help="with --linear-programs-of, a JSON file to save"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.linear_programs_of is not None and args.output is None:
+        parser.error("--linear-programs-of needs --output")
+    return args
 
 
 ####################################################################################################
@@ -292,9 +297,9 @@ def report(directory: pathlib.Path) -> None:
         evaluations = constant.seconds / evaluation.seconds
         print(f"{name:<32} {constant.seconds:>10.3g} {evaluations:>12.3g}  {constant.description}")
 
-    # Each gate breaks even with the costliest measurement of its step, rounded to 1, 2, or 5 times
-    # a power of ten.
-    # The cost limit of completion tables compares two estimates of one unit.
+    # Each gate breaks even with the costliest measurement of its step, rounded as the Retuning
+    # section says (see round_to_grid).  The cost limit of completion tables compares two
+    # estimates of one unit.
     derived = {
         "partition_work_ratio": constants["partitioning, per unit"],
         "completion_bound_minimum_layer_work": constants["costliest prediction"],
