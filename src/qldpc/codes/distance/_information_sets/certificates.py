@@ -154,18 +154,26 @@ class Certificate:
         """
         return self.plan(upper_bound - 1, weight)
 
-    def work(self, upper_bound: int) -> int:
+    def work(self, upper_bound: int, first_layer: int = 1) -> int:
         """Estimate the candidate/set evaluations needed to certify ``upper_bound``.
 
-        This is the work of ``plan_steps`` for every layer from one, every set, and the limit
-        ``upper_bound - 1``, on the table of the coverage bound.  So the estimate solves no linear
-        programs.  It is pessimistic: it includes systematic rows (coefficient weight one), and it
-        assumes no lighter witness is found before the certificate reaches the upper bound.
+        This is the work of ``plan_steps`` for every layer from ``first_layer``, every set, and the
+        limit ``upper_bound - 1``, on the table of the coverage bound.  So the estimate solves no
+        linear programs.  A later ``first_layer`` estimates the work left once every set has
+        completed the layers before it.  The estimate is pessimistic: it assumes no lighter witness
+        is found before the certificate reaches the upper bound, and from layer one it includes
+        systematic rows (coefficient weight one).
         """
         ranks, *_ = self._as_array_arguments()
         binomials = get_capped_binomials(self.dimension)
         _, _, work = plan_steps(
-            self._step_lower_bounds, upper_bound - 1, 1, self.dimension, ranks, binomials, False
+            self._step_lower_bounds,
+            upper_bound - 1,
+            first_layer,
+            self.dimension,
+            ranks,
+            binomials,
+            False,
         )
         return work
 

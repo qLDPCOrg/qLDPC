@@ -21,9 +21,13 @@ records:
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
-- each attempt to switch to a family of automorphism images, including one at the end of setup if
-  setup found the automorphisms, the seconds it took, which then exclude finding them and building
-  their family, and whether the search switched;
+- each consideration of a switch to a family of automorphism images: one at the end of setup if
+  setup found the automorphisms, one before the first costly layer otherwise, and one before each
+  later costly layer at which the best weight has dropped since the search last declined.  It
+  records the layer before which the search considered the switch, the best weight, the work of
+  the automorphism family and the work left in the current family, which the switch compares, the
+  seconds it took, which include finding the automorphisms and building their family only at the
+  first consideration of a search whose setup did not find them, and whether the search switched;
 - the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step considers
   completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted cost with the
   limit, with the rows and weight of the prediction before it;
@@ -32,14 +36,14 @@ records:
   since the workload started, which also time the steps of counts;
 - each coefficient layer that a distance search advances by: its weight, number of basis rows and
   sets (of the family of automorphism images, for the layer that switches to it), its supports,
-  whether the search can still switch to automorphism images and, if so, the work of the layer that
-  the switch compares (scanned sets times supports), the best weight and lower bound after it, the
-  number of sets that it scanned, the supports that it evaluated and skipped in them, which count
-  candidate/set evaluations, and the lookups of completion tables that it made, the width of the
-  blocks of the tables that its information sets chose if any (a list with an entry for each set
-  that chose, zero for none, if several did), with the bytes and number of blocks of the largest,
-  the number of tables that it built, the seconds spent choosing tables, which include building
-  them, and building them, and its seconds in all.
+  whether the search would consider switching to automorphism images before it if its work reached
+  the threshold and, if so, that work (scanned sets times supports), the best weight and lower
+  bound after it, the number of sets that it scanned, the supports that it evaluated and skipped in
+  them, which count candidate/set evaluations, and the lookups of completion tables that it made,
+  the width of the blocks of the tables that its information sets chose if any (a list with an
+  entry for each set that chose, zero for none, if several did), with the bytes and number of
+  blocks of the largest, the number of tables that it built, the seconds spent choosing tables,
+  which include building them, and building them, and its seconds in all.
 
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
@@ -69,7 +73,12 @@ import numpy as np
 
 from qldpc.codes.distance import _tuning
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
-from qldpc.codes.distance._information_sets import basis_families, certificates, completion_bounds
+from qldpc.codes.distance._information_sets import (
+    automorphism_families,
+    basis_families,
+    certificates,
+    completion_bounds,
+)
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
 # experiments.distance_tuning.*, and would silently treat a bare "import trial" as untyped.
@@ -374,15 +383,33 @@ def wrap_limit(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the seconds of an attempt to switch to automorphism images, and its outcome."""
+    """Record each consideration of a switch to automorphism images, and its outcome.
+
+    The works are those that ``_switch_to_automorphism_family`` compares, at the best weight after
+    it checks the rows of the automorphism family: the work of that family from layer one, and the
+    work left in the current family from the layer before which the search considers the switch.
+    """
 
     @functools.wraps(function)
     def wrapper(search: Any) -> None:
+        weight, certificate = search.next_weight, search.instance.certificate
         start = time.perf_counter()
         function(search)
         seconds = time.perf_counter() - start
         switched = search.uses_automorphism_family
-        EVENTS.append({"event": "automorphisms", "switched": switched, "seconds": seconds})
+        event = {"event": "automorphisms", "weight": weight, "best": search.best}
+        family = search.automorphism_family
+        family_certificate = (
+            search.instance.certificate if switched else None if family is None else family[1]
+        )
+        if family_certificate is not None:
+            event["automorphism_work"] = int(
+                automorphism_families.estimate_automorphism_family_work(
+                    family_certificate, search.best
+                )
+            )
+            event["remaining_work"] = int(certificate.work(search.best, weight))
+        EVENTS.append(event | {"switched": switched, "seconds": seconds})
 
     return wrapper
 
@@ -399,7 +426,7 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             raise SetupDone
         weight, dimension = search.next_weight, search.dimension
         uses_automorphism_family = search.uses_automorphism_family
-        can_switch = search.get_automorphism_family is not None and not uses_automorphism_family
+        can_switch = search._considers_automorphism_family
         start = time.perf_counter()
         CURRENT_LAYER = {
             "event": "layer",

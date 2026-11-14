@@ -39,10 +39,12 @@ from .._information_sets import (
 from .._tuning import SearchTuning, get_tuning
 from . import affine_instance, affine_search
 
+# The automorphism family of a problem: a basis family of the one set that a search scans, and the
+# certificate of all of its images.
+_AutomorphismFamily = tuple[basis_families.BasisFamily, certificates.Certificate]
+
 # A function that returns the automorphism family of a problem for a weight divisor, or None.
-_GetAutomorphismFamily = Callable[
-    [int], tuple[basis_families.BasisFamily, certificates.Certificate] | None
-]
+_GetAutomorphismFamily = Callable[[int], _AutomorphismFamily | None]
 
 ####################################################################################################
 # search entry points
@@ -170,11 +172,16 @@ class _BrouwerZimmermannSearch:
     the search skipped, so a bound on the distance is ``min(lower_bound, best)``.
 
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
-    If the search would partition, setup calls it first, and has the search consider the switch at
-    the end of setup.  Otherwise the search calls it before the first layer whose scan would cost at
-    least ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  Either way, setup's
-    cache builds the family at most once, and the search switches to it if it predicts less work
-    (see ``_switch_to_automorphism_family``).
+    The search calls it at most once, the first time that it considers switching to that family,
+    and then sets it to None.  If the search would partition, setup calls it first, and has the
+    search consider the switch at the end of setup.  Otherwise the search first considers the
+    switch before the first layer whose scan would cost at least
+    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  Either way, setup's cache
+    builds the family at most once, and the search switches to it if it predicts less work (see
+    ``_switch_to_automorphism_family``).  A search that declines keeps the family in
+    ``automorphism_family``, and its best weight then in ``declined_best``.  It considers the switch
+    again before a later such layer once its best weight has dropped below ``declined_best`` (see
+    ``_considers_automorphism_family``).
 
     A layer scans its sets one at a time, in the order of the family, with
     ``affine_search.scan_information_set``.  A set whose block is an information set may skip the
@@ -194,6 +201,8 @@ class _BrouwerZimmermannSearch:
     next_weight: int = 1
     get_automorphism_family: _GetAutomorphismFamily | None = field(default=None, repr=False)
     uses_automorphism_family: bool = field(default=False, init=False)
+    automorphism_family: _AutomorphismFamily | None = field(default=None, init=False, repr=False)
+    declined_best: int = field(default=0, init=False)
     completion_tables: completion_bounds.CompletionTables | None = field(
         default=None, init=False, repr=False
     )
@@ -250,7 +259,7 @@ class _BrouwerZimmermannSearch:
         # largest threshold of a tuning forbids the switch.
         layer_work = min(num_scanned * math.comb(self.dimension, weight), certificates.WORK_CAP)
         if (
-            self.get_automorphism_family is not None
+            self._considers_automorphism_family
             and layer_work >= self.tuning.automorphism_minimum_layer_work
         ):
             self._switch_to_automorphism_family()
@@ -353,30 +362,51 @@ class _BrouwerZimmermannSearch:
         self.completion_tables, self.completion_tables_set = tables, index
         return tables
 
+    @property
+    def _considers_automorphism_family(self) -> bool:
+        """Whether the search would consider switching to an automorphism family before a layer.
+
+        It would until it switches, or finds that the problem has no such family.  After it declines
+        the switch, it would only once its best weight has dropped.  At the same best weight, the
+        switch compares the same work of the automorphism family with the work left in the current
+        family, which only falls as the search completes layers, so it would decline again.
+        """
+        if self.get_automorphism_family is not None:
+            return True
+        return self.automorphism_family is not None and self.best < self.declined_best
+
     def _switch_to_automorphism_family(self) -> None:
         """Scan one set and certify with its images from now on, if that predicts less work.
 
-        The search keeps its lower bound.  An eligible word lighter than the best weight is
-        unvisited by both families, so the bounds of both hold for it.  The certificate of the
-        automorphism family counts every layer of the scanned set, so the search scans that set
-        again from layer two.
+        The first call gets the automorphism family, which the search keeps while it declines the
+        switch.  The certificate of the automorphism family counts every layer of the scanned set,
+        so the search scans that set again from layer two.  The switch abandons the layers that the
+        current family has completed, so it compares the work of the automorphism family with the
+        work left in the current family, from its next layer.  The search keeps its lower bound.  An
+        eligible word lighter than the best weight is unvisited by both families, so the bounds of
+        both hold for it.
         """
-        assert self.get_automorphism_family is not None
-        get_automorphism_family, self.get_automorphism_family = self.get_automorphism_family, None
-        automorphism_family = get_automorphism_family(self.instance.certificate.weight_divisor)
-        if automorphism_family is None:
+        if self.get_automorphism_family is not None:
+            weight_divisor = self.instance.certificate.weight_divisor
+            self.automorphism_family = self.get_automorphism_family(weight_divisor)
+            self.get_automorphism_family = None
+        if self.automorphism_family is None:
             return
 
-        # The rows of the scanned set are the layer-one words of every image.
-        basis_family, certificate = automorphism_family
+        # The rows of the scanned set are the layer-one words of every image.  The work of the
+        # automorphism family counts them too, one evaluation each, so that it stays small when they
+        # certify the best weight.
+        basis_family, certificate = self.automorphism_family
         self.best = _get_basis_family_upper_bound(basis_family, self.best)
         work = automorphism_families.estimate_automorphism_family_work(certificate, self.best)
-        if work >= self.instance.certificate.work(self.best):
+        if work >= self.instance.certificate.work(self.best, self.next_weight):
+            self.declined_best = self.best
             return
         self.instance = affine_instance.get_distance_instance(basis_family, certificate)
         self.lower_bound = max(self.lower_bound, certificate.lower_bound(1))
         self.next_weight = 2
         self.uses_automorphism_family = True
+        self.automorphism_family = None
         # Tables of the old set bound nothing in the new one.
         self.completion_tables = None
 
@@ -509,8 +539,8 @@ def _prepare_brouwer_zimmermann_search(
     )
 
     # A search whose setup found automorphisms, to decide whether to partition, has paid for them,
-    # so it considers switching to their family at once rather than before a costly layer.  The rows
-    # of that family can lower the best weight, and its certificate can finish the search.
+    # so it first considers switching to their family at once rather than before a costly layer.
+    # The rows of that family can lower the best weight, and its certificate can finish the search.
     if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
         search._switch_to_automorphism_family()
         if search.finished:
@@ -523,7 +553,7 @@ def _get_automorphism_family(
     labels: npt.NDArray[np.uint8],
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None],
     weight_divisor: int,
-) -> tuple[basis_families.BasisFamily, certificates.Certificate] | None:
+) -> _AutomorphismFamily | None:
     """Verify the automorphisms of a problem, and build the automorphism family of one set.
 
     Args:

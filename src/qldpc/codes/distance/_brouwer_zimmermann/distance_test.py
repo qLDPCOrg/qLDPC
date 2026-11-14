@@ -722,6 +722,98 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
         assert get_automorphisms.call_count == expected_calls
 
 
+@pytest.fixture
+def switch_decisions(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, bool]]:
+    """Record each consideration of a switch to automorphism images: the best weight and outcome."""
+    decisions: list[tuple[int, bool]] = []
+    switch = bz._BrouwerZimmermannSearch._switch_to_automorphism_family
+
+    def recording_switch(search: bz._BrouwerZimmermannSearch) -> None:
+        switch(search)
+        decisions.append((search.best, search.uses_automorphism_family))
+
+    monkeypatch.setattr(
+        bz._BrouwerZimmermannSearch, "_switch_to_automorphism_family", recording_switch
+    )
+    return decisions
+
+
+def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
+    switch_decisions: list[tuple[int, bool]],
+) -> None:
+    """A search reconsiders a declined switch to automorphism images only at a lower best weight.
+
+    Each search may consider the switch before every layer, and the shift of the columns of its
+    binary cyclic code by ``step`` positions generates its automorphisms.  The rows that setup finds
+    in the [45, 21, 8] code weigh ten.  Before layer two, the images of one set predict more work
+    than the two disjoint sets of the search, so it declines to switch.  Layer two finds a word of
+    weight eight, and before layer three the images predict less work, so it switches.  In the
+    [21, 9, 8] code, setup finds a word of weight eight, so the search, which declines before layer
+    two, does not consider the switch again before layer three.  Each search asks for automorphisms
+    once, and gets their family from setup once.
+    """
+    tuning = dataclasses.replace(
+        TABLES_DISABLED,
+        automorphism_minimum_layer_work=0,
+        overlapping_minimum_work=MAX_VALUE,
+        partition_work_ratio=MAX_VALUE,
+    )
+    for coefficients, num_columns, step, expected in (
+        ("1001111001000111111110111", 45, 5, [(10, False), (8, True)]),
+        ("1111000101011", 21, 7, [(8, False)]),
+    ):
+        basis = _get_cyclic_basis(coefficients, num_columns)
+        labels = _no_labels(basis)
+        get_automorphisms = mock.Mock(return_value=np.roll(np.arange(num_columns), -step)[None])
+        switch_decisions.clear()
+        search = bz._prepare_brouwer_zimmermann_search(
+            basis,
+            labels,
+            cutoff=0,
+            weight_divisor=1,
+            upper_bound=num_columns + 1,
+            get_automorphisms=get_automorphisms,
+            tuning=tuning,
+        )
+        assert isinstance(search, bz._BrouwerZimmermannSearch)
+        get_family = search.get_automorphism_family = mock.Mock(
+            wraps=search.get_automorphism_family
+        )
+        while not search.finished:
+            search.advance()
+        assert search.best == bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0)
+        assert switch_decisions == expected
+        assert get_automorphisms.call_count == get_family.call_count == 1
+
+
+def test_a_late_switch_weighs_the_layers_left_in_the_current_family(
+    tune: Tune, switch_decisions: list[tuple[int, bool]]
+) -> None:
+    """A search declines a switch that would cost more than the layers that its family has left.
+
+    In this [35, 15, 8] binary cyclic code, the shift of the columns by seven positions generates
+    the automorphisms.  With the threshold of the switch at the work of layer three, the search
+    first considers the switch before that layer, after its two disjoint sets have completed layers
+    one and two and found a word of weight eight.  Layer three of one of these sets then certifies
+    that weight, at 455 candidate/set evaluations, while the images of one set would scan layers one
+    to three again, at 575.  So the search declines, though the whole search of the disjoint sets,
+    at 695 evaluations, predicts more work than the images.
+    """
+    tune(
+        automorphism_minimum_layer_work=math.comb(15, 3),
+        overlapping_minimum_work=MAX_VALUE,
+        partition_work_ratio=MAX_VALUE,
+    )
+    basis = _get_cyclic_basis("111100101101100010011", 35)
+    labels = _no_labels(basis)
+    automorphisms = np.roll(np.arange(35), -7)[None]
+    distance = bz.get_distance_brouwer_zimmermann_many(
+        [(basis, labels)], cutoff=0, get_automorphisms=lambda: automorphisms
+    )
+    assert distance == bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0) == 8
+    assert switch_decisions == [(8, False)]
+
+
 def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tune) -> None:
     """A search skips partitioning, and switches at once, if automorphism images do no more work.
 
@@ -873,6 +965,17 @@ def _get_costly_basis() -> npt.NDArray[np.uint8]:
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Quotient labels with no columns, which exclude no subcode."""
     return np.empty((len(basis), 0), dtype=np.uint8)
+
+
+def _get_cyclic_basis(coefficients: str, num_columns: int) -> npt.NDArray[np.uint8]:
+    """A basis of a binary cyclic code: the shifts of the coefficients of its generator polynomial.
+
+    ``coefficients`` lists them from the constant term up, and the polynomial must divide
+    ``x**num_columns - 1``, so that shifting the columns maps the code onto itself.
+    """
+    row = np.zeros(num_columns, dtype=np.uint8)
+    row[: len(coefficients)] = [int(bit) for bit in coefficients]
+    return np.array([np.roll(row, shift) for shift in range(num_columns - len(coefficients) + 1)])
 
 
 def _get_family(

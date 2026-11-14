@@ -556,8 +556,11 @@ A search therefore starts with the families of Sections [2.4](#24-search-bases-a
 A search that would try matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)) asks first, since a switch would discard any partitioned family.
 It skips partitioning if their automorphism family's work estimate is at most the least work that any partitioned family could reach.
 Having found automorphisms, it considers switching to their family at the end of setup.
-Any other search asks before the first layer whose scan would cost at least `automorphism_minimum_layer_work` candidate/set evaluations ([Section 4.4](#44-heuristics-and-cost-models)).
-Either way, if the automorphism family has a smaller work estimate for the current `U`, the search continues with it, from layer two.
+Any other search asks for them, and first considers the switch, before the first layer whose scan would cost at least `automorphism_minimum_layer_work` candidate/set evaluations ([Section 4.4](#44-heuristics-and-cost-models)).
+Either way, the search continues with the automorphism family, from layer two, if that family's work estimate for the current `U` is smaller than the work that the current family has left.
+The switch abandons the layers that the current family has completed, so that work starts at its next layer.
+Both estimates depend on `U`, which falls as the search finds lighter words, so a search that declines keeps the automorphism family, and considers the switch again before a later such layer once `U` has dropped.
+At the same `U`, the work left in the current family only falls as the search completes layers, so the search would decline again.
 
 This switch keeps both certificates.
 An eligible word lighter than `U` is unexamined by both families, since examining it would have lowered `U`.
@@ -998,7 +1001,8 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 - **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
-  A search asks for automorphisms before matroid partitioning, if it would partition, or else before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family.
+  A search asks for automorphisms before matroid partitioning, if it would partition, or else before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family from its next layer.
+  After declining, it considers the switch again before a later such layer once `U` has dropped.
 - **`CosetRoutes`** chooses the family with which a coset search answers each maximum weight `ω`, as the module docstring of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) explains.
   The work of a table of a search at `ω` is the work of `plan_steps` from layer zero, without the search bases that a query skips.
   Besides the word of its syndrome, a query at `ω` with no light enough word examines or skips as many words as the work of the table of its parity.
@@ -1060,7 +1064,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   Once the leading search bases that `advance` scans have completed a layer, it may raise `lower_bound`, since the certificate of [Section 2.5](#25-the-stopping-certificate) can advance within a layer.
   It increments `next_weight`, the coefficient weight of the next layer, only once every search basis has completed that layer.
   Before a costly layer, `advance` may switch the search to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
-  If setup asked for automorphisms before partitioning, it has already considered this switch, and `advance` does not consider it again.
+  A search that has declined this switch, at the end of setup or before an earlier layer, considers it again only once `U` has dropped.
   If the scan of a layer stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan.
   A switch earlier in the same call still takes effect.
   A subsequent call that is still permitted to advance restarts the unfinished layer from its first support.

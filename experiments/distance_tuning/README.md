@@ -103,7 +103,6 @@ These measures reach only so far:
 - The final set of values was not timed as a whole.
 - The estimated work of a distance search, which `overlapping_minimum_work`, `partition_work_ratio`, and `lp_minimum_work` read, can exceed the work done many times over, by a margin that varies between searches, so these thresholds stand for no fixed amount of time.
 - Coset searches choose the family of information sets that answers each maximum weight by the words that a query would weigh or skip, not by time, so they can choose a slower family.
-- A distance search decides at most once whether to switch to automorphism images, and does not revisit that choice as it finds lighter words.
 
 These limits can cost searches time or memory, but never change an exact result.
 

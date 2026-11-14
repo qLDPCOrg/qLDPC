@@ -268,16 +268,17 @@ class SearchTuning:
     #: that loses no certified bound.
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
-    #: A distance search asks at most once for the automorphisms that its caller passes.  It asks
-    #: before scanning its first coefficient layer of at least this estimated work, in candidate/set
-    #: evaluations, or before matroid partitioning if it would partition.  It then searches the
-    #: images of one information set under them if that predicts less work (Section 3.7 of
-    #: ``brouwer_zimmermann.md``).  Finding them, as the ``get_distance_exact`` methods of binary
-    #: quantum codes do, takes milliseconds.  Lowering this threshold pays that cost on cheaper
-    #: searches.  A threshold of zero asks before the first layer, and ``MAX_VALUE`` never asks.
-    #: Defaults to 10**8, between ``3 * 10**7`` and ``3 * 10**8``, over which the quick searches
-    #: timed decide alike.  To retune it, time searches with and without automorphisms.
-    automorphism_minimum_layer_work: int = 100_000_000
+    #: The work of a coefficient layer, in candidate/set evaluations, before which a distance search
+    #: first considers switching to the images of one information set under automorphisms
+    #: (Section 3.7 of ``brouwer_zimmermann.md``), which it does if they predict less work than its
+    #: family has left.  It reconsiders a decline before such a layer once its best weight drops, so
+    #: an early decline is not final.  Lowering it pays for finding automorphisms on cheaper
+    #: searches; raising it delays switches; zero considers before the first layer, and
+    #: ``MAX_VALUE`` never.  Defaults to the break-even value, the cost of finding them and building
+    #: the images: about 3.5 * 10**6 evaluations on five quantum codes, rounded on a 1-2-5 grid.  To
+    #: rederive it, convert the seconds of that step, which ``experiments/distance_tuning/trace.py``
+    #: records, to evaluations.
+    automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-support searches.
 
