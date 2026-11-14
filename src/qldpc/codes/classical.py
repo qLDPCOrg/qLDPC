@@ -29,11 +29,12 @@ class RepetitionCode(ClassicalCode):
     """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        self._field = resolve_field(field)
-        self._matrix = self.field.Zeros((bits - 1, bits))
+        field = resolve_field(field)
+        matrix = field.Zeros((bits - 1, bits))
         for row in range(bits - 1):
-            self._matrix[row, row] = 1
-            self._matrix[row, row + 1] = -self.field(1)
+            matrix[row, row] = 1
+            matrix[row, row + 1] = -field(1)
+        super().__init__(matrix)
 
         self._dimension = 1
         self._distance = bits
@@ -51,11 +52,12 @@ class RingCode(ClassicalCode):
     """
 
     def __init__(self, bits: int, field: int | type[galois.FieldArray] | None = None) -> None:
-        self._field = resolve_field(field)
-        self._matrix = self.field.Zeros((bits, bits))
+        field = resolve_field(field)
+        matrix = field.Zeros((bits, bits))
         for row in range(bits):
-            self._matrix[row, row] += self.field(1)
-            self._matrix[row, (row + 1) % bits] -= self.field(1)
+            matrix[row, row] += field(1)
+            matrix[row, (row + 1) % bits] -= field(1)
+        super().__init__(matrix)
 
         self._dimension = 1
         self._distance = bits
@@ -136,21 +138,22 @@ class HammingCode(ClassicalCode):
         """Construct a Hamming code of a given rank."""
         if size < 2:
             raise ValueError(f"Hamming codes require a rank of at least 2 (provided: {size})")
-        self._field = resolve_field(field)
-        if self.field is galois.GF2:
+        field = resolve_field(field)
+        if field is galois.GF2:
             # collect all nonzero bitstrings
             bitstrings = list(itertools.product([0, 1], repeat=size))
-            self._matrix = self.field(bitstrings[1:]).T
+            matrix: galois.FieldArray = field(bitstrings[1:]).T
 
         else:
             # collect all nonzero vectors whose first nonzero element is a 1
             vectors = [
                 (0,) * top_row + (1,) + rest
                 for top_row in range(size - 1, -1, -1)
-                for rest in itertools.product(range(self.field.order), repeat=size - top_row - 1)
+                for rest in itertools.product(range(field.order), repeat=size - top_row - 1)
             ]
-            self._matrix = self.field(vectors).T
+            matrix = field(vectors).T
 
+        super().__init__(matrix)
         self._dimension = len(self) - len(self._matrix)
         self._distance = 3
 
@@ -206,8 +209,7 @@ class ReedMullerCode(ClassicalCode):
         self._size = size
 
         generator = ReedMullerCode.get_generator(order, size)
-        self._matrix = ClassicalCode(generator, field).generator
-        self._field = resolve_field(field)
+        super().__init__(ClassicalCode(generator, field).generator)
 
         self._dimension = len(generator)
         self._distance = 2 ** (size - order)

@@ -14,7 +14,7 @@ import operator
 import random
 import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
-from typing import Any, Literal, Self, get_args
+from typing import Any, Literal, Self, TypeVar, get_args
 
 import galois
 import numpy as np
@@ -85,15 +85,13 @@ _CSS_DISTANCE_BOUND_REASON = (
     "decoder-based distance bounds decode an internal effective check matrix that stacks the"
     " stabilizers and logical operators of the code"
 )
-_REDUCE_LOGICAL_OP_REASON = (
-    "logical operators are found by decoding an internal effective check matrix that stacks the"
-    " checks and dual logical operators of the code"
-)
 _QUDIT_SYNDROME_MATRIX_REASON = "errors are decoded against an internal syndrome matrix"
 
 
 # a decoder, a check matrix, and a syndrome for the decoder to decode
 _DecodingProblem = tuple[decoders.ErrorDecoder, galois.FieldArray, galois.FieldArray]
+
+_ArrayT = TypeVar("_ArrayT", bound=npt.NDArray[Any])
 
 # the number of spare decoding problems that a randomized decoder search draws to replace failed
 # ones, an arbitrary limit that keeps a hopeless search finite
@@ -196,6 +194,14 @@ class AbstractCode(abc.ABC):
                 f"A parity check matrix must be two-dimensional, not of shape {self._matrix.shape};"
                 " pass one row per check or, for no checks, an array of shape (0, n) with n columns"
             )
+        _mark_read_only(self._matrix)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a copied or unpickled code, and mark its parity check matrix read-only again."""
+        self.__dict__.update(state)
+        for name in ("_matrix", "matrix"):  # CSSCode caches its matrix as the property "matrix"
+            if name in state:
+                _mark_read_only(state[name])
 
     @property
     def name(self) -> str:
@@ -305,9 +311,9 @@ class AbstractCode(abc.ABC):
 class ClassicalCode(AbstractCode):
     """Classical linear error-correcting code over a finite field ``F_q``.
 
-    A classical binary code ``C = {x}`` is a set of vectors x (with entries in ``F_q``) called code
-    words.  We consider only linear codes, for which any linear combination of code words is also
-    code word.
+    A classical code ``C = {x}`` is a set of vectors x (with entries in ``F_q``) called code words.
+    We consider only linear codes, for which any linear combination of code words is also a code
+    word.
 
     Operationally, we define a classical code by a parity check matrix H with dimensions
     (num_checks, num_bits).  Each row of H represents a linear constraint (a "check") that code
@@ -383,7 +389,7 @@ class ClassicalCode(AbstractCode):
     @functools.cached_property
     def graph(self) -> TannerGraph:
         """Tanner graph of this code."""
-        return TannerGraph.from_matrix(self.matrix)
+        return nx.freeze(TannerGraph.from_matrix(self.matrix))
 
     def get_weight(self) -> int:
         """Compute the weight of the largest parity check."""
@@ -401,11 +407,11 @@ class ClassicalCode(AbstractCode):
         """Generator of this code: a matrix whose rows form a basis for all code words."""
         if self._generator is None:
             self._generator = self.matrix.null_space()
-        return self._generator
+        return _mark_read_only(self._generator)
 
     def set_generator(self, generator: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Self:
         """Set the generator matrix of this code."""
-        generator = np.asanyarray(generator).view(self.field)
+        generator = np.array(generator).view(self.field)
         if np.any(self.matrix @ generator.T):
             raise ValueError("Provided generator matrix has nontrivial syndromes")
 
@@ -1220,7 +1226,7 @@ class QuditCode(AbstractCode):
     @functools.cached_property
     def graph(self) -> TannerGraph:
         """Tanner graph of this code."""
-        return TannerGraph.from_matrix(self.matrix, symplectic=True)
+        return nx.freeze(TannerGraph.from_matrix(self.matrix, symplectic=True))
 
     def maybe_to_css(self) -> QuditCode:
         """Try to convert this QuditCode into a CSSCode.
@@ -1508,7 +1514,7 @@ class QuditCode(AbstractCode):
 
         # return logical operators if known and not asked to recompute
         if not (self._logical_ops is None or recompute):
-            return self._logical_ops
+            return _mark_read_only(self._logical_ops)
 
         # For a subsystem code, extract the logical operators as a symplectic basis of the gauge
         # group's centralizer C(G): the operators commuting with every gauge generator.  The
@@ -1520,7 +1526,7 @@ class QuditCode(AbstractCode):
                 centralizer, promise_full_rank=True
             )
             self._logical_ops = logical_ops
-            return self._logical_ops
+            return _mark_read_only(self._logical_ops)
 
         # construct the standard-form parity check matrix
         (
@@ -1560,7 +1566,7 @@ class QuditCode(AbstractCode):
         logical_ops = np.vstack([logicals_x, logicals_z]).view(self.field)
 
         self._logical_ops = logical_ops
-        return logical_ops
+        return _mark_read_only(logical_ops)
 
     def get_standard_form_data(
         self,
@@ -1632,7 +1638,7 @@ class QuditCode(AbstractCode):
         skip_validation: bool = False,
     ) -> Self:
         """Set the logical operators of this code to the provided logical operators."""
-        logical_ops = np.asanyarray(logical_ops).view(self.field)
+        logical_ops = np.array(logical_ops).view(self.field)
         if not skip_validation:
             dimension = len(logical_ops) // 2
             # A valid logical basis has symplectic Gram matrix equal to the block anti-diagonal
@@ -1789,7 +1795,7 @@ class QuditCode(AbstractCode):
         if canonicalized and not _is_row_reduced(self._stabilizer_ops):
             self._stabilizer_ops = self.get_stabilizer_ops(recompute=True)
 
-        return self._stabilizer_ops
+        return _mark_read_only(self._stabilizer_ops)
 
     def get_gauge_ops(
         self,
@@ -1819,7 +1825,7 @@ class QuditCode(AbstractCode):
 
         if self._gauge_ops is None or recompute:
             self._gauge_ops = self.dual().get_logical_ops(recompute=recompute)
-        return self._gauge_ops
+        return _mark_read_only(self._gauge_ops)
 
     def get_destabilizer_ops(
         self, pauli: PauliXZLike | None = None, *, symplectic: bool = True
@@ -2942,7 +2948,8 @@ class CSSCode(QuditCode):
     @functools.cached_property
     def matrix(self) -> galois.FieldArray:
         """Overall parity check matrix."""
-        return scipy.linalg.block_diag(self.matrix_x, self.matrix_z).view(self.field)
+        matrix = scipy.linalg.block_diag(self.matrix_x, self.matrix_z).view(self.field)
+        return _mark_read_only(matrix)
 
     @property
     def graph_x(self) -> nx.DiGraph:
@@ -3202,7 +3209,7 @@ class CSSCode(QuditCode):
 
         # return logical operators if known and not asked to recompute
         if not (self._logical_ops is None or recompute):
-            return self._logical_ops
+            return _mark_read_only(self._logical_ops)
 
         # construct the standard-form parity check matrices
         (
@@ -3257,7 +3264,7 @@ class CSSCode(QuditCode):
         logical_ops = scipy.linalg.block_diag(logicals_x.T, logicals_z.T).view(self.field)
 
         self._logical_ops = logical_ops
-        return logical_ops
+        return _mark_read_only(logical_ops)
 
     def get_standard_form_data_xz(
         self,
@@ -4045,103 +4052,6 @@ class CSSCode(QuditCode):
         self._distance_bound_x = self._distance_bound_z = self._distance_bound = None
         return self
 
-    def reduce_logical_op(
-        self,
-        pauli: PauliXZLike,
-        logical_index: int,
-        *,
-        decoder: decoders.DeferredErrorDecoderInput = None,
-        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
-    ) -> Self:
-        """Reduce the weight of a logical operator.
-
-        A minimal-weight logical operator is found by enforcing that it has a trivial syndrome, and
-        that it commutes with all logical operators except its dual.  This is essentially the same
-        method as that used in CSSCode.get_distance_bound_with_decoder.  For a subsystem code,
-        however, the operator stays bare, so its weight can exceed the distance, which is dressed
-        (see get_distance).
-
-        Args:
-            pauli: The type of the logical operator to reduce: Pauli.X or Pauli.Z.  The strings "X"
-                and "Z" (case-insensitive) are also accepted.
-            logical_index: The index of the logical operator to reduce.
-            decoder: An error-decoder specification such as ``decoders.bp_osd(...)``, or None to
-                select the default.  It is built for an internal effective check matrix that stacks
-                the checks and dual logical operators of the code.
-            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
-                ``decoder=`` instead.
-
-        Returns:
-            This code, with a reduced logical operator.
-
-        Raises:
-            ValueError: If logical_index is out of range, or if the decoder fails to infer an error
-                that reproduces its syndrome.
-        """
-        pauli = Pauli.coerce_xz(pauli)
-        if not 0 <= logical_index < self.dimension:
-            raise ValueError(
-                f"logical_index must lie in range({self.dimension}) (provided: {logical_index})"
-            )
-        reject_prebuilt_decoder(decoder, _REDUCE_LOGICAL_OP_REASON)
-
-        # effective check matrix = syndromes and dual-pauli logical operators
-        code = self.get_code(pauli.swap_xz())
-        dual_logical_ops = self.get_logical_ops(pauli.swap_xz())
-        effective_check_matrix = np.vstack([code.matrix, dual_logical_ops]).view(self.field)
-        dual_op_index = code.num_checks + logical_index
-
-        # enforce that the new logical operator commutes with everything except its dual
-        effective_syndrome = self.field.Zeros(code.num_checks + self.dimension)
-        effective_syndrome[dual_op_index] = 1
-
-        if decoder_kwargs:  # DEPRECATED: see qldpc._deprecations
-            decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
-        error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
-        candidate_logical_op = _decode(error_decoder, effective_check_matrix, effective_syndrome)
-        if candidate_logical_op is None:
-            raise ValueError(_DECODING_FAILURE_MESSAGE)
-
-        assert self._logical_ops is not None
-        logical_ops = np.reshape(self._logical_ops, (2, self.dimension, 2, len(self)), copy=False)
-        logical_ops[pauli, logical_index, pauli, :] = candidate_logical_op
-        return self
-
-    def reduce_logical_ops(
-        self,
-        pauli: PauliXZLike | None = None,
-        *,
-        decoder: decoders.DeferredErrorDecoderInput = None,
-        **decoder_kwargs: Any,  # DEPRECATED: see qldpc._deprecations
-    ) -> Self:
-        """Reduce the weight of all logical operators.
-
-        For a subsystem code, the reduced operators stay bare (see reduce_logical_op).
-
-        Args:
-            pauli: The type of logical operators to reduce: Pauli.X, Pauli.Z, or None (the default)
-                to reduce both X-type and Z-type logical operators.  The strings "X" and "Z"
-                (case-insensitive) are also accepted.
-            decoder: Decoder input used to reduce each logical operator; see
-                help(reduce_logical_op).
-            **decoder_kwargs: Deprecated decoder-selection options; pass a specification as
-                ``decoder=`` instead.
-
-        Returns:
-            This code, with reduced logical operators.
-        """
-        pauli = None if pauli is None else Pauli.coerce_xz(pauli)
-        if pauli is None:
-            # DEPRECATED: see qldpc._deprecations
-            self.reduce_logical_ops(Pauli.X, decoder=decoder, **decoder_kwargs)
-            # DEPRECATED: see qldpc._deprecations
-            self.reduce_logical_ops(Pauli.Z, decoder=decoder, **decoder_kwargs)
-        else:
-            for logical_index in range(self.dimension):
-                # DEPRECATED: see qldpc._deprecations
-                self.reduce_logical_op(pauli, logical_index, decoder=decoder, **decoder_kwargs)
-        return self
-
     def conjugated(self, qudits: slice | Sequence[int] | None = None) -> QuditCode:
         """Apply local Fourier transforms, swapping X-type and Z-type operators.
 
@@ -4667,6 +4577,20 @@ def _require_symplectic(symplectic: bool) -> None:
 
 ####################################################################################################
 # helper methods
+
+
+def _mark_read_only(array: _ArrayT) -> _ArrayT:
+    """Mark an array as read-only, and return it.
+
+    Codes mark their parity check matrices, generator matrices, and logical, stabilizer, and gauge
+    operators read-only, since changing one in place would leave the code's cached properties stale.
+    A parity check matrix is marked when it is built, and again when its code is copied or
+    unpickled.  Generator matrices and operators are marked by the getters that return them, since
+    many methods store them.  Some code families, such as HGPCode, also mark the arrays that their
+    constructors store as public attributes.
+    """
+    array.flags.writeable = False
+    return array
 
 
 def _get_random_array(

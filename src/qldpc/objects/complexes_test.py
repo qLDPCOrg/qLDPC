@@ -134,6 +134,10 @@ def test_chain_complex(field: int = 3) -> None:
     four_chain = objects.ChainComplex.tensor_product(two_chain, two_chain.T, field)
     four_chain._validate_ops()
 
+    # tensor product over GF(257), whose characteristic exceeds 255 and in which -1 = 256
+    one = galois.GF(257)([[1]])
+    assert np.array_equal(objects.ChainComplex.tensor_product(one, one).op(2), [[256], [1]])
+
     # tensor product of one-complexes over a group algebra
     ring = abstract.GroupRing(abstract.TrivialGroup(), field)
     ring_matrix = abstract.RingArray.build(matrix, ring)

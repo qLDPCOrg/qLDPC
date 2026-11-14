@@ -427,18 +427,21 @@ class ChainComplex:
                 for row_degs in _get_degree_pairs(chain_a, chain_b, degree - 1)
             ]
 
-            # fill in nonzero blocks of the total boundary operator
+            # Fill in nonzero blocks of the total boundary operator.  Identity blocks are integer
+            # arrays, since galois cannot multiply a field array by a ring array.  Galois reduces an
+            # integer array modulo the field's characteristic in the array's own dtype, so the
+            # blocks take the smallest dtype of the field, which can hold the characteristic.
             for col, (deg_a, deg_b) in enumerate(_get_degree_pairs(chain_a, chain_b, degree)):
                 op_a = chain_a.op(deg_a)
                 op_b = chain_b.op(deg_b)
                 if deg_a:
                     row = get_block_index(deg_a - 1, deg_b)
-                    iden_b = np.identity(op_b.shape[1], dtype=np.uint8)
+                    iden_b = np.identity(op_b.shape[1], dtype=chain_field.dtypes[0])
                     # NumPy types np.kron as possibly returning an object array
                     blocks[row][col] = np.kron(op_a, iden_b)  # type:ignore[assignment]
                 if deg_b:
                     row = get_block_index(deg_a, deg_b - 1)
-                    iden_a = np.identity(op_a.shape[1], dtype=np.uint8)
+                    iden_a = np.identity(op_a.shape[1], dtype=chain_field.dtypes[0])
                     blocks[row][col] = np.kron(iden_a, op_b) * (-1) ** deg_a
 
             matrices.append(np.block(blocks))
