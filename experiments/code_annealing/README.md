@@ -37,8 +37,7 @@ python -m pip install . matplotlib
 
 ### The table and figures, from the paper's codes
 
-[`paper_data/`](paper_data/) keeps the codes of the paper, and the parameters of the best codes that a scrape of [qecdb.org](https://qecdb.org) found on 2026-05-21, before the paper.
-Its subdirectory [`paper_data/revised/`](paper_data/revised/) keeps the same for the revised version of the paper: the codes that the campaign below found, and a scrape of 2026-11-13.
+[`paper_data/`](paper_data/) keeps the codes of the paper, which the campaign below found, and the parameters of the best codes that a scrape of [qecdb.org](https://qecdb.org) found on 2026-11-13.
 No script writes that directory.
 One command checks every code of the paper, and rebuilds the table and figures of the paper from them:
 
@@ -51,10 +50,9 @@ It writes the table of the paper to `experiments/code_annealing/results/paper/da
 It simulates the codes to save the figures of the paper to `experiments/code_annealing/results/paper/figures/`, with a figure `error_rates.pdf` of both code types together.
 The table takes moments, whereas the figures take a while: they simulate every code with many sampled errors, and these simulations take most of the time.
 Add `--skip-figures` for the table alone, or a small `--num-samples` and `--max-qubits` for a quick look at the figures.
-Add `--revised` to do the same for the revised version of the paper, in `experiments/code_annealing/results/paper_revised/`.
 
 [REPRODUCTION.md](REPRODUCTION.md) maps every figure and table of the paper to its command, input, and output, and records whether it reproduces.
-`python -m experiments.code_annealing.check_claims` checks the paper's headline claims against its codes in seconds, without changing any file, and `--revised` checks those of the revised paper.
+`python -m experiments.code_annealing.check_claims` checks the paper's headline claims against its codes in seconds, without changing any file.
 [paper_data/README.md](paper_data/README.md) describes the data, and shows how to load the codes into qLDPC.
 
 ### The searches, at any scale
@@ -99,7 +97,7 @@ python -m experiments.code_annealing.make_figures
 `collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access.
 It saves the comparison in a file named by the date of the scrape, and writes the tables in the format of the paper's.
 Without `--scrape`, it writes the table from the newest earlier scrape, if that scrape covered the same codes.
-qecdb.org may list codes that were published after the paper, including those of the paper itself, so this comparison can differ from that of the paper.
+qecdb.org changes over time, so this comparison can differ from that of the paper.
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
 
 After an interruption, run `write_jobs` again with the same options, and then `parallel`: the new jobs file resumes the unfinished searches and skips the finished ones.
@@ -175,7 +173,7 @@ experiments/code_annealing/
 ├── progress_report.py    check the progress of a campaign
 ├── collect_data.py       step 2: collect the best codes and compute tables
 ├── make_figures.py       step 3: plot figures
-├── paper_data/           the codes of the paper and its revision, qecdb.org, and automorphisms
+├── paper_data/           the codes of the paper, qecdb.org, and automorphisms
 ├── core/                 the search, its command line, and the files and paths that all steps share
 ├── analysis/             what collect_data.py runs, and other tools for saved runs
 ├── figures/              what make_figures.py runs

@@ -2,9 +2,8 @@
 
 """Check the headline claims of the paper against its codes, without changing any file.
 
-Run with ``python -m experiments.code_annealing.check_claims [--revised]``, which takes seconds.  It
-reads the codes, the dated qecdb.org snapshot, and the automorphisms of the paper from
-``paper_data/``, or with ``--revised`` those of the revised paper from ``paper_data/revised/``, and
+Run with ``python -m experiments.code_annealing.check_claims``, which takes seconds.  It reads the
+codes, the dated qecdb.org snapshot, and the automorphisms of the paper from ``paper_data/``, and
 prints what it observes:
 
 1. Every code has the distance and number of minimum-weight logical operators that its file claims,
@@ -15,14 +14,12 @@ prints what it observes:
    matches or betters in all of ``n``, ``k``, and ``d``, by the parameters that the database
    listed, which are a trusted input rather than recomputed.
 4. The order of the group of logical Clifford gates, modulo logical Pauli gates, that the
-   SWAP-transversal automorphisms of the [[20, 6, 4]] SWEL code generate; both versions of the
-   paper report 2304.
+   SWAP-transversal automorphisms of the [[20, 6, 4]] SWEL code generate; the paper reports 2304.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 
 import numpy as np
 import stim
@@ -33,29 +30,15 @@ from .analysis.gv_bounds import get_css_gv_distance, get_qgv_distance
 from .analysis.scrape_qecdb import read_best_known
 from .core.cli import make_parser
 from .core.code_files import read_code_file, recount, split_blocks
-from .core.paths import (
-    CODE_FILE_NAMES,
-    PAPER_DATA_DIR,
-    PAPER_SNAPSHOT_FILE,
-    REVISED_DATA_DIR,
-    REVISED_SNAPSHOT_FILE,
-)
+from .core.paths import CODE_FILE_NAMES, PAPER_DATA_DIR, PAPER_SNAPSHOT_FILE
 
-_AUTOMORPHISMS_FILE_NAME = "automorphisms_swel_n20_k06.txt"
+_AUTOMORPHISMS_FILE = PAPER_DATA_DIR / "automorphisms_swel_n20_k06.txt"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Print what the paper's codes show about each headline claim."""
-    parser = make_parser(__doc__)
-    parser.add_argument(
-        "--revised",
-        action="store_true",
-        help="check the claims of the revised version of the paper",
-    )
-    args = parser.parse_args(argv)
-    data_dir = REVISED_DATA_DIR if args.revised else PAPER_DATA_DIR
-    snapshot_file = REVISED_SNAPSHOT_FILE if args.revised else PAPER_SNAPSHOT_FILE
-    code_files = {code_type: data_dir / name for code_type, name in CODE_FILE_NAMES.items()}
+    make_parser(__doc__).parse_args(argv)
+    code_files = {code_type: PAPER_DATA_DIR / name for code_type, name in CODE_FILE_NAMES.items()}
     entries = {code_type: read_code_file(path) for code_type, path in code_files.items()}
 
     print("1. Exact recount of every code against its file")
@@ -71,19 +54,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"   {code_type}: stabilizer {qgv}/{len(codes)}, CSS {css}/{len(codes)}")
 
     print("3. Codes that no code at qecdb.org matches or betters in n, k, and d")
-    for code_type, neighbors in read_best_known(code_files, snapshot_file).items():
+    for code_type, neighbors in read_best_known(code_files, PAPER_SNAPSHOT_FILE).items():
         wins = sum(best_known.undominated for best_known in neighbors)
-        print(f"   {code_type}: {wins}/{len(neighbors)} (snapshot {snapshot_file.name})")
+        print(f"   {code_type}: {wins}/{len(neighbors)} (snapshot {PAPER_SNAPSHOT_FILE.name})")
 
     print(
         "4. Logical Clifford gates of the SWAP-transversal automorphisms of the [[20, 6, 4]] code"
     )
     code = next(entry for entry in entries["swel"] if entry.params[:2] == (20, 6)).code.to_swel()
     order = _get_group_order(
-        [
-            _get_symplectic_matrix(get_logical_tableau(code, gate))
-            for gate in _read_gates(data_dir / _AUTOMORPHISMS_FILE_NAME)
-        ]
+        [_get_symplectic_matrix(get_logical_tableau(code, gate)) for gate in _read_gates()]
     )
     print(f"   {order} gates modulo logical Pauli gates (the paper reports 2304)")
 
@@ -92,14 +72,14 @@ def main(argv: Sequence[str] | None = None) -> None:
 # helper methods
 
 
-def _read_gates(path: Path) -> list[stim.Circuit]:
+def _read_gates() -> list[stim.Circuit]:
     """The Stim circuits of the automorphism file, which blank lines separate.
 
     A block of comments alone, such as the description at the top of the file, is no circuit.
     """
     circuits = [
         stim.Circuit("\n".join(line for _, line in block))
-        for block in split_blocks(path.read_text())
+        for block in split_blocks(_AUTOMORPHISMS_FILE.read_text())
     ]
     return [circuit for circuit in circuits if len(circuit)]
 
