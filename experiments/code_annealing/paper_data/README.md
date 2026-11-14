@@ -7,7 +7,7 @@ No script writes them: `reproduce_paper` and `check_claims` read them, and `repr
 | --- | --- | --- | --- |
 | `annealed_codes.txt` | The 33 best CSS codes of the paper, from 20 to 56 qubits, one block per code | The best code of each size of the campaign of `write_jobs.py`, collected by `collect_data`, which lowers stabilizer weights with `reduce_weights` of `core/code_files.py`; except at [[24, 4, 5]], where a separate run of the search found a code with fewer minimum-weight logical operators.  Listed in the paper's appendix of best codes | `reproduce_paper`, `check_claims`, the table, and the figures |
 | `annealed_codes_swel.txt` | The 33 best SWEL codes of the paper, in the same format | The best code of each size of the campaign, collected as above | As above |
-| `scrape_qecdb_2026-11-13.txt` | For each code, the best known neighbors at [qecdb.org](https://qecdb.org): the smallest `n`, largest `k`, and largest `d` among codes that are at least as good in the other two parameters | Scraped from the qecdb.org API by `analysis/scrape_qecdb.py`, with self-dual codes as the neighbors of SWEL codes; the date is that of the scrape.  The parameters are those that the database listed, a trusted input that is not recomputed | `latex_tables` (the comparison columns of the table), `check_claims` |
+| `scrape_qecdb_2026-11-14.txt` | For each code, the best known neighbors at [qecdb.org](https://qecdb.org): the smallest `n`, largest `k`, and largest `d` among codes that are at least as good in the other two parameters, each with the ID of a code that has it, as in `https://qecdb.org/codes/ID` | Scraped from the qecdb.org API by `analysis/scrape_qecdb.py`, with self-dual codes as the neighbors of SWEL codes; the date is that of the scrape.  The parameters are those that the database listed, a trusted input that is not recomputed | `latex_tables` (the comparison columns of the table), `check_claims` |
 | `automorphisms_swel_n20_k06.txt` | Five Stim circuits that generate SWAP-transversal logical Clifford gates of the [[20, 6, 4]] SWEL code | Found by an exhaustive search for automorphisms of the code, with every linear combination of its stabilizer generators added to its parity check matrix, and listed in the paper's appendix on automorphisms | `check_claims` |
 
 ## Formats
@@ -16,7 +16,8 @@ A code file has one block per code, separated by blank lines.
 A block starts with a header `# (n, k, d) m min-weight logicals`, where `m` counts the minimum-weight X-only plus Z-only logical operators, followed by one line per stabilizer generator: X-type generators first, then Z-type, with `_` for the identity.
 `core/code_files.py` documents and reads the format.
 
-A scrape file has one line `(n, k, d) n_best k_best d_best` per code, in one block per code file (CSS first, then SWEL), with `None` for a neighbor that the database did not have.
+A scrape file has one line `(n, k, d) n_best k_best d_best id_n id_k id_d` per code, in one block per code file (CSS first, then SWEL), with `None` for a neighbor that the database did not have.
+Each ID names a code at qecdb.org with the value of its neighbor, the first that the database listed, since several codes may share it.
 `analysis/scrape_qecdb.py` documents and reads the format.
 
 ## Loading the codes

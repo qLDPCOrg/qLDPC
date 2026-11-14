@@ -30,7 +30,7 @@ TEST_DIR_NAME = "test"
 # The codes and the qecdb.org snapshot that the paper reports, which no script writes, and the
 # subdirectory of the results directory in which ``reproduce_paper`` works with copies of them.
 PAPER_DATA_DIR = EXPERIMENT_DIR / "paper_data"
-PAPER_SNAPSHOT_FILE = PAPER_DATA_DIR / "scrape_qecdb_2026-11-13.txt"
+PAPER_SNAPSHOT_FILE = PAPER_DATA_DIR / "scrape_qecdb_2026-11-14.txt"
 PAPER_DIR_NAME = "paper"
 
 # Names of the text files with the best code of each code size, by code type.

@@ -10,9 +10,12 @@ neighbors in the database: the smallest ``n`` with at least the same ``k`` and `
 the same ``n`` and at least the same ``k``.  CSS codes are compared with the CSS codes of the
 database, and SWEL codes with its self-dual CSS codes.  The script prints, and saves to the data
 file ``data/scrape_qecdb_YYYY-MM-DD.txt`` of the results directory, one line per annealed code,
-``(n, k, d) n_best k_best d_best``, in one block per code file, with ``None`` for a neighbor that
-the database does not have.  The distance of an annealed code is the one that its code file
-claims, and that of a database code is the one that the database lists.
+``(n, k, d) n_best k_best d_best id_n id_k id_d``, in one block per code file, with ``None`` for a
+neighbor that the database does not have.  Each ID is the ID at qecdb.org, as in
+``https://qecdb.org/codes/ID``, of a code that has the parameter of its neighbor: the first code
+that the database lists, since several codes may share the best value.  The distance of an
+annealed code is the one that its code file claims, and that of a database code is the one that
+the database lists.
 
 The database grows, and may come to list the annealed codes themselves, so a data file records the
 database on the date of its scrape (in UTC), which its name carries.  ``latex_tables.py`` reads the
@@ -61,7 +64,11 @@ _REQUEST_ATTEMPTS = 3
 # Seconds to wait before another attempt of a request.
 _RETRY_DELAY = 5
 
-_DATA_LINE_PATTERN = re.compile(r"\((\d+), (\d+), (\d+)\) (\d+|None) (\d+|None) (\d+|None)")
+_DATA_LINE_PATTERN = re.compile(
+    r"\((\d+), (\d+), (\d+)\) (\d+|None) (\d+|None) (\d+|None) (\w+) (\w+) (\w+)"
+)
+# The ID of a code at qecdb.org, which never reads "None".
+_ID_PATTERN = re.compile(r"\w+")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -95,10 +102,13 @@ class BestKnown:
     """The largest ``k`` with at most the same ``n`` and at least the same ``d``."""
     d_best: int | None
     """The largest ``d`` with at most the same ``n`` and at least the same ``k``."""
+    ids: tuple[str | None, str | None, str | None]
+    """The IDs at qecdb.org of codes that have ``n_best``, ``k_best``, and ``d_best``."""
 
     def __str__(self) -> str:
         """The line of the data file."""
-        return f"{self.params} {self.n_best} {self.k_best} {self.d_best}"
+        ids = " ".join(str(code_id) for code_id in self.ids)
+        return f"{self.params} {self.n_best} {self.k_best} {self.d_best} {ids}"
 
     @property
     def undominated(self) -> bool:
@@ -116,12 +126,22 @@ class BestKnown:
         """Read a line of the data file."""
         match = _DATA_LINE_PATTERN.fullmatch(line.strip())
         if match is None:
-            raise ValueError(f"Not a line of the form '(n, k, d) n_best k_best d_best': {line!r}")
+            raise ValueError(
+                f"Not a line of the form '(n, k, d) n_best k_best d_best id_n id_k id_d': {line!r}"
+            )
         nn, kk, dd = (int(text) for text in match.groups()[:3])
         n_best, k_best, d_best = (
-            None if text == "None" else int(text) for text in match.groups()[3:]
+            None if text == "None" else int(text) for text in match.groups()[3:6]
         )
-        return BestKnown((nn, kk, dd), n_best, k_best, d_best)
+        id_n, id_k, id_d = (None if text == "None" else text for text in match.groups()[6:])
+        if any(
+            (value is None) != (code_id is None)
+            for value, code_id in [(n_best, id_n), (k_best, id_k), (d_best, id_d)]
+        ):
+            raise ValueError(
+                f"A neighbor has a value without an ID, or an ID without a value: {line!r}"
+            )
+        return BestKnown((nn, kk, dd), n_best, k_best, d_best, (id_n, id_k, id_d))
 
 
 def is_up_to_date(code_files: Mapping[CodeType, Path], data_file: Path) -> bool:
@@ -163,12 +183,12 @@ def query_best_known(params: CodeParams, code_type: CodeType) -> BestKnown:
         RuntimeError: If the database cannot be reached or answers in an unexpected format.
     """
     nn, kk, dd = params
-    return BestKnown(
-        params,
+    (n_best, id_n), (k_best, id_k), (d_best, id_d) = (
         _query_extreme("n", "asc", code_type, kMin=kk, dMin=dd),
         _query_extreme("k", "desc", code_type, nMax=nn, dMin=dd),
         _query_extreme("d", "desc", code_type, nMax=nn, kMin=kk),
     )
+    return BestKnown(params, n_best, k_best, d_best, (id_n, id_k, id_d))
 
 
 ####################################################################################################
@@ -230,7 +250,9 @@ def _scrape_data_file(code_files: Mapping[CodeType, Path], data_file: Path) -> N
     )
 
 
-def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: int) -> int | None:
+def _query_extreme(
+    field: str, direction: str, code_type: CodeType, **bounds: int
+) -> tuple[int, str] | tuple[None, None]:
     """The first value of a parameter of the codes within bounds, sorted by that parameter.
 
     Args:
@@ -240,11 +262,11 @@ def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: in
         **bounds: Query parameters of the database, such as ``nMax`` or ``kMin``.
 
     Returns:
-        The parameter of the first code, or ``None`` if no code matches.
+        The parameter and the ID of the first code, or ``(None, None)`` if no code matches.
 
     Raises:
         RuntimeError: If the database cannot be reached, answers in an unexpected format, or does
-            not list the parameter of the first code that it returns.
+            not list the parameter or the ID of the first code that it returns.
     """
     query: dict[str, str | int] = {"cssOnly": 1, "sort": field, "dir": direction, **bounds}
     if code_type == "swel":
@@ -258,13 +280,18 @@ def _query_extreme(field: str, direction: str, code_type: CodeType, **bounds: in
     if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
         raise RuntimeError(f"qecdb.org answered in an unexpected format: {data!r}")
     if not items:
-        return None
+        return None, None
+    code_id = items[0].get("_id")
+    if not isinstance(code_id, str) or not _ID_PATTERN.fullmatch(code_id) or code_id == "None":
+        raise RuntimeError(
+            f"Could not read the ID of the first code that qecdb.org lists: {code_id!r}"
+        )
     value = items[0].get(field)
     # an integer, or the decimal text of one; anything else, even a float, is a malformed answer
     if isinstance(value, int) and not isinstance(value, bool):
-        return value
+        return value, code_id
     if isinstance(value, str) and value.strip().isdecimal() and value.strip().isascii():
-        return int(value)
+        return int(value), code_id
     raise RuntimeError(
         f"Could not read the {field} of the first code that qecdb.org lists: {value!r}"
     )

@@ -37,7 +37,7 @@ python -m pip install . matplotlib
 
 ### The table and figures, from the paper's codes
 
-[`paper_data/`](paper_data/) keeps the codes of the paper, which the campaign below found, and the parameters of the best codes that a scrape of [qecdb.org](https://qecdb.org) found on 2026-11-13.
+[`paper_data/`](paper_data/) keeps the codes of the paper, which the campaign below found, and the parameters of the best codes that a scrape of [qecdb.org](https://qecdb.org) found on 2026-11-14.
 No script writes that directory.
 One command checks every code of the paper, and rebuilds the table and figures of the paper from them:
 
