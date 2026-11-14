@@ -428,8 +428,9 @@ class ChainComplex:
             ]
 
             # Fill in nonzero blocks of the total boundary operator.  Identity blocks are integer
-            # arrays, since galois cannot multiply field arrays by ring arrays, with a dtype of the
-            # field, which holds the characteristic that galois reduces them by.
+            # arrays, since galois cannot multiply a field array by a ring array.  Galois reduces an
+            # integer array modulo the field's characteristic in the array's own dtype, so the
+            # blocks take the smallest dtype of the field, which can hold the characteristic.
             for col, (deg_a, deg_b) in enumerate(_get_degree_pairs(chain_a, chain_b, degree)):
                 op_a = chain_a.op(deg_a)
                 op_b = chain_b.op(deg_b)

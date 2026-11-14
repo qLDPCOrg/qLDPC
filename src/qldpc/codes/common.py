@@ -4683,10 +4683,11 @@ def _require_symplectic(symplectic: bool) -> None:
 def _mark_read_only(array: galois.FieldArray) -> galois.FieldArray:
     """Mark an array as read-only, and return it.
 
-    Codes mark the arrays that they store or cache as read-only, since changing one in place would
-    leave the code's cached properties stale.  A parity check matrix is marked when it is built, and
-    again when the code is copied or unpickled, while generator matrices and operators are marked by
-    the getters that return them, since many methods store those.
+    Codes mark their parity check matrices, generator matrices, and logical, stabilizer, and gauge
+    operators read-only, since changing one in place would leave the code's cached properties stale.
+    A parity check matrix is marked when it is built, and again when its code is copied or
+    unpickled.  Generator matrices and operators are marked by the getters that return them, since
+    many methods store them.
     """
     array.flags.writeable = False
     return array

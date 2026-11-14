@@ -152,7 +152,7 @@ def test_field_array_construction() -> None:
             codes.ClassicalCode(list(matrix), field=field)
 
 
-def test_codes_copy_their_matrices() -> None:
+def test_codes_protect_their_arrays() -> None:
     """Codes copy arrays that they are given, and their stored arrays and graphs are read-only."""
     for matrix in (np.array([[1, 1, 0], [0, 1, 1]]), galois.GF(2)([[1, 1, 0], [0, 1, 1]])):
         code = codes.ClassicalCode(matrix)
@@ -160,14 +160,15 @@ def test_codes_copy_their_matrices() -> None:
         assert code.matrix[0, 0] == 1
 
     # setters copy their input too
-    qudit_code = codes.FiveQubitCode()
-    logical_ops = qudit_code.get_logical_ops().copy()
+    qudit_code, classical_code = codes.FiveQubitCode(), codes.RepetitionCode(2)
+    logical_ops, generator = qudit_code.get_logical_ops().copy(), classical_code.generator.copy()
     qudit_code.set_logical_ops(logical_ops)
-    logical_ops[:] = 0
-    assert np.any(qudit_code.get_logical_ops())
+    classical_code.set_generator(generator)
+    logical_ops[:] = generator[:] = 0
+    assert np.any(qudit_code.get_logical_ops()) and np.any(classical_code.generator)
 
-    # writing into an array that a code stores raises, also after copying or pickling the code; a
-    # subsystem code caches its stabilizer and gauge operators
+    # Writing into an array that a code stores raises, also after copying or pickling the code.
+    # Subsystem codes cache their stabilizer and gauge operators, so use one.
     subsystem_code = codes.SHPCode(codes.RepetitionCode(2))
     for array in (
         codes.RepetitionCode(2).matrix,
@@ -177,6 +178,7 @@ def test_codes_copy_their_matrices() -> None:
         subsystem_code.get_stabilizer_ops(),
         subsystem_code.get_gauge_ops(),
         copy.deepcopy(codes.RepetitionCode(2)).matrix,
+        # this pickle holds the CSSCode.matrix cached above, which unpickling must mark again
         pickle.loads(pickle.dumps(subsystem_code)).matrix,  # noqa: S301 - trusted round trip
     ):
         with pytest.raises(ValueError, match="read-only"):

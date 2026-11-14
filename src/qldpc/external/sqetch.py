@@ -156,6 +156,7 @@ def _get_binary_matrices(
     else:
         check_matrix = code.get_matrix(check_pauli)
     logical_matrix = code.get_logical_ops(check_pauli)
+    # pass copies, since a code's arrays are read-only and sqetch might write into its inputs
     return (
         np.array(check_matrix, dtype=np.uint8),
         np.array(logical_matrix, dtype=np.uint8),
