@@ -767,18 +767,16 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
         assert get_automorphisms.call_count == expected_calls
 
 
-@pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")
-def test_searches_skip_partitioning_that_their_automorphism_family_would_discard(
-    tune: Tune,
-) -> None:
-    """A search skips partitioning if it would switch to automorphism images that do no more work.
+@pytest.mark.usefixtures("force_information_sets")
+def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tune) -> None:
+    """A search skips partitioning, and switches at once, if automorphism images do no more work.
 
     The translations of this multivariate bicycle code give an automorphism family that does no more
-    work than any partitioned family could, so the switch would discard a partitioned family, and
-    the search builds the automorphism family once.  If none are found, with the identity alone,
-    which gives no cheaper family, or with a threshold above the cap of work estimates, the same
-    search partitions.  ``test_a_search_through_the_costly_stages_finds_the_distance`` partitions
-    without automorphisms.
+    work than any partitioned family could, so the search builds that family once, and switches to
+    it at once, even under a threshold that none of its layers reaches.  With the identity alone,
+    which gives no cheaper family, or if none are found, the same search partitions, and does not
+    switch.  Under a threshold above the cap of work estimates, it asks for no automorphisms.
+    ``test_a_search_through_the_costly_stages_finds_the_distance`` partitions without automorphisms.
     """
     tune(partition_work_ratio=0)
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
@@ -788,18 +786,33 @@ def test_searches_skip_partitioning_that_their_automorphism_family_would_discard
         code.get_logical_ops(Pauli.X), code.get_stabilizer_ops(Pauli.X), method="brute_force"
     )
     get_information_sets = matroid_partition.get_information_sets_with_coverage
+    switch = bz._BrouwerZimmermannSearch._switch_to_automorphism_family
+
+    # The switch spy records whether each search that considers a switch makes it.  A search that
+    # partitions in setup may finish there, and consider none.
+    switched: list[bool] = []
+
+    def _spy_switch(search: bz._BrouwerZimmermannSearch) -> None:
+        switch(search)
+        switched.append(search.uses_automorphism_family)
+
     for get_automorphisms, minimum_layer_work, partitions in (
         (code._get_qudit_automorphisms, 0, False),
+        (code._get_qudit_automorphisms, 10**9, False),
         (code._get_qudit_automorphisms, MAX_VALUE, True),
         (lambda: identity, 0, True),
         (lambda: None, 0, True),
     ):
         recorder = mock.Mock(wraps=get_automorphisms)
+        switched.clear()
         with (
             use_tuning(automorphism_minimum_layer_work=minimum_layer_work),
             mock.patch.object(
                 matroid_partition, "get_information_sets_with_coverage", wraps=get_information_sets
             ) as partition,
+            mock.patch.object(
+                bz._BrouwerZimmermannSearch, "_switch_to_automorphism_family", _spy_switch
+            ),
         ):
             distance = bz.get_distance_brouwer_zimmermann_many(
                 [problem], cutoff=0, get_automorphisms=recorder
@@ -807,6 +820,7 @@ def test_searches_skip_partitioning_that_their_automorphism_family_would_discard
         assert distance == expected
         assert partition.called == partitions
         assert recorder.call_count == (minimum_layer_work != MAX_VALUE)
+        assert any(switched) != partitions
 
 
 @pytest.mark.usefixtures("force_information_sets", "switch_before_any_layer")

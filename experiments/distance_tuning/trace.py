@@ -24,9 +24,9 @@ records:
 - each certificate of a search, which may solve linear programs, with its estimated work, which
   decides whether it may, and the seconds that took, and each linear program that it solves, with
   its bound and seconds;
-- each attempt to switch to a family of automorphism images, the seconds it took, which exclude
-  finding the automorphisms and building their family if setup already did, and whether the
-  search switched;
+- each attempt to switch to a family of automorphism images, including one at the end of setup if
+  setup found the automorphisms, the seconds it took, which then exclude finding them and building
+  their family, and whether the search switched;
 - the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step
   considers completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted
   cost with the limit, with the rows and weight of the prediction before it;

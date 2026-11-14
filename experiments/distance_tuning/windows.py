@@ -25,7 +25,8 @@ are compared with are:
 - ``lp_minimum_work``: the estimated work of a certificate of overlapping sets, which may solve
   linear programs if it reaches the threshold;
 - ``automorphism_minimum_layer_work``: the work of each layer before the switch to automorphism
-  images, which the switch decides at the first layer that reaches the threshold;
+  images, which the switch decides at the first layer that reaches the threshold; a search that
+  switches at the end of setup, instead of partitioning, has no such layer;
 - ``enumeration_max_dimension`` and ``enumeration_setup_cost_factor``: the dimension ``k`` and the
   ratio ``2**k / (k * n)`` of each test of enumeration by size.
 

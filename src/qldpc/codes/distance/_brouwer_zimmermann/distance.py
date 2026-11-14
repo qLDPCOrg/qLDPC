@@ -213,9 +213,9 @@ class _BrouwerZimmermannSearch:
 
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
     The search calls it once, before the first layer whose scan would cost at least
-    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations; setup may have built that
-    family already, to decide whether to partition, and the call then returns it.  The search
-    switches to the automorphism family if it predicts less work (see
+    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations, unless setup built that
+    family already, to decide whether to partition, and then had the search consider it at once.
+    The search switches to the automorphism family if it predicts less work (see
     ``_switch_to_automorphism_family``).
 
     A layer of two or more rows that scans one set whose block is an information set uses
@@ -533,8 +533,9 @@ def _prepare_brouwer_zimmermann_search(
     cutoff, certificate, and exhaustive exits between them.  ``tuning`` sets the thresholds of the
     stages and exits.  ``get_disjoint_basis_family``, if given, returns the result of the first
     stage.  ``get_automorphisms``, if given, lets the search switch to an automorphism family before
-    a costly layer (see ``_BrouwerZimmermannSearch``), and lets setup skip matroid partitioning if
-    that family predicts no more work than any partitioned family could.
+    a costly layer (see ``_BrouwerZimmermannSearch``).  If the search would partition, setup builds
+    that family first, skips matroid partitioning if that family predicts no more work than any
+    partitioned family could, and has the search consider switching to it at once.
     """
     dimension = len(basis)
     best = min(
@@ -587,7 +588,7 @@ def _prepare_brouwer_zimmermann_search(
 
     # Build the automorphism family at most once: before matroid partitioning, to decide whether to
     # partition, or before the first costly layer of the search.  Layer work saturates at the cap of
-    # work estimates, so a threshold above that cap never switches, and needs no family.
+    # work estimates, so a threshold above that cap turns automorphisms off, and needs no family.
     get_automorphism_family = (
         None
         if get_automorphisms is None
@@ -599,8 +600,8 @@ def _prepare_brouwer_zimmermann_search(
 
     # Replace the basis family only when overlapping sets, built heuristically and then, for costly
     # searches, by matroid partitioning, predict less certification work.  Partitioning is skipped
-    # if the search would switch to an automorphism family that does no more work than any
-    # partitioned family could.
+    # if an automorphism family does no more work than any partitioned family could, since the
+    # search then switches to that family at once.
     for get_replacement in (
         lambda family, best: basis_families.get_overlapping_family(
             basis,
@@ -654,7 +655,7 @@ def _prepare_brouwer_zimmermann_search(
         )
         return min(best, distance)
 
-    return _BrouwerZimmermannSearch(
+    search = _BrouwerZimmermannSearch(
         affine_instance.get_distance_instance(
             basis_family,
             basis_family.get_search_certificate(
@@ -669,6 +670,12 @@ def _prepare_brouwer_zimmermann_search(
         next_weight=completed_weight + 1,
         get_automorphism_family=get_automorphism_family,
     )
+
+    # A search whose setup found automorphisms, to decide whether to partition, has paid for them,
+    # so it considers switching to their family at once rather than before a costly layer.
+    if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
+        search._switch_to_automorphism_family()
+    return search
 
 
 def _get_automorphism_family(
