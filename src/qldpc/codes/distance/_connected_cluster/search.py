@@ -13,9 +13,9 @@ a root, finds a light vector with that syndrome, such as a light Pauli error wit
 on a stabilizer state.
 
 ``connected_cluster.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
-correctness requirements, and ``README.md`` there says which other modules use this one and which
-it uses.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py`` solves the same
-problem for any binary code.
+correctness requirements, and ``README.md`` there says which other modules use this one and which it
+uses.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py`` solves the same problem
+for any binary code.
 """
 
 from __future__ import annotations
@@ -65,10 +65,10 @@ def get_distance_connected_cluster(
     The search of each problem raises its weight limit ``W`` one weight divisor at a time, through
     the weights that a witness may have.  At each limit, it either finds a witness of weight at most
     ``W``, or certifies that every witness is heavier.  So a witness found after such certified
-    limits is a lightest one.  The first limit of each problem is its weight divisor, or the
-    largest multiple of the divisor that is at most ``cutoff`` if that is larger.  Once the search
-    finds a witness of weight at most ``cutoff``, it returns the weight of that witness, which can
-    exceed the distance.
+    limits is a lightest one.  The first limit of each problem is its weight divisor, or the largest
+    multiple of the divisor that is at most ``cutoff`` if that is larger.  Once the search finds a
+    witness of weight at most ``cutoff``, it returns the weight of that witness, which can exceed
+    the distance.
 
     Args:
         problems: The ``(checks, excluded)`` pairs to search.

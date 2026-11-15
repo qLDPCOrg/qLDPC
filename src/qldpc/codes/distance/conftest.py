@@ -288,8 +288,8 @@ def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.N
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
 
-# Graph states whose searches of Pauli errors, by physical or by CSS weight, have a maximum
-# disjoint family that beats their greedy packing, and that their costly queries take (see
+# Graph states whose searches of Pauli errors, by physical or by CSS weight, have a maximum disjoint
+# family that beats their greedy packing, and that their costly queries take (see
 # ``_brouwer_zimmermann/coset_routes.py``).  For the physical weight, the family of the first state
 # has more information sets than its greedy packing, and that of the second state a larger partial
 # set.  The family of the state for the CSS weight has a larger partial set too.  The two states for

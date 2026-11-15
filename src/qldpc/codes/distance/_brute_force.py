@@ -69,10 +69,10 @@ def _get_distance_brute_force(
             are weighed by symplectic weight.
 
     Returns:
-        The minimum weight of a nontrivial logical operator.  After an early exit, it is instead
-        the weight of the lightest operator seen, which is at most ``cutoff``.  Without
-        ``logical_ops``, the result is one more than the largest possible weight: the number of
-        qubits if symplectic, and otherwise the number of columns.
+        The minimum weight of a nontrivial logical operator.  After an early exit, it is instead the
+        weight of the lightest operator seen, which is at most ``cutoff``.  Without ``logical_ops``,
+        the result is one more than the largest possible weight: the number of qubits if symplectic,
+        and otherwise the number of columns.
     """
     num_bits = np.shape(logical_ops)[-1]
 
@@ -139,9 +139,9 @@ def _get_distance_brute_force(
     # remaining logical operators, every combination of the remaining stabilizers.  Each loop steps
     # through a reflected Gray code, in which step ``i`` flips the operator whose index is the
     # number of trailing zeros of ``i``.  So a single XOR into ``arrayf`` moves to the next
-    # combination, and the ``2**k - 1`` steps of a loop over ``k`` operators reach every
-    # combination of them other than the one that the loop starts from.  The sweep stops once the
-    # lightest weight seen is at most ``cutoff`` (see Returns).
+    # combination, and the ``2**k - 1`` steps of a loop over ``k`` operators reach every combination
+    # of them other than the one that the loop starts from.  The sweep stops once the lightest
+    # weight seen is at most ``cutoff`` (see Returns).
     for li in range(1, 2 ** len(int_logical_ops)):
         arrayf ^= int_logical_ops[count_trailing_zeros(li)]
         weights = weight_func(arrayf, out=out)

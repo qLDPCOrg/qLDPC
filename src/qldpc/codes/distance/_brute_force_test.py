@@ -134,8 +134,8 @@ def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
 
     A batch holds at most 2**batch_exponent packed integers, and each word packs into one 64-bit
     integer for every 64 bits, so fewer long words fit in a batch.  Words of five integers, not a
-    power of two, check that a batch rounds its number of words down, and words of 16 integers
-    check that long words still share batches.
+    power of two, check that a batch rounds its number of words down, and words of 16 integers check
+    that long words still share batches.
     """
     batch_exponent = 9
     sizes = _get_batch_sizes(num_bits, batch_exponent, tune)

@@ -34,10 +34,12 @@ class ConnectedClusterCosetSearch:
     syndrome: the identity, a single variable, or a single-qubit Pauli.  A coset with such a word
     gets the weight of that word as its lower bound, and only the other cosets are searched.  Of
     these, a coset with a word within ``max_weight`` gets the lower bound two from a single search
-    at ``max_weight``, and the weight of its lightest words from increasing weight limits that
-    start at two (see ``get_min_weight_bound``).  A coset without a word within ``max_weight`` gets
-    the larger of two and ``max_weight + 1``.  These bounds are often weaker than those of a
-    ``BrouwerZimmermannCosetSearch``.
+    at ``max_weight``, and the weight of its lightest words from increasing weight limits that start
+    at two (see ``get_min_weight_bound``).  From a higher first limit, a word that the search finds
+    at that limit gives the bound two, since it can be lighter than the limit, and a word that it
+    finds at a later limit gives that limit, the weight of its lightest words.  A coset without a
+    word within ``max_weight`` gets the larger of two and ``max_weight + 1``.  These bounds are
+    often weaker than those of a ``BrouwerZimmermannCosetSearch``.
 
     The search is fast only if its checks are sparse, but the given checks, such as row-reduced
     stabilizers, can be dense.  So it searches the sparser checks of ``get_sparser_rows``, which
@@ -111,8 +113,7 @@ class ConnectedClusterCosetSearch:
         time on cosets with words much lighter than ``max_weight``, and repeats the work of the
         lower limits on cosets without a word within ``max_weight``.  From the first limit two, the
         search finds a lightest word.  A higher first limit suits callers to which any word within
-        it gives the same answer.  A word that the search finds at that first limit can be lighter
-        than the limit, so its coset gets the lower bound two.
+        it gives the same answer.
         """
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)

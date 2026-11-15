@@ -50,10 +50,10 @@ def tabulate_singles(
 ) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
     """Tabulate the words of weight zero or one by syndrome, and the single-qubit X and Z errors.
 
-    The words are the identity and then, in this order, X, Z, and Y on each qubit in turn for
-    packed Paulis, or each single bit in turn for X or Z parts.  The syndrome of Y on a qubit is the
-    sum of those of X and Z there.  Each table maps each syndrome of its words to the first word
-    with that syndrome.
+    The words are the identity and then, in this order, X, Z, and Y on each qubit in turn for packed
+    Paulis, or each single bit in turn for X or Z parts.  The syndrome of Y on a qubit is the sum of
+    those of X and Z there.  Each table maps each syndrome of its words to the first word with that
+    syndrome.
 
     Args:
         check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
