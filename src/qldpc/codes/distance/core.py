@@ -29,26 +29,28 @@ from ._binary import (
 )
 from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
 from ._brute_force import get_nested_distance_brute_force
-from ._connected_support.search import get_distance_connected_support
-from ._connected_support.sparse_checks import get_row_weights, get_sparser_rows
+from ._connected_cluster.search import get_distance_connected_cluster
+from ._connected_cluster.sparse_checks import get_row_weights, get_sparser_rows
 from ._tuning import SearchTuning, get_tuning
 
 DistanceMethod = Literal[
-    "brouwer_zimmermann", "brute_force", "information_sets", "connected_support"
+    "brouwer_zimmermann", "brute_force", "information_sets", "connected_cluster"
 ]
 """The methods of exact distance searches.
 
 - ``"brouwer_zimmermann"``, the default of every search, and its alias ``"information_sets"``: the
   Brouwer-Zimmermann algorithm, which enumerates words of increasing weight in several information
   sets, and stops once a lower bound that the sets prove meets the lightest word found.
-- ``"connected_support"``: a search of the words whose supports the parity checks of a code connect,
-  which can be fast only for codes with sparse checks.  On quantum LDPC codes it is often much
-  faster than ``"brouwer_zimmermann"``, but sparse checks do not ensure that: it can be much slower
-  on some quantum LDPC codes, and on classical LDPC codes whose checks are only moderately sparse.
-  Functions that take generators rather than checks reject it.  For a subsystem code,
-  :func:`get_distance_css` and :func:`get_distance_pauli` derive its stabilizers from its gauge
-  generators, and search sparser generators of them.  A caller who knows sparser ones can pass them
-  to :func:`get_distance_from_checks`.
+- ``"connected_cluster"``: the connected-cluster algorithm of Dumer, Kovalev, and Pryadko
+  (`arXiv:1611.07164 <https://arxiv.org/abs/1611.07164>`_), with the branch and bound of Okada and
+  Kasai (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).  It searches the words whose
+  supports the parity checks of a code connect, which can be fast only for codes with sparse checks.
+  On quantum LDPC codes it is often much faster than ``"brouwer_zimmermann"``, but sparse checks do
+  not ensure that: it can be much slower on some quantum LDPC codes, and on classical LDPC codes
+  whose checks are only moderately sparse.  Functions that take generators rather than checks
+  reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` derive
+  its stabilizers from its gauge generators, and search sparser generators of them.  A caller who
+  knows sparser ones can pass them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also the
   fastest method for classical codes of low dimension whose distance is a large fraction of their
   length.  On such codes, the time of a ``"brouwer_zimmermann"`` search and the memory of its setup
@@ -94,14 +96,14 @@ NO_DISTANCE = NoDistance.NAN
 It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
 """
 
-_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force", "connected_support"]
+_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force", "connected_cluster"]
 
 # The canonical name of every accepted exact-distance method name, including aliases.
 _DISTANCE_METHODS: dict[str, _CanonicalDistanceMethod] = {
     "brouwer_zimmermann": "brouwer_zimmermann",
     "brute_force": "brute_force",
     "information_sets": "brouwer_zimmermann",
-    "connected_support": "connected_support",
+    "connected_cluster": "connected_cluster",
 }
 
 
@@ -145,7 +147,7 @@ def get_distance_from_generators(
         cutoff: Exit early once a nontrivial word of weight at most ``cutoff`` is found (see
             "Returns").
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``, or
-            ``"brute_force"`` (see :data:`DistanceMethod`).  The ``"connected_support"`` method
+            ``"brute_force"`` (see :data:`DistanceMethod`).  The ``"connected_cluster"`` method
             needs parity checks: use :func:`get_distance_from_checks`.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
@@ -175,14 +177,14 @@ def get_distance_from_generators(
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``generators`` or
             ``excluded`` is not array-like, as when a code is given instead of a matrix.
-        ValueError: If the method is unknown or is ``"connected_support"``, if ``max_weight`` is
+        ValueError: If the method is unknown or is ``"connected_cluster"``, if ``max_weight`` is
             negative, if the matrices are not binary matrices with the same number of columns, if
             ``generators`` is an empty list and ``excluded`` is one too or is not given, so that
             neither has a width, if the matrices have an odd number of columns while ``symplectic``
             is True, if ``automorphisms`` are not permutations of the bits or qubits, or if a search
             uses them and finds that one of them is not an automorphism.
     """
-    method = _reject_connected_support(_validate_distance_method(method))
+    method = _reject_connected_cluster(_validate_distance_method(method))
     cutoff, upper_bound = _get_weight_limit(cutoff, max_weight)
     generator_matrix, excluded_matrix = _as_matrix_and_excluded(generators, excluded, "generators")
     num_variables = _get_num_variables(generator_matrix.shape[1], symplectic)
@@ -213,7 +215,7 @@ def get_distance_from_checks(
     satisfies a check if they commute.  A word is trivial if it is in the row space of ``excluded``.
     For a classical code, pass its parity check matrix, and nothing excluded, to get its distance.
     For the X logical operators of a CSS stabilizer code, pass its Z checks, and exclude its X
-    checks.  Checks may be redundant, which can speed up the connected-support method.
+    checks.  Checks may be redundant, which can speed up the connected-cluster method.
 
     The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge
     operators.  :func:`get_distance_css` and :func:`get_distance_pauli` find it from the gauge
@@ -252,9 +254,9 @@ def get_distance_from_checks(
         cutoff: Exit early once a nontrivial word of weight at most ``cutoff`` is found (see
             "Returns").
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  The
+            ``"connected_cluster"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  The
             Brouwer-Zimmermann and brute-force methods search among the words that satisfy the
-            checks, and the connected-support method searches the words whose supports the checks
+            checks, and the connected-cluster method searches the words whose supports the checks
             connect.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
@@ -267,7 +269,7 @@ def get_distance_from_checks(
             as an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or as a function that
             returns such an array or None.  A search asks for them at most once, when it reaches a
             costly stage (see :doc:`/exact_search_tuning`), and only then calls a function.  The
-            Brouwer-Zimmermann and connected-support methods then verify that the permutations are
+            Brouwer-Zimmermann and connected-cluster methods then verify that the permutations are
             automorphisms, and use them to search less.  The brute-force method does not use them.
 
     Returns:
@@ -353,12 +355,12 @@ def get_distance_css(
         pauli: ``Pauli.X`` (or ``"X"``) for the X-distance, the minimum weight of a nontrivial X
             logical operator, or ``Pauli.Z`` (or ``"Z"``) for the Z-distance.  If None (the
             default), the result is the distance of the code, the smaller of the two.  The
-            Brouwer-Zimmermann and connected-support methods then search both types at once, which
+            Brouwer-Zimmermann and connected-cluster methods then search both types at once, which
             is faster than two calls.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
+            ``"connected_cluster"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
             covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
@@ -367,7 +369,7 @@ def get_distance_css(
             of ``checks_z``, onto themselves.  Pass them as an array whose row ``p`` maps qubit
             ``j`` to ``p[j]``, or as a function that returns such an array or None.  A search asks
             for them at most once, when it reaches a costly stage (see :doc:`/exact_search_tuning`),
-            and only then calls a function.  The Brouwer-Zimmermann and connected-support methods
+            and only then calls a function.  The Brouwer-Zimmermann and connected-cluster methods
             then verify that the permutations are automorphisms, and use them to search less.  The
             brute-force method does not use them.
 
@@ -434,7 +436,7 @@ def get_distance_pauli(
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
         method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_support"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
+            ``"connected_cluster"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
             covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1`` (see
@@ -443,7 +445,7 @@ def get_distance_pauli(
             Pass them as an array whose row ``p`` maps qubit ``j`` to ``p[j]``, or as a function
             that returns such an array or None.  A search asks for them at most once, when it
             reaches a costly stage (see :doc:`/exact_search_tuning`), and only then calls a
-            function.  The Brouwer-Zimmermann and connected-support methods then verify that the
+            function.  The Brouwer-Zimmermann and connected-cluster methods then verify that the
             permutations are automorphisms, and use them to search less.  The brute-force method
             does not use them.
 
@@ -487,7 +489,7 @@ def get_distance_pauli(
     # get_pauli_stabilizers returns new rows only for a subsystem code.  Its gauge generators that
     # commute with every gauge generator are stabilizers, which can join the search's checks.
     kept_stabilizers = None
-    if method == "connected_support" and stabilizers is not gauge:
+    if method == "connected_cluster" and stabilizers is not gauge:
         overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
         kept_stabilizers = gauge[~np.any(overlaps, axis=1)]
 
@@ -537,7 +539,7 @@ def _search_css(
 
     # Search the requested types at once, except by brute force, which has no joint search, and so
     # searches each type in turn and takes the minimum.
-    if method == "connected_support":
+    if method == "connected_cluster":
         tuning = get_tuning()
         if stabilizers_x is not gauge_x:
             # get_css_stabilizers returns new rows only for a subsystem code.  Its stabilizers are a
@@ -556,7 +558,7 @@ def _search_css(
                 )
                 for sector_pauli, (checks, excluded) in zip(paulis, problems, strict=True)
             ]
-        return get_distance_connected_support(
+        return get_distance_connected_cluster(
             problems,
             cutoff=cutoff,
             upper_bound=upper_bound,
@@ -602,10 +604,10 @@ def _search_checks(
     the result does not exceed, and ``get_automorphisms`` returns checked permutations or None (see
     ``_get_automorphism_getter``).  The other arguments are those of the public distance functions,
     validated.  If ``kept_stabilizers`` is given, the checks are the derived stabilizers of a
-    subsystem code, and the connected-support method searches the checks that
+    subsystem code, and the connected-cluster method searches the checks that
     ``_get_sparser_stabilizers`` returns instead.
     """
-    if method != "connected_support":
+    if method != "connected_cluster":
         kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
         return _search_generators(
             kernel,
@@ -627,7 +629,7 @@ def _search_checks(
         checks = _get_sparser_stabilizers(
             checks, kept_stabilizers, symplectic=symplectic, tuning=tuning
         )
-    return get_distance_connected_support(
+    return get_distance_connected_cluster(
         [(checks, excluded)],
         cutoff=cutoff,
         upper_bound=upper_bound,
@@ -644,13 +646,13 @@ def _get_sparser_stabilizers(
     symplectic: bool,
     tuning: SearchTuning,
 ) -> npt.NDArray[np.uint8]:
-    """Checks that span the stabilizers of a subsystem code, for a connected-support search.
+    """Checks that span the stabilizers of a subsystem code, for a connected-cluster search.
 
     ``stabilizers`` is the independent basis that ``get_css_stabilizers`` or
     ``get_pauli_stabilizers`` derives, and ``kept_stabilizers`` holds the gauge generators that are
     stabilizers.  The checks are ``kept_stabilizers``, as given, followed by ``stabilizers`` made
     sparser in up to ``max_distance_sparsifying_rounds`` rounds (Section 3.9 of
-    ``connected_support.md``).  Rows of ``kept_stabilizers`` that are heavier than every sparser row
+    ``connected_cluster.md``).  Rows of ``kept_stabilizers`` that are heavier than every sparser row
     are left out.
     """
     rows = stabilizers
@@ -842,18 +844,18 @@ def _validate_distance_method(
     if not isinstance(method, str) or method not in _DISTANCE_METHODS:
         raise ValueError(
             f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets'), 'brute_force', or 'connected_support'."
+            " 'information_sets'), 'brute_force', or 'connected_cluster'."
         )
     return _DISTANCE_METHODS[method]
 
 
-def _reject_connected_support(
+def _reject_connected_cluster(
     method: _CanonicalDistanceMethod,
 ) -> Literal["brouwer_zimmermann", "brute_force"]:
-    """Return a method other than ``"connected_support"``, which needs parity checks."""
-    if method == "connected_support":
+    """Return a method other than ``"connected_cluster"``, which needs parity checks."""
+    if method == "connected_cluster":
         raise ValueError(
-            "The 'connected_support' distance method searches parity checks rather than"
+            "The 'connected_cluster' distance method searches parity checks rather than"
             " generators: use get_distance_from_checks, get_distance_css, or get_distance_pauli"
         )
     return method

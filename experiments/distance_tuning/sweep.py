@@ -48,7 +48,7 @@ Examples, the first of which proposes the earlier value of ``automorphism_minimu
 ``10**5``, and so repeats the confirmation of its derived value with the arms swapped:
 
     python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \\
-        --workloads csdistance/lp13s5/X csdistance/surface:17/X \\
+        --workloads ccdistance/lp13s5/X ccdistance/surface:17/X \\
         --proposed '{"automorphism_minimum_states": 100000}'
     python experiments/distance_tuning/sweep.py --tag branch --rounds 3 \\
         --workloads distance/qt7/X count/gross/12 --worktrees ../qLDPC-main .

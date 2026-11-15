@@ -3,7 +3,7 @@
 """Trace the decisions and stage times of the exact searches of a workload, or compare two traces.
 
 The script wraps functions of the exact searches of ``qldpc.codes.distance`` in this process only,
-warms up as ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``csdistance``, or
+warms up as ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or
 ``mcount`` workload once under the given tuning.  It cannot trace ``ccount`` workloads: their
 compiled setup calls the stages directly, past the wrappers.  For BZ searches, it records:
 
@@ -45,7 +45,7 @@ compiled setup calls the stages directly, past the wrappers.  For BZ searches, i
   blocks of the largest, the number of tables that it built, the seconds spent choosing tables,
   which include building them, and building them, and its seconds in all.
 
-For connected-support searches, it records each weight limit that a search runs: the limit, the
+For connected-cluster searches, it records each weight limit that a search runs: the limit, the
 states visited before it, the states that the search predicted for it, whose sum with those visited
 it compares with ``automorphism_minimum_states``, the states that it visited, whether the search
 asked for automorphisms before it, with the seconds of finding them and of verifying them and
@@ -65,12 +65,12 @@ before ``sweep.py`` times the change.
 With ``--compare``, it instead compares the decisions of two saved traces of one workload, such as
 traces under two tunings or of two checkouts: families and their gates, certificates, switches to
 automorphism images, the tables of each layer, each comparison of a predicted cost with the limit,
-the weight limits before which connected-support searches ask for automorphisms, and the tests and
+the weight limits before which connected-cluster searches ask for automorphisms, and the tests and
 walks of counts by the MacWilliams method.  If the tunings differ only in thresholds and every
 decision is the same, so is the search, apart from the time of the decisions themselves.  Traces
 record the number of sets of each family, not the sets, so ``--compare`` may not tell apart
 searches whose families differ only in their sets, such as families that partitioning builds at
-other coverages.  Nor does it compare the states that a connected-support search visits within a
+other coverages.  Nor does it compare the states that a connected-cluster search visits within a
 weight limit, which budgets such as ``max_distance_sparsifying_rounds`` change.
 
 The script traces the qLDPC of its own checkout, and refuses to run if this process imports qLDPC
@@ -100,7 +100,7 @@ import numpy as np
 
 from qldpc.codes.distance import CSSLogicalCounter, _tuning
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
-from qldpc.codes.distance._connected_support import search as support_search
+from qldpc.codes.distance._connected_cluster import search as support_search
 from qldpc.codes.distance._counting import macwilliams
 from qldpc.codes.distance._information_sets import (
     automorphism_families,
@@ -132,11 +132,11 @@ SETUP_ONLY = False
 # The rows and weight of the latest prediction of the cost of completion tables.
 LAST_PREDICTION: dict[str, Any] = {"rows": None, "weight": None}
 
-# The seconds of asking for automorphisms in the current weight limit of a connected-support search.
+# The seconds of asking for automorphisms in the current weight limit of a connected-cluster search.
 CURRENT_ASK: dict[str, Any] = {}
 
 # The kinds of workloads that the script can trace.
-TRACED_KINDS = ("distance", "hadamard", "count", "csdistance", "mcount")
+TRACED_KINDS = ("distance", "hadamard", "count", "ccdistance", "mcount")
 
 
 class SetupDone(Exception):
@@ -627,7 +627,7 @@ def wrap_scan(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_support_search(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Time the function that a connected-support search calls to find automorphisms."""
+    """Time the function that a connected-cluster search calls to find automorphisms."""
 
     @functools.wraps(function)
     def wrapper(search: Any, *args: Any, get_automorphisms: Any = None, **kwargs: Any) -> None:
@@ -639,7 +639,7 @@ def wrap_support_search(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def time_finding(get_automorphisms: Callable[[], Any]) -> Any:
-    """Find the automorphisms of a connected-support search, and record the seconds it took."""
+    """Find the automorphisms of a connected-cluster search, and record the seconds it took."""
     start = time.perf_counter()
     automorphisms = get_automorphisms()
     CURRENT_ASK["find_seconds"] = time.perf_counter() - start
@@ -660,7 +660,7 @@ def wrap_use_automorphisms(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_find_witness(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each weight limit of a connected-support search, and whether it asked before it.
+    """Record each weight limit of a connected-cluster search, and whether it asked before it.
 
     The predicted states are those that ``find_witness`` adds to the states visited so far, and
     compares with ``automorphism_minimum_states``, while the search has not yet asked.

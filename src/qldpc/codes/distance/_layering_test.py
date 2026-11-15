@@ -12,7 +12,7 @@ _LAYERS = (
     ("_binary",),
     ("_tuning",),
     ("_information_sets", "_cosets", "min_weight_bounds"),
-    ("_brouwer_zimmermann", "_connected_support", "_counting", "_brute_force"),
+    ("_brouwer_zimmermann", "_connected_cluster", "_counting", "_brute_force"),
     ("core",),
     ("logical_counts", "coset_leaders"),
 )

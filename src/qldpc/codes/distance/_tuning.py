@@ -8,7 +8,7 @@ collects the values that tune a search, from the thresholds that choose a route 
 of cost models and the sizes of batches.  The tables of the page :doc:`/exact_search_tuning` of the
 documentation, which renders this docstring, map routes and symptoms to these values.  Section 4.4
 of ``brouwer_zimmermann.md`` says where each heuristic of a Brouwer-Zimmermann search uses them, and
-Sections 3.5, 3.8, and 3.9 of ``connected_support.md`` where the connected-support searches use
+Sections 3.5, 3.8, and 3.9 of ``connected_cluster.md`` where the connected-cluster searches use
 theirs.
 
 This module is private.  Its names, fields, defaults, and constants can change in any release,
@@ -27,7 +27,7 @@ What tuning can and cannot change:
   :func:`~qldpc.codes.distance.get_distance_from_generators`.
 - Under every tuning, a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` decides the same
   way whether a coset has a word of weight at most the query's maximum weight, and with the
-  connected-support method it gives the same lower bound.  The word that it returns, and with the
+  connected-cluster method it gives the same lower bound.  The word that it returns, and with the
   Brouwer-Zimmermann method its lower bound, can depend on tuning, within the contract of
   :class:`~qldpc.codes.distance.MinWeightBound`.
 - Codes and counters remember their results, and some intermediate results are cached for the whole
@@ -87,7 +87,7 @@ one of four classes, or says that it is in none:
   optional step, such as building a family of information sets, solving linear programs, or asking
   for automorphisms, breaks even: the step runs once the work that it acts on reaches the measured
   cost of the step, the costliest of its measurements.  Work and cost count candidate/set
-  evaluations in BZ searches and states in connected-support searches.  The value is rounded by
+  evaluations in BZ searches and states in connected-cluster searches.  The value is rounded by
   ratio (to the nearest in logarithm) to 1, 2, or 5 times a power of ten.  A limit that compares
   two estimates in one unit breaks even at equality, and the coefficients of a cost model are
   constants of the machine, measured on what they stand for.
@@ -304,23 +304,23 @@ class SearchTuning:
     #: README of that directory).
     automorphism_minimum_layer_work: int = 5_000_000
 
-    # Fields of connected-support searches.
+    # Fields of connected-cluster searches.
 
-    #: A connected-support search asks for the automorphisms that its caller passes before the first
+    #: A connected-cluster search asks for the automorphisms that its caller passes before the first
     #: weight limit at which it expects to have visited this many states, which are supports, over
-    #: all limits of one problem (Section 3.5 of ``connected_support.md``).  It also asks before a
+    #: all limits of one problem (Section 3.5 of ``connected_cluster.md``).  It also asks before a
     #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost of
     #: finding them on cheaper searches; raising it searches more limits from every variable.  Zero
     #: asks before the first limit, and ``MAX_VALUE`` never.  Defaults to ``5 * 10**4``, a derived
     #: value (see :ref:`Retuning <tuning-retuning>`): asking, which finds the automorphisms,
-    #: verifies them, and orders their orbits, took 8.9 to 9.4 ms on ``csdistance/qt7/X`` of
+    #: verifies them, and orders their orbits, took 8.9 to 9.4 ms on ``ccdistance/qt7/X`` of
     #: ``experiments/distance_tuning``, or ``3.4 * 10**4`` to ``3.7 * 10**4`` states at 253 to 263
-    #: ns each, the median cost per state of six connected-support searches of that directory.
+    #: ns each, the median cost per state of six connected-cluster searches of that directory.
     automorphism_minimum_states: int = 50_000
 
-    #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
+    #: A ``CosetLeaderSearch`` with the connected-cluster method makes its checks sparser in up to
     #: this many rounds, each a row reduction in a random order of the columns (Section 3.8 of
-    #: ``connected_support.md``).  Raising it can speed up queries but slows building the search;
+    #: ``connected_cluster.md``).  Raising it can speed up queries but slows building the search;
     #: zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE`` leaves
     #: the rounds to ``sparsifying_rounds_without_improvement``.  Defaults to 400, a budget of setup
     #: effort (see :ref:`Retuning <tuning-retuning>`): on states ``|0⟩`` of the pair-partition codes
@@ -328,9 +328,9 @@ class SearchTuning:
     #: lighter on average than 400 do.
     max_sparsifying_rounds: int = 400
 
-    #: A connected-support distance search of a subsystem code makes its derived stabilizers sparser
+    #: A connected-cluster distance search of a subsystem code makes its derived stabilizers sparser
     #: in up to this many rounds, each a row reduction in a random column order (Section 3.9 of
-    #: ``connected_support.md``).  Raising it can speed up the search but delays its start.  Zero
+    #: ``connected_cluster.md``).  Raising it can speed up the search but delays its start.  Zero
     #: skips sparsifying, and ``MAX_VALUE`` leaves the rounds to
     #: ``sparsifying_rounds_without_improvement``.  Defaults to 50, a budget of setup effort (see
     #: :ref:`Retuning <tuning-retuning>`).

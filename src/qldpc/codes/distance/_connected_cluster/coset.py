@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Connected-support coset searches of ``CosetLeaderSearch``, with checks made sparser first."""
+"""Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first."""
 
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ from .search import SupportSearch
 from .sparse_checks import get_sparser_rows
 
 
-class ConnectedSupportCosetSearch:
-    """A coset search of a ``CosetLeaderSearch`` by the connected-support search of its checks.
+class ConnectedClusterCosetSearch:
+    """A coset search of a ``CosetLeaderSearch`` by the connected-cluster search of its checks.
 
     The words, checks, and syndromes are those of a ``BrouwerZimmermannCosetSearch``
     (``_brouwer_zimmermann/coset.py``): packed Paulis, whose syndrome for the stabilizers is that of
     the symplectic search of ``SupportSearch``, or the X or Z parts of Paulis, whose syndrome is
     that of a binary search of the checks.  The search starts from the syndrome of a query, and
-    grows supports through its unsatisfied checks (Section 3.8 of ``connected_support.md``).
+    grows supports through its unsatisfied checks (Section 3.8 of ``connected_cluster.md``).
 
     Like a ``BrouwerZimmermannCosetSearch``, it first looks up a word of weight zero or one by its
     syndrome: a single variable, or a single-qubit Pauli.  It searches only cosets with no such

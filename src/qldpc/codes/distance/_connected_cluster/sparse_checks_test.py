@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for the sparser checks of the connected-support searches."""
+"""Unit tests for the sparser checks of the connected-cluster searches."""
 
 from __future__ import annotations
 

@@ -18,7 +18,7 @@ The [experiments README](../README.md#distance-tuning) introduces the scripts, a
 Every derived value follows from a rule fixed before measuring and, unless it is a limit at equality, from a constant of the machine that `constants.py` measures:
 
 - **Break-even gates.** An optional step, such as building a family of information sets, solving linear programs, or asking for automorphisms, runs once the work that it acts on reaches the cost of the step, the costliest of its measurements.
-  Work counts candidate/set evaluations in BZ searches, and states in connected-support searches.
+  Work counts candidate/set evaluations in BZ searches, and states in connected-cluster searches.
   The value is rounded by ratio to 1, 2, or 5 times a power of ten.
 - **Limits at equality.** A limit that compares two estimates in one unit breaks even where they are equal.
 - **Measured coefficients.** The coefficients of the cost model of completion tables are constants of the machine, measured on the searches of the cost data set of the Retuning section: those of lookups on their large layers of one information set, and those of builds on every table that they build with tables forced.
@@ -43,14 +43,14 @@ On an Apple M3 Max that also ran other work, on the library code that follows #8
 | `lp_minimum_work` | `2 * 10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.21 s, or `1.79 * 10**8` to `1.81 * 10**8` evaluations, for planning and programs |
 | `completion_bound_max_cost_percent` | 100 | None: the limit compares two estimates in one unit |
 | `automorphism_minimum_layer_work` | `5 * 10**6` | Finding the automorphisms of a BZ search, verifying them, and building their images: 7.56 to 8.57 ms, on `hadamard/gross` set up only, or `6.4 * 10**6` to `7.2 * 10**6` evaluations; `distance/qt7/X` took 6.35 to 6.68 ms |
-| `automorphism_minimum_states` | `5 * 10**4` | Asking for automorphisms in a connected-support search, which finds them, verifies them, and orders their orbits: 8.9 to 9.4 ms, on `csdistance/qt7/X`, or `3.4 * 10**4` to `3.7 * 10**4` states at 253 to 263 ns each, the median over six searches of 99 to 828 ns |
+| `automorphism_minimum_states` | `5 * 10**4` | Asking for automorphisms in a connected-cluster search, which finds them, verifies them, and orders their orbits: 8.9 to 9.4 ms, on `ccdistance/qt7/X`, or `3.4 * 10**4` to `3.7 * 10**4` states at 253 to 263 ns each, the median over six searches of 99 to 828 ns |
 
 The row of `automorphism_minimum_states` comes from six later runs of the script, which gave the other values again.
 The row of `automorphism_minimum_layer_work` comes from three runs on the library code that follows #871, at 1.18 to 1.19 ns per evaluation, which gave the other values again; in them, the constant of `automorphism_minimum_states` was `3.33 * 10**4` to `3.52 * 10**4` states.
 One of the three runs gave `10**7` for `automorphism_minimum_layer_work`, since its single trace of `hadamard/gross` took 8.57 ms.
 Ten more traces of that search then took 6.71 to 9.37 ms, with a median of 7.54 ms, or `6.3 * 10**6` evaluations, and a test fixed before they ran, that a median above the edge would give `10**7`, kept `5 * 10**6`.
 To repeat them, run `trace.py hadamard/gross --setup-only`, and add the `competing_seconds` of its partitioned family to the seconds of its first `automorphisms` event.
-These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases, and a state of a connected-support search took 99 to 828 ns across the six searches.
+These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases, and a state of a connected-cluster search took 99 to 828 ns across the six searches.
 The edges of their rounding are the geometric means of neighboring values.
 In the three runs of the table, the constant of `overlapping_minimum_work` lies 5 to 23% below `3.16 * 10**6`, that of `partition_work_ratio` 20 to 22% above 3.16, that of `completion_bound_minimum_layer_work` 20 to 22% below `3.16 * 10**7`, and that of `lp_minimum_work` 27 to 28% above `1.41 * 10**8`.
 In the three runs on the library code that follows #871, that of `automorphism_minimum_layer_work` lies 10% below to 1% above `7.07 * 10**6`, and in those and the six runs of its row, that of `automorphism_minimum_states` 5 to 18% above `3.16 * 10**4`.
@@ -72,9 +72,9 @@ The five coefficients of the cost model keep values measured on the cost data se
    In these examples, the proposed tuning holds the earlier value of `automorphism_minimum_states`, `10**5`, so they repeat the confirmation of its derived value with the arms swapped:
 
    ```bash
-   python experiments/distance_tuning/trace.py csdistance/lp13s5/X \
+   python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
        --output experiments/distance_tuning/results/current.json
-   python experiments/distance_tuning/trace.py csdistance/lp13s5/X \
+   python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
        --tuning '{"automorphism_minimum_states": 100000}' \
        --output experiments/distance_tuning/results/proposed.json
    python experiments/distance_tuning/trace.py --compare \
@@ -88,7 +88,7 @@ The five coefficients of the cost model keep values measured on the cost data se
 
    ```bash
    python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \
-       --workloads csdistance/lp13s5/X csdistance/surface:17/X csdistance/qt7/X \
+       --workloads ccdistance/lp13s5/X ccdistance/surface:17/X ccdistance/qt7/X \
        --proposed '{"automorphism_minimum_states": 100000}'
    ```
 

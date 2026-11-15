@@ -747,7 +747,7 @@ def compile_search_setup() -> None:
     selects and bounds the information sets of a code, packs them for the scan of its words, and
     moves them through local gates.  This function compiles that code instead, for the rest of this
     process.  It does not change any result, and it does not affect the MacWilliams method or the
-    connected-support distance method, which do not use that code.
+    connected-cluster distance method, which do not use that code.
 
     Call it once, at the start of a program that makes very many counts of similar codes, such as a
     search over many deformed codes.  Every process that calls it compiles the code again, so it

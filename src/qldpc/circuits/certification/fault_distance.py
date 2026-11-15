@@ -54,7 +54,7 @@ def get_fault_distance(
     Args:
         circuit: A noisy Stim circuit annotated with detectors and logical observables.
         method: The exact-distance method: ``"brouwer_zimmermann"`` (the default, with alias
-            ``"information_sets"``), ``"brute_force"``, or ``"connected_support"``, which searches
+            ``"information_sets"``), ``"brute_force"``, or ``"connected_cluster"``, which searches
             the sparse detector matrix :math:`D` for undetected faults that are connected through
             its detectors (see :data:`~qldpc.codes.distance.DistanceMethod`).
 
@@ -69,7 +69,7 @@ def get_fault_distance(
     if method not in get_args(DistanceMethod):
         raise ValueError(
             f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets'), 'brute_force', or 'connected_support'."
+            " 'information_sets'), 'brute_force', or 'connected_cluster'."
         )
     dem_arrays = decoders.DetectorErrorModelArrays(circuit)
     detectors = dem_arrays.detector_flip_matrix.toarray().astype(np.uint8)

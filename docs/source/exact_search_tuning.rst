@@ -8,7 +8,7 @@ It renders the documentation of each value from the private module ``qldpc.codes
 
 Before you change a value, read :ref:`the documentation of that module <tuning-module>` below.
 It says what the module's privacy means for code that uses it, what tuning can and cannot change, how to change the tuning, and which values are fields of :class:`SearchTuning` and which are constants.
-The `Brouwer-Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-support guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_ explain the methods.
+The `Brouwer-Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-cluster guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ explain the methods.
 
 Start from a symptom
 --------------------
@@ -22,7 +22,7 @@ Start from a symptom
    * - A distance search of a classical code of low dimension, whose distance is a large fraction of its length, is slow
      - Pass ``method="brute_force"`` to enumerate every word instead.
    * - A distance search of a quantum LDPC code is slow
-     - Pass ``method="connected_support"``, which is often much faster on such codes, though not on all of them (`Section 2 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#2-what-the-cost-of-the-search-depends-on>`__ of the connected-support guide).
+     - Pass ``method="connected_cluster"``, which is often much faster on such codes, though not on all of them (`Section 2 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#2-what-the-cost-of-the-search-depends-on>`__ of the connected-cluster guide).
    * - A hard distance search spends its time in its last, costliest layers
      - Raise :attr:`~SearchTuning.completion_bound_max_cost_percent` or lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` to use completion tables in more layers.
        For a basis too large for its tables, raise :attr:`~SearchTuning.completion_bound_max_table_bytes` or lower :attr:`~SearchTuning.completion_bound_block_bits`.
@@ -47,13 +47,13 @@ Start from a symptom
        No value limits the memory of a whole process.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
-       A connected-support search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
-   * - A cheap connected-support search spends its time finding automorphisms
+       A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
+   * - A cheap connected-cluster search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
        A search whose first weight limit a cutoff raises asks for them unless the field is ``MAX_VALUE``.
-   * - A :class:`~qldpc.codes.distance.CosetLeaderSearch` with the connected-support method takes long to build, or its queries are slow
+   * - A :class:`~qldpc.codes.distance.CosetLeaderSearch` with the connected-cluster method takes long to build, or its queries are slow
      - Lower :attr:`~SearchTuning.max_sparsifying_rounds` or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` to build it sooner, or raise them for sparser checks and faster queries.
-   * - A connected-support distance search of a subsystem code is slow to start, or slow to search
+   * - A connected-cluster distance search of a subsystem code is slow to start, or slow to search
      - Lower :attr:`~SearchTuning.max_distance_sparsifying_rounds`, or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` below it, to start sooner, or raise the former for sparser checks and a faster search.
    * - Completion tables are used, or declined, against measured savings
      - Measure the coefficients of their cost model again, as :ref:`Retuning <tuning-retuning>` describes.
@@ -97,18 +97,18 @@ Routes and the names that control them
      - :attr:`SearchTuning.automorphism_minimum_layer_work`
      -
      - `Section 3.7 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms>`__
-   * - Searching from one root for each orbit of the automorphisms of a code, in connected-support searches
+   * - Searching from one root for each orbit of the automorphisms of a code, in connected-cluster searches
      - :attr:`SearchTuning.automorphism_minimum_states`
      -
-     - `Section 3.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#35-symmetries>`__
-   * - Making the checks of the connected-support coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch` sparser
+     - `Section 3.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#35-symmetries>`__
+   * - Making the checks of the connected-cluster coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch` sparser
      - :attr:`SearchTuning.max_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -
-     - `Section 3.8 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#38-vectors-with-a-given-syndrome>`__
-   * - Making the stabilizers that connected-support distance searches derive for subsystem codes sparser
+     - `Section 3.8 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#38-vectors-with-a-given-syndrome>`__
+   * - Making the stabilizers that connected-cluster distance searches derive for subsystem codes sparser
      - :attr:`SearchTuning.max_distance_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -
-     - `Section 3.9 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md#39-sparser-stabilizers-of-subsystem-codes>`__
+     - `Section 3.9 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#39-sparser-stabilizers-of-subsystem-codes>`__
    * - Whether an information set in a layer of a distance search, or a step of a count, uses completion tables to skip hopeless supports
      - :attr:`SearchTuning.completion_bound_minimum_layer_work`, :attr:`SearchTuning.completion_bound_max_cost_percent`
      -

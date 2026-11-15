@@ -27,7 +27,7 @@ from ._brouwer_zimmermann.coset import (
     get_css_searches,
     get_pauli_search,
 )
-from ._connected_support.coset import ConnectedSupportCosetSearch
+from ._connected_cluster.coset import ConnectedClusterCosetSearch
 from ._cosets import row_ints, words_to_int, xor_selected, xor_selected_rows
 from ._tuning import get_tuning
 from .core import DistanceMethod, _validate_distance_method
@@ -81,10 +81,10 @@ class CosetLeaderSearch:
             ``"information_sets"``, searches the cosets of binary codes by information sets (see the
             `Brouwer-Zimmermann guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
-            ``"connected_support"`` grows errors from the syndrome through generators of the
+            ``"connected_cluster"`` grows errors from the syndrome through generators of the
             stabilizer group, which it first makes sparser, and can be fast only if they are sparse
-            (see the `connected-support guide
-            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
+            (see the `connected-cluster guide
+            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
             It weighs errors by CSS weight only on CSS states.  For a class without an error within
             a positive maximum weight, its lower bound is that maximum weight plus one, whereas the
             Brouwer-Zimmermann method often proves a higher one.  Default: ``"brouwer_zimmermann"``.
@@ -94,7 +94,7 @@ class CosetLeaderSearch:
             matrix.
         ValueError: If the stabilizers are not a binary matrix with ``2 n`` columns, or are not
             ``n`` independent commuting stabilizers, as when they define a code that encodes
-            qubits; if the method is unknown or ``"brute_force"``; or if the connected-support
+            qubits; if the method is unknown or ``"brute_force"``; or if the connected-cluster
             method would weigh errors on a state that is not CSS by their CSS weight.
     """
 
@@ -112,17 +112,17 @@ class CosetLeaderSearch:
         matrix = _as_state_stabilizers(stabilizers)
         self._num_qubits = n = len(matrix)
 
-        # Read the active tuning, and prepare the searches.  The connected-support searches make
+        # Read the active tuning, and prepare the searches.  The connected-cluster searches make
         # their checks sparser in rounds that the tuning bounds.
         tuning = get_tuning()
-        support_search = functools.partial(
-            ConnectedSupportCosetSearch,
+        cluster_search = functools.partial(
+            ConnectedClusterCosetSearch,
             max_rounds=tuning.max_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
         )
-        # Exactly one of the BZ searches and the connected-support searches is nonempty.
+        # Exactly one of the BZ searches and the connected-cluster searches is nonempty.
         self._brouwer_zimmermann_searches: tuple[BrouwerZimmermannCosetSearch, ...] = ()
-        self._connected_support_searches: tuple[ConnectedSupportCosetSearch, ...] = ()
+        self._connected_cluster_searches: tuple[ConnectedClusterCosetSearch, ...] = ()
 
         # Search the Pauli errors themselves, unless the CSS weight on a CSS state lets the X and Z
         # parts of the errors be searched separately.
@@ -132,11 +132,11 @@ class CosetLeaderSearch:
                 self._brouwer_zimmermann_searches = (get_pauli_search(matrix, css_weight, tuning),)
             elif css_weight:
                 raise ValueError(
-                    "The connected-support method weighs errors by CSS weight only on CSS states;"
+                    "The connected-cluster method weighs errors by CSS weight only on CSS states;"
                     " use css_weight=False or the default method"
                 )
             else:
-                self._connected_support_searches = (support_search(matrix, symplectic=True),)
+                self._connected_cluster_searches = (cluster_search(matrix, symplectic=True),)
             return
 
         # Combine the stabilizers into pure-X and pure-Z stabilizers, and row-reduce the X parts of
@@ -150,12 +150,12 @@ class CosetLeaderSearch:
             (z_combinations @ matrix[:, n:]) % 2, np.eye(len(z_combinations), dtype=np.uint8)
         )
         assert x_transform is not None and z_transform is not None
-        if coset_search_method == "connected_support":
+        if coset_search_method == "connected_cluster":
             # The Z parts of the pure-Z stabilizers check the X parts, and the X parts of the pure-X
             # stabilizers check the Z parts.
-            self._connected_support_searches = (
-                support_search(z_rows, symplectic=False),
-                support_search(x_rows, symplectic=False),
+            self._connected_cluster_searches = (
+                cluster_search(z_rows, symplectic=False),
+                cluster_search(x_rows, symplectic=False),
             )
         else:
             self._brouwer_zimmermann_searches = get_css_searches(x_rows, z_rows, tuning)
@@ -215,7 +215,7 @@ class CosetLeaderSearch:
         """
         packed_syndrome = self._pack_syndrome(syndrome)
         max_weight = self._as_max_weight(max_weight)
-        searches = self._connected_support_searches or self._brouwer_zimmermann_searches
+        searches = self._connected_cluster_searches or self._brouwer_zimmermann_searches
         if len(searches) == 1:
             return searches[0].get_min_weight_bound(packed_syndrome, max_weight)
         x_syndrome, z_syndrome = self._split_syndrome(packed_syndrome)
@@ -248,10 +248,10 @@ class CosetLeaderSearch:
         self._check_syndromes(syndromes)
         max_weight = self._as_max_weight(max_weight)
 
-        # The connected-support searches answer one syndrome at a time.
-        if self._connected_support_searches:
+        # The connected-cluster searches answer one syndrome at a time.
+        if self._connected_cluster_searches:
             for index, row in enumerate(syndromes):
-                bound = self._get_batch_support_bound(words_to_int(row), max_weight)
+                bound = self._get_batch_cluster_bound(words_to_int(row), max_weight)
                 if not bound.within_max_weight:
                     return index, bound
             return len(syndromes), None
@@ -298,10 +298,10 @@ class CosetLeaderSearch:
         self._check_syndromes(syndromes)
         max_weight = self._as_max_weight(max_weight)
 
-        # The connected-support searches answer one syndrome at a time.
-        if self._connected_support_searches:
+        # The connected-cluster searches answer one syndrome at a time.
+        if self._connected_cluster_searches:
             return np.array(
-                [self._get_min_support_weight(words_to_int(row), max_weight) for row in syndromes],
+                [self._get_min_cluster_weight(words_to_int(row), max_weight) for row in syndromes],
                 dtype=np.int64,
             )
 
@@ -368,19 +368,19 @@ class CosetLeaderSearch:
         data = np.frombuffer(value.to_bytes((num_bits + 7) // 8, "little"), dtype=np.uint8)
         return np.unpackbits(data, count=num_bits, bitorder="little")
 
-    def _get_min_support_weight(self, syndrome: int, max_weight: int) -> int:
-        """Find the minimum weight of the class of a syndrome with the connected-support searches.
+    def _get_min_cluster_weight(self, syndrome: int, max_weight: int) -> int:
+        """Find the minimum weight of the class of a syndrome with the connected-cluster searches.
 
         The search of the Pauli errors or of the X part tries increasing weight limits from two, so
         it finds a lightest word of its coset, if within ``max_weight``, and gets its weight as its
-        lower bound (see ``ConnectedSupportCosetSearch.get_min_weight_bound``).  With two searches,
+        lower bound (see ``ConnectedClusterCosetSearch.get_min_weight_bound``).  With two searches,
         the search of the Z part starts at a weight limit equal to the weight of the X part, within
         which any Z part gives the CSS weight of the class.
 
         Returns:
             The minimum weight of the class, or ``max_weight + 1`` if that is larger.
         """
-        searches = self._connected_support_searches
+        searches = self._connected_cluster_searches
         if len(searches) == 1:
             bound = searches[0].get_min_weight_bound(syndrome, max_weight, first_limit=2)
             return bound.lower_bound if bound.within_max_weight else max_weight + 1
@@ -395,15 +395,15 @@ class CosetLeaderSearch:
             return max_weight + 1
         return max(x_bound.lower_bound, z_bound.lower_bound)
 
-    def _get_batch_support_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
-        """Answer a query of a batch with the connected-support searches, by increasing limits.
+    def _get_batch_cluster_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+        """Answer a query of a batch with the connected-cluster searches, by increasing limits.
 
         Most syndromes of a batch have an error within ``max_weight``, which a search at a lower
-        weight limit finds sooner (see ``ConnectedSupportCosetSearch.get_min_weight_bound``).
+        weight limit finds sooner (see ``ConnectedClusterCosetSearch.get_min_weight_bound``).
         ``find_first_not_within_max_weight`` checks the range of every syndrome first
         (``_check_syndromes``).
         """
-        searches = self._connected_support_searches
+        searches = self._connected_cluster_searches
         if len(searches) == 1:
             return searches[0].get_min_weight_bound(syndrome, max_weight, first_limit=2)
         x_syndrome, z_syndrome = self._split_syndrome(syndrome)
@@ -489,7 +489,7 @@ class CosetLeaderSearch:
 
 def _get_coset_search_method(
     method: DistanceMethod,
-) -> Literal["brouwer_zimmermann", "connected_support"]:
+) -> Literal["brouwer_zimmermann", "connected_cluster"]:
     """Validate a distance method, and return the canonical method of the coset searches.
 
     Raises:
@@ -500,12 +500,12 @@ def _get_coset_search_method(
     except ValueError:
         raise ValueError(
             f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets') or 'connected_support'."
+            " 'information_sets') or 'connected_cluster'."
         ) from None
     if canonical == "brute_force":
         raise ValueError(
             "The 'brute_force' distance method has no coset-leader search: use"
-            " 'brouwer_zimmermann' or 'connected_support'."
+            " 'brouwer_zimmermann' or 'connected_cluster'."
         )
     return canonical
 
