@@ -2,14 +2,14 @@
 
 """Tables that bound the weights of the words that complete a BZ support with two more rows.
 
-A BZ scan weighs the sums of sets of ``w`` rows of a systematic basis.  For the first ``w - 2`` rows
-of such a set and a row ``s``, ``CompletionTables`` bound the weight outside the pivot columns of
-every word that completes those rows with two rows from ``s`` on.  A scan skips these completions
-when the bound shows that they reach its limit: the best weight ``U`` in a distance search,
-``t + 1`` in a count of the words of weight ``t``, and in a coset query, the least bound that proves
-a word heavier than its maximum weight.  Sections 3.9 and 3.10 of ``brouwer_zimmermann.md`` derive
-the bound and the limits, show that skipping keeps each search exact, and say when searches use
-the tables.
+A BZ scan weighs the sums of sets of ``w`` rows of a systematic basis ``[I | P]``.  For the first
+``w - 2`` rows of such a set and a row ``s``, ``CompletionTables`` bound the weight on ``P`` of
+every word that completes those rows with two rows from ``s`` on.  A scan adds the pivot ones of
+these words, and skips them if the sum reaches its limit: the best weight ``U`` in a distance
+search, ``t + 1`` in a count of the words of weight ``t``, the least bound that proves a word
+heavier than the maximum weight in a coset query, and a limit that falls as lighter words turn up
+in a search for a minimum weight.  Sections 3.9 and 3.10 of ``brouwer_zimmermann.md`` derive the
+bound and the limits.
 """
 
 from __future__ import annotations

@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Routes of the BZ coset searches: the family of information sets that answers a maximum weight.
+"""Routes of the BZ coset searches: the family, tails, and tables that answer a maximum weight.
 
-``CosetRoutes`` chooses, once for each maximum weight of a BZ coset search of ``CosetLeaderSearch``,
-the route of that weight: the family of information sets that answers the queries at the weight,
-and whether those queries weigh words by their tails and skip completions by completion tables.
-Every route answers within the contract of ``MinWeightBound``, and depends only on the code, the
-maximum weight, and the tuning.  Section 4.4 of ``brouwer_zimmermann.md`` gives the rules of the
-routes and their reasons, Section 4.1 says how ``CosetRoutes`` keeps tails and tables, and Sections
-3.1 and 5 say why every route answers exactly and reproducibly.
+``CosetRoutes`` chooses the route of each maximum weight of a BZ coset search of
+``CosetLeaderSearch`` once: its family of information sets, and whether its queries weigh words by
+their tails and skip completions by completion tables.  Every route answers within the contract of
+``MinWeightBound``, and depends only on the code, the maximum weight, and the tuning.  Section 4.4
+of ``brouwer_zimmermann.md`` gives the rules of the routes and their reasons, Section 4.1 says how
+``CosetRoutes`` keeps tails and tables, and Sections 3.1, 3.9, and 5 say why every route answers
+exactly and reproducibly.
 """
 
 from __future__ import annotations
@@ -52,10 +52,9 @@ class CosetRoutes:
             ``coset_tables.get_search_tables`` and ``coset_tables.get_coset_tails``).
         num_x_columns: The number of the first columns of the embedded words that count as their X
             part (see ``coset_tables.get_search_tables``).
-        minimum_work: The threshold of the gate and of the routes by tails, the field
-            ``coset_route_minimum_work`` of the tuning.  A query whose predicted examinations with
-            the disjoint family are below it keeps that family.  A route is a route by tails if the
-            predicted examinations with its own family reach it.
+        minimum_work: The field ``coset_route_minimum_work`` of the tuning.  A query whose
+            predicted examinations with the disjoint family are below it keeps that family.  A route
+            is a route by tails if the predicted examinations with its own family reach it.
         max_sets: The most sets of a family of overlapping information sets, the field
             ``max_information_sets`` of the tuning.
         attempts_per_set: The field ``overlapping_attempts_per_set`` of the tuning.
