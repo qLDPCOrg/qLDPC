@@ -593,7 +593,8 @@ def test_max_weight() -> None:
         for method in ["brouwer_zimmermann", "brute_force"]:
             check(distance_with_limit, distance, method)
 
-    # The Pauli case checks that the BZ route, which weighs Pauli strings twice, doubles the bound.
+    # The Pauli case checks that the BZ route, which searches binary words of twice the weight of
+    # the Pauli strings, doubles the bound.
     check(pauli, pauli_distance, "brouwer_zimmermann")
 
 

@@ -340,8 +340,8 @@ def get_distance_css(
     Its stabilizers are the gauge operators that commute with every gauge operator, and its logical
     operators are dressed: they may be multiplied by gauge operators.  An X logical operator then
     commutes with every Z-type stabilizer, and is trivial if it is an X-type gauge operator.  So the
-    result is the dressed distance, and :func:`get_distance_from_checks` says how to find the bare
-    distance instead.  To be sure that the checks define a stabilizer code, build a code with
+    result is dressed, and :func:`get_distance_from_checks` says how to find the bare distance
+    instead.  To be sure that the checks define a stabilizer code, build a code with
     ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error if they do not
     commute.
 

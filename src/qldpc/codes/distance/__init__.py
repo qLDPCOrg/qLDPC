@@ -3,8 +3,8 @@
 """Exact distances of binary codes, counts of their logical operators, and searches of cosets.
 
 The functions and classes of this package take plain binary arrays, so that programs can use them
-without building code objects.  The exact-distance methods of the code classes in
-:mod:`qldpc.codes` call these functions for binary codes.
+without building code objects.  The exact-distance methods of the code classes in :mod:`qldpc.codes`
+call its distance functions for binary codes.
 
 .. list-table::
    :header-rows: 1
@@ -56,9 +56,10 @@ codes.
 
 Exact distance searches and logical-operator counts use cost models to choose their routes, such as
 whether to search disjoint or overlapping information sets.  They also bound their batches, memory,
-and caches.  The defaults of these settings suit typical searches.  For very costly searches, the
-page :doc:`/exact_search_tuning` leads from symptoms and routes to the private settings that control
-them, and says how to change these settings and what changing them can and cannot affect.
+and caches.  Settings control these choices and bounds, and their defaults suit typical searches.
+For very costly searches, the page :doc:`/exact_search_tuning` leads from symptoms and routes to the
+private settings that control them, and says how to change these settings and what changing them can
+and cannot affect.
 
 Contributors can find a map of the modules in the `README of the package
 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md>`_.
