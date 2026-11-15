@@ -2,17 +2,11 @@
 
 """Automorphism families: the images of one information set under automorphisms of a problem.
 
-A permutation of columns that maps both the space ``V`` of a search and its excluded subspace ``S``
-onto themselves maps each eligible word to an eligible word of the same weight.  Let ``G`` be a
-group of such permutations, and ``I`` an information set.  A word with at most ``t`` ones on an
-image ``g(I)`` is the image of a word with the same weight and eligibility and at most ``t`` ones
-on ``I``.  So a BZ search can scan ``I`` alone, and certify with the automorphism family of the
-images of ``I`` under all of ``G``, which completes each coefficient layer when ``I`` does.
-Section 3.7 of ``brouwer_zimmermann.md`` derives the certificate of this family.
-
-The connected-cluster search of ``_connected_cluster/search.py`` also uses
-``verify_automorphisms`` and ``get_orbits``.  It ranks its variables orbit by orbit, in the order in
-which ``get_orbits`` numbers the orbits.
+A BZ search can scan one information set ``I`` and certify with all of its images under a group
+``Γ`` of automorphisms.  Sections cited in this module are those of ``brouwer_zimmermann.md``, whose
+Section 3.7 derives the certificate and the choice of ``I``.  The connected-cluster search also
+uses ``verify_automorphisms`` and ``get_orbits``, and ranks its variables by the orbit numbers of
+``get_orbits`` (Section 3.5 of ``connected_cluster.md``).
 """
 
 from __future__ import annotations
@@ -40,9 +34,9 @@ def verify_automorphisms(
 ) -> None:
     """Check that column permutations map a search problem onto itself.
 
-    ``basis`` is an independent basis of the searched space.  Its rows with zero ``labels`` span the
-    excluded subspace (see ``get_nested_code_basis``).  Row ``i`` of ``automorphisms`` maps column
-    ``j`` to column ``automorphisms[i, j]``.
+    ``basis`` is an independent basis of the searched space, whose rows with zero ``labels`` span
+    the excluded subspace (see ``get_nested_code_basis``).  Row ``i`` of ``automorphisms`` maps
+    column ``j`` to column ``automorphisms[i, j]``.
 
     Raises:
         ValueError: If a row of ``automorphisms`` is not a permutation of the columns of the basis,
@@ -72,14 +66,12 @@ def get_automorphism_family(
     automorphisms: npt.NDArray[np.int_],
     weight_divisor: int,
 ) -> tuple[BasisFamily, Certificate]:
-    """Choose an information set to scan, and certify it with its images under automorphisms.
+    """Choose an information set ``I`` to scan, and certify it with its images (Section 3.7).
 
     ``basis``, ``labels``, and ``automorphisms`` are as in ``verify_automorphisms``, which must
     accept them, and ``weight_divisor`` is a proven divisor of the Hamming weight of every eligible
-    word.  Every column of an orbit ``O`` of the group lies in the same number of images of the
-    scanned set ``I``, in proportion to the share ``|I ∩ O| / |O|``.  The certificate depends on the
-    largest share, so it is strongest when every orbit has the same share.  The function chooses
-    ``I`` to lower the largest share (see ``_balance_orbit_shares``).
+    word.  ``I`` is chosen to lower the largest share ``|I ∩ O| / |O|`` over the orbits ``O``, since
+    the certificate depends on that share (see ``_balance_orbit_shares``).
 
     Returns:
         A basis family of ``I`` alone, and the certificate of all of its images.
@@ -95,10 +87,8 @@ def get_automorphism_family(
         unpack_bits(packed_labels, labels.shape[1]),
     )
 
-    # Each column of an orbit O lies in |I ∩ O| |G| / |O| of the |G| images.  The coverage
-    # bound of the family, ceil(|G| (t + 1) / C) for maximum coverage C, depends only on the ratio
-    # |G| / C.  For the orbit with the largest share |I ∩ O| / |O|, this ratio is |O| / |I ∩ O|,
-    # which the certificate represents in lowest terms as a number of sets and a coverage.
+    # The certificate of the |Γ| images depends only on |Γ| / C = min |O| / |I ∩ O| (Section 3.7),
+    # which ``certificate`` represents in lowest terms as a number of sets and a coverage.
     sizes = np.bincount(orbits)
     counts = np.bincount(orbits[pivots], minlength=len(sizes))
     share = max(Fraction(int(count), int(size)) for count, size in zip(counts, sizes))
@@ -117,14 +107,11 @@ def get_automorphism_family(
 
 
 def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int) -> int:
-    """Estimate the candidate/set evaluations of a search that certifies with automorphisms.
+    """Estimate the candidate/set evaluations that certify ``upper_bound`` with automorphisms.
 
-    This is ``Certificate.work`` for a search that scans one set of the family of ``certificate``,
-    whose other sets are its images, and it is pessimistic in the same way.  Every image completes
-    each layer when the scanned set does, so the steps of the search are the complete layers of the
-    family.  Its plan (see ``plan_steps``) is that of one set.  The bound after each layer of that
-    set is the bound of the family once every set has completed the layer, which is the last column
-    of the table of the family's bounds on Hamming weight.
+    ``certificate`` is that of an automorphism family, whose search scans one set and advances its
+    certificate once per layer (Section 3.7).  So the estimate plans one set whose bound after each
+    layer is that of the whole family.
     """
     dimension, num_sets = certificate.dimension, len(certificate.ranks)
     layer_bounds = certificate.get_weight_bounds(1)[:, [0, num_sets]]
@@ -146,9 +133,8 @@ def get_orbits(automorphisms: npt.NDArray[np.int_], num_columns: int) -> npt.NDA
 
     The orbits are numbered in the order of their least columns.
     """
-    # Give each column the least column that it is known to share an orbit with, until no
-    # permutation lowers a label.  Every label is a column of the same orbit, so the labels
-    # settle on the least column of each orbit.
+    # Lower each column's label to the least column known to share its orbit, until no permutation
+    # lowers a label.  Labels stay within orbits, so each ends at the least column of its orbit.
     least = np.arange(num_columns)
     while True:
         previous = least
@@ -167,16 +153,15 @@ def _balance_orbit_shares(
     pivots: npt.NDArray[np.int64],
     orbits: npt.NDArray[np.int64],
 ) -> None:
-    """Exchange pivots between orbits, in place, while that lowers the largest orbit share.
+    """Exchange pivots, in place, from orbits of the largest share to emptier ones while possible.
 
-    ``rows`` is a packed basis row reduced on the information set ``pivots``, and ``labels`` its
-    packed quotient labels.  Pivoting row ``i`` on another column ``c`` where row ``i`` has a one
-    replaces ``pivots[i]`` by ``c`` in the information set.  Each exchange moves a pivot from an
-    orbit ``O`` with the largest share ``|I ∩ O| / |O|`` to an orbit whose share stays below it.
-
-    For two orbits, the resulting largest share is the least of any information set: if no exchange
-    moves a pivot out of ``O``, every column of the other orbit lies in the span of the pivots in
-    it, so no information set has fewer pivots in ``O``.
+    ``rows`` is a packed basis row reduced on the information set ``I``, whose columns are
+    ``pivots``, and ``labels`` its packed quotient labels.  Each exchange takes a row whose pivot
+    lies in an orbit ``O`` of the largest share ``|I ∩ O| / |O|``, and pivots it on a column of
+    another orbit where it has a one, if that orbit's share with the new pivot stays below that of
+    ``O``.  For two orbits, the exchanges stop once the emptier orbit's own pivot columns span its
+    columns, or once one more pivot would make it at least as full as ``O``, so they reach the least
+    largest share of any information set (Section 3.7).
     """
     sizes = np.bincount(orbits)
     counts = np.zeros(len(sizes), dtype=np.int64)

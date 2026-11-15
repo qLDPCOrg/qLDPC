@@ -20,12 +20,7 @@ DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
 
 
 def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None:
-    """The bounds, work estimates, and number of sets that certify a bound equal their definitions.
-
-    A search visits the sets of a layer in family order and stops after the first set whose
-    completion of the layer certifies the upper bound, so the work counts the sets visited, and
-    ``get_num_sets_to_certify`` gives the number of sets visited in each layer.
-    """
+    """Bounds, work estimates, and numbers of sets that certify a bound follow their definitions."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(30):
         dimension = int(rng.integers(1, 13))
@@ -90,19 +85,12 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
                 )
                 assert certificate.get_num_sets_to_certify(weight, upper_bound) == num_sets
 
-    # A family without sets, which the overlapping stage returns for no replacement, does no work.
+    # A family of no sets, which get_overlapping_family returns for no replacement, does no work.
     assert certificates.Certificate(3, ()).work(2) == 0
 
 
 def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> None:
-    """The weight bounds divide the certificate's bounds by the weight factor, rounding up.
-
-    The certificate's bounds come from their definition, and the entries ``[dimension, j]`` for
-    ``j >= 1`` are ``NO_WORD_BOUND``.  With a parity, each other entry is first rounded up to the
-    least integer of that parity that is at least the entry, except the zero before the first step.
-    This holds for sets of random ranks, including zero, both weight factors, and every parity.
-    Each call returns a table of its own.
-    """
+    """Weight bounds round the step bounds up to a parity, then divide them, rounding up."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(60):
         dimension = int(rng.integers(0, 7))
@@ -132,26 +120,7 @@ def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> No
 
 
 def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
-    """The stopping step and the work of a plan follow their definitions.
-
-    The stopping step is the first step of the given layers whose bound exceeds the limit, or the
-    last step if none does.  At that step, each set has completed its last layer.  The work adds the
-    binomial of each layer from the first layer to the last layer of each set.  If unused sets are
-    skipped, it leaves out the sets whose rank keeps them out of the bound.  The work saturates at
-    the cap if a layer up to that of the step has a binomial above the cap divided by the number of
-    sets, or if the sum reaches the cap.  Empty binomials give no work.
-
-    At the stopping step of a plan over every layer, ``get_completed_layer`` gives the last layer of
-    each set.  ``is_unused_set`` tells from the pivots of a set, which are -1 beyond its rank,
-    whether a plan that skips unused sets leaves the set out.
-
-    The bounds are certificate tables of sets of every rank, including zero, a table without sets,
-    and the weight bounds of the coset searches, which divide them by a weight factor after rounding
-    them to a parity.  The limits run past both ends of each table, to the largest native integer.
-    The binomials are random, and some exceed the share of the cap of each set.  Thousands of sets
-    tell the cap of a layer from the cap of the sum: the stopping step comes after the first set of
-    a layer whose binomial exceeds the share, while the sum stays below the cap.
-    """
+    """Stopping steps and work of plans, and the sets that they use, follow their definitions."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     work_cap = certificates.WORK_CAP
     cases: list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]] = [
@@ -180,7 +149,9 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
             rng.choice([1, 5, work_cap // max(num_sets, 1) + 1, 2**60], num_rows),
         ]
         if num_sets == len(many_sets):
-            # The layers before the stopping step (2, 1) sum below the cap, but its layer does not.
+            # Thousands of sets tell the cap of a layer from that of the sum: the layers before the
+            # stopping step (2, 1) sum below the cap, but its layer's binomial exceeds each set's
+            # share of the cap.
             limits = [2 * num_sets]
             binomials_choices = [np.array([1, 1, 2**50])]
         for first_layer, binomials, skip_unused in itertools.product(
@@ -229,13 +200,9 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
 
 
 def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:
-    """With linear programs, fewer sets can certify a bound than the coverage bound needs.
-
-    In the [7, 3] example of ``test_linear_programming_can_beat_the_coverage_bound``, the coverage
-    bound needs all five sets to certify four in layer one, and cannot certify six in layer two.
-    Linear programs certify them after three sets and two sets.  Five needs all five sets in layer
-    one either way.
-    """
+    """With linear programs, fewer sets can certify a bound than the coverage bound needs."""
+    # In the example of test_linear_programming_can_beat_the_coverage_bound, the coverage bound
+    # needs all five sets to certify four in layer one, and cannot certify six in layer two.
     certificate = certificates.Certificate(
         3,
         (3,) * 5,
@@ -251,16 +218,7 @@ def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:
 def test_plans_with_linear_programs_solve_their_programs_lazily(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A plan with linear programs stops at the first step that certifies, and solves lazily.
-
-    The certificate is that of ``test_sets_to_certify_a_bound_may_come_from_linear_programs``.  For
-    every limit and layer, the plan stops at the first step of the layer whose bound, with linear
-    programs, exceeds the limit, or at the last step.  It solves the linear program of a step only
-    if that step is at or before the stopping step, and its coverage bound does not exceed the
-    limit.  It never solves that of the last step, which stops the search anyway.  Some plans solve
-    programs, and the work estimate of the certificate solves none, since it uses only the coverage
-    bound.  The requirements of the program of a step identify the step.
-    """
+    """A plan with linear programs stops at the first step that certifies, and solves lazily."""
     blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
 
     def get_certificate() -> certificates.Certificate:
@@ -270,6 +228,7 @@ def test_plans_with_linear_programs_solve_their_programs_lazily(
 
     reference = get_certificate()
     coverage = certificates.Certificate(3, (3,) * 5, max_coverage=3)
+    # The requirements of a step's program identify the step.
     steps_by_requirements = {
         tuple((layer if index < count else layer - 1) + 1 for index in range(5)): (layer, count)
         for layer, count in itertools.product(range(1, 4), range(1, 6))
@@ -307,18 +266,13 @@ def test_plans_with_linear_programs_solve_their_programs_lazily(
 
 
 def test_linear_programming_can_beat_the_coverage_bound() -> None:
-    """Five information sets of a [7, 3] code, where linear programming certifies five, not four.
-
-    The columns are ``e1, e2, e3, e1 + e2 + e3, e1, e2, e3``.  Four blocks are the 3-subsets of the
-    first four columns, and the fifth is the last three columns, so the maximum coverage is three.
-    After layer one, each block holds at least two ones of an unvisited word.  The coverage bound is
-    ``ceil(10 / 3) = 4``, but ``x = 2/3`` on every column and dual weights of ``1/3`` on the first
-    four blocks and one on the fifth both have value ``14/3``, so the linear program certifies five.
-    """
+    """Linear programming certifies five in the example of Section 3.1 of brouwer_zimmermann.md."""
+    # The columns are e1, e2, e3, e1 + e2 + e3, e1, e2, e3, and after layer one each block holds at
+    # least two ones of an unvisited word, so the coverage bound, with coverage three, is
+    # ceil(10 / 3) = 4.
     blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
     assert certificates.get_lp_lower_bound(blocks, [2] * 5, DENOMINATOR) == 5
-    # Dual weights of thirds need a denominator of three.  Coarser ones round part of the bound
-    # away.
+    # Dual weights of thirds need a denominator of three; coarser ones round part of the bound away.
     bounds = [certificates.get_lp_lower_bound(blocks, [2] * 5, d) for d in (1, 2, 3)]
     assert bounds == [2, 4, 5]
     certificate = certificates.Certificate(3, (3,) * 5, max_coverage=3)
@@ -365,10 +319,9 @@ def _get_lower_bound_from_definition(
     weight: int,
     num_completed: int | None = None,
 ) -> int:
-    """The certificate lower bound once sets have completed layers, from its definition.
+    """The certificate lower bound at step ``(weight, num_completed)``, from its definition.
 
-    The first ``num_completed`` sets have completed layer ``weight``, and the others layer ``weight
-    - 1``; by default, every set has completed layer ``weight``.
+    By default, every set has completed layer ``weight``.
     """
     num_completed = len(ranks) if num_completed is None else num_completed
     if weight == dimension and num_completed:
