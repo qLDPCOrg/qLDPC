@@ -146,7 +146,9 @@ def _get_error_estimates(
                 entry.distance,
                 simulated,
                 _estimate_error_rate(code_counts, error_rate),
-                _refine_error_rate_estimate(code_counts, error_rate),
+                _refine_error_rate_estimate(
+                    code_counts, error_rate, self_dual=_is_self_dual(entry)
+                ),
             )
         )
     return sorted(estimates, key=lambda row: (row.distance, -row.simulated / row.num_logicals))
@@ -171,29 +173,45 @@ def _estimate_error_rate(counts: HalfSupportCounts, error_rate: float) -> float:
     return (counts.count_x + counts.count_z) * math.comb(distance, weight) * rate**weight
 
 
-def _refine_error_rate_estimate(counts: HalfSupportCounts, error_rate: float) -> float:
+def _refine_error_rate_estimate(
+    counts: HalfSupportCounts, error_rate: float, *, self_dual: bool
+) -> float:
     """Estimate the logical error rate of a code from its numbers of distinct majority supports.
 
     The noise, the decoder, ``r``, and ``w`` are those of ``_estimate_error_rate``.  This estimate
     counts the distinct subsets of ``w`` qubits of all supports (the majority supports), which are
     fewer than ``comb(d, w)`` per operator if supports overlap, and gives each the probability
-    ``r**w * (1 - r)**(n - w)`` that exactly its qubits err.
+    ``(r / 2)**w * (1 - r)**(n - w)`` that its qubits have a given pattern of X and Y errors, and no
+    other qubit has an X-type error.
 
-    It also leaves out the patterns that the decoder discards rather than fails on.  Each X-type
-    error is a Y error with probability 1/2, which adds a Z-type error on its qubit, and a pattern
-    with more than ``t = (d - 1) // 2`` Y errors leaves a Z-type error that the lookup table of the
-    other sector does not hold, so the shot is discarded.  A pattern thus fails with probability
-    ``sum(comb(w, j) for j <= t) / 2**w``, and likewise with X and Z swapped.  The sectors are then
-    combined as if they were otherwise independent, ``1 - (1 - P_x) * (1 - P_z)``.
+    Of the ``2**w`` patterns of a majority support, it counts those that the decoder fails on.  The
+    Y errors of a pattern also form a Z-type error.  If there are at most ``t = (d - 1) // 2`` of
+    them, the lookup table of the other sector holds it, and the decoder fails.  Otherwise the
+    decoder generally discards the shot, with one exception: in a self-dual code, every
+    minimum-weight X logical operator ``L`` is also a Z logical operator, so a pattern of Y errors
+    alone has the syndrome of the rest of ``L``, which has weight ``t`` and is in the table, and the
+    decoder fails.  That pattern is a failure of both sectors, so it counts once.  The sectors are
+    otherwise combined as if they were independent, ``1 - (1 - P_x) * (1 - P_z)``.
     """
     num_qubits, distance = counts.num_qubits, counts.distance
     weight = distance // 2 + 1
     rate = 2 * error_rate / 3
-    kept = sum(math.comb(weight, num_y) for num_y in range((distance - 1) // 2 + 1)) / 2**weight
-    pattern_probability = rate**weight * (1 - rate) ** (num_qubits - weight) * kept
-    failure_x = counts.num_majority_supports_x * pattern_probability
-    failure_z = counts.num_majority_supports_z * pattern_probability
-    return 1 - (1 - failure_x) * (1 - failure_z)
+    pattern_probability = (rate / 2) ** weight * (1 - rate) ** (num_qubits - weight)
+    num_failing_patterns = sum(math.comb(weight, num_y) for num_y in range((distance - 1) // 2 + 1))
+    if self_dual:
+        num_failing_patterns += 1
+    failure_x = counts.num_majority_supports_x * num_failing_patterns * pattern_probability
+    failure_z = counts.num_majority_supports_z * num_failing_patterns * pattern_probability
+    # The pattern of Y errors alone on a majority support of a self-dual code is counted twice.
+    double_counted = counts.num_majority_supports_x * pattern_probability if self_dual else 0
+    return 1 - (1 - failure_x) * (1 - failure_z) - double_counted
+
+
+def _is_self_dual(entry: CodeEntry) -> bool:
+    """Do the X and Z checks of a code span the same space, as for a SWEL code?"""
+    checks_x = entry.code.code_x.canonicalized.matrix
+    checks_z = entry.code.code_z.canonicalized.matrix
+    return np.array_equal(checks_x, checks_z)
 
 
 def _make_error_estimates_figure(

@@ -253,9 +253,13 @@ def format_error_rate_axes(
     # of neighboring panels do not overlap.
     exponents = np.log10([error_rates[0], error_rates[-1]])
     decades = 10.0 ** np.arange(math.ceil(exponents[0] - 1e-9), math.floor(exponents[1] + 1e-9) + 1)
-    axes[0, 0].xaxis.set_major_locator(ticker.FixedLocator(decades.tolist()))
     for axis in axes[1, :]:
         axis.set_xlabel("physical error rate")
+    # A range without a power of ten keeps the default labels.
+    if not len(decades):
+        return
+    axes[0, 0].xaxis.set_major_locator(ticker.FixedLocator(decades.tolist()))
+    for axis in axes[1, :]:
         labels = axis.get_xticklabels()
         if np.isclose(decades[0], error_rates[0]):
             labels[0].set_horizontalalignment("left")

@@ -145,10 +145,17 @@ class BestKnown:
 
 
 def is_up_to_date(code_files: Mapping[CodeType, Path], data_file: Path) -> bool:
-    """Does a data file describe exactly the codes of the code files, in the same order?"""
-    return [
-        [result.params for result in block] for block in _read_blocks(data_file)
-    ] == _get_expected_params(code_files)
+    """Does a data file describe exactly the codes of the code files, in the same order?
+
+    A data file that is not in the current format, such as one without IDs, is not up to date.
+    """
+    try:
+        blocks = _read_blocks(data_file)
+    except ValueError:
+        return False
+    return [[result.params for result in block] for block in blocks] == _get_expected_params(
+        code_files
+    )
 
 
 def read_best_known(
