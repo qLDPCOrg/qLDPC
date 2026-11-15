@@ -7,7 +7,7 @@ layer, and certifies together.  Layer ``w`` of a set holds the words that add ``
 an offset.  The offset is zero in the distance search (``_brouwer_zimmermann/distance.py``) and the
 counts (``_counting/scan.py``).  In the coset searches with which ``CosetLeaderSearch`` answers its
 queries, the offset is a fixed word of the searched coset (see ``_search_coset`` in
-``_brouwer_zimmermann/coset.py``).  ``brouwer_zimmermann.md`` defines the terms (Sections 2.3 and
+``_brouwer_zimmermann/coset.py``).  ``brouwer_zimmermann.md`` defines the terms (Sections 2.2 to
 2.4), derives the certificate (Sections 2.5 and 3.1), and describes the heuristics of the stages
 below (Section 4.4).
 

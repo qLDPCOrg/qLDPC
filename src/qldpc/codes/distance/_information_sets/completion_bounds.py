@@ -2,12 +2,13 @@
 
 """Tables that bound the weights of the words that complete a BZ support with two more rows.
 
-A BZ scan weighs the sums of ``w`` rows of a systematic basis ``[I | P]``.  The supports that share
-their first ``w - 2`` rows, whose tails sum to ``p``, and whose next row is at least ``s``, differ
-only in their last pair of rows ``s <= i < j``.  ``CompletionTables`` stores, on disjoint blocks of
-tail columns, the least weight of ``p + P_i + P_j`` over these pairs, for every value of ``p`` on
-the block and every ``s``.  Every completion uses one pair on all the blocks, so the sum of these
-least weights, which ``get_completion_bound`` looks up, bounds its tail weight.  A scan skips the
+A BZ scan weighs the sums of ``w`` rows of a systematic basis ``[I | P]``, whose words weigh ``w``
+plus the weight of their tail, the sum of the selected rows of ``P``.  The supports that share their
+first ``w - 2`` rows, whose tails sum to ``p``, and whose next row is at least ``s``, differ only in
+their last pair of rows ``s <= i < j``.  ``CompletionTables`` stores, on disjoint blocks of tail
+columns, the least weight of ``p + P_i + P_j`` over these pairs, for every value of ``p`` on the
+block and every ``s``.  Every completion uses one pair on all the blocks, so the sum of these least
+weights, which ``get_completion_bound`` looks up, bounds its tail weight.  A scan skips the
 completions whose bound proves that none of them is lighter than its limit.  Section 3.9 of
 ``brouwer_zimmermann.md`` derives the bound, and shows that a search that skips completions still
 meets its contract.
@@ -27,8 +28,9 @@ count calls ``select_completion_tables``, which uses tables only for the layers 
 ``considers_tables`` admits, and only if ``predict_completion_cost``, from a sample of supports,
 predicts a cost within the limits of the tuning.  The prediction only guides this choice, since
 every skip rests on a computed bound.  Coset searches build the tables of their costliest queries
-without sampling, if they fit within a limit (``get_table_bytes_within``, and
-``_brouwer_zimmermann/coset_routes.py``).
+without sampling, if they fit within a limit (``get_table_bytes_within``, which
+``_brouwer_zimmermann/coset_tables.py`` calls when ``_brouwer_zimmermann/coset_routes.py`` needs
+tables).
 """
 
 from __future__ import annotations

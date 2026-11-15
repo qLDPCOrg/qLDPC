@@ -183,8 +183,7 @@ def test_selection_follows_its_policy() -> None:
     With a best weight equal to the coefficient weight, every bound reaches its limit of zero, so
     tables skip every sampled support.  With a best weight far above every word, they skip none.  In
     layer six of 60 rows, building tables costs a small part of the layer.  In layer two, building
-    them costs far more than the layer, while looking up bounds in tables already built
-    does not.
+    them costs far more than the layer, while looking up bounds in tables already built does not.
     """
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 60, 24))
     assert cb.select_completion_tables(rows, 1, 12, None, FORCED) is None
@@ -205,7 +204,8 @@ def test_selection_follows_its_policy() -> None:
     assert cb.select_completion_tables(rows, 2, 2, tables, finite) is tables
 
     # Each coefficient of the cost model, made large enough, makes the same tables too costly,
-    # although even the most cautious estimate of the share that they skip accepts them.
+    # although, at the default limit of cost, even the most cautious estimate of the share that they
+    # skip accepts them.
     for name in (
         "completion_bound_lookup_block_cost",
         "completion_bound_lookup_block_cost_per_mib",
