@@ -3613,9 +3613,9 @@ class CSSCode(QuditCode):
                 randomized upper bounds; see help(get_distance_bound).
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
             method: The exact-distance method for a binary code (see
-                :data:`~qldpc.codes.distance.DistanceMethod`), unused when bounding the distance.
-                Nonbinary calculations use exhaustive enumeration, and reject
-                ``"connected_cluster"``.
+                :data:`~qldpc.codes.distance.DistanceMethod`, and :meth:`get_distance_exact` for
+                closed forms), unused when bounding the distance.  Nonbinary calculations use
+                exhaustive enumeration, and reject ``"connected_cluster"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:

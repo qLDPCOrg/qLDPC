@@ -110,9 +110,9 @@ def certify_bounded_fault_propagation(
             :class:`~qldpc.codes.distance.CosetLeaderSearch`).  The methods certify the same
             circuits, and find the same smallest violating fault, but the ``output_pauli`` and
             ``residual_weight_lower_bound`` of a counterexample can differ (see
-            ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, they can
-            also change between versions of qLDPC when the searches that find them are costly.
-            Default: ``"brouwer_zimmermann"``.
+            ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, they, but
+            not the verdict or the fault, can also change between versions of qLDPC when the
+            searches that find them are costly.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
