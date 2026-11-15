@@ -2,35 +2,14 @@
 
 """Tables that bound the weights of the words that complete a BZ support with two more rows.
 
-A BZ scan weighs the sums of ``w`` rows of a systematic basis ``[I | P]``, whose words weigh ``w``
-plus the weight of their tail, the sum of the selected rows of ``P``.  The supports that share their
-first ``w - 2`` rows, whose tails sum to ``p``, and whose next row is at least ``s``, differ only in
-their last pair of rows ``s <= i < j``.  ``CompletionTables`` stores, on disjoint blocks of tail
-columns, the least weight of ``p + P_i + P_j`` over these pairs, for every value of ``p`` on the
-block and every ``s``.  Every completion uses one pair on all the blocks, so the sum of these least
-weights, which ``get_completion_bound`` looks up, bounds its tail weight.  A scan skips the
-completions whose bound proves that none of them is lighter than its limit.  Section 3.9 of
-``brouwer_zimmermann.md`` derives the bound, and shows that a search that skips completions still
-meets its contract.
-
-Each search sets its limit so that it never skips a word that it needs:
-
-- A distance search skips at its best weight ``U``.
-- A count of the words of weight ``t`` skips at ``t + 1`` (``_counting/scan.py``).
-- A coset search skips at the least bound that proves a word heavier than the maximum weight of its
-  query, and a search for a minimum weight lowers that limit as it finds lighter words
-  (``_brouwer_zimmermann/coset.py``, and Section 3.10 of the guide).  The bases of coset searches
-  need not be information sets, so in place of ``w``, they bound the pivot ones of a completion
-  (``scan_coset_layer_by_tails_with_tables`` in ``_brouwer_zimmermann/affine_search.py``).
-
-Tables cost memory and time to build.  For each information set of a layer, a distance search or
-count calls ``select_completion_tables``, which uses tables only for the layers that
-``considers_tables`` admits, and only if ``predict_completion_cost``, from a sample of supports,
-predicts a cost within the limits of the tuning.  The prediction only guides this choice, since
-every skip rests on a computed bound.  Coset searches build the tables of their costliest queries
-without sampling, if they fit within a limit (``get_table_bytes_within``, which
-``_brouwer_zimmermann/coset_tables.py`` calls when ``_brouwer_zimmermann/coset_routes.py`` needs
-tables).
+A BZ scan weighs the sums of sets of ``w`` rows of a systematic basis ``[I | P]``.  For the first
+``w - 2`` rows of such a set and a row ``s``, ``CompletionTables`` bound, on the columns of ``P``,
+the weight of the words that complete those rows with two rows from ``s`` on.  A scan adds the least
+number of their pivot ones to this bound, and skips the words if the sum reaches its limit: the best
+weight ``U`` in a distance search, ``t + 1`` in a count of the words of weight ``t``, the least
+bound that proves a word heavier than the maximum weight in a coset query, and a limit that falls
+as lighter words turn up in a search for a minimum weight.  Sections 3.9 and 3.10 of
+``brouwer_zimmermann.md`` derive the bound and the limits.
 """
 
 from __future__ import annotations
