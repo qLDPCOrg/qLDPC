@@ -3,11 +3,11 @@
 
 """Time the exact distance searches of qLDPC on pair-partition codes.
 
-The benchmark times the connected-cluster method and Brouwer-Zimmermann (BZ).  The embedded
-instances, in ``workloads.py``, are ``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes
-with sparse parity checks, mostly of high rate (arXiv:2607.14091 and arXiv:2609.30069), whose
-sources ``workloads.py`` names.  A path to another file in their ``.cpm`` format (see
-``workloads.parse_cpm``) also names a code.
+The benchmark compares the connected-cluster method with Brouwer-Zimmermann (BZ) on known codes, and
+plays no part in the tuning of the searches.  The embedded instances, in ``workloads.py``, are
+``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes with sparse parity checks, mostly of
+high rate (arXiv:2607.14091 and arXiv:2609.30069), whose sources ``workloads.py`` names.  A path to
+another file in their ``.cpm`` format (see ``workloads.parse_cpm``) also names a code.
 
 With ``--hadamards``, the script applies Hadamards to the second half of the qubits of each code,
 which leaves a code with the same distance that is not CSS, and times it as a
@@ -21,8 +21,8 @@ It calls ``get_distance_exact`` once for each code, method, and sector, and prin
 the wall and CPU time.  It flags a distance of an embedded instance that contradicts its published
 distance: a distance of both sectors that differs from it, or a distance of one sector that is
 lower.  The searches run on one core.  Numba compiles on first use and caches the compiled code on
-disk, so run the script twice for the times of a warm cache.  The script prints its
-results, and saves nothing.
+disk, so run the script twice for the times of a warm cache.  The script prints its results, and
+saves nothing.
 
 Some searches run for hours, so run them under a guard, such as a hard deadline.
 

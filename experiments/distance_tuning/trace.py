@@ -2,79 +2,86 @@
 
 """Trace the decisions and stage times of the exact searches of a workload, or compare two traces.
 
-The script wraps functions of the exact searches of ``qldpc.codes.distance`` in this process only,
-warms up as ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or
-``mcount`` workload once under the given tuning.  It cannot trace ``ccount`` workloads: their
-compiled setup calls the stages directly, past the wrappers.  For BZ searches, it records:
+The script diagnoses which decisions the exact searches of a workload make, and what each of their
+stages costs.  It wraps functions of the exact searches of ``qldpc.codes.distance`` in this process
+only, warms up as ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``,
+``ccdistance``, or ``mcount`` workload once under the given tuning.  It cannot trace ``ccount``
+workloads, whose compiled setup calls the stages directly, past the wrappers.  For
+Brouwer-Zimmermann (BZ) searches, it records:
 
-- each family of information sets that the search builds (disjoint, overlapping, or by matroid
-  partitioning), with its number of sets and the seconds that building it took, and the quantities
-  that the gates of overlapping families and of partitioning compare: for overlapping families, the
-  check that stopped the attempt and the estimated work, and for partitioning, the work of the
-  search, the largest coverage that it tries, and the unit of ``partition_work_ratio``, in
-  candidate/set evaluations, the least work that any partitioned family could do, and whether it
-  tried (``partitioned``), even if it then found no family.  Before trying, a search with
-  automorphisms asks for them, verifies them, and builds their family, and skips partitioning if
-  that family does no more work than the least work of a partitioned family.  The trace records that
-  family's work (``competing_work``) and the seconds those steps took (``competing_seconds``), which
-  the seconds of partitioning include;
-- each certificate of a search, which may solve linear programs, with its estimated work, which
-  decides whether it may, and the seconds that took, and each linear program that it solves, with
-  its bound and seconds;
+- each family of information sets that a search builds (disjoint, overlapping, or by matroid
+  partitioning), with its number of sets and the seconds that building it took.  The event of a
+  family also records the quantities that the gate of the family compares.  For an overlapping
+  family, these are the check that stopped the attempt and the estimated work.  For partitioning,
+  they are the work of the search, the largest coverage that it tries, the unit of
+  ``partition_work_ratio`` in candidate/set evaluations, the least work that any partitioned family
+  could do, and whether the search tried (``partitioned``), even if it then found no family.  Before
+  trying, a search with automorphisms asks for them, verifies them, and builds the family of their
+  images, and it skips partitioning if that family does no more work than the least work of a
+  partitioned family.  The trace records the work of that family (``competing_work``) and the
+  seconds of those steps (``competing_seconds``), which the seconds of partitioning include;
+- each certificate of a search, with its estimated work, which decides whether the certificate may
+  solve linear programs, and the seconds of building it, and each linear program that a certificate
+  solves, with its bound and seconds;
 - each consideration of a switch to a family of automorphism images: one at the end of setup if
   setup found the automorphisms, one before the first costly layer otherwise, and one before each
-  later costly layer at which the best weight has dropped since the search last declined.  It
-  records the layer before which the search considered the switch, the best weight, the work of
-  the automorphism family and the work left in the current family, which the switch compares, the
-  seconds it took, which include finding the automorphisms and building their family only at the
-  first consideration of a search whose setup did not find them, and whether the search switched;
+  later costly layer at which the best weight has dropped since the search last declined.  The event
+  records the layer before which the search considered the switch, the best weight, and the two
+  works that the switch compares: that of the automorphism family and the work left in the current
+  family.  It also records whether the search switched, and the seconds of the consideration, which
+  include finding the automorphisms and building their family only at the first consideration of a
+  search whose setup did not find them;
 - the first test of each number of rows ``k`` and weight ``w`` for whether a layer or step considers
   completion tables, with its ``C(k, w)`` supports, and each comparison of a predicted cost with the
   limit, with the rows and weight of the prediction before it;
 - each prediction of the cost of completion tables, as a share of the cost of a scan without them,
-  with the number of rows and the weight of its layer or step, the seconds it took, and the seconds
-  since the workload started, which also time the steps of counts;
-- each coefficient layer that a distance search advances by: its weight, number of basis rows and
-  sets (of the family of automorphism images, for the layer that switches to it), its supports,
-  whether the search would consider switching to automorphism images before it if its work reached
-  the threshold and, if so, that work (scanned sets times supports), the best weight and lower
-  bound after it, the number of sets that it scanned, the supports that it evaluated and skipped in
-  them, which count candidate/set evaluations, and the lookups of completion tables that it made,
-  the width of the blocks of the tables that its information sets chose if any (a list with an
-  entry for each set that chose, zero for none, if several did), with the bytes and number of
-  blocks of the largest, the number of tables that it built, the seconds spent choosing tables,
-  which include building them, and building them, and its seconds in all.
+  with the number of rows and the weight of its layer or step, the seconds that it took, and the
+  seconds since the workload started, which also time the steps of counts;
+- each coefficient layer that a distance search advances by.  The event records the weight of the
+  layer, its numbers of basis rows and of sets (of the family of automorphism images, for the layer
+  that switches to it), and its supports.  It records whether the search would consider switching to
+  automorphism images before the layer if its work reached the threshold, and, if so, that work
+  (scanned sets times supports).  It records the best weight and the lower bound after the layer,
+  the number of sets that the layer scanned, the supports that it evaluated and skipped in them,
+  which count candidate/set evaluations, and the lookups of completion tables that it made.  It
+  records the width of the blocks of the tables that the information sets of the layer chose, if any
+  (a list with an entry for each set that chose, zero for none, if several did), with the bytes and
+  number of blocks of the largest tables, and the number of tables that the layer built.  Last, it
+  records the seconds of the layer spent choosing tables, which include building them, the seconds
+  spent building them, and the seconds of the layer in all.
 
-For connected-cluster searches, it records each weight limit that a search runs: the limit, the
-states visited before it, the states that the search predicted for it, whose sum with those visited
-it compares with ``automorphism_minimum_states``, the states that it visited, whether the search
-asked for automorphisms before it, with the seconds of finding them and of verifying them and
-ordering their orbits, and the number of roots that their orbits leave, and its seconds in all.
-For counts by the MacWilliams method, it records each walk of a check space, with its rank, its
-number of bits, and its seconds, and each test of whether the X and Z checks of a counter span the
-same space, which counts make from the rank ``macwilliams_shared_walk_rank``, with its rank, its
+For connected-cluster searches, the script records each weight limit that a search runs.  The event
+of a limit records the limit, the states visited before it, and the states that the search predicted
+for it, whose sum with those visited the search compares with ``automorphism_minimum_states``.  It
+also records the states that the search visited, whether the search asked for automorphisms before
+the limit, with the seconds of finding them and of verifying them and ordering their orbits, the
+number of roots that their orbits leave, and the seconds of the limit in all.  For counts by the
+MacWilliams method, the script records each walk of a check space, with its rank, its number of
+bits, and its seconds.  It also records each test of whether the X and Z checks of a counter span
+the same space, which counts make from the rank ``macwilliams_shared_walk_rank``, with its rank, its
 result, and its seconds.
 
-It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
-the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
-``--setup-only``, it stops before the first layer of the first BZ distance search, after its
+The script prints the events, and with ``--output``, saves them as JSON, with the workload, the
+changes of the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).
+With ``--setup-only``, it stops before the first layer of the first BZ distance search, after its
 families; it does not stop other searches.  The thresholds of ``SearchTuning`` decide where these
-stages start, so a trace shows which decisions a change of tuning moves, and what each stage costs,
-before ``sweep.py`` times the change.
+stages start, so a trace shows which decisions a change of the tuning or of the search code moves,
+and what each stage costs.
 
-With ``--compare``, it instead compares the decisions of two saved traces of one workload, such as
-traces under two tunings or of two checkouts: families and their gates, certificates, switches to
-automorphism images, the tables of each layer, each comparison of a predicted cost with the limit,
-the weight limits before which connected-cluster searches ask for automorphisms, and the tests and
-walks of counts by the MacWilliams method.  If the tunings differ only in thresholds and every
-decision is the same, so is the search, apart from the time of the decisions themselves.  Traces
-record the number of sets of each family, not the sets, so ``--compare`` may not tell apart
-searches whose families differ only in their sets, such as families that partitioning builds at
-other coverages.  Nor does it compare the states that a connected-cluster search visits within a
-weight limit, which budgets such as ``max_distance_sparsifying_rounds`` change.
+With ``--compare``, the script instead compares the decisions of two saved traces of one workload,
+such as traces under two tunings or of two checkouts.  It compares families and their gates,
+certificates, switches to automorphism images, the tables of each layer, each comparison of a
+predicted cost with the limit, the weight limits before which connected-cluster searches ask for
+automorphisms, and the tests and walks of counts by the MacWilliams method.  If the tunings differ
+only in thresholds and every decision is the same, so is the search, apart from the time of the
+decisions themselves.  Traces record the number of sets of each family, not the sets, so
+``--compare`` may not tell apart searches whose families differ only in their sets, such as families
+that partitioning builds at other coverages.  Nor does it compare the states that a
+connected-cluster search visits within a weight limit, which budgets such as
+``max_distance_sparsifying_rounds`` change.
 
 The script traces the qLDPC of its own checkout, and refuses to run if this process imports qLDPC
-from elsewhere.  To trace another checkout, run that checkout's script with its own Python.
+from elsewhere.  To trace another checkout, run the script of that checkout with its own Python.
 
 Examples:
 

@@ -7,8 +7,8 @@ A code name is one of:
 - ``pp<n>``: an embedded pair-partition instance (see ``INSTANCES``), such as ``pp110``;
 - ``gross``: the [[144, 12, 12]] bivariate bicycle code;
 - ``bb288``: ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]]
-  code of the width data set of ``qldpc.codes.distance._tuning``;
-- ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, also of that data set;
+  bivariate bicycle code;
+- ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, a quantum Tanner code;
 - ``qgolay``: the [[23, 1, 7]] quantum Golay code, which is self-dual;
 - ``qrm:<order>:<size>``: ``QuantumReedMullerCode(order, size)``, which is self-dual, for ``mcount``
   workloads: qLDPC knows its distance in closed form, so a distance workload of it searches nothing;

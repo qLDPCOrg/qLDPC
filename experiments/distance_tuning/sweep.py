@@ -2,13 +2,13 @@
 
 """Compare the whole current tuning of the exact searches with a whole proposed one, by timing.
 
-The comparison confirms a change of tuning whose values rules and measured constants give (see the
-Retuning section of ``qldpc.codes.distance._tuning``), and never chooses a value.  It times
-workloads (see ``workloads.py``) under two arms: the current tuning, the defaults of
-``SearchTuning``, and the proposed tuning, those defaults with the changes that ``--proposed``
-gives.  With ``--worktrees``, the arms are instead the defaults of two checkouts of qLDPC, the
-current one first, each of which runs its own ``trial.py`` and imports its own source, with the
-Python of this process.
+The comparison catches gross regressions or bugs when the tuning or the search code changes.  It
+never sets or justifies a value: the Retuning section of the module docstring of
+``qldpc.codes.distance._tuning`` says when a default changes.  The script times workloads (see
+``workloads.py``) under two arms: the current tuning, the defaults of ``SearchTuning``, and the
+proposed tuning, those defaults with the changes that ``--proposed`` gives.  With ``--worktrees``,
+the arms are instead the defaults of two checkouts of qLDPC, the current one first.  Each checkout
+runs its own ``trial.py`` and imports its own source, with the Python of this process.
 
 Each trial runs ``trial.py`` in a new process, limited to one thread, which warms up and then times
 one workload under one arm, and the trials run one at a time.  Each round runs both arms on each
@@ -24,16 +24,17 @@ comparison, the arm, the round, the checkout, changes, and source of each arm (s
 timeout of the trial.  A comparison skips the trials that the file already holds, so an interrupted
 comparison resumes where it stopped, and running a finished one again prints its summary.
 
-The summary pairs the arms of each round, among the trials of the arms, workloads, and repetitions
-that the command gives.  For each workload, it gives the successful trials of each arm, the median
-wall seconds of each arm (of a trial, the median of its repetitions), and the median, over rounds,
-of the difference and of the ratio of the proposed arm's time to the current arm's, with the least
-and greatest ratio, a distribution-free 95% confidence interval of the median ratio from six rounds
-(see ``get_median_interval``), and the median peak resident memory of each arm, in MiB.  Ratios of
-one round share the conditions of the machine, so their spread measures noise better than the
-spread of times.  It flags a workload whose arms disagree on a result, which no tuning may change
-except a distance search with an early exit.  It prints the summary, and writes it to
-``summary-<tag>.csv`` in the results directory.
+The script summarizes a comparison by pairing the arms of each round, among the trials of the
+arms, workloads, and repetitions that the command gives.  For each workload, the summary gives the
+successful trials of each arm, the median wall seconds of each arm (of a trial, the median of its
+repetitions), and the median, over rounds, of the difference and of the ratio of the proposed arm's
+time to the current arm's.  It also gives the least and greatest ratio, a distribution-free 95%
+confidence interval of the median ratio from six rounds (see ``get_median_interval``), and the
+median peak resident memory of each arm, in MiB.  Ratios of one round share the conditions of the
+machine, so their spread measures noise better than the spread of times.  The summary flags a
+workload whose arms disagree on a result, which no tuning may change except a distance search with
+an early exit.  The script prints the summary, and writes it to ``summary-<tag>.csv`` in the
+results directory.
 
 ``--repeat`` times the workload several times in each trial's process.  The first repetition also
 does work that codes remember and that does not depend on the tuning (see ``trial.py``), so with
@@ -44,8 +45,8 @@ repeat their searches; a workload of ``CosetLeaderSearch`` reuses its cached sea
 
 Run comparisons under a guard of memory and time.
 
-Examples, the first of which proposes the earlier value of ``automorphism_minimum_states``,
-``10**5``, and so repeats the confirmation of its derived value with the arms swapped:
+Examples, the first of which proposes a value of ``automorphism_minimum_states``, and the second of
+which compares the defaults of two checkouts:
 
     python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \\
         --workloads ccdistance/lp13s5/X ccdistance/surface:17/X \\
