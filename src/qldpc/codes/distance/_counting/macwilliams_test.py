@@ -16,12 +16,7 @@ from . import macwilliams as mw
 
 @pytest.mark.parametrize("num_bits", [8, 70])
 def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int) -> None:
-    """Count two disjoint four-qubit blocks, with any remaining qubits free, at every weight.
-
-    A logical has even weight on each block, and the checks are the words of weights 0, 4, and 8
-    that are constant on each block.  At length 70, the counts at middle weights exceed 64-bit
-    integers.
-    """
+    """Counts match a direct count at every weight, also where they exceed 64-bit integers."""
     add_span_weights = mw._add_span_weights
     chunk_sizes = []
 
@@ -30,6 +25,8 @@ def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int) -> None:
         add_span_weights(*args)
 
     monkeypatch.setattr(mw, "_add_span_weights", record_chunk)
+    # Two four-qubit blocks, and any other qubits free: the checks span the words of weights 0, 4,
+    # and 8 that are constant on each block, and a logical has even weight on each block.
     checks = np.zeros((2, num_bits), dtype=np.uint8)
     checks[0, :4] = checks[1, -4:] = 1
     enumerators = mw.CheckEnumerators(checks, checks if num_bits == 8 else checks.copy(), 1)
@@ -42,7 +39,7 @@ def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int) -> None:
         )
         expected = kernel - {0: 1, 4: 2, 8: 1}.get(weight, 0)
         assert enumerators.count_logical_ops(weight) == (expected, expected)
-    # Each call of the walk visits one Gray-code step, the given chunk size.
+    # With a chunk size of one, each call of the walk takes one step.
     assert chunk_sizes and set(chunk_sizes) == {1}
 
 

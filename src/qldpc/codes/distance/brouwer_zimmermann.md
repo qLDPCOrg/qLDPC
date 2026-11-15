@@ -3,7 +3,7 @@
 ## 1. Purpose and scope
 
 The Brouwer-Zimmermann (BZ) algorithm computes the distance of a classical code ([arXiv:1603.06757](https://arxiv.org/abs/1603.06757)), and has been adapted to quantum codes ([arXiv:2408.10743](https://arxiv.org/abs/2408.10743)).
-This guide explains how qLDPC computes exact distances of binary codes with BZ, for contributors who need to understand, debug, or modify the BZ code in this directory.
+This guide explains how qLDPC computes exact distances of binary codes with BZ, and how it counts logical operators ([Section 3.11](#311-counting-logical-operators)), for contributors who need to understand, debug, or modify the BZ code in this directory.
 [connected_cluster.md](connected_cluster.md) describes another exact search, for codes with sparse checks.
 
 - [Section 2](#2-the-brouwer-zimmermann-algorithm) explains BZ as published, including its adaptation to quantum codes.
@@ -166,6 +166,7 @@ qLDPC goes beyond [Section 2](#2-the-brouwer-zimmermann-algorithm) as follows; e
 - Both: certifying with the images of one information set under automorphisms, while scanning only that set ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 
 [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) defines the work estimate with which searches choose their search bases, and [Section 3.8](#38-worked-example) works an example.
+[Section 3.11](#311-counting-logical-operators) adapts the search to counts of logical operators, and explains the MacWilliams method of counting.
 
 ### 3.1 Overlapping search bases
 
@@ -480,6 +481,54 @@ A search of Pauli errors by CSS weight weighs words by that weight, and keeps th
 
 For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then, if its weight `w_x` is at most `ω`, the Z part with the floor `w_x`, where any word within `w_x` ends the search ([README.md](README.md#the-coset-leader-search)).
 
+### 3.11 Counting logical operators
+
+This section describes qLDPC's implementation, apart from the MacWilliams identity, which it cites.
+`CSSLogicalCounter` of [logical_counts.py](logical_counts.py) counts the nontrivial logical operators of a given weight `t` in a binary CSS code, where `t` is by default the distance `d`.
+Its default method, BZ, scans each sector in layers of a family of search bases, but stops and skips only as Sections [3.9](#39-skipping-completions-by-completion-tables) and [5](#5-correctness-requirements) allow, so that it visits every eligible word of weight `t`.
+A word lies in the layer of its coefficient weight in each search basis, so one step visits it first, and only that step counts it.
+The X and Z sectors of a self-dual code, whose X and Z checks span the same space, are equal.
+So a counter scans only one of them if it knows the code to be self-dual: if it was built from such checks, or deformed from such a counter by a gate that acts alike on X and Z.
+
+#### Full Pauli counts
+
+A nontrivial logical Pauli operator `(x, z)` of weight `d` and support `Q` takes one of two disjoint forms, since `x`, which commutes with the Z stabilizers, is a nontrivial X logical or an X gauge operator:
+
+- `x` is a nontrivial X logical, which weighs at least `d` and so has support `Q`, and `z` is one of the `2^(d - rank(S_X[:, Q]))` words supported in `Q` that commute with the X stabilizers `S_X`.
+- `x` is an X gauge operator, so `z` is a nontrivial Z logical, which has support `Q` for the same reason, and `x` is one of the `2^(rank(G_X) - rank(G_X[:, ~Q]))` words supported in `Q` in the span of the X gauge generators `G_X`.
+
+So the scans of the X and Z sectors return histograms of these exponents over their words of weight `d`.
+In a self-dual code, no nonzero gauge operator lies within the support `Q` of a nontrivial X logical `x` of weight `d`, since adding the gauge operator to `x` would give a lighter nontrivial logical.
+So a nonzero word within `Q` that commutes with `S_X` is not a gauge operator but a nontrivial logical of weight at most `d`, which must be `x` itself.
+Hence in the first form `z` is `0` or `x`, and in the second `x` is `0`: `Q` carries exactly three operators, of types X, Y, and Z, and the full count is three times the X count.
+Above `d`, an operator need not have the support of a nontrivial X or Z logical, so a full count raises an error if its scans find a nontrivial X or Z logical lighter than `t`.
+
+#### Deformed counters
+
+A local CSS-preserving Clifford gate maps the X part of an operator on its target qubits by an invertible binary matrix `matrix_x`, and the Z part by `(matrix_x^-1)^T`, which preserves commutation.
+So the gate maps the gauge operators, stabilizers, and sectors of a code onto those of the deformed code, and a basis of a sector, row by row, to a basis of the new sector with the same quotient labels ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)).
+For each basis family that a counter keeps, the deformed counter reduces each mapped search basis again on the pivot columns of its block, with its labels.
+If every search basis keeps its rank there, the family keeps its blocks, ranks, and coverage, and so its certificate; otherwise the counter builds the family again.
+A gate can change the parity of words, so the counter infers the weight divisor of [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) again.
+It can also change the distance and the weights of check words, so the counter searches for the distance again, and the MacWilliams method recomputes the weight distributions of the checks.
+
+#### The MacWilliams method
+
+For a stabilizer code on `n` qubits with checks `H_X` and `H_Z`, `method="macwilliams"` of [_counting/macwilliams.py](_counting/macwilliams.py) counts from the weight distributions `A_X` of `row(H_X)` and `A_Z` of `row(H_Z)`.
+The nontrivial X logicals are the words of `ker(H_Z)` outside `row(H_X)`.
+Since `ker(H_Z)` is the dual of `row(H_Z)`, the MacWilliams identity ([References](#references)) gives their number of weight `w`:
+
+$$
+N_X(w) = 2^{-\operatorname{rank}(H_Z)} \sum_j K_w(j)\,A_Z(j) - A_X(w),
+$$
+
+where the [binary Krawtchouk polynomial](https://en.wikipedia.org/wiki/Kravchuk_polynomials) `K_w(j)` is the sum of `(-1)^(x·y)` over the words `x` of weight `w`, for any `y` of weight `j`.
+The Z counts exchange X and Z.
+A Gray-code walk over the `2^r` words of a row space of rank `r` gives its distribution `A`, so the cost is exponential in the ranks of the checks rather than in the number of logical qubits.
+Since `|K_w(j)| ≤ binom(n, w)` and `A` sums to `2^r`, no Krawtchouk value, entry of `A`, product `K_w(j) A(j)`, partial sum of these products, or divisor `2^r` exceeds `2^r binom(n, w)` in magnitude.
+So the sum of these products and its division by `2^r` are exact in signed 64-bit integers at every weight `w` with `2^r binom(n, w) < 2^63`.
+qLDPC uses 64-bit integers below the first weight that fails this bound, and Python integers from there on.
+
 ## 4. Guide to the source code
 
 This section maps the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules and identifiers.
@@ -741,5 +790,6 @@ Performance and helper tests check broad work budgets and current interfaces, an
 - M. Grassl, "Searching for linear codes with large minimum distance," in *Discovering Mathematics with Magma*, Springer, 2006, pp. 287-313 ([doi:10.1007/978-3-540-37634-7_13](https://doi.org/10.1007/978-3-540-37634-7_13)): Algorithm 2.5 gives the certificate for overlapping information sets, footnote 2 on page 295 the certificate within a layer, page 299 the rounding to a weight divisor, and Algorithm 2.11 the choice between BZ and the weight distribution.
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 the coverage-divided certificate, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
+- J. MacWilliams, "A theorem on the distribution of weights in a systematic code," *Bell System Technical Journal* 42(1), 79-94, 1963 ([doi:10.1002/j.1538-7305.1963.tb04003.x](https://doi.org/10.1002/j.1538-7305.1963.tb04003.x)): the MacWilliams identity of Section 3.11.
 - [core.py](core.py), [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [coset_leaders.py](coset_leaders.py), [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py), [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py), [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py), [_cosets.py](_cosets.py), [min_weight_bounds.py](min_weight_bounds.py), [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), [_brouwer_zimmermann/affine_instance.py](_brouwer_zimmermann/affine_instance.py), [_information_sets/basis_families.py](_information_sets/basis_families.py), [_information_sets/certificates.py](_information_sets/certificates.py), [_information_sets/support_stepping.py](_information_sets/support_stepping.py), [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), [_information_sets/matroid_partition.py](_information_sets/matroid_partition.py), [logical_counts.py](logical_counts.py), [_counting/scan.py](_counting/scan.py), [_brute_force.py](_brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
 - [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py), [coset_leaders_test.py](coset_leaders_test.py), [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py), [_brouwer_zimmermann/coset_tables_test.py](_brouwer_zimmermann/coset_tables_test.py), [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py), [_cosets_test.py](_cosets_test.py), [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py), [_brouwer_zimmermann/affine_instance_test.py](_brouwer_zimmermann/affine_instance_test.py), [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py), [_information_sets/certificates_test.py](_information_sets/certificates_test.py), [_information_sets/support_stepping_test.py](_information_sets/support_stepping_test.py), [_information_sets/automorphism_families_test.py](_information_sets/automorphism_families_test.py), [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py), [logical_counts_test.py](logical_counts_test.py), [_counting/scan_test.py](_counting/scan_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.
