@@ -38,10 +38,10 @@ from .min_weight_bounds import MinWeightBound
 def _class_weights(
     matrix: npt.NDArray[np.uint8], syndrome: int, css_weight: bool
 ) -> npt.NDArray[np.int_]:
-    """Weights of every error with this syndrome, for stabilizers whose X parts are the identity.
+    """Weights of every error with the syndrome, for stabilizers whose X parts form the identity.
 
-    Z on the set syndrome bits has the syndrome, and all other such errors are its products with the
-    2**n stabilizers, so this enumeration is independent of the code under test.
+    Z on the set syndrome bits has the syndrome, and its products with the stabilizers are the
+    other errors with it, so this enumeration is independent of the code under test.
     """
     n = len(matrix)
     assert np.array_equal(matrix[:, :n], np.eye(n))
@@ -53,8 +53,8 @@ def _class_weights(
 
 
 # Four-qubit blocks: a GHZ state, which is CSS, and the same state after S on its first qubit, which
-# is not.  For the CSS weight, the oracle splits its search only on the GHZ block, and for the
-# physical weight it searches Pauli errors on both, so one block covers that path.
+# is not.  By CSS weight, the oracle splits its search only on the GHZ block, and by physical weight
+# it searches Pauli errors on both, so one block covers that case.
 _GHZ_BLOCK = ("XXXX", "ZZ__", "_ZZ_", "__ZZ")
 _PHASED_GHZ_BLOCK = ("YXXX", "ZZ__", "_ZZ_", "__ZZ")
 _BLOCK_CASES = pytest.mark.parametrize(
@@ -67,9 +67,8 @@ _BLOCK_CASES = pytest.mark.parametrize(
 def _ghz_blocks(num_blocks: int) -> tuple[npt.NDArray[np.uint8], int]:
     """Stabilizers of independent GHZ blocks, and the syndrome of Z on each block's last qubit.
 
-    That syndrome flips two X-type stabilizers in every block, which needs a Z component on the
-    block, so every equivalent error has Z weight at least ``num_blocks``.  Weight ``num_blocks`` is
-    achieved, so it is the exact minimum by either measure of weight.
+    Every error with that syndrome needs a Z part on each block, so ``num_blocks`` is its exact
+    minimum weight by either measure.
     """
     generators = _block_generators(("ZZZ", "X_X", "_XX"), num_blocks)
     witness = stim.PauliString("__Z" * num_blocks)
@@ -92,8 +91,7 @@ def _block_minimum(
 ) -> int:
     """Minimum weight of an error on independent blocks with the given per-block syndromes.
 
-    The syndrome bits of a block are the commutation with its generators, in order.  Every Pauli on
-    one block is listed, and the blocks are combined by dynamic programming.
+    Every Pauli on one block is listed, and the blocks are combined by dynamic programming.
     """
     size = len(block[0])
     stabilizers = [stim.PauliString(local) for local in block]
@@ -122,11 +120,8 @@ def _find_each_not_within_max_weight(
 ) -> list[int]:
     """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
 
-    The representative of each bound that a search returns has the syndrome for the stabilizers of
-    ``matrix``, its lower bound exceeds ``max_weight``, and, for a maximum weight of at least two,
-    the bound equals that of ``get_min_weight_bound``.  With one coset search,
-    ``find_first_not_within_max_weight`` computes its bound separately from
-    ``get_min_weight_bound``, so this checks one against the other.
+    Each bound must be valid, and, for maximum weights of two or more, equal to that of
+    ``get_min_weight_bound``, an independent computation when there is one coset search.
     """
     found: list[int] = []
     while True:
@@ -152,12 +147,10 @@ def test_bounds_match_exhaustive_minima(
     pytestconfig: pytest.Config,
     tune: Tune,
 ) -> None:
-    """Bounds agree with exhaustive minima.
-
-    Each syndrome is queried at every maximum weight in random order.  Graph states with phases on
-    an even number of qubits are not CSS, so their queries by CSS weight look up errors of CSS
-    weight one in a table, or, with no room for the table, match single-qubit X and Z errors.
-    """
+    """Bounds agree with exhaustive minima."""
+    # Graph states with phases on an even number of qubits are not CSS, so their queries by CSS
+    # weight look up errors of CSS weight one in a table, or, with no room for the table, match
+    # single-qubit X and Z errors.
     if not css_singles_table:
         tune(max_css_single_pairs=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -184,12 +177,7 @@ def test_bounds_match_exhaustive_minima(
 def test_batches_find_each_class_above_max_weight(
     css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """Repeated batch searches find exactly the classes of minimum weight above ``max_weight``.
-
-    After each index that ``find_first_not_within_max_weight`` returns, it is called again on the
-    syndromes after that index.  Every syndrome, in random order, is checked at every maximum weight
-    against exhaustive minima.
-    """
+    """Repeated batch searches find exactly the classes of minimum weight above ``max_weight``."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 7):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
@@ -204,12 +192,9 @@ def test_batches_find_each_class_above_max_weight(
 
 
 def test_batches_return_bounds_above_max_weight_plus_one() -> None:
-    """On |0000> with CSS weight, the syndrome 1111 needs X on every qubit, so weight four.
-
-    The search of X parts proves this at layer zero, since their code has no generators and each of
-    its cosets is a single word.  A batch search at maximum weight two returns the same bound of
-    four as ``get_min_weight_bound``, which ``_find_each_not_within_max_weight`` checks.
-    """
+    """A batch can return a bound above ``max_weight + 1``, as ``get_min_weight_bound`` does."""
+    # On |0000> with CSS weight, the syndrome 1111 needs X on every qubit.  The code of X parts has
+    # no generators, so each of its cosets is one word, which proves this at layer zero.
     matrix = np.hstack([np.zeros((4, 4), dtype=np.uint8), np.eye(4, dtype=np.uint8)])
     oracle = CosetLeaderSearch(matrix, css_weight=True)
     words = split_syndromes_into_words([0b0011, 0b1111], 4)
@@ -221,11 +206,7 @@ def test_batches_return_bounds_above_max_weight_plus_one() -> None:
 def test_batches_read_syndromes_of_several_words(
     block: tuple[str, ...], css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """On 17 four-qubit blocks, batch answers agree with per-block minima.
-
-    The 68 syndrome bits span two words.  Each error acts on at most three random qubits, and blocks
-    that it does not touch add nothing to its minimum weight.
-    """
+    """Batches of syndromes of two words, on 17 four-qubit blocks, agree with block minima."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_blocks = 17
     generators = _block_generators(block, num_blocks)
@@ -239,6 +220,7 @@ def test_batches_read_syndromes_of_several_words(
         syndromes.append(sum((not error.commutes(gg)) << jj for jj, gg in enumerate(generators)))
         bits = [(syndromes[-1] >> jj) & 1 for jj in range(4 * num_blocks)]
         local = [bits[4 * index : 4 * index + 4] for index in range(num_blocks)]
+        # Blocks that the error does not touch add nothing to its minimum weight.
         minima.append(_block_minimum(block, [ss for ss in local if any(ss)], css_weight))
     for max_weight in range(4):
         words = split_syndromes_into_words(syndromes, 68)
@@ -247,12 +229,10 @@ def test_batches_read_syndromes_of_several_words(
 
 
 def test_x_and_z_syndromes_span_several_words(pytestconfig: pytest.Config) -> None:
-    """On |0>^70 |+>^70, the syndromes of the X and Z parts have 70 bits, more than one word.
-
-    An error is equivalent to one with X only on the first 70 qubits and Z only on the last 70, so
-    its smallest CSS weight is the larger of the numbers of these.  The generators are scrambled,
-    and the errors act on qubits whose syndrome bits fall in both words of each syndrome.
-    """
+    """On |0>^70 |+>^70, syndromes of X and Z parts that span two words give exact answers."""
+    # An error is equivalent to one with X only on the first 70 qubits and Z only on the last 70, so
+    # its smallest CSS weight is the larger of the numbers of these.  The errors below act on qubits
+    # whose syndrome bits fall in both words.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_qubits = 140
     pure = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
@@ -291,10 +271,9 @@ def test_css_weight_counts_the_larger_sector() -> None:
 
 
 def test_css_weight_minimizes_both_sectors_jointly() -> None:
-    """On a four-qubit path graph state, Z^4 is equivalent to pure X and to pure Z, but not to both.
-
-    The X part and the Z part can each be made zero, yet no one error has CSS weight below two.
-    """
+    """The CSS weight is minimized over both parts of an error at once."""
+    # On this path graph state, Z^4 is equivalent to an error without an X part and to one without a
+    # Z part, but to no error of CSS weight below two.
     matrix = get_graph_state(4, [(0, 1), (1, 2), (2, 3)])
     assert _class_weights(matrix, 15, True).min() == 2
     oracle = CosetLeaderSearch(matrix, css_weight=True)
@@ -306,13 +285,11 @@ def test_css_weight_minimizes_both_sectors_jointly() -> None:
 
 @pytest.mark.parametrize(("syndrome", "minimum"), [(44, 2), (108, 3)])
 def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimum: int) -> None:
-    """Rank-deficient sets give valid bounds whether a weight-two error exists or not.
-
-    Qubit 6 is isolated, so the last information set has rank five rather than eight.  Syndrome 44
-    has minimum weight two; treating the set as full rank would miss that error.  Syndrome 108 also
-    flips the isolated qubit's stabilizer, so its minimum is three.  Certifying it at maximum weight
-    two skips the deficient set, whose first two layers contribute nothing to the certificate.
-    """
+    """Rank-deficient sets give valid bounds whether a weight-two error exists or not."""
+    # Qubit 6 is isolated, so the last information set has rank five rather than eight, and a search
+    # that took it as full rank would miss the error of weight two with syndrome 44.  Syndrome 108
+    # also flips the stabilizer of qubit 6, and certifying it at maximum weight two skips this set,
+    # whose first two layers add nothing.
     edges = [(0, 1), (0, 2), (0, 7), (1, 3), (1, 5), (2, 4), (3, 5), (4, 7), (5, 7)]
     matrix = get_graph_state(8, edges)
     assert _class_weights(matrix, syndrome, False).min() == minimum
@@ -327,13 +304,10 @@ def test_rank_deficient_information_sets_give_valid_bounds(syndrome: int, minimu
 
 
 def test_exhausted_search_gives_the_exact_minimum() -> None:
-    """On a state with stabilizers Y, Z, Z, Z, Z, the syndrome 11111 has CSS weight four.
-
-    An error with that syndrome has X or Y on each of the last four qubits, so its X part has weight
-    at least four, and Z X X X X reaches it.  The state is not CSS, so the oracle searches Pauli
-    errors, and the bounds of its certificate stay below four, so only exhausting every layer proves
-    the minimum.
-    """
+    """A search that exhausts every layer proves the exact minimum."""
+    # The syndrome 11111 needs X or Y on each of the last four qubits, and Z X X X X has it.  The
+    # state is not CSS, so the Pauli errors are searched, and the bounds of the certificate stay
+    # below four.
     matrix = get_stabilizer_matrix(("Y____", "_Z___", "__Z__", "___Z_", "____Z"))
     oracle = CosetLeaderSearch(matrix, css_weight=True)
     bound = oracle.get_min_weight_bound(0b11111, 3)
@@ -343,12 +317,9 @@ def test_exhausted_search_gives_the_exact_minimum() -> None:
 
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_wide_states_span_several_packed_words(css_weight: bool, tune: Tune) -> None:
-    """Eleven GHZ blocks use 99 bits for the physical weight, more than one 64-bit word.
-
-    For the CSS weight, the X and Z parts are searched separately, on 33 bits each.
-    """
-    # Eight-column blocks, rather than the default sixteen, keep the tables quick to build as plain
-    # Python; this test is about packing, not tables.
+    """On eleven GHZ blocks, queries by either weight find the exact minimum."""
+    # The words of a search by physical weight have 99 bits, more than one 64-bit word, and those of
+    # X and Z parts 33 bits.  Tables of eight-column blocks are quick to build as plain Python.
     tune(coset_completion_block_bits=8)
     num_blocks = 11
     matrix, syndrome = _ghz_blocks(num_blocks)
@@ -365,17 +336,14 @@ def test_wide_states_span_several_packed_words(css_weight: bool, tune: Tune) -> 
 def test_bounds_match_per_block_minima(
     block: tuple[str, ...], css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """Five four-qubit blocks match per-block minima for every maximum weight up to five.
-
-    The stabilizers of these blocks have even weight, but their cosets can have odd weight.
-    """
+    """Five blocks, whose stabilizers are even but cosets can be odd, match block minima."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_blocks = 5
     matrix = get_stabilizer_matrix(_block_generators(block, num_blocks))
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
     # For the first syndrome, the physical-weight search stops by its certificate while the lightest
-    # error that it has visited is heavier than the minimum.
-    # The phased GHZ block is slow to search as plain Python, so it gets fewer random syndromes.
+    # error that it has visited is heavier than the minimum.  The phased GHZ block is slow to search
+    # as plain Python, so it gets fewer random syndromes.
     num_random = 3 if block == _PHASED_GHZ_BLOCK else 7
     syndromes = [443351, *rng.integers(1 << (num_blocks * len(block)), size=num_random).tolist()]
     for syndrome in syndromes:
@@ -393,16 +361,12 @@ def test_bounds_match_per_block_minima(
 
 
 # Queries on three four-qubit blocks: the block, the weight (True for the CSS weight), the syndrome,
-# the maximum weight, and the answer.  The representatives and bounds are those of the documented
-# search order: layer zero (the word of the syndrome, then the offset of each information set),
-# then each later layer set by set, keeping only strictly lighter words, until a word is light
-# enough or the certificate stops the search.  In several cases an offset of layer zero weighs as
-# much as the word of the syndrome, and the bound comes from the certificate, below the weight of
-# the representative.  For the CSS weight, the X parts of the pure-X stabilizers of the GHZ block
-# and the Z parts of its pure-Z stabilizers have even weight, so the bounds of its classical
-# searches round up to the parity of each coset.  The X parts of the errors with syndrome 2635 have
-# even weights above two, so its bound at maximum weight two is four.  Block minima (see
-# ``_block_minimum``) independently check each answer.
+# the maximum weight, and the answer.  The answers follow the search order: layer zero (the word of
+# the syndrome, then the offset of each information set), then each later layer set by set, keeping
+# only strictly lighter words, until a word is light enough or the certificate stops the search.  In
+# several cases, the bound comes from the certificate, below the weight of the representative.  For
+# the CSS weight on the GHZ block, the codes of X and Z parts are even, so bounds round up to the
+# parity of each coset, and the X parts with syndrome 2635, of even weights above two, give four.
 _ORDERED_QUERIES = [
     (_GHZ_BLOCK, False, 742, 2, MinWeightBound(False, 338, 3)),
     (_GHZ_BLOCK, False, 742, 3, MinWeightBound(False, 338, 4)),
@@ -419,11 +383,7 @@ _ORDERED_QUERIES = [
 
 
 def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
-    """Single and batch queries return the representatives and bounds of the search order.
-
-    A batch of two syndromes of single-qubit errors, which every query accepts, and then the
-    syndrome of the case, stops at the case if its answer is no, with the same bound.
-    """
+    """Single and batch queries return the representatives and bounds of the search order."""
     for block, css_weight, syndrome, max_weight, expected in _ORDERED_QUERIES:
         num_qubits = 3 * len(block)
         matrix = get_stabilizer_matrix(_block_generators(block, 3))
@@ -445,6 +405,8 @@ def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
             <= get_pauli_weight(bound.representative, num_qubits, css_weight)
         )
 
+        # A batch of two syndromes of single-qubit errors, which every query accepts, and then the
+        # syndrome of the case stops at the case if its answer is no.
         words = split_syndromes_into_words(
             [get_syndrome(matrix, 1), get_syndrome(matrix, 1 << num_qubits), syndrome], num_qubits
         )
@@ -456,12 +418,7 @@ def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
 
 
 def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
-    """On random CSS states, both queries for the CSS weight agree with exhaustive minima.
-
-    The states have up to five qubits and any number of pure-X stabilizers, including none and all.
-    Each syndrome is queried at every maximum weight in random order, and batch searches find
-    exactly the classes of minimum weight above each maximum weight.
-    """
+    """On random CSS states, both queries for the CSS weight agree with exhaustive minima."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
         for num_x_stabilizers in range(num_qubits + 1):
@@ -487,12 +444,7 @@ def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None
 
 
 def test_stabilizers_must_define_a_pure_state() -> None:
-    """Matrices that are not ``n`` independent commuting stabilizers on ``n`` qubits raise errors.
-
-    One Z stabilizer on two qubits, or two copies of it, define a code that encodes a qubit, rather
-    than a state.  A third stabilizer that is the product of two others is not independent, and X
-    and Z on one qubit do not commute.
-    """
+    """Stabilizers that are not ``n`` independent commuting ones on ``n`` qubits raise errors."""
     for stabilizers, message in [
         ([[1]], "columns"),
         ([[0, 0, 1, 0]], "not a state"),
@@ -505,12 +457,7 @@ def test_stabilizers_must_define_a_pure_state() -> None:
 
 
 def test_methods_take_the_names_of_distance_methods() -> None:
-    """The alias ``"information_sets"`` selects the default method, and other names raise errors.
-
-    The connected-cluster method weighs errors by CSS weight only on CSS states, so on a state that
-    is not CSS, only the default method can answer queries by CSS weight.  ``"brute_force"`` has no
-    coset searches.
-    """
+    """Coset-leader searches take each distance method but brute force, and reject invalid uses."""
     matrix = get_graph_state(2, [(0, 1)], phase=True)
     with pytest.raises(ValueError, match="only on CSS states"):
         CosetLeaderSearch(matrix, css_weight=True, method="connected_cluster")
@@ -524,7 +471,6 @@ def test_methods_take_the_names_of_distance_methods() -> None:
             CosetLeaderSearch(matrix, method=cast(Any, unknown))
         assert "brute_force" not in str(error.value)
 
-    # Every other distance method has a coset-leader search.
     for method in get_args(DistanceMethod):
         if method != "brute_force":
             assert_exact_answers(CosetLeaderSearch(matrix, method=method), matrix, False)
@@ -561,11 +507,7 @@ def test_max_weight_must_be_a_nonnegative_integer() -> None:
 
 
 def test_syndromes_of_queries_are_integers_or_binary_vectors() -> None:
-    """A query gives the same answer for a packed syndrome as for its vector of syndrome bits.
-
-    Packed syndromes out of range, bools, and vectors that are not binary, have the wrong length, or
-    have two dimensions raise errors.
-    """
+    """A query gives the same answer for a packed syndrome as for its vector, and checks both."""
     matrix = get_graph_state(5, [(0, 1), (0, 2), (2, 3), (3, 4)], phase=True)
     search = CosetLeaderSearch(matrix)
     for syndrome in (0b00110, 0b10011):
@@ -585,12 +527,9 @@ def test_syndromes_of_queries_are_integers_or_binary_vectors() -> None:
 
 
 def test_packed_syndromes_unpack_to_their_bits(pytestconfig: pytest.Config) -> None:
-    """Binary syndromes pack into a batch of their packed integers, and a vector into one row.
-
-    On 70 qubits, each packed syndrome spans two words.  Syndromes that are not binary, or have the
-    wrong length, raise errors.
-    """
+    """Binary syndromes pack into a batch of their packed integers, and a vector into one row."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # On 70 qubits, each packed syndrome spans two words.
     num_qubits = 70
     matrix = np.hstack(
         [np.zeros((num_qubits, num_qubits), np.uint8), np.eye(num_qubits, dtype=np.uint8)]
@@ -610,12 +549,9 @@ def test_packed_syndromes_unpack_to_their_bits(pytestconfig: pytest.Config) -> N
 
 
 def test_representatives_unpack_to_binary_vectors_in_xz_order() -> None:
-    """A representative unpacks to its X part and then its Z part, and other integers raise errors.
-
-    On |0+>, the only error of CSS weight one with the syndrome 0b11 is X on qubit zero and Z on
-    qubit one, which unpacks to X part [1, 0] and Z part [0, 1].  Integers outside the four bits of
-    a Pauli error raise errors.
-    """
+    """A representative unpacks to its X part and then its Z part; other integers raise errors."""
+    # On |0+>, the only error of CSS weight one with the syndrome 0b11 is X on qubit zero and Z on
+    # qubit one.
     search = CosetLeaderSearch(get_stabilizer_matrix(["Z_", "_X"]), css_weight=True)
     bound = search.get_min_weight_bound(0b11, 1)
     assert bound.within_max_weight
@@ -624,7 +560,7 @@ def test_representatives_unpack_to_binary_vectors_in_xz_order() -> None:
         with pytest.raises(ValueError, match="out of range"):
             search.unpack_pauli(pauli)
 
-    # On six qubits, a packed error spans two bytes, and bit j of it is entry j of the vector.
+    # On six qubits, a packed error spans two bytes.
     search = CosetLeaderSearch(get_graph_state(6, [(j, j + 1) for j in range(5)]))
     for pauli in (0b100000000001, 0b011010010110):
         assert search.unpack_pauli(pauli).tolist() == [(pauli >> j) & 1 for j in range(12)]
@@ -643,15 +579,11 @@ def test_representatives_unpack_to_binary_vectors_in_xz_order() -> None:
 def test_oracles_answer_exactly_with_other_families(
     matrix: npt.NDArray[np.uint8], css_weight: bool, tune: Tune
 ) -> None:
-    """Oracles answer exactly when costly queries take other families.
-
-    With the threshold of the gate at zero, the searches of Pauli errors of the graph states take
-    their maximum disjoint families, which change different answers on the two states by physical
-    weight.  On |0000>, the CSS weight splits the search, and the X parts have the empty code, which
-    no other family improves.  At the threshold zero, the queries also run the searches by tails,
-    except in the search of Pauli errors by CSS weight, which has none.  Every single query, and
-    every batch, at every maximum weight, agrees with exhaustive minima.
-    """
+    """Oracles answer exactly when costly queries take other families."""
+    # With coset_route_minimum_work at zero, costly queries take the maximum disjoint families of
+    # the graph states, and routes by tails, except in a search of Pauli errors by CSS weight.  On
+    # |0000>, the CSS weight splits the search, and the X parts have the empty code, which no other
+    # family improves.
     tune(coset_route_minimum_work=0)
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
     assert_exact_answers(oracle, matrix, css_weight)
@@ -675,41 +607,33 @@ def test_oracles_answer_exactly_with_other_families(
 def test_min_weights_match_exhaustive_minima(
     tuning: dict[str, int], pytestconfig: pytest.Config, tune: Tune
 ) -> None:
-    """The minimum weights of syndrome classes agree with exhaustive minima, by either method.
-
-    Graph states with phases on two to five qubits and on eight qubits are not CSS, so one search
-    covers their Pauli errors, by either weight.  By physical weight, the embedded words of the
-    errors have even Hamming weights, so once a BZ search finds a word, its incumbent is one below
-    the Hamming weight of its best word.  The searches of the state on eight qubits also stop early
-    within steps and skip words by tables.  The stabilizers of the state on a cycle of five qubits
-    have even Hamming weights as words [x|z] too, but CSS weights have no parity, so its searches by
-    CSS weight do not lower their incumbents by one.  Random CSS states on two to five qubits, the
-    logical zero of the Steane code, whose code of X parts is even and that of Z parts is not, and a
-    GHZ block beside its conjugate by Hadamard gates, whose codes are both even, are weighed by CSS
-    weight, which splits their searches.  The search of the Z part of a class then ends at a word
-    within the weight of its X part.  Some classes of the GHZ blocks have an X part of weight two
-    and a Z part of weight three, which a connected-cluster search of the Z part weighs exactly only
-    from a weight limit of at most two.  The Steane state is also weighed by physical weight.  An
-    oracle answers one batch of every syndrome, in random order, at every maximum weight from zero
-    to one past the number of qubits.  The BZ searches take the disjoint families, and at the
-    threshold zero other families by tails, with completion tables and without them.  The
-    connected-cluster method, which the tuning of these families does not configure, answers under
-    the default tuning, but not by CSS weight on states that are not CSS.
-    """
+    """The minimum weights of syndrome classes agree with exhaustive minima, by either method."""
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    # Graph states with phases are not CSS, so one search covers their Pauli errors.  By physical
+    # weight, the binary words of their errors are even, so a BZ search keeps its incumbent one
+    # below the weight of its best word.
     cases = []
     for num_qubits in range(2, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         graph_state = get_graph_state(num_qubits, edges, phase=True)
         css_state = get_random_css_state(num_qubits, int(rng.integers(num_qubits + 1)), rng)
         cases += [(graph_state, False, True), (graph_state, True, False), (css_state, True, True)]
+    # The searches of this state on eight qubits also stop early within steps and skip words by
+    # tables.
     edges = [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5), (1, 6), (1, 7), (2, 3), (2, 4), (2, 5)]
     edges += [(2, 6), (2, 7), (3, 4), (3, 5), (3, 7), (4, 5), (5, 6), (5, 7)]
     graph_state = get_graph_state(8, edges, phase=True)
     cases += [(graph_state, False, True), (graph_state, True, False)]
+    # The stabilizers of this cycle state are even as words [x|z] too, but CSS weights have no
+    # parity, so its searches by CSS weight do not lower their incumbents.
     cycle_state = get_graph_state(5, [(0, 1), (1, 2), (2, 3), (3, 4), (0, 4)], phase=True)
     cases.append((cycle_state, True, False))
+    # The CSS weight splits the searches of CSS states, and the search of a Z part ends at a word
+    # within the weight of its X part.  The code of X parts of the Steane state is even, and that of
+    # Z parts is not.  Both codes of a GHZ block beside its conjugate by Hadamards are even.  Some
+    # classes of that state have X parts of weight two and Z parts of weight three, and a
+    # connected-cluster search weighs such a Z part exactly only from a first limit of at most two.
     steane_zero = ("XXXX___", "XX__XX_", "X_X_X_X", "ZZZZ___", "ZZ__ZZ_", "Z_Z_Z_Z", "ZZZZZZZ")
     cases += [
         (get_stabilizer_matrix(steane_zero), css_weight, True) for css_weight in (False, True)
@@ -722,6 +646,8 @@ def test_min_weights_match_exhaustive_minima(
         minima = get_exhaustive_minima(matrix, css_weight)
         syndromes = rng.permutation(1 << num_qubits)
         packed_syndromes = split_syndromes_into_words(syndromes.tolist(), num_qubits)
+        # The tuning of these families does not configure the connected-cluster method, which
+        # weighs by CSS weight only on CSS states.
         methods: list[DistanceMethod] = ["brouwer_zimmermann"]
         if by_support and not tuning:
             methods.append("connected_cluster")
@@ -733,11 +659,9 @@ def test_min_weights_match_exhaustive_minima(
 
 
 def test_batches_are_checked() -> None:
-    """Batches must be ``uint64`` arrays with the words per row of ``pack_syndromes``, in range.
-
-    The syndromes of the state |+0> are below four, so they take one word, and a row with bit two
-    set is out of range.  The syndrome three needs Z on the first qubit and X on the second.
-    """
+    """Batches must be ``uint64`` arrays with the words per row of ``pack_syndromes``, in range."""
+    # The syndromes of |+0> are below four, and the syndrome three needs Z on the first qubit and X
+    # on the second.
     search = CosetLeaderSearch(get_stabilizer_matrix(["X_", "_Z"]))
     batch: Any
     for query in (search.find_first_not_within_max_weight, search.get_min_weights):
@@ -755,12 +679,7 @@ def test_batches_are_checked() -> None:
 def test_connected_cluster_batches_by_css_weight_join_their_parts(
     pytestconfig: pytest.Config,
 ) -> None:
-    """Batches of the connected-cluster method by CSS weight find the classes above ``max_weight``.
-
-    On CSS states, the CSS weight splits the search of a class into searches of its X and Z parts.
-    Every syndrome of random CSS states on one to five qubits, in random order, is checked at every
-    maximum weight against exhaustive minima.
-    """
+    """Connected-cluster batches by CSS weight find the classes above ``max_weight``."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
         matrix = get_random_css_state(num_qubits, num_qubits // 2, rng)
@@ -776,16 +695,9 @@ def test_connected_cluster_batches_by_css_weight_join_their_parts(
 def test_connected_cluster_batches_read_syndromes_of_several_words(
     pytestconfig: pytest.Config, tune: Tune
 ) -> None:
-    """On 17 phased GHZ blocks, batches of the connected-cluster engine agree with block minima.
-
-    The 68 syndrome bits span two words, and the physical weight takes one search of the Pauli
-    errors.  The batch holds the syndromes of 30 errors.  The first acts on one qubit in each of
-    blocks 0, 8, and 16.  Block 16 has its syndrome bits in the second word, so a search that read
-    only the first word would find a lighter error than the minimum of three.  The other errors each
-    act on one to three random qubits, and blocks that an error does not touch add nothing to its
-    minimum weight.  The oracle looks for sparser checks for one round, rather than for the many
-    rounds that are slow as plain Python.  On these blocks, one round gives the default checks.
-    """
+    """Connected-cluster batches of syndromes of two words agree with block minima."""
+    # One round of sparsifying gives the default checks on these blocks, without the many rounds
+    # that are slow as plain Python.
     tune(max_sparsifying_rounds=1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_blocks = 17
@@ -795,6 +707,8 @@ def test_connected_cluster_batches_read_syndromes_of_several_words(
     syndromes, minima = [], []
     for error_index in range(30):
         error = stim.PauliString(4 * num_blocks)
+        # The first error acts on blocks 0, 8, and 16.  Block 16 has its syndrome bits in the second
+        # word, so a search that read only the first word would find a lighter error.
         qubits = (
             [0, 35, 67]
             if error_index == 0
