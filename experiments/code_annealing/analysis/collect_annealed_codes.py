@@ -6,8 +6,8 @@ Run with ``python -m experiments.code_annealing.analysis.collect_annealed_codes`
 of each code type, number of qubits, and number of logical qubits has the greatest distance, and
 among those the fewest minimum-weight logical operators.  The codes go to
 ``data/annealed_codes.txt`` (CSS) and ``data/annealed_codes_swel.txt`` (SWEL) of the results
-directory, with generators of low weight.  Codes that are already in those files compete with those
-of the runs, and every code is rechecked, so collecting only ever improves the files.  Pass
+directory, with generators of minimum weight.  Codes that are already in those files compete with
+those of the runs, and every code is rechecked, so collecting only ever improves the files.  Pass
 explicit checkpoints, which bring their records along, to collect runs saved elsewhere.
 """
 
@@ -67,7 +67,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     for code in saved:
         offer(code.code_type, code.counter, code.score.distance, code.score.multiplicity)
 
-    # Rewrite each file with the best code of each size, with generators of low weight.
+    # Rewrite each file with the best code of each size, with generators of minimum weight.
     for code_type, path in files.items():
         blocks = []
         for key in sorted(key for key in best if key[0] == code_type):

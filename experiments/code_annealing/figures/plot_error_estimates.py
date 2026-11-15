@@ -182,8 +182,10 @@ def _refine_error_rate_estimate(counts: HalfSupportCounts, error_rate: float) ->
 
     Of the ``2**w`` patterns of a majority support, it counts those with at most
     ``t = (d - 1) // 2`` Y errors.  The Y errors of a pattern also form a Z-type error, which the
-    lookup table of the other sector holds if there are at most ``t`` of them; otherwise the decoder
-    generally discards the shot rather than failing.  The sectors are combined as if they were
+    lookup table of the other sector holds if there are at most ``t`` of them.  Otherwise the
+    decoder usually discards the shot, and the estimate neglects the patterns that it still fails
+    on, such as a pattern of Y errors alone in a self-dual (SWEL) code, whose minimum-weight X
+    logical operators are also Z logical operators.  The sectors are combined as if they were
     independent, ``1 - (1 - P_x) * (1 - P_z)``.
     """
     num_qubits, distance = counts.num_qubits, counts.distance

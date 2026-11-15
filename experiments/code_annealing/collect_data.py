@@ -16,7 +16,7 @@ runs the scripts of ``analysis/``, in order, on the same results directory:
 4. ``latex_tables`` writes the LaTeX tables of the codes, with a comparison with qecdb.org from the
    newest scrape, to ``data/table_css.tex`` and ``data/table_swel.tex``, and the listings of the
    codes to ``data/listing_css.txt`` and ``data/listing_swel.txt``.  This step is skipped if there
-   is no scrape, or if the codes changed since the newest one.
+   is no scrape, or if the newest one cannot be read or the codes changed since it.
 
 Pass ``--test`` to collect the data of the smoke-test campaign of ``write_jobs.py --test``.  Every
 step can be run alone, with more options, as ``python -m experiments.code_annealing.analysis.NAME``.
@@ -60,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print("\nSkipping latex_tables: no earlier scrape, and --scrape was not given")
     elif not scrape_qecdb.is_up_to_date(find_code_files(results_dir), scraped):
         print(
-            "\nSkipping latex_tables: the earlier scrape is out of date or in an old format;"
+            "\nSkipping latex_tables: the earlier scrape is out of date or cannot be read;"
             " use --scrape"
         )
     else:

@@ -96,7 +96,7 @@ python -m experiments.code_annealing.make_figures
 `make_figures` takes a while too, because it simulates every best code; pass `--workers N` to simulate the codes in N parallel processes, or a small `--num-samples` or `--max-qubits` for a quick look.
 `collect_data --scrape` compares the codes with those of qecdb.org today, which needs network access.
 It saves the comparison in a file named by the date of the scrape, and writes the tables in the format of the paper's.
-Without `--scrape`, it writes the table from the newest earlier scrape, if that scrape covered the same codes.
+Without `--scrape`, it writes the table from the newest earlier scrape, if that scrape can be read and covered the same codes.
 qecdb.org changes over time, so this comparison can differ from that of the paper.
 Without GNU parallel, `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
 

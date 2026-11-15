@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Text files of codes, one block per code, and low-weight generators for them.
+"""Text files of codes, one block per code, and minimum-weight generators for them.
 
 A block starts with a comment line ``# (n, k, d) m min-weight logicals`` and continues with one
 line per stabilizer generator: X-type generators first, then Z-type generators, with ``_`` for

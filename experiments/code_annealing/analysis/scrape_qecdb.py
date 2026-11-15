@@ -147,15 +147,13 @@ class BestKnown:
 def is_up_to_date(code_files: Mapping[CodeType, Path], data_file: Path) -> bool:
     """Does a data file describe exactly the codes of the code files, in the same order?
 
-    A data file that is not in the current format, such as one without IDs, is not up to date.
+    A data file that cannot be read, such as one with a malformed line, is not up to date.
     """
     try:
-        blocks = _read_blocks(data_file)
+        read_best_known(code_files, data_file)
     except ValueError:
         return False
-    return [[result.params for result in block] for block in blocks] == _get_expected_params(
-        code_files
-    )
+    return True
 
 
 def read_best_known(
@@ -164,7 +162,8 @@ def read_best_known(
     """The neighbors of every code of the code files, by code type, in the order of the files.
 
     Raises:
-        ValueError: If the data file does not describe exactly the codes of the code files.
+        ValueError: If a line of the data file is malformed, or the data file does not describe
+            exactly the codes of the code files.
     """
     blocks = _read_blocks(data_file)
     if [[result.params for result in block] for block in blocks] != _get_expected_params(
