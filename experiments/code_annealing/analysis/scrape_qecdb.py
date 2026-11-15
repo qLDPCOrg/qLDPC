@@ -166,11 +166,14 @@ def read_best_known(
     Raises:
         ValueError: If the data file does not describe exactly the codes of the code files.
     """
-    if not is_up_to_date(code_files, data_file):
+    blocks = _read_blocks(data_file)
+    if [[result.params for result in block] for block in blocks] != _get_expected_params(
+        code_files
+    ):
         raise ValueError(
             f"{data_file} is out of date, because the codes changed: run collect_data --scrape"
         )
-    return dict(zip(_sorted_code_types(code_files), _read_blocks(data_file), strict=True))
+    return dict(zip(_sorted_code_types(code_files), blocks, strict=True))
 
 
 def query_best_known(params: CodeParams, code_type: CodeType) -> BestKnown:

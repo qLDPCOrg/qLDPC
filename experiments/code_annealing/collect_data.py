@@ -59,7 +59,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     if scraped is None:
         print("\nSkipping latex_tables: no earlier scrape, and --scrape was not given")
     elif not scrape_qecdb.is_up_to_date(find_code_files(results_dir), scraped):
-        print("\nSkipping latex_tables: the codes changed since the earlier scrape; use --scrape")
+        print(
+            "\nSkipping latex_tables: the earlier scrape is out of date or in an old format;"
+            " use --scrape"
+        )
     else:
         run_step("latex_tables", latex_tables.main, options)
 
