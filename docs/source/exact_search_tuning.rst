@@ -56,7 +56,7 @@ Start from a symptom
    * - A connected-support distance search of a subsystem code is slow to start, or slow to search
      - Lower :attr:`~SearchTuning.max_distance_sparsifying_rounds`, or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` below it, to start sooner, or raise the former for sparser checks and a faster search.
    * - Completion tables are used, or declined, against measured savings
-     - Refit the fields of their cost model, as :ref:`Retuning <tuning-retuning>` describes.
+     - Measure the coefficients of their cost model again, as :ref:`Retuning <tuning-retuning>` describes.
 
 Routes and the names that control them
 --------------------------------------

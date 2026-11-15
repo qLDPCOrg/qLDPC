@@ -6,17 +6,17 @@ The script enters ``_tuning.use_tuning`` with the given changes, warms up the co
 workload's kind on small codes, and then times the workload, ``--repeat`` times in this process.
 Each repetition repeats the search, but codes remember work that does not depend on the tuning, such
 as the generator matrix of a classical code given by its checks, and coset searches reuse their
-cached setups, so later repetitions can be much faster than the first.  It prints one JSON object:
-the workload, the tuning, the result of each repetition, their wall and CPU seconds, and the peak
-resident memory after the warm-up and after the repetitions.
+cached setups, so later repetitions can be much faster than the first.  Codes also remember the
+automorphisms that a search finds, and whether a search finds them depends on the tuning.  It
+prints one JSON object: the workload, the tuning, the result of each repetition, their wall and CPU
+seconds, and the peak resident memory after the warm-up and after the repetitions.
 
 ``sweep.py`` runs this script in a new process for each trial.  To run it directly, limit it to
 one thread, as ``sweep.py`` does, with ``NUMBA_NUM_THREADS=1`` and ``OMP_NUM_THREADS=1``.
 
 Example:
 
-    python experiments/distance_tuning/trial.py distance/gross/X \\
-        --tuning '{"max_information_sets": 8}'
+    python experiments/distance_tuning/trial.py distance/gross/X
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from qldpc import codes
 from qldpc.codes.distance import (
     CosetLeaderSearch,
     CSSLogicalCounter,
+    DistanceMethod,
     _tuning,
     compile_search_setup,
 )
@@ -45,16 +46,18 @@ if TYPE_CHECKING:
 else:
     import workloads
 
-# Changes that make small searches take every route of the BZ method, so that warming up loads the
-# compiled code of every route that a timed search may take.
+# Changes that make small searches take every route of the exact searches, so that warming up loads
+# the compiled code of every route that a timed search may take.
 FORCE_EVERY_ROUTE = {
     "overlapping_minimum_work": 0,
     "coset_route_minimum_work": 0,
     "partition_work_ratio": 0,
     "lp_minimum_work": 0,
     "automorphism_minimum_layer_work": 0,
+    "automorphism_minimum_states": 0,
     "completion_bound_minimum_layer_work": 0,
     "completion_bound_max_cost_percent": _tuning.MAX_VALUE,
+    "macwilliams_shared_walk_rank": 0,
 }
 
 # The codes of the warm-up.  Searches and caches remember results for them, so no timed workload
@@ -142,15 +145,18 @@ def warm_up(kind: str) -> None:
         kind = "count"
     for changes in ({}, FORCE_EVERY_ROUTE):
         with _tuning.use_tuning(**changes):
-            if kind == "distance":
+            if kind in ("distance", "csdistance"):
+                method: DistanceMethod = (
+                    "connected_support" if kind == "csdistance" else "brouwer_zimmermann"
+                )
                 classical = workloads.get_code("classical:40:20:0")
                 classical.forget_distance()
-                classical.get_distance_exact()
+                classical.get_distance_exact(method=method)
                 for name in ("surface:5", "toric:4"):
                     code = workloads.get_css_code(name)
                     for pauli in (Pauli.X, None):
                         code.forget_distance()
-                        code.get_distance_exact(pauli)
+                        code.get_distance_exact(pauli, method=method)
             elif kind == "hadamard":
                 hadamard_code = workloads.get_hadamard_code("surface:5")
                 hadamard_code.forget_distance()
@@ -161,6 +167,8 @@ def warm_up(kind: str) -> None:
                     (codes.ToricCode(4, rotated=True), 4),
                 ):
                     CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(weight)
+            elif kind == "mcount":
+                workloads.run_deformed_counts("surface:5", "2")
             elif kind == "certify":
                 for weighing in ("css", "physical"):
                     workloads.run_certification("surface:5", weighing, "3")

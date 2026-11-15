@@ -84,12 +84,13 @@ qLDPC sets tuning values by rules, not by timing.  The comment of each field put
 one of four classes, or says that it is in none:
 
 - A derived value follows from a rule and a measured constant of the machine.  The gate of an
-  optional step, such as building a family of information sets or solving linear programs, breaks
-  even: the step runs once the work that it acts on, in candidate/set evaluations, reaches the
-  measured cost of the step, the costliest of its measurements, rounded by ratio (to the nearest in
-  logarithm) to 1, 2, or 5 times a power of ten.  A limit that compares two estimates in one unit
-  breaks even at equality, and the coefficients of a cost model are fitted to measurements of what
-  they stand for.
+  optional step, such as building a family of information sets, solving linear programs, or asking
+  for automorphisms, breaks even: the step runs once the work that it acts on reaches the measured
+  cost of the step, the costliest of its measurements.  Work and cost count candidate/set
+  evaluations in BZ searches and states in connected-support searches.  The value is rounded by
+  ratio (to the nearest in logarithm) to 1, 2, or 5 times a power of ten.  A limit that compares
+  two estimates in one unit breaks even at equality, and the coefficients of a cost model are
+  constants of the machine, measured on what they stand for.
 - A budget is a limit that the maintainer sets on memory, interrupt latency, or setup effort.  To
   change a batch or chunk size, take the smallest size whose overhead per call is negligible on the
   machine that runs the searches, a property of the machine rather than of the codes searched.  The
@@ -98,59 +99,63 @@ one of four classes, or says that it is in none:
 - The widest allowed: the blocks of completion tables take the widest width that searches accept,
   since wider blocks never skip less where their tables fit, and a budget bounds their memory.
 
-The three fields whose comments name no class, ``coset_route_minimum_work``,
-``automorphism_minimum_states``, and ``macwilliams_shared_walk_rank``, are in none, and their
-comments say how their values were chosen, or that this is not recorded.
+The two fields whose comments name no class, ``coset_route_minimum_work`` and
+``macwilliams_shared_walk_rank``, are in none, and their comments say how their values were chosen.
 
 A value changes only because its rule, a measured constant of the machine, or a stated budget
-changes.  To set the values on a machine, rerun ``constants.py`` of ``experiments/distance_tuning``,
-which measures the constants on a few quick searches and prints the derived values that they give,
-and refit the coefficients of the cost model of completion tables as described below.  The script
-does not yet re-derive ``automorphism_minimum_layer_work``, whose comment says how it was measured.
-The README of that directory tables, for an Apple M3 Max, the steps, their measured costs, and the
-values that they give.
+changes.  To set the values on a machine, rerun ``constants.py`` of ``experiments/distance_tuning``.
+It measures the constants of every derived value, on a few quick searches and on the cost data set
+below, and prints the values that they give beside the defaults.  The README of that directory
+tables, for an Apple M3 Max, the steps, their measured costs, and the values that they give.
 
-Timing confirms a change, and never chooses a value.  Before timing, record the rule, the values
-that it gives, the decisions that it should change, and how large a difference in time must be to
-matter.  Trace the decisions of key searches under both tunings, with ``trace.py`` and
-``windows.py --compare`` of ``experiments/distance_tuning``.  Then time the whole new tuning
-against the whole current one, on warmed searches in new processes, single-threaded, in paired runs
-that alternate their order, and record the time and peak memory of each run.  A slowdown calls for
-changing a rule, never for adjusting one value.
+Timing confirms a change, and never chooses a value.  Before measuring, record the rule, the values
+that it should give, the decisions that it should change, and how large a difference in time must
+be to matter.  Trace the decisions of key searches under both tunings with ``trace.py`` of
+``experiments/distance_tuning``, and compare them with its ``--compare``.  Then time the whole new
+tuning against the whole current one with ``sweep.py``, on warmed searches in new processes,
+single-threaded, in paired runs that alternate their order, and record the time and peak memory of
+each run.  A slowdown calls for changing a rule, never for adjusting one value.
 
-The cost model of the completion tables of distance searches and counts (Section 3.9 of
-``brouwer_zimmermann.md``) was fitted, and the widths of their blocks compared, on measurements,
-made on an Apple M3 Max, of layers of one information set of ``4 * 10**7`` to ``5 * 10**10``
-supports from two data sets:
+The coefficients of the cost model of the completion tables of distance searches and counts
+(Section 3.9 of ``brouwer_zimmermann.md``) were measured, and the widths of their blocks compared,
+on searches timed on an Apple M3 Max, from two data sets:
 
-- The width data set holds layers of weights 4 to 6 of both sectors of
+- The width data set holds layers of one information set, of weights 4 to 6, of both sectors of
   ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]] code, and of
   ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, and of two lifted-product codes of
   3 x 4 random monomials of ``CyclicGroup(13)``, drawn with NumPy's default generator from seeds 5
   and 8.
-- The cost data set holds nine layers of the X sector of that bivariate bicycle code and of the
+- The cost data set holds the searches of the X sector of that bivariate bicycle code and of the
   [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]] pair-partition codes, ``pp232``, ``pp170``,
-  and ``pp276`` of ``experiments/distance_tuning/workloads.py``.
+  and ``pp276`` of ``experiments/distance_tuning/workloads.py``.  The coefficients of lookups are
+  fitted to the layers of these searches that scan one information set of at least ``10**7``
+  supports.  For the current coefficients, these were nine layers of ``4 * 10**7`` to
+  ``5 * 10**10`` supports.  The coefficients of builds are fitted to every table that these
+  searches build with tables forced, in layers of any size.
 
-To refit the cost model of completion tables, which ``predict_completion_cost`` and
-``_estimate_build_cost`` in ``_information_sets/completion_bounds.py`` compute:
+The default width of the blocks is the widest allowed, not the outcome of the comparison of widths.
 
-1. Time layers of one information set with tables disabled
-   (``completion_bound_max_table_bytes=0``), forced (``completion_bound_minimum_layer_work=0`` and
-   ``completion_bound_max_cost_percent=MAX_VALUE``), and at the defaults.  For each layer, record
-   the share of its supports that tables skipped and its number of lookups, which
-   ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each call, and
-   time ``CompletionTables.build`` separately.
+The functions ``predict_completion_cost`` and ``_estimate_build_cost`` of
+``_information_sets/completion_bounds.py`` compute the cost model of completion tables.  To measure
+its coefficients on the cost data set:
+
+1. Time its searches with tables disabled (``completion_bound_max_table_bytes=0``), forced
+   (``completion_bound_minimum_layer_work=0`` and ``completion_bound_max_cost_percent=MAX_VALUE``),
+   forced on blocks of 8 columns (``completion_bound_block_bits=8``), and at the defaults.  For
+   each layer, record the share of its supports that tables skipped and its number of lookups,
+   which ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each
+   call, and time ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
-3. Fit the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
-   ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
-   ``completion_bound_table_byte_cost``, and ``completion_bound_build_step_cost``, to the measured
-   lookups, scans, and builds.  The builds measure one scale of the last two, whose ratio of one to
-   two was set by hand; scale both, and round each up to 1, 2, or 5 times a power of ten.
+3. Measure the coefficients that the cost model reads.  Fit ``completion_bound_lookup_block_cost``,
+   ``completion_bound_lookup_block_cost_per_mib``, and ``completion_bound_kept_first_row_ratio`` to
+   the lookups and scans of the layers of one information set of at least ``10**7`` supports, and
+   ``completion_bound_table_byte_cost`` and ``completion_bound_build_step_cost`` to the builds.  The
+   builds measure one scale of the last two, whose ratio of one to two was set by hand; scale both,
+   and round each up to 1, 2, or 5 times a power of ten.  No rule rounds the first three.
 
-``fit_completion_costs.py`` of ``experiments/distance_tuning`` takes these steps.  Accept values
-if, at the defaults, no layer is slower than the faster of the other two arms by more than the
-spread of repeated runs.
+``constants.py`` of ``experiments/distance_tuning`` takes these steps, and prints each coefficient,
+before rounding, beside its default.  Accept values if, at the defaults, no layer is slower than
+the faster of the arms with tables disabled and forced by more than the spread of repeated runs.
 """
 
 from __future__ import annotations
@@ -293,10 +298,10 @@ class SearchTuning:
     #: search that declined reconsiders once its best weight drops.  Lowering it pays for
     #: automorphisms on cheaper searches; zero considers before the first layer, and ``MAX_VALUE``
     #: never.  Defaults to ``5 * 10**6``, a derived value (see :ref:`Retuning <tuning-retuning>`):
-    #: finding automorphisms and building their images took at most 7.33 ms, on ``hadamard/gross``
-    #: of ``experiments/distance_tuning``, or about ``5.6 * 10**6`` evaluations at 1.32 ns each, the
-    #: median over six of its workloads of the net seconds per evaluation of layers of at least
-    #: ``10**7`` evaluations without tables.
+    #: finding automorphisms and building their images took 7.56 to 8.57 ms, on ``hadamard/gross``
+    #: of ``experiments/distance_tuning``, or ``6.4 * 10**6`` to ``7.2 * 10**6`` evaluations, near
+    #: the edge of its rounding, ``7.07 * 10**6``, so that one run of three gave ``10**7`` (see the
+    #: README of that directory).
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-support searches.
@@ -306,8 +311,12 @@ class SearchTuning:
     #: all limits of one problem (Section 3.5 of ``connected_support.md``).  It also asks before a
     #: first limit that a cutoff raises, unless this is ``MAX_VALUE``.  Lowering it pays the cost of
     #: finding them on cheaper searches; raising it searches more limits from every variable.  Zero
-    #: asks before the first limit, and ``MAX_VALUE`` never.  Defaults to 100,000, chosen by hand.
-    automorphism_minimum_states: int = 100_000
+    #: asks before the first limit, and ``MAX_VALUE`` never.  Defaults to ``5 * 10**4``, a derived
+    #: value (see :ref:`Retuning <tuning-retuning>`): asking, which finds the automorphisms,
+    #: verifies them, and orders their orbits, took 8.9 to 9.4 ms on ``csdistance/qt7/X`` of
+    #: ``experiments/distance_tuning``, or ``3.4 * 10**4`` to ``3.7 * 10**4`` states at 253 to 263
+    #: ns each, the median cost per state of six connected-support searches of that directory.
+    automorphism_minimum_states: int = 50_000
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to
     #: this many rounds, each a row reduction in a random order of the columns (Section 3.8 of
@@ -496,8 +505,11 @@ class SearchTuning:
     #: checks of a counter span the same space, so that one walk over its ``2**rank`` words serves
     #: both; below it, a second walk costs less than the test.  Lowering it tests on smaller codes;
     #: zero whenever the ranks are equal, and ``MAX_VALUE`` never.  Counters known to be self-dual,
-    #: and counts of full Pauli operators, skip the test.  Defaults to 14; how it was chosen is not
-    #: recorded.
+    #: and counts of full Pauli operators, skip the test.  Defaults to 14, chosen by hand: on the
+    #: workloads ``mcount/qgolay/8``, ``mcount/qrm:2:6/4``, and ``mcount/qrm:2:7/1`` of
+    #: ``experiments/distance_tuning``, with the test forced, the costliest test took as long as a
+    #: walk of ``2 * 10**4`` to ``3.4 * 10**4`` steps, so breaking even gives 14 in some runs and 15
+    #: in others, and either changes a count by tens of microseconds.
     macwilliams_shared_walk_rank: int = 14
 
     #: The most pairs of distinct syndromes of a single-qubit X error and a single-qubit Z error,

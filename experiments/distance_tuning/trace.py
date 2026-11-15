@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Trace the decisions and stage times of BZ searches of a distance, hadamard, or count workload.
+"""Trace the decisions and stage times of the exact searches of a workload, or compare two traces.
 
-The script wraps functions of ``qldpc.codes.distance._brouwer_zimmermann`` and
-``qldpc.codes.distance._information_sets`` in this process only, warms up as ``trial.py`` does, and
-runs a ``distance``, ``hadamard``, or ``count`` workload once under the given tuning.  It cannot
-trace ``ccount`` workloads: their compiled setup calls the stages directly, past the wrappers.  It
-records:
+The script wraps functions of the exact searches of ``qldpc.codes.distance`` in this process only,
+warms up as ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``csdistance``, or
+``mcount`` workload once under the given tuning.  It cannot trace ``ccount`` workloads: their
+compiled setup calls the stages directly, past the wrappers.  For BZ searches, it records:
 
 - each family of information sets that the search builds (disjoint, overlapping, or by matroid
   partitioning), with its number of sets and the seconds that building it took, and the quantities
@@ -46,16 +45,43 @@ records:
   blocks of the largest, the number of tables that it built, the seconds spent choosing tables,
   which include building them, and building them, and its seconds in all.
 
+For connected-support searches, it records each weight limit that a search runs: the limit, the
+states visited before it, the states that the search predicted for it, whose sum with those visited
+it compares with ``automorphism_minimum_states``, the states that it visited, whether the search
+asked for automorphisms before it, with the seconds of finding them and of verifying them and
+ordering their orbits, and the number of roots that their orbits leave, and its seconds in all.
+For counts by the MacWilliams method, it records each walk of a check space, with its rank, its
+number of bits, and its seconds, and each test of whether the X and Z checks of a counter span the
+same space, which counts make from the rank ``macwilliams_shared_walk_rank``, with its rank, its
+result, and its seconds.
+
 It prints the events, and with ``--output``, saves them as JSON, with the workload, the changes of
 the tuning, the whole tuning, and the source (see ``sweep.get_source_fingerprint``).  With
-``--setup-only``, it stops before the first layer of the first distance search, after its families;
-it does not stop counts.  The thresholds of ``SearchTuning`` decide where these stages start, so a
-trace shows which decisions a threshold can flip, and what each stage costs, before timing the
-tunings that flip them with ``sweep.py``.
+``--setup-only``, it stops before the first layer of the first BZ distance search, after its
+families; it does not stop other searches.  The thresholds of ``SearchTuning`` decide where these
+stages start, so a trace shows which decisions a change of tuning moves, and what each stage costs,
+before ``sweep.py`` times the change.
 
-Example:
+With ``--compare``, it instead compares the decisions of two saved traces of one workload, such as
+traces under two tunings or of two checkouts: families and their gates, certificates, switches to
+automorphism images, the tables of each layer, each comparison of a predicted cost with the limit,
+the weight limits before which connected-support searches ask for automorphisms, and the tests and
+walks of counts by the MacWilliams method.  If the tunings differ only in thresholds and every
+decision is the same, so is the search, apart from the time of the decisions themselves.  Traces
+record the number of sets of each family, not the sets, so ``--compare`` may not tell apart
+searches whose families differ only in their sets, such as families that partitioning builds at
+other coverages.  Nor does it compare the states that a connected-support search visits within a
+weight limit, which budgets such as ``max_distance_sparsifying_rounds`` change.
 
-    python experiments/distance_tuning/trace.py distance/qt7/X --tuning '{"lp_minimum_work": 0}'
+The script traces the qLDPC of its own checkout, and refuses to run if this process imports qLDPC
+from elsewhere.  To trace another checkout, run that checkout's script with its own Python.
+
+Examples:
+
+    python experiments/distance_tuning/trace.py distance/qt7/X --output a.json
+    python experiments/distance_tuning/trace.py distance/qt7/X --tuning '{"lp_minimum_work": 0}' \\
+        --output b.json
+    python experiments/distance_tuning/trace.py --compare a.json b.json
 """
 
 from __future__ import annotations
@@ -72,8 +98,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from qldpc.codes.distance import _tuning
+from qldpc.codes.distance import CSSLogicalCounter, _tuning
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
+from qldpc.codes.distance._connected_support import search as support_search
+from qldpc.codes.distance._counting import macwilliams
 from qldpc.codes.distance._information_sets import (
     automorphism_families,
     basis_families,
@@ -104,16 +132,26 @@ SETUP_ONLY = False
 # The rows and weight of the latest prediction of the cost of completion tables.
 LAST_PREDICTION: dict[str, Any] = {"rows": None, "weight": None}
 
+# The seconds of asking for automorphisms in the current weight limit of a connected-support search.
+CURRENT_ASK: dict[str, Any] = {}
+
+# The kinds of workloads that the script can trace.
+TRACED_KINDS = ("distance", "hadamard", "count", "csdistance", "mcount")
+
 
 class SetupDone(Exception):
     """Raised before the first layer of a search whose trace stops after its setup."""
 
 
 def main() -> None:
-    """Trace a workload, and print and save the trace."""
+    """Trace a workload, and print and save the trace, or compare two traces."""
     args = parse_args()
-    if args.workload.split("/")[0] not in ("distance", "hadamard", "count"):
-        raise ValueError("Only distance, hadamard, and count workloads can be traced")
+    if args.compare is not None:
+        compare(*(json.loads(path.read_text(encoding="utf-8")) for path in args.compare))
+        return
+    if args.workload.split("/")[0] not in TRACED_KINDS:
+        raise ValueError(f"Only workloads of the kinds {', '.join(TRACED_KINDS)} can be traced")
+    sweep.check_local_import()
     trial.check_workload(args.workload)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -150,7 +188,7 @@ def parse_args() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "workload", help="a distance, hadamard, or count workload name (see workloads.py)"
+        "workload", nargs="?", help=f"a workload of the kinds {', '.join(TRACED_KINDS)}"
     )
     parser.add_argument(
         "--tuning",
@@ -161,9 +199,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--setup-only",
         action="store_true",
-        help="stop a distance search before its first layer, after its setup",
+        help="stop a BZ distance search before its first layer, after its setup",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--compare",
+        nargs=2,
+        type=pathlib.Path,
+        metavar=("FIRST", "SECOND"),
+        help="compare the decisions of two saved traces of one workload, instead of tracing",
+    )
+    args = parser.parse_args()
+    if (args.workload is None) == (args.compare is None):
+        parser.error("give either a workload or --compare")
+    return args
 
 
 ####################################################################################################
@@ -171,10 +219,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def install_wrappers() -> None:
-    """Wrap the stages of BZ searches, in this process, to record events."""
+    """Wrap the stages of the exact searches, in this process, to record events."""
     search_class = distance._BrouwerZimmermannSearch
     tables_class = completion_bounds.CompletionTables
-    patches: list[tuple[object, str, Callable[[Callable[..., Any]], Callable[..., Any]]]] = [
+    patches: list[tuple[object, str, Callable[[Any], Any]]] = [
         (basis_families, f"get_{kind}_family", functools.partial(wrap_family, kind))
         for kind in ("disjoint", "overlapping", "partitioned")
     ]
@@ -190,6 +238,11 @@ def install_wrappers() -> None:
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
+        (support_search.SupportSearch, "__init__", wrap_support_search),
+        (support_search.SupportSearch, "find_witness", wrap_find_witness),
+        (support_search.SupportSearch, "_use_automorphisms", wrap_use_automorphisms),
+        (macwilliams, "get_span_weights", wrap_walk),
+        (CSSLogicalCounter, "is_self_dual", wrap_self_dual_test),
     ]
     for owner, name, wrap in patches:
         setattr(owner, name, wrap(getattr(owner, name)))
@@ -573,6 +626,125 @@ def wrap_scan(function: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
+def wrap_support_search(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Time the function that a connected-support search calls to find automorphisms."""
+
+    @functools.wraps(function)
+    def wrapper(search: Any, *args: Any, get_automorphisms: Any = None, **kwargs: Any) -> None:
+        if get_automorphisms is not None:
+            get_automorphisms = functools.partial(time_finding, get_automorphisms)
+        function(search, *args, get_automorphisms=get_automorphisms, **kwargs)
+
+    return wrapper
+
+
+def time_finding(get_automorphisms: Callable[[], Any]) -> Any:
+    """Find the automorphisms of a connected-support search, and record the seconds it took."""
+    start = time.perf_counter()
+    automorphisms = get_automorphisms()
+    CURRENT_ASK["find_seconds"] = time.perf_counter() - start
+    return automorphisms
+
+
+def wrap_use_automorphisms(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record the seconds of verifying automorphisms and ordering their orbits, and the roots."""
+
+    @functools.wraps(function)
+    def wrapper(search: Any, automorphisms: Any) -> None:
+        start = time.perf_counter()
+        function(search, automorphisms)
+        CURRENT_ASK["verify_seconds"] = time.perf_counter() - start
+        CURRENT_ASK["roots"] = len(search._roots)
+
+    return wrapper
+
+
+def wrap_find_witness(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record each weight limit of a connected-support search, and whether it asked before it.
+
+    The predicted states are those that ``find_witness`` adds to the states visited so far, and
+    compares with ``automorphism_minimum_states``, while the search has not yet asked.
+    """
+
+    @functools.wraps(function)
+    def wrapper(search: Any, max_weight: int) -> Any:
+        may_ask = search._get_automorphisms is not None
+        states_before = search.num_states
+        predicted = int(search._predict_states(max_weight)) if may_ask else None
+        CURRENT_ASK.clear()
+        start = time.perf_counter()
+        witness = function(search, max_weight)
+        seconds = time.perf_counter() - start
+        event = {
+            "event": "weight limit",
+            "search": id(search),
+            "max_weight": max_weight,
+            "states_before": states_before,
+            "predicted_states": predicted,
+            "states": search.num_states - states_before,
+            "asked": may_ask and search._get_automorphisms is None,
+            "witness_weight": None if witness is None else len(witness),
+        }
+        if event["asked"]:
+            event |= {
+                "find_seconds": CURRENT_ASK.get("find_seconds", 0.0),
+                "verify_seconds": CURRENT_ASK.get("verify_seconds", 0.0),
+                "roots": CURRENT_ASK.get("roots"),
+            }
+        EVENTS.append(event | {"seconds": seconds})
+        return witness
+
+    return wrapper
+
+
+def wrap_walk(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record each walk of a check space by the MacWilliams method."""
+
+    @functools.wraps(function)
+    def wrapper(generators: Any, chunk_size: int) -> Any:
+        start = time.perf_counter()
+        weights = function(generators, chunk_size)
+        seconds = time.perf_counter() - start
+        rank, num_bits = generators.shape
+        EVENTS.append(
+            {"event": "walk", "rank": rank, "bits": num_bits, "steps": 2**rank, "seconds": seconds}
+        )
+        return weights
+
+    return wrapper
+
+
+def wrap_self_dual_test(prop: property) -> property:
+    """Record each test of whether the X and Z checks of a counter span the same space.
+
+    A counter built as self-dual answers without a test, and is not recorded.
+    """
+    assert prop.fget is not None
+    get_self_dual = prop.fget
+
+    def getter(counter: CSSLogicalCounter) -> bool:
+        if counter._self_dual:
+            return get_self_dual(counter)
+        cached = counter._canonical is not None
+        start = time.perf_counter()
+        result = get_self_dual(counter)
+        seconds = time.perf_counter() - start
+        rank, num_bits = counter._gauge_x.shape
+        EVENTS.append(
+            {
+                "event": "self-dual test",
+                "rank": rank,
+                "bits": num_bits,
+                "cached": cached,
+                "self_dual": result,
+                "seconds": seconds,
+            }
+        )
+        return result
+
+    return property(getter, doc=prop.__doc__)
+
+
 ####################################################################################################
 # output
 
@@ -596,6 +768,79 @@ def print_trace(result: str, seconds: float) -> None:
             f" choose={event['choose_seconds']:.3f}s build={event['build_seconds']:.3f}s"
             f" {event['seconds']:.3f}s"
         )
+
+
+####################################################################################################
+# comparison
+
+
+def compare(first: dict[str, Any], second: dict[str, Any]) -> None:
+    """Print whether two traces of one workload make the same decisions.
+
+    Layers that only one tuning considers for tables add comparisons with the limit to its trace;
+    the comparison also reports the decisions without those.
+    """
+    if first["workload"] != second["workload"]:
+        raise ValueError("Compare traces of one workload")
+    for index, trace in enumerate((first, second), 1):
+        print(
+            f"trace {index}: result {trace['result']}, changes {trace['tuning']},"
+            f" source {trace.get('source')}"
+        )
+    decisions = [get_decisions(first), get_decisions(second)]
+    same = decisions[0] == decisions[1]
+    print(
+        f"{first['workload']}: {len(decisions[0])} and {len(decisions[1])} decisions, same: {same}"
+    )
+    considered = [
+        {
+            (e["rows"], e["weight"])
+            for e in trace["events"]
+            if e["event"] == "considers" and e["considers"]
+        }
+        for trace in (first, second)
+    ]
+    for index, other in ((0, 1), (1, 0)):
+        extra = considered[index] - considered[other]
+        if not extra:
+            continue
+        trimmed = [d for d in decisions[index] if not (d[0] == "limit" and (d[1], d[2]) in extra)]
+        print(f"    layers that only trace {index + 1} considers: {sorted(extra)}")
+        print(f"    same decisions without their predictions: {trimmed == decisions[other]}")
+    if not same:
+        for index, (one, two) in enumerate(zip(*decisions)):
+            if one != two:
+                print(f"    first difference, at decision {index}: {one} and {two}")
+                break
+
+
+def get_decisions(trace: dict[str, Any]) -> list[tuple[Any, ...]]:
+    """The decisions of a trace, in order, with predicted costs rounded to 9 digits."""
+    decisions: list[tuple[Any, ...]] = []
+    for event in trace["events"]:
+        kind = event["event"]
+        if kind == "family":
+            decisions.append(
+                (kind, event["kind"], event["sets"], event.get("stage"), event.get("partitioned"))
+            )
+        elif kind == "certificate":
+            decisions.append((kind, event["overlapping"], event["lp"]))
+        elif kind == "automorphisms":
+            decisions.append((kind, event["switched"]))
+        elif kind == "layer":
+            decisions.append(
+                (kind, event["weight"], event["dimension"], event["sets"], event["tables"])
+            )
+        elif kind == "limit" and not math.isinf(event["cost"]):
+            cost = round(event["cost"], 9)
+            decisions.append((kind, event["rows"], event["weight"], cost, event["within"]))
+        elif kind == "weight limit":
+            decisions.append((kind, event["max_weight"], event["asked"]))
+        elif kind == "self-dual test":
+            decisions.append((kind, event["rank"], event["self_dual"]))
+        elif kind == "walk":
+            decisions.append((kind, event["rank"]))
+    return decisions
 
 
 if __name__ == "__main__":
