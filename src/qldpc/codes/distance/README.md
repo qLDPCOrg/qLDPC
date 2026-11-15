@@ -138,7 +138,7 @@ A value that changes only how long a search takes or how much memory it uses, an
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
 - Each field and constant has its own `#:` comment directly above it, for Sphinx to render, with no colon on its first line, since Sphinx reads text before such a colon as a type.
   A field's comment says what the field controls, with its unit and special values, and the class and rule of its default, as the "Retuning" section of the module docstring defines them, or why a field in no class has its default; where a guide section or a cost model explains its heuristic, the comment points there.
-  A constant's comment says what it controls and how its value was chosen.
+  A constant's comment says what it controls; the Retuning section says how the sizes of caches were chosen.
   Comments, docstrings, and guides in this package give no measurements; those belong in pull request descriptions.
   The comment of a derived value, a gate on an optional step, may state the cost of the step that its heuristic assumes, as a round order of magnitude.
 - Change a default only as the "Retuning" section allows.
