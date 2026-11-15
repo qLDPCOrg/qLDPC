@@ -25,10 +25,11 @@ The cost thus grows with the weight of the checks, with `W`, and with the number
 The search raises `W` until it finds a nontrivial word ([Section 3.6](#36-from-a-search-to-the-distance)), each limit costing roughly a constant factor more than the last, so dense checks, whose factor is large, make the search slow unless the distance is small.
 Checks much lighter than the distance, as in surface codes, also slow the search: a support can leave few checks unsatisfied yet need many more variables, so the bounds of Section 3.4 prune little.
 
-The stabilizers of a subsystem code, its checks, can be much heavier than its gauge generators ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
-A caller who knows sparse stabilizer generators can search them as given: for a CSS subsystem code, `get_distance_from_checks(S_Z, G_X, method="connected_cluster")`, with Z-type stabilizer generators `S_Z` and X-type gauge generators `G_X`, gives the dressed X-distance, whereas excluding X-type stabilizers instead of `G_X` would count gauge operators that are not stabilizers as logical operators.
+The stabilizers that `get_distance_css` and `get_distance_pauli` derive for a subsystem code can be much heavier than its lightest stabilizer generators ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
+A caller who knows sparse stabilizer generators can search them as given.
+For a CSS subsystem code with Z-type stabilizer generators `S_Z` and X-type gauge generators `G_X`, `get_distance_from_checks(S_Z, G_X, method="connected_cluster")` gives the dressed X-distance; passing X-type stabilizers in place of `G_X` would count gauge operators that are not stabilizers as logical operators.
 
-A code that is not CSS costs more to search than a CSS code: each qubit of a check offers two Paulis that flip it, and a `Y` flips more checks, which weakens the bounds ([Section 3.7](#37-qubit-codes-that-are-not-css)).
+A code that is not CSS costs more to search than an equivalent CSS code: each qubit of a check offers two Paulis that flip the check, and a `Y` can flip more checks, which weakens the bounds ([Section 3.7](#37-qubit-codes-that-are-not-css)).
 So `get_distance_pauli` searches checks as a CSS code whenever X-type and Z-type operators generate their group, even if the checks mix X and Z, but searches a code that is CSS only up to local Cliffords, such as a CSS code with Hadamards on some qubits, as a code that is not CSS.
 
 Sparse checks alone do not make the search faster than BZ, whose work depends not on sparsity but on the distance and on the dimension of the space that it searches, stabilizers included for a quantum code ([Section 3.6 of brouwer_zimmermann.md](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration)).
@@ -84,7 +85,7 @@ Once it leaves the subtree of a child, it forbids the variable of that child in 
 Since an unsatisfied check holds a variable of `S`, every support that the search visits is connected, and since the variables of earlier siblings are forbidden, none recurs.
 
 The children come in decreasing order of repair ([Section 3.4](#34-pruning)).
-The order does not affect completeness, and is a heuristic: the most repairing child satisfies the most weight, and its variable is then forbidden in all its later siblings, which can help prune them ([Section 3.4](#34-pruning)).
+The order does not affect completeness, and is a heuristic: the most repairing child satisfies the most weight, and its variable is then forbidden in all its later siblings, which can help prune them.
 
 **Completeness.**
 Let `x` be a witness of minimum weight at most `W`, and `r` its variable of lowest rank.
@@ -113,17 +114,14 @@ The weights are integers in units of `1 / lcm(1, ..., Δ)`, so that comparisons 
 The **repair** `R_v` of an available variable `v` is the total weight of the unsatisfied checks that hold `v`.
 A completion `T` that holds `v` must cover the total weight `Y`, of which `v` covers `R_v` and each other variable at most one, so `|T| ≥ 1 + Y - R_v`.
 If this exceeds `W - s`, no completion within the limit holds `v`, and otherwise `v` is **viable**.
-Each completion `T` of a state in the subtree that adds `A` to `S` gives the completion `A ∪ T` of `S`, so the search forbids every variable that is not viable in the whole subtree.
+A completion `T` of a descendant `S ∪ A` gives the completion `A ∪ T` of `S`, so the search forbids each variable that is not viable at `S` throughout the subtree of `S`.
 A variable outside the unsatisfied checks has a repair of zero, so if `1 + Y > W - s`, the subtree uses only viable variables of unsatisfied checks.
 The search prunes the state if `Y > W - s` or an unsatisfied check has no viable variable, and otherwise branches on the check with the fewest.
 Forbidding variables can lower the `m_c` in the subtree, which raises the weights there, and so prunes more.
 
 Before it enters a child, the search applies the cheaper `b1`: it skips the child if the unsatisfied checks of the child outnumber `Δ(W - s - 1)`.
 
-qLDPC does not use these other valid bounds:
-
-- Dual ascent raises each `y_c` as far as its constraints allow, at the cost of further passes over the unsatisfied checks of every state.
-- Rounding `s + Y` up to a multiple of the weight divisor ([Section 3.6](#36-from-a-search-to-the-distance)) prunes nothing, since every weight limit is such a multiple.
+qLDPC does not use dual ascent, which raises each `y_c` as far as its constraints allow, at the cost of further passes over the unsatisfied checks of every state.
 
 ### 3.5 Symmetries
 
@@ -134,7 +132,7 @@ If a variable `u` of the orbit of `m` ranked lower, an element of `Γ` that maps
 By the lemma, the completeness argument of [Section 3.3](#33-the-depth-first-search) applies to `x` from `m`, so it suffices to search from the roots.
 Since the lemma holds for every witness of minimum weight, the images of `x` included, `Γ` need not permute the rows of `H`: qLDPC checks only that each generator maps `ker(H)` and `rowspan(G)` onto themselves, with `verify_automorphisms`, as BZ does.
 
-qLDPC ranks the variables orbit by orbit, with the orbits in the order of their least variables, so that the search from each root forbids every earlier orbit.
+qLDPC ranks the variables orbit by orbit, with the orbits in the order of their lowest indices, so that the search from each root forbids every earlier orbit.
 A root forbids only variables of orbits whose roots rank lower, so for a given order of the orbits, no ranking forbids more.
 Without symmetries, every variable is a root, ranked by its index.
 Okada and Kasai write the variables of a pair-partition code as `(ℓ, a)`, for a block column `ℓ` and a position `a` modulo the lift size `P`, search from the roots `(ℓ, 0)` of the orbits under cyclic translations of `a`, and rank `(ℓ, a)` by `ℓP + a`; their implementation uses these roots only if `P` is prime and `W < P`.
@@ -144,11 +142,13 @@ The generators of `Γ` are automorphisms that the caller of a distance function 
 For a large code, finding the automorphisms, verifying them, and ordering their orbits can cost as much as visiting many states.
 So the search of each problem asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
 That field of `SearchTuning` in `_tuning.py` defaults to a round number of states assumed to cost about as much to visit as asking.
-The search predicts the number of states of the next limit from the ratio between the numbers of the last two, but a first limit above the weight divisor, which a `cutoff` can set, has no prediction, so the search asks before it, unless the field is `MAX_VALUE`, which turns asking off.
+The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
+A first limit above the weight divisor ([Section 3.6](#36-from-a-search-to-the-distance)), which a `cutoff` can set, has no prediction, so the search asks before it.
+Setting the field to `MAX_VALUE` turns asking off.
 It predicts rather than counts because it can ask only between limits, each one compiled call ([Section 3.6](#36-from-a-search-to-the-distance)), and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
 
 With symmetries, the search from the first root does most of the work: it forbids nothing, and every witness that meets the first orbit has an image that holds this root.
-A witness with several variables in the first orbit can have several such images, one for each if `Γ` acts regularly on the orbit, so the search can visit images of a state more than once; rejecting such duplicates soundly for general groups is left open.
+A witness with several variables in the first orbit can have several such images, one for each such variable if `Γ` acts regularly on the orbit, so the search can revisit images of a state; rejecting such duplicates soundly for general groups is left open.
 
 ### 3.6 From a search to the distance
 
@@ -170,8 +170,9 @@ A `cutoff` above the `L` of a problem makes its first limit the largest multiple
 
 **Termination.**
 Each limit ends, since the search from a root is a finite tree of depth at most `W`.
-The lightest witness of a problem with `n` variables and divisor `d` weighs a multiple of `d` that is at most `n`, so the problem takes at most `n // d` limits.
-A problem without witnesses is not searched, and a search that needs more limits than the sum of these over its problems has a bug, and raises a `RuntimeError` rather than looping forever.
+A problem without witnesses is not searched.
+The lightest witness of any other problem, with `n` variables and divisor `d`, weighs a multiple of `d` that is at most `n`, so the problem takes at most `n // d` limits.
+A search that needs more limits than the sum of these over its problems has a bug, and raises a `RuntimeError` rather than looping forever.
 
 **Interrupts.**
 Each weight limit runs in one compiled call, which a keyboard interrupt cannot stop.
@@ -181,7 +182,7 @@ An interrupt takes effect after that call, as a `KeyboardInterrupt` or a `System
 
 A Pauli operator on `n` qubits, up to a phase, is a vector `(a | b)` of `2n` bits, which acts on qubit `j` as `X` if `(a_j, b_j) = (1, 0)`, as `Z` if it is `(0, 1)`, and as `Y` if it is `(1, 1)`.
 Two operators commute if their symplectic product vanishes, and the weight of an operator is the number of qubits on which it is not the identity.
-For a qubit code, `H` holds the stabilizers, the words are the operators that commute with them, and `G` holds the gauge generators, or the stabilizers of a stabilizer code.
+For a qubit code, `H` holds the stabilizers, the words are the operators that commute with them, and `G` holds the gauge generators, which are the stabilizers for a stabilizer code.
 
 Each qubit is a variable whose nonzero **values** are `X`, `Z`, and `Y`, and a **symbol** is a variable with one of its values.
 A set of symbols on distinct variables stands for the operator with those values there, and a symbol **flips** a check that anticommutes with it on its qubit.
@@ -191,7 +192,7 @@ Sections 3.2 to 3.6 carry over with symbols for variables:
 
 - **Lemma.**
   The components of a support are those of the graph that joins each check to the qubits on which it acts.
-  A check acts within at most one component, so it commutes with the restriction of `x` to each, and the rest of the proof only sums restrictions.
+  A check meets at most one component, so it commutes with the restriction of `x` to each, and the rest of the proof only sums restrictions.
   A symbol flips only checks that act on its qubit, so the search grows supports that are connected in this graph.
 - **Search.**
   A state is a set `S` of symbols on distinct variables, with a set `F` of forbidden symbols, and the available symbols of an unsatisfied check `c` flip `c`, are not in `F`, and lie on variables outside `S`.
@@ -205,14 +206,15 @@ Sections 3.2 to 3.6 carry over with symbols for variables:
   A completion has one symbol on each new variable, and the overlaps, weights, and repairs of [Section 3.4](#34-pruning) are those of symbols.
   A `Y` flips the checks that act on its qubit as `X` or `Z`, an `X` those that act as `Z` or `Y`, and a `Z` those that act as `X` or `Y`, so in a CSS code with Hadamards on some qubits, where no check acts as `Y`, a `Y` flips every check on its qubit, which raises overlaps and lowers weights.
 - **Symmetries.**
-  A permutation of the qubits moves both halves of each vector, and qLDPC verifies it on all `2n` columns; the roots and ranks are those of variables, and a root blocks every value of the variables of lower rank.
+  A permutation of the qubits moves both halves of each vector, and qLDPC verifies it on all `2n` columns; the roots and ranks are those of variables, and the search from a root forbids every value of the variables of lower rank.
 - **Logical test and divisor.**
   The test block of a `Y` is the sum of those of `X` and `Z`, and qLDPC gives these problems no weight divisor, so their limits step by one.
 
 ### 3.8 Vectors with a given syndrome
 
 A **syndrome query** asks for a vector `x` of weight at most `W` with `Hx = σ`, for a nonzero syndrome `σ`; its solutions form a coset of `ker(H)`.
-If `H` holds the stabilizers of a stabilizer state, a lightest solution is a coset leader, a lightest Pauli error with syndrome `σ`, and for a code with logical qubits, the query ranges over every logical class and ignores `G`.
+If `H` holds the stabilizers of a stabilizer state, a lightest solution is a coset leader, a lightest Pauli error with syndrome `σ`.
+For a code with logical qubits, the query ranges over every logical class and ignores `G`.
 The query searches as [Section 3.3](#33-the-depth-first-search) does, but from the empty support and without roots or ranks: the syndrome of a state is `σ + Hx_S`, where `x_S` is the vector with support `S`, and the search reports `S` once that syndrome is empty.
 
 **Completeness.**
@@ -224,16 +226,18 @@ The support of `x` need not be connected, but the restriction of `x` to each com
 The roots and ranks, symmetries, weight divisor, and logical test of a distance search do not carry over: the nonzero syndrome gives the empty state a check to branch on, a syndrome is not invariant under the symmetries of the code, the weights of the solutions need not share a divisor, and every solution counts.
 
 `CosetLeaderSearch` of `coset_leaders.py`, which `certify_bounded_fault_propagation` and the experimental `estimate_residual_weight_histogram` use, answers its queries by syndrome queries when built with `method="connected_cluster"`.
-It searches Pauli errors for the physical weight, but the CSS weight `max(|a|, |b|)` of an error `(a | b)` is not a sum over qubits, so it supports that weight only on a CSS state, where it searches the X and Z parts of errors separately, and raises an error on any other state.
-Its one or two coset searches, each a `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, search sparser checks with the span of the given checks, and map the syndrome of each query to them, since given checks, such as the row-reduced stabilizers that `certify_bounded_fault_propagation` passes, or the X and Z parts that `CosetLeaderSearch` row-reduces for the CSS weight, can be dense ([Section 2](#2-what-the-cost-of-the-search-depends-on)).
+It searches Pauli errors for the physical weight, but the CSS weight `max(|a|, |b|)` of an error `(a | b)` is not a sum over qubits, so it supports that weight only on a CSS state, where it searches the X and Z parts of errors separately, and raises a `ValueError` on any other state.
+Its one or two coset searches, each a `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, search sparser checks with the same span, and map the syndrome of each query to them.
+Given checks can be dense ([Section 2](#2-what-the-cost-of-the-search-depends-on)), such as the row-reduced stabilizers that `certify_bounded_fault_propagation` passes, or the parts of pure-X and pure-Z stabilizers that `CosetLeaderSearch` row-reduces for the CSS weight.
 
 The sparsest such checks are a lightest basis of the span, which the greedy algorithm for matroids finds by taking, again and again, the lightest word outside the span of those taken; but each step would be an exact search, whose cost grows quickly with the weight of the word.
-So `get_sparser_rows` of `_connected_cluster/sparse_checks.py` instead takes candidates from row reductions in random orders of the columns, and keeps a lightest basis of the candidates and the current checks, so that their total weight never rises.
+So `get_sparser_rows` of `_connected_cluster/sparse_checks.py` instead takes candidates from row reductions in random orders of the columns, and keeps a lightest basis of the candidates and the current checks, so that their total weight never rises; before and after its rounds, it replaces a check by its sum with another while that makes it lighter.
 `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` limit the rounds, each a row reduction, and so trade the time to build a coset search against the speed of its queries.
 Checks with the same span give the same answers and bounds, so the random orders, which a fixed seed makes reproducible, change only the speed and which errors the queries return.
 
 The rounds need not find a lightest basis: a word of the span is a row of a reduction exactly if its support holds just one pivot, since each row is zero on the other pivots, and a heavier word is less likely to hold just one.
-Even a lightest basis can be heavier than the checks of a code: for the physical weight on the state `|0⟩` of an `[[n, k, d]]` code, the span is the stabilizer group of the state, at most `n - k` independent elements of which are stabilizers of the code, so every basis holds at least `k` logical operators, of weight at least `d`, which an exact greedy stage would have to find by costly searches.
+Even a lightest basis can be heavier than the checks of a code: for the physical weight on the state `|0⟩` of an `[[n, k]]` code, the span is the stabilizer group of the state, and at most `n - k` of its independent elements are stabilizers of the code.
+So every basis holds at least `k` logical operators, each at least as heavy as the distance, which the greedy algorithm would have to find by exact searches.
 
 A coset search first looks up the syndrome of a query in a table of the syndromes of the vectors of weight at most one, and searches only the syndromes that the table lacks, which have no solution of weight below two.
 A search at limit `W` that finds no solution proves that every solution is heavier than `W`.
@@ -241,30 +245,31 @@ These two facts give the lower bounds of the answers, which the class docstring 
 
 A query at limit `W` can wander through many heavy supports before it reaches a much lighter solution.
 `certify_bounded_fault_propagation` queries batches of syndromes most of which have a solution within `W`, so for such batches a coset search tries the limits 2, 3, …, `W` in turn, and stops at the first within which it finds a solution, a lightest one, at the cost of repeating the lower limits for syndromes without one.
-For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits, as [README.md](README.md#the-coset-leader-search) says for the CSS weight.
-A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` directly, so that a caller that raises `W` one step at a time repeats no work.
+For `estimate_residual_weight_histogram`, `CosetLeaderSearch` finds minimum weights with the same increasing limits; [README.md](README.md#the-coset-leader-search) gives the floor of its searches by CSS weight.
+A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` directly, since a caller may already raise `W` one step at a time.
 
 Without reuse, a state computes the overlap and repair ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
 The checks of a syndrome query can stay dense after the rounds, so a symbol can flip many unsatisfied checks, and the query computes both at most once per symbol and state.
-A distance search, whose checks are usually sparse, recomputes them, since the bookkeeping would cost more than it saves.
+A distance search, whose checks are usually sparse, recomputes both, since the bookkeeping would cost more than it saves.
 
 ### 3.9 Sparser stabilizers of subsystem codes
 
 The distance search of a subsystem code needs checks whose row space is its stabilizer group ([Section 3.1](#31-the-problem)).
-`get_distance_css` and `get_distance_pauli` derive a basis of that group from the gauge generators by row reduction, the **derived basis**, which can be much heavier than the lightest generators of the group.
+`get_distance_css` and `get_distance_pauli` derive a basis of that group, the **derived basis**, from the gauge generators by row reduction; it can be much heavier than the lightest generators of the group.
 For example, in the rotated toric code on 256 qubits with one logical qubit made a gauge qubit, the plaquettes, of weight 4, generate the stabilizer group, but the derived basis has a mean weight of about 15 and rows of weight up to 46, so its search branches on many more variables at each state ([Section 2](#2-what-the-cost-of-the-search-depends-on)).
 So with `method="connected_cluster"`, these functions give the search two sets of checks:
 
 - the gauge generators that commute with every gauge generator, which are stabilizers, as given, with any redundant rows, but without those heavier than every row of the second set;
 - the derived basis, made sparser by `get_sparser_rows` ([Section 3.8](#38-vectors-with-a-given-syndrome)) in up to `max_distance_sparsifying_rounds` rounds, which `sparsifying_rounds_without_improvement` can end sooner.
-  With `max_distance_sparsifying_rounds` set to 0, a distance search skips sparsifying entirely and keeps the derived basis as it is; a coset search with `max_sparsifying_rounds` set to 0 still replaces each check by its sum with another check as long as that makes it lighter.
+  With `max_distance_sparsifying_rounds` set to 0, a distance search skips sparsifying entirely and keeps the derived basis as it is; a coset search with `max_sparsifying_rounds` set to 0 still makes these sums ([Section 3.8](#38-vectors-with-a-given-syndrome)).
 
 Together, the two sets span exactly the stabilizer group, since the second spans it and the first lies in it; so they have the kernel of the derived basis, and the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
-A distance search needs only the span of its checks, and no map of syndromes, so it can keep redundant checks, which can strengthen it, since each unsatisfied check can prune a state or offer fewer branches.
+A distance search needs only the span of its checks, and no map of syndromes, so it can keep redundant checks.
+These can strengthen it, since each unsatisfied check can prune a state or offer fewer branches.
 Since a distance search uses its checks once, while a `CosetLeaderSearch` sparsifies once for many queries, `max_distance_sparsifying_rounds` defaults to fewer rounds than `max_sparsifying_rounds`.
 
 Sparsity is not all that matters: bases of equal weight can make the search visit very different numbers of states.
-So a round changes the checks only when that lowers their total weight, which leaves a basis that is already as sparse as possible, such as the derived basis of a Bacon-Shor code, as it is.
+So the set of checks changes only when a round lowers its total weight, which leaves a basis that is already as sparse as possible, such as the derived basis of a Bacon-Shor code, as it is.
 
 ## 4. Guide to the source code
 
@@ -275,8 +280,9 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_cluster` |
 | Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py` |
-| Symplectic problems, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
+| Problems of Section 3.7, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several problems | `get_distance_connected_cluster` |
+| Distance of a vector from a classical code | `ClassicalCode.get_distance_exact(vector=...)` in `src/qldpc/codes/common.py`, which searches `([H \| Hv], [G_C \| 0])` and subtracts one |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
@@ -294,7 +300,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 `get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search and pass it the active tuning, the last two after they derive the stabilizers of subsystem codes and make them sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
 `SupportSearch` validates every problem, and the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes, `logical_counts.py`, and `get_distance_from_generators` reject `method="connected_cluster"`: counting needs every word of a weight rather than one witness, and generators are not checks.
-The closed-form distances of hypergraph product codes search the classical seed codes with the given method.
+Hypergraph product codes get their closed-form distances by searching the classical seed codes with the given method.
 `_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
 
 ## 5. Correctness requirements
@@ -303,7 +309,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
 
 - **Prune only by bounds that hold for every witness that extends the state** ([Section 3.4](#34-pruning)).
   A bound must be a lower bound on the number of variables that such a witness adds, all of which are available ([Section 3.3](#33-the-depth-first-search)).
-  A bound that is too strong can still give the right distance, so the tests need cases where the bound is tight at the distance, as the tests of known distances are.
+  A bound that is too strong can still give the right distance, so the tests need cases where the bound is tight at the distance, such as the tests of known distances.
 - **Forbid a variable for a subtree only if no completion of the state within the weight limit holds it**, and make it available again when the search leaves the state.
 - **Give each variable at most one value**: block the other values of the variable of a symbol while the symbol is in the support, unblock them when the search leaves its branch, and let a sibling forbid only its own symbol.
   Without the blocking, distances would not change, but a witness could hold two symbols on one variable and overstate its weight, so the tests check witnesses at every weight limit.
@@ -314,7 +320,8 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - **Use a proven weight divisor**, since a divisor that some witness lacks skips its weight.
 - **Start a syndrome query from its syndrome alone**, without ranks, symmetries, divisor, or logical test ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   The search keeps only the distinct nonzero checks, so the syndrome of the given checks must be mapped onto them, and a syndrome with a nonzero entry for a zero check, or with different entries for two equal checks, has no solution.
-- **Reuse an overlap or a repair only within the state that computed it**, since another state can have another syndrome or other weights, and compute a repair only after weighing all the unsatisfied checks, whose weights it sums.
+- **Reuse an overlap or a repair only within the state that computed it**, since another state can have another syndrome or other weights.
+  Compute a repair only after weighing all the unsatisfied checks, since it sums their weights.
 - **Give coset queries only proven lower bounds**: a bound of 2 needs the syndrome to be missing from the table of the vectors of weight at most 1, and a bound above a limit needs a complete search at that limit ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   A caller that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Keep the span of the checks of a coset query**, with an invertible map of the syndromes to the sparser checks, or the queries would search other cosets.
