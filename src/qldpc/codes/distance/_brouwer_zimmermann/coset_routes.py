@@ -31,14 +31,14 @@ bounds, within the contract of ``MinWeightBound``.  Each route depends only on t
 In a search that weighs Hamming weights, a route can be a route by tails, whose queries weigh the
 words of its family by their tails, the columns other than the pivot columns of each set, and skip
 the completions that completion tables of the tails show to lie beyond their maximum weight (see
-``coset_tables.CosetTails``).  Section 4.4 of ``brouwer_zimmermann.md`` says when a route goes by
-tails and which tables it asks for, and Section 4.1 how the routes build and keep the record of the
-tails and tables of a family, which ``coset_tables.get_coset_tails`` gives.  The search of Pauli
-errors by CSS weight has no routes by tails.  A record can hold tables that other routes of its
-family asked for, but the queries of a route read only the tables that the route asked for, so their
-answers do not depend on earlier queries.  A search for minimum weights takes a route as Section 4.4
-says, and its stopping step comes no later than that of the queries of the route, so it visits no
-layer that they do not visit (Section 3.10 of ``brouwer_zimmermann.md``).
+``coset_tables.CosetTails`` and Section 3.9 of ``brouwer_zimmermann.md``).  Section 4.4 of
+``brouwer_zimmermann.md`` says when a route goes by tails and which tables it asks for, and Section
+4.1 how the routes build and keep the record of the tails and tables of a family, which
+``coset_tables.get_coset_tails`` gives.  The search of Pauli errors by CSS weight has no routes by
+tails.  A record can hold tables that other routes of its family asked for, but the queries of a
+route read only the tables that the route asked for, so their answers do not depend on earlier
+queries.  Sections 4.4 and 3.10 of the guide say which route a search for minimum weights takes, and
+why it visits no layer that the queries of that route do not visit.
 
 Tails and tables change how a query weighs words and which words it skips, but not which word of
 weight at most the maximum weight it finds first, if any.  A query without such a word can return
