@@ -483,6 +483,7 @@ For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then
 
 ### 3.11 Counting logical operators
 
+This section describes qLDPC's implementation, apart from the MacWilliams identity, which it cites.
 `CSSLogicalCounter` of [logical_counts.py](logical_counts.py) counts the nontrivial logical operators of a given weight `t` in a binary CSS code, where `t` is by default the distance `d`.
 Its default method, BZ, scans each sector as a distance search does, but stops and skips only as Sections [3.9](#39-skipping-completions-by-completion-tables) and [5](#5-correctness-requirements) allow, so that it visits every eligible word of weight `t`.
 A word lies in the layer of its coefficient weight in each search basis, so one step visits it first, and only that step counts it.
@@ -513,14 +514,14 @@ It can also change the distance and the weights of check words, so the counter s
 #### The MacWilliams method
 
 For a stabilizer code on `n` qubits with checks `H_X` and `H_Z`, `method="macwilliams"` counts from the weight distributions `A_X` of `row(H_X)` and `A_Z` of `row(H_Z)`.
-The nontrivial X logicals are the words of `ker(H_Z)`, the dual of `row(H_Z)`, outside `row(H_X)`, so the [MacWilliams identity](https://en.wikipedia.org/wiki/MacWilliams_identity) gives their number of weight `w`:
+The nontrivial X logicals are the words of `ker(H_Z)`, the dual of `row(H_Z)`, outside `row(H_X)`, so the MacWilliams identity ([References](#references)) gives their number of weight `w`:
 
 $$
 N_X(w) = 2^{-\operatorname{rank}(H_Z)} \sum_j K_w(j)\,A_Z(j) - A_X(w),
 $$
 
 where the [binary Krawtchouk polynomial](https://en.wikipedia.org/wiki/Kravchuk_polynomials) `K_w(j)` is the sum of `(-1)^(x·y)` over the words `x` of weight `w`, for any `y` of weight `j`.
-The Z counts exchange X and Z, and [arXiv:quant-ph/9610040](https://arxiv.org/abs/quant-ph/9610040) gives quantum analogs of these identities.
+The Z counts exchange X and Z.
 A Gray-code walk over the `2^r` words of a row space of rank `r` gives its distribution `A`, so the cost is exponential in the ranks of the checks rather than in the number of logical qubits.
 Since `|K_w(j)| ≤ binom(n, w)` and `A` sums to `2^r`, no Krawtchouk value, entry of `A`, product `K_w(j) A(j)`, partial sum of these products, or divisor `2^r` exceeds `2^r binom(n, w)` in magnitude.
 So the transform is exact in signed 64-bit integers at every weight `w` with `2^r binom(n, w) < 2^63`.
@@ -787,5 +788,6 @@ Performance and helper tests check broad work budgets and current interfaces, an
 - M. Grassl, "Searching for linear codes with large minimum distance," in *Discovering Mathematics with Magma*, Springer, 2006, pp. 287-313 ([doi:10.1007/978-3-540-37634-7_13](https://doi.org/10.1007/978-3-540-37634-7_13)): Algorithm 2.5 gives the certificate for overlapping information sets, footnote 2 on page 295 the certificate within a layer, page 299 the rounding to a weight divisor, and Algorithm 2.11 the choice between BZ and the weight distribution.
 - P. Lisoněk and L. Trummer, "Algorithms for the minimum weight of linear codes," *Advances in Mathematics of Communications* 10(1), 195-207, 2016 ([doi:10.3934/amc.2016.10.195](https://doi.org/10.3934/amc.2016.10.195)): equation (5) gives the certificate within a layer, Proposition 5 the coverage-divided certificate, and Section 5.1 builds families of information sets with bounded coverage by matroid partitioning.
 - [arXiv:2408.10743v2](https://arxiv.org/abs/2408.10743v2): Section 2.4 describes the `Saved_isometry` symplectic-to-Hamming construction.
+- J. MacWilliams, "A theorem on the distribution of weights in a systematic code," *Bell System Technical Journal* 42(1), 79-94, 1963 ([doi:10.1002/j.1538-7305.1963.tb04003.x](https://doi.org/10.1002/j.1538-7305.1963.tb04003.x)): the MacWilliams identity of Section 3.11.
 - [core.py](core.py), [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [coset_leaders.py](coset_leaders.py), [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py), [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py), [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py), [_cosets.py](_cosets.py), [min_weight_bounds.py](min_weight_bounds.py), [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), [_brouwer_zimmermann/affine_instance.py](_brouwer_zimmermann/affine_instance.py), [_information_sets/basis_families.py](_information_sets/basis_families.py), [_information_sets/certificates.py](_information_sets/certificates.py), [_information_sets/support_stepping.py](_information_sets/support_stepping.py), [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), [_information_sets/matroid_partition.py](_information_sets/matroid_partition.py), [logical_counts.py](logical_counts.py), [_counting/scan.py](_counting/scan.py), [_brute_force.py](_brute_force.py), [_binary.py](_binary.py), and [qldpc/_binary.py](../../_binary.py): the implementation.
 - [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py), [coset_leaders_test.py](coset_leaders_test.py), [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py), [_brouwer_zimmermann/coset_tables_test.py](_brouwer_zimmermann/coset_tables_test.py), [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py), [_cosets_test.py](_cosets_test.py), [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py), [_brouwer_zimmermann/affine_instance_test.py](_brouwer_zimmermann/affine_instance_test.py), [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py), [_information_sets/certificates_test.py](_information_sets/certificates_test.py), [_information_sets/support_stepping_test.py](_information_sets/support_stepping_test.py), [_information_sets/automorphism_families_test.py](_information_sets/automorphism_families_test.py), [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py), [logical_counts_test.py](logical_counts_test.py), [_counting/scan_test.py](_counting/scan_test.py), and [core_test.py](core_test.py): executable invariants and independent small-instance oracles.
