@@ -143,8 +143,8 @@ its coefficients on the cost data set:
    (``completion_bound_minimum_layer_work=0`` and ``completion_bound_max_cost_percent=MAX_VALUE``),
    forced on blocks of 8 columns (``completion_bound_block_bits=8``), and at the defaults.  For
    each layer, record the share of its supports that tables skipped and its number of lookups,
-   which ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each
-   call, and time ``CompletionTables.build`` separately.
+   which ``scan_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each call, and time
+   ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
 3. Measure the coefficients that the cost model reads.  Fit ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, and ``completion_bound_kept_first_row_ratio`` to

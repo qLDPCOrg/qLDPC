@@ -4,16 +4,19 @@
 
 A BZ search scans the words of an affine space ``u + V`` layer by layer: layer ``w`` of a search
 basis holds the sums of its offset and ``w`` of its rows (see ``brouwer_zimmermann.md``).  Each scan
-covers one search basis.  The distance search scans ``V`` itself, with zero offsets and quotient
-labels that tell eligible words from excluded ones, and keeps only the best weight.  The coset
-search of ``CosetLeaderSearch`` scans a coset, with the offset of each basis, and keeps the lightest
-word.  On its routes by tails (see ``coset_routes``), a coset search that weighs Hamming weights
-scans the tails of the rows and offsets instead, without the pivot columns of each basis, and keeps
-the support of the lightest word, from which it rebuilds the word.  A search for the minimum weight
-of a coset needs only the weight, and rebuilds no word.  In layers of two or more rows, a coset
-search also skips the completions of a prefix that completion tables of the tails show to lie beyond
-the maximum weight of its query, and, in a search for the minimum weight of a coset, also those that
-cannot be lighter than its lightest word so far.
+of this module covers a layer of one search basis.
+
+- ``scan_set`` scans for the distance search, which searches ``V`` itself and keeps only the best
+  weight.  Its offsets are zero, and quotient labels tell eligible words from excluded ones.
+- ``scan_coset_layer`` and ``scan_coset_layer_by_css_weight`` scan for the coset searches of
+  ``CosetLeaderSearch``, which add the offset of each basis and keep the lightest word.
+- ``scan_coset_layer_by_tails`` and ``scan_coset_layer_by_tails_with_tables`` scan for the routes
+  by tails of a coset search that weighs Hamming weights (see ``coset_routes``).  They weigh the
+  tails of words, without the pivot columns of the basis, and keep the support of the lightest
+  word.  The search rebuilds the word from it, unless it needs only the minimum weight of a coset.
+
+In layers of two or more rows, the scans that take completion tables skip the completions of a
+prefix that the tables show to be too heavy for the search.  Each scan says which words those are.
 
 Every scan of this module runs one body, ``_scan``, which its compiled entry points call with
 constant flags.  Numba includes the body in each entry point, which compiles it for those flags, so
@@ -41,7 +44,7 @@ _NO_TABLE_OFFSETS = np.zeros(1, dtype=np.int64)
 
 
 @always_compiled
-def scan_information_set(
+def scan_set(
     generators: npt.NDArray[np.uint64],
     labels: npt.NDArray[np.uint64],
     ranks: npt.NDArray[np.int64],
@@ -59,13 +62,15 @@ def scan_information_set(
 ) -> tuple[int, int, int, int, int]:
     """Scan one bounded chunk of a layer of one set of a family, skipping hopeless completions.
 
-    The rows of the set have the pivot columns of its block deleted, and only the first ``rank`` of
-    them hold pivots: all of them if the block is an information set.  So a word weighs the number
-    of its rows below ``rank`` plus the weight of its packed tail.  In a layer of two or more rows,
-    with tables, before the scan tries row ``s`` as the first of the last two rows of a support, it
-    bounds the weights of the completions of the first ``weight - 2`` rows, the prefix, by two rows
-    from row ``s`` on, counting their pivot ones as ``scan_coset_layer_by_tails_with_tables`` does.
-    If their words cannot weigh less than ``best``, it skips them all.
+    The rows of the set have the pivot columns of its block deleted.  Only the first ``rank`` rows
+    hold pivots, which is all of them if the block is an information set.  So a word weighs the
+    number of its rows below ``rank`` plus the weight of its packed tail.
+
+    Tables apply to layers of two or more rows, in which the first ``len(support) - 2`` rows of a
+    support are its prefix.  With tables, before the scan tries row ``s`` as the first of the last
+    two rows of a support, it bounds the weights of the completions of the prefix by two rows from
+    row ``s`` on.  It counts their pivot ones as ``scan_coset_layer_by_tails_with_tables`` does.  If
+    their words cannot weigh less than ``best``, it skips them all.
 
     A chunk ends when the layer is complete, at the cutoff, or once the supports that it weighed and
     the bounds that it looked up reach ``batch_size`` together.
@@ -96,8 +101,9 @@ def scan_information_set(
     """
     # This scan neither weighs X parts nor records words or supports.  Its skip bound is the best
     # weight at the start, which the best weight never exceeds, so it skips exactly the completions
-    # that cannot lower the best weight.  The scan of an information set counts a pivot one for
-    # each row without reading the rank, which made large layers without tables about 8% faster.
+    # whose bound shows that they cannot lower the best weight.  The scan of an information set
+    # counts a pivot one for each row without reading the rank, which measured about 8% faster on
+    # large layers without tables.
     if ranks[0] == generators.shape[1]:
         return _scan(
             generators,
@@ -456,13 +462,13 @@ def _scan(
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of one search basis, starting from ``support``.
 
-    The arguments are those of ``scan_information_set``, ``scan_coset_layer_by_css_weight``,
+    The arguments are those of ``scan_set``, ``scan_coset_layer_by_css_weight``,
     ``scan_coset_layer_by_tails``, and ``scan_coset_layer_by_tails_with_tables``, and the flags,
     which callers pass as constants, choose what the scan does:
 
     - ``pair_steps``: with ``deleted_pivots``, step through the first of the last two rows of a
       support separately, and skip the completions whose bound by the completion tables, if any,
-      reaches the lesser of ``skip_bound`` and the best weight so far (see ``scan_information_set``
+      reaches the lesser of ``skip_bound`` and the best weight so far (see ``scan_set``
       and ``scan_coset_layer_by_tails_with_tables``).
     - ``deleted_pivots``: the rows have their pivot columns deleted, so a word also weighs the
       number of its rows whose pivots are deleted, which is ``len(support)`` for an information set.
@@ -484,12 +490,13 @@ def _scan(
     num_rows = generators.shape[1]
     weight = len(support)
     width = widths[0]
-    # With pair steps, the scan steps through the supports of the first weight - 1 rows, whose last
-    # row is the first of the last two rows of a support, and visits the last row of each in its own
-    # loop.  The first of the last two rows is never the last row, which no row can follow.  A layer
-    # of one row has no such rows, so the scan weighs its words, and then finds the layer complete.
-    # ``_count_chunk_skipping`` in ``_counting/scan.py`` skips completions the same way, but with a
-    # fixed limit, since it must visit every word of its target weight.
+    # With pair steps, the scan steps through the heads of the supports: their first weight - 1
+    # rows, the last of which is the first of the last two rows of the support.  It tries the last
+    # row of each support in its own loop.  The first of the last two rows is never the last row of
+    # the basis, which no row can follow.  A layer of one row has no such pair, so the scan weighs
+    # its words, and then finds the layer complete.  ``_count_chunk_skipping`` in
+    # ``_counting/scan.py`` skips completions the same way, but with a fixed limit, since it must
+    # visit every word of its target weight.
     head = support[: weight - 1]
     head_rows = generators[:, : num_rows - 1]
     pair_depth = weight - 2
@@ -506,17 +513,17 @@ def _scan(
             first = support[pair_depth]
 
             # Skip every completion from row first on if every one weighs at least the lesser of the
-            # skip bound and the best weight.  The check for tables runs once for each prefix: as a
-            # constant, it would let numba merge the lookup into the loop, and then count references
-            # to the tables for each lookup.
+            # skip bound and the best weight.  The scan checks for tables once for each prefix,
+            # rather than taking a constant flag.  With a flag, numba would merge the lookup into
+            # the loop, and then count references to the tables at each lookup.
             prefix = prefixes[pair_depth, 0]
             if len(tables):
                 lookups += 1
                 # Count the pivot ones that every completion has: one for each row of the support in
                 # an information set.  In a ranked basis, each row of the prefix below the rank has
                 # one.  The last two rows have at least as many as the last two rows of the basis,
-                # the pair with the fewest pivot rows, since the pivot rows come first: max(0, 2 -
-                # (num_rows - rank)).
+                # which, since the pivot rows come first, is the pair with the fewest pivot rows:
+                # max(0, 2 - (num_rows - rank)).
                 pivot_ones = weight
                 if ranked:
                     pivot_ones = max(0, 2 - (num_rows - ranks[0]))

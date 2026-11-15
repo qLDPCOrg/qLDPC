@@ -21,8 +21,8 @@ from . import affine_search
 def test_scans_of_sets_of_any_rank() -> None:
     """Chunked scans of a set enumerate each combination of its rows once, whatever its rank.
 
-    A word weighs its rows below the rank of the set plus its packed tail.  The chunked scans
-    preserve resumption state and multiword labels.
+    A word weighs its rows below the rank of the set plus its packed tail.  Each chunk resumes where
+    the one before it stopped, and the labels of some sets span two packed words.
     """
     rng = np.random.default_rng(120)
     no_tables = completion_bounds.NO_TABLES
@@ -61,7 +61,7 @@ def test_scans_of_sets_of_any_rank() -> None:
                     expected = min(expected, candidate)
 
                 # Scan one combination of rows, and compare the running minimum and kernel state.
-                best, depth, *visited = affine_search.scan_information_set(
+                best, depth, *visited = affine_search.scan_set(
                     *arguments,
                     depth,
                     best,
@@ -77,7 +77,7 @@ def test_scans_of_sets_of_any_rank() -> None:
                 assert support[-1] == indices[-1] + 1
 
             # One more kernel call reports completion after every combination of rows is visited.
-            best, depth, *visited = affine_search.scan_information_set(
+            best, depth, *visited = affine_search.scan_set(
                 *arguments,
                 depth,
                 best,
@@ -134,7 +134,7 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                     depth, best, evaluated, skipped = 0, initial_best, 0, 0
                     while depth >= 0 and best > cutoff:
                         best, depth, num_evaluated, num_lookups, num_skipped = (
-                            affine_search.scan_information_set(
+                            affine_search.scan_set(
                                 generators,
                                 labels,
                                 np.array([dimension]),
@@ -388,15 +388,15 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
 ) -> None:
     """A coset tail scan with tables skips completions only if their bound reaches the skip bound.
 
-    The bound of the completions of a prefix by two rows from row ``s`` on adds a pivot one for each
-    row of the prefix below the rank, the fewest pivot ones of any such pair, and the block bound of
-    the tables on their tails, each found here by enumeration.  The bases of six rows have rank
-    deficiency zero, one, and three, so that their pairs have two, one, or no pivot ones, and only
-    the last has rows of a prefix at or above its rank, which add nothing.  With a cutoff one below
-    the skip bound, every skipped word weighs more than the cutoff, so the scan finds a word of
-    weight at most the cutoff exactly when the layer has one.  With skip bounds at most the least
-    weight of the layer, the scan visits the whole layer: it skips exactly the supports whose bounds
-    reach the skip bound, and weighs the others.
+    The bound of the completions of a prefix by two rows from row ``s`` on adds three terms, each
+    found here by enumeration: a pivot one for each row of the prefix below the rank, the fewest
+    pivot ones of any such pair, and the block bound of the tables on their tails.  The bases of six
+    rows have rank deficiency zero, one, and three, so that their pairs have two, one, or no pivot
+    ones.  Only the last has rows of a prefix at or above its rank, which add nothing.  With a
+    cutoff one below the skip bound, every skipped word weighs more than the cutoff, so the scan
+    finds a word of weight at most the cutoff exactly when the layer has one.  With skip bounds at
+    most the least weight of the layer, the scan visits the whole layer: it skips exactly the
+    supports whose bounds reach the skip bound, and weighs the others.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_columns, block_bits = 6, 24, 4
