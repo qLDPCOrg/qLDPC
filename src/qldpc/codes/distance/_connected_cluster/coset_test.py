@@ -27,7 +27,7 @@ from . import coset
 def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The sparsifying rounds of the tuning when an oracle is built reach ``get_sparser_rows``."""
+    """An oracle built under a tuning passes its sparsifying rounds to ``get_sparser_rows``."""
     calls: list[tuple[int, int]] = []
     get_sparser_rows = coset.get_sparser_rows
     signature = inspect.signature(get_sparser_rows)
@@ -46,8 +46,8 @@ def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
 
 def test_connected_cluster_answers_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
     """Queries get the bounds that ``ConnectedClusterCosetSearch`` states, exact for batches."""
-    # Graph states with phases are not CSS, and CSS states with no pure-X stabilizer, only pure-X
-    # stabilizers, or both are weighed by both measures of weight.
+    # Graph states with phases are not CSS, so they are weighed only by physical weight, and CSS
+    # states with no pure-X stabilizer, only pure-X stabilizers, or both by both measures.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]

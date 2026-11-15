@@ -27,23 +27,23 @@ class ConnectedClusterCosetSearch:
     The words and syndromes are those of a ``BrouwerZimmermannCosetSearch``: packed Paulis, or X or
     Z parts of Paulis.  The coset search makes its checks sparser, with the same span, and searches
     from the syndrome of each query, mapped to them (Section 3.8 of ``connected_cluster.md``).
-    ``get_min_weight_bound`` gives these lower bounds on the weight of the words of a coset, which
-    are often weaker than those of a ``BrouwerZimmermannCosetSearch``:
+    ``get_min_weight_bound`` gives these lower bounds on the weight of the words of a coset:
 
     - The weight of the word, for a coset with a word of weight zero or one, which a table finds.
-    - Two, for any other coset whose word the search finds within its first weight limit, which can
-      exceed the weight of the word.
+    - Two, for any other coset whose word the search finds within its first weight limit
+      (``max_weight`` for a single query), since the word can be lighter than that limit.
     - The weight limit, for a coset whose word the search finds within a later limit, which is then
       the weight of the lightest words.
-    - The larger of two and ``max_weight + 1``, for a coset without a word within ``max_weight``.
+    - The larger of two and ``max_weight + 1``, for any other coset without a word within
+      ``max_weight``.
 
-    So from the first limit two, every coset with a word within ``max_weight`` gets the weight of
+    So with a first limit of two, every coset with a word within ``max_weight`` gets the weight of
     its lightest words.
 
     Args:
-        matrix: The checks, whose kernel is the code: the stabilizers, in ``[X|Z]`` order, for
-            Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a word
-            is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
+        matrix: Independent checks, whose kernel is the code: the stabilizers, in ``[X|Z]`` order,
+            for Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a
+            word is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
         symplectic: True for Paulis, and False for X or Z parts.
         max_rounds: The ``max_sparsifying_rounds`` of the tuning (see ``get_sparser_rows``).
         rounds_without_improvement: The ``sparsifying_rounds_without_improvement`` of the tuning.
@@ -95,13 +95,11 @@ class ConnectedClusterCosetSearch:
     ) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
 
-        A negative ``max_weight`` admits no word, as for a ``BrouwerZimmermannCosetSearch``, and the
-        class docstring states the lower bounds of the answers.  Without ``first_limit``, the search
-        tries only the weight limit ``max_weight``.  Given ``first_limit``, it tries each limit from
-        ``first_limit``, raised to two and lowered to ``max_weight``, through ``max_weight``, and
-        stops at the first within which it finds a word.  Increasing limits can find light words
-        sooner (Section 3.8 of ``connected_cluster.md``), and a first limit above two suits callers
-        to which any word within it gives the same answer.
+        The search tries each weight limit from ``max(min(first_limit, max_weight), 2)`` through
+        ``max_weight``, or, without ``first_limit``, only ``max_weight`` if it is at least two, and
+        stops at the first within which it finds a word (Section 3.8 of ``connected_cluster.md``).
+        A first limit above two suits callers to which any word within it gives the same answer.
+        The class docstring states the lower bounds of the answers.
         """
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)

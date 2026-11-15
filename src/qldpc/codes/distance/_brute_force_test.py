@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for exact exhaustive binary distance enumeration."""
+"""Unit tests for exact distances by exhaustive enumeration."""
 
 from __future__ import annotations
 

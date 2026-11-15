@@ -30,12 +30,11 @@ def get_sparser_rows(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Rows with the span of independent rows, made sparser by row reductions in random orders.
 
-    The rows start as those of ``_sparsify``, and are weighed by ``get_row_weights``.  Each round
-    adds the rows of a row reduction in a random order of the columns as candidates, and keeps a
-    lightest basis of the candidates, so the total weight never rises (Section 3.8 of
-    ``connected_cluster.md``).  The rounds stop after ``max_rounds``, or after
-    ``rounds_without_improvement`` rounds in a row that leave the total weight unchanged.  A last
-    pass of ``_sparsify`` follows.
+    Starting from the rows of ``_sparsify``, each round adds the rows of a row reduction in a random
+    order of the columns as candidates, and keeps a lightest basis of the candidates, weighed by
+    ``get_row_weights`` (Section 3.8 of ``connected_cluster.md``).  The rounds stop after
+    ``max_rounds``, or after ``rounds_without_improvement`` rounds in a row without a lighter total
+    weight, and ``_sparsify`` makes a last pass.
 
     Returns:
         The rows, and the invertible transform ``T`` for which the rows are ``T @ matrix % 2``.
@@ -91,7 +90,8 @@ def _sparsify(
     Returns:
         The rows, and the invertible transform ``T`` for which the rows are ``T @ matrix % 2``.
     """
-    # Pack the X and Z parts, or the rows and zeros, so that a weight counts the nonzero qubits.
+    # Pack the X and Z parts of symplectic rows, or binary rows with zero Z parts, so that a weight
+    # counts the nonzero qubits or entries.
     num_rows, width = matrix.shape
     num_variables = width // 2 if symplectic else width
     part_x = pack_bits(np.ascontiguousarray(matrix[:, :num_variables]))
@@ -104,7 +104,7 @@ def _sparsify(
     weights = np.bitwise_count(part_x | part_z).sum(axis=1, dtype=np.int64)
 
     # Replace each row by its lightest sum with another row, while that lowers its weight.  A row
-    # added to itself would vanish, so its own entry keeps its weight, which never wins.
+    # added to itself would vanish, so that sum takes the weight of the row, which never wins.
     improved = True
     while improved:
         improved = False

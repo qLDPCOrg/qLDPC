@@ -37,7 +37,8 @@ def test_rows_pack_into_integers_and_back(pytestconfig: pytest.Config) -> None:
 
 
 def test_sums_of_selected_rows_follow_their_definition(pytestconfig: pytest.Config) -> None:
-    """Both sums of selected rows add those rows modulo two, for supports of two machine words."""
+    """``xor_selected`` and ``xor_selected_rows`` add the selected rows modulo two."""
+    # The 70 rows make the packed supports span two machine words.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     rows = rng.integers(0, 2, (70, 9), dtype=np.uint8)
     row_values, packed_rows = _cosets.row_ints(rows), pack_bits(rows)

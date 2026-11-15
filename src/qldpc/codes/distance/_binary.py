@@ -58,10 +58,10 @@ def infer_field(vectors: object) -> type[galois.FieldArray] | None:
 def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
     """Check that the given vectors are binary, and raise an error if they are not.
 
-    The searches pack rows into bits, so other input would silently give wrong results.  Input over
-    another field, as ``infer_field`` finds it, raises a ``ValueError`` even if its entries are 0
-    and 1, and a single object that is neither array-like nor a number, such as a code, raises a
-    ``TypeError``.
+    The searches pack rows into bits and add them modulo two, so other input would silently give
+    wrong results.  Input over another field, as ``infer_field`` finds it, raises a ``ValueError``
+    even if its entries are 0 and 1, and a single object that is neither array-like nor a number,
+    such as a code, raises a ``TypeError``.
     """
     field = infer_field(vectors)
     if field is not None and field.order != 2:

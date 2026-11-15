@@ -52,10 +52,12 @@ def _get_distance_brute_force(
 ) -> int:
     """Find the minimum weight of a nontrivial logical operator by exhaustive enumeration.
 
+    The candidates are the sums of a nonempty combination of the rows of ``logical_ops`` and any
+    combination of the rows of ``stabilizers``.  The rows of both must together be independent.
+
     Args:
-        logical_ops: Binary rows, of which each candidate sums a nonempty combination.
-        stabilizers: Binary rows, of which each candidate sums any combination.  The rows of both
-            arguments must together be independent.
+        logical_ops: Binary rows of logical operators.
+        stabilizers: Binary rows of stabilizers.
         cutoff: Return early once the lightest operator seen has weight at most this cutoff.
         batch_exponent: Vectorize calculations over at most ``2**batch_exponent`` packed 64-bit
             integers.  That is fewer words if words are longer than 64 bits, and a single word if
@@ -115,8 +117,8 @@ def _get_distance_brute_force(
     # writes weights into this uint64 buffer.
     out = np.empty_like(arrayf)
 
-    # Start at one more than any weight.  The early exits come only after operators are weighed, so
-    # they never return this value.
+    # Start the lightest weight seen at one more than any weight.  The early exits come only after
+    # operators are weighed, so they never return this value.
     min_weight = (num_bits // 2 if symplectic else num_bits) + 1
 
     # Weigh the rows of the block that hold a logical operator, if any, in uint64 as above.
@@ -130,7 +132,8 @@ def _get_distance_brute_force(
     # Sweep the other generators over the block: each nonzero combination of the other logical
     # operators, with every combination of the other stabilizers.  Each loop steps through a
     # reflected Gray code, whose step ``i`` flips the operator indexed by the trailing zeros of
-    # ``i``, so its ``2**k - 1`` steps over ``k`` operators reach every other combination once.
+    # ``i``, so its ``2**k - 1`` steps over ``k`` operators reach each of the other combinations
+    # once.
     for li in range(1, 2 ** len(int_logical_ops)):
         arrayf ^= int_logical_ops[count_trailing_zeros(li)]
         weights = weight_func(arrayf, out=out)
@@ -155,7 +158,7 @@ def _get_distance_brute_force(
 def symplectic_weight(
     words: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
 ) -> npt.NDArray[np.uint64]:
-    """Count the qubits in the support of each riffled word, whose aligned bit pairs are qubits.
+    """Count the qubits in the support of each riffled word, in which aligned bit pairs hold qubits.
 
     The result is uint64, and written into ``out`` if it is given.
     """

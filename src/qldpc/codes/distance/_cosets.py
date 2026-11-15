@@ -49,21 +49,14 @@ def tabulate_singles(
 ) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
     """Tabulate the words of weight zero or one by syndrome, and the single-qubit X and Z errors.
 
-    The words are the identity and then, in this order, X, Z, and Y on each qubit in turn for packed
-    Paulis, or each single bit in turn for X or Z parts.  Each table maps each syndrome of its words
-    to the first word with that syndrome.
-
-    Args:
-        check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
-            bit ``c`` set.
-        num_qubits: The number of qubits ``n`` of packed Paulis, which have ``2 n`` bits; unused for
-            X or Z parts.
-        symplectic: Whether the words are packed Paulis, rather than X or Z parts.
+    Entry ``c`` of ``check_columns`` is the syndrome of the word with only bit ``c`` set.  If
+    ``symplectic``, the words are packed Paulis on ``num_qubits`` qubits: the identity, and then X,
+    Z, and Y on each qubit in turn.  Otherwise they are X or Z parts: the identity, and then each
+    single bit in turn.  Each table maps each syndrome of its words to the first word with it.
 
     Returns:
         The table of these words, and the tables of the identity and the single-qubit X errors, and
-        of the identity and the single-qubit Z errors.  For X or Z parts, the last two hold only the
-        identity.
+        of the identity and the single-qubit Z errors, which hold only the identity for parts.
     """
     singles, x_singles, z_singles = {0: 0}, {0: 0}, {0: 0}
     if not symplectic:

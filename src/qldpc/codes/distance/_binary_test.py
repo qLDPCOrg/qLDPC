@@ -152,10 +152,7 @@ def test_symplectic_to_hamming_doubles_weights() -> None:
 
 
 def test_stabilizers_of_subsystem_codes() -> None:
-    """The stabilizers are the gauge operators that commute with every gauge operator.
-
-    Commuting gauge generators come back unchanged, with their redundant rows.
-    """
+    """The stabilizers are the gauge operators that commute with every gauge operator."""
     code = qldpc.codes.BaconShorCode(3)
     gauge_x = code.matrix_x.view(np.ndarray).astype(np.uint8)
     gauge_z = code.matrix_z.view(np.ndarray).astype(np.uint8)
@@ -186,6 +183,7 @@ def test_stabilizers_of_subsystem_codes() -> None:
     assert len(stabilizers) == len(expected_x) + len(expected_z)
     np.testing.assert_array_equal(get_independent_rows(stabilizers), get_independent_rows(expected))
 
+    # Commuting gauge generators come back unchanged, with their redundant rows.
     checks = np.vstack([expected_x, expected_x[:1] ^ expected_x[1:2]])
     stabilizers_x, stabilizers_z = binary.get_css_stabilizers(checks, expected_z)
     assert stabilizers_x is checks and stabilizers_z is expected_z

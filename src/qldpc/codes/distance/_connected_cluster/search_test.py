@@ -120,7 +120,7 @@ def is_symplectic_witness(problem: Problem, symbols: npt.NDArray[np.int64]) -> b
 
 
 # Sectors of small codes: the Steane code has words of odd weight, the toric code several lightest
-# logical operators, the Z sector of the surface code checks lighter than its distance, and the
+# logical operators, the Z sector of the surface code has checks lighter than its distance, and the
 # Reed-Muller code only words of even weight.
 PROBLEMS: dict[str, Problem] = {
     "steane-X": get_sectors(codes.SteaneCode())[0],
@@ -130,13 +130,13 @@ PROBLEMS: dict[str, Problem] = {
 }
 
 # Words of weight 3 on the first three variables, and of weight 2 on the last two, whose least
-# variable is greater.
+# variable is greater than that of the first.
 PROBLEMS["components"] = (
     np.array([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]], dtype=np.uint8),
     np.zeros((0, 5), dtype=np.uint8),
 )
 
-# Variables 0 and 1 are in all 43 checks, and each other variable in one, so the distance is 2, and
+# Variables 0 and 1 are in all 43 checks, and every other variable in one, so the distance is 2, and
 # the scale lcm(1, ..., 43) of the weights of checks exceeds 2**63, which the search caps.
 PROBLEMS["capped-scale"] = (
     np.hstack([np.ones((43, 2), dtype=np.uint8), np.eye(43, dtype=np.uint8)]),
@@ -159,8 +159,8 @@ PROBLEMS["many-allowances"] = (
 )
 
 
-# Checks whose searches have states that restrict their subtrees to no variable, and nested
-# restrictions.
+# In searches of "empty-restriction", states restrict their subtrees to no variable, and in those of
+# "nested-restrictions", the restrictions of states nest.
 PROBLEMS["empty-restriction"] = (
     np.array(
         [
@@ -288,6 +288,7 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """Cyclic shifts of the Golay code leave one root and fewer states, and keep the distance."""
     problem = get_golay_problem()
     distance = get_brute_force_distance(problem)
+    # The quantum Golay code has distance 7 (https://errorcorrectionzoo.org/c/qubit_golay).
     assert distance == 7
     shift = (np.arange(23) + 1) % 23
     plain = get_search(*problem)
@@ -343,7 +344,7 @@ def test_each_root_ranks_lowest_in_its_orbit() -> None:
 
 @pytest.mark.parametrize("minimum_states", [0, 30, _tuning.MAX_VALUE])
 def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> None:
-    """A search asks for automorphisms at most once, and by the time it reaches the threshold."""
+    """A search asks for automorphisms at most once, and no later than ``minimum_states`` states."""
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     found = []
     search = get_search(
@@ -378,10 +379,7 @@ def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
 def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A cutoff above the divisor sets the first limit, rounded down to a multiple of the divisor.
-
-    The search asks for automorphisms before such a limit.
-    """
+    """A search asks for automorphisms before a first limit that a cutoff above the divisor sets."""
     # The words of this Reed-Muller code have even weights, and its distance is 4.
     problem = PROBLEMS["reed-muller-X"]
     limits = []
@@ -410,8 +408,8 @@ def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     search = get_search(*get_sectors(code)[0], get_automorphisms=code._get_qudit_automorphisms)
     assert search.find_witness(8) is None
 
-    # The bound fails if states stop forbidding variables for their subtrees (Section 3.4 of
-    # connected_cluster.md).  A heuristic that moves the count across it needs a new bound.
+    # The bound on the states fails if states stop forbidding variables for their subtrees (Section
+    # 3.4 of connected_cluster.md).  A heuristic that moves the count across it needs a new bound.
     assert search.num_states < 5000
 
 
@@ -452,7 +450,7 @@ def test_the_logical_test_reads_every_block() -> None:
 
 
 def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> Iterator[Problem]:
-    """Small codes with permuted qubits and a random single-qubit Clifford on each.
+    """Small codes with permuted qubits and a random single-qubit Clifford on each qubit.
 
     The Cliffords make the checks act as X, Z, and Y.
     """
@@ -473,13 +471,10 @@ def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> It
 
 
 def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) -> None:
-    """Qubit problems agree with an enumeration at every weight limit, and from every root.
-
-    The limits catch a qubit with two values, and the roots a value that the search misses.
-    """
+    """Qubit problems agree with an enumeration at every weight limit, and from every root."""
     # The five-qubit code in two frames: in the first, a state needs Y on a qubit after an earlier
-    # sibling tried X there, and in the second, it needs the other values of the qubit of its last
-    # branch after it leaves that branch.
+    # sibling of the state tried X there, and in the second, a state needs the other values of the
+    # qubit of a branch once the search has left that branch.
     mixed_five_qubit_codes = [
         [
             [1, 1, 1, 0, 0, 1, 1, 0, 1, 0],
@@ -506,6 +501,9 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
         distance = min(support.bit_count() for support in supports)
         assert distance >= 2
         assert cs.get_distance_connected_cluster([problem], cutoff=0, symplectic=True) == distance
+
+        # The checks at every limit catch a witness with two values on a qubit, and the checks from
+        # every root catch a value that the search misses.
         for max_weight in range(1, num_qubits + 1):
             witness = get_search(*problem, symplectic=True).find_witness(max_weight)
             assert (witness is None) == (max_weight < distance)
@@ -597,7 +595,7 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_problem_without_logical_operators_has_no_distance() -> None:
-    """Without a vector outside the excluded rows, the distance is one more than the width."""
+    """Without witnesses, a problem counts as one more than its number of variables."""
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
     assert not get_search(*trivial).has_witnesses
     assert cs.get_distance_connected_cluster([trivial], cutoff=0) == 3
@@ -635,21 +633,21 @@ def get_vector(
     return vector
 
 
-# Problems for syndrome queries.  "copied-and-zero-checks" has a zero check, and a check before its
-# copy, so some syndromes have no vector.  "five-qubit-state" has the stabilizers of a pure state:
-# those of the five-qubit code, and its logical X.  In "identity", the syndrome 11 needs every
-# variable, so a query reaches the limit of their number.
+# Problems for syndrome queries.
 SYNDROME_PROBLEMS = {
     "nested-restrictions": (PROBLEMS["nested-restrictions"][0], False),
+    # A zero check, and a check before its copy, so some syndromes have no vector.
     "copied-and-zero-checks": (
         np.vstack([np.zeros((1, 7)), PROBLEMS["steane-X"][0][2:], PROBLEMS["steane-X"][0]]),
         False,
     ),
+    # The stabilizers of a pure state: those of the five-qubit code, and its logical X.
     "five-qubit-state": (
         np.vstack([QUBIT_PROBLEMS["five-qubit"][0], [[1] * 5 + [0] * 5]]),
         True,
     ),
     "zero-checks": (np.zeros((2, 3)), False),
+    # The syndrome 11 needs every variable, so a query reaches the limit of their number.
     "identity": (np.eye(2), False),
 }
 
@@ -728,10 +726,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
 
 @pytest.mark.parametrize("name", ["nested-restrictions", "five-qubit-state"])
 def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
-    """Memoizing changes neither the support that a query returns nor its number of states.
-
-    Stale memos, such as those that a search from root 0 leaves, would likely change the number.
-    """
+    """Memoizing changes neither the support that a query returns nor its number of states."""
     checks, symplectic = SYNDROME_PROBLEMS[name]
     search = get_search(checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic)
     for bits in itertools.product([0, 1], repeat=len(search._checks)):
@@ -754,6 +749,7 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
                 )
                 for memoize in (False, True)
             ]
+            # Stale memos, such as those of a search from root 0, would likely change the count.
             assert results[0][0].tolist() == results[1][0].tolist()
             assert results[0][1] == results[1][1]
 
