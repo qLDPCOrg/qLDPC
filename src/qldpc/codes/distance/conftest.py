@@ -77,14 +77,19 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# of the routes of coset searches (see ``_brouwer_zimmermann/coset_routes.py``).  The even code has
-# the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has even weight.  Its
-# greedy packing has ranks three and two, and its columns hold two disjoint information sets.  In
-# the random [10, 6] code, a greedy packing of ranks six and three leaves room for one of ranks six
-# and four, and for a family of three overlapping information sets, and queries take each of these
-# at some maximum weights.  In the random [14, 8] code, a greedy packing of ranks eight and six uses
-# every column, and three overlapping information sets do less work for some queries, but not for
-# others.  So its overlapping family depends on the weight at which it is built, and that family
+# of the routes of coset searches (see ``_brouwer_zimmermann/coset_routes.py``).
+#
+# The even code has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has
+# even weight.  Its greedy packing has ranks three and two, but its columns hold two disjoint
+# information sets.
+#
+# In the random [10, 6] code, a greedy packing of ranks six and three leaves room for a disjoint
+# family of ranks six and four, and for a family of three overlapping information sets.  Queries
+# take each of these families at some maximum weights.
+#
+# In the random [14, 8] code, a greedy packing of ranks eight and six uses every column.  Three
+# overlapping information sets do less work for some queries, but not for others.  So the
+# overlapping family of this code depends on the weight at which it is built, and that family
 # changes some answers.
 EVEN_ROUTES_CODE = get_binary_matrix(["100111", "010111", "001001"])
 TWO_FAMILIES_CODE = get_binary_matrix(
@@ -141,7 +146,7 @@ def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
 def append_frozen_qubits(
     checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Append qubits fixed in |0> by a Z check each; no logical of minimum weight touches them."""
+    """Append qubits fixed in |0> by a Z check each.  No logical of minimum weight touches them."""
     x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
     extra = width - x.shape[1]
     padded_x = np.pad(x, ((0, 0), (0, extra)))
@@ -283,13 +288,13 @@ def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.N
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
 
-# Graph states whose searches of Pauli errors, by physical and by CSS weight, have a maximum
-# disjoint family with more information sets, or a larger partial set, than their greedy packing,
-# which their costly queries take (see ``_brouwer_zimmermann/coset_routes.py``).  The family of the
-# first state for the physical weight has more information sets, and those of the other two states
-# have a larger partial set.  The two states for the physical weight differ in the answers that this
-# family changes.  On the second, it returns other errors for some classes without a light enough
-# error.
+# Graph states whose searches of Pauli errors, by physical or by CSS weight, have a maximum
+# disjoint family that beats their greedy packing, and that their costly queries take (see
+# ``_brouwer_zimmermann/coset_routes.py``).  For the physical weight, the family of the first state
+# has more information sets than its greedy packing, and that of the second state a larger partial
+# set.  The family of the state for the CSS weight has a larger partial set too.  The two states for
+# the physical weight differ in the answers that their families change: on the second, the family
+# returns other errors for some classes without a light enough error.
 ROUTED_PHYSICAL_STATES = (
     get_graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
     get_graph_state(5, [(0, 4), (2, 3)]),

@@ -54,13 +54,12 @@ def test_connected_cluster_answers_match_exhaustive_minima(pytestconfig: pytest.
 
     Graph states with phases are not CSS, and are weighed by physical weight.  CSS states with
     no pure-X stabilizer, with only pure-X stabilizers, and with both are weighed by both measures,
-    and the CSS weight splits their searches.  A syndrome whose lightest errors weigh at most one
-    gets their weight as its bound.  Otherwise a query within ``max_weight`` gets 2, and one with no
-    error within ``max_weight`` gets ``max(2, max_weight + 1)``.  The queries of batches, which try
-    increasing weight limits, instead get the exact minimum and a lightest error when they are
-    within ``max_weight``.  These exact bounds imply the inequalities that ``assert_exact_answers``
-    checks.  A search of Pauli errors from a first weight limit above ``max_weight`` answers as a
-    single query.
+    and the CSS weight splits their searches.  Single queries get the lower bounds that
+    ``ConnectedClusterCosetSearch`` states for a single search at ``max_weight``.  The queries of
+    batches, which try increasing weight limits, instead get the exact minimum and a lightest error
+    when they are within ``max_weight``.  These bounds imply the inequalities that
+    ``assert_exact_answers`` checks.  A search of Pauli errors from a first weight limit above
+    ``max_weight`` answers as a single query.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):

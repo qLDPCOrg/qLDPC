@@ -57,7 +57,7 @@ def infer_field(vectors: object) -> type[galois.FieldArray] | None:
 
 
 def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
-    """Assert that the given vectors are binary.
+    """Check that the given vectors are binary, and raise an error if they are not.
 
     The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
     XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated

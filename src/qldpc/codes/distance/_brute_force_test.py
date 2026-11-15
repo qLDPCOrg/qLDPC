@@ -130,12 +130,12 @@ def test_brute_force_visits_every_nontrivial_word_once(
 
 @pytest.mark.parametrize("num_bits", [300, 1000])
 def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
-    """A batch of exhaustive enumeration holds more than half of its packed integers, at most all.
+    """The largest batch of an enumeration fills more than half of its room for packed integers.
 
-    Each word packs into one 64-bit integer for every 64 bits, so longer words fit fewer to a batch
-    of at most 2**batch_exponent integers.  Words of five integers, not a power of two, check that a
-    batch rounds its number of words down, and words of 16 integers check that long words still
-    share batches.
+    A batch holds at most 2**batch_exponent packed integers, and each word packs into one 64-bit
+    integer for every 64 bits, so fewer long words fit in a batch.  Words of five integers, not a
+    power of two, check that a batch rounds its number of words down, and words of 16 integers
+    check that long words still share batches.
     """
     batch_exponent = 9
     sizes = _get_batch_sizes(num_bits, batch_exponent, tune)
@@ -172,10 +172,9 @@ def _get_batch_sizes(num_bits: int, batch_exponent: int, tune: Tune) -> list[int
 
 
 def test_get_distance_empty_stabilizers_symplectic() -> None:
-    """A symplectic-weight distance with no stabilizers returns the min logical operator weight.
+    """Without stabilizers, a symplectic distance is the least weight of a logical operator.
 
-    With an empty ``stabilizers`` argument there is nothing to interleave, and the X/Z riffling
-    still handles the empty input.
+    Riffling the X and Z bits of the stabilizers handles their empty matrix.
     """
     # The symplectic vector [1, 0 | 0, 0] is an X operator on qubit 0 with symplectic weight 1.
     distance = qldpc.codes.distance.get_distance_from_generators(
@@ -185,12 +184,12 @@ def test_get_distance_empty_stabilizers_symplectic() -> None:
 
 
 def test_cutoff_early_exit(tune: Tune) -> None:
-    """cutoff makes get_distance_* return early once an operator of weight <= cutoff is found.
+    """A search returns early once it finds an operator of weight at most the cutoff.
 
-    Exercises all three early-exit return paths: the pre-loop vectorized block, the logical-op
-    sweep, and the nested stabilizer sweep.
+    The test reaches each of the three early exits: in the block before the sweep, in the sweep of
+    logical operators, and in the nested sweep of stabilizers.
     """
-    # The pre-loop vectorized block contains a codeword with Hamming weight 1.
+    # The block before the sweep contains a word of Hamming weight 1.
     assert (
         qldpc.codes.distance.get_distance_from_generators(
             [[1, 0, 0, 0]], cutoff=1, method="brute_force"
@@ -261,7 +260,10 @@ def test_riffle() -> None:
 
 
 def test_symplectic_weight() -> None:
-    """Validate symplectic_weight against the reference bit-counting implementation."""
+    """``symplectic_weight`` matches a reference that counts bits one at a time.
+
+    Given ``out``, it writes the weights there and returns that array.
+    """
     rng = np.random.default_rng(64)
     vals = rng.integers(0, 2**64, size=(7, 11), dtype=np.uint64)
     expected_weights = count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)

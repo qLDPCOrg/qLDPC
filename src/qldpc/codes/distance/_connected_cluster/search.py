@@ -13,11 +13,9 @@ a root, finds a light vector with that syndrome, such as a light Pauli error wit
 on a stabilizer state.
 
 ``connected_cluster.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
-correctness requirements.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py``
-solves the same problem for any binary code.  This module reuses ``infer_weight_divisor`` of
-``_information_sets/basis_families.py``, and ``verify_automorphisms`` and ``get_orbits`` of
-``_information_sets/automorphism_families.py``.  The coset searches of ``CosetLeaderSearch`` that
-start from a syndrome are in ``coset.py`` beside this module.
+correctness requirements, and ``README.md`` there says which other modules use this one and which
+it uses.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py`` solves the same
+problem for any binary code.
 """
 
 from __future__ import annotations
@@ -64,12 +62,13 @@ def get_distance_connected_cluster(
     the row space of ``excluded`` (see ``SupportSearch``).  The rows of ``excluded`` must satisfy
     every check.
 
-    The search of each problem raises its weight limit ``W`` through the weights that a witness may
-    have, one weight divisor at a time.  Each pass either finds a witness of weight at most ``W`` or
-    certifies that every witness is heavier, so a witness within a limit that follows such passes
-    is a lightest one.  The first limit of each problem is the larger of its weight divisor and
-    the largest multiple of it that is at most ``cutoff``.  If the search finds a witness of weight
-    at most ``cutoff``, the result is the weight of that witness, which can exceed the distance.
+    The search of each problem raises its weight limit ``W`` one weight divisor at a time, through
+    the weights that a witness may have.  At each limit, it either finds a witness of weight at most
+    ``W``, or certifies that every witness is heavier.  So a witness found after such certified
+    limits is a lightest one.  The first limit of each problem is its weight divisor, or the
+    largest multiple of the divisor that is at most ``cutoff`` if that is larger.  Once the search
+    finds a witness of weight at most ``cutoff``, it returns the weight of that witness, which can
+    exceed the distance.
 
     Args:
         problems: The ``(checks, excluded)`` pairs to search.
@@ -268,10 +267,11 @@ class SupportSearch:
         self._ranks = np.arange(self.num_variables, dtype=np.int64)
         self.weight_divisor = 1 if symplectic else infer_weight_divisor(get_kernel(self._checks))
 
-        # Weights of checks are multiples of 1 / scale, and an overlap is at most the largest number
-        # of checks of a symbol, which is taken to be at least one, so that the scale exists even
-        # without checks.  Every overlap divides the scale if the scale is small enough, and the
-        # inverse of an overlap is rounded down otherwise.
+        # Weigh checks in units of 1 / scale.  An overlap is at most the largest number of checks of
+        # a symbol, taken to be at least one so that the scale exists even without checks.  The
+        # scale is the least common multiple of the possible overlaps, which each divide it, unless
+        # that exceeds _MAX_SCALE.  The scale is then _MAX_SCALE, and the inverse of an overlap is
+        # rounded down.
         max_column_weight = int(np.max(np.sum(flips, axis=0), initial=1))
         scale = min(math.lcm(*range(1, max_column_weight + 1)), _MAX_SCALE)
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact packed enumeration of independent logical and excluded binary bases."""
+"""Exact distances by exhaustive enumeration of the combinations of packed binary rows."""
 
 from __future__ import annotations
 
@@ -53,26 +53,26 @@ def _get_distance_brute_force(
 ) -> int:
     """Find the minimum weight of a nontrivial logical operator by exhaustive enumeration.
 
-    Every combination of the rows of logical_ops that uses at least one row, multiplied by every
-    combination of the rows of stabilizers, is a candidate.  The rows of logical_ops and stabilizers
-    must together be linearly independent; callers in this package construct such bases.
+    The candidates are the sums of a nonempty combination of the rows of ``logical_ops`` and any
+    combination of the rows of ``stabilizers``.  The rows of both must together be linearly
+    independent.  Callers in this package construct such bases.
 
     Args:
         logical_ops: Binary rows that, together with the stabilizers, generate the logical space.
         stabilizers: Binary rows that generate the excluded (stabilizer) space.
         cutoff: Return early once the lightest operator seen has weight at most this cutoff.
-        batch_exponent: Calculations are vectorized over at most ``2**batch_exponent`` packed
-            64-bit integers, so over fewer words if they are longer than 64 bits, and over one
-            word if it alone needs more.
+        batch_exponent: Vectorize calculations over at most ``2**batch_exponent`` packed 64-bit
+            integers.  That is fewer words if words are longer than 64 bits, and a single word if
+            one word alone needs more.
         symplectic: If False, rows are weighed by Hamming weight.  If True, rows are symplectic
             vectors, with X support in their first half and Z support in their second half, and
             are weighed by symplectic weight.
 
     Returns:
-        The minimum weight of a nontrivial logical operator or, after an early exit, the weight (at
-        most cutoff) of the lightest operator seen.  Without logical_ops, the result is one more
-        than the largest possible weight: the number of qubits if symplectic, and otherwise the
-        number of columns.
+        The minimum weight of a nontrivial logical operator.  After an early exit, it is instead
+        the weight of the lightest operator seen, which is at most ``cutoff``.  Without
+        ``logical_ops``, the result is one more than the largest possible weight: the number of
+        qubits if symplectic, and otherwise the number of columns.
     """
     num_bits = np.shape(logical_ops)[-1]
 
@@ -86,9 +86,9 @@ def _get_distance_brute_force(
     num_stabilizers = len(int_stabilizers)
 
     # Choose how many generators to vectorize over, so that a batch holds at most
-    # ``2**batch_exponent`` packed integers, or one word if it alone needs more.  Each row packs
-    # into ``ints_per_row`` of them, so the batch gives up one generator each time ``ints_per_row``
-    # doubles, and never has fewer than zero.
+    # ``2**batch_exponent`` packed integers, or a single word if one word alone needs more.  Each
+    # row packs into ``ints_per_row`` integers, so each doubling of ``ints_per_row`` removes one
+    # generator from the batch, down to none.
     ints_per_row = int_logical_ops.shape[-1]
     num_vectorized_ops = max(
         0,
@@ -98,13 +98,16 @@ def _get_distance_brute_force(
         ),
     )
 
-    # Vectorize all combinations of first `num_vectorized_ops` stabilizers
+    # Build a block of every combination of the first ``num_vectorized_ops`` generators: the
+    # stabilizers first, and then, if there are fewer stabilizers, logical operators.  The rows of
+    # the block from ``2**num_stabilizers`` on are those that contain a logical operator.  The sweep
+    # below covers the remaining generators.
     array = np.zeros((1, int_logical_ops.shape[-1]), dtype=np.uint64)
     for op in int_stabilizers[:num_vectorized_ops]:
         array = np.vstack([array, array ^ op])
 
     if num_vectorized_ops > num_stabilizers:
-        # fill out block with products of some logical ops
+        # Add the first logical operators, as many as the stabilizers leave room for.
         for op in int_logical_ops[: num_vectorized_ops - num_stabilizers]:
             array = np.vstack([array, array ^ op])
 
@@ -112,18 +115,19 @@ def _get_distance_brute_force(
 
     int_stabilizers = int_stabilizers[num_vectorized_ops:]
 
-    # Everything below will run much faster if we use Fortran-style ordering
+    # Store the block in Fortran order, which makes the sweep below much faster.
     arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
     # np.bitwise_count returns uint8, whose row sums would overflow at 256 or more columns.  The
     # loop below therefore writes the weights into this uint64 buffer.
     out = np.empty_like(arrayf)
 
-    # Until an operator is weighed, the lightest weight seen is one more than any operator can have,
-    # and an early exit must not return it.
+    # The lightest weight seen starts at one more than any operator can weigh.  The early exits
+    # below come only after operators are weighed, so they never return this starting value.
     min_weight = (num_bits // 2 if symplectic else num_bits) + 1
 
-    # Min weight of the block containing logical ops, if any, with weights cast to uint64 as above.
+    # Weigh the rows of the block that contain a logical operator, if any, with weights cast to
+    # uint64 as above.
     logical_block = arrayf[2**num_stabilizers :]
     if len(logical_block):
         weights = np.asarray(weight_func(logical_block), dtype=np.uint64)
@@ -131,14 +135,13 @@ def _get_distance_brute_force(
         if min_weight <= cutoff:
             return int(min_weight)
 
-    # Sweep over every remaining logical-op combination and, nested, every remaining stabilizer
-    # combination, on top of the vectorized block above.  The sweep uses a reflected Gray code:
-    # successive Gray-code words differ in one bit, whose position is the trailing-zero count of the
-    # step index.  Each step therefore flips a single operator into/out of the running XOR
-    # (``arrayf``) with one ^=, so the loop walks the 2**k - 1 nonzero combinations of the remaining
-    # operators (the empty combination is the pre-loop state) without rebuilding any.
-    # ``min_weight`` tracks the lightest operator seen; ``cutoff`` lets the sweep stop once that
-    # bound is reached (see Returns).
+    # Sweep the remaining generators on top of the block: for each nonzero combination of the
+    # remaining logical operators, every combination of the remaining stabilizers.  Each loop steps
+    # through a reflected Gray code, in which step ``i`` flips the operator whose index is the
+    # number of trailing zeros of ``i``.  So a single XOR into ``arrayf`` moves to the next
+    # combination, and the ``2**k - 1`` steps of a loop over ``k`` operators reach every
+    # combination of them other than the one that the loop starts from.  The sweep stops once the
+    # lightest weight seen is at most ``cutoff`` (see Returns).
     for li in range(1, 2 ** len(int_logical_ops)):
         arrayf ^= int_logical_ops[count_trailing_zeros(li)]
         weights = weight_func(arrayf, out=out)
@@ -178,9 +181,8 @@ def symplectic_weight(
 def inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     """Destructively compute ``arr.sum(-1)``, placing the result in the first column of ``arr``.
 
-    When complete, the returned sum will be stored in ``arr[..., 0]``, while other entries in
-    ``arr[..., 1:]`` will be left in indeterminate states.  This permits a faster sum
-    implementation.
+    The returned sum is ``arr[..., 0]``, and the entries of ``arr[..., 1:]`` are left in
+    indeterminate states, which permits a faster sum.
     """
     width = arr.shape[-1]
     while width > 1:
@@ -192,10 +194,11 @@ def inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
 
 
 def riffle(array: npt.ArrayLike) -> npt.ArrayLike:
-    """'Riffle' Pauli strings, putting X and Z support bits for each qubit next to each other."""
+    """Riffle Pauli strings, putting the X and Z support bits of each qubit next to each other."""
     arr = np.asarray(array)
     num_bits = arr.shape[-1]
     assert num_bits % 2 == 0
     if arr.size == 0:
-        return np.empty((0, num_bits), dtype=arr.dtype)  # nothing to riffle (e.g. no stabilizers)
+        # There is nothing to riffle, such as when there are no stabilizers.
+        return np.empty((0, num_bits), dtype=arr.dtype)
     return np.reshape(arr, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)
