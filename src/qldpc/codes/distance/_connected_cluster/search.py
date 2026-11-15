@@ -2,20 +2,12 @@
 
 """Exact distances by a depth-first search of the supports connected in a Tanner graph.
 
-The search finds a nonzero vector ``x`` that satisfies sparse parity checks ``H`` and is outside the
-row space of ``G``, by growing a support only through unsatisfied checks, and pruning with bounds on
-the number of variables that a support still needs.  The vectors are binary, or the symplectic
-vectors of Pauli operators, whose weights count qubits.  It is the connected-cluster algorithm of
-Dumer, Kovalev, and Pryadko, https://arxiv.org/abs/1611.07164, with the branch and bound of
-Algorithm 2 in Section V of Okada and Kasai, https://arxiv.org/abs/2607.14091 (see the references
-of ``connected_cluster.md``).  The same search, started from a nonzero syndrome rather than from
-a root, finds a light vector with that syndrome, such as a light Pauli error with a given syndrome
-on a stabilizer state.
-
-``connected_cluster.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
-correctness requirements, and ``README.md`` there says which other modules use this one and which it
-uses.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py`` solves the same problem
-for any binary code.
+The search finds light binary vectors, or symplectic vectors of Pauli operators, that satisfy sparse
+checks ``H`` and are outside the row space of ``G``, or that have a given syndrome, by growing
+supports through unsatisfied checks.  It is the connected-cluster algorithm of Dumer, Kovalev, and
+Pryadko, with the branch and bound of Okada and Kasai.  ``connected_cluster.md`` in
+``src/qldpc/codes/distance/`` derives the search, cites its sources, and states its correctness
+requirements.
 """
 
 from __future__ import annotations
@@ -57,57 +49,43 @@ def get_distance_connected_cluster(
 ) -> int:
     """Compute the minimum distance across problems by searching connected supports.
 
-    Each problem is a pair ``(checks, excluded)`` of binary matrices with the same number of
-    columns, whose distance is the least weight of a word that satisfies every check and is outside
-    the row space of ``excluded`` (see ``SupportSearch``).  The rows of ``excluded`` must satisfy
-    every check.
-
-    The search of each problem raises its weight limit ``W`` one weight divisor at a time, through
-    the weights that a witness may have.  At each limit, it either finds a witness of weight at most
-    ``W``, or certifies that every witness is heavier.  So a witness found after such certified
-    limits is a lightest one.  The first limit of each problem is its weight divisor, or the largest
-    multiple of the divisor that is at most ``cutoff`` if that is larger.  Once the search finds a
-    witness of weight at most ``cutoff``, it returns the weight of that witness, which can exceed
-    the distance.
+    Each problem is a pair ``(checks, excluded)``, whose distance is the least weight of a witness:
+    a vector that satisfies every check and is outside the row space of ``excluded``.  The search of
+    each problem raises its weight limit one weight divisor at a time, and each limit within which
+    it finds no witness proves that every witness is heavier (Section 3.6 of
+    ``connected_cluster.md``).
 
     Args:
-        problems: The ``(checks, excluded)`` pairs to search.
-        cutoff: Exit early and return once an upper bound on the distance falls to or below this
-            cutoff.
-        upper_bound: A cap on the result, if any, such as the weight of a known witness that is not
-            in ``problems``, or ``max_weight + 1`` under a weight limit.  The result is the minimum
-            of this bound and the distances of ``problems``.
-        symplectic: Whether the problems have the symplectic words of Pauli operators, rather than
-            binary words (see ``SupportSearch``).  Default: False.
-        get_automorphisms: A function that returns an array of generators of a group of
-            permutations of the variables, or None.  Each row ``p`` of the array maps variable ``j``
-            to variable ``p[j]``.  Each generator must map the words of every problem, and the row
-            space of its excluded rows, onto themselves.  The search of each problem calls the
-            function at most once, before the first weight limit at which it expects to have
-            visited ``automorphism_minimum_states`` states (a field of ``tuning``), and verifies the
-            generators before it uses them.  A first limit that ``cutoff`` raises has no estimate
-            of its states, so the search asks before it, unless that field is ``MAX_VALUE``.
-        tuning: The tuning of the search (see ``_tuning``), which defaults to the active tuning.
+        problems: The problems, as ``SupportSearch`` takes them.
+        cutoff: Return as soon as a witness of weight at most ``cutoff`` is known.  The first weight
+            limit of a problem is the largest multiple of its divisor that is at most ``cutoff``, if
+            that exceeds the divisor.
+        upper_bound: If not None, a cap on the result, such as the weight of a known witness outside
+            ``problems``, or ``max_weight + 1`` under a weight limit.
+        symplectic: Whether the problems are symplectic (see ``SupportSearch``).
+        get_automorphisms: A function that returns generators of a group of permutations of the
+            variables, or None.  Row ``p`` maps variable ``j`` to ``p[j]``, and must map the vectors
+            that satisfy the checks of each problem, and the row space of its excluded rows, onto
+            themselves.  The search of each problem calls the function at most once, as
+            ``automorphism_minimum_states`` of ``tuning`` says (Section 3.5), and verifies the
+            generators.
+        tuning: The tuning of the search (see ``_tuning``), by default the active one.
 
     Returns:
-        The minimum distance across the problems and the optional upper bound, or an upper bound
-        that is at most ``cutoff``.  A problem without a word outside its excluded row space has no
-        distance, and counts as one more than its number of variables.
+        The least of ``upper_bound`` and the distances of the problems, in which a problem without
+        witnesses counts as one more than its number of variables; or, after an early exit, a
+        weight at most ``cutoff``, which can exceed the distance.
 
     Raises:
-        ValueError: If there are neither problems nor an upper bound, if the matrices of a problem
-            are not valid (see ``SupportSearch``), or if a generator from ``get_automorphisms`` does
-            not map the words of a searched problem, or the row space of its excluded rows, onto
-            themselves.
-        RuntimeError: If the searches take more weight limits than a correct search can, which
-            only a bug can cause.
+        ValueError: If there are neither problems nor an upper bound, if a problem is not valid
+            (see ``SupportSearch``), or if a generator fails its verification.
+        RuntimeError: If the searches take more weight limits than a correct search can.
     """
     if not problems and upper_bound is None:
         raise ValueError("Require at least one problem or an upper bound")
 
-    # A problem without witnesses only bounds the result, unlike in
-    # get_distance_brouwer_zimmermann_many, which needs a witness in every problem.  A known bound
-    # within the cutoff ends the search before it starts, as it does there.
+    # A problem without witnesses only bounds the result, and a known bound within the cutoff ends
+    # the search before it starts.
     tuning = get_tuning() if tuning is None else tuning
     automorphism_minimum_states = tuning.automorphism_minimum_states
     best_weight = upper_bound
@@ -128,10 +106,9 @@ def get_distance_connected_cluster(
     if not searches or (best_weight is not None and best_weight <= cutoff):
         return min([bound for bound in (best_weight, *no_distance_bounds) if bound is not None])
 
-    # No witness of a problem has a weight below its lower bound, which is a multiple of the weight
-    # divisor.  Search the problem with the lowest bound, until the best known witness is as light.
-    # A correct search takes at most n // d limits for each problem of n variables and divisor d
-    # (see "Termination" in connected_cluster.md), and a broken one fails instead of looping.
+    # Search the problem with the lowest lower bound on its witnesses until the best witness is as
+    # light.  A correct search takes at most n // d limits for a problem of n variables and divisor
+    # d (Section 3.6 of connected_cluster.md), so a broken one fails rather than loops.
     lower_bounds = [search.weight_divisor for search in searches]
     max_num_limits = sum(search.num_variables // search.weight_divisor for search in searches)
     num_limits = 0
@@ -159,40 +136,30 @@ def get_distance_connected_cluster(
 class SupportSearch:
     """Search for light words that satisfy ``checks`` and are outside the row space of ``excluded``.
 
-    A word is a vector ``x`` that satisfies every check, and its support is the set of variables on
-    which it is nonzero.  Its weight is the size of its support.  The row space of ``excluded`` must
-    satisfy every check, and the words outside it are the witnesses.  The search grows a support
-    through the checks that it leaves unsatisfied (see ``connected_cluster.md``), so it can be fast
-    only if ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
-    satisfy the checks (see ``find_vector_with_syndrome``).
+    A word is a vector that satisfies every check: a binary vector ``x`` satisfies a check ``h`` if
+    ``h @ x = 0``, and, if ``symplectic`` is true, the vector ``(a | b)`` of a Pauli operator
+    satisfies a check that commutes with it.  The witnesses are the words outside the row space of
+    ``excluded``, which must satisfy every check.  The variables are the coordinates of a binary
+    vector, or the qubits, and the weight of a vector counts the variables on which it is nonzero.
+    A symbol is a variable with one of its nonzero values: symbol ``k n + j`` gives variable ``j``
+    value ``k``, for ``n`` variables, and a symplectic problem has the values ``X``, ``Z``, and
+    ``Y``, in that order.
 
-    A problem that is not symplectic has binary words, whose coordinates are the variables, and a
-    word ``x`` satisfies a check ``h`` if ``h @ x = 0``.  A symplectic problem has the symplectic
-    words ``x = (a | b)`` of Pauli operators on ``n`` qubits, which are its variables, and the value
-    of a qubit is the Pauli ``X``, ``Z``, or ``Y`` that ``x`` has there.  Such a word satisfies a
-    check if they commute, which is if their symplectic product vanishes.
-
-    Args:
-        checks: A binary matrix whose rows are the checks.  Redundant rows can strengthen the
-            search, so the matrix need not have independent rows.
-        excluded: A binary matrix whose row space is excluded.
+    The checks need not be independent.  The search grows supports through unsatisfied checks, so it
+    is fast only if ``checks`` is sparse (Sections 2 and 3.3 of ``connected_cluster.md``).  It also
+    finds light vectors with a given syndrome (see ``find_vector_with_syndrome``).
 
     Keyword args:
-        symplectic: Whether the problem is symplectic.  Default: False.
-        get_automorphisms: A function that returns an array of generators of a group of
-            permutations of the variables, or None, as in ``get_distance_connected_cluster``.
+        get_automorphisms: As in ``get_distance_connected_cluster``.
         automorphism_minimum_states: The search calls ``get_automorphisms`` at most once, before
-            the first weight limit at which it expects its visited states, over all weight limits,
-            to reach this number, as the field of ``SearchTuning`` says.  Zero asks for them before
-            the first weight limit.
+            the first weight limit at which it expects to have visited this many states over all
+            its limits (Section 3.5).  Zero asks before the first limit.
 
     Attributes:
-        num_variables: The number of variables: the number of columns of ``checks``, or half of it
-            if the problem is symplectic.
+        num_variables: The number of variables.
         weight_divisor: A divisor of the weight of every word.
-        num_states: The number of states that ``find_witness`` has visited so far, over all of its
-            weight limits.  The empty support at the start of the search from each root is not
-            counted, and neither are the states of syndrome queries.
+        num_states: The number of states that ``find_witness`` has visited over all its weight
+            limits, without the empty state of each root.
 
     Raises:
         ValueError: If the matrices are not binary matrices of equal width, if a symplectic matrix
@@ -212,8 +179,7 @@ class SupportSearch:
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         automorphism_minimum_states: int,
     ) -> None:
-        # The compiled search would read invalid input without an error, so the search validates its
-        # input, which callers need not check.
+        # The compiled search would read invalid input without an error, so validate it here.
         assert_binary(checks, "checks")
         assert_binary(excluded, "excluded")
         checks = np.asarray(checks, dtype=np.uint8)
@@ -231,16 +197,14 @@ class SupportSearch:
         self._get_automorphisms = get_automorphisms
         self._automorphism_minimum_states = automorphism_minimum_states
 
-        # A symplectic check is satisfied if its dot product with a word vanishes once its halves
-        # are swapped, and the excluded rows must satisfy every check.
+        # A word satisfies a symplectic check if its dot product with the swapped check vanishes.
         if symplectic:
             checks = swap_pauli_halves(checks)
         if np.any(multiply_binary(checks, excluded.T)):
             raise ValueError("The excluded rows must satisfy the checks")
-        # Zero and duplicate checks add nothing to a search, which keeps the first copy of each
-        # nonzero check, in order.  A syndrome query maps each given check to the index of the kept
-        # check that equals it, or to -1 for a zero check.  The unique rows are sorted, and
-        # ``rank_of_unique`` inverts the order that sorts their first copies.
+        # Keep the first copy of each nonzero check, in order, since zero and duplicate checks add
+        # nothing.  Map each given check to the kept check that equals it, or to -1 if it is zero;
+        # ``rank_of_unique`` maps each of the sorted unique rows to its position among kept checks.
         nonzero_rows = np.flatnonzero(np.any(checks, axis=1))
         _, first_rows, unique_index_of_row = np.unique(
             checks[nonzero_rows], axis=0, return_index=True, return_inverse=True
@@ -251,8 +215,8 @@ class SupportSearch:
         self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
         self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row.ravel()]
 
-        # The checks that each symbol flips, and the tests that it fails, are the columns of the
-        # matrices of the checks and of the tests for its value.
+        # Column ``s`` of ``flips`` marks the checks that symbol ``s`` flips, and column ``s`` of
+        # ``tests`` the tests that it fails.
         flips = self._get_symbol_columns(self._checks)
         sparse_flips = scipy.sparse.csr_array(flips)
         self._check_starts = sparse_flips.indptr.astype(np.int64)
@@ -261,17 +225,15 @@ class SupportSearch:
         tests = self._get_symbol_columns(self._get_tests())
         self._test_columns = pack_bits(np.ascontiguousarray(tests.T))
 
-        # Without symmetries, every variable is a root.  Words of Pauli operators get no divisor,
-        # since their weights count qubits rather than bits.
+        # Without symmetries, every variable is a root.  Symplectic words get no divisor, since
+        # their weights count qubits rather than bits.
         self._roots = np.arange(self.num_variables, dtype=np.int64)
         self._ranks = np.arange(self.num_variables, dtype=np.int64)
         self.weight_divisor = 1 if symplectic else infer_weight_divisor(get_kernel(self._checks))
 
-        # Weigh checks in units of 1 / scale.  An overlap is at most the largest number of checks of
-        # a symbol, taken to be at least one so that the scale exists even without checks.  The
-        # scale is the least common multiple of the possible overlaps, which each divide it, unless
-        # that exceeds _MAX_SCALE.  The scale is then _MAX_SCALE, and the inverse of an overlap is
-        # rounded down.
+        # Weigh checks in units of 1 / scale, for the least common multiple of the possible
+        # overlaps, capped at _MAX_SCALE (Section 3.4 of connected_cluster.md).  The largest overlap
+        # is the largest number of checks of a symbol, taken to be at least one for no checks.
         max_column_weight = int(np.max(np.sum(flips, axis=0), initial=1))
         scale = min(math.lcm(*range(1, max_column_weight + 1)), _MAX_SCALE)
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)
@@ -284,31 +246,22 @@ class SupportSearch:
         return self._test_columns.shape[1] > 0
 
     def find_witness(self, max_weight: int) -> npt.NDArray[np.int64] | None:
-        """Search for a witness of weight at most ``max_weight``.
+        """Search for a witness of weight at most ``max_weight``, a weight limit of at least one.
 
-        The search is exhaustive: it finds a witness if there is one of weight at most
-        ``max_weight``, and otherwise certifies that every witness is heavier.
-
-        Args:
-            max_weight: The weight limit, which is at least one.
+        The search is exhaustive: it returns None only if every witness is heavier than the limit.
 
         Returns:
-            The sorted symbols of a witness, one for each variable of its support, or None if there
-            is no witness of weight at most ``max_weight``.  A witness need not be a lightest one.
-            Symbol ``k n + j`` gives variable ``j`` value ``k``, where ``n`` is the number of
-            variables.  A problem that is not symplectic has one value, so its symbols are its
-            variables, and a symplectic problem has the values ``X``, ``Z``, and ``Y``, in that
-            order.
+            The sorted symbols of a witness within the limit, one for each variable of its
+            support, or None.  The witness need not be a lightest one.
 
         Raises:
-            ValueError: If the weight limit is less than one, or if this search asks for
-                automorphisms, and a generator does not map the words, or the row space of the
-                excluded rows, onto themselves.
+            ValueError: If the weight limit is less than one, or if a generator of automorphisms
+                fails its verification.
         """
         if max_weight < 1:
             raise ValueError(f"The weight limit must be at least one, not {max_weight}")
-        # Ask for automorphisms once, before the first weight limit whose states, with those visited
-        # so far, are expected to reach the threshold.
+        # Ask for automorphisms once, before the first limit at which the states visited are
+        # expected to reach the threshold.
         if (
             self._get_automorphisms is not None
             and self.num_states + self._predict_states(max_weight)
@@ -340,22 +293,19 @@ class SupportSearch:
     ) -> npt.NDArray[np.int64] | None:
         """Search for a vector with a given syndrome, of weight at most ``max_weight``.
 
-        The syndrome of a vector says which checks it fails, so the vectors with a syndrome are a
-        coset of the vectors that satisfy every check, and the excluded rows play no part.  The
-        search starts from the syndrome, and grows supports through its unsatisfied checks without
-        roots, symmetries, or a weight divisor (see Section 3.8 of ``connected_cluster.md``).  Like
-        ``find_witness``, it is exhaustive, but need not find a lightest vector.
+        The syndrome of a vector marks the checks that it fails, so the vectors with a syndrome
+        form a coset of the words, and ``excluded`` plays no part.  The search is exhaustive, but
+        need not find a lightest vector (Section 3.8 of ``connected_cluster.md``).
 
         Args:
-            syndrome: A binary vector with one entry for each row of the checks that the search was
-                given, in their order.  For a symplectic problem, entry ``j`` says whether a Pauli
-                operator anticommutes with check ``j``.
+            syndrome: A binary vector with one entry for each given check, in order.  For a
+                symplectic problem, entry ``j`` says whether a Pauli operator anticommutes with
+                check ``j``.
             max_weight: The weight limit, which is at least zero.
 
         Returns:
-            The sorted symbols of a vector with the syndrome, one for each variable of its support,
-            as ``find_witness`` returns them, or None if every such vector weighs more than
-            ``max_weight``.
+            The sorted symbols of a vector with the syndrome, or None if every such vector weighs
+            more than ``max_weight``.
 
         Raises:
             ValueError: If the syndrome is not a binary vector with one entry for each check, or if
@@ -369,7 +319,7 @@ class SupportSearch:
         if max_weight < 0:
             raise ValueError(f"The weight limit must be at least zero, not {max_weight}")
 
-        # Equal checks have equal entries, and a zero check has entry zero, for every vector.
+        # The syndrome of every vector has equal entries for equal checks, and zero for zero checks.
         indices = self._kept_index_of_check
         kept = indices >= 0
         kept_syndrome = np.zeros(len(self._checks), dtype=np.uint8)
@@ -385,22 +335,13 @@ class SupportSearch:
     def _find_vector_with_packed_syndrome(
         self, packed_syndrome: npt.NDArray[np.uint64], max_weight: int
     ) -> npt.NDArray[np.int64] | None:
-        """Search as ``find_vector_with_syndrome`` does, from a packed syndrome of the kept checks.
+        """Search as ``find_vector_with_syndrome`` does, from a nonzero packed syndrome.
 
-        A caller that asks many queries, such as a coset search, can skip the validation, mapping,
-        and packing of the syndrome that ``find_vector_with_syndrome`` does on every call.
-
-        Args:
-            packed_syndrome: A syndrome with one bit for each kept check, packed as ``pack_bits``
-                packs a row.  The kept checks are the given checks without zero and duplicate
-                rows, in order, so they are the given checks if those are independent.  The
-                syndrome must not be zero; ``find_vector_with_syndrome`` answers a zero syndrome
-                itself.
-            max_weight: The weight limit, which is at least zero.
-
-        Returns:
-            The sorted symbols of a vector with the syndrome, or None, as
-            ``find_vector_with_syndrome`` returns them.
+        A caller with many queries, such as a coset search, can skip the validation, mapping, and
+        packing of the syndrome that ``find_vector_with_syndrome`` does.  ``packed_syndrome`` has
+        one bit for each kept check, packed as ``pack_bits`` packs a row.  The kept checks are the
+        given checks without zero rows and later copies, in order, so independent checks are all
+        kept.
         """
         support, _ = _search_supports(
             self._check_starts,
@@ -419,11 +360,10 @@ class SupportSearch:
     def _predict_states(self, max_weight: int) -> int:
         """The number of states that the next weight limit, ``max_weight``, is expected to visit.
 
-        The number of states of each weight limit is expected to grow by the ratio between those of
-        the last two limits.  It is expected not to grow if the limit before the last visited no
-        states, as before the second limit (see Section 3.5 of ``connected_cluster.md``).  A first
-        limit above the weight divisor, which a cutoff can raise, skips the cheap limits below it,
-        so it has no estimate.  It is expected to reach any threshold short of ``MAX_VALUE``.
+        The number is expected to grow by the ratio between those of the last two limits, or not to
+        grow if the earlier of them visited no states (Section 3.5 of ``connected_cluster.md``).  A
+        first limit is expected to visit no states if it is the weight divisor, and otherwise, with
+        no limits below it to predict from, enough to reach any threshold short of ``MAX_VALUE``.
         """
         if self._last_two_num_states is None:
             return MAX_VALUE - 1 if max_weight > self.weight_divisor else 0
@@ -431,11 +371,10 @@ class SupportSearch:
         return last * last // previous if previous else last
 
     def _get_symbol_columns(self, matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        """The products of the rows of a matrix with the word of each symbol, as its columns.
+        """The products of the rows of a matrix with the word of each symbol, as columns.
 
-        The word of a symbol has the value of the symbol on its variable, and is zero elsewhere.
-        For a symplectic problem, the columns are those of the ``X`` part, of the ``Z`` part, and
-        of their sum, for the values ``X``, ``Z``, and ``Y``.
+        The word of a symbol has its value on its variable, so for a symplectic problem the columns
+        are those of the ``X`` part, of the ``Z`` part, and of their sum.
         """
         if not self._symplectic:
             return matrix
@@ -445,10 +384,8 @@ class SupportSearch:
     def _get_tests(self) -> npt.NDArray[np.uint8]:
         """Rows whose products with a word all vanish exactly when the word is excluded.
 
-        The row space of ``excluded`` is the set of vectors that are orthogonal to the kernel of
-        ``excluded``.  That kernel contains the rows of the checks, once their halves are swapped
-        for a symplectic problem, which every word is orthogonal to, so it is enough to test against
-        the rest of the kernel of ``excluded``.
+        They are a basis of the kernel of ``excluded`` modulo the checks, whose halves are already
+        swapped for a symplectic problem (Section 3.6 of ``connected_cluster.md``).
         """
         basis, labels = get_nested_code_basis(get_kernel(self._excluded), self._checks)
         return basis[np.any(labels, axis=1)]
@@ -456,9 +393,8 @@ class SupportSearch:
     def _use_automorphisms(self, automorphisms: npt.NDArray[np.int_]) -> None:
         """Verify automorphisms, and search only from the least variable of each of their orbits.
 
-        The variables are ranked orbit by orbit, so that the search from each root excludes every
-        variable of the earlier orbits.  A permutation of the qubits of a symplectic problem moves
-        both halves of each word.
+        The variables are ranked orbit by orbit, and a permutation of the qubits of a symplectic
+        problem moves both halves of each word (Sections 3.5 and 3.7 of ``connected_cluster.md``).
 
         Raises:
             ValueError: If a generator does not map the words, or the row space of the excluded
@@ -496,42 +432,23 @@ def _search_supports(
 ) -> tuple[npt.NDArray[np.int64], int]:
     """Search the supports that grow from each root through unsatisfied checks.
 
-    A symbol is a variable with one of its nonzero values.  Symbol ``s`` gives value ``s // n`` to
-    variable ``s % n``, where ``n = len(ranks)`` is the number of variables, and every variable has
-    the same number of values.  The graph is the Tanner graph of the checks and the symbols that
-    flip them: check ``c`` is flipped by the symbols ``check_symbols[check_starts[c] :
-    check_starts[c + 1]]``.  Row ``s`` of ``symbol_masks`` packs the checks that symbol ``s`` flips
-    into the bits of 64-bit blocks, and row ``s`` of ``test_columns`` packs the tests that the word
-    of symbol ``s`` alone fails.  The search from a root uses only variables of higher rank.  The
-    weights of checks are integers, in units of ``1 / scale``, and entry ``k`` of
-    ``inverse_overlaps`` is ``scale // k``, up to the largest number of checks of a symbol, so its
-    entry 1 is the scale (see ``_get_branches``).
-
-    It is the depth-first search of Algorithm 2 of https://arxiv.org/abs/2607.14091, with an
-    explicit stack, and with values.  A state is a support, whose symbols are ``support[:depth]``,
-    on distinct variables, and its syndrome is the set of its unsatisfied checks.  A state branches
-    on the viable symbols that flip one unsatisfied check.  Each symbol that it tries stays blocked
-    until the search leaves the state, so that its later branches do not use it again, and the other
-    values of its variable are blocked while its branch is in the stack.  A state also allows only
-    its viable symbols in its subtree, if it rules out any.  The state at depth zero is the empty
-    support, which branches on the values of the root, and which the count of states omits.
-
-    A root of -1 instead starts a search for a vector whose syndrome is ``start_syndrome``, packed
-    as a row of ``symbol_masks`` is, rather than for a witness.  The syndrome must not be empty.
-    Its empty state has that syndrome, and branches on one of its unsatisfied checks, as every
-    other state does, without a root or ranks.  Every support that it reaches with no unsatisfied
-    check is a solution, without tests.  The searches from other roots ignore ``start_syndrome``.
-
-    With ``memoize``, each state computes the overlap and the repair of each symbol at most once
-    (see ``_get_branches``).  This saves time when checks are dense, as those of syndrome queries
-    can be (see Section 3.8 of ``connected_cluster.md``).  It costs time when they are sparse.
+    This is the depth-first search of Sections 3.3, 3.4, and 3.7 of ``connected_cluster.md``, in
+    which symbol ``s`` gives variable ``s % n`` the value ``s // n``, for ``n = len(ranks)``.  Check
+    ``c`` is flipped by the symbols ``check_symbols[check_starts[c] : check_starts[c + 1]]``, row
+    ``s`` of ``symbol_masks`` packs the checks that symbol ``s`` flips, and row ``s`` of
+    ``test_columns`` packs the tests that its word fails.  Entry ``k`` of ``inverse_overlaps`` is
+    ``1 / k`` in units of ``1 / scale``, rounded down, so entry 1 is the scale.  The search from a
+    root uses only variables of higher rank.  A root of -1 starts a syndrome query (Section 3.8)
+    from ``start_syndrome``, which is not empty, is packed as a row of ``symbol_masks``, and is
+    ignored by the other roots.  With ``memoize``, each state computes the overlap and repair of
+    each symbol at most once.
 
     Returns:
-        The symbols of a witness, or of a solution, of weight at most ``max_weight``, or an empty
-        array, and the number of states that the search visited.
+        The symbols of a witness, or of a vector with the syndrome, of weight at most
+        ``max_weight``, or an empty array; and the number of states visited, without the empty
+        state of each root.
     """
-    # The sizes of the stack, and of the branches of a state, which are at least the values of the
-    # root that the empty state branches on.
+    # Size the stack, and the branches of a state, which include the values of a root.
     num_symbols, num_blocks = symbol_masks.shape
     num_variables = len(ranks)
     num_values = num_symbols // num_variables
@@ -540,20 +457,17 @@ def _search_supports(
     for check in range(len(check_starts) - 1):
         max_branches = max(max_branches, check_starts[check + 1] - check_starts[check])
 
-    # The level of a symbol counts the states in the stack whose restrictions allow it, plus
-    # _BLOCKED for each reason that blocks it: a state in the stack has tried it as a branch, which
-    # includes every symbol of the support; another value of its variable is the current branch of a
-    # state in the stack; or its variable ranks below the root.  A symbol is available if its level
-    # is the number of active restrictions, which is never as large as _BLOCKED.
+    # A symbol is available if its level is the number of restrictions of states in the stack,
+    # which stays below _BLOCKED.  The level counts the restrictions that allow the symbol, plus
+    # _BLOCKED for each reason that blocks it: a state in the stack tried it, another value of its
+    # variable is the current branch of a state in the stack, or its variable ranks below the root.
     levels = np.zeros(num_symbols, dtype=np.int64)
     num_restrictions = 0
 
-    # The state at each depth has its syndrome, its branch symbols, and the cursor of the next
-    # branch symbol to try.  If it restricts its subtree, the symbols that it allows are
-    # allowances[allowance_starts[depth] : allowance_starts[depth + 1]], and restricts[depth] says
-    # so, which the range alone would not for a state that allows nothing.  A state allows each
-    # symbol at most once, and allowances grows if a state could overflow it, rather than start
-    # with room for max_weight * num_symbols entries, which a large cutoff would make large.
+    # The state at each depth has a syndrome, branches, and the cursor of its next branch.  A state
+    # that restricts its subtree sets restricts[depth], since it may allow no symbols, and allows
+    # allowances[allowance_starts[depth] : allowance_starts[depth + 1]].  Room for every state to
+    # allow every symbol would be large under a large cutoff, so allowances grows as needed.
     syndromes = np.zeros((max_weight + 1, num_blocks), dtype=np.uint64)
     support = np.empty(max_weight + 1, dtype=np.int64)
     branches = np.empty((max_weight + 1, max_branches), dtype=np.int64)
@@ -563,9 +477,8 @@ def _search_supports(
     allowance_starts = np.zeros(max_weight + 2, dtype=np.int64)
     allowances = np.empty(num_symbols, dtype=np.int64)
 
-    # Scratch space for _get_branches, whose docstring describes ``memos``.  Each call of
-    # _get_branches gets a stamp of its own: the number of calls so far, including itself.  So the
-    # zeros of ``memos`` match no stamp.
+    # Scratch space for _get_branches, whose docstring describes ``memos``.  Each call gets its own
+    # stamp, the number of calls so far, including itself, so the zeros of ``memos`` match none.
     check_weights = np.zeros(len(check_starts) - 1, dtype=np.int64)
     branch_repairs = np.empty(max_branches, dtype=np.int64)
     memos = np.zeros((4, num_symbols if memoize else 0), dtype=np.int64)
@@ -573,8 +486,7 @@ def _search_supports(
 
     num_states = 0
     for root in roots:
-        # The empty state has the empty syndrome, and restricts nothing, unless the search starts
-        # from a syndrome.
+        # The empty state has an empty syndrome, and no restriction, unless a query starts it.
         cursors[0] = 0
         depth = 0
         syndromes[0] = 0
@@ -614,15 +526,14 @@ def _search_supports(
                 branches[0, value] = value * num_variables + root
             num_branches[0] = num_values
         while depth >= 0:
-            # The search is back at a state after the branch that it tried last, so the other values
-            # of the variable of that branch are available again.
+            # Back at a state after its last branch, unblock the other values of its variable.
             if cursors[depth]:
                 _shift_other_values(
                     levels, branches[depth, cursors[depth] - 1], num_variables, -_BLOCKED
                 )
 
-            # Leave the state once it has tried every branch.  The symbols that it tried are
-            # available again to its later siblings, and so are the symbols that it did not allow.
+            # Leave the state once it has tried every branch, and release the symbols that it tried
+            # or did not allow.
             if cursors[depth] == num_branches[depth]:
                 for index in range(cursors[depth]):
                     levels[branches[depth, index]] -= _BLOCKED
@@ -633,8 +544,8 @@ def _search_supports(
                 depth -= 1
                 continue
 
-            # Take the next branch, and skip its state unless it can still meet the weight limit.
-            # Every symbol is in at most max_column_weight unsatisfied checks.
+            # Take the next branch, and skip its state if it cannot meet the weight limit, since a
+            # symbol flips at most max_column_weight unsatisfied checks (b1 in Section 3.4).
             symbol = branches[depth, cursors[depth]]
             cursors[depth] += 1
             levels[symbol] += _BLOCKED
@@ -657,7 +568,8 @@ def _search_supports(
                     return support[:depth].copy(), num_states
                 continue
 
-            # Make room for the symbols that this state may allow, and choose its branches.
+            # Make room for the symbols that this state may allow, each at most once, and choose its
+            # branches.
             if allowance_starts[depth] + num_symbols > len(allowances):
                 grown = np.empty(2 * len(allowances) + num_symbols, dtype=np.int64)
                 grown[: allowance_starts[depth]] = allowances[: allowance_starts[depth]]
@@ -713,41 +625,29 @@ def _get_branches(
     memos: npt.NDArray[np.int64],
     stamp: int,
 ) -> int:
-    """Choose the symbols that the state at a depth branches on, if its syndrome is not empty.
+    """Choose the branches of the state at ``depth``, whose syndrome is not empty, and count them.
 
-    A symbol is available if its level is ``available_level``.  A completion of a support that has
-    ``slack`` variables to spare is a set ``T`` of available symbols, on distinct variables, that
-    makes the support a witness, or a solution of a syndrome query, so ``T`` flips every
-    unsatisfied check an odd number of times.  The overlap of an available symbol is the number of
-    unsatisfied checks that it flips.  Weigh each unsatisfied check by the inverse of the largest
-    overlap of its available symbols, in units of ``1 / scale``, rounded down, as
-    ``inverse_overlaps`` lists, whose entry 1 is the scale.  The weights of the unsatisfied checks
-    of any available symbol then total at most one, and their total is its repair.  So ``T`` has
-    at least as many symbols as the total weight of the unsatisfied checks.  A symbol ``s`` of
-    ``T`` repairs its share, and the other symbols of ``T`` the rest, so
-    ``|T| >= 1 + total - repair(s)``.
+    A symbol is available if its level is ``available_level``, and the support can take ``slack``
+    more variables.  The weights of the unsatisfied checks are in units of
+    ``1 / inverse_overlaps[1]``, and the state is pruned, or allows only viable symbols in its
+    subtree, as Section 3.4 of ``connected_cluster.md`` says.  A state that restricts its subtree
+    raises the levels of the symbols that it allows, lists them in ``allowances`` from
+    ``allowance_starts[depth]``, and sets ``restricts[depth]``.  The branches, the viable symbols of
+    the unsatisfied check with the fewest, go to ``branches[depth]``, most repairing first, and
+    their number is zero if the state is pruned.  ``check_weights`` and ``branch_repairs`` are
+    scratch space.
 
-    A symbol for which this exceeds ``slack`` is in no completion, and the state allows only the
-    other symbols in its subtree.  It records them in ``allowances``, from
-    ``allowance_starts[depth]``, and sets ``restricts[depth]``.  The state has no branches if an
-    unsatisfied check has no viable symbol, or if the total weight exceeds ``slack``.  Otherwise it
-    branches on the viable symbols of the unsatisfied check with the fewest, which it writes to
-    ``branches[depth]``, most repairing first.  It returns their number.  ``check_weights`` and
-    ``branch_repairs`` are scratch space for the weights of the unsatisfied checks and the repairs
-    of the branch symbols.
-
-    If ``memos`` has columns, one for each symbol, the state computes the overlap and the repair of
-    each symbol at most once, and keeps them there.  Row 0 of ``memos`` holds the stamp of the
-    call that computed the overlap of each symbol, and row 1 that overlap.  Rows 2 and 3 hold the
-    same for repairs.  ``stamp`` is the stamp of this call, which no other call of the search uses.
+    If ``memos`` has a column for each symbol, rows 0 and 1 hold the stamp of the call that computed
+    the overlap of each symbol, and that overlap, and rows 2 and 3 the same for repairs.  ``stamp``
+    is the stamp of this call, which no other call uses.
     """
     num_blocks = syndromes.shape[1]
     scale = inverse_overlaps[1]
     memoize = memos.shape[1] > 0
     overlap_stamps, overlaps, repair_stamps, repairs = memos[0], memos[1], memos[2], memos[3]
 
-    # Weigh each unsatisfied check, and choose the one with the fewest available symbols.  The
-    # count starts above any possible count.
+    # Weigh each unsatisfied check, and choose the one with the fewest available symbols, starting
+    # from a count above any possible count.
     total_weight = 0
     branch_check = -1
     fewest = check_starts[-1] + 1
@@ -775,15 +675,14 @@ def _get_branches(
                 return 0
             check_weights[check] = inverse_overlaps[largest_overlap]
             total_weight += check_weights[check]
-            # The total only grows, so the state fails as soon as it exceeds the slack.
+            # The total only grows, so prune the state as soon as it exceeds the slack.
             if total_weight > slack * scale:
                 return 0
             if count < fewest:
                 branch_check, fewest = check, count
 
-    # A symbol that flips no unsatisfied check repairs nothing, so it is viable exactly when every
-    # symbol is.  When the total weight leaves such symbols no room, allow only the viable symbols
-    # of the unsatisfied checks, and count them in each check.
+    # Symbols that flip no unsatisfied check repair nothing, so if they are not viable, allow only
+    # the viable symbols of the unsatisfied checks, and count them in each check.
     if total_weight > (slack - 1) * scale:
         restricts[depth] = True
         allowance_end = allowance_starts[depth]
@@ -824,8 +723,8 @@ def _get_branches(
         # The allowed symbols are now the available ones.
         available_level += 1
 
-    # Branch on the chosen check's available symbols, most repairing first, which Section 3.3 of
-    # connected_cluster.md explains.
+    # Branch on the available symbols of the chosen check, most repairing first (Section 3.3 of
+    # connected_cluster.md).
     num_branches = 0
     for position in range(check_starts[branch_check], check_starts[branch_check + 1]):
         symbol = check_symbols[position]
@@ -854,10 +753,7 @@ def _get_branches(
 def _shift_other_values(
     levels: npt.NDArray[np.int64], symbol: int, num_variables: int, change: int
 ) -> None:
-    """Add ``change`` to the levels of the symbols that give the variable of a symbol other values.
-
-    The loop is empty if every variable has one value, as for problems that are not symplectic.
-    """
+    """Add ``change`` to the level of each other symbol on the variable of ``symbol``."""
     num_symbols = len(levels)
     for value in range(1, num_symbols // num_variables):
         other = symbol + value * num_variables
@@ -903,10 +799,9 @@ def _xor_and_count(
     symbol_masks: npt.NDArray[np.uint64],
     symbol: int,
 ) -> int:
-    """Set the syndrome at ``depth + 1`` to that at ``depth`` with a symbol added.
+    """Set the syndrome at ``depth + 1`` to that at ``depth`` plus a symbol, and return its size.
 
-    Returns:
-        The number of unsatisfied checks of the new syndrome.
+    The size of a syndrome is its number of unsatisfied checks.
     """
     count = 0
     for block in range(syndromes.shape[1]):
