@@ -45,7 +45,8 @@ class CosetRoutes:
         basis: The independent embedded generators of the code of the search, which the routes
             copy.
         disjoint: The coset instance of the disjoint information sets of ``basis``.
-        inverse: The embedded words whose syndromes have one bit set, with every column.
+        inverse: The embedded words whose syndromes have one bit set, with every column, which the
+            tables and records of tails of every family hold.
         num_x_columns: The number of leading columns of an embedded word that form its X part.
         minimum_work: The field ``coset_route_minimum_work`` of the tuning (Section 4.4).
         max_sets: The field ``max_information_sets`` of the tuning.
@@ -146,8 +147,8 @@ class CosetRoutes:
             return self.disjoint_tables, None
 
         # Build the other families once, at the least weight from two at which the predicted
-        # examinations reach the threshold (Section 4.4), which exists since the examinations never
-        # decrease with the weight.
+        # examinations reach the threshold (Section 4.4).  The examinations never decrease with the
+        # weight, so this weight is at most ``max(2, max_weight)``.
         if self._candidates is None:
             target_weight = next(
                 weight
@@ -195,9 +196,9 @@ class CosetRoutes:
     ) -> list[int]:
         """The sets of a family whose completion tables the queries at a maximum weight use.
 
-        A set needs tables if the last layer that a query scans in it has from two rows up to the
-        number of rows, unless the set is an unused set of the stopping step, which the query skips
-        (see ``certificates.plan_steps``).
+        A set needs tables if, at the stopping step of some table of the planning buffer, it is not
+        an unused set, which a query skips (see ``certificates.plan_steps``), and the last layer
+        that a query scans in it has at least two rows, and no more than the set has.
         """
         num_rows = len(self._basis)
         sets = set()
@@ -227,7 +228,8 @@ class CosetRoutes:
         weight_factor = self._disjoint.weight_factor
         disjoint = _get_basis_family(self._disjoint, self._basis.shape[1])
         maximum = basis_families.get_maximum_disjoint_family(self._basis, disjoint)
-        # The route threshold gates this stage in place of its minimum work (Section 4.4).
+        # ``get_overlapping_family`` gets a minimum work of zero, since the route threshold gates it
+        # instead (Section 4.4).
         overlapping = basis_families.get_overlapping_family(
             self._basis,
             np.empty((len(self._basis), 0), dtype=np.uint8),

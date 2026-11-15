@@ -63,8 +63,9 @@ def test_coset_bounds_round_up_to_the_parity_of_each_coset() -> None:
     for parity, offset in enumerate(([0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0])):
         bounds = instance.get_weight_bounds(parity)
         minima = _get_unvisited_minima(instance, generators, np.array(offset, dtype=np.uint8))
-        # Step (1, 1) leaves words of weight three in the odd coset, which a bound rounded to the
-        # even divisor of the code would overstate.  Entry (0, 0) precedes the first step.
+        # Step (1, 1) leaves unvisited words of weight three in the odd coset, where rounding to the
+        # even divisor of the code would give four.  The check leaves out entry (0, 0), before the
+        # first step.
         assert minima[1, 1] == 4 - parity
         assert all(bounds[step] == minimum for step, minimum in minima.items() if step != (0, 0))
 

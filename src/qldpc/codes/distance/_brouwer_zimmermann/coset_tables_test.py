@@ -24,7 +24,7 @@ from . import affine_instance, coset_tables
 def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """For nonnegative weights, a cached stopping step is reused exactly while it stays first."""
+    """A cached step serves a nonnegative maximum weight exactly if it is its stopping step."""
     plans: list[int] = []
     find_stopping_step = certificates_module.find_stopping_step
 
@@ -33,7 +33,8 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
         return find_stopping_step(*args)
 
     monkeypatch.setattr(certificates_module, "find_stopping_step", record)
-    # Only the Python version calls the recording function, so a reuse shows as a skipped plan.
+    # Take the plain-Python ``get_stopping_step``, since only it calls the recording function; a
+    # reuse then shows as a skipped plan.
     function = coset_tables.get_stopping_step
     get_stopping_step = getattr(function, "py_func", function)
     certificates = [
@@ -50,8 +51,9 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
         for planted, max_weight in itertools.product(steps, range(largest + 2)):
             stopping_step = next(step for step in steps if bounds[step] > max_weight)
             expected = (*stopping_step, int(bounds[stopping_step]))
-            # Plant each step as the cached one, including stale steps and the torn pairs that
-            # interleaved queries can leave (Section 4.1 of ``brouwer_zimmermann.md``).
+            # Plant each step as the cached one, including stale steps, and pairs that mix the layer
+            # of one step and the count of another, as interleaved queries can leave (Section 4.1 of
+            # ``brouwer_zimmermann.md``).
             table[-1, :2] = planted
             plans.clear()
             assert get_stopping_step(table, max_weight) == expected
@@ -62,7 +64,7 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
 
 
 def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
-    """A record of tails gains, once each, the tables of the given sets that fit its limit."""
+    """A record of tails gains the tables of the given sets that fit its limit, each once."""
     checks = get_kernel(RANK_DEFICIENT_CODE)
     instance = affine_instance.get_coset_instance(
         RANK_DEFICIENT_CODE, random_column_orders=0, weight_factor=1
@@ -103,7 +105,7 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
 
 
 def test_records_of_tails_build_the_tables_that_they_add_in_place() -> None:
-    """``get_coset_tails`` holds the tables that a record gains once while it builds them."""
+    """While it builds the tables that a record gains, ``get_coset_tails`` holds them once."""
     code = np.random.default_rng(0).integers(0, 2, (24, 96), dtype=np.uint8)
     instance = affine_instance.get_coset_instance(code, random_column_orders=0, weight_factor=1)
     inverse = _cosets.get_unit_syndrome_words(get_kernel(code))
@@ -134,7 +136,7 @@ def test_records_of_tails_build_the_tables_that_they_add_in_place() -> None:
 
 
 def test_search_tables_plan_by_parity_exactly_when_cosets_of_an_even_code_differ() -> None:
-    """A search plans with a table for each parity exactly if its code is even and a coset odd."""
+    """A search plans with bounds by parity exactly if its code is even and some coset is odd."""
     even_inverse = _cosets.get_unit_syndrome_words(get_kernel(EVEN_ROUTES_CODE))
     assert np.any(even_inverse.sum(axis=1) % 2)
     rank_deficient_inverse = _cosets.get_unit_syndrome_words(get_kernel(RANK_DEFICIENT_CODE))

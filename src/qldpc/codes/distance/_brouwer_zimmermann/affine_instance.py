@@ -40,8 +40,8 @@ class AffineInstance:
         certificate: The certificate of the steps, in Hamming units, whose weight divisor is one
             in a coset instance.  For an automorphism family, it covers every image of the one
             packed set (Section 3.7).
-        weight_factor: The factor ``η`` such that a bound ``L`` on Hamming weights bounds weights
-            by ``ceil(L / η)`` (Section 4.1).
+        weight_factor: The factor ``η`` such that a lower bound ``L`` on Hamming weights bounds
+            weights below by ``ceil(L / η)`` (Section 4.1).
     """
 
     generators: npt.NDArray[np.uint64]
@@ -61,8 +61,9 @@ class AffineInstance:
     def get_weight_bounds(self, parity: int | None = None) -> npt.NDArray[np.int64]:
         """Bounds on the weight of the unvisited words after each step of the certificate.
 
-        The Hamming bounds are rounded up to ``parity``, if given, and then divided by the weight
-        factor, rounding up (Section 3.2).  Each call returns a new table.
+        ``parity``, if given, must be the parity of the Hamming weight of every word.  The Hamming
+        bounds are rounded up to it, and then divided by the weight factor, rounding up
+        (Section 3.2).  Each call returns a new table.
         """
         return self.certificate.get_weight_bounds(self.weight_factor, parity)
 
@@ -139,9 +140,9 @@ def get_coset_family_instance(
 ) -> AffineInstance:
     """Pack the sets of any basis family of a code for the coset search, with every column.
 
-    The sets may overlap, as in the families of the routes of coset searches (Section 4.4).  The
-    certificate takes the ranks and maximum coverage of the family, and no weight divisor, and holds
-    for every coset (Section 3.1, "Families for coset searches").  ``weight_factor`` is as for
+    The sets may overlap, as in the families of coset routes (Section 4.4).  The certificate takes
+    the ranks and maximum coverage of the family, and no weight divisor, and holds for every coset
+    (Section 3.1, "Families for coset searches").  ``weight_factor`` is as for
     ``get_coset_instance``.
     """
     num_sets, num_generators, num_columns = basis_family.generators.shape

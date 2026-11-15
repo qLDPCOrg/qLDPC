@@ -47,15 +47,16 @@ class CosetSearchTables(NamedTuple):
     Attributes:
         inverse: Row ``j`` is the packed embedded word of a word whose syndrome has only bit ``j``
             set.
-        generators: The packed rows of each set of a family of information sets of the embedded
-            generators of the code (Section 4.4).  The last set of a disjoint family may be partial.
+        generators: The packed rows of each set of a family of information sets of the code, in
+            embedded words (Section 4.4).  The last set of a disjoint family may be partial.
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family (see ``_get_planning``).
             Queries write only its cached stopping steps, which oracles that share a cached search
             share.
-        x_mask: Selects the bits of a packed embedded word that form its X part.  Only searches
-            by CSS weight weigh X parts in their scans, but every search reads the mask when it
-            weighs the word of a syndrome and the offsets of layer zero.
+        x_mask: Selects the bits of a packed embedded word that form its X part, with one machine
+            word for each machine word of the embedded words.  Only searches of Pauli errors by
+            CSS weight scan with it, but every search reads it when it weighs the word of a
+            syndrome and the offsets of layer zero, or their tails.
     """
 
     inverse: npt.NDArray[np.uint64]
@@ -66,11 +67,11 @@ class CosetSearchTables(NamedTuple):
 
 
 class CosetTails(NamedTuple):
-    """The tails with which a BZ coset search weighs the words of a family by tails, and its tables.
+    """The tails with which a BZ coset search weighs the words of a family, and their tables.
 
     The tail of an embedded word on a set keeps every column but the pivots of the set, and a word
-    of a coset weighs its rows below the rank of the set plus its tail (Section 3.5).  The tails are
-    packed, and zero-padded to the width of the set of least rank.
+    of a coset weighs the number of its rows below the rank of the set plus the weight of its tail
+    (Section 3.5).  The tails are packed, and zero-padded to the width of the set of least rank.
 
     Attributes:
         tails: The tails of the rows of each set, with shape ``(num_sets, num_rows, num_words)``.
@@ -206,8 +207,9 @@ def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[in
     ``stop_num_completed`` sets complete layer ``stop_layer``.  The cached step ``(w, j)`` is reused
     if its bound exceeds ``max_weight`` and entry ``[w, j - 1]``, the bound of the step before it,
     does not; otherwise ``certificates.find_stopping_step`` finds the step, which replaces it.  A
-    negative ``max_weight`` gives the first step, and one that no bound exceeds, which only the
-    largest native integer reaches, gives the last.  Threads may share the buffer (Section 4.1).
+    negative ``max_weight`` gives the first step, and the largest native integer, the only
+    ``max_weight`` that no bound exceeds, gives the last.  Threads may share the buffer
+    (Section 4.1).
 
     Returns:
         ``stop_layer``, ``stop_num_completed``, and the bound of that step.

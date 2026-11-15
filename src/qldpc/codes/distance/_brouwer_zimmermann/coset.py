@@ -57,8 +57,8 @@ class BrouwerZimmermannCosetSearch:
 
     Args:
         routes: The routes of the search.
-        css_weight: True to weigh words by their CSS weight, which is the Hamming weight of an X
-            or Z part, or False to weigh them by their physical weight.
+        css_weight: True to weigh words by their CSS weight, ``max(|x|, |z|)`` for a Pauli error and
+            the Hamming weight of an X or Z part, or False to weigh them by their physical weight.
         num_qubits: The number of qubits ``n``.
         inverse_rows: Row ``j`` of ``get_unit_syndrome_words`` of the checks, not embedded, as an
             integer: a word whose syndrome has only bit ``j`` set.
@@ -116,7 +116,8 @@ class BrouwerZimmermannCosetSearch:
             weight = self._weight(word)
             return MinWeightBound(weight <= max_weight, word, weight)
 
-        # Otherwise every word of the coset weighs at least two, or the odd-coset lookup bound.
+        # Otherwise every word of the coset weighs at least two, or, for an odd coset, the odd-coset
+        # lookup bound.
         if max_weight < 2:
             word = xor_selected(self._inverse_rows, syndrome)
             return MinWeightBound(
@@ -129,8 +130,8 @@ class BrouwerZimmermannCosetSearch:
         best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
         packed_syndrome = int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
         lower_bound = _search_coset(packed_syndrome, max_weight, best, *tables, tails, self.scale)
-        # A search that finds a light enough word returns zero, but the coset has no word of weight
-        # at most one.
+        # A search that finds a light enough word returns zero, but every word of the coset weighs
+        # at least two, since the coset has no word of weight at most one.
         return MinWeightBound(lower_bound <= max_weight, self.unembed(best), max(2, lower_bound))
 
     def find_first_not_within_max_weight(
@@ -142,9 +143,9 @@ class BrouwerZimmermannCosetSearch:
         the search takes the route of the maximum weight once for all of them.
 
         Returns:
-            The index of that syndrome, or the number of syndromes if there is none, and a
-            ``MinWeightBound`` for its coset, with the lightest word that the search weighed, or
-            None if there is none.
+            The index of the first such syndrome and a ``MinWeightBound`` whose representative is
+            the lightest word that the search weighed; or the number of syndromes and None if there
+            is none.
         """
         tables, tails = self._get_route(max_weight)
         best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
@@ -162,9 +163,9 @@ class BrouwerZimmermannCosetSearch:
 
         The syndromes are packed as for ``CosetLeaderSearch.find_first_not_within_max_weight``.  The
         search of a syndrome also ends at a word of weight at most its floor in ``floors``, which
-        must be at most ``max_weight``.  The search takes once the route of the lesser of
-        ``max_weight`` and the number ``n`` of qubits, above which no coset has a minimum weight
-        (Section 3.10).  It looks up no words of weight at most one, which its first layers find.
+        must be at most ``max_weight``.  For ``n`` qubits, the search takes the route of
+        ``min(max_weight, n)`` once, since no coset has a minimum weight above ``n`` (Section 3.10).
+        It looks up no words of weight at most one, which its first layers find.
 
         Returns:
             For each syndrome, the weight of a word of its coset of weight at most its floor if
@@ -237,8 +238,8 @@ def get_pauli_search(
 
     ``stabilizers`` is an ``n x 2n`` matrix in ``[X|Z]`` order of ``n`` independent commuting
     stabilizers on ``n`` qubits, and the syndromes are for its rows.  ``css_weight`` selects the CSS
-    weight rather than the physical weight.  These rows, the measure of weight, and the fields of
-    the tuning that the setup of the search reads key the cache.
+    weight rather than the physical weight.  The cache is keyed by these rows, the measure of
+    weight, and the tuning fields that the setup of the search reads.
     """
     return _get_pauli_search(
         _StabilizerKey(stabilizers),
@@ -255,8 +256,8 @@ def get_css_searches(
     ``x_rows`` holds the X parts of the pure-X stabilizers, and ``z_rows`` the Z parts of the pure-Z
     stabilizers, both in reduced row echelon form, which depends only on the stabilizer group.  The
     X parts of errors are searched modulo the code of the X rows, with the Z rows as checks, and the
-    Z parts the other way around.  The rows and the fields of the tuning that the setup of the
-    searches reads key the cache.
+    Z parts the other way around.  The cache is keyed by the rows and the tuning fields that the
+    setup of the searches reads.
     """
     return _get_css_searches(
         x_rows.shape[1],
@@ -365,8 +366,9 @@ def _get_css_searches(
 ) -> tuple[BrouwerZimmermannCosetSearch, BrouwerZimmermannCosetSearch]:
     """The cached classical searches of ``get_css_searches``.
 
-    ``x_rows`` and ``z_rows`` hold the packed bytes, which ``lru_cache`` can hash, of the
-    ``num_x_rows`` and ``num_qubits - num_x_rows`` rows of ``get_css_searches``.
+    ``x_rows`` and ``z_rows`` are the rows of ``get_css_searches``, packed into bytes, which
+    ``lru_cache`` can hash.  ``x_rows`` has ``num_x_rows`` rows, and ``z_rows`` has the other
+    ``num_qubits - num_x_rows``.
     """
     num_words = max(1, (num_qubits + 63) // 64)
     x_matrix = unpack_bits(
@@ -442,7 +444,7 @@ def _tabulate_css_singles(
 
     ``x_singles`` and ``z_singles`` map syndromes to single-qubit X and Z errors, and to the
     identity.  Returns None if they make more than ``max_pairs`` pairs, and otherwise the first
-    product ``x ^ z`` of each syndrome ``sx ^ sz``.
+    product ``x ^ z`` of each syndrome ``sx ^ sz``, in the order of the two dictionaries.
     """
     if len(x_singles) * len(z_singles) > max_pairs:
         return None
@@ -516,10 +518,10 @@ def _search_coset(
     physical weight of a Pauli error, and one for an X or Z part.  ``tails`` is None, or the fields
     of the ``CosetTails`` of a route by tails (Section 4.4), on which ``scale`` is one or two.
 
-    The search starts from the word of the syndrome, and visits the layers of the sets in order, up
-    to its stopping step, until it finds a word within ``max_weight`` (Sections 3.1 and 4.1).  By
-    tails, it skips only words that tables prove heavier, so it finds the same first word within
-    ``max_weight``, if any (Section 3.9, "Coset searches").
+    The search starts from the word of the syndrome, and visits layer zero of every set, then layer
+    one, and so on, up to its stopping step, until it finds a word within ``max_weight``
+    (Sections 3.1 and 4.1).  By tails, it skips only words that tables prove heavier, so it finds
+    the same first word within ``max_weight``, if any (Section 3.9, "Coset searches").
 
     Returns:
         A lower bound on the weight of every word in the coset: zero if ``best``, which holds the
@@ -575,8 +577,8 @@ def _search_from_syndrome_word(
     search rounds to it (see ``get_search_tables``), and otherwise -1.  The search skips the unused
     sets of ``certificates.plan_steps``, which add nothing to the bound of the stopping step
     (Section 3.6).  By tails, it weighs words as ``affine_search.scan_coset_layer_by_tails`` does,
-    skips completions at the skip bound of ``scale * max_weight`` (see ``_get_skip_bound``), and
-    writes the lightest word into ``best`` before it returns.
+    skips completions at the skip bound that ``_get_skip_bound`` gives for ``scale * max_weight``,
+    and writes the lightest word into ``best`` before it returns.
 
     Returns:
         A lower bound on the weight of every word in the coset (Section 3.9, "Coset searches"):
@@ -602,9 +604,8 @@ def _search_from_syndrome_word(
     best_units, cutoff = factor * best_weight, factor * max_weight
     skip_bound = _get_skip_bound(cutoff, parity)
 
-    # Visit each layer one information set at a time, up to the stopping step.  The scans by tails
-    # keep the support of each lighter word in ``best_support``, and the others the word in
-    # ``best``.
+    # Visit each layer one set at a time, up to the stopping step.  The scans by tails keep the
+    # support of each lighter word in ``best_support``, and the others the word in ``best``.
     best_set, best_layer = -1, 0
     weighed, skipped = 0, 0
     support = np.empty(num_rows, dtype=np.int64)
@@ -768,9 +769,9 @@ def _search_coset_for_min_weight(
     weight that a search of whole words gives (Section 3.10).
 
     Returns:
-        ``U`` when the search stops, which is the minimum weight of the coset unless it is at most
-        ``floor``, and the numbers of words weighed after the word of the syndrome and of supports
-        skipped, which only tests read.
+        ``U`` when the search stops: the lesser of the minimum weight of the coset and
+        ``max_weight + 1``, unless ``U`` is at most ``floor``.  Also the numbers of words weighed
+        after the word of the syndrome and of supports skipped, which only tests read.
     """
     # Start from the word of the syndrome, which ends the search if it is within the floor, and
     # reduce it as ``_search_from_syndrome_word`` does.
@@ -796,8 +797,8 @@ def _search_coset_for_min_weight(
     upper_bound = min(best_weight, max_weight + 1)
     stop_layer, stop_num_completed = get_first_step_reaching(bounds, upper_bound)
 
-    # Visit each layer one information set at a time, up to the stopping step.  The loop ends by the
-    # last layer, whose bounds ``certificates.NO_WORD_BOUND`` exceed ``U``, since
+    # Visit each layer one set at a time, up to the stopping step.  The loop ends by the last layer,
+    # whose bounds ``certificates.NO_WORD_BOUND`` exceed ``U``, since
     # ``BrouwerZimmermannCosetSearch.get_min_weights`` keeps ``max_weight`` at most ``n``.  The
     # scans keep lighter words in ``best``, or their supports in ``best_support``, as work space.
     weighed, skipped = 0, 0
@@ -809,7 +810,8 @@ def _search_coset_for_min_weight(
         for set_index in range(num_sets):
             # Weigh the words of this step lighter than the incumbent, unless the set is unused, and
             # return once the best weight is at most the floor or the bound of the step before.  A
-            # scan starts at the incumbent, so its cutoff stays below it.
+            # scan returns once its best weight, which starts at the incumbent, is at most its
+            # cutoff, so the cutoff must stay below the incumbent.
             if not certificates.is_unused_set(pivots, set_index, stop_layer, stop_num_completed):
                 incumbent = min(best_units - slack, skip_bound)
                 step_floor = max(floor, bounds[layer, set_index])
@@ -898,7 +900,7 @@ def _search_coset_for_min_weight(
 def _get_offsets(
     word: npt.NDArray[np.uint64], generators: npt.NDArray[np.uint64], pivots: npt.NDArray[np.int64]
 ) -> npt.NDArray[np.uint64]:
-    """Reduce a word of a coset to the offset of each information set, which is zero on its pivots.
+    """Reduce a word of a coset to the offset of each set, which is zero on its pivots.
 
     ``generators`` and ``pivots`` are those of ``_search_coset``.
     """
@@ -918,13 +920,13 @@ def _get_offset_tails(
     tails: npt.NDArray[np.uint64],
     inverse_tails: npt.NDArray[np.uint64],
 ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.uint64]]:
-    """Find the rank of each information set and the tail of its offset.
+    """Find the rank of each set and the tail of its offset.
 
     ``word`` is the word of the syndrome ``packed_syndrome``, ``pivots`` are those of
     ``_search_coset``, and ``tails`` and ``inverse_tails`` are those of ``CosetTails``.  The tail of
-    an offset is that of ``word``, the sum of the inverse tails for the set bits of the syndrome,
-    plus the tails of the rows of the set whose pivots carry ones of ``word``, which reduce ``word``
-    to the offset (see ``_reduce_to_offset``).
+    ``word`` is the sum of the inverse tails for the set bits of the syndrome.  The tail of an
+    offset adds to it the tails of the rows of the set whose pivots carry ones of ``word``, since
+    these rows reduce ``word`` to the offset (see ``_reduce_to_offset``).
     """
     num_sets, num_rows, tail_width = tails.shape
     ranks = np.zeros(num_sets, dtype=np.int64)

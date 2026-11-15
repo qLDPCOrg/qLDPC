@@ -425,7 +425,7 @@ A coset query of maximum weight `ω` skips with the limit `h(ω)` of "Coset sear
 
 The costly queries of a coset search by Hamming weight ([Section 4.4](#44-heuristics-and-cost-models)) skip completions by tables in layers of two or more rows.
 The scan seeds every prefix with the tail `o` of the offset ([Section 3.1](#31-overlapping-search-bases)), so the tables bound `wt(o + p + P_i + P_j)`; they cover the tail columns up to the last on which a row has a one, and ones of `o` beyond it only weaken the bound.
-The search basis `G_i` need not be an information set, and its pivot rows come first, so a completion's pivot ones are those of its prefix's rows below `r_i`, plus at least `max(0, 2 - (r - r_i))` from its last two rows.
+The search basis need not be an information set, and its pivot rows come first, so a completion's pivot ones are those of its prefix's rows below the rank of the basis, plus at least `max(0, 2 - d)` from its last two rows, where `d` is its rank deficiency.
 The bound adds this count to `B` in place of `w`, which it equals for an information set.
 
 A query of maximum weight `ω` skips the completions whose bound reaches `h(ω)`, the least bound that proves a word of the coset heavier than `ω`.
@@ -442,7 +442,7 @@ A search for the minimum weight of a coset skips at `h(ω)` too until it finds a
 
 #### When a search uses the tables
 
-A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), with tables only for an information set; in a search basis `G_i` of deficient rank, it counts pivot ones only for rows below `r_i`, as coset searches do.
+A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), with tables only for an information set; in a basis of deficient rank, it counts pivot ones only for rows below its rank, as coset searches do.
 A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), and chooses tables as a distance search does (below) for each of its steps of two or more rows of an information set, with `_StepTables`.
 
 Tables cost memory, a build, and lookups, and save only the supports that they skip, so they pay on large layers where they skip many supports, but not on small layers or in easy searches.
@@ -520,8 +520,9 @@ A query starts from the **word of its syndrome**, the sum of the words with unit
 It stops at its **stopping step**, the first step whose bound exceeds the maximum weight, unless it finds a light enough word sooner.
 Each family of a coset search keeps the bounds of its steps in a **planning buffer**: one table for each parity of the cosets if the search rounds to parity, and one otherwise, and a query takes the table of its coset's parity.
 Each table has an extra row that caches a stopping step; `get_stopping_step` reuses it for a nonnegative maximum weight exactly when it is that weight's stopping step.
-Oracles that share a cached search share its buffer, and threads can interleave calls of `get_stopping_step` only when it runs as plain Python or in free-threaded Python, since compiled calls hold the global interpreter lock.
-A read can then pair the layer of one cached step with the number of completed sets of another, but any such pair indexes the bounds, which never change, and is checked against them before use.
+`get_pauli_search` and `get_css_searches` cache their searches, so callers can share a search and the planning buffers of its families.
+Compiled calls hold the global interpreter lock, so threads interleave calls of `get_stopping_step` only when it runs as plain Python or in free-threaded Python.
+A cached step is written as two entries, so a read can pair the layer of one step with the number of completed sets of another; any such pair is a valid entry of the bounds, which never change, and `get_stopping_step` reuses it only if those bounds show that it is the stopping step.
 
 `find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds stopping steps by a binary search of the steps, whose bounds never decrease, and `plan_steps` also adds up their work ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
 The distance search plans each layer with `Certificate.get_num_sets_to_certify`, which calls `Certificate.plan`; `plan` uses `find_stopping_step` when the certificate solves no linear programs, and otherwise checks every step of the layer but the last in order with `certifies`.

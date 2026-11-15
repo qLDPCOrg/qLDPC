@@ -62,8 +62,8 @@ def get_distance_brouwer_zimmermann_many(
             distance of a problem is the least weight of a word of its basis with nonzero labels, or
             of any nonzero word if its labels have no columns.  Each problem must have such a word.
         cutoff: Return once the best upper bound is at most this cutoff.
-        weight_divisor: A proven divisor of the weights over which the problems minimize, by which
-            the certificates round up (Section 3.2).  Default: 1.
+        weight_divisor: A proven divisor of the weights over which the problems minimize, to
+            whose multiples the certificates round up (Section 3.2).  Default: 1.
         upper_bound: A cap on the result, if any, such as the weight of a known witness outside
             ``problems``, or ``max_weight + 1`` under a weight limit (Section 4.5).
         get_disjoint_basis_families: If given, a function for each problem that returns a disjoint
@@ -225,9 +225,8 @@ class _BrouwerZimmermannSearch:
             self._switch_to_automorphism_family()
             return self.advance()
 
-        # Scan the sets in order, and stop after the first set whose step certifies the best weight
-        # (Section 2.5).  Each set steps through the supports of the layer on its own, which keeps
-        # the scan simple but repeats the stepping.
+        # Scan the sets in order.  Each set steps through the supports of the layer on its own,
+        # which keeps the scan simple but repeats the stepping.
         for index in range(num_scanned):
             if not self._scan_set(index, weight):
                 return self.best
@@ -480,8 +479,9 @@ def _prepare_brouwer_zimmermann_search(
         get_automorphism_family=get_automorphism_family,
     )
 
-    # If setup has already built the automorphism family, consider the switch now: the rows and
-    # certificate of that family can lower the best weight or finish the search (Section 3.7).
+    # If setup has already asked for the automorphism family, consider the switch now: the rows
+    # and certificate of that family, if any, can lower the best weight or finish the search
+    # (Section 3.7).
     if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
         search._switch_to_automorphism_family()
         if search.finished:

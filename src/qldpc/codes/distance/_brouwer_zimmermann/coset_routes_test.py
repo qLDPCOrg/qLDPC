@@ -28,8 +28,8 @@ _DEFICIENT_ROUTES_CODE = np.hstack(
     [np.eye(5, dtype=np.uint8), np.array([[1, 1], [1, 0], [0, 1], [1, 1], [1, 0]], dtype=np.uint8)]
 )
 
-# A code of two rows, whose only layer of two rows is its last, so its sets need tables only at
-# maximum weights whose queries reach it.
+# A code of two rows, so that its only layer of two rows is the last, and its sets need tables only
+# at the maximum weights whose queries reach that layer.
 _TWO_ROWS_CODE = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
 
 
@@ -47,8 +47,8 @@ def _build_routes(
 ) -> coset_routes.CosetRoutes:
     """The routes of the cosets of a code, from its greedy packing in natural column order.
 
-    Every column counts as the X part, and routes by tails, if ``by_tails``, take the completion
-    tables of the default tuning.
+    Every column counts as the X part.  If ``by_tails``, the routes include routes by tails, with
+    the completion tables of the default tuning.
     """
     return coset_routes.CosetRoutes(
         code,
@@ -94,7 +94,7 @@ def _get_ranks(tables: coset_tables.CosetSearchTables) -> npt.NDArray[np.int64]:
 
 
 def _get_works(tables: coset_tables.CosetSearchTables, max_weight: int) -> list[int]:
-    """The work of the plan of the steps of each table, without the sets that a query skips."""
+    """For each table, the work of its planned steps, without the sets that a query skips."""
     dimension = len(tables.planning[0]) - 2
     binomials = certificates.get_capped_binomials(dimension)
     ranks = _get_ranks(tables)
@@ -179,7 +179,7 @@ def test_routes_by_tails_reach_the_threshold_with_their_own_family(
             assert plain_routes.get_route(max_weight)[1] is None
             kinds.add(by_tails)
 
-        # Each build gets the latest record of its family, which every route by tails gives.
+        # Each build gets the latest record of its family, and every route by tails gives it.
         latest: dict[int, coset_tables.CosetTails] = {}
         for build in builds:
             assert build.given is latest.get(id(build.instance))
@@ -253,7 +253,7 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
             building -= 1
         return built
 
-    # Builds sleep, so that builds that ran at once would overlap.
+    # Builds sleep, so that unguarded concurrent builds would overlap.
     monkeypatch.setattr(coset_tables, "get_coset_tails", build_slowly)
     routes = _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True)
     barrier = threading.Barrier(len(max_weights))
@@ -265,7 +265,7 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
         return routes.get_route(max_weight)
 
     switch_interval = sys.getswitchinterval()
-    sys.setswitchinterval(1e-6)  # switch threads often, so that an unguarded race is likely
+    sys.setswitchinterval(1e-6)  # Switch threads often, so that an unguarded race is likely.
     try:
         with concurrent.futures.ThreadPoolExecutor(len(max_weights)) as executor:
             list(executor.map(get_route, max_weights))

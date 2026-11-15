@@ -23,8 +23,8 @@ def test_scans_of_sets_of_any_rank() -> None:
     rng = np.random.default_rng(120)
     no_tables = completion_bounds.NO_TABLES
 
-    # The sets have full rank, partial rank, and rank zero.  The last two use fewer packed words
-    # than they store, and store labels only in their second packed word.
+    # The sets have full rank, partial rank, and rank zero.  The last two scan fewer packed words of
+    # their rows than they store, and have labels only in their second packed word.
     for dimension in range(1, 7):
         generators = rng.integers(0, 2**64, (3, dimension, 5), dtype=np.uint64)
         labels = np.zeros((3, dimension, 2), dtype=np.uint64)
@@ -85,7 +85,7 @@ def test_scans_of_sets_of_any_rank() -> None:
 
 
 def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
-    """Chunked scans of an information set, with or without tables, find the lightest word."""
+    """Chunked scans of an information set find the lightest eligible word of a layer."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     no_tables = completion_bounds.NO_TABLES
     for dimension, num_label_words in itertools.product(range(2, 7), (0, 2)):
@@ -95,7 +95,8 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
         if num_label_words:
             labels[:, 1] = rng.integers(0, 4, dimension, dtype=np.uint64)
         width = generators.shape[1]
-        # Blocks of 4 and 8 columns leave a narrower last block, and build quickly as plain Python.
+        # Tables on blocks of 4 and 8 columns, which leave a narrower last block, build quickly as
+        # plain Python.
         all_tables = [no_tables] + [
             completion_bounds.CompletionTables.build(generators, bits) for bits in (4, 8)
         ]
@@ -286,7 +287,7 @@ def _get_tail_weights(
 def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
     pytestconfig: pytest.Config,
 ) -> None:
-    """A coset scan by tails weighs each word whole, and keeps the first lightest."""
+    """A coset tail scan gives each word its full Hamming weight, and keeps the first lightest."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows = 5
     tails = (rng.random((num_rows, 70)) < 0.3).astype(np.uint8)
@@ -345,7 +346,7 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
 def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound(
     deficiency: int, pytestconfig: pytest.Config
 ) -> None:
-    """A coset tail scan skips completions only if their bound reaches the skip bound."""
+    """A tail scan with tables skips completions only if their bound reaches the skip bound."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_columns, block_bits = 6, 24, 4
     # A one in the last column makes the tables cover every column.
@@ -401,7 +402,7 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
 def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower_it(
     pytestconfig: pytest.Config,
 ) -> None:
-    """A coset tail scan below the best weight skips completions only if they cannot lower it."""
+    """A tail scan whose skip bound is its best weight skips no completion that can lower it."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_columns, block_bits = 6, 24, 4
     tails = (rng.random((num_rows, num_columns)) < 0.25).astype(np.uint8)
@@ -449,10 +450,10 @@ def _get_completion_bound(
     block_bits: int,
     offset: npt.NDArray[np.uint8] | None = None,
 ) -> int:
-    """The block bound on the completions of a support by pairs from the first row of its last pair.
+    """The block bound on completing the prefix of a support by pairs from its next-to-last row on.
 
     It sums, over blocks of columns, the least weight on the block of the offset, if any, plus the
-    other rows of the support plus such a pair.
+    prefix plus such a pair.
     """
     prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
     if offset is not None:
