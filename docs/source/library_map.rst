@@ -140,7 +140,7 @@ All exact methods can take exponential time.
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
-Exact searches choose their routes by cost models whose settings and constants :doc:`exact_search_tuning` maps and documents.
+Exact searches choose their routes by simple heuristics, and :doc:`exact_search_tuning` leads from the symptoms of slow or memory-hungry searches to the settings that control these routes.
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a ``QuditCode`` that is not a ``CSSCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
 It can still ask on standard input before installing a missing GUAVA or QDistRnd package.
@@ -151,7 +151,7 @@ With ``num_trials=None``, ``get_distance_bound`` returns the exact distance or b
 An explicit ``num_trials`` runs that many trials, and never returns a worse bound than the best known one.
 ``forget_distance()`` discards remembered distances and bounds.
 :class:`~qldpc.codes.distance.CSSLogicalCounter` and :func:`~qldpc.codes.distance.count_logical_ops_css` count the logical operators of a given weight in a binary CSS code, given its X-type and Z-type checks as binary matrices.
-For a subsystem code, they count dressed logical operators, and the MacWilliams method does not support it.
+For a subsystem code, they count dressed logical operators, and the MacWilliams method does not support subsystem codes.
 ``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.
 
 Exact distance searches are also public functions of :mod:`qldpc.codes.distance` on plain binary arrays, for programs that need distances without building code objects, and the exact-distance methods of binary codes call these functions.
