@@ -2,55 +2,32 @@
 
 """Compare the whole current tuning of the exact searches with a whole proposed one, by timing.
 
-The comparison confirms a change of tuning whose values rules and measured constants give (see the
-Retuning section of ``qldpc.codes.distance._tuning``), and never chooses a value.  It times
-workloads (see ``workloads.py``) under two arms: the current tuning, the defaults of
-``SearchTuning``, and the proposed tuning, those defaults with the changes that ``--proposed``
-gives.  With ``--worktrees``, the arms are instead the defaults of two checkouts of qLDPC, the
-current one first, each of which runs its own ``trial.py`` and imports its own source, with the
-Python of this process.
+The comparison catches gross regressions or bugs when the tuning or the search code changes, and
+never sets or justifies a value (see the Retuning section of ``qldpc.codes.distance._tuning``).  It
+times workloads (see ``workloads.py``) under two arms: the defaults of ``SearchTuning``, and those
+defaults with the changes of ``--proposed``.  With ``--worktrees``, the arms are instead the
+defaults of two checkouts, current and proposed, each with its own ``trial.py`` and source, and both
+with the Python of this process.  Each trial runs ``trial.py`` in a new single-threaded process, one
+trial at a time, and each round runs both arms on each workload in an order that alternates, so that
+drifts of the load of the machine affect both arms alike.
 
-Each trial runs ``trial.py`` in a new process, limited to one thread, which warms up and then times
-one workload under one arm, and the trials run one at a time.  Each round runs both arms on each
-workload, one after the other, in an order that alternates between rounds and between workloads, so
-that drifts of the load of the machine affect both arms alike.  Each arm keeps the bytecode of its
-source in its own directory of the results directory, so that, after its first trial, neither arm
-compiles modules within its timed searches.  Before any trial, the script checks that each arm
-imports qLDPC from the ``src`` of its checkout.
+Each trial appends a JSON line to ``trials.jsonl`` in the results directory, and a comparison skips
+the trials that the file holds, so an interrupted comparison resumes where it stopped.  The script
+prints a summary and writes it to ``summary-<tag>.csv``: for each workload, the median time and peak
+memory of each arm, and the median ratio of the proposed arm's time to the current arm's over
+rounds, with its spread and, from six rounds on, a confidence interval (see
+``get_median_interval``).  The summary flags each workload whose arms disagree on a result.
 
-Each trial appends one JSON line to ``trials.jsonl`` in the results directory, with the tag of the
-comparison, the arm, the round, the checkout, changes, and source of each arm (see
-``get_source_fingerprint``), the load average, and the record of ``trial.py``, or the error or
-timeout of the trial.  A comparison skips the trials that the file already holds, so an interrupted
-comparison resumes where it stopped, and running a finished one again prints its summary.
+The README of this directory says when to time with ``--repeat``.  Run comparisons with limits on
+their time and memory.
 
-The summary pairs the arms of each round, among the trials of the arms, workloads, and repetitions
-that the command gives.  For each workload, it gives the successful trials of each arm, the median
-wall seconds of each arm (of a trial, the median of its repetitions), and the median, over rounds,
-of the difference and of the ratio of the proposed arm's time to the current arm's, with the least
-and greatest ratio, a distribution-free 95% confidence interval of the median ratio from six rounds
-(see ``get_median_interval``), and the median peak resident memory of each arm, in MiB.  Ratios of
-one round share the conditions of the machine, so their spread measures noise better than the
-spread of times.  It flags a workload whose arms disagree on a result, which no tuning may change
-except a distance search with an early exit.  It prints the summary, and writes it to
-``summary-<tag>.csv`` in the results directory.
+Examples, the first of which proposes a value of ``automorphism_minimum_states``, and the second of
+which compares the defaults of two checkouts:
 
-``--repeat`` times the workload several times in each trial's process.  The first repetition also
-does work that codes remember and that does not depend on the tuning (see ``trial.py``), so with
-three or more repetitions the median leaves it out.  But a code also remembers the automorphisms
-that a search finds, and whether a search finds them depends on the tuning, so time a change of
-when searches ask for automorphisms with one repetition.  Distance, hadamard, and count workloads
-repeat their searches; a workload of ``CosetLeaderSearch`` reuses its cached searches.
-
-Run comparisons under a guard of memory and time.
-
-Examples, the first of which proposes the earlier value of ``automorphism_minimum_states``,
-``10**5``, and so repeats the confirmation of its derived value with the arms swapped:
-
-    python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \\
+    python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6 \\
         --workloads ccdistance/lp13s5/X ccdistance/surface:17/X \\
         --proposed '{"automorphism_minimum_states": 100000}'
-    python experiments/distance_tuning/sweep.py --tag branch --rounds 3 \\
+    python experiments/distance_tuning/sweep.py --tag branch --rounds 6 \\
         --workloads distance/qt7/X count/gross/12 --worktrees ../qLDPC-main .
 """
 
@@ -266,7 +243,11 @@ def run_trial(trial: dict[str, Any], timeout: float, results_dir: pathlib.Path) 
 
 
 def get_environment(arm: dict[str, Any], name: str, results_dir: pathlib.Path) -> dict[str, str]:
-    """The environment of the processes of an arm: one thread, its source, and its bytecode."""
+    """The environment of the processes of an arm: one thread, its source, and its bytecode.
+
+    Each arm keeps the bytecode of its source in its own directory, so that after its first trial,
+    neither arm compiles modules within its timed searches.
+    """
     environment = os.environ | SINGLE_THREAD
     paths = [str(pathlib.Path(arm["checkout"]) / "src"), os.environ.get("PYTHONPATH")]
     environment["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
@@ -330,7 +311,12 @@ def read_trials(path: pathlib.Path) -> list[dict[str, Any]]:
 
 
 def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """One row for each workload of a comparison."""
+    """One row for each workload of a comparison, pairing the arms of each round.
+
+    Ratios of one round share the conditions of the machine, so their spread measures noise better
+    than the spread of times.  It warns of a workload whose arms disagree on a result, since no
+    tuning may change a result, except that of a distance search with an early exit.
+    """
     by_workload: dict[str, list[dict[str, Any]]] = {}
     for trial in trials:
         by_workload.setdefault(trial["workload"], []).append(trial)

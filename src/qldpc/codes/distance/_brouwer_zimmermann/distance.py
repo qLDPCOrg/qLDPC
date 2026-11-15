@@ -264,9 +264,8 @@ class _BrouwerZimmermannSearch:
         # layer, so the scan stops after the first set whose step certifies the best weight
         # (Sections 2.5 and 3.9 of ``brouwer_zimmermann.md``).  ``certifies`` solves a linear
         # program only if the program could certify that weight.  Each set steps through the
-        # supports of the layer on its own, which keeps the scan simple.  On layers of many sets of
-        # short rows, this measured up to about 1.4 times slower than weighing each support in every
-        # set at once.
+        # supports of the layer on its own, which keeps the scan simple but repeats the stepping, a
+        # cost that shows on layers of many sets of short rows.
         for index in range(num_scanned):
             if not self._scan_set(index, weight):
                 return self.best

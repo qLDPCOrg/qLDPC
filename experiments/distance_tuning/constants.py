@@ -1,95 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Measure the machine constants of exact searches, and print the derived values of their tuning.
+"""Check the orders of magnitude of the costs that the heuristics of exact searches assume.
 
-The derived values of ``qldpc.codes.distance._tuning`` follow from rules and from constants of the
-machine.  The Retuning section of its module docstring states the rules, and "Rules and constants"
-in the README of this directory tables the measurements.  The script measures every constant that a
-derived value needs, and prints each derived value beside its default.  It measures:
+Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` gates an optional step,
+and assumes the cost of the step to an order of magnitude (see the Retuning section of
+``_tuning.py``).  The script measures the cost of each such step on quick searches, and then the
+coefficients of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each
+tuning of ``COST_MODEL_ARMS``, which together can take hours.  It prints both beside their defaults;
+the README of this directory explains the columns, and the functions of this script say how it
+measures each cost.  The script sets no value.
 
-- the seconds of one candidate/set evaluation of a BZ search: for each traced search, the seconds of
-  its layers of at least ``10**7`` evaluations without completion tables, less the seconds of
-  choosing tables and of the automorphism switch within them, divided by their evaluations, and the
-  median over the searches.  It converts the constants of BZ searches into evaluations;
-- matroid partitioning, per unit of the sum of ``b**2 * k**2 * n`` over the coverages ``b`` that a
-  search tries, which ``partition_work_ratio`` multiplies: the costliest of the traced runs;
-- the costliest prediction of the cost of completion tables, which samples supports, over the
-  layers of the traced searches;
-- building a family of overlapping information sets: the costliest of the families built;
-- finding automorphisms of a BZ search and building their images: for each traced search, the
-  seconds of finding, verifying, and building their family before trying partitioning, if it would
-  partition, and of its first consideration of a switch to automorphism images, which includes
-  those steps if it has not taken them; the costliest of the searches;
-- the linear programming of a search of a large basis, ``distance/qt7/X`` of 181 rows: the seconds
-  that its certificates spend in their bounds (planning, the checks of ``Certificate.certifies``,
-  and the programs), with automorphisms off so that the search keeps its certificate throughout;
-- the seconds of one state of a connected-cluster search: for each traced search, the seconds of
-  its weight limits of at least ``10**4`` states, less the seconds of asking for automorphisms,
-  divided by their states, and the median over the searches.  It converts the cost of asking into
-  states;
-- asking for automorphisms in a connected-cluster search, which finds them, verifies them, and
-  orders their orbits: the costliest of the traced searches, which ask before their first weight
-  limit;
-- the five coefficients of the cost model of completion tables, from the traces of the cost data set
-  (see below).
-
-Each gate breaks even with the costliest measurement of its step, in the unit of its field, rounded
-by ratio to 1, 2, or 5 times a power of ten.
-
-The cost model of completion tables (Section 3.9 of ``brouwer_zimmermann.md``), which
-``predict_completion_cost`` and ``_estimate_build_cost`` in
-``_information_sets/completion_bounds.py`` compute, has five coefficients, which are constants of
-the machine.  The script measures them on the searches of the cost data set of the Retuning
-section, ``COST_DATA_SET``: the X sectors of the [[288, 12, 18]] bivariate bicycle code and
-of the pair-partition codes ``pp232``, ``pp170``, and ``pp276``.  It traces each of these searches
-three times under each of four tunings: tables disabled (``completion_bound_max_table_bytes=0``),
-tables forced (``completion_bound_minimum_layer_work=0`` and
-``completion_bound_max_cost_percent=MAX_VALUE``), the same on blocks of 8 columns, whose tables are
-about 128 times smaller, and the defaults, in an order that alternates between repeats.  It aligns
-the layers of the four traces of each search and repeat, and expresses times in scanned supports,
-the seconds per support of the layer with tables disabled.  For each layer of at least ``10**7``
-supports that a forced trace scanned with tables, it computes:
-
-- the measured cost of the layer with tables, without choosing and building them, as a share of its
-  cost with tables disabled, and the cost that ``predict_completion_cost`` predicted for it;
-- the ratio of its lookups to the lookups of the cost model with a kept-first-row ratio of one,
-  which measures ``completion_bound_kept_first_row_ratio``, for a layer of one set;
-- its excess cost over the scan of the supports that it kept, per lookup and block, to which it
-  fits ``completion_bound_lookup_block_cost`` and ``completion_bound_lookup_block_cost_per_mib`` by
-  least squares, for a layer of one set.
-
-It also measures every build of tables in the forced traces, in a layer of any size, since searches
-build tables at the first layers that consider them, which are often small.  The coefficients
-``completion_bound_table_byte_cost`` and ``completion_bound_build_step_cost`` predict the cost of a
-build, as ``_estimate_build_cost`` counts bytes and steps.  The script expresses the seconds of each
-build in candidate/set evaluations, at the seconds per evaluation of the search's layers of at least
-``10**7`` supports with tables disabled.  Bytes and steps grow together, so the builds measure one
-scale of both coefficients, the median ratio of measured to predicted builds.  The ratio of the two
-coefficients, one to two, was set by hand.  Searches with tables forced keep the tables of one
-information set at a time, and a set reuses its tables only if no other set has chosen tables since
-it did, so a layer that scans several information sets builds tables for each of them, and each
-table counts.
-
-The fits of lookups and of the kept-first-row ratio use only the layers that scan one set, as the
-cost model assumes: such a layer chooses one width of tables, and its skipped supports and lookups
-belong to that set.  The kept-first-row ratio is the median over the layers with blocks of
-``completion_bound_block_bits`` columns that skip at most 99% of their supports, since the few
-lookups of a layer that skips more, beyond those of prefixes, cannot resolve it.  Medians over
-repeats replace single times.  The script prints these layers, with whether the defaults used tables
-on them and how many sets they scan, and each measured coefficient, before rounding, beside its
-default.  The Retuning section says how to round the two coefficients of builds; no rule rounds the
-other three.
-
-Each measurement is a trace of ``trace.py``, or, for linear programming, a run of this script with
-``--linear-programs-of``, in a new single-threaded process, which first warms up as ``trial.py``
-does.  The script saves each measurement in ``constants/`` in the results directory, with the
-source of qLDPC that it ran on (see ``sweep.get_source_fingerprint``), and skips those already
-saved from the current source.  So it measures every constant again after a commit or a change to
-``src/``, and it reports no value while a measurement of it from other source remains.  The quick
-measurements take a few minutes, after which the script prints the derived values.  It then traces
-the cost data set, which takes hours, and prints the coefficients of the cost model.  An
-interrupted run resumes where it stopped.  It measures the qLDPC of its own checkout, and refuses to
-run if this process imports qLDPC from elsewhere.  Run it on a quiet machine, under a guard of time
+Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
+the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
+commit or a change to ``src/``, and an interrupted run resumes where it stopped.  It refuses to run
+if this process imports qLDPC from elsewhere.  Run it on a quiet machine, with limits on its time
 and memory.
 
 Example:
@@ -135,11 +59,11 @@ LARGE_LAYER = 10**7
 # Weight limits of connected-cluster searches below this many states are dominated by fixed costs.
 LARGE_LIMIT = 10**4
 
-# The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop
-# after setup.  Linear programs are off in BZ searches that run layers, so that layers time scans:
-# ``trace.py`` repeats the planning of a certificate that solves programs.  Traces that stop after
-# setup keep the default of linear programs.  Connected-cluster searches ask for
-# automorphisms before their first weight limit, so that each of their traces measures that step.
+# The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop after
+# setup.  Linear programs are off in BZ searches that run layers, so that layer times exclude the
+# planning that ``trace.py`` repeats.  Traces that stop after setup keep the default of linear
+# programs.  Connected-cluster searches ask for automorphisms before their first weight limit, so
+# that each of their traces measures that step.
 TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (name, workload, {"lp_minimum_work": _tuning.MAX_VALUE}, False)
     for name, workload in (
@@ -173,14 +97,15 @@ TRACES += [
     for code in ("qt7", "pp276", "bb288", "gross", "lp13s5", "pp232", "surface:17")
 ]
 
-# The search whose linear programming is timed, and its changes of the tuning.
+# The search whose linear programming is timed, and its changes of the tuning.  Automorphisms are
+# off, so that the search keeps its certificate throughout.
 LINEAR_PROGRAMS = (
     "distance/qt7/X",
     {"lp_minimum_work": 0, "automorphism_minimum_layer_work": _tuning.MAX_VALUE},
 )
 
-# The cost data set of the Retuning section of _tuning, on which the coefficients of the cost model
-# of completion tables are measured, and how many times each search is traced under each tuning.
+# The cost data set, on which the script measures the coefficients of the cost model of completion
+# tables, and how many times it traces each search under each tuning.
 COST_DATA_SET = ("distance/bb288/X", "distance/pp232/X", "distance/pp170/X", "distance/pp276/X")
 COST_MODEL_REPEATS = 3
 
@@ -199,7 +124,8 @@ COST_MODEL_ARMS: dict[str, dict[str, Any]] = {
     "default": {},
 }
 
-# The largest share of skipped supports of a layer whose kept-first-row ratio is measured.
+# The largest share of skipped supports of a layer whose kept-first-row ratio is measured.  A layer
+# that skips more makes too few lookups, beyond those of prefixes, to resolve the ratio.
 MAX_KEPT_RATIO_SHARE = 0.99
 
 
@@ -212,7 +138,7 @@ class Constant:
 
 
 def main() -> None:
-    """Measure the constants, or time the linear programming of one search."""
+    """Measure the assumed costs, or time the linear programming of one search."""
     args = parse_args()
     sweep.check_local_import()
     if args.linear_programs_of is not None:
@@ -352,9 +278,9 @@ def is_current(path: pathlib.Path, source: dict[str, str]) -> bool:
 
 
 def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib.Path) -> None:
-    """Time the bounds of the certificates of one search that solve linear programs, and save them.
+    """Time the methods of one search's certificates that solve linear programs, and save the times.
 
-    The bounds of such a certificate (``plan``, ``certifies``, and ``step_lower_bound``) plan its
+    The methods ``plan``, ``certifies``, and ``step_lower_bound`` of such a certificate plan its
     steps with exact arithmetic and solve its programs, so their seconds, outside nested calls, are
     the cost of linear programming in the search.
     """
@@ -401,11 +327,11 @@ def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib
 
 
 ####################################################################################################
-# constants and derived values
+# constants and rounded costs
 
 
 def report(directory: pathlib.Path) -> None:
-    """Print the constants and the derived values of gates, from the measurements in the directory.
+    """Print the measured constants, and the cost of each gated step rounded beside its default.
 
     Print nothing else if a measurement is missing, or was made on other source code.
     """
@@ -454,9 +380,9 @@ def report(directory: pathlib.Path) -> None:
             f"  {constant.description}"
         )
 
-    # Each gate breaks even with the costliest measurement of its step, rounded as the Retuning
-    # section says (see round_to_grid).  The cost limit of completion tables compares two
-    # estimates of one unit.
+    # Round the costliest measurement of each step, in the unit of its field, as round_to_grid
+    # does, to print it beside the default.  The cost limit of completion tables is a limit at
+    # equality, 100.
     gates = {
         "partition_work_ratio": "partitioning, per unit",
         "completion_bound_minimum_layer_work": "costliest prediction",
@@ -486,7 +412,7 @@ def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The median, over the traced searches, of their seconds per candidate/set evaluation.
 
     Each search counts its layers of at least ``LARGE_LAYER`` evaluations without completion tables,
-    less the seconds of choosing tables and, in a layer that switches to automorphism images, of
+    less the seconds of choosing tables and, in a layer that may switch to automorphism images, of
     switching.
     """
     rates = {}
@@ -559,7 +485,8 @@ def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     Each trace holds one search.  A search that would partition first finds, verifies, and builds
     the family of its automorphisms, to compare its work (``competing_seconds``), and then considers
     the switch at the end of setup; another takes these steps at its first consideration.  So each
-    search counts both, and searches that consider no switch do not count.
+    search counts both its competing seconds and its first consideration, and searches that consider
+    no switch do not count.
     """
     searches = []
     for trace in traces.values():
@@ -615,7 +542,7 @@ def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_limit_ask_seconds(limit: dict[str, Any]) -> float:
-    """The seconds of asking for automorphisms before a weight limit, or zero if it did not ask."""
+    """The seconds of asking for automorphisms before a weight limit, or zero without asking."""
     return limit.get("find_seconds", 0.0) + limit.get("verify_seconds", 0.0)
 
 
@@ -664,7 +591,10 @@ def report_cost_model(directory: pathlib.Path) -> None:
             predictions = get_predictions(arms[arm])
             if large:
                 # The unit of builds is the candidate/set evaluation, a support that a scan
-                # evaluates in its set.
+                # evaluates in its set.  Builds of layers of any size count, since searches build
+                # tables at the first layers that consider them, which are often small.  With tables
+                # forced, a search keeps the tables of one set at a time, so a layer that scans
+                # several sets builds tables for each.
                 seconds_per_evaluation = sum(layer["seconds"] for layer in large) / sum(
                     layer["evaluated"] for layer in large
                 )

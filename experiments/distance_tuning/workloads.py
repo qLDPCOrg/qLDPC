@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Named codes and workloads on which the exact distance searches of qLDPC are timed and traced.
+"""Named codes, and the workloads of exact searches that this directory times and traces.
 
 A code name is one of:
 
 - ``pp<n>``: an embedded pair-partition instance (see ``INSTANCES``), such as ``pp110``;
 - ``gross``: the [[144, 12, 12]] bivariate bicycle code;
 - ``bb288``: ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]]
-  code of the width data set of ``qldpc.codes.distance._tuning``;
-- ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, also of that data set;
+  bivariate bicycle code;
+- ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, a quantum Tanner code;
 - ``qgolay``: the [[23, 1, 7]] quantum Golay code, which is self-dual;
 - ``qrm:<order>:<size>``: ``QuantumReedMullerCode(order, size)``, which is self-dual, for ``mcount``
   workloads: qLDPC knows its distance in closed form, so a distance workload of it searches nothing;
@@ -47,8 +47,8 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
   one, by CSS weight, on that state, for the syndromes of random Pauli errors of ``error_weight``
   qubits, as certifications of fault propagation query each primitive fault;
 - ``first/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``:
-  ``find_first_not_within_max_weight`` for the same syndromes, as certifications of fault
-  propagation search them;
+  ``find_first_not_within_max_weight`` for the syndromes of ``coset`` workloads, as certifications
+  of fault propagation search them;
 - ``certify/<code>/<weighing>/<max_weight>``: ``certify_bounded_fault_propagation`` of the encoding
   circuit of ``|0...0>`` of a CSS code under ``DepolarizingNoiseModel(1e-3)``, by ``css`` or
   ``physical`` weight, whose result is the fault weight of the smallest violation, if any;

@@ -7,7 +7,7 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
-| [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and the measurements that derive their tuning, with paired comparisons that confirm a change of it | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
+| [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and checks of the heuristics behind their tuning | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
@@ -209,17 +209,12 @@ The option `--hadamards` applies Hadamards to the second half of the qubits of e
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
 
-The other scripts of [`distance_tuning/`](distance_tuning/) derive the tuning of the exact searches, and confirm a change of it, as [its README](distance_tuning/README.md) describes.
-[`constants.py`](distance_tuning/constants.py) measures the constants of the machine from which the derived values of `SearchTuning` follow, and prints those values.
-Its quick measurements take a few minutes, and its traces of the searches that measure the cost model of completion tables take hours, so run it on a quiet machine, under a guard of time and memory.
-[`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of the searches of one workload of [`workloads.py`](distance_tuning/workloads.py), such as the families of information sets that a search builds, and compares the decisions of two traces.
-[`sweep.py`](distance_tuning/sweep.py) times the whole current tuning against a whole proposed one, or the defaults of two checkouts, in paired rounds of trials that alternate their order, each in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)), and summarizes the ratios of the two arms.
-Such a comparison confirms a change of values, and never chooses them.
-For example, to measure the constants, and then to time the earlier value of `automorphism_minimum_states`, `10**5`, against its derived default:
+The other scripts of [`distance_tuning/`](distance_tuning/) check the tuning of the exact searches and set no value, as [its README](distance_tuning/README.md) describes.
+For example, to check the orders of magnitude that the heuristics of `SearchTuning` assume, and then to check a proposed change of `automorphism_minimum_states` for gross regressions:
 
 ```bash
 python experiments/distance_tuning/constants.py
-python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \
+python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6 \
     --workloads ccdistance/lp13s5/X ccdistance/qt7/X --proposed '{"automorphism_minimum_states": 100000}'
 ```
 

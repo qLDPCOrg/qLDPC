@@ -824,8 +824,8 @@ def _get_branches(
         # The allowed symbols are now the available ones.
         available_level += 1
 
-    # Branch on the available symbols of the chosen check, most repairing first, which Section 3.3
-    # of connected_cluster.md measures.
+    # Branch on the chosen check's available symbols, most repairing first, which Section 3.3 of
+    # connected_cluster.md explains.
     num_branches = 0
     for position in range(check_starts[branch_check], check_starts[branch_check + 1]):
         symbol = check_symbols[position]
