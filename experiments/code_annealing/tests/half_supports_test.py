@@ -3,7 +3,7 @@
 """The supports of minimum-weight logical operators, and minimum-weight generators of code files.
 
 These numbers go into the paper's figures and listings, and a wrong one would look plausible, so
-they are checked against small codes whose supports are derived by hand.
+they are checked against small codes whose answers are derived by hand, or by brute force.
 """
 
 from __future__ import annotations
@@ -68,12 +68,17 @@ def test_only_the_sector_of_the_lighter_logicals_has_minimum_weight_supports(lig
 
 
 def test_reduced_generators_have_the_least_weights_of_any_generators_of_the_same_space() -> None:
-    # Every set of generators of the space, found by trying all sets of nonzero words, is an oracle.
-    # In the first space, adding one row to another never lowers its weight, so a reduction by sums
-    # of pairs of rows stops at a total weight of 8, but the sum of all three rows has weight 2, and
-    # the least total weight is 7.
+    # The least total and maximum weights over every set of generators of the space, found by
+    # trying all sets of nonzero words, are the oracle.  In the first space, adding one row to
+    # another never lowers its weight, so a reduction by sums of pairs of rows stops at a total
+    # weight of 8, but the sum of all three rows has weight 2, and the least total weight is 7.  In
+    # the second space, an elimination that tests the pivots of a word rather than of what remains
+    # of it keeps a third row that is the sum of the first two.
     rng = np.random.default_rng(0)
-    matrices = [galois.GF2([[1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 0, 1], [0, 0, 0, 0, 1, 1, 1]])]
+    matrices = [
+        galois.GF2([[1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 0, 1], [0, 0, 0, 0, 1, 1, 1]]),
+        galois.GF2([[1, 0, 1, 0, 1, 1, 1], [0, 1, 1, 0, 0, 0, 0], [1, 0, 0, 1, 1, 0, 1]]),
+    ]
     matrices += [galois.GF2.Random((3, 7), seed=rng) for _ in range(10)]
     for matrix in matrices:
         if np.linalg.matrix_rank(matrix) < 3:

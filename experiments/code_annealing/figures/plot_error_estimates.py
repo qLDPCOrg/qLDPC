@@ -271,7 +271,7 @@ def _make_error_estimates_figure(
         )
         for axis in axes:
             axis.set_ylabel("logical error rate\nper logical qubit")
-        figure.tight_layout(pad=0.3, h_pad=1.5, w_pad=0.1)
+        figure.tight_layout(pad=0.3, h_pad=1.5)
     return figure
 
 

@@ -109,7 +109,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         best_known = read_best_known(code_files, data_file)
     except ValueError as error:
-        raise SystemExit(str(error)) from error
+        raise SystemExit(f"{error}: run collect_data --scrape") from error
     for code_type, neighbors in best_known.items():
         code_file = code_files[code_type]
         entries = read_code_file(code_file)

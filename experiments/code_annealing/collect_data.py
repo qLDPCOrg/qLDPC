@@ -58,13 +58,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     scraped = scrape_qecdb.find_data_file(results_dir)
     if scraped is None:
         print("\nSkipping latex_tables: no earlier scrape, and --scrape was not given")
-    elif not scrape_qecdb.is_up_to_date(find_code_files(results_dir), scraped):
-        print(
-            "\nSkipping latex_tables: the earlier scrape is out of date or cannot be read;"
-            " use --scrape"
-        )
-    else:
-        run_step("latex_tables", latex_tables.main, options)
+        return
+    try:
+        scrape_qecdb.read_best_known(find_code_files(results_dir), scraped)
+    except ValueError as error:
+        print(f"\nSkipping latex_tables: {error}; use --scrape")
+        return
+    run_step("latex_tables", latex_tables.main, options)
 
 
 if __name__ == "__main__":

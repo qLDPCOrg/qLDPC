@@ -144,18 +144,6 @@ class BestKnown:
         return BestKnown((nn, kk, dd), n_best, k_best, d_best, (id_n, id_k, id_d))
 
 
-def is_up_to_date(code_files: Mapping[CodeType, Path], data_file: Path) -> bool:
-    """Does a data file describe exactly the codes of the code files, in the same order?
-
-    A data file that cannot be read, such as one with a malformed line, is not up to date.
-    """
-    try:
-        read_best_known(code_files, data_file)
-    except ValueError:
-        return False
-    return True
-
-
 def read_best_known(
     code_files: Mapping[CodeType, Path], data_file: Path
 ) -> dict[CodeType, list[BestKnown]]:
@@ -169,9 +157,7 @@ def read_best_known(
     if [[result.params for result in block] for block in blocks] != _get_expected_params(
         code_files
     ):
-        raise ValueError(
-            f"{data_file} is out of date, because the codes changed: run collect_data --scrape"
-        )
+        raise ValueError(f"{data_file} is out of date, because the codes changed")
     return dict(zip(_sorted_code_types(code_files), blocks, strict=True))
 
 
