@@ -28,11 +28,10 @@ from .coset_tables import CosetSearchTables, CosetTails
 # A family of information sets of a coset search: its coset instance and its tables.
 _Family = tuple[affine_instance.AffineInstance, CosetSearchTables]
 
-# Threads that choose routes at once take turns.  Choosing a route runs plain Python, which threads
-# can interleave despite the global interpreter lock, and the route of a family by tails builds the
-# record of the family from its latest record.  Two threads building from one record at once could
-# each store a record without the tables of the other's route.  A search chooses each route once, so
-# threads rarely wait for one shared lock; a lock per search would keep the search from pickling.
+# Threads that choose routes take turns, since two threads that built records of tails from one
+# record at once could each store a record without the tables of the other's route.  A search
+# chooses each route once, so one shared lock rarely makes threads wait, and unlike a lock per
+# search, it lets searches pickle.
 _ROUTE_LOCK = threading.Lock()
 
 ####################################################################################################
@@ -43,27 +42,18 @@ class CosetRoutes:
     """The tables, and records of tails, with which a BZ coset search answers each maximum weight.
 
     Args:
-        basis: The independent embedded generators of the code of the search.  The routes keep a
-            copy, from which they build the other families, so later changes to the array of the
-            caller do not reach them.
+        basis: The independent embedded generators of the code of the search, which the routes
+            copy.
         disjoint: The coset instance of the disjoint information sets of ``basis``.
-        inverse: The embedded words whose syndromes have one bit set, with every column of the
-            embedded words.  The tables and records of tails of every family hold them (see
-            ``coset_tables.get_search_tables`` and ``coset_tables.get_coset_tails``).
-        num_x_columns: The number of the first columns of the embedded words that count as their X
-            part (see ``coset_tables.get_search_tables``).
-        minimum_work: The field ``coset_route_minimum_work`` of the tuning.  A query whose
-            predicted examinations with the disjoint family are below it keeps that family.  A route
-            is a route by tails if the predicted examinations with its own family reach it.
-        max_sets: The most sets of a family of overlapping information sets, the field
-            ``max_information_sets`` of the tuning.
+        inverse: The embedded words whose syndromes have one bit set, with every column.
+        num_x_columns: The number of leading columns of an embedded word that form its X part.
+        minimum_work: The field ``coset_route_minimum_work`` of the tuning (Section 4.4).
+        max_sets: The field ``max_information_sets`` of the tuning.
         attempts_per_set: The field ``overlapping_attempts_per_set`` of the tuning.
         by_tails: Whether the search has routes by tails, which only searches that weigh Hamming
             weights have.
-        block_bits: The number of columns of the blocks of the completion tables of the routes by
-            tails, the field ``coset_completion_block_bits`` of the tuning.
-        max_table_bytes: The most bytes of the completion tables of a set, the field
-            ``completion_bound_max_table_bytes`` of the tuning.
+        block_bits: The field ``coset_completion_block_bits`` of the tuning.
+        max_table_bytes: The field ``completion_bound_max_table_bytes`` of the tuning.
 
     Attributes:
         disjoint_tables: The tables of the disjoint family.
@@ -110,12 +100,11 @@ class CosetRoutes:
 
         The routes keep the tables and the family of each route for later queries.  A route by tails
         gives the latest record of its family, which holds the tables of the sets that the route
-        needs, and maybe those of other routes of the family.
+        needs, and maybe those of other routes.
         """
         route = self._routes_by_weight.get(max_weight)
         if route is None:
-            # Threads take turns to choose routes, so that the record of each family gains the
-            # tables of the sets of every route (see ``_ROUTE_LOCK``).
+            # Threads take turns to choose routes (see ``_ROUTE_LOCK``).
             with _ROUTE_LOCK:
                 route = self._routes_by_weight.get(max_weight)
                 if route is None:
@@ -129,11 +118,9 @@ class CosetRoutes:
     ) -> list[int]:
         """The work of a family at a maximum weight, for each table of its planning buffer.
 
-        The work of a table is that of the plan of its steps from layer zero for the limit
-        ``max_weight``, without the unused sets that a query skips (see
-        ``certificates.plan_steps``).  It counts the words that a query without a light enough word
-        weighs, or skips by completion tables, after the word of its syndrome (Section 3.9 of
-        ``brouwer_zimmermann.md``).
+        It is the work of ``certificates.plan_steps`` from layer zero, without unused sets: the
+        words that a query of a coset without a light enough word weighs or skips after the word of
+        its syndrome (Section 3.6).
         """
         return [
             certificates.plan_steps(
@@ -158,9 +145,9 @@ class CosetRoutes:
         if self._get_examinations(*disjoint, max_weight) < self._minimum_work:
             return self.disjoint_tables, None
 
-        # Build the other families at the smallest weight from two at which the predicted
-        # examinations reach the threshold.  The examinations never decrease with the weight, so
-        # this weight is at most max_weight if max_weight is at least two.
+        # Build the other families once, at the least weight from two at which the predicted
+        # examinations reach the threshold (Section 4.4), which exists since the examinations never
+        # decrease with the weight.
         if self._candidates is None:
             target_weight = next(
                 weight
@@ -208,11 +195,9 @@ class CosetRoutes:
     ) -> list[int]:
         """The sets of a family whose completion tables the queries at a maximum weight use.
 
-        A query visits each set up to the last layer that the set completes by the stopping step of
-        its table, unless the set is an unused set of that step (see ``certificates.plan_steps``),
-        and then the query skips the set.  It uses the tables of a set in every layer of two or more
-        rows, up to the number of rows of the basis (see ``completion_bounds.considers_tables``).
-        So a set needs tables if its last layer is such a layer.
+        A set needs tables if the last layer that a query scans in it has from two rows up to the
+        number of rows, unless the set is an unused set of the stopping step, which the query skips
+        (see ``certificates.plan_steps``).
         """
         num_rows = len(self._basis)
         sets = set()
@@ -235,15 +220,14 @@ class CosetRoutes:
     def _get_candidates(self, target_weight: int) -> list[_Family]:
         """Try to build the maximum disjoint and the overlapping families, and their tables.
 
-        The overlapping family starts from the information sets of the maximum disjoint family.  If
-        the maximum disjoint family has no larger ranks than the disjoint one, it starts from those
-        of the disjoint family.  Returns each family that the stages find, with its tables.
+        The overlapping family starts from the maximum disjoint family, or from the disjoint one if
+        the maximum disjoint family is not kept (Section 4.4).  Returns those of the two families
+        that have sets, each with its tables.
         """
         weight_factor = self._disjoint.weight_factor
         disjoint = _get_basis_family(self._disjoint, self._basis.shape[1])
         maximum = basis_families.get_maximum_disjoint_family(self._basis, disjoint)
-        # The minimum work of the policy is zero, since the gate replaces it, so the stage never
-        # skips for low work; it may still find no family.
+        # The route threshold gates this stage in place of its minimum work (Section 4.4).
         overlapping = basis_families.get_overlapping_family(
             self._basis,
             np.empty((len(self._basis), 0), dtype=np.uint8),
@@ -276,8 +260,7 @@ def _get_basis_family(
 ) -> basis_families.BasisFamily:
     """The basis family of the sets of a coset instance, without labels or a weight divisor.
 
-    The routes keep the coset instance of the disjoint family, which every query may scan, and
-    rebuild its basis family only for the stages that build other families, once for each search.
+    The routes rebuild it from the coset instance only for the stages that build other families.
     """
     num_sets, dimension, width = instance.generators.shape
     generators = unpack_bits(instance.generators.reshape(-1, width), num_columns)

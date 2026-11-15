@@ -520,6 +520,8 @@ A query starts from the **word of its syndrome**, the sum of the words with unit
 It stops at its **stopping step**, the first step whose bound exceeds the maximum weight, unless it finds a light enough word sooner.
 Each family of a coset search keeps the bounds of its steps in a **planning buffer**: one table for each parity of the cosets if the search rounds to parity, and one otherwise, and a query takes the table of its coset's parity.
 Each table has an extra row that caches a stopping step; `get_stopping_step` reuses it for a nonnegative maximum weight exactly when it is that weight's stopping step.
+Oracles that share a cached search share its buffer, and threads can interleave calls of `get_stopping_step` only when it runs as plain Python or in free-threaded Python, since compiled calls hold the global interpreter lock.
+A read can then pair the layer of one cached step with the number of completed sets of another, but any such pair indexes the bounds, which never change, and is checked against them before use.
 
 `find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds stopping steps by a binary search of the steps, whose bounds never decrease, and `plan_steps` also adds up their work ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
 The distance search plans each layer with `Certificate.get_num_sets_to_certify`, which calls `Certificate.plan`; `plan` uses `find_stopping_step` when the certificate solves no linear programs, and otherwise checks every step of the layer but the last in order with `certifies`.

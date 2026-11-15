@@ -2,19 +2,10 @@
 
 """Instances of the affine BZ search: the packed sets of a problem and their certificate.
 
-The distance search (``distance.py``) and the coset searches of the coset-leader search
-(``coset.py``) run the same Brouwer-Zimmermann (BZ) search over the words of an affine space (see
-``brouwer_zimmermann.md``).  The layers of this search add rows of an information set to an offset.
-An :class:`AffineInstance` holds what a search builds for its problem once for each family, before
-it scans, rather than for each layer or query: its packed sets and their certificate.  The offsets
-and stopping step of a coset search depend on the query, so the instance holds neither.
-
-A distance search builds an instance with ``get_distance_instance``, and builds another when it
-switches to an automorphism family.  A coset search of ``CosetLeaderSearch`` has an instance from
-``get_coset_instance`` or ``get_coset_family_instance`` for each family with which it answers
-queries (see ``coset_routes.py``).  It weighs the full rows of these instances whole or, on the
-routes by tails of a search that weighs Hamming weights, by tails derived from them (see
-``coset_tables.CosetTails``).
+The distance search (``distance.py``) and the coset searches (``coset.py``) scan the words of an
+affine space: an offset plus sums of rows of a set.  Each search packs its problem once for each
+family in an :class:`AffineInstance`.  Sections cited in this module are those of
+``brouwer_zimmermann.md``, whose Section 4.1 says how the searches use instances.
 """
 
 from __future__ import annotations
@@ -37,23 +28,20 @@ class AffineInstance:
     """The packed sets of one problem of an affine BZ search, and the certificate of their steps.
 
     Attributes:
-        generators: The packed rows of each scanned set, with shape ``(num_sets, dimension,
-            width)``, zero-padded to a common width.  The rows of a distance instance have the
-            pivot columns of their set deleted.
-        labels: The packed quotient labels of the rows of each scanned set, with the same first two
-            axes, and no words for a problem without labels.
-        widths: The number of words of ``generators`` that each scanned set uses.
-        pivots: The pivot columns of each scanned set, padded with -1, with shape ``(num_sets,
-            dimension)``.  They are columns of the full rows, and are bit positions of the rows of
-            ``generators`` only in a coset instance.
-        ranks: The rank of each scanned set: the number of its pivots that are not padding.
-        certificate: The certificate of the steps of the search, in Hamming units.  Its weight
-            divisor, which is one for a coset instance, rounds the Hamming bounds up to multiples of
-            a proven divisor of eligible weights.  Its sets need not be the scanned sets: a search
-            that scans one set of an automorphism family is certified by all its images.
-        weight_factor: The factor ``η`` such that every word weighs at least its Hamming weight
-            divided by ``η``, so that a bound ``L`` on Hamming weights bounds weights below by
-            ``ceil(L / η)``.
+        generators: The packed rows of each set, with shape ``(num_sets, dimension, width)``,
+            zero-padded to a common width.  A distance instance deletes the pivot columns of each
+            set (Section 3.5).
+        labels: The packed quotient labels of the rows, with the same first two axes, and no words
+            for a problem without labels.
+        widths: The number of words of ``generators`` that each set uses.
+        pivots: The pivot columns of each set, padded with -1, with shape ``(num_sets, dimension)``.
+            They index the full rows, which are the rows of ``generators`` only in a coset instance.
+        ranks: The number of pivots of each set that are not padding.
+        certificate: The certificate of the steps, in Hamming units, whose weight divisor is one
+            in a coset instance.  For an automorphism family, it covers every image of the one
+            packed set (Section 3.7).
+        weight_factor: The factor ``η`` such that a bound ``L`` on Hamming weights bounds weights
+            by ``ceil(L / η)`` (Section 4.1).
     """
 
     generators: npt.NDArray[np.uint64]
@@ -73,11 +61,8 @@ class AffineInstance:
     def get_weight_bounds(self, parity: int | None = None) -> npt.NDArray[np.int64]:
         """Bounds on the weight of the unvisited words after each step of the certificate.
 
-        The table of ``Certificate.get_weight_bounds`` for the weight factor of the instance and
-        ``parity``: the bounds on Hamming weight are rounded up to ``parity``, if it is given,
-        before they are divided by the weight factor.  The Hamming weights of the words of each
-        coset of an even code share a parity, zero or one (see ``get_coset_instance``), so the
-        bounds of such a coset may be rounded up to it.  Each call returns a new table.
+        The Hamming bounds are rounded up to ``parity``, if given, and then divided by the weight
+        factor, rounding up (Section 3.2).  Each call returns a new table.
         """
         return self.certificate.get_weight_bounds(self.weight_factor, parity)
 
@@ -87,11 +72,10 @@ def get_distance_instance(
 ) -> AffineInstance:
     """Pack the sets of a basis family for the distance search, with their pivot columns deleted.
 
-    The certificate is the one that the search selects for the family (see
-    ``BasisFamily.get_search_certificate``), or that of an automorphism family whose one set the
-    basis family holds.
+    ``certificate`` is the search certificate of the family, or that of the automorphism family
+    whose one set ``basis_family`` holds.
     """
-    # Remove systematic pivots; the scans restore their known weight arithmetically.
+    # The scans count the ones of the deleted pivot columns from the support (Section 3.5).
     packed_rows = [
         pack_bits(np.delete(generators, pivots[:rank], axis=1))
         for generators, pivots, rank in zip(
@@ -99,8 +83,8 @@ def get_distance_instance(
         )
     ]
 
-    # Zero-pad every set to a common word width, so the Numba kernel receives single arrays.  The
-    # labels of every set already have the same width, which is zero for a basis without labels.
+    # Zero-pad the sets to a common width, so that the compiled scans take single arrays.  The
+    # labels of every set already share a width.
     widths = np.array([rows.shape[1] for rows in packed_rows], dtype=np.int64)
     packed_generators = np.zeros(
         (len(packed_rows), basis_family.generators.shape[1], int(widths.max(initial=0))),
@@ -123,24 +107,15 @@ def get_coset_instance(
 ) -> AffineInstance:
     """Pack the disjoint information sets of independent generators for the coset search.
 
-    The rows keep every column.  The certificate takes no weight divisor, even if the family infers
-    one, since the words of a coset need not share the divisibility of the code.  Its coverage is
-    one, since the sets are disjoint.  Without generators, each coset is a single word, which the
-    search visits on layer zero of one empty set.
-
-    If every generator has even Hamming weight, so does every word ``v`` of the code, and every word
-    ``u + v`` of a coset has the parity of ``|u|``, since ``|u + v| = |u| + |v| - 2 |u ∩ v|``.  The
-    bounds of each coset may then be rounded up to its parity (see ``get_weight_bounds``).  The
-    coset search decides whether to, since only it knows whether some coset is odd (see
-    ``coset_tables.get_search_tables``).
+    The rows keep every column, and the certificate has no weight divisor, even if the code has one
+    (Section 3.2).  Without generators, each coset is a single word, which the search visits on
+    layer zero of one empty set.
 
     Args:
         generators: Independent generators of the code, one in each row.
         random_column_orders: Passed to ``basis_families.get_disjoint_family``.
-        weight_factor: The weight factor of the instance.  It is two for a search of Pauli errors,
-            since an error weighs at least half the Hamming weight of the binary word that
-            represents it in the search (see ``_get_pauli_search`` in ``coset.py``).  It is one for
-            a search of X or Z parts.
+        weight_factor: Two for a search of Pauli errors, and one for a search of X or Z parts
+            (Section 4.1).
     """
     num_generators, num_columns = generators.shape
     if not num_generators:
@@ -164,13 +139,9 @@ def get_coset_family_instance(
 ) -> AffineInstance:
     """Pack the sets of any basis family of a code for the coset search, with every column.
 
-    The family may hold disjoint sets, as in ``get_coset_instance``, or overlapping ones, such as
-    those of ``basis_families.get_overlapping_family``.  The certificate takes the ranks and the
-    maximum coverage of the family, and no weight divisor.  Its coverage bound holds for the words
-    of every coset as it does for the words of the code.  A word of a coset adds a unique sum of the
-    rows of each set to the offset of the set, which is zero on the pivots of the set.  So a word in
-    layer ``w`` or above of a set has at least as many ones on its pivots as a word of the code
-    does.  ``weight_factor`` is the weight factor of the instance (see ``get_coset_instance``).
+    The sets may overlap.  The certificate takes the ranks and maximum coverage of the family, and
+    no weight divisor, and holds for every coset (Section 3.1, "Families for coset searches").
+    ``weight_factor`` is as for ``get_coset_instance``.
     """
     num_sets, num_generators, num_columns = basis_family.generators.shape
     packed_generators = pack_bits(basis_family.generators.reshape(-1, num_columns)).reshape(
