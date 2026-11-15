@@ -44,7 +44,7 @@ DistanceMethod = Literal[
 - ``"connected_cluster"``: the connected-cluster algorithm of Dumer, Kovalev, and Pryadko
   (`arXiv:1611.07164 <https://arxiv.org/abs/1611.07164>`_), with the branch and bound of Okada and
   Kasai (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).  It searches the words whose
-  supports the parity checks of a code connect, which can be fast only for codes with sparse checks.
+  supports the parity checks of a code connect, so it can be fast only for codes with sparse checks.
   On quantum LDPC codes it is often much faster than ``"brouwer_zimmermann"``, but sparse checks do
   not ensure that: it can be much slower on some quantum LDPC codes, and on classical LDPC codes
   whose checks are only moderately sparse.  Functions that take generators rather than checks
@@ -124,16 +124,17 @@ def get_distance_from_generators(
     """The minimum weight of a nontrivial word in the row space of ``generators`` and ``excluded``.
 
     The words are the sums of rows of ``generators`` and ``excluded``, and a word is trivial if it
-    is a sum of rows of ``excluded`` alone.  For a classical code, pass its generator matrix, and
-    nothing excluded, to get its distance: the minimum weight of a nonzero code word.  For a quantum
-    code, pass its logical operators, and exclude its stabilizers, to get its distance: the minimum
-    weight of a nontrivial logical operator.  For a subsystem code, exclude its gauge generators,
-    such as the rows of the ``matrix`` of a :class:`~qldpc.codes.QuditCode`.  The result is its
-    distance, which is dressed: its logical operators may be multiplied by gauge operators.  If the
-    generators are bare logical operators, such as those that
-    :meth:`~qldpc.codes.common.QuditCode.get_logical_ops` returns, excluding only the stabilizers of
-    the code gives its bare distance instead (see :func:`get_distance_from_checks`).  Rows may be
-    redundant.
+    is a sum of rows of ``excluded`` alone.  Rows may be redundant.
+
+    For a classical code, pass its generator matrix, and nothing excluded, to get its distance: the
+    minimum weight of a nonzero code word.  For a quantum code, pass its logical operators, and
+    exclude its stabilizers, to get its distance: the minimum weight of a nontrivial logical
+    operator.  For a subsystem code, exclude its gauge generators, such as the rows of the
+    ``matrix`` of a :class:`~qldpc.codes.QuditCode`.  The result is its distance, which is dressed:
+    its logical operators may be multiplied by gauge operators.  If the generators are bare logical
+    operators, such as those that :meth:`~qldpc.codes.common.QuditCode.get_logical_ops` returns,
+    excluding only the stabilizers of the code gives its bare distance instead (see
+    :func:`get_distance_from_checks`).
 
     Args:
         generators: A binary matrix whose rows, together with those of ``excluded``, span the words.
@@ -152,8 +153,8 @@ def get_distance_from_generators(
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
             then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
             proves that every nontrivial word is heavier than ``max_weight``, which can be much
-            faster than computing a large distance exactly.  The limit also caps ``cutoff``, so an
-            early exit still returns the weight of a word within the limit; pass
+            faster than computing a large distance exactly.  The limit also caps ``cutoff``, so that
+            an early exit still returns the weight of a word within the limit.  Pass
             ``cutoff=max_weight`` as well to stop at the first such word.
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
             map the row space of ``excluded``, and that of ``generators`` and ``excluded`` together,
@@ -259,11 +260,8 @@ def get_distance_from_checks(
             checks, and the connected-cluster method searches the words whose supports the checks
             connect.
         max_weight: If given, a nonnegative integer limit on the weights to search: the result is
-            then the smaller of the distance and ``max_weight + 1``.  The search stops as soon as it
-            proves that every nontrivial word is heavier than ``max_weight``, which can be much
-            faster than computing a large distance exactly.  The limit also caps ``cutoff``, so an
-            early exit still returns the weight of a word within the limit; pass
-            ``cutoff=max_weight`` as well to stop at the first such word.
+            then the smaller of the distance and ``max_weight + 1`` (see
+            :func:`get_distance_from_generators`).
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
             map the row space of ``checks``, and that of ``excluded``, onto themselves.  Pass them
             as an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or as a function that
@@ -341,8 +339,8 @@ def get_distance_css(
     If the X and Z checks do not all commute, they generate the gauge group of a subsystem code.
     Its stabilizers are the gauge operators that commute with every gauge operator, and its logical
     operators are dressed: they may be multiplied by gauge operators.  An X logical operator then
-    commutes with every Z-type stabilizer, and it is trivial if it is an X-type gauge operator.  The
-    result is then dressed, and :func:`get_distance_from_checks` says how to find the bare distance
+    commutes with every Z-type stabilizer, and is trivial if it is an X-type gauge operator.  So the
+    result is dressed, and :func:`get_distance_from_checks` says how to find the bare distance
     instead.  To be sure that the checks define a stabilizer code, build a code with
     ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``, which raises an error if they do not
     commute.
