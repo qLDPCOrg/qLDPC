@@ -128,9 +128,10 @@ on searches timed on an Apple M3 Max, from two data sets:
 - The cost data set holds the searches of the X sector of that bivariate bicycle code and of the
   [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]] pair-partition codes, ``pp232``, ``pp170``,
   and ``pp276`` of ``experiments/distance_tuning/workloads.py``.  The coefficients of lookups are
-  fitted to their layers of one information set of at least ``10**7`` supports, which for the
-  current coefficients were nine layers of ``4 * 10**7`` to ``5 * 10**10`` supports, and those of
-  builds to every table that these searches build with tables forced, in layers of any size.
+  fitted to the layers of these searches that scan one information set of at least ``10**7``
+  supports.  For the current coefficients, these were nine layers of ``4 * 10**7`` to
+  ``5 * 10**10`` supports.  The coefficients of builds are fitted to every table that these
+  searches build with tables forced, in layers of any size.
 
 The default width of the blocks is the widest allowed, not the outcome of the comparison of widths.
 
@@ -140,9 +141,10 @@ its coefficients on the cost data set:
 
 1. Time its searches with tables disabled (``completion_bound_max_table_bytes=0``), forced
    (``completion_bound_minimum_layer_work=0`` and ``completion_bound_max_cost_percent=MAX_VALUE``),
-   and at the defaults.  For each layer, record the share of its supports that tables skipped and
-   its number of lookups, which ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py``
-   returns for each call, and time ``CompletionTables.build`` separately.
+   forced on blocks of 8 columns (``completion_bound_block_bits=8``), and at the defaults.  For
+   each layer, record the share of its supports that tables skipped and its number of lookups,
+   which ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each
+   call, and time ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
 3. Measure the coefficients that the cost model reads.  Fit ``completion_bound_lookup_block_cost``,
    ``completion_bound_lookup_block_cost_per_mib``, and ``completion_bound_kept_first_row_ratio`` to
@@ -153,7 +155,7 @@ its coefficients on the cost data set:
 
 ``constants.py`` of ``experiments/distance_tuning`` takes these steps, and prints each coefficient,
 before rounding, beside its default.  Accept values if, at the defaults, no layer is slower than
-the faster of the other two arms by more than the spread of repeated runs.
+the faster of the arms with tables disabled and forced by more than the spread of repeated runs.
 """
 
 from __future__ import annotations

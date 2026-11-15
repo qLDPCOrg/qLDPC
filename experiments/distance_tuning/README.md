@@ -21,7 +21,7 @@ Every derived value follows from a rule fixed before measuring and, unless it is
   Work counts candidate/set evaluations in BZ searches, and states in connected-support searches.
   The value is rounded by ratio to 1, 2, or 5 times a power of ten.
 - **Limits at equality.** A limit that compares two estimates in one unit breaks even where they are equal.
-- **Measured coefficients.** The coefficients of the cost model of completion tables are constants of the machine, measured on the searches of the cost data set of the Retuning section: those of lookups on their large layers of one information set, and those of builds on every table that they build.
+- **Measured coefficients.** The coefficients of the cost model of completion tables are constants of the machine, measured on the searches of the cost data set of the Retuning section: those of lookups on their large layers of one information set, and those of builds on every table that they build with tables forced.
 
 The other values are budgets of memory, interrupt latency, or setup effort, statistical conventions, or the widest width of blocks allowed, as the Retuning section defines them.
 Two fields, `coset_route_minimum_work` and `macwilliams_shared_walk_rank`, are in no class, and their comments say how they were chosen.
@@ -46,10 +46,14 @@ On an Apple M3 Max that also ran other work, on the library code that follows #8
 | `automorphism_minimum_states` | `5 * 10**4` | Asking for automorphisms in a connected-support search, which finds them, verifies them, and orders their orbits: 8.9 to 9.4 ms, on `csdistance/qt7/X`, or `3.4 * 10**4` to `3.7 * 10**4` states at 253 to 263 ns each, the median over six searches of 99 to 828 ns |
 
 The row of `automorphism_minimum_states` comes from six later runs of the script, which gave the other values again.
-The row of `automorphism_minimum_layer_work` comes from three runs on the final source, at 1.18 to 1.19 ns per evaluation, which gave the other values again; in them, the constant of `automorphism_minimum_states` was `3.33 * 10**4` to `3.52 * 10**4` states.
-One of the three runs gave `10**7` for `automorphism_minimum_layer_work`, since its single trace of `hadamard/gross` took 8.57 ms; ten more traces of that search took 6.71 to 9.37 ms, with a median of 7.54 ms, or `6.3 * 10**6` evaluations.
+The row of `automorphism_minimum_layer_work` comes from three runs on the library code that follows #871, at 1.18 to 1.19 ns per evaluation, which gave the other values again; in them, the constant of `automorphism_minimum_states` was `3.33 * 10**4` to `3.52 * 10**4` states.
+One of the three runs gave `10**7` for `automorphism_minimum_layer_work`, since its single trace of `hadamard/gross` took 8.57 ms.
+Ten more traces of that search then took 6.71 to 9.37 ms, with a median of 7.54 ms, or `6.3 * 10**6` evaluations, and a test fixed before they ran, that a median above the edge would give `10**7`, kept `5 * 10**6`.
+To repeat them, run `trace.py hadamard/gross --setup-only`, and add the `competing_seconds` of its partitioned family to the seconds of its first `automorphisms` event.
 These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases, and a state of a connected-support search took 99 to 828 ns across the six searches.
-Of the edges of their rounding, the geometric means of neighboring values, the constant of `overlapping_minimum_work` lies 5 to 23% below `3.16 * 10**6`, that of `partition_work_ratio` 20 to 22% above 3.16, that of `completion_bound_minimum_layer_work` 20 to 22% below `3.16 * 10**7`, that of `lp_minimum_work` 27 to 28% above `1.41 * 10**8`, that of `automorphism_minimum_layer_work` 10% below to 1% above `7.07 * 10**6`, and that of `automorphism_minimum_states` 5 to 18% above `3.16 * 10**4`.
+The edges of their rounding are the geometric means of neighboring values.
+In the three runs of the table, the constant of `overlapping_minimum_work` lies 5 to 23% below `3.16 * 10**6`, that of `partition_work_ratio` 20 to 22% above 3.16, that of `completion_bound_minimum_layer_work` 20 to 22% below `3.16 * 10**7`, and that of `lp_minimum_work` 27 to 28% above `1.41 * 10**8`.
+In the three runs on the library code that follows #871, that of `automorphism_minimum_layer_work` lies 10% below to 1% above `7.07 * 10**6`, and in those and the six runs of its row, that of `automorphism_minimum_states` 5 to 18% above `3.16 * 10**4`.
 The five coefficients of the cost model keep values measured on the cost data set before `constants.py` measured them, and no run of the script has measured them yet.
 
 ## Workflow

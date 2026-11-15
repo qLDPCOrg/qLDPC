@@ -211,7 +211,7 @@ Some searches run for hours or more, so run it under a deadline.
 
 The other scripts of [`distance_tuning/`](distance_tuning/) derive the tuning of the exact searches, and confirm a change of it, as [its README](distance_tuning/README.md) describes.
 [`constants.py`](distance_tuning/constants.py) measures the constants of the machine from which the derived values of `SearchTuning` follow, and prints those values.
-Its quick measurements take a few minutes, and its traces of the cost data set take hours, so run it on a quiet machine, under a guard of time and memory.
+Its quick measurements take a few minutes, and its traces of the searches that measure the cost model of completion tables take hours, so run it on a quiet machine, under a guard of time and memory.
 [`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of the searches of one workload of [`workloads.py`](distance_tuning/workloads.py), such as the families of information sets that a search builds, and compares the decisions of two traces.
 [`sweep.py`](distance_tuning/sweep.py) times the whole current tuning against a whole proposed one, or the defaults of two checkouts, in paired rounds of trials that alternate their order, each in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)), and summarizes the ratios of the two arms.
 Such a comparison confirms a change of values, and never chooses them.

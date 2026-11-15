@@ -17,9 +17,9 @@ derived value needs, and prints each derived value beside its default.  It measu
   layers of the traced searches;
 - building a family of overlapping information sets: the costliest of the families built;
 - finding automorphisms of a BZ search and building their images: for each traced search, the
-  seconds of finding, verifying, and building their family before partitioning, if it does, and
-  of its first consideration of a switch to automorphism images, which includes those steps if it
-  has not taken them; the costliest of the searches;
+  seconds of finding, verifying, and building their family before trying partitioning, if it would
+  partition, and of its first consideration of a switch to automorphism images, which includes
+  those steps if it has not taken them; the costliest of the searches;
 - the linear programming of a search of a large basis, ``distance/qt7/X`` of 181 rows: the seconds
   that its certificates spend in their bounds (planning, the checks of ``Certificate.certifies``,
   and the programs), with automorphisms off so that the search keeps its certificate throughout;
@@ -136,8 +136,9 @@ LARGE_LAYER = 10**7
 LARGE_LIMIT = 10**4
 
 # The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop
-# after setup.  Linear programs are off in BZ searches, so that layers time scans: ``trace.py``
-# repeats the planning of a certificate that solves programs.  Connected-support searches ask for
+# after setup.  Linear programs are off in BZ searches that run layers, so that layers time scans:
+# ``trace.py`` repeats the planning of a certificate that solves programs.  Traces that stop after
+# setup keep the default of linear programs.  Connected-support searches ask for
 # automorphisms before their first weight limit, so that each of their traces measures that step.
 TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (name, workload, {"lp_minimum_work": _tuning.MAX_VALUE}, False)
