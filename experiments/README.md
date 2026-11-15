@@ -206,8 +206,7 @@ python experiments/distance_tuning/benchmark.py 110 232 --hadamards
 
 The option `--hadamards` applies Hadamards to the second half of the qubits of each code, and times the resulting code, which is not CSS.
 
-Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
-Some searches run for hours or more, so run it under a deadline.
+The docstring of `benchmark.py`, which `--help` prints, says how to time the searches.
 
 The other scripts of [`distance_tuning/`](distance_tuning/) check the tuning of the exact searches and set no value, as [its README](distance_tuning/README.md) describes.
 For example, to check the orders of magnitude that the heuristics of `SearchTuning` assume, and then to check a proposed change of `automorphism_minimum_states` for gross regressions:
