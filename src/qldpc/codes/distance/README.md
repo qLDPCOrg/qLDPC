@@ -4,7 +4,7 @@ This directory is the package `qldpc.codes.distance`.
 It computes exact distances of binary codes, counts the logical operators of a given weight in binary CSS codes, and finds light Pauli errors with given syndromes on stabilizer states.
 Users reach it through the public functions and classes below, which take plain arrays, and through the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py`, which call the distance functions for binary codes.
 `brouwer_zimmermann.md` explains the Brouwer-Zimmermann algorithm, maps its concepts to names in the code, describes its heuristics for choosing basis families, and lists the correctness requirements that every change to a Brouwer-Zimmermann search must keep.
-`connected_cluster.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the code, says what its cost depends on, and lists its correctness requirements.
+`connected_cluster.md` explains the search of sparse binary codes over supports that are connected in a Tanner graph, maps it to the source code, says what its cost depends on, and lists its correctness requirements.
 
 ## Public names
 
@@ -22,19 +22,21 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - **Sector:** the words of one type that a search examines, such as the logical operators of one type of a CSS code.
   A Brouwer-Zimmermann search takes a basis of them, with labels that tell nontrivial words from trivial ones, such as logical operators from stabilizers.
   A connected-cluster search takes the parity checks whose kernel holds them, and a matrix whose row space has the trivial ones.
-- **Information set:** in most of the code, the basis of a sector, row reduced on `rank` pivot columns, where `rank` is at most the dimension of the basis, so that its first `rank` rows form an identity matrix on those columns and its other rows are zero there.
+- **Information set:** in most of the source, the basis of a sector, row reduced on `rank` pivot columns, where `rank` is at most the dimension of the basis, so that its first `rank` rows form an identity matrix on those columns and its other rows are zero there.
   In a full set, `rank` is the dimension of the basis.
-  A partial set, whose block has a smaller rank, goes by the same name.
-  `brouwer_zimmermann.md`, and a few docstrings of `_brouwer_zimmermann/distance.py`, call this basis a search basis or a set, and use "information set" only for a block of full rank (Sections 2.3 and 2.4).
+  A partial set, whose `rank` is smaller, goes by the same name.
+  `brouwer_zimmermann.md`, and a few docstrings of `_brouwer_zimmermann/distance.py`, call this basis a search basis or a set, and use "information set" only for the pivot columns of a full set (Sections 2.3 and 2.4).
 - **Basis family** (`BasisFamily`): the information sets that one Brouwer-Zimmermann search or count uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither visited nor skipped, which tells the search when it can stop.
-  With completion tables, it bounds only the words lighter than the best weight (see Section 3.9 of `brouwer_zimmermann.md`).
-- **Connected-cluster search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
-  It is another exact method, selected by `method="connected_cluster"`, and it also finds light vectors with a given syndrome.
-- **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
+  With completion tables, it bounds only the words lighter than the lightest word that the search has found (see Section 3.9 of `brouwer_zimmermann.md`).
+- **Connected-cluster search** (`SupportSearch`): a depth-first search for light words that satisfy the rows of a binary matrix `H` of parity checks and lie outside the row space of an excluded matrix `G`.
+  It grows supports, the sets of variables on which words are nonzero, only through unsatisfied checks.
+  The words are binary, or symplectic for qubit codes that are not CSS.
+  `method="connected_cluster"` selects this search, which also finds light vectors with a given syndrome.
+- **Scan:** the enumeration of the combinations of rows of each information set, layer by layer, where a layer holds the combinations of a given number of rows.
   Counts have their own scan, in `_counting/scan.py`.
   The Brouwer-Zimmermann distance search in `_brouwer_zimmermann/distance.py` and the Brouwer-Zimmermann coset searches in `_brouwer_zimmermann/coset.py` use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
-  All of them step through a layer with `advance_support` in `_information_sets/support_stepping.py`.
+  Every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.
 
 ## Layout
 
@@ -115,26 +117,27 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecat
 - For the CSS weight on a CSS state, two classical searches cover the X parts and the Z parts of the errors separately, on `n` columns each rather than `2n`.
   A pure-X stabilizer has no Z part, a pure-Z stabilizer has no X part, and a stabilizer state is CSS if pure-X and pure-Z stabilizers generate its stabilizer group.
   The X parts of the pure-X stabilizers span a binary code `C_X`, and the Z parts of the pure-Z stabilizers a binary code `C_Z`.
-  Multiplying an error by a stabilizer adds a word of `C_X` to its X part `x` and a word of `C_Z` to its Z part `z`, independently, so the smallest CSS weight of an error with a given syndrome is the larger of the smallest Hamming weights in the cosets `x + C_X` and `z + C_Z`.
+  Multiplying an error by a stabilizer adds a word of `C_X` to its X part `x` and a word of `C_Z` to its Z part `z`, independently.
+  So the smallest CSS weight of an error with a given syndrome is the larger of the smallest Hamming weights in the cosets `x + C_X` and `z + C_Z`.
   The coset of an X part is labeled by its syndrome for the pure-Z stabilizers, and that of a Z part by its syndrome for the pure-X stabilizers.
-  The search maps a syndrome for the given stabilizers to these two syndromes.
+  `CosetLeaderSearch` maps a syndrome for the given stabilizers to these two syndromes.
 
 The coset searches answer their own queries with `MinWeightBound` too, whose representative is then a word of their code: a packed Pauli error, or an X or Z part.
-Each coset search first looks up the words of weight at most one in a table.
+Each coset search first looks up, in a table, a word of weight at most one with the syndrome of the query.
 
 By default, each coset search is a Brouwer-Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann.md`).
-The search of the Pauli errors depends on the given stabilizers, since its syndromes are for them, so it is cached for the most recently used stabilizer matrices (see `PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`).
-The two searches of X and Z parts depend only on the stabilizer group, so they are cached for the most recently used groups (see `CSS_SEARCH_CACHE_SIZE` in `_tuning.py`), and searches for different generating sets of one state share them.
-With one BZ search, `find_first_not_within_max_weight` returns the bound that the batch search found, so the syndrome is not searched again.
-With two, it returns the bound that `get_min_weight_bound` gives.
+The BZ search of the Pauli errors depends on the given stabilizers, since its syndromes are for them, so it is cached for the most recently used stabilizer matrices (see `PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`).
+The two BZ searches of X and Z parts depend only on the stabilizer group, so they are cached for the most recently used groups (see `CSS_SEARCH_CACHE_SIZE` in `_tuning.py`), and the `CosetLeaderSearch` objects for different generating sets of one state share them.
+With one BZ search, `find_first_not_within_max_weight` returns the bound that this search found for the first syndrome without an error within `max_weight`, so that syndrome is not searched again.
+With two BZ searches, it returns the bound that `get_min_weight_bound` gives for that syndrome.
 `get_min_weights` answers the syndromes of a batch in one compiled loop for each coset search, with `BrouwerZimmermannCosetSearch.get_min_weights` (Section 3.10 of `brouwer_zimmermann.md`).
 For the CSS weight, it searches the Z part of a class only if its X part is within the maximum weight, with the weight of the X part as the floor of that search.
 
 With `method="connected_cluster"`, each coset search is a `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which runs `SupportSearch` of `_connected_cluster/search.py` from the syndrome of a query (Section 3.8 of `connected_cluster.md`).
 Each `CosetLeaderSearch` builds its own connected-cluster coset searches.
-A search grows supports through the unsatisfied stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
-Given stabilizers, such as row-reduced ones, can be dense, so each search first replaces its checks with sparser ones that span the same space, with `get_sparser_rows` of `_connected_cluster/sparse_checks.py`.
-The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only on CSS states, whose X and Z parts it searches separately.
+A connected-cluster coset search grows supports through its unsatisfied checks: the stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
+It first replaces its checks with sparser checks that span the same space, with `get_sparser_rows` of `_connected_cluster/sparse_checks.py`, since dense checks slow it (Section 3.8 of `connected_cluster.md`).
+The CSS weight is not a sum over qubits, so this method weighs errors by CSS weight only on CSS states, by searching their X and Z parts separately.
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
 `find_first_not_within_max_weight` searches each syndrome that the table lacks with increasing weight limits (`_get_batch_cluster_bound`), which can find light errors sooner than one search at `max_weight`.
 So for the CSS weight, the representative of a part within `max_weight` can differ from the one that `get_min_weight_bound` gives.
@@ -154,7 +157,7 @@ So for the CSS weight, the representative of a part within `max_weight` can diff
 
 Every value that changes only how long a search takes or how much memory it uses, and that a search can read when it starts, such as a threshold that chooses a route, a limit, a coefficient of a cost model, an attempt count, or a batch size, is a field of `SearchTuning` in `_tuning.py`.
 The arguments of the public functions say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`; do not add arguments that only tune a search.
-Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer-Zimmermann search uses its fields, and Sections 3.5, 3.8, and 3.9 of `connected_cluster.md` where the connected-cluster searches use theirs.
+Section 4.4 of `brouwer_zimmermann.md` explains the heuristics of the Brouwer-Zimmermann searches and the fields that they use, and Sections 3.5, 3.8, and 3.9 of `connected_cluster.md` explain the heuristics and fields of the connected-cluster searches.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built.
@@ -164,13 +167,22 @@ Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer-Zi
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
 - Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
-  Say, in this order, what it decides and in what unit; how a smaller or larger value changes a search, including the effects of its smallest and largest values; and, in one clause, the class of its default, with the rule and the measured constant of a derived value, as the "Retuning" section of the module docstring defines them, or, for a field in no class, how its default was chosen, or that this is not recorded.
+  The comment first says what the value controls, and in what unit.
+  It then says how a smaller or larger value changes a search, including the effects of the smallest and largest values.
+  It then gives, in a sentence, the class of the default and the rule of that class, as the "Retuning" section of the module docstring defines them, or, for a field in no class, why its default was chosen.
+  A field's comment ends with a pointer to the section of `brouwer_zimmermann.md` or `connected_cluster.md` that explains its heuristic.
   Keep each comment readable without knowing the method that uses the value, and within about 120 words.
-  State each fact in one place: link to a formula that the code computes, such as a cost model, rather than restating it, and put procedures that several values share, such as fitting a cost model, in the "Retuning" section of the module docstring.
+  State each fact in one place: point to the guide for the reasoning behind a heuristic, and to a formula that the code computes, such as a cost model, rather than restating them.
+  The "Retuning" section of the module docstring holds what several values share: the classes of defaults, and the rule for changing a default.
   Do not put a colon on the first line of a comment, since Sphinx then reads the text before it as a type.
-- [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the fields and constants from their comments, after hand-written tables that lead from symptoms and routes to their names.
-  When you add, rename, or remove a field or constant, update that map, and for a constant the list of constants on the page.
-  `_tuning_test.py` checks that the map names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each field and constant has its own `#:` comment, and the documentation build fails on a broken reference into `_tuning`.
+- Comments, docstrings, and guides in this package give no measurements: no times, ratios, counts, or percentages from runs, and no machines or workloads as their evidence.
+  The rule of a gate, a threshold that turns on an optional step, may state the cost of the step that its heuristic assumes, as a round order of magnitude.
+  Measurements of a change to the tuning belong in the description of its pull request.
+- Change a default only as the "Retuning" section of the module docstring of `_tuning.py` allows.
+- [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders the fields and constants from their comments, after hand-written tables that lead from symptoms and routes to the names of the values.
+  When you add, rename, or remove a field or constant, update those tables, and for a constant the list of constants on the page.
+  `_tuning_test.py` checks that the route map of that page names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each field and constant has its own `#:` comment.
+  The documentation build fails on a broken reference into `_tuning`.
 - A new heuristic whose value could change a result that a search guarantees does not belong in `SearchTuning`.
   The module docstring of `_tuning.py` says which results a tuning can change, and how.
 - To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
