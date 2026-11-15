@@ -67,7 +67,7 @@ def get_bound_oracle(
 
 
 def test_bounds_are_exact_relaxations(pytestconfig: pytest.Config) -> None:
-    """Bounds on prefixes that are sums of rows follow their definition, below every completion."""
+    """Bounds on sums of rows equal their definition and never exceed the lightest completion."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     get_bound = cb.get_completion_bound
     for num_rows, num_columns in [(2, 1), (3, 5), (6, 21), (7, 70)]:
@@ -211,7 +211,8 @@ def test_selection_follows_its_policy() -> None:
     assert cb.select_completion_tables(rows[:5], 7, 7, None, FORCED) is None
 
     # Tables use blocks of the width of the tuning: four-column tables of these rows take
-    # 59 * 6 * 16 bytes, 6 blocks of 16 entries for each row but the last, which 16 columns exceed.
+    # 59 * 6 * 16 bytes, 6 blocks of 16 entries for each row but the last; sixteen-column tables
+    # would not fit.
     small = dataclasses.replace(FORCED, completion_bound_max_table_bytes=59 * 6 * 16)
     narrow = dataclasses.replace(small, completion_bound_block_bits=4)
     narrow_tables = cb.select_completion_tables(rows, 6, 6, None, narrow)

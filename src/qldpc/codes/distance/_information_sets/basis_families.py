@@ -3,7 +3,7 @@
 """Basis families of information sets, shared by exact BZ and coset searches and by counts.
 
 A basis family holds the information sets of one basis that a search scans and certifies together.
-Distance searches and counts build theirs in stages, with their own exits between them:
+Distance searches and counts build families in stages, with their own exits between them:
 ``get_disjoint_family``, ``prune_family``, ``get_overlapping_family``, and
 ``get_partitioned_family``.  Each stage aims at a target ``upper_bound``: the best weight ``U`` of a
 distance search, or ``t + 1`` for a count of the words of weight ``t``.  Sections cited in this
@@ -240,7 +240,7 @@ def get_overlapping_family(
     )
     for _ in range(num_attempts):
         # Order the columns by load, and then randomly, with two stable sorts, since numba has no
-        # lexicographic sort, and reduce the basis and its labels on them.
+        # lexicographic sort.  Reduce the basis and its labels in that order.
         by_random = np.argsort(rng.random(num_columns), kind="mergesort")
         by_coverage = np.argsort(column_coverage[columns][by_random], kind="mergesort")
         reduced, reduced_labels, new_pivots = row_reduce_packed(
@@ -329,15 +329,15 @@ def get_partitioned_family(
     """Stage four: a basis family of information sets of bounded coverage, if it does less work.
 
     For each coverage that it tries, matroid partitioning finds the most information sets, up to
-    ``tuning.max_information_sets``, that use no column more often (Section 4.4).  ``basis``,
-    ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.  ``get_competing_work``,
-    if given, returns the work of a family, such as an automorphism family, to which the caller
-    would switch instead, discarding this stage's family (Section 3.7).  It is called only if
-    partitioning would otherwise run, which it then does only if that work exceeds the least that a
-    family of this stage could do.
+    ``tuning.max_information_sets``, within that coverage (Section 4.4).  ``basis``, ``labels``, and
+    ``basis_family`` are as in ``get_overlapping_family``.  ``get_competing_work``, if given,
+    returns the work of a family, such as an automorphism family, to which the caller would switch
+    instead, discarding this stage's family (Section 3.7).  It is called only if partitioning would
+    otherwise run, and partitioning then runs only if that work exceeds the least that a family of
+    this stage could do.
 
-    Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
-    than the work of ``basis_family``, and otherwise a family with no sets.
+    Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
+    runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
     """
     max_sets = tuning.max_information_sets
     best_work = basis_family.certificate.work(upper_bound)
@@ -407,7 +407,7 @@ def get_maximum_disjoint_family(
 
     ``basis_family`` is a disjoint family of the independent binary ``basis``, such as the greedy
     packing of ``get_disjoint_family``.  Matroid partitioning with coverage one finds the new
-    family, which has no labels, and at most as many information sets as a packing keeps
+    family, which has no labels and at most as many information sets as a packing keeps
     (Section 4.4).
 
     Returns:
@@ -495,8 +495,8 @@ def _get_disjoint_sets(
     """Construct a large deterministic packing of disjoint information sets (Section 4.4).
 
     The natural column order comes first, and then up to ``random_column_orders`` random orders,
-    until one packs ``min(N // r, 2**r - 1)`` full sets, for ``r`` rows and ``N`` nonzero columns,
-    which no order exceeds.
+    until one packs ``min(N // r, 2**r - 1)`` full sets, which no order exceeds, for ``r`` rows and
+    ``N`` nonzero columns.
     """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
@@ -641,8 +641,8 @@ def _estimate_optimistic_work(
 
     The family is of a basis of ``dimension`` rows and ``num_columns`` nonzero columns, and
     ``binomials`` are ``get_capped_binomials(dimension)``.  No family of ``m`` full sets has a
-    coverage below ``_get_least_coverage(m, dimension, num_columns)``, which this takes for each
-    ``m``.
+    maximum coverage below ``_get_least_coverage(m, dimension, num_columns)``, which the bound
+    assumes for each ``m``.
     """
     optimistic_work = WORK_CAP
     for num_sets in range(1, max_sets + 1):

@@ -23,9 +23,9 @@ def get_information_sets_with_coverage(
 ) -> list[list[int]]:
     """Find the most information sets, up to ``max_sets``, that use no column too often.
 
-    With ``keep_partial``, a nonempty partial set, of fewer independent columns than the rows,
-    follows the information sets and counts toward ``max_sets``.  No other choice of as many
-    information sets within the coverage leaves room for a larger one (Section 4.4 of
+    With ``keep_partial``, a nonempty partial set, of fewer independent columns than the rows, may
+    follow the information sets, and counts toward ``max_sets``.  With coverage one, no other choice
+    of as many information sets leaves room for a larger one (Section 4.4 of
     ``brouwer_zimmermann.md``).
 
     Args:
@@ -152,8 +152,8 @@ class _Partition:
     def _augment(self, element: int, size: int) -> bool:
         """Add an unassigned element along a shortest augmenting path, if there is one.
 
-        In the exchange graph, an element ``x`` points to the members of its circuit in each other
-        set, which ``x`` could replace.  The path ends at an element independent of the members of
+        In the exchange graph, an element ``x`` points to the members of its circuits in the other
+        sets, which ``x`` could replace.  The path ends at an element independent of the members of
         some set, and that set must be the last, since every other set is full and so spans every
         column.  So every set but the last keeps its size.
         """

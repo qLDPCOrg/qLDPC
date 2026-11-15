@@ -85,7 +85,7 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
                 )
                 assert certificate.get_num_sets_to_certify(weight, upper_bound) == num_sets
 
-    # A family of no sets, which stage three returns for no replacement, does no work.
+    # A family of no sets, which get_overlapping_family returns for no replacement, does no work.
     assert certificates.Certificate(3, ()).work(2) == 0
 
 
@@ -228,7 +228,7 @@ def test_plans_with_linear_programs_solve_their_programs_lazily(
 
     reference = get_certificate()
     coverage = certificates.Certificate(3, (3,) * 5, max_coverage=3)
-    # The requirements of the program of a step identify the step.
+    # The requirements of a step's program identify the step.
     steps_by_requirements = {
         tuple((layer if index < count else layer - 1) + 1 for index in range(5)): (layer, count)
         for layer, count in itertools.product(range(1, 4), range(1, 6))
@@ -268,7 +268,8 @@ def test_plans_with_linear_programs_solve_their_programs_lazily(
 def test_linear_programming_can_beat_the_coverage_bound() -> None:
     """Linear programming certifies five in the example of Section 3.1 of brouwer_zimmermann.md."""
     # The columns are e1, e2, e3, e1 + e2 + e3, e1, e2, e3, and after layer one each block holds at
-    # least two ones of an unvisited word, so the coverage bound is ceil(10 / 3) = 4.
+    # least two ones of an unvisited word, so the coverage bound, with coverage three, is
+    # ceil(10 / 3) = 4.
     blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
     assert certificates.get_lp_lower_bound(blocks, [2] * 5, DENOMINATOR) == 5
     # Dual weights of thirds need a denominator of three; coarser ones round part of the bound away.

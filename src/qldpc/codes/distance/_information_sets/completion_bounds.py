@@ -180,8 +180,8 @@ def is_within_cost_limit(cost: float, tuning: SearchTuning) -> bool:
 def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
     """Whether a tuning considers completion tables for layer ``weight`` of a basis of ``num_rows``.
 
-    The layer must have two to ``num_rows`` rows, since tables bound completions by two rows, and
-    at least ``tuning.completion_bound_minimum_layer_work`` supports.  That count saturates at
+    The layer must have two to ``num_rows`` rows (tables bound completions by two rows) and at
+    least ``tuning.completion_bound_minimum_layer_work`` supports.  That count saturates at
     ``WORK_CAP``, which lies below the largest threshold, so that threshold considers no layer.  A
     tuning that allows no cost or no bytes of tables considers none.
     """
@@ -302,7 +302,7 @@ def _estimate_skipped_share(
     """Estimate the share of the supports of a layer that tables would skip, by sampling.
 
     A support is skipped exactly if the bound of its prefix and the first row of its last pair
-    proves that it cannot lower ``upper_bound`` (Section 3.9), which the estimate takes as fixed.
+    proves that it cannot lower ``upper_bound``, which the estimate takes as fixed (Section 3.9).
 
     Returns:
         The share in ``tuning.completion_bound_samples`` random supports, or as many as fit the

@@ -5,8 +5,8 @@
 A BZ search can scan one information set ``I`` and certify with all of its images under a group
 ``Γ`` of automorphisms.  Sections cited in this module are those of ``brouwer_zimmermann.md``, whose
 Section 3.7 derives the certificate and the choice of ``I``.  The connected-cluster search also
-uses ``verify_automorphisms``, and ``get_orbits``, by whose numbering of the orbits it ranks its
-variables (Section 3.5 of ``connected_cluster.md``).
+uses ``verify_automorphisms`` and ``get_orbits``, and ranks its variables by the orbit numbers of
+``get_orbits`` (Section 3.5 of ``connected_cluster.md``).
 """
 
 from __future__ import annotations
@@ -70,8 +70,8 @@ def get_automorphism_family(
 
     ``basis``, ``labels``, and ``automorphisms`` are as in ``verify_automorphisms``, which must
     accept them, and ``weight_divisor`` is a proven divisor of the Hamming weight of every eligible
-    word.  ``I`` is chosen to lower the largest share ``|I ∩ O| / |O|`` over the orbits ``O``, on
-    which the certificate depends (see ``_balance_orbit_shares``).
+    word.  ``I`` is chosen to lower the largest share ``|I ∩ O| / |O|`` over the orbits ``O``, since
+    the certificate depends on that share (see ``_balance_orbit_shares``).
 
     Returns:
         A basis family of ``I`` alone, and the certificate of all of its images.
@@ -109,9 +109,9 @@ def get_automorphism_family(
 def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int) -> int:
     """Estimate the candidate/set evaluations that certify ``upper_bound`` with automorphisms.
 
-    A search with ``certificate``, of an automorphism family, scans one set, whose images are the
-    other sets, and its certificate advances once per layer (Section 3.7).  So the estimate plans
-    one set whose bound after each layer is that of the whole family.
+    ``certificate`` is that of an automorphism family, whose search scans one set and advances its
+    certificate once per layer (Section 3.7).  So the estimate plans one set whose bound after each
+    layer is that of the whole family.
     """
     dimension, num_sets = certificate.dimension, len(certificate.ranks)
     layer_bounds = certificate.get_weight_bounds(1)[:, [0, num_sets]]
@@ -153,15 +153,15 @@ def _balance_orbit_shares(
     pivots: npt.NDArray[np.int64],
     orbits: npt.NDArray[np.int64],
 ) -> None:
-    """Exchange pivots between orbits, in place, while that lowers the largest orbit share.
+    """Exchange pivots, in place, from orbits of the largest share to emptier ones while possible.
 
-    ``rows`` is a packed basis row reduced on the information set ``pivots``, and ``labels`` its
-    packed quotient labels.  Each exchange pivots a row whose pivot lies in an orbit ``O`` of the
-    largest share ``|I ∩ O| / |O|`` on a column of another orbit where the row has a one, if that
-    orbit's share with the new pivot stays below that largest share.  For two orbits, the exchanges
-    stop once the emptier orbit's own pivot columns span its columns, or once one more pivot would
-    make it at least as full, so they reach the least largest share of any information set
-    (Section 3.7).
+    ``rows`` is a packed basis row reduced on the information set ``I``, whose columns are
+    ``pivots``, and ``labels`` its packed quotient labels.  Each exchange takes a row whose pivot
+    lies in an orbit ``O`` of the largest share ``|I ∩ O| / |O|``, and pivots it on a column of
+    another orbit where it has a one, if that orbit's share with the new pivot stays below that of
+    ``O``.  For two orbits, the exchanges stop once the emptier orbit's own pivot columns span its
+    columns, or once one more pivot would make it at least as full as ``O``, so they reach the least
+    largest share of any information set (Section 3.7).
     """
     sizes = np.bincount(orbits)
     counts = np.zeros(len(sizes), dtype=np.int64)

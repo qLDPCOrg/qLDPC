@@ -13,7 +13,7 @@ from . import support_stepping
 
 
 def test_layers_visit_each_support_once_with_its_sums(pytestconfig: pytest.Config) -> None:
-    """A layer visits each combination of rows once, in order, with its sum on the first words."""
+    """A layer visits each combination of rows in order, with its sum on the first machine words."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     width = 2
     for dimension in range(1, 7):

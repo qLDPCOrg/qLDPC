@@ -120,8 +120,8 @@ class Certificate:
 
         The stopping step is the first step of the layer whose ``step_lower_bound`` exceeds
         ``limit``, or the last step if none does.  Returns the number of sets that have completed
-        the layer at that step.  With linear programs, this checks the steps but the last in order
-        with ``certifies`` (Section 4.1).
+        the layer at that step.  With linear programs, this checks every step but the last, in
+        order, with ``certifies`` (Section 4.1).
         """
         num_sets = len(self.ranks)
         if not self._solves_linear_programs:
@@ -143,8 +143,8 @@ class Certificate:
     def work(self, upper_bound: int, first_layer: int = 1) -> int:
         """Estimate the candidate/set evaluations that certify ``upper_bound`` (Section 3.6).
 
-        The estimate uses the coverage bound alone, and starts at layer ``first_layer``, so a later
-        ``first_layer`` estimates the work left once every set has completed the layers before it.
+        The estimate uses the coverage bound alone.  From a later ``first_layer``, it is the work
+        left once every set has completed the layers before ``first_layer``.
         """
         ranks, *_ = self._as_array_arguments()
         binomials = get_capped_binomials(self.dimension)
@@ -167,20 +167,20 @@ class Certificate:
         ``parity``, if given, is the parity of the Hamming weight of every eligible word, and every
         word weighs at least its Hamming weight divided by ``weight_factor`` (Sections 3.2 and 4.1).
         So each entry of the table of ``get_step_lower_bounds`` is rounded up to ``parity``, if
-        given, and then divided by ``weight_factor``, rounding up.  The entries do not decrease in
+        any, and then divided by ``weight_factor``, rounding up.  The entries do not decrease in
         the order of the steps, those that mean that no word remains stay ``NO_WORD_BOUND``, and
         entry ``[0, 0]``, before every step, stays zero.  Each call returns a new table.
         """
         bounds = self._step_lower_bounds
         if parity is not None:
             # Round each finite entry up to the parity, but keep the zero before the first step,
-            # which a check of a cached stopping step needs every nonnegative maximum weight to
-            # pass (``get_stopping_step`` of ``_brouwer_zimmermann/coset_tables.py``).
+            # which every nonnegative maximum weight must pass in a check of a cached stopping step
+            # (``get_stopping_step`` of ``_brouwer_zimmermann/coset_tables.py``).
             bounds = bounds + (bounds - parity) % 2 * (bounds < NO_WORD_BOUND)
             bounds[0, 0] = 0
 
-        # Round up by negated floor division, which cannot overflow, and reset the entries that mean
-        # that no word remains, which division shrinks.
+        # Round up by negated floor division, which cannot overflow.  Division shrinks the entries
+        # that mean that no word remains, so they are reset.
         bounds = -(-bounds // weight_factor)
         bounds[self.dimension, 1:] = NO_WORD_BOUND
         return bounds
@@ -189,8 +189,8 @@ class Certificate:
     def _solves_linear_programs(self) -> bool:
         """Whether the certificate also solves linear programs.
 
-        It does with pivot blocks and a maximum coverage above one.  With a coverage of one, the
-        blocks are disjoint, and the optimum is the coverage bound (Section 3.1).
+        It does exactly with pivot blocks and a maximum coverage above one.  With a coverage of one,
+        the blocks are disjoint, and the optimum is the coverage bound (Section 3.1).
         """
         return bool(self.pivot_blocks) and self.max_coverage != 1
 
@@ -222,10 +222,10 @@ def get_lp_lower_bound(
     """Bound the weight of binary words with at least ``b_i`` ones in each block ``B_i``.
 
     ``B_i`` is ``pivot_blocks[i]``, and ``b_i`` is ``requirements[i]``.  The bound is the ceiling of
-    the dual value of the linear program of Section 3.1, computed in exact rational arithmetic at
-    the solver's dual weights, limited to denominators of at most ``max_denominator``, so rounding
-    in the solver can only weaken it.  Returns ``NO_WORD_BOUND`` if a requirement exceeds its block,
-    since then no word meets it, and zero if no requirement is positive or the solver fails.
+    the dual value of the linear program of Section 3.1 at the solver's dual weights, limited to
+    denominators of at most ``max_denominator``, and evaluated exactly as Section 3.1 describes.
+    Returns ``NO_WORD_BOUND`` if a requirement exceeds its block, since then no word meets it, and
+    zero if no requirement is positive or the solver fails.
     """
     blocks = [
         list(block) for block, requirement in zip(pivot_blocks, requirements) if requirement > 0
@@ -348,22 +348,23 @@ def plan_steps(
 ) -> tuple[int, int, int]:
     """Plan a search of layers ``first_layer`` to ``last_layer`` that stops above a limit.
 
-    Step ``(w, j)`` completes layer ``w`` of the ``j``-th set, and its bound is
-    ``step_bounds[w, j]``, as in the table of ``get_step_lower_bounds``.  The steps run layer by
-    layer, and their bounds must not decrease in that order, as holds for that table and the tables
-    of ``Certificate.get_weight_bounds``.  The stopping step ``(w*, j*)`` is the first step whose
-    bound exceeds ``limit``, or ``(last_layer, num_sets)`` if none does.  There, the first ``j*``
-    sets have completed layer ``w*``, and the others ``w* - 1``; call the last layer that set ``i``
-    has completed ``w_i``.
+    ``step_bounds`` has a row for each layer from zero to the dimension, and column zero and then a
+    column for each of ``num_sets`` sets.  Step ``(w, j)`` completes layer ``w`` of the ``j``-th
+    set, and its bound is ``step_bounds[w, j]``, as in the table of ``get_step_lower_bounds``.  The
+    steps run layer by layer, and their bounds must not decrease in that order, as holds for that
+    table and the tables of ``Certificate.get_weight_bounds``.  The stopping step ``(w*, j*)`` is
+    the first step whose bound exceeds ``limit``, or ``(last_layer, num_sets)`` if none does.
+    There, the first ``j*`` sets have completed layer ``w*``, and the others ``w* - 1``; call the
+    last layer that set ``i`` has completed ``w_i``.
 
     The work adds ``binomials[w]`` candidate/set evaluations for each set ``i`` that the plan keeps
     and each layer ``w`` from ``first_layer`` to ``w_i``, and is zero for empty ``binomials``.  With
-    ``skip_unused``, the plan leaves out the unused sets, whose rank deficiency, read from
-    ``ranks``, exceeds ``w_i``, so that they add nothing to the bound, as a coset search skips them.
-    The work saturates at ``WORK_CAP`` once a layer through ``w*`` has a binomial above
-    ``WORK_CAP // num_sets``, or the sum reaches the cap.  From layer one for the limit ``U - 1``,
-    the work is the estimate of a distance search, and from layer zero for a maximum weight,
-    skipping unused sets, that of a coset query (Section 3.6).
+    ``skip_unused``, the plan leaves out, as a coset search does, the unused sets, which add nothing
+    to the bound since their rank deficiency, read from ``ranks``, exceeds ``w_i``.  Without it, the
+    plan reads no ranks.  The work saturates at ``WORK_CAP`` once a layer through ``w*`` has a
+    binomial above ``WORK_CAP // num_sets``, or the sum reaches the cap.  From layer one for a limit
+    one below the best weight, the work is the estimate of a distance search, and from layer zero
+    for a maximum weight, skipping unused sets, that of a coset query (Section 3.6).
 
     Returns:
         The stopping step ``(w*, j*)``, and the work.
@@ -416,9 +417,9 @@ def is_unused_set(
     """Whether a set is an unused set of step ``(layer, num_completed)`` (see ``plan_steps``).
 
     ``pivots`` holds the pivot columns of each set of ``num_rows`` rows, padded with -1 beyond its
-    rank.  A set that has completed layer ``c >= 0`` is unused if its rank deficiency exceeds
-    ``c``: if its rank is at most ``num_rows - c - 1``, that is, if its pivot at that index is
-    padding.  A set that has completed layer ``num_rows`` is used.
+    rank.  A set that has completed layer ``c``, which must be at least zero, is unused if its rank
+    deficiency exceeds ``c``, that is, if its pivot at index ``num_rows - c - 1`` is padding.  A set
+    that has completed layer ``num_rows`` is used.
     """
     position = pivots.shape[1] - get_completed_layer(set_index, layer, num_completed) - 1
     return position >= 0 and pivots[set_index, position] < 0

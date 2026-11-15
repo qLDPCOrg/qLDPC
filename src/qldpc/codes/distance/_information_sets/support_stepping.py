@@ -27,7 +27,7 @@ def advance_support(
     ``level`` holds the offset plus the rows ``support[:level]``.  Start with ``depth = 0``,
     ``support[0] = 0``, and the offset in ``prefixes[0]``, which stays unchanged.
 
-    Returns ``len(support) - 1`` once ``support`` is complete, with the word ``prefixes[depth] ^
+    Returns ``len(support) - 1`` once ``support`` is complete, when its word is ``prefixes[depth] ^
     rows[support[depth]]``, or -1 after the last support.  To continue, raise ``support[depth]``
     and call again with that depth: by one for the next support, or past the last row to skip the
     supports that differ from this one only in their last row.
