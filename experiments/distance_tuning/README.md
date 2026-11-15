@@ -27,7 +27,7 @@ The script first traces a few quick searches.
 It prints a table of the cost of each optional step that a derived value gates, in seconds and in the unit of the field that gates the step: candidate/set evaluations for Brouwer-Zimmermann searches, and states for connected-cluster searches.
 It then prints the value that the heuristic of each derived value gives for that cost, under `derived`, beside the default.
 Last, it traces the searches of its cost data set, `COST_DATA_SET`, under four tunings, which can take hours, and prints each coefficient of the cost model of completion tables, under `measured`, beside its default.
-The docstring of `constants.py` says how it measures each cost.
+The functions of `constants.py` say how it measures each cost.
 
 Read the output by the rule of the Retuning section: a default calls for a change only if the cost that its heuristic assumes is off by more than a factor of about 3.
 So compare the cost of each step, under `in units`, with the default of the field that gates the step.
@@ -58,7 +58,7 @@ python experiments/distance_tuning/trace.py --compare \
 A trace lists the events of each stage of the searches of its workload, such as the families of information sets that a search builds, its decisions to use completion tables or automorphisms, and the layers that it scans, each with its seconds.
 `--compare` lists the decisions that differ between two traces of one workload.
 If two tunings differ only in thresholds, a search whose decisions do not change takes the same steps, apart from the time of the decisions themselves.
-The docstring of `trace.py` lists the events, and says what the comparison leaves out, such as the sets of each family.
+The wrapper of each event in `trace.py` says what the event records, and the docstring of `trace.py` says what the comparison leaves out, such as the sets of each family.
 
 ## Catching regressions
 
