@@ -2,37 +2,33 @@
 
 """Tables that bound the weights of the words that complete a BZ support with two more rows.
 
-A distance search scans the sums of ``w`` rows of a systematic basis ``[I | P]``, whose words weigh
-``w`` plus the weight of their tail, the sum of the selected rows of ``P``.  A support whose first
-``w - 2`` rows sum to a tail ``p``, and whose next row is at least ``s``, is completed by a pair of
-rows ``s <= i < j``.  Partition the tail columns into disjoint blocks, and add, over the blocks, the
-least weight of ``p + P_i + P_j`` on the block over all such pairs.  Every completion uses the same
-pair on every block, so the sum bounds the weight of the tail of every completion.  If it reaches
-``U - w``, for the best weight ``U`` found so far, none of these completions can lower ``U``, and
-the search skips them.  Section 3.9 of ``brouwer_zimmermann.md`` derives this bound.
+A BZ scan weighs the sums of ``w`` rows of a systematic basis ``[I | P]``.  The supports that share
+their first ``w - 2`` rows, whose tails sum to ``p``, and whose next row is at least ``s``, differ
+only in their last pair of rows ``s <= i < j``.  ``CompletionTables`` stores, on disjoint blocks of
+tail columns, the least weight of ``p + P_i + P_j`` over these pairs, for every value of ``p`` on
+the block and every ``s``.  Every completion uses one pair on all the blocks, so the sum of these
+least weights, which ``get_completion_bound`` looks up, bounds its tail weight.  A scan skips the
+completions whose bound proves that none of them is lighter than its limit.  Section 3.9 of
+``brouwer_zimmermann.md`` derives the bound, and shows that a search that skips completions still
+meets its contract.
 
-A count of the words of a given weight uses the same bound with ``U`` one above that weight, so that
-it skips only completions heavier than the weight (``_counting/scan.py``).  The coset searches of
-``CosetLeaderSearch`` use it in their costliest queries and searches for minimum weights.  A query
-puts in place of ``U`` the least bound that proves a word heavier than its maximum weight.  A search
-for a minimum weight uses that bound until it finds a word within the maximum weight, and then, when
-each scan starts, the Hamming weight of its lightest word, or one less where every word of the coset
-has its parity.  Once a scan finds a lighter word, the tables skip at the Hamming weight of the
-lightest word that it has found (see ``_search_coset_for_min_weight`` in
-``_brouwer_zimmermann/coset.py``).  The bases of the coset searches need not be information sets, so
-in place of ``w`` they bound the ones of a completion on pivot columns (see
-``scan_coset_layer_by_tails_with_tables`` in ``_brouwer_zimmermann/affine_search.py``).
+Each search sets its limit so that it never skips a word that it needs:
 
-Tables of the least weights on each block, for every value of ``p`` on the block and every ``s``,
-make each bound a few lookups.  They cost memory and time to build, so ``predict_completion_cost``
-estimates from a sample of supports how much of a layer the bound would skip, and
-``select_completion_tables`` uses tables only if their predicted cost is within the limits of the
-search's tuning.  A distance search chooses the tables of each information set of a layer in this
-way.  The estimate only guides these choices: a search skips completions only when a computed bound
-proves that they cannot lower ``U``.
-``considers_tables`` states which layers a tuning considers for tables at all.  Coset searches build
-the tables of the bases of their costliest queries without sampling, if they fit within a limit (see
-``_brouwer_zimmermann/coset_routes.py``, and ``get_table_bytes_within``).
+- A distance search skips at its best weight ``U``.
+- A count of the words of weight ``t`` skips at ``t + 1`` (``_counting/scan.py``).
+- A coset search skips at the least bound that proves a word heavier than the maximum weight of its
+  query, and a search for a minimum weight lowers that limit as it finds lighter words
+  (``_brouwer_zimmermann/coset.py``, and Section 3.10 of the guide).  The bases of coset searches
+  need not be information sets, so in place of ``w``, they bound the pivot ones of a completion
+  (``scan_coset_layer_by_tails_with_tables`` in ``_brouwer_zimmermann/affine_search.py``).
+
+Tables cost memory and time to build.  For each information set of a layer, a distance search or
+count calls ``select_completion_tables``, which uses tables only for the layers that
+``considers_tables`` admits, and only if ``predict_completion_cost``, from a sample of supports,
+predicts a cost within the limits of the tuning.  The prediction only guides this choice, since
+every skip rests on a computed bound.  Coset searches build the tables of their costliest queries
+without sampling, if they fit within a limit (``get_table_bytes_within``, and
+``_brouwer_zimmermann/coset_routes.py``).
 """
 
 from __future__ import annotations
@@ -119,15 +115,15 @@ def select_completion_tables(
 ) -> CompletionTables | None:
     """Choose the tables, if any, that a scan of a layer should use to skip completions.
 
-    ``rows`` holds the packed tails of a systematic basis whose layer ``weight`` a search is about
-    to scan, with the best weight ``upper_bound``, and ``tuning`` is the tuning of the search.  A
-    count of the words of weight ``t`` passes ``t + 1``, the lightest weight that it may skip.  For
-    a layer whose tables the tuning considers (see ``considers_tables``), the function estimates,
-    from random supports of the layer, a conservative lower bound on the share that tables would
-    skip.  It predicts the cost of scanning the layer with tables, counting the cost of building
-    them unless the search passes its tables of ``rows`` as ``current``.  Tables use blocks of
-    ``tuning.completion_bound_block_bits`` columns, and a layer whose tables would need more than
-    ``tuning.completion_bound_max_table_bytes`` bytes gets none.
+    A search with the tuning ``tuning`` is about to scan layer ``weight`` of a systematic basis,
+    whose packed tails are ``rows``, with the best weight ``upper_bound``.  A count of the words of
+    weight ``t`` passes ``t + 1``, the lightest weight that it may skip.  If the tuning considers
+    tables for the layer (see ``considers_tables``), this function estimates a conservative lower
+    bound on the share of supports that tables would skip, from random supports of the layer.  It
+    then predicts the cost of scanning the layer with tables.  The prediction counts the cost of
+    building them, unless the search passes its tables of ``rows`` as ``current``.  Tables use
+    blocks of ``tuning.completion_bound_block_bits`` columns, and a layer whose tables would need
+    more than ``tuning.completion_bound_max_table_bytes`` bytes gets none.
 
     Returns:
         Tables, possibly ``current``, if the predicted cost is at most
@@ -217,9 +213,10 @@ def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
 
     Tables bound the completions of a prefix by two more rows, so the layer must have at least two
     rows, and no more than the basis.  It must have at least
-    ``tuning.completion_bound_minimum_layer_work`` supports.  Like the work estimates of
-    certificates, this number saturates at their cap, so that the largest threshold of a tuning
-    considers no layer.  A tuning that allows no cost or no bytes of tables considers none.
+    ``tuning.completion_bound_minimum_layer_work`` supports.  This count saturates at the cap of the
+    work estimates of certificates, which lies below the largest threshold of a tuning, so that
+    threshold considers no layer.  A tuning that allows no cost or no bytes of tables considers
+    none.
     """
     return (
         2 <= weight <= num_rows
@@ -338,11 +335,12 @@ def _estimate_skipped_share(
 ) -> tuple[float, int]:
     """Estimate the share of the supports of a layer that tables would skip.
 
-    A support whose first row of its last pair is ``s`` is skipped exactly if the bound of its first
-    ``weight - 2`` rows and ``s`` proves it cannot lower ``upper_bound``: the bound for a smaller
-    ``s`` is weaker, and skips it only if this bound would.  ``tuning.completion_bound_samples``
-    random supports, or as many as fit the budget ``tuning.completion_bound_sampling_work``,
-    estimate this share.  The estimate assumes that ``upper_bound`` stays fixed.
+    Let ``s`` be the first row of the last pair of a support.  The support is skipped exactly if the
+    bound of its first ``weight - 2`` rows and ``s`` proves that it cannot lower ``upper_bound``,
+    since the bound for a smaller ``s`` is weaker, and skips it only if this bound would.
+    ``tuning.completion_bound_samples`` random supports, or as many as fit the budget
+    ``tuning.completion_bound_sampling_work``, estimate this share.  The estimate assumes that
+    ``upper_bound`` stays fixed.
 
     Returns:
         The sampled share and the number of samples, or zeros if fewer than
@@ -387,9 +385,10 @@ def _fill_tables(
 ) -> None:
     """Fill the tables of ``CompletionTables`` for the packed tails of a basis.
 
-    For each block, the distances to the sums of the pairs from row ``s`` on are the distances for
-    row ``s + 1`` on, lowered by the new pairs of row ``s``.  A breadth-first search from the new
-    sums lowers them.  It does not continue past a distance that it does not lower, since the old
+    On each block, the table of row ``s`` holds the distance from each value to the nearest sum of a
+    pair of rows from ``s`` on.  It is the table of row ``s + 1``, lowered by the sums of the new
+    pairs of row ``s``, which are at distance zero.  A breadth-first search from these sums lowers
+    the distances.  It does not continue past a distance that it does not lower, since the old
     distances already bound every distance beyond it.
     """
     num_rows = rows.shape[0]

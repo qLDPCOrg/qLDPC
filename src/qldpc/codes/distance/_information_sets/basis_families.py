@@ -2,25 +2,22 @@
 
 """Basis families of information sets, shared by exact BZ and coset searches and by counts.
 
-The Brouwer-Zimmermann distance search (``_brouwer_zimmermann/distance.py``) and fixed-weight
-logical counting (``_counting/scan.py``) enumerate coefficient layers over the same basis families
-(see ``brouwer_zimmermann.md`` for the terminology).  Layer ``w`` of an information set holds the
-words that add ``w`` of its rows to an offset.  The offset is zero in the distance and counting
-scans, which search a space.  The coset-leader oracle (``CosetLeaderSearch``) answers its queries
-with coset searches, whose offset is a fixed word of the searched coset (see ``_search_coset`` in
-``_brouwer_zimmermann/coset.py``).  This module owns how those basis families are built, pruned,
-and replaced by overlapping ones.  The coset searches use the disjoint information sets, and for
-costly queries the families of :func:`get_maximum_disjoint_family` and
-:func:`get_overlapping_family` (see ``_brouwer_zimmermann/coset_routes.py``).  The certificate that
-bounds the Hamming weight of the eligible words that a basis family has not yet visited, and the
-plans of the steps of searches, are in ``certificates.py``.  The step from one support of a layer
-to the next is in ``support_stepping.py``.
+A basis family is the set of information sets of one basis that a search scans together, layer by
+layer, and certifies together.  Layer ``w`` of a set holds the words that add ``w`` of its rows to
+an offset.  The offset is zero in the distance search (``_brouwer_zimmermann/distance.py``) and the
+counts (``_counting/scan.py``).  In the coset searches with which ``CosetLeaderSearch`` answers its
+queries, the offset is a fixed word of the searched coset (see ``_search_coset`` in
+``_brouwer_zimmermann/coset.py``).  ``brouwer_zimmermann.md`` defines the terms (Sections 2.3 and
+2.4), derives the certificate (Sections 2.5 and 3.1), and describes the heuristics of the stages
+below (Section 4.4).
 
-A :class:`BasisFamily` stacks its information sets into arrays, so that one set of functions serves
-every caller, in the subset of Python that numba compiles, and some of them are compiled (see
-``qldpc/_compilation.py``).  Its :class:`Certificate` gives the bound and the work estimate.
+This module builds basis families, prunes them, and replaces them by cheaper ones.  A
+``BasisFamily`` stacks its sets into arrays, so that the same functions serve every caller and can
+be compiled (see ``qldpc/_compilation.py``).  ``certificates.py`` holds the certificate of a family
+and the plans of the steps of searches, and ``support_stepping.py`` the step from one support of a
+layer to the next.
 
-Basis family construction runs in stages, so that a caller can take its own exits between them:
+The construction runs in stages, so that a caller can take its own exits between them:
 
 1. :func:`get_disjoint_family` packs disjoint information sets and infers ambient even parity.
 2. :func:`prune_family` drops partial sets that cannot help certify a target.
@@ -28,11 +25,12 @@ Basis family construction runs in stages, so that a caller can take its own exit
 4. :func:`get_partitioned_family` may build a cheaper one still, by matroid partitioning, for
    costly searches.
 
-Each stage aims at a target ``upper_bound``.  Distance passes its current witness weight ``U`` and
-stops once the certificate reaches ``U``.  Counting at weight ``w`` must also visit every word of
-weight exactly ``w``, so it passes ``w + 1`` and stops only once the certificate exceeds ``w``.
-Section 4.4 of ``brouwer_zimmermann.md`` describes the heuristics, and Sections 2.5 and 3.1 derive
-the certificate.
+Each stage aims at a target ``upper_bound``.  The distance search passes the weight ``U`` of its
+best witness, and stops once the certificate reaches ``U``.  A count of the words of weight ``t``
+must also visit every word of weight ``t``, so it passes ``t + 1``, and stops only once the
+certificate exceeds ``t``.  The coset searches use the disjoint family, and, for costly queries, the
+families of :func:`get_maximum_disjoint_family` and :func:`get_overlapping_family` (see
+``_brouwer_zimmermann/coset_routes.py``).
 """
 
 from __future__ import annotations
@@ -224,7 +222,8 @@ def get_overlapping_family(
     full_indices = np.flatnonzero(ranks == dimension)
     num_full = len(full_indices)
 
-    # Start from full blocks; skip complete packings and basis families already at the size limit.
+    # Replace only a family with full sets, which the replacement starts from.  Keep a family whose
+    # full sets use every nonzero column, or that already has the most full sets allowed.
     if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
         return _get_no_replacement(basis_family, basis, labels)
 
@@ -243,8 +242,8 @@ def get_overlapping_family(
     if optimistic_work >= best_work:
         return _get_no_replacement(basis_family, basis, labels)
 
-    # Track coverage and distinct sets; fixed-seed tie-breaking keeps choices reproducible.  The
-    # arrays hold the sets found so far and grow on demand, since the limit may be large.
+    # Track the coverage of each column and the distinct sets found so far, in arrays that grow on
+    # demand, since the limit may be large.
     capacity = min(max_sets, 2 * num_full + 1)
     generators = np.empty((capacity, dimension, basis.shape[1]), dtype=np.uint8)
     set_labels = np.empty((capacity, dimension, labels.shape[1]), dtype=np.uint8)
@@ -279,7 +278,7 @@ def get_overlapping_family(
             packed_basis, packed_labels, columns[by_random[by_coverage]]
         )
 
-        # Do not add duplicate sets; their row reductions still count against the attempt limit.
+        # Do not add duplicate sets.  Their row reductions still count against the attempt limit.
         new_sorted_pivots = np.sort(new_pivots)
         duplicate = False
         for index in range(num_sets):
@@ -302,7 +301,7 @@ def get_overlapping_family(
         num_sets += 1
         coverage = int(column_coverage.max())
 
-        # Keep improvements; stop at the set limit or when the optimistic work bound is attained.
+        # Keep improvements.  Stop at the set limit, or once the optimistic work bound is attained.
         full_ranks = np.full(num_sets, dimension, dtype=np.int64)
         work = estimate_certificate_work(
             dimension, full_ranks, weight_divisor, coverage, upper_bound, binomials
@@ -375,10 +374,10 @@ def get_partitioned_family(
     that such families can do less work than those of the Brouwer-Zimmermann algorithm.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
-    than the work of ``basis_family``, and otherwise a family with no sets.  No family is built if
-    the estimated work of ``basis_family`` is below ``tuning.partition_work_ratio`` times the sum of
-    ``b**2 * k**2 * n`` over the coverages ``b``, for ``k`` rows and ``n`` nonzero columns, a unit
-    roughly proportional to the cost of partitioning, or if no family of at most
+    than the work of ``basis_family``, and otherwise a family with no sets.  Partitioning costs
+    roughly in proportion to a unit: the sum of ``b**2 * k**2 * n`` over the coverages ``b``, for
+    ``k`` rows and ``n`` nonzero columns.  No family is built if the estimated work of
+    ``basis_family`` is below ``tuning.partition_work_ratio`` units, or if no family of at most
     ``tuning.max_information_sets`` full sets could do less work.
 
     ``get_competing_work``, if given, returns the estimated work of a family that the search would
@@ -454,14 +453,14 @@ def get_maximum_disjoint_family(
     """A disjoint family with the most information sets, and then the largest partial set.
 
     ``basis_family`` is a disjoint family of the independent binary ``basis``, such as that of
-    ``get_disjoint_family``, whose greedy packing can miss an information set, or leave a smaller
+    ``get_disjoint_family``.  Its greedy packing can miss an information set, or leave a smaller
     partial set than another packing would.  Matroid partitioning with coverage one finds the most
     disjoint information sets, and the largest partial set on the columns that they leave (see
-    ``matroid_partition``).  The sets of the family have no labels.  Like a greedy packing, each
-    family holds information sets and then at most one partial set, and at most as many information
-    sets as a packing keeps (see ``_get_full_set_limit``).  For such families, if the pivots of
-    ``basis_family`` use every nonzero column, or it already holds that many information sets, no
-    other family can do better within that limit, so this skips partitioning.
+    ``matroid_partition``).  The sets of the family have no labels.  Like a greedy packing, the
+    family holds information sets and then at most one partial set.  It also holds at most as many
+    information sets as a packing keeps (see ``_get_full_set_limit``).  No other such family does
+    better than ``basis_family`` if the pivots of ``basis_family`` use every nonzero column, or if
+    it already holds that many information sets, so then this skips partitioning.
 
     Returns:
         That family, if its tuple of ranks is lexicographically larger than that of
