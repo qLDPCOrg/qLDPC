@@ -18,8 +18,9 @@ from . import macwilliams as mw
 def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int) -> None:
     """Count two disjoint four-qubit blocks, with any remaining qubits free, at every weight.
 
-    A logical has even weight on each block, and the checks are the words of weights 0, 4 and 8 that
-    are constant on each block.  At length 70, middle weights exceed 64-bit integers.
+    A logical has even weight on each block, and the checks are the words of weights 0, 4, and 8
+    that are constant on each block.  At length 70, the counts at middle weights exceed 64-bit
+    integers.
     """
     add_span_weights = mw._add_span_weights
     chunk_sizes = []
