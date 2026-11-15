@@ -1,7 +1,8 @@
 # This workflow measures how long each test file takes in the per-module coverage check on a CI
 # runner, and uploads the result as .test_durations, which balances the coverage shards (see
-# checks/coverage_.py --shard).  Run it from the Actions tab, and commit the file that it uploads.
-# Keep its set-up in step with the coverage job of continuous-integration.yaml.
+# checks/coverage_.py --shard).  Run it from the Actions tab, then download the file that it uploads
+# with checks/_fetch_test_durations.py, and commit it.  Keep its set-up in step with the coverage
+# job of continuous-integration.yaml.
 
 name: Store test durations
 
