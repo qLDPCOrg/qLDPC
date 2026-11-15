@@ -2,19 +2,10 @@
 
 """The scan of the words of one weight in a sector: its set-up, its loop, and its native chunks.
 
-A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` counts each
-nontrivial word of a given weight in a sector once.  It selects information sets for the basis with
-the basis family stages of ``_information_sets/``, packs them, and enumerates combinations of the
-rows of each set, layer by layer.  A step of two or more rows of an information set may skip the
-supports whose words all weigh more than the given weight, with the completion tables of
-``_information_sets/completion_bounds.py`` (Section 3.9 of ``brouwer_zimmermann.md``).
-
-A counter keeps a disjoint basis family for each sector, from which both its counts and its distance
-searches start.  ``transport_basis_family`` moves such a family through a local gate, for deformed
-counters.
-
-``logical_counts.py`` calls both functions.  Sections 2 and 3 of ``brouwer_zimmermann.md`` describe
-the Brouwer-Zimmermann algorithm, and Section 5 states what a count requires.
+A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` counts the
+nontrivial words of one weight in a sector, and ``transport_basis_family`` moves a basis family of a
+sector through a local gate.  Sections cited in this module are those of ``brouwer_zimmermann.md``,
+whose Section 3.11 explains counts.
 """
 
 from __future__ import annotations
@@ -65,15 +56,10 @@ def count_words(
     """Count each nontrivial word of one sector with the given weight exactly once.
 
     Returns a histogram over the exponents ``max_exponent - rank(rank_rows[:, mask])``, where
-    ``mask`` is the support of a counted word, or its complement with ``complement``.  The histogram
-    sums to the number of words.  The caller weighs each exponent by ``2**exponent``, which could
-    overflow a native integer.
-
-    The scan also visits every lighter word.  With ``reject_lighter``, it returns None as soon as it
-    finds a lighter nontrivial word.  With ``brute_force``, it scans the whole basis as one set,
-    rather than the information sets of the Brouwer-Zimmermann search.  ``tuning`` sets the
-    thresholds that choose those information sets, the completion tables of its steps, and the sizes
-    of the chunks of the scan (see ``_tuning``).
+    ``mask`` is the support of a counted word, or its complement with ``complement``.  The caller
+    weighs each exponent by ``2**exponent``, which could overflow a native integer.  The scan also
+    visits every lighter word, and with ``reject_lighter`` returns None at the first that is
+    nontrivial.  With ``brute_force``, it scans the whole basis as one set.
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
     if brute_force:
@@ -117,9 +103,9 @@ def count_words(
     )
     steps = _Steps(len(rows_and_labels), last_layer, last_num_completed)
 
-    # Scan in bounded calls, since compiled code cannot be interrupted within a call.  The tables of
-    # each step are chosen in Python, between calls.  So a call that starts a step that may use
-    # completion tables ends with that step, and any other call ends before the next such step.
+    # Scan in bounded calls, since compiled code cannot be interrupted within a call.  Tables are
+    # chosen in Python, so a call that starts a step that may use tables ends with that step, and
+    # any other call ends before the next such step.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
@@ -169,10 +155,9 @@ def transport_basis_family(
 ) -> basis_families.BasisFamily | None:
     """The basis family of a sector after a local gate, or None if the gate breaks one of its sets.
 
-    Each set is mapped through the gate and reduced again on its own pivot columns, so the pivots
-    stay disjoint, and the labels move with their rows.  The gate breaks a set if the set's rows,
-    restricted to its pivot columns, lose rank.  ``basis`` is the basis of the sector after the
-    gate, from which the weight divisor of the family is inferred again.
+    Each set is mapped through the gate and reduced again, with its labels, on its own pivot
+    columns, and the gate breaks a set that loses rank there (Section 3.11).  ``basis`` is the basis
+    of the sector after the gate, from which the weight divisor of the family is inferred again.
     """
     moved, generators, labels = _transport_sets(
         basis_family.generators,
@@ -201,8 +186,8 @@ def _select_basis_family(
 ) -> basis_families.BasisFamily:
     """Run the basis family stages that can be compiled: pruning, then an overlapping replacement.
 
-    The stages aim at the counting stop ``L(t) >= weight + 1``, though any basis family gives an
-    exact count.  ``policy`` is that of the overlapping replacement.
+    The stages aim at the stop of a count, ``L(t) >= weight + 1``, though any basis family gives an
+    exact count (Section 5).  ``policy`` is that of the overlapping replacement.
     """
     upper_bound = weight + 1
     pruned = basis_families.prune_family(basis_family, upper_bound)
@@ -231,10 +216,8 @@ def _pack_basis_family(
 def _get_last_step(certificate: certificates.Certificate, weight: int) -> tuple[int, int]:
     """The first step after which the certificate rules out unvisited words of the given weight.
 
-    A step completes a layer of one set, and the scan visits the sets of each layer in family order.
-    Returns the layer of that step, and the number of sets that have completed that layer.  The
-    certificate must exceed the weight, since equality would still allow unvisited words of that
-    weight.
+    Returns the layer of the step, and its number of completed sets (see ``_Steps``).  The
+    certificate must exceed the weight, not equal it (Section 5).
     """
     # The first set to complete the last layer visits every word, so some step certifies.
     steps = itertools.product(
@@ -283,17 +266,10 @@ def _get_next_step(
 class _StepTables:
     """The completion tables, if any, with which each step of a count skips completions.
 
-    A step visits one layer of one set of ``basis_family``.  For brute force, ``basis_family`` is
-    None, a step visits a layer of the whole basis, and no step skips anything.  A step of at least
-    two rows of a set whose block is an information set may skip supports.  It skips those whose
-    words, by the bound of ``completion_bounds``, all weigh at least ``upper_bound``, which is the
-    target weight plus one.  So it skips no word of the target weight, and no lighter word.
-
-    ``tuning`` chooses the tables of a step as for a layer of a distance search (see
-    ``completion_bounds.select_completion_tables``).  A count keeps the tables of the sets that it
-    has used for their later steps.  Between steps, the kept tables take at most
-    ``tuning.completion_bound_max_table_bytes`` in all.  While a count builds the tables of another
-    set, it holds them in addition to the kept tables.
+    A step of at least two rows of a set of ``basis_family`` whose block is an information set may
+    skip the supports whose words all weigh at least ``upper_bound``, the target weight plus one,
+    with tables that ``tuning`` chooses and keeps as Section 3.9 describes.  For brute force,
+    ``basis_family`` is None, and no step skips.
     """
 
     def __init__(
@@ -334,10 +310,7 @@ class _StepTables:
             self.max_row_width += (num_tail_columns + 63) // 64
 
     def may_use_tables(self, layer: int, set_index: int) -> bool:
-        """Whether a step might use tables: whether the tuning considers them for it.
-
-        Such a step is in one of ``layers``, and its set's block is an information set.
-        """
+        """Whether the tuning considers tables for a step: one in ``layers`` of a full set."""
         family = self._basis_family
         return (
             layer in self.layers
@@ -350,9 +323,9 @@ class _StepTables:
     ) -> tuple[completion_bounds.CompletionTables, _PackedMatrix]:
         """The tables of a step that ``may_use_tables``, and the rows, labels, and tails of its set.
 
-        If ``completion_bounds.select_completion_tables`` declines tables for the step, the step
-        gets ``completion_bounds.NO_TABLES``, and rows that its scan ignores.  Selecting the same
-        step again, as when the scan resumes it, returns the same choice.
+        A step for which ``completion_bounds.select_completion_tables`` declines tables gets
+        ``completion_bounds.NO_TABLES``, with rows that its scan ignores.  Selecting the same step
+        again, as a resumed scan does, returns the same choice.
         """
         if self._step == (layer, set_index) and self._selected is not None:
             return self._selected
@@ -454,31 +427,17 @@ def _scan_coefficient_layers(
 ) -> int:
     """Visit the supports of the steps from ``cursor`` on, for at most ``max_chunks`` chunks.
 
-    A step visits all supports of one layer of one set (see ``_count_chunk``).  The steps run in the
-    order of ``_Steps``, which is lexicographic in their layer and set, so the steps that the scan
-    visits are a prefix of that order.  The certificate rules out unvisited words of the target
-    weight after the last step of the prefix.  Each word of the target weight is owned by the first
-    step that visits it (see ``_is_owned``), so its owner lies in the prefix.  This loop is a
-    function of its own so that it can be compiled, which saves a call from Python for every chunk.
+    The steps run in the order of ``_Steps``, and the call stops before ``(stop_layer, stop_set)``.
+    ``tables``, ``offsets``, and ``block_bits`` are the fields of the ``CompletionTables`` of a
+    step, or of ``NO_TABLES``.  A call with tables covers one step, whose rows, labels, and tails
+    ``step_rows`` holds; a call without ignores ``step_rows``.  The loop is a function of its own
+    so that it can be compiled, which saves a call from Python for every chunk.
 
-    The call stops before the step ``(stop_layer, stop_set)``, or runs to the end of the scan if
-    that step is ``(0, 0)``.  ``tables``, ``offsets``, and ``block_bits`` are the fields of the
-    ``completion_bounds.CompletionTables`` of a step, or of ``completion_bounds.NO_TABLES``:
-
-    - With tables, the call covers one step.  ``step_rows`` holds the rows and labels of its set,
-      followed by their tails.  The step skips completions as a count does in Section 3.9 of
-      ``brouwer_zimmermann.md`` (see ``_count_chunk_skipping``).
-    - Without tables, the steps visit every support, and the call ignores ``step_rows``.
-
-    Compiled code cannot be interrupted, so the scan is resumable.  ``cursor`` holds the layer, the
-    set, and the depth at which to resume.  ``support`` and ``prefixes`` hold the current support
-    and its prefix XORs, and ``support[:layer]`` is the support of the current layer, which is how
-    the chunks know its length.  The first call passes a cursor at layer one, set zero, and depth
-    zero, and zero prefixes.  Every call passes on the same ``cursor``, ``support``, ``prefixes``,
-    and ``histogram``, and every call of a step passes the same tables.
-
-    Returns ``_SCAN_FINISHED`` once the last step is complete, ``_SCAN_UNFINISHED`` if steps or
-    chunks remain, or ``_SCAN_FOUND_LIGHTER_WORD``.
+    Compiled code cannot be interrupted, so the scan resumes across calls.  ``cursor`` holds the
+    layer, the set, and the depth at which to resume, and ``support[:layer]`` the current support.
+    Every call passes the same ``cursor``, ``support``, ``prefixes``, and ``histogram``, and every
+    call of a step the same tables.  The first call passes a cursor at layer one, set zero, and
+    depth zero, and zero prefixes.  Returns how the call ended, as a ``_SCAN_*`` code.
     """
     while True:
         # Visit the chunks of the step at the cursor.
@@ -592,15 +551,12 @@ def _count_chunk(
 ) -> tuple[int, bool]:
     """Visit up to ``chunk_size`` supports of ``len(support)`` rows, resuming at ``depth``.
 
-    ``rows_and_labels`` holds the rows of one set, with shape ``(num_rows, total_width)``.  Each row
-    holds ``width`` machine words of its word, followed by those of its quotient label.  ``support``
-    holds the current support, as the increasing indices of its rows, and ``prefixes`` holds its
-    prefix XORs (see ``advance_support``).  ``depth`` is the position being advanced, or -1 once
-    every support has been visited.  Each owned nontrivial word of weight ``target`` adds one to an
-    entry of ``histogram`` (see ``count_words``).
-
-    Returns the depth from which to resume, and whether the chunk stopped at a nontrivial word
-    lighter than ``target``.  It checks for such words only with ``reject_lighter``.
+    ``rows_and_labels`` holds the rows of one set, each with ``width`` machine words of its word,
+    then those of its quotient label.  ``prefixes`` holds the prefix XORs of ``support``, and
+    ``depth`` is the position being advanced, or -1 once every support has been visited (see
+    ``advance_support``).  Owned nontrivial words of weight ``target`` enter ``histogram`` (see
+    ``count_words``).  Returns the depth from which to resume, and whether the chunk stopped at a
+    nontrivial word lighter than ``target``, which it checks for only with ``reject_lighter``.
     """
     num_rows, total_width = rows_and_labels.shape
     layer = len(support)
@@ -664,31 +620,22 @@ def _count_chunk_skipping(
 ) -> tuple[int, bool]:
     """Visit a chunk of a layer of at least two rows of one set, skipping hopeless completions.
 
-    The arguments are those of ``_count_chunk``, for a set whose block is an information set, with
-    these differences.  Each row of ``step_rows`` holds ``label_end`` machine words of its word and
-    label, followed by its tail: the row without its pivot columns.  ``tables``, ``offsets``, and
-    ``block_bits``, of ``completion_bounds.CompletionTables``, index the tails.
-
-    Each word weighs the number of its rows plus the weight of its tail.  Before the scan tries row
-    ``s`` as the first of the last two rows of a support, it bounds the weights of the words that
-    complete the first ``len(support) - 2`` rows with two rows from row ``s`` on.  If none of them
-    weighs at most ``target``, it skips them all.  Words of the target weight, and lighter ones, are
-    therefore visited exactly as ``_count_chunk`` visits them.  Chunks end at other supports,
-    though, since lookups count toward ``chunk_size``: a chunk ends once the supports that it
-    weighed and the bounds that it looked up reach ``chunk_size`` together.
-
-    ``depth`` is below ``len(support) - 1`` while the scan chooses the rows before the last one, and
-    ``len(support) - 1`` while it visits last rows.
+    The arguments are those of ``_count_chunk``, for a set whose block is an information set, except
+    for ``step_rows``, ``label_end``, and the tables.  Each row of ``step_rows`` holds ``label_end``
+    machine words of its word and label, then its tail, the row without its pivot columns.
+    ``tables``, ``offsets``, and ``block_bits`` index the tails.  Completions that the tables prove
+    heavier than ``target`` are skipped (Section 3.9), so words of weight ``target`` and lighter are
+    visited as ``_count_chunk`` visits them.  A chunk ends once its weighed supports and looked-up
+    bounds reach ``chunk_size`` together.  ``depth`` is ``len(support) - 1`` while the scan visits
+    last rows, and smaller while it chooses the rows before them.
     """
     num_rows, total_width = step_rows.shape
     layer = len(support)
     word = np.empty(width, dtype=np.uint64)
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
-    # Step through the supports of the first layer - 1 rows, whose last row is the first of the last
-    # two rows of a support, and visit the last rows of each in a loop of their own.  Completions
-    # are skipped as for a count in Section 3.9 of brouwer_zimmermann.md.  The pair steps of
-    # ``_scan`` in ``_brouwer_zimmermann/affine_search.py`` skip completions the same way, with a
-    # limit that falls as a search for a lightest word finds lighter words.
+    # Step through the heads of the supports, their first layer - 1 rows, whose last row starts the
+    # pair that completes a support, and visit the last rows of each head in a loop of their own.
+    # The pair steps of ``_scan`` in ``_brouwer_zimmermann/affine_search.py`` skip the same way.
     head = support[: layer - 1]
     head_rows = step_rows[: num_rows - 1]
     pair_depth = layer - 2
@@ -773,12 +720,10 @@ def _visit_last_rows(
 ) -> bool:
     """Visit the words ``prefix ^ rows[row]`` for rows from ``start`` up to ``stop``.
 
-    Each row holds ``width`` machine words of its word, followed by those of its quotient label up
-    to ``label_end``.  Each owned nontrivial word of weight ``target`` adds one to an entry of
-    ``histogram`` (see ``count_words``).  ``word`` and ``pivots`` are scratch space.
-
-    With ``reject_lighter``, the visit stops at the first nontrivial word lighter than ``target``.
-    Returns whether it stopped there.
+    Each row holds ``width`` machine words of its word, then those of its quotient label up to
+    ``label_end``.  The arguments are otherwise those of ``_count_chunk``, and ``word`` and
+    ``pivots`` are scratch space.  Returns whether the visit stopped at a nontrivial word lighter
+    than ``target``.
     """
     for row in range(start, stop):
         weight = np.int64(0)
@@ -811,14 +756,13 @@ def _is_owned(
 ) -> bool:
     """Whether set ``set_index`` minimizes (layer, set index) among the sets that visit ``word``.
 
-    Each set visits a word in the layer given by the weight of its coefficient vector in that set,
-    so exactly one set owns each word, and it visits the word before any other set does.
+    That set owns the word, and visits it first (Section 3.11).
     """
     for other in range(len(extractors)):
         if other == set_index:
             continue
         # A set that visits the word in an earlier layer, or in the same layer with a smaller index,
-        # owns it.
+        # visits it before this set.
         limit = layer if other < set_index else layer - 1
         size = 0
         for extractor_row in extractors[other]:

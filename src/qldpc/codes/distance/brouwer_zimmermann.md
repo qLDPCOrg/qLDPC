@@ -166,6 +166,7 @@ qLDPC goes beyond [Section 2](#2-the-brouwer-zimmermann-algorithm) as follows; e
 - Both: certifying with the images of one information set under automorphisms, while scanning only that set ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
 
 [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) defines the work estimate with which searches choose their search bases, and [Section 3.8](#38-worked-example) works an example.
+[Section 3.11](#311-counting-logical-operators) adapts the search to counts of logical operators, and explains the MacWilliams method of counting.
 
 ### 3.1 Overlapping search bases
 
@@ -479,6 +480,51 @@ So the search skips no word lighter than its answer, and in a coset without a wo
 A search of Pauli errors by CSS weight weighs words by that weight, and keeps those lighter than `U`.
 
 For the CSS weight on a CSS state, `CosetLeaderSearch` searches the X part, then, if its weight `w_x` is at most `ω`, the Z part with the floor `w_x`, where any word within `w_x` ends the search ([README.md](README.md#the-coset-leader-search)).
+
+### 3.11 Counting logical operators
+
+`CSSLogicalCounter` of [logical_counts.py](logical_counts.py) counts the nontrivial logical operators of a given weight `t` in a binary CSS code, where `t` is by default the distance `d`.
+Its default method, BZ, scans each sector as a distance search does, but stops and skips only as Sections [3.9](#39-skipping-completions-by-completion-tables) and [5](#5-correctness-requirements) allow, so that it visits every eligible word of weight `t`.
+A word lies in the layer of its coefficient weight in each search basis, so one step visits it first, and only that step counts it.
+The X and Z sectors of a self-dual code, whose X and Z checks span the same space, are equal.
+So a counter scans only one of them if it knows the code to be self-dual: if it was built from such checks, or deformed from such a counter by a gate that acts alike on X and Z.
+
+#### Full Pauli counts
+
+A nontrivial logical Pauli operator `(x, z)` of weight `d` and support `T` takes one of two disjoint forms:
+
+- `x` is a nontrivial X logical, which weighs at least `d` and so has support `T`, and `z` is one of the `2^(d - rank(S_X[:, T]))` words supported in `T` that commute with the X stabilizers `S_X`.
+- `x` is an X gauge operator, so `z` is a nontrivial Z logical, which has support `T` for the same reason, and `x` is one of the `2^(rank(G_X) - rank(G_X[:, ~T]))` words supported in `T` in the span of the X gauge generators `G_X`.
+
+So the scans of the X and Z sectors return histograms of these exponents over their words of weight `d`.
+In a self-dual code, no nonzero gauge operator lies within the support `T` of a nontrivial X logical of weight `d`, since adding the gauge operator to the logical would give a lighter one.
+So the two forms give exactly three operators on `T`, of types X, Y, and Z, and the full count is three times the X count.
+Above `d`, an operator need not have the support of a nontrivial X or Z logical, so a full count fails if its scans find a nontrivial X or Z logical lighter than `t`.
+
+#### Deformed counters
+
+A local CSS-preserving Clifford gate maps the X part of an operator on its target qubits by an invertible binary matrix `M`, and the Z part by `(M^-1)^T`, which preserves commutation.
+So the gate maps the gauge operators, stabilizers, and sectors of a code onto those of the deformed code, and a basis of a sector, row by row, to a basis of the new sector with the same quotient labels ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)).
+A deformed counter reduces each mapped search basis of a kept family again on the pivot columns of its block, with its labels.
+If every search basis keeps its rank there, the family keeps its blocks, ranks, and coverage, and so its certificate; otherwise the counter builds the family again.
+A gate can change the parity of words, so the counter infers the weight divisor of [Section 3.2](#32-rounding-the-certificate-to-a-proven-weight-multiple) again.
+It can also change the distance and the weights of check words, so the counter searches for the distance again, and the MacWilliams method walks the checks again.
+
+#### The MacWilliams method
+
+For a stabilizer code on `n` qubits with checks `H_X` and `H_Z`, `method="macwilliams"` counts from the weight distributions `A_X` of `row(H_X)` and `A_Z` of `row(H_Z)`.
+The nontrivial X logicals are the words of `ker(H_Z)`, the dual of `row(H_Z)`, outside `row(H_X)`, so the [MacWilliams identity](https://en.wikipedia.org/wiki/MacWilliams_identity) gives their number of weight `w`:
+
+$$
+N_X(w) = 2^{-\operatorname{rank}(H_Z)} \sum_j K_w(j)\,A_Z(j) - A_X(w),
+$$
+
+where the [binary Krawtchouk polynomial](https://en.wikipedia.org/wiki/Kravchuk_polynomials) `K_w(j)` is the sum of `(-1)^(x·y)` over the words `x` of weight `w`, for any `y` of weight `j`.
+The Z counts exchange X and Z, and [arXiv:quant-ph/9610040](https://arxiv.org/abs/quant-ph/9610040) gives quantum analogs of these identities.
+A Gray-code walk over the `2^r` words of a row space of rank `r` gives its distribution `A`, so the cost is exponential in the ranks of the checks rather than in the number of logical qubits.
+Since `|K_w(j)| ≤ binom(n, w)` and `A` sums to `2^r`, no Krawtchouk value, entry of `A`, product `K_w(j) A(j)`, partial sum of these products, or divisor `2^r` exceeds `2^r binom(n, w)` in magnitude.
+So the transform is exact in signed 64-bit integers at every weight `w` with `2^r binom(n, w) < 2^63`.
+qLDPC uses 64-bit integers below the first weight that fails this bound, and Python integers from there on.
 
 ## 4. Guide to the source code
 

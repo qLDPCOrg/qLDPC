@@ -2,9 +2,7 @@
 
 """Local Clifford gates of a deformed counter: their packed matrices, and their action on rows.
 
-A gate acts on at most 64 target qubits.  ``get_local_matrices`` validates the matrix for X
-supports, and returns it with the matrix for Z supports, both packed into words.  ``apply_local``
-applies a packed matrix to the target columns of binary rows.
+A gate acts on at most 64 target qubits, so each row of its matrix packs into one word.
 """
 
 from __future__ import annotations
@@ -28,8 +26,7 @@ from .. import _tuning
 CNOT = (np.array([1, 3], dtype=np.uint64), np.array([3, 2], dtype=np.uint64))
 SWEL = (np.array([7, 11, 13, 14], dtype=np.uint64),) * 2
 # These matrices are shared, as are the cached matrices of other gates, so they are read-only.
-# Numba gives read-only arrays a type of their own.  Every local matrix then has that type, so code
-# that is compiled for one gate serves all of them.
+# Numba gives read-only arrays a type of their own, so code compiled for one gate serves all.
 for _matrix in (*CNOT, *SWEL):
     _matrix.setflags(write=False)
 
@@ -52,9 +49,9 @@ def _get_cached_local_matrices(
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:
     """Validate and pack ``matrix_x``, given by its bytes, and the matrix for Z supports.
 
-    Searches apply the same local Cliffords repeatedly, so results are cached.  The key identifies
-    the input completely, including its shape and field, so invalid input never matches a cached
-    entry.  Results are read-only, so that callers cannot alter the cache.
+    Searches reuse gates, so results are cached.  The key identifies the input completely, including
+    its shape and field, so invalid input never matches a cached entry.  Results are read-only, so
+    that callers cannot alter the cache.
     """
     if order is not None and order != 2:
         raise ValueError("Local Clifford matrices must be binary")
@@ -87,7 +84,6 @@ def _get_dual_local_matrix(matrix_x: npt.NDArray[np.uint8]) -> npt.NDArray[np.ui
 
 def _pack_local(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
     """Pack each row of a local matrix into one word, whose bit j is column j."""
-    # There are at most 64 targets, so each row fits in a single word.
     return pack_bits(matrix)[:, 0]
 
 
@@ -101,8 +97,8 @@ def apply_local(
 ) -> npt.NDArray[np.uint8]:
     """Apply a packed local matrix to the target columns of a copy of the given rows.
 
-    Let ``word`` be the word whose bit ``j`` is a row's entry at ``positions[j]``.  Column
-    ``positions[i]`` of that row becomes the parity of ``local[i] & word``.
+    Column ``positions[i]`` of a row becomes the parity of ``local[i] & word``, where bit ``j`` of
+    ``word`` is the entry of the row at ``positions[j]``.
     """
     result = rows.copy()
     for row in range(rows.shape[0]):

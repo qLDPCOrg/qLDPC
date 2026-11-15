@@ -2,27 +2,9 @@
 
 """Exact logical counts of binary CSS stabilizer codes from the weight enumerators of their checks.
 
-The X logicals of a CSS stabilizer code are the words of ``ker(H_Z)`` outside ``row(H_X)``.  Let
-``A_X`` and ``A_Z`` be the weight distributions of ``row(H_X)`` and ``row(H_Z)``.  The kernel is the
-dual of ``row(H_Z)``, so the MacWilliams identity gives its number of words of each weight from
-``A_Z``.  The number of X logicals of weight ``w`` is then
-
-    ``N_X(w) = 2**(-rank(H_Z)) * sum_j K_w(j) A_Z(j) - A_X(w)``,
-
-where ``K_w`` is a binary Krawtchouk polynomial.  The Z counts exchange X and Z.
-
-Each weight distribution comes from a walk over all ``2**rank`` words of a check space.  The cost is
-therefore exponential in the ranks of the checks, rather than in the number of logical qubits.  The
-walk visits the words in reflected Gray-code order, as the brute-force distance search in
-``_brute_force.py`` does, and adds each word to a histogram of weights in one compiled loop.  The
-transforms use 64-bit integers at the weights where a bound rules out overflow, and exact Python
-integers at the others.
-
-References:
-
-- https://en.wikipedia.org/wiki/MacWilliams_identity
-- https://en.wikipedia.org/wiki/Kravchuk_polynomials
-- https://arxiv.org/abs/quant-ph/9610040 (quantum MacWilliams identities)
+A Gray-code walk over each space of checks gives its weight distribution, and the MacWilliams
+identity transforms it into the counts.  Section 3.11 of ``brouwer_zimmermann.md`` derives the
+counts, and says where 64-bit arithmetic is exact.
 """
 
 from __future__ import annotations
@@ -120,8 +102,8 @@ class CheckEnumerators:
 def get_span_weights(generators: npt.NDArray[np.uint8], chunk_size: int) -> npt.NDArray[np.uint64]:
     """The number of words of each weight in the span of independent binary rows, as uint64s.
 
-    A native call cannot be interrupted, so the Gray-code walk of the span takes at most
-    ``chunk_size`` steps in each call.
+    Each native call of the Gray-code walk over the span, which cannot be interrupted, takes at
+    most ``chunk_size`` steps.
     """
     rank, num_bits = generators.shape
     weights = np.zeros(num_bits + 1, dtype=np.uint64)
@@ -152,17 +134,9 @@ def _count_light_dual_words(
 ) -> list[int]:
     """The numbers of words of weights ``0, 1, ...`` orthogonal to a span, in 64-bit arithmetic.
 
-    Let ``A`` be the weight distribution of the span, which sums to ``2**rank``.  Since
-    ``|K_w(j)| <= C(n, w)``, no product ``K_w(j) A(j)``, and no partial sum of
-    ``sum_j K_w(j) A(j)``, exceeds ``2**rank * C(n, w)`` in magnitude.  The counts stop at the first
-    weight ``w`` at which this bound reaches ``2**63``, so signed 64-bit arithmetic is exact at
-    every weight that they reach.
-
-    The other values of the transform also fit at those weights.  Every Krawtchouk value is at most
-    ``C(n, w) < 2**63`` in magnitude.  The bound at weight zero is ``2**rank``, since
-    ``C(n, 0) = 1``, so the counts reach a weight only if the rank is at most 62.  The entries of
-    the distribution, which are at most ``2**rank``, and the divisor ``2**rank`` then fit too.  The
-    counts are returned as Python integers.
+    The counts stop at the first weight ``w`` at which ``2**rank * C(n, w)`` reaches ``2**63``, and
+    64-bit arithmetic is exact at the weights before it (Section 3.11 of ``brouwer_zimmermann.md``).
+    They are returned as Python integers.
     """
     krawtchouk = _get_light_krawtchouk_rows(num_bits, rank)
     counts = _transform_weights(krawtchouk, span_weights, rank)
@@ -173,9 +147,8 @@ def _count_light_dual_words(
 def _get_krawtchouk_row(num_bits: int, weight: int) -> tuple[int, ...]:
     """Binary Krawtchouk polynomial ``K_w(j)`` at every ``j``, for words of length ``n``.
 
-    ``K_w(j) = sum_l (-1)**l C(j, l) C(n - j, w - l)`` is the sum of ``(-1)**(x.y)`` over the words
-    ``x`` of weight ``w``, for any fixed ``y`` of weight ``j``.  The row satisfies the exact integer
-    recurrence ``(n - j) K_w(j + 1) = (n - 2w) K_w(j) - j K_w(j - 1)``.
+    ``K_w(j) = sum_l (-1)**l C(j, l) C(n - j, w - l)`` satisfies the exact integer recurrence
+    ``(n - j) K_w(j + 1) = (n - 2w) K_w(j) - j K_w(j - 1)``, which computes the row.
     """
     row = [math.comb(num_bits, weight)]
     if num_bits:
