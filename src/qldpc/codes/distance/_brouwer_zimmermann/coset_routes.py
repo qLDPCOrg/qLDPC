@@ -2,52 +2,33 @@
 
 """Routes of the BZ coset searches: the family of information sets that answers a maximum weight.
 
-A BZ coset search of ``CosetLeaderSearch`` answers whether the coset of a syndrome has a word of
-weight at most ``max_weight`` by scanning the layers of a family of information sets of its code, up
-to the stopping step of ``max_weight`` (see ``coset.py``).  Its first family, the disjoint family,
-holds the disjoint information sets of a greedy packing, which are cheap to find.  But a code whose
-length is less than twice its dimension has only one such information set, so queries at larger
-maximum weights scan many layers.  A greedy packing can also miss information sets.  For example,
-the columns ``e1``, ``e2``, ``e1 + e2``, and ``e1 + e2`` hold two disjoint information sets, but a
-greedy packing in natural order takes ``e1`` and ``e2``, and leaves a partial set of rank one.
-Families with more information sets stop sooner, but take milliseconds to build, which only costly
-queries repay.
+A BZ coset search of ``CosetLeaderSearch`` decides whether a coset of its code has a word of weight
+at most a maximum weight, by scanning the layers of a family of information sets of the code (see
+``coset.py``).  The search starts with the disjoint family: the disjoint information sets that a
+greedy packing finds cheaply.  A code whose length is less than twice its dimension has at most one
+disjoint information set, so a query at a large maximum weight scans many layers of that set.  A
+greedy packing can also miss information sets.  For example, the columns ``e1``, ``e2``,
+``e1 + e2``, and ``e1 + e2`` hold two disjoint information sets, but a greedy packing in natural
+order takes ``e1`` and ``e2``, and leaves a partial set of rank one.  A family with more information
+sets lets queries stop sooner, but building it costs a matroid partitioning or the row reductions of
+an overlapping family, which only costly queries repay.
 
-So ``CosetRoutes`` chooses, once for each maximum weight, the family of the route that answers it.
-A gate predicts the examinations of a query with the disjoint family, and keeps the disjoint family
-for a maximum weight whose predicted examinations are below the threshold, the field
-``coset_route_minimum_work`` of the tuning.  Once the predicted examinations at a maximum weight
-reach the threshold, the routes try, once for the search, to build a maximum disjoint family and a
-family of overlapping information sets.  The route of each such maximum weight is then the family
-that does the least work at that weight.  Section 4.4 of ``brouwer_zimmermann.md`` defines the work
-and the predicted examinations, and says at which weight the routes build the families and how they
-break ties.
+So ``CosetRoutes`` chooses, once for each maximum weight, the family that answers the queries at
+that weight, the route of the weight.  If a query with the disjoint family is predicted to examine
+fewer words than the field ``coset_route_minimum_work`` of the tuning, the route is the disjoint
+family.  Otherwise, the routes also try, once for the search, to build a maximum disjoint family and
+an overlapping family, and the route is the one of the three families that does the least work.  In
+a search by Hamming weight, a route can also be a route by tails, whose queries weigh words by their
+tails, without the pivot columns, and skip completions by completion tables.  Section 4.4 of
+``brouwer_zimmermann.md`` states these rules, Section 4.1 says how the routes keep the tails and
+tables of a family, and Section 3.9 derives the bound of the tables.
 
 Every route answers exactly, since the certificate of every family bounds the words of each coset
 (see ``affine_instance.get_coset_family_instance``).  Routes can return different words and lower
-bounds, within the contract of ``MinWeightBound``.  Each route depends only on the code,
-``max_weight``, and the tuning, so the answers do not depend on which queries came before.
-
-In a search that weighs Hamming weights, a route can be a route by tails, whose queries weigh the
-words of its family by their tails, the columns other than the pivot columns of each set, and skip
-the completions that completion tables of the tails show to lie beyond their maximum weight (see
-``coset_tables.CosetTails`` and Section 3.9 of ``brouwer_zimmermann.md``).  Section 4.4 of
-``brouwer_zimmermann.md`` says when a route goes by tails and which tables it asks for, and Section
-4.1 how the routes build and keep the record of the tails and tables of a family, which
-``coset_tables.get_coset_tails`` gives.  The search of Pauli errors by CSS weight has no routes by
-tails.  A record can hold tables that other routes of its family asked for, but the queries of a
-route read only the tables that the route asked for, so their answers do not depend on earlier
-queries.  Sections 4.4 and 3.10 of the guide say which route a search for minimum weights takes, and
-why it visits no layer that the queries of that route do not visit.
-
-Tails and tables change how a query weighs words and which words it skips, but not which word of
-weight at most the maximum weight it finds first, if any.  A query without such a word can return
-another word, and a lower bound of the least weight beyond the maximum weight that a word of its
-coset can have, within the contract of ``MinWeightBound``.  In a prototype, a query by tails took
-about 50 ns more than a query of whole words, for the tails of its offsets and the rebuild of its
-lightest word.  That made batches of queries of under 100 examinations each up to about twice as
-slow.  So only queries that are costly even with the family of their route weigh words by their
-tails.
+bounds, within the contract of ``MinWeightBound``.  The route of a maximum weight, and the tables
+that its queries read, depend only on the code, the maximum weight, and the tuning, so no answer
+depends on earlier queries.  Sections 3.10 and 4.4 of ``brouwer_zimmermann.md`` say which route a
+search for minimum weights takes.
 """
 
 from __future__ import annotations
