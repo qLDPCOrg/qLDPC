@@ -1240,12 +1240,12 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
-        rows, widths, tables, block_bits = args[0], args[3], args[11], args[13]
+        rows, width, tables, block_bits = args[0], args[3], args[11], args[13]
         if scanned_index:
             later_scans["with tables" if len(tables) else "without tables"] += 1
         if len(tables):
             returns_with_tables += returned_to_first_set
-            own = completion_bounds.CompletionTables.build(rows[0, :, : widths[0]], block_bits)
+            own = completion_bounds.CompletionTables.build(rows[:, :width], block_bits)
             assert np.array_equal(tables, own.tables)
         return scan(*args)
 

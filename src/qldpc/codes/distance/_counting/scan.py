@@ -124,7 +124,7 @@ def count_words(
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
     support = np.zeros(len(basis), dtype=np.int64)
-    prefixes = np.zeros((len(basis), 1, step_tables.max_row_width), dtype=np.uint64)
+    prefixes = np.zeros((len(basis), step_tables.max_row_width), dtype=np.uint64)
     status = _SCAN_UNFINISHED
     while status == _SCAN_UNFINISHED:
         step = int(cursor[_CURSOR_LAYER]), int(cursor[_CURSOR_SET])
@@ -132,7 +132,7 @@ def count_words(
             tables, step_rows = step_tables.select(*step)
             stop = steps.get_next(*step)
         else:
-            tables, step_rows = completion_bounds.NO_TABLES, rows_and_labels[:1]
+            tables, step_rows = completion_bounds.NO_TABLES, rows_and_labels[0]
             stop = steps.find(step, step_tables.may_use_tables) if step_tables.layers else (0, 0)
         status = _scan_coefficient_layers(
             rows_and_labels,
@@ -365,7 +365,7 @@ class _StepTables:
             self._tuning,
         )
         if tables is None:
-            self._selected = (completion_bounds.NO_TABLES, self._rows_and_labels[:1])
+            self._selected = (completion_bounds.NO_TABLES, self._rows_and_labels[0])
             return self._selected
 
         # Keep these tables, dropping those of other sets if all would not fit.
@@ -379,7 +379,7 @@ class _StepTables:
         rows = np.concatenate(
             (self._rows_and_labels[set_index], self._get_tails(set_index)), axis=1
         )
-        self._selected = (tables, rows[np.newaxis])
+        self._selected = (tables, rows)
         return self._selected
 
     def _get_tails(self, set_index: int) -> _PackedMatrix:
@@ -511,7 +511,7 @@ def _scan_coefficient_layers(
                 )
             else:
                 depth, lighter = _count_chunk(
-                    rows_and_labels[set_index : set_index + 1],
+                    rows_and_labels[set_index],
                     width,
                     extractors,
                     set_index,
@@ -592,34 +592,31 @@ def _count_chunk(
 ) -> tuple[int, bool]:
     """Visit up to ``chunk_size`` supports of ``len(support)`` rows, resuming at ``depth``.
 
-    ``rows_and_labels`` has shape ``(1, num_rows, total_width)``, a stack of one set, because
-    ``advance_support`` takes a stack of sets.  Each row holds ``width`` machine words of its word,
-    followed by those of its quotient label.  ``support`` holds the current support, as the
-    increasing indices of its rows, and ``prefixes`` holds its prefix XORs (see
-    ``advance_support``).  ``depth`` is the position being advanced, or -1 once every support has
-    been visited.  Each owned nontrivial word of weight ``target`` adds one to an entry of
-    ``histogram`` (see ``count_words``).
+    ``rows_and_labels`` holds the rows of one set, with shape ``(num_rows, total_width)``.  Each row
+    holds ``width`` machine words of its word, followed by those of its quotient label.  ``support``
+    holds the current support, as the increasing indices of its rows, and ``prefixes`` holds its
+    prefix XORs (see ``advance_support``).  ``depth`` is the position being advanced, or -1 once
+    every support has been visited.  Each owned nontrivial word of weight ``target`` adds one to an
+    entry of ``histogram`` (see ``count_words``).
 
     Returns the depth from which to resume, and whether the chunk stopped at a nontrivial word
     lighter than ``target``.  It checks for such words only with ``reject_lighter``.
     """
-    rows = rows_and_labels[0]
-    num_rows, total_width = rows.shape
-    widths = np.full(1, total_width, dtype=np.int64)
+    num_rows, total_width = rows_and_labels.shape
     layer = len(support)
     word = np.empty(width, dtype=np.uint64)
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
     visited = 0
     while visited < chunk_size:
-        depth = advance_support(rows_and_labels, widths, support, prefixes, depth)
+        depth = advance_support(rows_and_labels, total_width, support, prefixes, depth)
         if depth < 0:
             break
 
         # Visit the remaining supports that differ from this one only in their last row.
         stop = min(num_rows, support[depth] + chunk_size - visited)
         if _visit_last_rows(
-            rows,
-            prefixes[depth, 0],
+            rows_and_labels,
+            prefixes[depth],
             support[depth],
             stop,
             width,
@@ -683,9 +680,7 @@ def _count_chunk_skipping(
     ``depth`` is below ``len(support) - 1`` while the scan chooses the rows before the last one, and
     ``len(support) - 1`` while it visits last rows.
     """
-    rows = step_rows[0]
-    num_rows, total_width = rows.shape
-    widths = np.full(1, total_width, dtype=np.int64)
+    num_rows, total_width = step_rows.shape
     layer = len(support)
     word = np.empty(width, dtype=np.uint64)
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
@@ -695,7 +690,7 @@ def _count_chunk_skipping(
     # ``_scan`` in ``_brouwer_zimmermann/affine_search.py`` skip completions the same way, with a
     # limit that falls as a search for a lightest word finds lighter words.
     head = support[: layer - 1]
-    head_rows = step_rows[:, : num_rows - 1]
+    head_rows = step_rows[: num_rows - 1]
     pair_depth = layer - 2
     limit = target + 1 - layer
     visited = 0
@@ -703,12 +698,12 @@ def _count_chunk_skipping(
         # Choose the next first row of the last two, and skip it and every later one if the bound
         # rules out the target weight.  Each lookup counts toward the chunk.
         if depth < layer - 1:
-            depth = advance_support(head_rows, widths, head, prefixes, depth)
+            depth = advance_support(head_rows, total_width, head, prefixes, depth)
             if depth < 0:
                 break
             first = support[pair_depth]
             visited += 1
-            prefix = prefixes[pair_depth, 0]
+            prefix = prefixes[pair_depth]
             bound = get_completion_bound(
                 tables, offsets, block_bits, first, prefix[label_end:], limit
             )
@@ -719,7 +714,7 @@ def _count_chunk_skipping(
             # Otherwise add row first to the prefix, and try every later row as the last row.  The
             # last rows read only the words and labels of the prefix.
             for index in range(label_end):
-                prefixes[layer - 1, 0, index] = prefix[index] ^ rows[first, index]
+                prefixes[layer - 1, index] = prefix[index] ^ step_rows[first, index]
             depth = layer - 1
             support[depth] = first + 1
             continue
@@ -727,8 +722,8 @@ def _count_chunk_skipping(
         # Visit the remaining supports that differ from this one only in their last row.
         stop = min(num_rows, support[depth] + chunk_size - visited)
         if _visit_last_rows(
-            rows,
-            prefixes[depth, 0],
+            step_rows,
+            prefixes[depth],
             support[depth],
             stop,
             width,

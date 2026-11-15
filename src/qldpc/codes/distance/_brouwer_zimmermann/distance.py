@@ -300,19 +300,18 @@ class _BrouwerZimmermannSearch:
         """
         tables = self._select_completion_tables(index, weight)
         instance = self.instance
-        selected = slice(index, index + 1)
         support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros((weight + 1, 1, instance.generators.shape[2]), dtype=np.uint64)
+        prefixes = np.zeros((weight + 1, instance.generators.shape[2]), dtype=np.uint64)
 
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         depth = 0
         while depth >= 0:
             self.best, depth, _, _, _ = affine_search.scan_set(
-                instance.generators[selected],
-                instance.labels[selected],
-                instance.ranks[selected],
-                instance.widths[selected],
-                instance.label_widths[selected],
+                instance.generators[index],
+                instance.labels[index],
+                instance.ranks[index],
+                instance.widths[index],
+                instance.label_widths[index],
                 support,
                 prefixes,
                 depth,

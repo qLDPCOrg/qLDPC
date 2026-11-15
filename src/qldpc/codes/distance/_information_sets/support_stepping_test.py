@@ -13,32 +13,28 @@ from . import support_stepping
 
 
 def test_layers_visit_each_support_once_with_its_sums(pytestconfig: pytest.Config) -> None:
-    """A layer visits the combinations of rows in order, each with its sum in every set.
+    """A layer visits the combinations of rows in order, each with its sum.
 
-    The second set uses fewer words than the first, and the starting words are random.
+    The sums use two of the three words that each row stores, and the starting words are random.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    widths = np.array([3, 1], dtype=np.int64)
+    width = 2
     for dimension in range(1, 7):
-        rows = rng.integers(2**64, size=(2, dimension, 3), dtype=np.uint64)
-        start = rng.integers(2**64, size=(2, 3), dtype=np.uint64)
+        rows = rng.integers(2**64, size=(dimension, 3), dtype=np.uint64)
+        start = rng.integers(2**64, size=3, dtype=np.uint64)
         for weight in range(1, dimension + 1):
             support = np.zeros(weight, dtype=np.int64)
-            prefixes = np.zeros((weight, 2, 3), dtype=np.uint64)
+            prefixes = np.zeros((weight, 3), dtype=np.uint64)
             prefixes[0] = start
             visited = []
-            depth = support_stepping.advance_support(rows, widths, support, prefixes, 0)
+            depth = support_stepping.advance_support(rows, width, support, prefixes, 0)
             while depth >= 0:
-                sums = prefixes[depth] ^ rows[:, support[depth]]
-                visited.append(
-                    (support.tolist(), [sums[jj, : widths[jj]].tolist() for jj in range(2)])
-                )
+                sums = prefixes[depth] ^ rows[support[depth]]
+                visited.append((support.tolist(), sums[:width].tolist()))
                 support[depth] += 1
-                depth = support_stepping.advance_support(rows, widths, support, prefixes, depth)
+                depth = support_stepping.advance_support(rows, width, support, prefixes, depth)
             expected = []
             for indices in itertools.combinations(range(dimension), weight):
-                sums = start ^ np.bitwise_xor.reduce(rows[:, list(indices)], axis=1)
-                expected.append(
-                    (list(indices), [sums[jj, : widths[jj]].tolist() for jj in range(2)])
-                )
+                sums = start ^ np.bitwise_xor.reduce(rows[list(indices)], axis=0)
+                expected.append((list(indices), sums[:width].tolist()))
             assert visited == expected
