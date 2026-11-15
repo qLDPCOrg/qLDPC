@@ -3,8 +3,8 @@
 """Exact distances of binary codes, counts of their logical operators, and searches of cosets.
 
 The functions and classes of this package take plain binary arrays, so that programs can use them
-without building code objects.  The exact-distance methods of the code classes of :mod:`qldpc.codes`
-call the distance functions of this package for binary codes.
+without building code objects.  The exact-distance methods of the code classes in
+:mod:`qldpc.codes` call these functions for binary codes.
 
 .. list-table::
    :header-rows: 1
@@ -42,26 +42,23 @@ matrices, and a single vector is one row.  A Pauli string on ``n`` qubits is a r
 searches takes a :data:`~qldpc.codes.distance.DistanceMethod`, and a search without a nontrivial
 word returns :data:`~qldpc.codes.distance.NO_DISTANCE`.
 
-The inner loops of the exact searches are compiled by numba the first time that they are used, and
-the compiled code is cached on disk.  The cache is a directory named ``qldpc-<hash>``, where the
-hash is of the Python source files of qLDPC.  It is inside the directory of the
-``NUMBA_CACHE_DIR`` environment variable if that is set, and otherwise inside the ``qldpc/numba``
-directory of the user's cache directory.  A change to those source files selects a new directory, so
-outdated code is never loaded, and each import of qLDPC deletes the directories of earlier versions
-of its own source files that no import has used for more than 7 days.  If the directory cannot be
-used, qLDPC warns, and compiles again in every process.  Set ``NUMBA_CACHE_DIR`` to a writable
-directory, such as one that many jobs share, to avoid this.
+Numba compiles the inner loops of the exact searches the first time that they are used, and caches
+the compiled code on disk, in a directory named by a hash of qLDPC's source files, so that outdated
+code is never loaded.  The directory is inside that of the ``NUMBA_CACHE_DIR`` environment variable
+if that is set.  The section "Disk caches" of the :doc:`library map </library_map>` says where it is
+otherwise, and when it is deleted.  If it cannot be used, qLDPC warns, and compiles again in every
+process.  Set ``NUMBA_CACHE_DIR`` to a writable directory, such as one that many jobs share, to
+avoid this.
 
 :func:`~qldpc.codes.distance.compile_search_setup` also compiles the code that sets those loops up,
 in the current process only, for programs that count the logical operators of very many similar
 codes.
 
-Exact distance searches and logical-operator counts choose between routes, such as searches of
-disjoint or overlapping information sets, by cost models, and bound their batches, memory, and
-caches.  The defaults of their settings suit typical searches.  For very costly searches, the page
-:doc:`/exact_search_tuning` of the documentation leads from symptoms and routes to the private
-settings that control them.  It also says how to change these settings, and what changing them can
-and cannot affect.
+Exact distance searches and logical-operator counts use cost models to choose their routes, such as
+whether to search disjoint or overlapping information sets.  They also bound their batches, memory,
+and caches.  The defaults of these settings suit typical searches.  For very costly searches, the
+page :doc:`/exact_search_tuning` leads from symptoms and routes to the private settings that control
+them, and says how to change these settings and what changing them can and cannot affect.
 
 Contributors can find a map of the modules in the `README of the package
 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md>`_.

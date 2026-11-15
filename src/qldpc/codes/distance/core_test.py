@@ -320,13 +320,13 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
 def test_connected_cluster_searches_sparse_stabilizers(monkeypatch: pytest.MonkeyPatch) -> None:
     """A connected-cluster search of a subsystem code searches sparse checks that span S.
 
-    With X and Z on a bulk qubit of the [[16, 1, 4]] surface code as gauge generators, the two
-    checks of each type on that qubit merge into one stabilizer of weight 6, and the dressed
-    distance drops to 3.  The other checks are gauge generators that are stabilizers, but they do
-    not span S, and the row-reduced basis of S has rows of weight 8.  The search gets checks that
-    include these stabilizers, weigh at most 6, and span S.  It finds the distance that brute force
-    finds, in the CSS form, and in a Pauli form with Hadamards on half of the qubits, which is not
-    CSS.  The search of the surface code itself gets its checks as given.
+    S is the stabilizer group.  With X and Z on a bulk qubit of the [[16, 1, 4]] surface code as
+    gauge generators, the two checks of each type on that qubit merge into one stabilizer of weight
+    6, and the dressed distance drops to 3.  The other checks are gauge generators that are
+    stabilizers, but they do not span S, and the row-reduced basis of S has rows of weight 8.  The
+    search gets checks that include these stabilizers, weigh at most 6, and span S.  It finds the
+    distance that brute force finds, in the CSS form, and in a Pauli form with Hadamards on half of
+    the qubits, which is not CSS.  The search of the surface code itself gets its checks as given.
     """
     code = qldpc.codes.SurfaceCode(4)
     qubit = 5
@@ -485,8 +485,8 @@ def test_distances_of_known_css_codes(code: qldpc.codes.CSSCode, expected_distan
     distance_css = core.get_distance_css(code.matrix_x, code.matrix_z)
     assert distance_x == distance_z == distance_all == distance_css == expected_distance
 
-    # CSSCode.forget_distance clears the X-sector and Z-sector distance caches before recomputation.
-    # Assigning only CSSCode._distance would leave cached sector distances available to the method.
+    # CSSCode.forget_distance also clears the cached distances of the X and Z sectors, which the
+    # method would otherwise reuse.
     code.forget_distance()
     assert code.get_distance_exact() == expected_distance
 
@@ -593,7 +593,7 @@ def test_max_weight() -> None:
         for method in ["brouwer_zimmermann", "brute_force"]:
             check(distance_with_limit, distance, method)
 
-    # The Pauli case checks the bound that the BZ route doubles.
+    # The Pauli case checks that the BZ route, which weighs Pauli strings twice, doubles the bound.
     check(pauli, pauli_distance, "brouwer_zimmermann")
 
 
