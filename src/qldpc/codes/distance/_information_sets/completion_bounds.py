@@ -3,8 +3,8 @@
 """Tables that bound the weights of the words that complete a BZ support with two more rows.
 
 A BZ scan weighs the sums of sets of ``w`` rows of a systematic basis ``[I | P]``.  For the first
-``w - 2`` rows of such a set and a row ``s``, ``CompletionTables`` bound the weight on the columns
-of ``P`` of every word that completes those rows with two rows from ``s`` on.  A scan adds the least
+``w - 2`` rows of such a set and a row ``s``, ``CompletionTables`` bound, on the columns of ``P``,
+the weight of the words that complete those rows with two rows from ``s`` on.  A scan adds the least
 number of their pivot ones to this bound, and skips the words if the sum reaches its limit: the best
 weight ``U`` in a distance search, ``t + 1`` in a count of the words of weight ``t``, the least
 bound that proves a word heavier than the maximum weight in a coset query, and a limit that falls

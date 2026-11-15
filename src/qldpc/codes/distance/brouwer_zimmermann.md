@@ -82,7 +82,7 @@ After searching `G_I` through weight `t`, every unexamined word `v` therefore ha
 
 BZ searches a **disjoint family** of `m` **search bases** `G_1, ..., G_m` of `V`, each row reduced on its own **block** `B_i` of columns, with the blocks pairwise disjoint.
 The blocks are chosen greedily: `B_1` is an information set, `B_2` an information set among the other columns, and so on, and any columns that contain no further information set form one last block, of rank less than `r`.
-qLDPC takes at most `2^r - 1` information sets ([Section 4.4](#44-heuristics-and-cost-models)), and then leaves any remaining columns out.
+Once qLDPC has taken `2^r - 1` information sets ([Section 4.4](#44-heuristics-and-cost-models)), it leaves any remaining columns out.
 
 If `B_i` has rank `r_i`, row reducing on `B_i` gives a basis `G_i` of `V` whose first `r_i` rows, the **pivot rows**, have distinct pivot columns in `B_i`, and whose other rows are zero on `B_i`.
 A word `v` of coefficient weight at least `t+1` in `G_i` selects at least `t + 1 - (r - r_i)` pivot rows, each of which contributes a distinct one to `v|_{B_i}`, so
@@ -295,7 +295,7 @@ W = m\sum_{w=1}^{t_* - 1} \binom{r}{w} + j_* \binom{r}{t_*}.
 $$
 
 It is pessimistic, since it assumes that no lighter witness turns up, and it is not a runtime guarantee, since runtime also depends on building the bases and on the width of packed words.
-The estimate of a coset query at maximum weight `ω` sums from layer zero, the offset, to the first step whose bound exceeds `ω`, and omits the rank-deficient bases that add nothing to that bound, which the query skips.
+The estimate of a coset query at maximum weight `ω` sums from layer zero, the offset, to the first step whose bound exceeds `ω`, and, like the query, omits the rank-deficient bases that add nothing to that bound.
 If the coset has no word within `ω`, the query examines or skips exactly that many words besides the word of its syndrome ([Section 4.1](#41-module-map-and-layering)), and otherwise at most that many.
 
 Exhaustive enumeration, which `method="brute_force"` runs instead of BZ, examines all `(2^q - 1) * 2^(r-q)` eligible words, for `q = dim(V/S)`, in vectorized, packed batches updated by Gray-code steps.
@@ -332,7 +332,7 @@ Then `L(t) = ceil(N(t+1)/r)`, which no coverage-divided certificate of a family 
 #### Choosing the scanned set
 
 qLDPC row reduces on the nonzero columns in natural order, then exchanges pivots between orbits while that lowers the largest share; pivoting a row on another column with a one in that row gives another information set.
-For two orbits, the exchanges reach the least largest share of any information set: they stop once the other orbit's own pivot columns span all of its columns, or one more pivot would make it at least as full.
+For two orbits, the exchanges reach the least largest share of any information set: they stop once the emptier orbit's own pivot columns span all of its columns, or one more pivot would make it at least as full.
 With more orbits, the exchanges are a heuristic.
 
 #### When a search uses an automorphism family
@@ -470,7 +470,7 @@ It finds that step as a query does, moves it earlier whenever `U` falls, and ski
 It uses the family and the completion tables of a query at `min(ω, n)`, for `n` qubits ([Section 4.4](#44-heuristics-and-cost-models)), and since it stops no later than that query, those tables cover every layer that it scans.
 
 In a search by Hamming weight, the scans keep only the words lighter than an **incumbent**: `h(ω)` of [Section 3.9](#39-skipping-completions-by-completion-tables) until the search finds a word within `ω`, and then `η U`, the Hamming weight of the lightest word.
-In a search of Pauli errors by physical weight, whose words `T(x, z)` are all even, and of X or Z parts of an even code, every word of the coset has the parity of `η U`, so each scan lowers the incumbent to `η U - 1`, keeping the same words and letting tables skip more.
+In a search of Pauli errors by physical weight, whose words `T(x, z)` are all even, and of X or Z parts of an even code, every word of the coset has the parity of `η U`, so scans then lower the incumbent to `η U - 1`, keeping the same words and letting tables skip more.
 Completion tables skip the completions whose bound reaches the incumbent, or, once a scan finds a lighter word, the Hamming weight of that word.
 So the search skips no word lighter than its answer, and in a coset without a word within `ω`, it weighs and skips exactly the words of a query at `ω`.
 A search of Pauli errors by CSS weight weighs words by that weight, and keeps those lighter than `U`.
@@ -491,9 +491,9 @@ For BZ, they build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-s
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), with the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
 
 [logical_counts.py](logical_counts.py) builds its families with the stages of [_information_sets/basis_families.py](_information_sets/basis_families.py) that distance searches use ([Section 4.4](#44-heuristics-and-cost-models)), in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), under the stricter stopping rule of [Section 5](#5-correctness-requirements).
-To find its default weight, a count runs a distance search that starts from the disjoint families that the count keeps.
+To find its default weight, the distance, a count runs a distance search from the disjoint families that it keeps.
 The setup functions of distance searches and counts can be compiled on request through [_compilation.py](../../_compilation.py).
-Every caller of `get_overlapping_family` ([Section 4.4](#44-heuristics-and-cost-models)) gets its `OverlappingFamilyPolicy`, with a fixed-seed generator, from `build_overlapping_family_policy`: `CosetRoutes` of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py), and the distance search and the counts, through `get_overlapping_family_policy`, which reads the tuning.
+Every caller of `get_overlapping_family` ([Section 4.4](#44-heuristics-and-cost-models)) gets its `OverlappingFamilyPolicy`, with a fixed-seed generator, from `build_overlapping_family_policy`: the distance search and the counts through `get_overlapping_family_policy`, which reads the tuning, and `CosetRoutes` of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
 [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py) chooses and builds the tables of [Section 3.9](#39-skipping-completions-by-completion-tables) for distance searches and counts, and sizes and builds them for the routes by tails of coset searches (below).
 
 The distance search and `CosetLeaderSearch` scan with the compiled entry points of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which Numba compiles from one body, `_scan`, separately for each set of constant flags, so no flag costs a branch for each word:
@@ -604,7 +604,7 @@ For the rank-deficient block of [Section 2.4](#24-search-bases-and-rank-deficien
 ### 4.4 Heuristics and cost models
 
 Every family gets the certificate of its own verified ranks and maximum coverage, so the heuristics below change how much work a search does, not whether its certificate holds; with a cutoff above one, they can change which witness at or below the cutoff it returns ([Section 4.5](#45-behavior-spanning-files)).
-The searches read their fields as README.md's [Tuning](README.md#tuning) section says.
+Searches read the heuristics' fields as README.md's [Tuning](README.md#tuning) section says.
 Some fields are thresholds of gates on optional steps, such as building a family of search bases, solving linear programs, asking for automorphisms, or predicting the cost of completion tables.
 A step can save at most the work that it acts on, so its gate lets it run once an estimate of that work, in candidate/set evaluations, reaches the cost of the step, which the threshold need match only to an order of magnitude.
 The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fields, such as budgets and rough coefficients, and says how the defaults are set and when to change them.
@@ -625,15 +625,15 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Partitioning costs roughly the sum of `b^2*r^2*N` over these `b`, times a factor that varies between families of codes; the sum grows with the cube of `m`.
   So a search tries it only if some family of at most `m` sets could do less work, and the search's estimated work is at least `partition_work_ratio` times that sum, a ratio that stands for the cost of one unit of the sum in evaluations.
 - **`get_search_certificate`** adds the linear programs of [Section 3.1](#31-overlapping-search-bases) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, a gate that breaks even with their cost, since each costs far more than examining a word; the work estimates that choose families use only the coverage-divided certificate.
-  The rational dual values `y` have denominators of at most `lp_dual_max_denominator`, a convention: every positive value is sound by weak duality, a smaller one can round away part of the bound, and a larger one lengthens the exact arithmetic.
+  The rational dual weights `y` have denominators of at most `lp_dual_max_denominator`, a convention: every positive limit is sound by weak duality, a smaller one can round away part of the bound, and a larger one lengthens the exact arithmetic.
 - **`get_automorphism_family`** row reduces in natural column order and balances the shares of the orbits in `_balance_orbit_shares` ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
   The gate `automorphism_minimum_layer_work` of [Section 3.7](#37-images-of-an-information-set-under-automorphisms) breaks even with the cost of finding automorphisms, verifying them, and building their family.
 - **`CosetRoutes`** chooses the route of each maximum weight `ω` of a coset search ([Section 4.1](#41-module-map-and-layering)).
   The **predicted examinations** of a query at `ω` with a family, without completion tables, are one more than the largest work at `ω` over its planning buffer's tables, which bounds the words that the query examines or skips ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
   1. If the predicted examinations with the disjoint family are below `coset_route_minimum_work`, the route is the disjoint family.
   2. Otherwise, `CosetRoutes` tries once to build two families, at `ω_T`, the least weight from two at which the predicted examinations with the disjoint family reach the threshold, so that they do not depend on the order of queries.
-     The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`, and below that limit the largest rank-deficient block ([Section 2.4](#24-search-bases-and-rank-deficient-blocks)) on the other columns.
-     It is kept if it has more information sets, or a larger rank-deficient block, than the greedy packing.
+     The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`, and below that limit a rank-deficient block of the largest rank ([Section 2.4](#24-search-bases-and-rank-deficient-blocks)) on the other columns.
+     It is kept if it has more information sets, or a rank-deficient block of larger rank, than the greedy packing.
      A greedy packing can miss sets: the columns `e1`, `e2`, `e1 + e2`, and `e1 + e2` hold two disjoint information sets, but a greedy packing in natural order takes `e1` and `e2`, and leaves a rank-deficient block of rank one.
      The second, an overlapping family of `get_overlapping_family` aimed at the Hamming weight `η ω_T + 1`, is kept if it does less work than the family that it starts from: the first, if kept, and otherwise the disjoint family.
   3. The route is the family of least work at `ω`, summed over its tables, and on ties the disjoint family, then the maximum disjoint one.
@@ -678,7 +678,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**
   The distance functions take automorphisms as an array or as a function, and pass them to their BZ searches as a function that calls the function of the caller at most once.
-  `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_found_qudit_automorphisms` of the code: the automorphisms from bliss (`src/qldpc/external/_bliss.py`) or `_get_qudit_automorphisms`, which the code caches, so bliss runs at most once for a code.
+  `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_found_qudit_automorphisms` of the code: the automorphisms that the code caches from bliss (`src/qldpc/external/_bliss.py`) or `_get_qudit_automorphisms`, so bliss runs at most once for a code.
   A search calls the function only at the points of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), and uses the generators only after `verify_automorphisms` accepts them; for a CSS code, they must map the row spaces of both parity-check matrices onto themselves.
   For a general Pauli problem, `_get_lifted_automorphisms` lifts them to the coordinates of `T`, except for Pauli strings that `get_distance_pauli` searches as a CSS code.
 
@@ -707,7 +707,7 @@ A change may use other representations, certificates, and search strategies, but
   A word of weight `t` is counted at the first step that visits it, and steps run in order, so a count that stops within a layer counts each such word once.
   The certificate of a count uses the ranks and actual coverage of its family, and the `upper_bound=t+1` that it passes to the family stages only aims them.
 - **Keep coset queries reproducible.**
-  The family and tables that answer a query must depend only on the code, the maximum weight, and the tuning, not on earlier queries, since the certifier's counterexamples report what they return.
+  The family and tables that answer a query must depend only on the code, the maximum weight, and the tuning, not on earlier queries, since the certifier's counterexamples report a query's word and bound.
   A query therefore reads only the tables that its own route asks for (Sections [4.1](#41-module-map-and-layering) and [4.4](#44-heuristics-and-cost-models)).
 - **Preserve the return contract.**
   Return `max_weight+1` if every nontrivial word is heavier than `max_weight`, and otherwise the exact minimum, unless `cutoff`, which `max_weight` caps, permits an early exit at a known eligible witness of weight at most `cutoff` ([Section 4.5](#45-behavior-spanning-files)).
