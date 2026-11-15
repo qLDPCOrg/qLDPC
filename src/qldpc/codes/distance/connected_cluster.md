@@ -434,6 +434,7 @@ So with `method="connected_cluster"`, `get_distance_css` and `get_distance_pauli
 - The gauge generators that commute with every gauge generator are stabilizers.
   The first set holds them as given, with any redundant rows, except those heavier than every row of the second set.
 - The second set is the derived basis, made sparser by `get_sparser_rows` ([Section 3.8](#38-vectors-with-a-given-syndrome)) in up to `max_distance_sparsifying_rounds` rounds, which `sparsifying_rounds_without_improvement` can end sooner.
+  With `max_distance_sparsifying_rounds` set to 0, a distance search skips sparsifying entirely and keeps the derived basis as it is, while a coset search with `max_sparsifying_rounds` set to 0 still replaces each of its checks by its sum with another check while that makes the check lighter.
 
 The second set spans the stabilizer group, and the first set lies in that group, so together they span exactly the stabilizer group.
 The two sets together have the kernel of the derived basis, so the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
