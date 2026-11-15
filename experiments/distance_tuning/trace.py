@@ -179,11 +179,11 @@ def install_wrappers() -> None:
         (basis_families.BasisFamily, "get_search_certificate", wrap_certificate),
         (search_class, "advance", wrap_advance),
         (search_class, "_switch_to_automorphism_family", wrap_switch),
-        (search_class, "_scan_set", wrap_scan_set),
+        (search_class, "_scan_set", wrap_scan_set_method),
         (completion_bounds, "select_completion_tables", wrap_select),
         (completion_bounds, "predict_completion_cost", wrap_predict),
         (tables_class, "build", lambda build: staticmethod(wrap_build(build))),
-        (affine_search, "scan_set", wrap_scan),
+        (affine_search, "scan_set", wrap_scan_set),
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
@@ -559,7 +559,7 @@ def record_tables(tables: completion_bounds.CompletionTables) -> None:
     CURRENT_LAYER["blocks"] = max(CURRENT_LAYER["blocks"], len(tables.offsets) - 1)
 
 
-def wrap_scan_set(function: Callable[..., Any]) -> Callable[..., Any]:
+def wrap_scan_set_method(function: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap ``_scan_set`` of a distance search to count the sets that the current layer scans."""
 
     @functools.wraps(function)
@@ -571,7 +571,7 @@ def wrap_scan_set(function: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-def wrap_scan(function: Callable[..., Any]) -> Callable[..., Any]:
+def wrap_scan_set(function: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap ``affine_search.scan_set`` to add the counts of each scan to the current layer.
 
     The counts are the supports that the scan weighs, its lookups, and the supports that it skips.

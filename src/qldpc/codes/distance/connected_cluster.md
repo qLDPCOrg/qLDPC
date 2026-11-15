@@ -145,6 +145,7 @@ That field of `SearchTuning` in `_tuning.py` defaults to a round number of state
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
 The search predicts rather than counts because it can ask only between limits, each a single compiled call, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
 A first limit that a `cutoff` sets above the weight divisor ([Section 3.6](#36-from-a-search-to-the-distance)) has no prediction, so the search asks before it.
+A first limit at the divisor, the cheapest ([Section 2](#2-what-the-cost-of-the-search-depends-on)), is treated as visiting no states, so the search asks before it only if `automorphism_minimum_states` is zero.
 Setting `automorphism_minimum_states` to `MAX_VALUE` turns asking off.
 
 With symmetries, the search from the first root does most of the work: it forbids nothing, and every witness that meets the first orbit has an image that holds this root.

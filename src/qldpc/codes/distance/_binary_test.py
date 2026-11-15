@@ -24,10 +24,7 @@ from . import _binary as binary
 
 
 def test_binary_matrices_and_nested_bases() -> None:
-    """Binary matrices are checked and take the documented widths, and nested bases are adapted.
-
-    The rows of an adapted basis that span the stabilizers come first, with zero quotient labels.
-    """
+    """Binary matrices are checked and take the documented widths, and nested bases are adapted."""
     assert binary.as_binary_matrix(np.empty((0, 3))).shape == (0, 3)
     assert binary.as_binary_matrix([], num_cols=3).shape == (0, 3)
     with pytest.raises(ValueError, match="infer the width"):
@@ -103,25 +100,20 @@ def test_eligible_rows_have_nonzero_labels() -> None:
 
 
 def test_distance_requires_binary_input() -> None:
-    """Distance calculations reject non-binary input rather than silently truncating it.
-
-    The enumeration packs each row into the bits of uint64 words, so a non-binary entry would
-    otherwise be reinterpreted and yield a wrong distance with no indication of a problem.
-    """
-    # A GF(3) generator matrix is rejected because exact distance enumeration supports only GF(2).
+    """Distance calculations reject non-binary input rather than silently truncating it."""
+    # A GF(3) generator matrix is rejected.
     ternary_code = qldpc.codes.classical.HammingCode(3, 3)
     with pytest.raises(ValueError, match=r"only take binary input.*GF\(3\)"):
         qldpc.codes.distance.get_distance_from_generators(ternary_code.generator)
 
-    # Rows of a GF(3) matrix, or their entries, in tuples or lists are rejected too, although NumPy
-    # drops their field.  Over GF(3), the checks [[1, 1, 0], [0, 1, 1], [1, 0, 1]] have full rank,
-    # so they have no nonzero word, whereas over GF(2) they have the word 111.
+    # Rows of a GF(3) matrix in tuples or lists are rejected too, although NumPy drops their field.
+    # Over GF(3) these checks have no nonzero word, but over GF(2) they have the word 111.
     checks = galois.GF(3)([[1, 1, 0], [0, 1, 1], [1, 0, 1]])
     for rows in (tuple(checks), [list(row) for row in checks]):
         with pytest.raises(ValueError, match=r"only take binary input.*GF\(3\)"):
             qldpc.codes.distance.get_distance_from_checks(rows)
 
-    # A plain integer array with a nonbinary entry is rejected by value validation.
+    # Integer arrays with entries other than 0 and 1 are rejected.
     with pytest.raises(ValueError, match="entries other than 0 and 1"):
         qldpc.codes.distance.get_distance_from_generators(np.array([[1, 2, 0], [0, 1, 1]]))
     with pytest.raises(ValueError, match="entries other than 0 and 1"):
@@ -160,12 +152,7 @@ def test_symplectic_to_hamming_doubles_weights() -> None:
 
 
 def test_stabilizers_of_subsystem_codes() -> None:
-    """The stabilizers are the gauge operators that commute with every gauge operator.
-
-    For a Bacon-Shor code, the stabilizers of the CSS form and of the Pauli form span the
-    combinations of gauge generators that commute with every gauge generator, which the test finds
-    by enumerating them.  Commuting gauge generators come back unchanged, with their redundant rows.
-    """
+    """The stabilizers are the gauge operators that commute with every gauge operator."""
     code = qldpc.codes.BaconShorCode(3)
     gauge_x = code.matrix_x.view(np.ndarray).astype(np.uint8)
     gauge_z = code.matrix_z.view(np.ndarray).astype(np.uint8)
@@ -196,6 +183,7 @@ def test_stabilizers_of_subsystem_codes() -> None:
     assert len(stabilizers) == len(expected_x) + len(expected_z)
     np.testing.assert_array_equal(get_independent_rows(stabilizers), get_independent_rows(expected))
 
+    # Commuting gauge generators come back unchanged, with their redundant rows.
     checks = np.vstack([expected_x, expected_x[:1] ^ expected_x[1:2]])
     stabilizers_x, stabilizers_z = binary.get_css_stabilizers(checks, expected_z)
     assert stabilizers_x is checks and stabilizers_z is expected_z

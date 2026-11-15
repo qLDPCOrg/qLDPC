@@ -39,11 +39,10 @@ def as_integer(value: SupportsIndex, name: str) -> int:
 def infer_field(vectors: object) -> type[galois.FieldArray] | None:
     """Return the finite field of a field array, or of the field arrays in nested lists or tuples.
 
-    NumPy drops the field of the field arrays in a list or tuple, such as the rows of a field array,
-    so a list of rows over GF(3) with entries 0 and 1 would pass as a binary matrix.  The binary
-    checks of the exact searches, and the field checks of the code constructors, therefore read the
-    field with this function.  It follows only the first item at each level of nesting, so its cost
-    grows only with the depth of nesting.  It returns None if it finds no field.
+    NumPy drops the field of field arrays in a list or tuple, so a list of rows over GF(3) with
+    entries 0 and 1 would otherwise pass as a binary matrix.  The function reads only the first
+    item at each level of nesting, so its cost grows only with the depth of nesting, and it returns
+    None if it finds no field.
     """
     while not isinstance(vectors, galois.FieldArray):
         if not isinstance(vectors, list | tuple) or not vectors:
@@ -59,11 +58,10 @@ def infer_field(vectors: object) -> type[galois.FieldArray] | None:
 def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
     """Check that the given vectors are binary, and raise an error if they are not.
 
-    The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
-    XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated
-    silently and yield a wrong distance rather than an error.  Input over another field, as
-    ``infer_field`` finds it, raises a ``ValueError`` even if its entries are 0 and 1.  A single
-    object that is neither array-like nor a number, such as a code, raises a ``TypeError``.
+    The searches pack rows into bits and add them modulo two, so other input would silently give
+    wrong results.  Input over another field, as ``infer_field`` finds it, raises a ``ValueError``
+    even if its entries are 0 and 1, and a single object that is neither array-like nor a number,
+    such as a code, raises a ``TypeError``.
     """
     field = infer_field(vectors)
     if field is not None and field.order != 2:
@@ -91,9 +89,8 @@ def as_binary_matrix(
 
     A single vector is one row.  If ``num_cols`` is given, the matrix must have that many columns,
     except that an empty list, or a matrix of shape ``(0, 0)``, gets that width.  Otherwise, an
-    empty list has no width, and raises an error.  The checks use ``name``, the name of the
-    argument, in their error messages.  If NumPy cannot convert the rows to an array, such as when
-    their lengths differ, it raises its own error.
+    empty list has no width, and raises an error.  Error messages call the argument ``name``, and
+    NumPy raises its own error for rows that it cannot convert, such as rows of different lengths.
     """
     dense = _as_dense(vectors)
     assert_binary(dense, name)
@@ -146,7 +143,8 @@ def get_nested_code_basis(
         rows: row ``i`` of the labels holds the coordinates of row ``i`` of the basis in the
         quotient, which are zero exactly for the stabilizer rows.  If the quotient is trivial, the
         labels have no columns.  Callers must handle that case first, since ``get_eligible_rows``
-        and the scans read labels with no columns as excluding nothing.
+        and the scans of ``_brouwer_zimmermann/affine_search.py`` read labels with no columns as
+        excluding nothing.
     """
     stabilizer_basis = get_independent_rows(stabilizers)
     stabilizer_pivots = [int(np.flatnonzero(row)[0]) for row in stabilizer_basis]
