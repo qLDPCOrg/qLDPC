@@ -5,9 +5,9 @@
 Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` is the gate of an
 optional step, and assumes the cost of that step to an order of magnitude (see the Retuning section
 of the module docstring of ``_tuning``).  The script measures these costs on this machine, and
-prints each of them beside the default of the field that gates its step, so that its reader can
-check that the assumptions still hold.  It sets no value, and its outputs belong in the description
-of a pull request, never in ``_tuning.py`` or the documentation.  It measures:
+prints each of them beside the default of the field that gates its step, so that a reader can check
+that the assumptions still hold.  It sets no value, and its outputs belong in the description of a
+pull request, never in ``_tuning.py`` or the documentation.  It measures:
 
 - the seconds of one candidate/set evaluation of a Brouwer-Zimmermann (BZ) search: for each traced
   search, the seconds of its layers of at least ``10**7`` evaluations without completion tables,
@@ -40,7 +40,7 @@ For each derived value, the script also prints, under ``derived``, the value tha
 the field gives for the measured cost: the cost in the unit of the field, as the nearest, by ratio,
 of 1, 2, or 5 times a power of ten.  Such values differ from their neighbors by at most a factor of
 2.5, so a derived value one step away from its default is within the factor of about 3 by which the
-Retuning section requires an assumption to be off before its default changes.
+Retuning section requires an assumption to be off before the default of its field changes.
 
 The cost model of completion tables (Section 3.9 of ``brouwer_zimmermann.md``), which
 ``predict_completion_cost`` and ``_estimate_build_cost`` in
