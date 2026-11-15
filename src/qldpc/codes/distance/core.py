@@ -39,21 +39,25 @@ DistanceMethod = Literal[
 """The methods of exact distance searches.
 
 - ``"brouwer_zimmermann"`` (the default) and its alias ``"information_sets"``: the
-  Brouwer-Zimmermann algorithm, which enumerates words of increasing weight in several information
-  sets, and stops once a lower bound that the sets prove meets the lightest word found.
-- ``"connected_cluster"``: the connected-cluster algorithm of Dumer, Kovalev, and Pryadko
-  (`arXiv:1611.07164 <https://arxiv.org/abs/1611.07164>`_), with the branch and bound of Okada and
-  Kasai (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).  It searches the words whose
-  supports the parity checks of a code connect, so it can be fast only if the checks are sparse,
-  and functions that take generators reject it.  On quantum LDPC codes it is often much faster than
-  ``"brouwer_zimmermann"``, but it can be much slower on some of them, and on classical LDPC codes
-  whose checks are only moderately sparse.  For a subsystem code, :func:`get_distance_css` and
-  :func:`get_distance_pauli` search sparser generators of the stabilizers that they derive; a
-  caller who knows sparse ones can pass them to :func:`get_distance_from_checks`.
-- ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also the
-  fastest method for classical codes of low dimension whose distance is a large fraction of their
-  length, on which the time and setup memory of ``"brouwer_zimmermann"`` can grow with the square
-  of the length.  :class:`~qldpc.codes.distance.CosetLeaderSearch` and
+  `Brouwer-Zimmermann algorithm
+  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
+  which enumerates words of increasing weight in several information sets, and stops once a lower
+  bound that the sets prove meets the lightest word found.
+- ``"connected_cluster"``: the `connected-cluster algorithm
+  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ of
+  Dumer, Kovalev, and Pryadko (`arXiv:1611.07164 <https://arxiv.org/abs/1611.07164>`_), with the
+  branch and bound of Okada and Kasai (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).
+  It searches the words whose supports the parity checks of a code connect, so it can be fast only
+  if the checks are sparse, and functions that take generators reject it.  On quantum LDPC codes it
+  is often much faster than ``"brouwer_zimmermann"``, but it can be much slower on some of them, and
+  on classical LDPC codes whose checks are only moderately sparse.  For a subsystem code,
+  :func:`get_distance_css` and :func:`get_distance_pauli` search sparser generators of the
+  stabilizers that they derive; a caller who knows sparse ones can pass them to
+  :func:`get_distance_from_checks`.
+- ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also fastest
+  for classical codes of low dimension whose distance is a large fraction of their length, on which
+  the time and setup memory of ``"brouwer_zimmermann"`` can grow with the square of the length.
+  :class:`~qldpc.codes.distance.CosetLeaderSearch` and
   :func:`~qldpc.circuits.certify_bounded_fault_propagation` reject it.
 
 :doc:`/exact_search_tuning` says how to make costly searches faster.
