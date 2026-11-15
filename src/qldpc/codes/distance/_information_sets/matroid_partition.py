@@ -2,17 +2,12 @@
 
 """Information sets with bounded column coverage, by matroid partitioning.
 
-The columns of a binary basis with ``k`` independent rows form a linear matroid, whose independent
-sets are the sets of linearly independent columns, and whose bases of size ``k`` are the information
-sets.  Lisoněk and Trummer, "Algorithms for the minimum weight of linear codes," *Advances in
-Mathematics of Communications* 10(1), 195-207 (2016), Section 5.1, find the largest number of
-information sets in which no column appears more than ``b`` times by partitioning ``b`` copies of
-each column into independent sets, with Edmonds' matroid partitioning algorithm.
-
-``get_information_sets_with_coverage`` does this.  It grows the sets one at a time: it fills a new
-set with columns that keep it independent, and then moves columns between sets along augmenting
-paths, as in Edmonds' algorithm, until the set holds ``k`` columns or no column can join.  An
-augmenting path keeps the size of every set but the last, so full sets stay full.
+The independent sets of columns of a binary basis form a linear matroid, whose bases are the
+information sets.  As in Section 5.1 of Lisoněk and Trummer (References of
+``brouwer_zimmermann.md``), ``get_information_sets_with_coverage`` finds the most information sets
+that use no column more than ``b`` times, by partitioning ``b`` copies of each column into
+independent sets with Edmonds' matroid partitioning algorithm.  Section 4.4 of
+``brouwer_zimmermann.md`` says which searches use it.
 """
 
 from __future__ import annotations
@@ -26,22 +21,21 @@ import numpy.typing as npt
 def get_information_sets_with_coverage(
     basis: npt.NDArray[np.uint8], max_coverage: int, max_sets: int, *, keep_partial: bool = False
 ) -> list[list[int]]:
-    """Find the most information sets, up to ``max_sets``, in which no column appears too often.
+    """Find the most information sets, up to ``max_sets``, that use no column too often.
 
-    With ``keep_partial``, the sets may end with a partial set: independent columns that are fewer
-    than the rows.  Edmonds' algorithm makes the union of the sets as large as possible, and every
-    set but the last is an information set.  So no other choice of as many information sets within
-    the coverage leaves room for a larger partial set.
+    With ``keep_partial``, a nonempty partial set, of fewer independent columns than the rows, may
+    follow the information sets, and counts toward ``max_sets``.  With coverage one, no other choice
+    of as many information sets leaves room for a larger one (Section 4.4 of
+    ``brouwer_zimmermann.md``).
 
     Args:
         basis: A binary matrix with independent rows.
         max_coverage: The largest number of the sets that may contain any one column.
-        max_sets: The largest number of sets to find, including a partial set.
-        keep_partial: Whether to keep the last set that could not be filled, unless it is empty.
+        max_sets: The largest number of sets to find.
+        keep_partial: Whether to keep the last set if it could not be filled.
 
     Returns:
-        The column indices of each set, at most ``max_sets`` of them: as many information sets as
-        the coverage allows, and then, with ``keep_partial``, any partial set.
+        The sorted column indices of each set.
     """
     dimension = len(basis)
     columns = [column for column in range(basis.shape[1]) if np.any(basis[:, column])]
@@ -158,11 +152,10 @@ class _Partition:
     def _augment(self, element: int, size: int) -> bool:
         """Add an unassigned element along a shortest augmenting path, if there is one.
 
-        In the exchange graph, an element ``x`` points to the members of a set that ``x`` could
-        replace: the members of its circuit in that set.  The path ends at an element that is
-        independent of some set, which then has room for it.  Only the last set can be that set:
-        every other set is full, and the ``size`` columns of a full set span every column of a basis
-        of ``size`` rows.
+        In the exchange graph, an element ``x`` points to the members of its circuits in the other
+        sets, which ``x`` could replace.  The path ends at an element independent of the members of
+        some set, and that set must be the last, since every other set is full and so spans every
+        column.  So every set but the last keeps its size.
         """
         parent: dict[int, tuple[int, int]] = {}
         queue = deque([element])

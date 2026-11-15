@@ -18,23 +18,19 @@ def advance_support(
     prefixes: npt.NDArray[np.uint64],
     depth: int,
 ) -> int:
-    """Move to the next support of a layer of the search.
+    """Move to the next support of a layer, in lexicographic order.
 
-    Layer ``w = len(support) >= 1`` holds the sums of an offset and ``w`` of the packed ``rows`` of
-    a search basis.  The sums use only the first ``width`` machine words of each row.  A support
-    lists the indices of the rows of a sum in increasing order, and the supports come in
-    lexicographic order.
+    A support of layer ``len(support)`` lists the indices of rows of a search basis in increasing
+    order, and its word adds those packed ``rows``, in their first ``width`` machine words, to an
+    offset (Section 3.5 of ``brouwer_zimmermann.md``).  The state is the rows chosen so far,
+    ``support[:depth]``; the next row to try, ``support[depth]``; and ``prefixes``, whose row
+    ``level`` holds the offset plus the rows ``support[:level]``.  Start with ``depth = 0``,
+    ``support[0] = 0``, and the offset in ``prefixes[0]``, which stays unchanged.
 
-    The state of the walk is ``support``, ``prefixes``, and ``depth``.  The rows chosen so far are
-    ``support[:depth]``, and ``support[depth]`` is the next row to try at ``depth``.  Row ``level``
-    of ``prefixes`` holds the offset plus the rows ``support[:level]``.  Start with ``depth = 0``,
-    ``support[0] = 0``, and the offset in ``prefixes[0]``, which this function does not change.
-
-    Returns the last depth, ``len(support) - 1``, once ``support`` is complete.  The word of the
-    support is then ``prefixes[depth] ^ rows[support[depth]]``.  To continue, raise
-    ``support[depth]`` and call again from that depth.  Raising it by one moves to the next support,
-    and raising it past the last row skips the supports that differ from this one only in their last
-    row.  Returns -1 once every support has been visited.
+    Returns ``len(support) - 1`` once ``support`` is complete, when its word is ``prefixes[depth] ^
+    rows[support[depth]]``, or -1 after the last support.  To continue, raise ``support[depth]``
+    and call again with that depth: by one for the next support, or past the last row to skip the
+    supports that differ from this one only in their last row.
     """
     num_rows = rows.shape[0]
     weight = len(support)

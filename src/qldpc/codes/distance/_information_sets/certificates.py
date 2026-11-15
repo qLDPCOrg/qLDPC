@@ -3,8 +3,8 @@
 """Certificates of the basis families of exact searches, and the plans of their steps.
 
 A certificate bounds the weights of the eligible words that a search of a basis family has not
-visited, from the layers that its sets have completed.  It tells a search when it can stop, and a
-plan of steps says where a search stops for a weight limit, and the work of the steps up to there.
+visited, and a plan says where a search stops above a limit, and the work of its steps up to there.
+Sections cited in this module are those of ``brouwer_zimmermann.md``.
 """
 
 from __future__ import annotations
@@ -25,44 +25,39 @@ from .. import _tuning
 # A bound on the weight of unvisited words when no word can remain unvisited.
 NO_WORD_BOUND = np.iinfo(np.int64).max
 
-# Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
-# the cap, and a sum saturates at WORK_CAP, so an estimate is exact only if it reaches neither cap.
-# Searches that reach a cap are infeasible, so their order against other basis families does not
-# matter.
+# Caps that keep work estimates within a native integer: a binomial above _BINOMIAL_CAP counts as
+# the cap, and a sum saturates at WORK_CAP.  A search whose estimate reaches a cap is infeasible, so
+# its order against other basis families does not matter.
 _BINOMIAL_CAP = 1 << 50
 WORK_CAP = 1 << 61
 
 
 @dataclass(frozen=True)
 class Certificate:
-    """Lower bound on the Hamming weight of eligible words that a family has not yet visited.
+    """Lower bounds on the Hamming weight of the eligible words that a family has not visited.
 
-    ``lower_bound`` holds after every search basis of the family has completed each coefficient
-    layer through ``completed_weight``.  ``step_lower_bound`` also holds part way through a layer,
-    once the first sets in family order have completed it, in whatever order their words were
-    visited.  A set that is interrupted within a layer does not advance either bound.  The bounds do
-    not bound the weights of witnesses already found, and they do not transfer to another basis or
-    CSS sector.  A search that skips supports by completion tables completes a layer without
-    visiting them, and then the bounds hold only for the eligible words lighter than its best weight
-    (Section 3.9 of ``brouwer_zimmermann.md``).
+    ``lower_bound`` holds once every set of the family has completed each layer through
+    ``completed_weight``, and ``step_lower_bound`` part way through a layer, once the first sets in
+    family order have completed it (Sections 2.5 and 3.1).  A set interrupted within a layer
+    advances neither.  The bounds hold only for the eligible words of the family's sector that the
+    family has not visited, and, in a search that skips completions by tables, only for those
+    lighter than its best weight (Sections 3.3 and 3.9).
 
-    Each bound is the coverage bound: the occupancy of the sets (see ``get_step_lower_bounds``)
-    divided by ``max_coverage``, rounded up, and then rounded up to a multiple of
-    ``weight_divisor``.  With ``pivot_blocks``, each bound is the larger of the coverage
-    bound and the bound of ``get_lp_lower_bound``, which can be larger when coverage is uneven.
+    Each bound is the occupancy of the sets (see ``get_step_lower_bounds``) divided by
+    ``max_coverage``, rounded up, and then rounded up to a multiple of ``weight_divisor``; with
+    ``pivot_blocks``, it is the larger of that and the bound of ``get_lp_lower_bound``.
 
     Attributes:
         dimension: Number of rows of the searched basis.
         ranks: Rank of the pivot block of each search basis, in family order.
-        weight_divisor: A proven divisor of the Hamming weight of every eligible word.  It combines
-            any divisor proven by the caller, such as two for the symplectic-to-Hamming map, with
-            ambient even parity.  It is in the Hamming units of the searched basis, not Pauli units.
-        max_coverage: An upper bound on the number of pivot blocks that contain any one coordinate.
-            Overestimates are sound; underestimates are not.
-        pivot_blocks: The pivot columns of each search basis, in family order, to bound unvisited
-            words also by linear programming, or no blocks to use only the coverage bound.
-        lp_max_denominator: The largest denominator of the rational dual weights of the linear
-            program (see ``get_lp_lower_bound``), which ``pivot_blocks`` needs to be positive.
+        weight_divisor: A proven divisor of the Hamming weight of every eligible word, such as two
+            for general Pauli problems or an even basis (Section 3.2).
+        max_coverage: An upper bound on the number of pivot blocks that contain any one column,
+            which may overestimate but never underestimate.
+        pivot_blocks: The pivot columns of each search basis, in family order, for the bounds of
+            linear programming, or none.
+        lp_max_denominator: The largest denominator of the dual weights of the linear programs,
+            which must be positive with ``pivot_blocks``.
     """
 
     dimension: int
@@ -98,10 +93,9 @@ class Certificate:
     def certifies(self, weight: int, num_completed: int, upper_bound: int) -> bool:
         """Whether ``step_lower_bound(weight, num_completed)`` is at least ``upper_bound``.
 
-        This solves a linear program only if the coverage bound falls short of the upper bound and
-        the linear program could reach it: its optimum is at most the value of the feasible solution
-        that sets each pivot column to the largest ``requirement / len(block)`` over the blocks that
-        contain it.
+        This solves a linear program only if the coverage bound falls short and the feasible point
+        that sets each pivot column to the largest ``requirement / len(block)`` of its blocks does
+        not show the optimum to fall short too (Section 3.1).
         """
         if self._step_lower_bounds[weight, num_completed] >= upper_bound:
             return True
@@ -122,17 +116,12 @@ class Certificate:
         )
 
     def plan(self, limit: int, layer: int) -> int:
-        """Find where a search of layer ``layer`` stops above a limit.
+        """Find the stopping step of layer ``layer`` for ``limit``, and the sets completed there.
 
-        The search stops at its stopping step: the first step of the layer whose
-        ``step_lower_bound`` exceeds ``limit``, or the last step, ``(layer, len(ranks))``, if none
-        does.  Returns the number of sets that have completed the layer at that step.
-
-        Without linear programs, ``find_stopping_step`` finds the step.  A certificate that solves
-        linear programs checks the steps in order with ``certifies``, except the last step, which
-        stops the search anyway.  So it solves the program of a step only if the step comes no later
-        than the stopping step and is not the last step, and the coverage bound of the step does not
-        exceed the limit.
+        The stopping step is the first step of the layer whose ``step_lower_bound`` exceeds
+        ``limit``, or the last step if none does.  Returns the number of sets that have completed
+        the layer at that step.  With linear programs, this checks every step but the last, in
+        order, with ``certifies`` (Section 4.1).
         """
         num_sets = len(self.ranks)
         if not self._solves_linear_programs:
@@ -144,26 +133,18 @@ class Certificate:
         return num_sets
 
     def get_num_sets_to_certify(self, weight: int, upper_bound: int) -> int:
-        """The fewest leading sets whose completion of layer ``weight`` certifies a bound.
+        """The fewest leading sets whose completion of layer ``weight`` certifies ``upper_bound``.
 
-        Once these sets have completed layer ``weight``, and the others layer ``weight - 1``, every
-        unvisited eligible word weighs at least ``upper_bound``.  Returns the number of sets if no
-        fewer sets suffice, in which case the bound may need later layers too.  The number is that
-        of the stopping step of ``plan`` in the layer for the limit ``upper_bound - 1``.  Without
-        linear programs, ``find_stopping_step`` finds that step, so the distance and coset searches
-        find their stopping steps by one shared rule.
+        This is ``plan(upper_bound - 1, weight)``: every set if no fewer suffice, in which case the
+        bound may need later layers too.
         """
         return self.plan(upper_bound - 1, weight)
 
     def work(self, upper_bound: int, first_layer: int = 1) -> int:
-        """Estimate the candidate/set evaluations needed to certify ``upper_bound``.
+        """Estimate the candidate/set evaluations that certify ``upper_bound`` (Section 3.6).
 
-        This is the work of ``plan_steps`` for every layer from ``first_layer``, every set, and the
-        limit ``upper_bound - 1``, on the table of the coverage bound.  So the estimate solves no
-        linear programs.  A later ``first_layer`` estimates the work left once every set has
-        completed the layers before it.  The estimate is pessimistic: it assumes no lighter witness
-        is found before the certificate reaches the upper bound, and from layer one it includes
-        systematic rows (coefficient weight one).
+        The estimate uses the coverage bound alone.  From a later ``first_layer``, it is the work
+        left once every set has completed the layers before ``first_layer``.
         """
         ranks, *_ = self._as_array_arguments()
         binomials = get_capped_binomials(self.dimension)
@@ -181,25 +162,20 @@ class Certificate:
     def get_weight_bounds(
         self, weight_factor: int, parity: int | None = None
     ) -> npt.NDArray[np.int64]:
-        """Coverage bounds on the weight of unvisited eligible words after each step.
+        """Coverage bounds on the weight of the unvisited eligible words after each step.
 
-        Every word must weigh at least its Hamming weight divided by ``weight_factor``.  Entry
-        ``[w, j]`` is the entry of the table of ``get_step_lower_bounds`` for this certificate,
-        divided by ``weight_factor`` and rounded up.  The entries ``[dimension, j]`` for ``j >= 1``
-        stay ``NO_WORD_BOUND``, since no word remains unvisited.  ``parity``, zero or one, is a
-        parity that the Hamming weight of every eligible word has.  Given it, each entry of that
-        table is first rounded up to the smallest integer of that parity that is at least the entry.
-
-        The bounds do not decrease in the order of the steps.  Column zero of row zero, which
-        precedes every step, stays zero, and column zero of each later row repeats the last column
-        of the row before.  Each call returns a new table.
+        ``parity``, if given, is the parity of the Hamming weight of every eligible word, and every
+        word weighs at least its Hamming weight divided by ``weight_factor`` (Sections 3.2 and 4.1).
+        So each entry of the table of ``get_step_lower_bounds`` is rounded up to ``parity``, if
+        any, and then divided by ``weight_factor``, rounding up.  The entries do not decrease in
+        the order of the steps, those that mean that no word remains stay ``NO_WORD_BOUND``, and
+        entry ``[0, 0]``, before every step, stays zero.  Each call returns a new table.
         """
         bounds = self._step_lower_bounds
         if parity is not None:
-            # Round each finite entry up to the parity.  The entry before the first step bounds no
-            # step, and stays zero so that every nonnegative maximum weight passes it, as a check of
-            # a cached stopping step requires (see ``get_stopping_step`` in
-            # ``_brouwer_zimmermann/coset_tables.py``).
+            # Round each finite entry up to the parity, but keep the zero before the first step,
+            # which every nonnegative maximum weight must pass in a check of a cached stopping step
+            # (``get_stopping_step`` of ``_brouwer_zimmermann/coset_tables.py``).
             bounds = bounds + (bounds - parity) % 2 * (bounds < NO_WORD_BOUND)
             bounds[0, 0] = 0
 
@@ -211,11 +187,10 @@ class Certificate:
 
     @property
     def _solves_linear_programs(self) -> bool:
-        """Whether the certificate also bounds unvisited words by linear programs.
+        """Whether the certificate also solves linear programs.
 
-        It does so only with pivot blocks and a maximum coverage above one.  With a coverage of
-        one, the blocks are disjoint, the linear program separates by block, and its optimum is the
-        coverage bound.
+        It does exactly with pivot blocks and a maximum coverage above one.  With a coverage of one,
+        the blocks are disjoint, and the optimum is the coverage bound (Section 3.1).
         """
         return bool(self.pivot_blocks) and self.max_coverage != 1
 
@@ -244,25 +219,13 @@ class Certificate:
 def get_lp_lower_bound(
     pivot_blocks: Sequence[Sequence[int]], requirements: Sequence[int], max_denominator: int
 ) -> int:
-    """Bound the weight of binary words with given numbers of ones in blocks, by linear programming.
+    """Bound the weight of binary words with at least ``b_i`` ones in each block ``B_i``.
 
-    Let ``B_i = pivot_blocks[i]`` and ``b_i = requirements[i]``.  Every binary word with at least
-    ``b_i`` ones in the columns of ``B_i``, for each ``i``, has weight at least the optimum of the
-    linear program
-
-        minimize ``sum_c x_c`` subject to ``sum_{c in B_i} x_c >= b_i`` and ``0 <= x_c <= 1``.
-
-    By weak duality, for every ``y >= 0``, such a word has weight at least the dual value
-
-        ``sum_i b_i y_i - sum_c max(0, sum_{i : c in B_i} y_i - 1)``.
-
-    The solver of ``scipy.optimize.linprog`` finds a nearly optimal ``y``, and the bound is the
-    ceiling of its dual value in exact rational arithmetic, so rounding in the solver can only
-    weaken the bound, never invalidate it.  The coverage bound is the dual value of ``y_i = 1/C``
-    for the maximum coverage ``C``, so the optimum is at least that bound.
-
-    Returns ``NO_WORD_BOUND`` if a requirement exceeds the size of its block, since then no word
-    meets the requirements, and zero if no requirement is positive or if the solver fails.
+    ``B_i`` is ``pivot_blocks[i]``, and ``b_i`` is ``requirements[i]``.  The bound is the ceiling of
+    the dual value of the linear program of Section 3.1 at the solver's dual weights, limited to
+    denominators of at most ``max_denominator``, and evaluated exactly as Section 3.1 describes.
+    Returns ``NO_WORD_BOUND`` if a requirement exceeds its block, since then no word meets it, and
+    zero if no requirement is positive or the solver fails.
     """
     blocks = [
         list(block) for block, requirement in zip(pivot_blocks, requirements) if requirement > 0
@@ -346,14 +309,10 @@ def get_step_lower_bounds(
 ) -> npt.NDArray[np.int64]:
     """Certificate lower bounds after each step of a search, which completes one layer of one set.
 
-    Entry ``[weight, num_completed]`` holds once the first ``num_completed`` sets, in family order,
-    have completed layer ``weight``, and the others have completed layer ``weight - 1``, in whatever
-    order their words were visited.  So column ``len(ranks)`` holds once every set has completed
-    layer ``weight``, and column zero of row ``weight`` repeats column ``len(ranks)`` of row
-    ``weight - 1``.  Each bound comes from the occupancy of the sets.  Rank deficiency limits how
-    many selected rows can have zero pivot support, so a set with deficiency ``s`` that has
-    completed layer ``c`` adds ``c + 1 - s`` to the occupancy, or zero if that is negative.  Once
-    its contribution is positive, each layer that it completes adds one more.  Entries
+    Entry ``[w, j]`` holds once the first ``j`` sets, in family order, have completed layer ``w``
+    and the others layer ``w - 1``, so column zero of row ``w`` repeats the last column of row
+    ``w - 1``.  A set of rank deficiency ``s`` that has completed layer ``c`` adds
+    ``max(0, c + 1 - s)`` to the occupancy from which each bound comes (Section 2.4).  Entries
     ``[dimension, j]`` for ``j >= 1`` hold ``NO_WORD_BOUND``, since a set that has completed layer
     ``dimension`` has visited every word.
     """
@@ -389,34 +348,23 @@ def plan_steps(
 ) -> tuple[int, int, int]:
     """Plan a search of layers ``first_layer`` to ``last_layer`` that stops above a limit.
 
-    The work estimates of the distance search and of the routes of the coset searches add up the
-    work of the steps of a search with this function, and searches that need only where they stop
-    call ``find_stopping_step``.  The table ``step_bounds`` has a row for each layer from zero to
-    the dimension, and a column for each set after column zero.  The steps of layer ``w`` are
-    ``(w, 1)`` to ``(w, num_sets)``, in that order and layer by layer, and the bound of step
-    ``(w, j)`` is ``step_bounds[w, j]``, as in the table of ``get_step_lower_bounds``.  These bounds
-    must not decrease in the order of the steps, which holds for that table and for any
-    nondecreasing function of it, such as the tables of ``Certificate.get_weight_bounds``.
+    ``step_bounds`` has a row for each layer from zero to the dimension, and column zero and then a
+    column for each of ``num_sets`` sets.  Step ``(w, j)`` completes layer ``w`` of the ``j``-th
+    set, and its bound is ``step_bounds[w, j]``, as in the table of ``get_step_lower_bounds``.  The
+    steps run layer by layer, and their bounds must not decrease in that order, as holds for that
+    table and the tables of ``Certificate.get_weight_bounds``.  The stopping step ``(w*, j*)`` is
+    the first step whose bound exceeds ``limit``, or ``(last_layer, num_sets)`` if none does.
+    There, the first ``j*`` sets have completed layer ``w*``, and the others ``w* - 1``; call the
+    last layer that set ``i`` has completed ``w_i``.
 
-    The stopping step ``(w*, j*)`` is the first step of the layers whose bound exceeds ``limit``,
-    or ``(last_layer, num_sets)`` if there is none, which ``find_stopping_step`` finds.  At that
-    step, set ``i`` has completed layer ``w_i = w*`` if ``i < j*``, and ``w* - 1`` otherwise.  A set
-    of rank deficiency ``s`` adds to the bound of the step only if ``w_i >= s`` (see
-    ``get_step_lower_bounds``).  The other sets are the unused sets of the step.  If ``skip_unused``
-    is True, the plan leaves them out, as a coset search skips them, and reads the ranks of the sets
-    from ``ranks``.  Otherwise, it reads no ranks.
-
-    The work adds ``binomials[w]`` candidate/set evaluations for each set that the plan keeps and
-    each layer ``w`` from ``first_layer`` to ``w_i``.  Empty ``binomials`` give zero work.  The work
-    saturates at ``WORK_CAP``: it is the cap once a layer up to ``w*`` has a binomial above
-    ``WORK_CAP // num_sets``, or once the sum reaches the cap after a layer.
-
-    Two plans count the work of searches.  With the binomials of ``get_capped_binomials``, a plan
-    from layer one for the limit ``U - 1`` gives the work estimate of a distance search (Section 3.6
-    of ``brouwer_zimmermann.md``).  A plan from layer zero for a maximum weight ``max_weight`` that
-    skips unused sets applies to a coset search if no word of the coset weighs at most
-    ``max_weight``.  It gives the number of words that the search weighs, or skips by completion
-    tables (Section 3.9 of ``brouwer_zimmermann.md``), after the word of its syndrome.
+    The work adds ``binomials[w]`` candidate/set evaluations for each set ``i`` that the plan keeps
+    and each layer ``w`` from ``first_layer`` to ``w_i``, and is zero for empty ``binomials``.  With
+    ``skip_unused``, the plan leaves out, as a coset search does, the unused sets, which add nothing
+    to the bound since their rank deficiency, read from ``ranks``, exceeds ``w_i``.  Without it, the
+    plan reads no ranks.  The work saturates at ``WORK_CAP`` once a layer through ``w*`` has a
+    binomial above ``WORK_CAP // num_sets``, or the sum reaches the cap.  From layer one for a limit
+    one below the best weight, the work is the estimate of a distance search, and from layer zero
+    for a maximum weight, skipping unused sets, that of a coset query (Section 3.6).
 
     Returns:
         The stopping step ``(w*, j*)``, and the work.
@@ -439,13 +387,9 @@ def plan_steps(
 def find_stopping_step(
     step_bounds: npt.NDArray[np.int64], limit: int, first_layer: int, last_layer: int
 ) -> tuple[int, int]:
-    """Find the stopping step of a search of layers ``first_layer`` to ``last_layer``.
+    """Find the stopping step of ``plan_steps`` by a binary search, since the bounds never decrease.
 
-    The steps and their bounds are those of ``plan_steps``, and so is the stopping step: the first
-    step of the layers whose bound exceeds ``limit``, or ``(last_layer, num_sets)`` if there is
-    none.  The bounds do not decrease in the order of the steps, so a binary search finds it.  The
-    coset searches find where they stop with this function, and so does the distance search,
-    through ``Certificate.plan``, when its certificate solves no linear programs.
+    The coset searches and ``Certificate.plan`` use it (Section 4.1).
     """
     num_sets = step_bounds.shape[1] - 1
     low, high = 0, (last_layer - first_layer + 1) * num_sets
@@ -472,11 +416,10 @@ def is_unused_set(
 ) -> bool:
     """Whether a set is an unused set of step ``(layer, num_completed)`` (see ``plan_steps``).
 
-    ``pivots`` holds the pivot columns of each set of ``num_rows = pivots.shape[1]`` rows, padded
-    with -1 beyond its rank.  A set is unused if its rank deficiency exceeds the last layer that it
-    has completed, which must be at least zero.  This holds exactly if its rank is at most
-    ``position = num_rows - completed_layer - 1``, that is, if its pivot at ``position`` is padding.
-    ``position`` is negative only if the set has completed layer ``num_rows``, and then it is used.
+    ``pivots`` holds the pivot columns of each set of ``num_rows`` rows, padded with -1 beyond its
+    rank.  A set that has completed layer ``c``, which must be at least zero, is unused if its rank
+    deficiency exceeds ``c``, that is, if its pivot at index ``num_rows - c - 1`` is padding.  A set
+    that has completed layer ``num_rows`` is used.
     """
     position = pivots.shape[1] - get_completed_layer(set_index, layer, num_completed) - 1
     return position >= 0 and pivots[set_index, position] < 0
@@ -491,10 +434,8 @@ def estimate_certificate_work(
     upper_bound: int,
     binomials: npt.NDArray[np.int64],
 ) -> int:
-    """Estimate the candidate/set evaluations needed to certify ``upper_bound``.
+    """``Certificate.work`` from layer one, for arrays that compiled code can pass.
 
-    This is ``Certificate.work`` for arrays, which compiled code can pass.  It is the work of
-    ``plan_steps`` for every layer from one, every set, and the limit ``upper_bound - 1``.
     ``binomials`` are ``get_capped_binomials(dimension)``.
     """
     bounds = get_step_lower_bounds(dimension, ranks, weight_divisor, max_coverage)
