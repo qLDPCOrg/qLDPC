@@ -106,13 +106,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(
             f"No scrape of qecdb.org in {get_data_dir(args.results_dir)}: run collect_data --scrape"
         )
+    # A malformed code file is not a problem of the scrape, so it is read first.
+    try:
+        entries_by_code_type = {
+            code_type: read_code_file(code_file) for code_type, code_file in code_files.items()
+        }
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     try:
         best_known = read_best_known(code_files, data_file)
     except ValueError as error:
         raise SystemExit(f"{error}: run collect_data --scrape") from error
     for code_type, neighbors in best_known.items():
         code_file = code_files[code_type]
-        entries = read_code_file(code_file)
+        entries = entries_by_code_type[code_type]
         table = _format_table(entries, neighbors, args.few_logicals)
         preamble = _PREAMBLE.format(
             code_type=code_type.upper(), code_file=code_file.name, data_file=data_file.name
