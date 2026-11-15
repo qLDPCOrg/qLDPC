@@ -2,15 +2,13 @@
 
 """Time one workload under one tuning, in this process, after warming up its compiled code.
 
-``sweep.py`` runs this script in a new process for each trial of a comparison, which catches gross
-regressions or bugs when the tuning or the search code changes.  The script enters
-``_tuning.use_tuning`` with the given changes, warms up the compiled code of the workload's kind on
-small codes, and times the workload ``--repeat`` times.  Codes remember work that does not depend on
-the tuning, and coset searches reuse their cached setups, so later repetitions can be much faster
-than the first.  Codes also remember automorphisms once a search finds them, and whether a search
-finds them depends on the tuning.  The script prints one JSON object with the result and the wall
-and CPU seconds of each repetition, and the peak resident memory.  To run it directly, limit it to
-one thread, as ``sweep.py`` does, with ``NUMBA_NUM_THREADS=1`` and ``OMP_NUM_THREADS=1``.
+``sweep.py`` runs this script in a new process for each trial of a comparison, to catch gross
+regressions or bugs.  The script enters ``_tuning.use_tuning`` with the given changes, warms up the
+compiled code of the workload's kind on small codes, times the workload ``--repeat`` times, and
+prints one JSON object with the result and the wall and CPU seconds of each repetition, and the peak
+resident memory.  Later repetitions can be much faster than the first, since codes remember work
+such as generator matrices and found automorphisms, and coset searches reuse their setups.  To run
+the script directly, limit it to one thread with ``NUMBA_NUM_THREADS=1`` and ``OMP_NUM_THREADS=1``.
 
 Example:
 

@@ -209,12 +209,10 @@ The option `--hadamards` applies Hadamards to the second half of the qubits of e
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
 
-The other scripts of [`distance_tuning/`](distance_tuning/) check the tuning of the exact searches, as [its README](distance_tuning/README.md) describes, and none of them sets or justifies a value.
-[`constants.py`](distance_tuning/constants.py) checks that the orders of magnitude that the heuristics of `SearchTuning` assume still hold on a machine.
-Its traces of the searches that check the cost model of completion tables can take hours, so run it on a quiet machine, under a guard of time and memory.
-[`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of the searches of one workload of [`workloads.py`](distance_tuning/workloads.py), such as the families of information sets that a search builds, and compares the decisions of two traces.
-[`sweep.py`](distance_tuning/sweep.py) times the whole current tuning against a whole proposed one, or the defaults of two checkouts, in paired rounds of trials that alternate their order, each in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)), and summarizes the ratios of the two arms.
-It catches gross regressions or bugs when the tuning or the search code changes.
+The other scripts of [`distance_tuning/`](distance_tuning/) check the tuning of the exact searches, as [its README](distance_tuning/README.md) describes, and set no value.
+[`constants.py`](distance_tuning/constants.py) checks that the orders of magnitude that the heuristics of `SearchTuning` assume still hold on a machine; it can run for hours, so run it on a quiet machine, under a guard of time and memory.
+[`trace.py`](distance_tuning/trace.py) records the decisions and stage times of the searches of one workload of [`workloads.py`](distance_tuning/workloads.py), and compares the decisions of two traces.
+[`sweep.py`](distance_tuning/sweep.py) times the current tuning against a proposed one, or the defaults of two checkouts, in paired trials of [`trial.py`](distance_tuning/trial.py), to catch gross regressions or bugs when the tuning or the search code changes.
 For example, to check the orders of magnitude, and then to time a proposed value of `automorphism_minimum_states` against the default:
 
 ```bash

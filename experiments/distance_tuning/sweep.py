@@ -18,10 +18,8 @@ memory of each arm, and the median ratio of the times of the arms over rounds, w
 confidence interval (see ``summarize``).  The summary flags each workload whose arms disagree on a
 result.
 
-``--repeat`` runs the workload several times in each trial, so that the median leaves out work that
-codes remember from the first run (see ``trial.py``).  Codes also remember the automorphisms that a
-search finds, and whether it finds them depends on the tuning, so time a change of when searches ask
-for automorphisms with one repetition.  Run comparisons under a guard of memory and time.
+The README of this directory says when to time with ``--repeat``.  Run comparisons under a guard of
+memory and time.
 
 Examples, the first of which proposes a value of ``automorphism_minimum_states``, and the second of
 which compares the defaults of two checkouts:
