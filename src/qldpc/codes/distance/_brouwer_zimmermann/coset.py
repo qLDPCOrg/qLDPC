@@ -85,8 +85,7 @@ class BrouwerZimmermannCosetSearch:
         self._max_css_single_pairs = max_css_single_pairs
         self.css_weight = css_weight
         # The scale chooses the weight that ``_search_coset`` computes: zero for the CSS weight of a
-        # Pauli error, two for its physical weight, and one for an X or Z part.  The weight factor
-        # of the coset instances is two in every search of Pauli errors (Section 4.1).
+        # Pauli error, two for its physical weight, and one for an X or Z part.
         self.scale = 0 if css_weight and symplectic else 1 if css_weight else 2
         self._num_qubits = num_qubits
         self._symplectic = symplectic
@@ -116,8 +115,8 @@ class BrouwerZimmermannCosetSearch:
             weight = self._weight(word)
             return MinWeightBound(weight <= max_weight, word, weight)
 
-        # Otherwise every word of the coset weighs at least two, or, for an odd coset, the odd-coset
-        # lookup bound.
+        # Otherwise every word of the coset weighs at least two, or, for an odd coset,
+        # ``_odd_coset_lookup_bound``.
         if max_weight < 2:
             word = xor_selected(self._inverse_rows, syndrome)
             return MinWeightBound(
@@ -291,8 +290,8 @@ class _StabilizerKey:
 class _CosetTuning(NamedTuple):
     """The fields of the tuning that the setup of a BZ coset search reads, which key its cache.
 
-    The search builds its families, tails, and tables after the cache stores it, so the fields that
-    configure them key the cache too (Section 4.4).
+    The search builds its other families, its tails, and its completion tables after the cache
+    stores it, so the fields that configure them key the cache too (Section 4.4).
     """
 
     disjoint_random_column_orders: int
@@ -309,7 +308,7 @@ class _CosetTuning(NamedTuple):
 
         ``paulis_by_css_weight`` is True for a search of Pauli errors by CSS weight, which alone
         reads ``max_css_single_pairs`` and alone has no completion tables.  The fields that a search
-        does not read are zero, so that oracles whose tunings differ only in those fields share
+        does not read are zero, so that callers whose tunings differ only in those fields share
         cached searches.
         """
         fields = (getattr(tuning, name) for name in cls._fields)
@@ -415,8 +414,9 @@ def _get_routes(
 ) -> coset_routes.CosetRoutes:
     """The routes of a coset search of the code of independent embedded generators.
 
-    The routes start from the disjoint information sets of the generators.  The other arguments are
-    those of ``coset_routes.CosetRoutes`` and ``affine_instance.get_coset_instance``.
+    The routes start from the disjoint information sets of the generators.  ``tuning`` supplies the
+    fields that ``coset_routes.CosetRoutes`` and ``affine_instance.get_coset_instance`` take, and
+    the other arguments are passed to them.
     """
     instance = affine_instance.get_coset_instance(
         generators,
@@ -516,12 +516,12 @@ def _search_coset(
     may update the cached stopping steps of ``planning``.  A word weighs its CSS weight if ``scale``
     is zero, and otherwise the Hamming weight of its embedded word divided by ``scale``: two for the
     physical weight of a Pauli error, and one for an X or Z part.  ``tails`` is None, or the fields
-    of the ``CosetTails`` of a route by tails (Section 4.4), on which ``scale`` is one or two.
+    of the ``CosetTails`` of a route by tails (Section 4.4); with tails, ``scale`` is one or two.
 
-    The search starts from the word of the syndrome, and visits layer zero of every set, then layer
-    one, and so on, up to its stopping step, until it finds a word within ``max_weight``
-    (Sections 3.1 and 4.1).  By tails, it skips only words that tables prove heavier, so it finds
-    the same first word within ``max_weight``, if any (Section 3.9, "Coset searches").
+    The search starts from the word of the syndrome, and visits layer zero of the sets that it uses,
+    then layer one, and so on, up to its stopping step, until it finds a word within ``max_weight``
+    (Sections 3.1 and 4.1).  By tails, it skips only words that tables prove beyond ``max_weight``,
+    so it finds the same first word as without tails, if any (Section 3.9, "Coset searches").
 
     Returns:
         A lower bound on the weight of every word in the coset: zero if ``best``, which holds the
@@ -533,8 +533,9 @@ def _search_coset(
         return 0
     table = get_planning_table(planning, parity)
     stop_layer, stop_num_completed, stop_bound = get_stopping_step(table, max_weight)
-    # The search rounds to the parity of the coset if it weighs Hamming weights and its planning
-    # buffer has a table for each parity.
+    # A search whose buffer has a table for each parity reads that of the parity of its coset, but
+    # only a search of Hamming weights passes the parity on, for its skip bound and its bound after
+    # a skip.
     lower_bound, _, _ = _search_from_syndrome_word(
         packed_syndrome,
         max_weight,
@@ -574,11 +575,12 @@ def _search_from_syndrome_word(
     ``best`` holds that word, of weight ``best_weight`` above ``max_weight``, and
     ``packed_syndrome`` is its syndrome.  The stopping step and its bound are those of
     ``get_stopping_step``.  ``parity`` is the parity of the Hamming weights of the coset if the
-    search rounds to it (see ``get_search_tables``), and otherwise -1.  The search skips the unused
-    sets of ``certificates.plan_steps``, which add nothing to the bound of the stopping step
-    (Section 3.6).  By tails, it weighs words as ``affine_search.scan_coset_layer_by_tails`` does,
-    skips completions at the skip bound that ``_get_skip_bound`` gives for ``scale * max_weight``,
-    and writes the lightest word into ``best`` before it returns.
+    search weighs Hamming weights and rounds to it (see ``get_search_tables``), and otherwise -1.
+    The search skips the unused sets of ``certificates.plan_steps``, which add nothing to the bound
+    of the stopping step (Section 3.6).  By tails, it weighs words as
+    ``affine_search.scan_coset_layer_by_tails`` does, skips completions at the skip bound that
+    ``_get_skip_bound`` gives for ``scale * max_weight``, and writes the lightest word into ``best``
+    before it returns.
 
     Returns:
         A lower bound on the weight of every word in the coset (Section 3.9, "Coset searches"):
@@ -787,8 +789,9 @@ def _search_coset_for_min_weight(
         ranks, offsets = _get_offset_tails(packed_syndrome, best, pivots, tail_rows, inverse_tails)
         width = tail_rows.shape[2]
 
-    # Find, in the units of the scans, the skip bound and the parity slack of the incumbent, and the
-    # upper bound ``U`` of the search, in units of weight, with its first stopping step.
+    # Find, in the units of the scans, the skip bound and the slack, one where the words of the
+    # coset share a parity, by which the incumbent falls below the best weight (Section 3.10).  Find
+    # also the upper bound ``U`` of the search, in units of weight, with its first stopping step.
     factor = max(1, scale)
     rounds = scale != 0 and len(planning) == 2
     skip_bound = _get_skip_bound(factor * max_weight, parity if rounds else -1)
@@ -797,10 +800,10 @@ def _search_coset_for_min_weight(
     upper_bound = min(best_weight, max_weight + 1)
     stop_layer, stop_num_completed = get_first_step_reaching(bounds, upper_bound)
 
-    # Visit each layer one set at a time, up to the stopping step.  The loop ends by the last layer,
-    # whose bounds ``certificates.NO_WORD_BOUND`` exceed ``U``, since
-    # ``BrouwerZimmermannCosetSearch.get_min_weights`` keeps ``max_weight`` at most ``n``.  The
-    # scans keep lighter words in ``best``, or their supports in ``best_support``, as work space.
+    # Visit each layer one set at a time, up to the stopping step, with ``best`` and
+    # ``best_support`` as work space.  The loop ends by the last layer, whose bounds
+    # ``certificates.NO_WORD_BOUND`` exceed ``U``, since
+    # ``BrouwerZimmermannCosetSearch.get_min_weights`` keeps ``max_weight`` at most ``n``.
     weighed, skipped = 0, 0
     support = np.empty(num_rows, dtype=np.int64)
     best_support = np.empty(num_rows, dtype=np.int64)
@@ -964,7 +967,7 @@ def _rebuild_word(
     pivots: npt.NDArray[np.int64],
     support: npt.NDArray[np.int64],
 ) -> None:
-    """Turn a word of a coset into the offset of an information set plus the rows of a support.
+    """Turn a word of a coset into the offset of a set plus the rows of a support.
 
     ``rows`` and ``pivots`` are those of the set, as for ``_reduce_to_offset``.
     """
@@ -978,7 +981,7 @@ def _rebuild_word(
 def _reduce_to_offset(
     word: npt.NDArray[np.uint64], rows: npt.NDArray[np.uint64], pivots: npt.NDArray[np.int64]
 ) -> None:
-    """Reduce a word of a coset to the offset of an information set, which is zero on its pivots.
+    """Reduce a word of a coset to the offset of a set, which is zero on its pivots.
 
     ``rows`` are the packed rows of the set, and ``pivots`` their pivot columns, padded with -1
     beyond its rank.  The word adds the row of each pivot on which it has a one, since every row is

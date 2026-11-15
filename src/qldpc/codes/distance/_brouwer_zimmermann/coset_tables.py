@@ -51,7 +51,7 @@ class CosetSearchTables(NamedTuple):
             embedded words (Section 4.4).  The last set of a disjoint family may be partial.
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family (see ``_get_planning``).
-            Queries write only its cached stopping steps, which oracles that share a cached search
+            Queries write only its cached stopping steps, which callers that share a cached search
             share.
         x_mask: Selects the bits of a packed embedded word that form its X part, with one machine
             word for each machine word of the embedded words.  Only searches of Pauli errors by
@@ -133,11 +133,12 @@ def get_coset_tails(
     """Build the record of the tails of the family of a coset instance, with tables of some sets.
 
     ``inverse`` holds embedded words whose syndromes have one bit set, with every column.  Given the
-    ``record`` of the family, or None, the function returns a record with its tails and tables,
-    plus the completion tables of each set of ``sets`` that has none, unless they would be empty or
+    ``record`` of the family, or None, the function returns a record with its tails and tables, plus
+    the completion tables of each set of ``sets`` that has none, unless they would be empty or
     exceed ``max_table_bytes`` bytes (see ``completion_bounds.get_table_bytes_within``).  A record
     built anew has blocks of ``block_bits`` columns.  The function returns ``record`` itself if it
-    adds no tables, and otherwise a new record, whose array copies the earlier tables (Section 4.1).
+    adds no tables, and otherwise a new record, whose ``completion_tables`` copies the earlier
+    tables (Section 4.1).
     """
     # Build the tails of the family once, with a layout of no tables.
     if record is None:

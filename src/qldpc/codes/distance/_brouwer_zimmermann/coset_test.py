@@ -60,12 +60,13 @@ def _classical_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
 
 
 def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_parity() -> None:
-    """Searches by CSS weight stop at the bounds of each syndrome class, rounded to its parity."""
+    """Searches by CSS weight stop at bounds of each class, rounded to the parity of |x| + |z|."""
     generators = ("Y______", "_XZ____", "_ZX__ZZ", "___Y___", "____Y__", "__Z__YZ", "__Z__ZY")
     matrix = get_stabilizer_matrix(generators)
     assert_exact_answers(CosetLeaderSearch(matrix, css_weight=True), matrix, True)
 
-    # Read the parity of each syndrome class from every error, and check that the class shares it.
+    # Read the parity of |x| + |z| in each syndrome class from every error, and check that the
+    # class shares it.
     num_qubits = len(matrix)
     checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
     errors = (np.arange(1 << 2 * num_qubits)[:, None] >> np.arange(2 * num_qubits)) & 1
@@ -123,7 +124,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
 
 
 def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An oracle builds searches with the tuning in force when it is built, keyed by fields read."""
+    """An oracle builds its searches with the tuning in force when it is built."""
     orders: list[int] = []
     get_disjoint_family = basis_families.get_disjoint_family
 
@@ -156,6 +157,7 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             ({"coset_route_minimum_work": 0}, True),
             ({"overlapping_minimum_work": 0}, False),
         ]
+        # Only the fields that a search reads key its cache.
         for change, reads in changes:
             orders.clear()
             with use_tuning(**change):
@@ -251,6 +253,8 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
 
 def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune: Tune) -> None:
     """Oracles answer for the stabilizers that they were built from, when an array changes later."""
+    # At the threshold zero, the searches build their other families at their first queries, after
+    # the array changes.
     tune(coset_route_minimum_work=0)
     first, second = ROUTED_CSS_WEIGHT_STATE, ROUTED_PHYSICAL_STATES[1]
     coset._get_pauli_search.cache_clear()
@@ -286,9 +290,9 @@ _SKIPPING_CODE = np.array(
 )
 
 # A longer code with cosets of minimum weight six.  At maximum weight four and the threshold zero,
-# its minimum-weight searches skip completions whose bound reaches the skip bound but not the weight
-# of the lightest word weighed.  Some of these searches, such as those of syndromes 1126, 4578, and
-# 6129, stop early within steps.
+# its searches of these cosets for minimum weights skip completions whose bound reaches the skip
+# bound but not the weight of the lightest word weighed.  Some of these searches, such as those of
+# syndromes 1126, 4578, and 6129, stop early within steps.
 _HEAVY_COSETS_CODE = get_binary_matrix(
     [
         "11100011110000110001",
@@ -307,8 +311,8 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
 
     A coset without a word within the maximum weight must get a bound of at least the least weight
     above the maximum weight that a word of the coset can have.  Below maximum weight two, a single
-    query must give such a coset exactly the least such weight above one, and from two on, single
-    queries and batches must agree.
+    query must give a coset without a word of weight at most one exactly the least weight above one
+    that a word of the coset can have, and from two on, single queries and batches must agree.
     """
     num_columns = generators.shape[1]
     checks = get_kernel(generators)
@@ -371,7 +375,7 @@ def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
 
 
 def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
-    """Coset searches of an even code bound each coset with no light enough word by its parity."""
+    """Searches of an even code give each coset with no light enough word a bound of its parity."""
     parities = (RANK_DEFICIENT_CODE.sum(axis=1, keepdims=True) % 2).astype(np.uint8)
     _assert_classical_cosets_match_brute_force(np.hstack([RANK_DEFICIENT_CODE, parities]))
 
@@ -471,6 +475,8 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             assert (lower_bound <= max_weight) == (minima[syndrome] <= max_weight)
             if lower_bound > max_weight:
                 assert lower_bound <= minima[syndrome]
+                # A search whose answer is no weighs every word of the layers of the sets that it
+                # visits, and checking that number exactly guards the rule for skipping sets.
                 last_layers = [
                     stop_layer if index < stop_num_completed else stop_layer - 1
                     for index in range(num_sets)
@@ -501,11 +507,11 @@ def _assert_searches_by_tails_match_searches_of_words(
 ) -> int:
     """Check searches by tails against searches of whole words, without or with completion tables.
 
-    The family reduces the embedded generators on consecutive blocks of ``block_sizes`` columns, and
-    adds a set of rank zero.  Without ``block_bits``, both searches give the same bounds, words, and
-    counts.  With tables on blocks of ``block_bits`` columns, they differ only as Section 3.9 of
-    ``brouwer_zimmermann.md`` ("Coset searches") allows.  If ``minima`` is given, the searches also
-    decide as these least weights of the cosets.
+    The family reduces the embedded generators on consecutive blocks, whose sizes cycle through
+    ``block_sizes``, and adds a set of rank zero.  Without ``block_bits``, both searches give the
+    same bounds, words, and counts.  With tables on blocks of ``block_bits`` columns, they differ
+    only as Section 3.9 of ``brouwer_zimmermann.md`` ("Coset searches") allows.  If ``minima`` is
+    given, the searches also decide as these least weights of the cosets.
 
     Returns:
         The number of supports that the searches by tails skipped.
@@ -851,9 +857,10 @@ def _assert_min_weights_match_brute_force(
 ) -> None:
     """Check the minimum weights that a search finds for cosets against their least weights.
 
-    At each maximum weight, the floors of the batch are zero, then random, then the maximum weight.
-    A coset whose least weight is at most its floor may get any weight from its least weight to its
-    floor.
+    One batch holds the syndromes, in random order.  At each maximum weight, the floors of the batch
+    are zero, then random, then the maximum weight.  A coset whose least weight is at most its floor
+    may get any weight from its least weight to its floor.  Any other coset gets its least weight,
+    or one more than the maximum weight if that is smaller.
     """
     order = rng.permutation(len(syndromes))
     packed_syndromes = split_syndromes_into_words(

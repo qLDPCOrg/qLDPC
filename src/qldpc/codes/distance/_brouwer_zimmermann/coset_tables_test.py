@@ -33,7 +33,7 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
         return find_stopping_step(*args)
 
     monkeypatch.setattr(certificates_module, "find_stopping_step", record)
-    # Take the plain-Python ``get_stopping_step``, since only it calls the recording function; a
+    # Take the plain-Python ``get_stopping_step``, since only its plans reach the test's recorder; a
     # reuse then shows as a skipped plan.
     function = coset_tables.get_stopping_step
     get_stopping_step = getattr(function, "py_func", function)
@@ -52,8 +52,8 @@ def test_cached_stopping_steps_are_reused_exactly_while_they_stay_first(
             stopping_step = next(step for step in steps if bounds[step] > max_weight)
             expected = (*stopping_step, int(bounds[stopping_step]))
             # Plant each step as the cached one, including stale steps, and pairs that mix the layer
-            # of one step and the count of another, as interleaved queries can leave (Section 4.1 of
-            # ``brouwer_zimmermann.md``).
+            # of one step and the number of completed sets of another, as interleaved queries can
+            # leave (Section 4.1 of ``brouwer_zimmermann.md``).
             table[-1, :2] = planted
             plans.clear()
             assert get_stopping_step(table, max_weight) == expected
@@ -105,7 +105,7 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
 
 
 def test_records_of_tails_build_the_tables_that_they_add_in_place() -> None:
-    """While it builds the tables that a record gains, ``get_coset_tails`` holds them once."""
+    """``get_coset_tails`` holds one copy of the tables that a record gains while it builds them."""
     code = np.random.default_rng(0).integers(0, 2, (24, 96), dtype=np.uint8)
     instance = affine_instance.get_coset_instance(code, random_column_orders=0, weight_factor=1)
     inverse = _cosets.get_unit_syndrome_words(get_kernel(code))

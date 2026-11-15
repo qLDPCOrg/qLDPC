@@ -425,7 +425,7 @@ A coset query of maximum weight `ω` skips with the limit `h(ω)` of "Coset sear
 
 The costly queries of a coset search by Hamming weight ([Section 4.4](#44-heuristics-and-cost-models)) skip completions by tables in layers of two or more rows.
 The scan seeds every prefix with the tail `o` of the offset ([Section 3.1](#31-overlapping-search-bases)), so the tables bound `wt(o + p + P_i + P_j)`; they cover the tail columns up to the last on which a row has a one, and ones of `o` beyond it only weaken the bound.
-The search basis need not be an information set, and its pivot rows come first, so a completion's pivot ones are those of its prefix's rows below the rank of the basis, plus at least `max(0, 2 - d)` from its last two rows, where `d` is its rank deficiency.
+The search basis need not be an information set, and its pivot rows come first, so a completion's pivot ones are those of its prefix's rows below the rank of the basis, plus at least `max(0, 2 - d)` from its last two rows, where `d` is the basis's rank deficiency.
 The bound adds this count to `B` in place of `w`, which it equals for an information set.
 
 A query of maximum weight `ω` skips the completions whose bound reaches `h(ω)`, the least bound that proves a word of the coset heavier than `ω`.
@@ -520,9 +520,10 @@ A query starts from the **word of its syndrome**, the sum of the words with unit
 It stops at its **stopping step**, the first step whose bound exceeds the maximum weight, unless it finds a light enough word sooner.
 Each family of a coset search keeps the bounds of its steps in a **planning buffer**: one table for each parity of the cosets if the search rounds to parity, and one otherwise, and a query takes the table of its coset's parity.
 Each table has an extra row that caches a stopping step; `get_stopping_step` reuses it for a nonnegative maximum weight exactly when it is that weight's stopping step.
-`get_pauli_search` and `get_css_searches` cache their searches, so callers can share a search and the planning buffers of its families.
-Compiled calls hold the global interpreter lock, so threads interleave calls of `get_stopping_step` only when it runs as plain Python or in free-threaded Python.
-A cached step is written as two entries, so a read can pair the layer of one step with the number of completed sets of another; any such pair is a valid entry of the bounds, which never change, and `get_stopping_step` reuses it only if those bounds show that it is the stopping step.
+Callers share the searches that `get_pauli_search` and `get_css_searches` cache, with the planning buffers of their families.
+Numba compiles `get_stopping_step` without `nogil`, so its compiled calls hold the global interpreter lock, and threads interleave its calls only when it runs as plain Python or in free-threaded Python.
+A cached step is written as two entries, so a read can pair the layer of one step with the number of completed sets of another.
+Any such pair is a valid entry of the bounds, which never change, and `get_stopping_step` reuses it only if those bounds show that it is the stopping step.
 
 `find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds stopping steps by a binary search of the steps, whose bounds never decrease, and `plan_steps` also adds up their work ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
 The distance search plans each layer with `Certificate.get_num_sets_to_certify`, which calls `Certificate.plan`; `plan` uses `find_stopping_step` when the certificate solves no linear programs, and otherwise checks every step of the layer but the last in order with `certifies`.

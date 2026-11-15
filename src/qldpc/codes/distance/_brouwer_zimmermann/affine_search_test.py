@@ -23,8 +23,8 @@ def test_scans_of_sets_of_any_rank() -> None:
     rng = np.random.default_rng(120)
     no_tables = completion_bounds.NO_TABLES
 
-    # The sets have full rank, partial rank, and rank zero.  The last two scan fewer packed words of
-    # their rows than they store, and have labels only in their second packed word.
+    # The sets have full rank, partial rank, and rank zero.  Scans of the last two read fewer packed
+    # words of the rows than the sets store, and these sets have labels only in their second word.
     for dimension in range(1, 7):
         generators = rng.integers(0, 2**64, (3, dimension, 5), dtype=np.uint64)
         labels = np.zeros((3, dimension, 2), dtype=np.uint64)
@@ -163,7 +163,7 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
 def test_coset_layer_scans_keep_the_first_lightest_word(
     css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """A scan of a layer of a coset keeps the first lightest word, and stops at the cutoff."""
+    """A coset layer scan keeps each word lighter than all before it, and stops at the cutoff."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_bits = 6, 100
     row_bits = (rng.random((num_rows, num_bits)) < 0.3).astype(np.uint8)
@@ -272,7 +272,8 @@ def _get_tail_weights(
 ) -> list[tuple[tuple[int, ...], int]]:
     """Each support of a layer of a coset basis by tails, in order, with the weight of its word.
 
-    The word of a support has a one on the pivot of each of its rows below ``rank``.
+    The word of a support has a one on the pivot of each of its rows below ``rank``, and its tail on
+    the other columns.
     """
     return [
         (
@@ -450,10 +451,10 @@ def _get_completion_bound(
     block_bits: int,
     offset: npt.NDArray[np.uint8] | None = None,
 ) -> int:
-    """The block bound on completing the prefix of a support by pairs from its next-to-last row on.
+    """The block bound on the completions of a support by pairs from its next-to-last row on.
 
     It sums, over blocks of columns, the least weight on the block of the offset, if any, plus the
-    prefix plus such a pair.
+    rows before that row plus such a pair.
     """
     prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
     if offset is not None:

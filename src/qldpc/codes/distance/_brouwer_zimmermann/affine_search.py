@@ -49,10 +49,10 @@ def scan_set(
 
     The rows have the pivot columns of the set deleted, so a word weighs the number of its rows
     below ``rank`` plus the weight of its packed tail (Section 3.5).  With tables, in a layer of two
-    or more rows, the scan skips every completion of the prefix of a support, its first
-    ``len(support) - 2`` rows, by two more rows when the bound of the tables on them reaches the
-    best weight (Section 3.9).  A chunk ends when the layer is complete, at the cutoff, or at the
-    end of the batch.
+    or more rows, before the scan tries each row ``s`` as the first of the last two rows of a
+    support, it skips every completion of the prefix, the first ``len(support) - 2`` rows, by two
+    rows from ``s`` on when their bound reaches the best weight (Section 3.9).  A chunk ends when
+    the layer is complete, at the cutoff, or at the end of the batch.
 
     Args:
         generators: Packed rows of the set, with shape ``(num_rows, num_words)``.
@@ -158,10 +158,10 @@ def scan_coset_layer(
     """Weigh the offset plus each sum of ``len(support)`` rows of one search basis of a coset.
 
     The words are packed with every column, and weigh their Hamming weight.  ``rows`` has shape
-    ``(num_rows, width)``, and ``1 <= len(support) <= num_rows``.  ``support`` and ``prefixes``, of
-    at least ``len(support)`` rows, are work space.  The scan copies each word lighter than the best
-    weight so far, which starts at ``best``, into ``representative``, and returns once that weight
-    is at most ``cutoff`` or the layer is complete.
+    ``(num_rows, width)``, and ``1 <= len(support) <= num_rows``.  ``prefixes``, of at least
+    ``len(support)`` rows, and ``support`` are work space.  The scan copies each word lighter than
+    the best weight so far, which starts at ``best``, into ``representative``, and returns once that
+    weight is at most ``cutoff`` or the layer is complete.
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the number of
@@ -331,16 +331,17 @@ def scan_coset_layer_by_tails_with_tables(
 ) -> tuple[int, int, int]:
     """Scan a layer of one search basis of a coset by tails, skipping completions by tables.
 
-    The scan weighs words as ``scan_coset_layer_by_tails`` does, which describes the shared
-    arguments, in a layer of ``2 <= len(support) <= num_rows`` rows.  ``tables``, ``offsets``, and
-    ``block_bits`` are the fields of a ``completion_bounds.CompletionTables`` of the tails of the
-    rows, or of ``completion_bounds.NO_TABLES``, which skip nothing.  Before the scan tries row
-    ``s`` as the first of the last two rows of a support, it skips every completion of the prefix
-    of the support, its first ``len(support) - 2`` rows, by two rows from ``s`` on if their bound
-    reaches the lesser of ``skip_bound`` and the best weight so far (Section 3.9, "Coset
-    searches").  A coset query passes as ``skip_bound`` the least bound that proves a word of its
-    coset heavier than its maximum weight; this bound is at most ``cutoff + 1``.  A search for a
-    minimum weight passes at least ``best`` as ``skip_bound`` (Section 3.10).
+    The scan weighs words as ``scan_coset_layer_by_tails`` does, in a layer of
+    ``2 <= len(support) <= num_rows`` rows, and ``scan_coset_layer_by_tails`` describes the shared
+    arguments.  ``tables``, ``offsets``, and ``block_bits`` are the fields of a
+    ``completion_bounds.CompletionTables`` of the tails of the rows, or of
+    ``completion_bounds.NO_TABLES``, which skip nothing.  Before the scan tries row ``s`` as the
+    first of the last two rows of a support, it skips every completion of the prefix of the support,
+    its first ``len(support) - 2`` rows, by two rows from ``s`` on if their bound reaches the lesser
+    of ``skip_bound`` and the best weight so far (Section 3.9, "Coset searches").  A coset query
+    passes as ``skip_bound`` the least bound that proves a word of its coset heavier than its
+    maximum weight; this bound is at most ``cutoff + 1``.  A search for a minimum weight passes at
+    least ``best`` as ``skip_bound`` (Section 3.10).
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of

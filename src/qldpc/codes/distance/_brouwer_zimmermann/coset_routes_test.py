@@ -142,6 +142,7 @@ def test_routes_take_the_family_of_least_work(code: npt.NDArray[np.uint8]) -> No
     assert coverages == sorted(coverages)
     taken = set()
     for max_weight in range(-1, code.shape[1] + 2):
+        # On ties, the route is the first of the disjoint, maximum disjoint, and overlapping ones.
         works = [sum(_get_works(tables, max_weight)) for _, tables in families]
         index = works.index(min(works))
         tables, _ = routes.get_route(max_weight)
