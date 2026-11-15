@@ -3,11 +3,8 @@ Exact-search performance and tuning
 
 .. currentmodule:: qldpc.codes.distance._tuning
 
-This page leads from the symptoms of slow or memory-hungry exact distance searches and logical-operator counts, and from the routes that they choose, to the values that control them.
-It renders the documentation of each value from the private module ``qldpc.codes.distance._tuning``.
-
-Before you change a value, read :ref:`the documentation of that module <tuning-module>` below.
-It says what the module's privacy means for code that uses it, what tuning can and cannot change, how to change the tuning, which values are fields of :class:`SearchTuning` and which are constants, and how the defaults are chosen.
+This page leads from the symptoms of slow or memory-hungry exact distance searches and logical-operator counts, and from their routes, to the values of the private module ``qldpc.codes.distance._tuning`` that control them.
+Before you change a value, read :ref:`the documentation of that module <tuning-module>` below: what its privacy means, what tuning can and cannot change, how to change the tuning, and how the defaults are chosen.
 The `Brouwer-Zimmermann guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ and the `connected-cluster guide <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_ explain the methods.
 
 Start from a symptom
@@ -30,13 +27,10 @@ Start from a symptom
    * - A cheap search spends its time building families of information sets
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
    * - Queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method at moderate maximum weights, or its searches for minimum weights up to them in residual-weight estimates, are slow
-     - Lower :attr:`~SearchTuning.coset_route_minimum_work`, so that cheaper queries try a family of overlapping information sets, or a disjoint family with more information sets or a larger partial set.
-       The field also sets the weight at which the overlapping family is aimed, so raising it can also speed up queries.
-       In the searches by physical weight, and in the searches of the X and Z parts of errors for the CSS weight on CSS states, a query also weighs words without the pivot columns of each set, and skips completions by tables on blocks of :attr:`~SearchTuning.coset_completion_block_bits` columns, if its predicted examinations with the family that it takes also reach :attr:`~SearchTuning.coset_route_minimum_work`.
-       A search for minimum weights up to a maximum weight takes the family of a query at that weight, or at the number of qubits if that is smaller.
-       :class:`~qldpc.codes.distance.CosetLeaderSearch` builds the other families once for each cached coset search, and the tails and tables of a family once for that family (see :data:`CSS_SEARCH_CACHE_SIZE` and :data:`PAULI_SEARCH_CACHE_SIZE`).
+     - Lower :attr:`~SearchTuning.coset_route_minimum_work`, so that cheaper queries take other families of information sets and, in searches by Hamming weight, skip completions by tables on blocks of :attr:`~SearchTuning.coset_completion_block_bits` columns.
+       Raising it can also speed up queries, since it sets the weight at which the overlapping family is aimed.
        For larger overlapping families, raise :attr:`~SearchTuning.max_information_sets` or :attr:`~SearchTuning.overlapping_attempts_per_set`.
-   * - The costliest queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method, which weigh words without pivot columns (see the row above), spend their time building completion tables
+   * - The costliest queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method spend their time building completion tables
      - Lower :attr:`~SearchTuning.coset_completion_block_bits`, or set :attr:`~SearchTuning.completion_bound_max_table_bytes` to zero to build none.
    * - A search or count uses too much memory
      - For distance searches and counts, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each problem of a joint search, such as each sector of a CSS code, and to the scan of each sector of a count.
@@ -54,10 +48,10 @@ Start from a symptom
    * - A :class:`~qldpc.codes.distance.CosetLeaderSearch` with the connected-cluster method takes long to build, or its queries are slow
      - Lower :attr:`~SearchTuning.max_sparsifying_rounds` or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` to build it sooner, or raise them for sparser checks and faster queries.
    * - A connected-cluster distance search of a subsystem code is slow to start, or slow to search
-     - Lower :attr:`~SearchTuning.max_distance_sparsifying_rounds`, or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` below it, to start sooner, or raise :attr:`~SearchTuning.max_distance_sparsifying_rounds` for sparser checks and a faster search.
-   * - A distance search or count uses completion tables in layers where they cost more than they save, or declines them where they would save
-     - Lower :attr:`~SearchTuning.completion_bound_max_cost_percent` to use tables in fewer layers, or raise it to use them in more.
-       The cost model of completion tables decides at break-even with rough estimates, so its marginal decisions can go either way, and the defaults of its coefficients change only as :ref:`Retuning <tuning-retuning>` says.
+     - Lower :attr:`~SearchTuning.max_distance_sparsifying_rounds` or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` to start sooner, or raise them for sparser checks and a faster search.
+   * - Completion tables are used where they cost more than they save, or declined where they would save
+     - Lower :attr:`~SearchTuning.completion_bound_max_cost_percent` to use them in fewer layers, or raise it to use them in more.
+       Their cost model decides at break-even with rough estimates (see :ref:`Retuning <tuning-retuning>`).
 
 Routes and the names that control them
 --------------------------------------
