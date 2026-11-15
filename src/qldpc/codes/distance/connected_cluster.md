@@ -30,9 +30,12 @@ It is organized as follows:
 
 The search enumerates supports, the sets of variables on which a word is nonzero.
 It grows each support only through the checks that the support leaves unsatisfied ([Section 3.1](#31-the-problem) defines these terms).
-So its cost depends on the sparsity of the checks, on the weight limit, and on the number of variables from which it starts, which symmetries reduce ([Section 3.5](#35-symmetries)).
-For a given code, its cost grows by a roughly constant factor with each step of the weight limit.
+An unsatisfied check holds an odd number of the variables of the support, so it offers at most `w - 1` further variables, where `w` is the largest number of variables of a check.
+So the search that starts from one variable, through a weight limit `W`, visits at most of the order of `(w - 1)^(W - 1)` states, and fewer once pruning ([Section 3.4](#34-pruning)) cuts subtrees.
+Its cost depends on the sparsity of the checks, on the weight limit, and on the number of variables from which it starts, which symmetries reduce ([Section 3.5](#35-symmetries)).
+For a given code, its cost grows by a roughly constant factor with each step of the weight limit, so the last limits cost the most.
 That factor is large if the checks are dense, because every unsatisfied check offers many variables to branch on.
+So dense checks make the search slow unless the distance is small.
 The search of a subsystem code uses the Tanner graph of its stabilizers, which can be dense even if its gauge generators are sparse.
 `get_distance_css` and `get_distance_pauli` derive these stabilizers as a row-reduced basis, which can be dense even if the stabilizer group has sparse generators.
 So they search sparser generators instead ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
@@ -46,17 +49,15 @@ And each qubit of a check offers two symbols that flip it, the two Paulis that a
 So `get_distance_pauli` searches Pauli checks as a CSS code if X-type and Z-type operators generate their group, even if the checks mix X and Z.
 A code that is CSS only up to local Cliffords, such as those Hadamards, is still searched as a code that is not CSS.
 
-Dense checks make the search slow unless the distance is small.
-Sparse checks do not ensure that it is fast, and no exact method of qLDPC is faster than the others on every code with sparse checks.
-Timings of the distance of one sector, on one machine, with a limit of 60 s, compared the connected-cluster and Brouwer-Zimmermann searches on surface, toric, bivariate bicycle, lifted-product, quantum Tanner, and pair-partition codes.
-The connected-cluster search was faster than the Brouwer-Zimmermann search on most of these codes, by up to several hundred times (lower bounds, where the Brouwer-Zimmermann search reached the limit).
-In longer runs, it was more than a thousand times faster on the [[288, 12, 18]] bivariate bicycle code, whose Brouwer-Zimmermann search took several minutes.
-But it took several times as long on the [[170, 8, 20]] pair-partition code, where both searches took minutes.
-On random regular classical LDPC codes of 48 to 240 bits, it was faster when each check had 6 or 8 bits, slightly slower with 10 or 12, and much slower with 14 or more, usually by hundreds of times or more (lower bounds, where it reached the limit).
-The weight of the checks does not order codes of different families either: the connected-cluster search was faster on quantum Tanner codes whose checks have 16 bits, and on the [[276, 98, 14]] pair-partition code, whose checks have 12, but slower on the [[170, 8, 20]] pair-partition code, whose checks have 10.
+Sparse checks do not ensure that the search is fast, and no exact method of qLDPC is faster than the others on every code with sparse checks.
+A Brouwer-Zimmermann search examines combinations of rows of its search bases ([Section 3.6 of brouwer_zimmermann.md](brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration)).
+So its work depends on the dimension of the space of words that it searches, and on the distance, but not on the sparsity of the checks.
+For a quantum code, that space holds stabilizers as well as logical operators, so its dimension is large even if the code encodes few qubits.
+On quantum LDPC codes, the connected-cluster search is often much faster than the Brouwer-Zimmermann search.
+But it can be much slower on some of them, and on classical LDPC codes whose checks are only moderately sparse.
 So the sparsity of the checks alone does not say which method is faster.
 
-The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
+The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) compares the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
 
 ## 3. The algorithm
 
@@ -120,7 +121,10 @@ It reports `S` if it is a witness, and otherwise leaves the state.
 At any other state, it chooses an unsatisfied check `c` with the fewest **available** variables, those of `c` that are neither in `S` nor in `F`.
 It visits the states `S ∪ {v}` for each available variable `v` of `c`, and adds `v` to `F` for its later siblings once its state is done.
 Its children come in the order of their repairs ([Section 3.4](#34-pruning)), most repairing first.
-On the [[276, 98, 14]] pair-partition code of Okada and Kasai, this order visits a quarter as many states as the order of the variables, up to the weight limit at which the search finds a witness.
+The order does not change whether the search finds a witness within the limit.
+It changes how soon the search finds one, which ends the search, and which variables are forbidden in the subtree of each child.
+Taking the most repairing child first is a heuristic.
+That child satisfies the most weight of unsatisfied checks, and its variable is then forbidden in the subtrees of all its later siblings, which can raise the weights of their states ([Section 3.4](#34-pruning)).
 Every state grows only through unsatisfied checks, so every support that it visits is connected.
 
 **Completeness.**
@@ -150,7 +154,8 @@ That solution gives each unsatisfied check `c` a weight `y_c ≥ 0`, so that the
   It sets `y_c` to the inverse of the largest overlap `m_c` of the available variables of `c`.
   An available variable with overlap `k` is available to each of its `k` unsatisfied checks, whose `m_c` are at least `k`, so their weights total at most one.
   Since `m_c ≤ Δ`, these weights are at least those of `b1`.
-  Adding `b2` changed the number of states by at most 7% in tests on the [[276, 98, 14]] code, so qLDPC does not use it.
+  If the available sets of the unsatisfied checks are pairwise disjoint, every overlap is one, and these weights equal those of `b2`.
+  Where the sets overlap, `b2` can be larger, but it needs a packing of checks with disjoint available sets at each state, and qLDPC does not use it.
 
 The weights are integers in units of `1 / lcm(1, ..., Δ)`, so that every comparison is exact.
 If that scale exceeds `2**40`, the scale is `2**40`, and the weights are rounded down, which keeps them feasible.
@@ -165,14 +170,14 @@ A variable that is not viable is forbidden in the whole subtree of the state, no
 A variable outside the unsatisfied checks has a repair of zero, so it is not viable as soon as `1 + Y > W - s`.
 So a state with `1 + Y > W - s` restricts its subtree to the viable variables of its unsatisfied checks.
 A state is pruned if an unsatisfied check has no viable variable, and otherwise it branches on the check with the fewest.
-Forbidding variables for a subtree can raise the weights of its states, since their checks have fewer variables, and on the [[276, 98, 14]] code it removes more than half of the states.
+Forbidding variables for a subtree can raise the weights of its states, since their checks have fewer available variables, and so lets the bounds prune more of the subtree.
 
 A cheaper test runs first: a child is not visited if its unsatisfied checks outnumber `Δ` times its remaining weight limit, which is `b1`.
 
-Other bounds that hold, and that qLDPC tested and does not use, added little on the pair-partition codes:
+Other bounds hold, and qLDPC does not use them:
 
-- Raising each weight `y_c` to the room that its available variables leave (dual ascent) removed 8% to 14% of the states, which did not pay for its cost.
-- A girth bound, that a variable with `k` unsatisfied checks of its `Δ` needs `⌈(Δ - k)/λ⌉` further variables, where `λ` is the largest number of checks that two variables share, removed under 1%.
+- Raising each weight `y_c` to the room that its available variables leave (dual ascent) strengthens the bound, at the cost of further passes over the unsatisfied checks of every state.
+- A girth bound says that a variable with `k` unsatisfied checks of its `Δ` needs `⌈(Δ - k)/λ⌉` further variables, where `λ` is the largest number of checks that two variables share.
 - Rounding the bound up to the weight divisor prunes nothing, since every weight limit `W` is a multiple of the divisor.
 
 ### 3.5 Symmetries
@@ -190,22 +195,21 @@ qLDPC verifies this with `verify_automorphisms` of `_information_sets/automorphi
 The search from a root forbids the variables of lower rank, so the ranks decide how much each search is cut.
 qLDPC ranks the variables orbit by orbit, in the order of their least variables, so that the search from each root forbids every earlier orbit.
 A root forbids only variables of orbits whose roots rank lower, so for a given order of the orbits no ranking forbids more.
-On the pair-partition codes, this removes a quarter of the states of the natural order of the variables.
 Without symmetries, every variable is a root, and the ranks are the variables themselves.
 Okada and Kasai instead take the roots `(ℓ, 0)` of the cyclic translations of a pair-partition code, with variables `(ℓ, a)` ranked by `ℓP + a`, and their implementation does so only if `P` is prime and `W < P`.
 qLDPC takes the orbits of any group of automorphisms that it verifies.
 
 Generators of `Γ` are the automorphisms that the caller of a distance function passes, such as the `_found_qudit_automorphisms` that the `get_distance_exact` methods of quantum codes pass.
 Without automorphisms, as for the classical codes of `get_distance_exact`, a search starts from every variable.
-Finding the automorphisms of a large code can take as long as a search of many states.
-So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to reach `automorphism_minimum_states` states, a field of the tuning of `_tuning.py`.
+Finding the automorphisms of a large code, verifying them, and ordering their orbits can cost as much as a search of many states.
+So the search of each problem, such as a sector of a CSS code, asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all of its limits, a field of `SearchTuning` in `_tuning.py`.
+The default of that field is about the number of states that cost as much to visit as asking does, so that a search asks only once its own work outweighs the cost of asking.
 It expects the number of states of each weight limit to grow by the ratio between those of the last two.
 A first limit above the divisor, which `cutoff` can set, has no such estimate, so the search asks for them before it, unless `automorphism_minimum_states` is `MAX_VALUE`.
 Waiting until it has visited that many states instead would let a search that prunes well run a whole weight limit without them, which can be a large part of the search.
 
 With symmetries, the search from the first root does most of the work, since every witness that meets the first orbit is found through it.
 A witness that meets the first orbit several times can have several images that contain the first root, as many as its variables in that orbit if the group acts regularly on the orbit, and the search can visit images of a state more than once.
-In the [[276, 98, 14]] code, two thirds of the states of that search hold two or more variables of the first orbit.
 Rejecting such duplicates soundly for general groups is left open.
 
 ### 3.6 From a search to the distance
@@ -320,34 +324,30 @@ So a search first replaces its checks with sparser ones that span the same space
 The sparsest such checks are a lightest basis of the span.
 The greedy algorithm for matroids finds one by taking, again and again, the lightest word of the span outside the span of the words taken so far.
 But each of its steps would be an exact search for a light word of the span, whose cost grows quickly with the weight of that word.
-So a search takes its candidates from row reductions instead.
-It adds its checks to each other while that makes them lighter.
-Then, in rounds, it row-reduces the given checks with pivots in random orders of the columns, and keeps, by the greedy algorithm for matroids, the lightest independent rows among its current checks and the rows of the reduction.
-So the total weight of the checks never rises.
-`get_sparser_rows` in `_connected_cluster/sparse_checks.py` gives the steps, and the fields `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` limit the rounds.
+So a search takes its candidates from row reductions of its checks in random orders of the columns instead, and keeps the lightest independent ones, so that the total weight of its checks never rises.
+`get_sparser_rows` in `_connected_cluster/sparse_checks.py` gives the procedure, and the fields `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` limit its rounds.
 Checks with the same span give the same answers and bounds, so the random orders change only the speed of the queries and which errors they return.
 A fixed seed makes the checks reproducible.
 
-For the physical weight on the state `|0⟩` of the [[144, 12, 12]] bivariate bicycle code, this lowers the mean weight of the 144 generators of the stabilizer group of the state from 26 to 6.5, the least possible.
-No stabilizer of the code weighs less than 6, the weight of its checks, and only 132 of the generators can lie in the stabilizer group of the code.
-The other 12 are logical operators, so they weigh at least the distance, 12.
-On the state `|0⟩` of the [[232, 62, 12]] pair-partition code, this lowers the mean weight from 54 to 9.5, while the checks of the code weigh 8.
-On longer codes of higher rate, a round rarely makes a light word one of its rows, and the checks stay much heavier than those of the code.
-On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 63.
+The checks that the rounds find need not be a lightest basis of the span.
+A word of the span is a row of a reduction if and only if its support holds just one pivot of the reduction, since every row is zero on the pivots of the other rows.
+The heavier a word, the less likely a random order of the columns gives it just one pivot.
+So on codes with heavy checks, the rounds can leave the checks of the queries much heavier than those of the code.
+Even a lightest basis can be heavier than the checks of the code.
+For the physical weight on the state `|0⟩` of an `[[n, k, d]]` code, the span is the stabilizer group of the state, which holds the stabilizers of the code and its logical Z operators.
+At most `n - k` independent words of that group are stabilizers of the code, so every basis of it holds at least `k` logical operators, which weigh at least `d`.
 
-An exact second stage, which qLDPC does not implement, could lower it further by the greedy algorithm for matroids.
+An exact second stage, which qLDPC does not implement, could make the checks lighter still by the greedy algorithm for matroids.
 Each of its steps would be a connected-cluster search for a lightest word of the span outside the span of the words taken so far.
 That search would be a witness search ([Section 3.1](#31-the-problem)) whose excluded rows are those words, and whose checks are the sparse checks from the rounds, whose kernel is the span.
 For Pauli errors, the span is the set of the Paulis that commute with every sparse check, since the state is pure.
 For X or Z parts, it is the set of the vectors that satisfy the sparse checks of the other part.
-But the words outside the stabilizer group of the code, such as the logical operators among the generators of `|0⟩`, weigh at least its distance, and so are costly to find.
+But the words outside the stabilizer group of the code, such as the logical operators that every basis of the stabilizer group of `|0⟩` holds, weigh at least its distance, and so are costly to find.
 So such a stage would pay only where the queries far outnumber its searches.
 
 A search first looks up the syndrome in a table of the syndromes of the vectors of weight at most 1, and searches only syndromes that the table lacks, which have no vector of weight below 2.
 A search at a limit `W` is complete, so if it finds no vector, every vector with the syndrome weighs more than `W`.
-So a syndrome in the table gets the weight of its vector as the lower bound, and any other syndrome gets the larger of 2 and one more than the highest limit at which a search found no vector.
-The class docstring of `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py` states these bounds for each kind of query.
-They are often weaker than those of BZ.
+These two facts give the lower bounds of the answers, which the class docstring of `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py` states for each kind of query.
 A search with limit `W` can wander through many heavy supports before it reaches a much lighter vector.
 So for the batches of certification, where most syndromes have a vector within `W`, a search tries the limits 2, 3, …, `W` in turn, and stops at the first limit within which it finds a vector.
 That vector is a lightest one, and its weight is the lower bound.
@@ -359,15 +359,15 @@ Without reuse, a state computes the overlap and the repair ([Section 3.4](#34-pr
 The checks of a syndrome query can stay dense even after the sparsifying rounds above.
 Then a symbol can flip many unsatisfied checks.
 So a syndrome query computes the overlap and the repair of each symbol at most once per state, and reuses them.
-A distance search, whose checks are usually sparse, computes them again each time, since keeping them would cost more than it saves.
+A distance search, whose checks are usually sparse, computes them again each time, since a symbol then flips few unsatisfied checks, and the bookkeeping of reuse would cost more than it saves.
 
 ### 3.9 Sparser stabilizers of subsystem codes
 
 The search of a subsystem code needs checks whose row space is its stabilizer group `S` ([Section 3.1](#31-the-problem)).
-`get_distance_css` and `get_distance_pauli` derive `S` from the gauge generators as a row-reduced basis, which can be several times heavier than sparse generators of `S`.
+`get_distance_css` and `get_distance_pauli` derive `S` from the gauge generators as a row-reduced basis, which can be much heavier than sparse generators of `S`.
 For example, take the toric code on 256 qubits, and make one of its logical qubits a gauge qubit.
-Its stabilizers are generated by the plaquettes of the toric code, which weigh 4, but the derived basis has a mean weight of 15 and rows of weight up to 46.
-A search of the derived basis takes more than three minutes, and a search of the plaquettes about a second.
+Its stabilizers are generated by the plaquettes of the toric code, which weigh 4, but the derived basis has a mean weight of about 15 and rows of weight up to 46.
+A search of the derived basis can then branch on many more variables at each state than a search of the plaquettes ([Section 2](#2-what-the-cost-of-the-search-depends-on)).
 So with `method="connected_cluster"`, the search of a subsystem code gets two sets of checks:
 
 - The gauge generators that commute with every gauge generator are stabilizers.
@@ -380,12 +380,11 @@ The second set spans `S`, and the first lies in `S`, so together they span `S`.
 The kernel of the checks is that of the derived basis, so the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
 A coset search maps the syndrome of each query to its sparser checks, but a distance search needs only their span.
 Redundant checks can strengthen the search, since each unsatisfied check can prune a state or offer fewer branches.
-On the [[288, 12, 18]] bivariate bicycle code with 6 of its logical qubits made gauge qubits, the gauge generators that are stabilizers roughly halve the number of states that the search visits.
 A `CosetLeaderSearch` makes its checks sparser once for many queries, but a distance search uses its checks for one search, so it takes fewer rounds.
 
 Sparsity is not the only property of the checks that matters.
 The derived basis of a Bacon-Shor code is already as sparse as possible: each of its stabilizers acts on two parallel lines of the lattice, one of which is the last line.
-Another basis of the same weight, whose stabilizers act on neighboring lines, makes the search of the 9×9 Bacon-Shor code visit more than 100 times as many states.
+Another basis of the same weight, whose stabilizers act on neighboring lines, makes the search visit far more states.
 So the rounds change a row only when they find a strictly lighter one, which leaves the derived basis of a Bacon-Shor code as it is.
 
 ## 4. Guide to the source code
