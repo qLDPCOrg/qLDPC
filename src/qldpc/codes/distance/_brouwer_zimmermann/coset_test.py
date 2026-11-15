@@ -216,13 +216,13 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     of the search (see ``coset_routes``).  The most sets of the overlapping family and the column
     orders that it tries for each set reach ``basis_families.get_overlapping_family``, and the width
     of the blocks of completion tables and their limit of bytes reach
-    ``completion_bounds.build_tables_within``, which the test wraps to record them.  They are those
-    of the tuning in force when the oracle was built, not when it answers.
+    ``completion_bounds.get_table_bytes_within``, which the test wraps to record them.  They are
+    those of the tuning in force when the oracle was built, not when it answers.
     """
     calls: list[tuple[int, int]] = []
     table_calls: set[tuple[int, int]] = set()
     get_overlapping_family = basis_families.get_overlapping_family
-    build_tables_within = completion_bounds.build_tables_within
+    get_table_bytes_within = completion_bounds.get_table_bytes_within
     signature = inspect.signature(get_overlapping_family)
 
     def record(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
@@ -230,14 +230,12 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
         calls.append((policy.max_sets, policy.attempts_per_set))
         return get_overlapping_family(*args, **kwargs)
 
-    def record_tables(
-        rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int
-    ) -> completion_bounds.CompletionTables | None:
+    def record_tables(rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int) -> int:
         table_calls.add((block_bits, max_bytes))
-        return build_tables_within(rows, block_bits, max_bytes)
+        return get_table_bytes_within(rows, block_bits, max_bytes)
 
     monkeypatch.setattr(basis_families, "get_overlapping_family", record)
-    monkeypatch.setattr(completion_bounds, "build_tables_within", record_tables)
+    monkeypatch.setattr(completion_bounds, "get_table_bytes_within", record_tables)
     coset._get_pauli_search.cache_clear()
     with use_tuning(
         coset_route_minimum_work=0,

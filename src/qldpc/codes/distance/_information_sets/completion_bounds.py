@@ -32,7 +32,7 @@ way.  The estimate only guides these choices: a search skips completions only wh
 proves that they cannot lower ``U``.
 ``considers_tables`` states which layers a tuning considers for tables at all.  Coset searches build
 the tables of the bases of their costliest queries without sampling, if they fit within a limit (see
-``_brouwer_zimmermann/coset_routes.py``, and ``build_tables_within``).
+``_brouwer_zimmermann/coset_routes.py``, and ``get_table_bytes_within``).
 """
 
 from __future__ import annotations
@@ -72,15 +72,23 @@ class CompletionTables:
     block_bits: int
 
     @staticmethod
-    def build(rows: npt.NDArray[np.uint64], block_bits: int) -> CompletionTables:
+    def build(
+        rows: npt.NDArray[np.uint64], block_bits: int, out: npt.NDArray[np.uint8] | None = None
+    ) -> CompletionTables:
         """Build the tables of the packed tails of a basis, on blocks of columns.
 
         A block must lie within one packed word of 64 bits, and its table has ``2**block_bits``
         entries for each row, so ``block_bits`` divides 64 and is at most 16, as a tuning ensures.
+        If ``out`` is given, the tables fill it in place, so that a caller can build the tables of
+        several bases in one array.  It must have the size of the tables (see
+        ``get_table_bytes_within``).
         """
         assert block_bits <= 16 and 64 % block_bits == 0
         offsets = _get_block_offsets(_get_num_tail_bits(rows), block_bits)
-        tables = np.empty(_get_table_bytes(len(rows), offsets), dtype=np.uint8)
+        num_bytes = _get_table_bytes(len(rows), offsets)
+        tables = np.empty(num_bytes, dtype=np.uint8) if out is None else out
+        # The compiled fill does not check bounds.
+        assert tables.shape == (num_bytes,)
         _fill_tables(rows, block_bits, offsets, tables)
         return CompletionTables(tables, offsets, block_bits)
 
@@ -89,18 +97,17 @@ class CompletionTables:
 NO_TABLES = CompletionTables(np.zeros(0, dtype=np.uint8), np.zeros(1, dtype=np.int64), 0)
 
 
-def build_tables_within(
-    rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int
-) -> CompletionTables | None:
-    """Build the tables of the packed tails of a basis on blocks of columns, if they fit.
+def get_table_bytes_within(rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int) -> int:
+    """The bytes of the tables of the packed tails of a basis on blocks of columns, if they fit.
 
     Returns:
-        The tables, or None if they would exceed ``max_bytes`` bytes, or be empty, as for tails
+        The bytes, or zero if the tables would exceed ``max_bytes`` bytes, or be empty, as for tails
         without ones or a basis of fewer than two rows, whose tables would skip nothing.
     """
-    if not _tables_fit(len(rows), _get_num_tail_bits(rows), block_bits, max_bytes):
-        return None
-    return CompletionTables.build(rows, block_bits)
+    num_bits = _get_num_tail_bits(rows)
+    if not _tables_fit(len(rows), num_bits, block_bits, max_bytes):
+        return 0
+    return _get_table_bytes(len(rows), _get_block_offsets(num_bits, block_bits))
 
 
 def select_completion_tables(

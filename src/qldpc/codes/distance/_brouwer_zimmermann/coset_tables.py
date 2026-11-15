@@ -151,8 +151,11 @@ def get_coset_tails(
     blocks of ``block_bits`` columns.  Given the ``record`` of the family, the function keeps its
     tails, tables, and blocks rather than build them again.  The record that it returns also has the
     completion tables of each set of ``sets``, unless they would exceed ``max_table_bytes`` bytes or
-    be empty (see ``completion_bounds.build_tables_within``).  It holds the tables of each set once,
-    and is ``record`` itself if it adds no tables.
+    be empty (see ``completion_bounds.get_table_bytes_within``).  That record holds the tables of
+    each set once, and is ``record`` itself if it adds no tables.  The function builds the new
+    tables in place in the array of that record, so that it never holds two copies of them; it
+    copies the earlier tables of ``record`` into that array, so that they are held twice until the
+    caller drops ``record``.
     """
     # Build the tails of the family once, with a layout of no tables.
     if record is None:
@@ -176,27 +179,34 @@ def get_coset_tails(
         layout = np.zeros((num_sets, max_blocks + 3), dtype=np.int64)
         record = CosetTails(tails, inverse_tails, np.zeros(0, np.uint8), layout, block_bits)
 
-    # Append the tables of each set that has none yet, if they fit, and lay them out.  The routes
-    # keep only the latest record of a family, so the earlier tables are held once.
-    layout = record.layout.copy()
-    added = []
-    start = len(record.completion_tables)
-    for set_index in sets:
-        if layout[set_index, 1]:
-            continue
-        tables = completion_bounds.build_tables_within(
+    # Size the tables of each set that has none yet, and keep those that fit.
+    sizes = {
+        set_index: completion_bounds.get_table_bytes_within(
             record.tails[set_index], record.block_bits, max_table_bytes
         )
-        if tables is not None:
-            num_blocks = len(tables.offsets) - 1
-            layout[set_index, : num_blocks + 3] = [start, num_blocks, *tables.offsets]
-            added.append(tables.tables)
-            start += len(tables.tables)
-    if not added:
+        for set_index in sets
+        if not record.layout[set_index, 1]
+    }
+    sizes = {set_index: size for set_index, size in sizes.items() if size}
+    if not sizes:
         return record
-    return record._replace(
-        completion_tables=np.concatenate([record.completion_tables, *added]), layout=layout
-    )
+
+    # Copy the earlier tables into one array with room for the new ones, build the new tables in
+    # place there, and lay them out.  So the build holds the new tables once.  The earlier tables
+    # are held twice until the routes replace the record of the family with this one, since they
+    # keep only the latest record.
+    start = len(record.completion_tables)
+    completion_tables = np.empty(start + sum(sizes.values()), dtype=np.uint8)
+    completion_tables[:start] = record.completion_tables
+    layout = record.layout.copy()
+    for set_index, size in sizes.items():
+        tables = completion_bounds.CompletionTables.build(
+            record.tails[set_index], record.block_bits, out=completion_tables[start : start + size]
+        )
+        num_blocks = len(tables.offsets) - 1
+        layout[set_index, : num_blocks + 3] = [start, num_blocks, *tables.offsets]
+        start += size
+    return record._replace(completion_tables=completion_tables, layout=layout)
 
 
 @always_compiled
