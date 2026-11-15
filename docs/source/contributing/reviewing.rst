@@ -57,7 +57,7 @@ The coordinator gives each reviewer:
     * an unhandled edge case that gives a wrong result or fails silently;
     * an interface or design problem;
     * claimed behavior that no test verifies;
-    * documentation that states something false;
+    * documentation that states something false, or that could mislead a reader about what the code does or guarantees;
     * documentation that leaves out a behavior or limitation without which a reader could get a wrong or materially misleading result without an error.
 
     Mark every other finding about the change minor.
@@ -86,6 +86,12 @@ A review covers each of these angles that the change can affect:
 * **Code standard:** the rest of the :doc:`code standard <standards/code>`, including public and private names, module layout, and import layers.
 * **Testing standard:** the :doc:`testing standard <standards/testing>`.
 * **Writing standard:** the :doc:`writing standard <standards/writing>`, applied to every changed comment, docstring, document, and notebook.
+* **Cold reading:** whether the changed comments, docstrings, documents, and notebook prose make sense to a reader who has not read the implementation.
+  For changed Python files, the coordinator gives the reviewer of this angle only their docstrings and comments, in order, with the names and signatures of the documented objects, and marks the changed ones.
+  For changed notebooks and documents, the coordinator gives their prose without code cells or code blocks.
+  The reviewer records this angle's findings before reading any code, including code quoted in its brief, and does not withdraw them after reading it.
+  The reviewer checks that each sentence reads clearly the first time, and checks definite references and pronouns against the writing standard.
+  A finding of this angle is significant only if the prose could mislead a reader about what the code does or guarantees.
 * **Deprecations:** the :doc:`deprecation standard <standards/deprecations>`, for a change to a public name, argument, mode, or default.
 
 An angle applies only to changes in its area, even when a request asks for all angles.
@@ -101,6 +107,7 @@ The coordinator may group angles under one reviewer within these limits:
 * Clarity, Simplicity, Code standard, Writing standard, and Deprecations may share a reviewer in any combination.
 * Correctness and Testing standard may share a reviewer only with each other.
 * Correctness has a reviewer of its own for a high-risk change.
+* Cold reading may share a reviewer only with Writing standard.
 
 Whenever a reviewer's share of the change is too large to read in full, regroup that reviewer's angles or split the share, such as with one Correctness reviewer for each subsystem.
 
@@ -129,6 +136,7 @@ The coordinator runs each round as follows:
    If the coordinator is not permitted to revise the change, as for another contributor's pull request, report every fix as a suggestion, and end the review after one round.
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
+   A fix that adds process or apparatus to guard against a problem that other process or apparatus caused or left open is a decision; see :ref:`the goal of the work <decisions-goal>`.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
    Present each decision to that person as :doc:`decisions and recommendations <decisions>` describes.
 4. Fix a minor pre-existing problem in the change, such as a misleading message, a missing check, or an untested edge case, if its fix is local, evidently correct, and needs no decision.
@@ -164,6 +172,7 @@ Quick review
 A quick review follows the rest of this page, with these differences:
 
 * Each round has one reviewer, who covers all of the round's angles.
+  The reviewer covers Cold reading before the other angles.
 * The reviewer runs an additional drafting check only to confirm or rule out a specific problem suggested by reading the change and what it affects.
 * The second round reviews only the revisions since the first round started and what they affect.
 * The review ends after two rounds.

@@ -32,6 +32,14 @@ Prose style
   * **Unclear without prior context:** ``Run a simulation and check the estimate.``
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
+* Fix unclear text by cutting or restructuring it before adding words.
+  In a change made to reword prose, the rewording does not increase the number of words of prose in any file that it changes, apart from text that it moves from another file that it changes.
+* Name each object, quantity, or concept once, by a short name or a symbol, such as one that the code or the literature uses.
+  Then use that name, rather than repeating a long description or chaining noun phrases.
+
+  * **Repeated noun phrases:** ``If the rank of the checks equals the rank of their X parts plus the rank of their Z parts, ...``
+  * **Named once:** ``Let H_X and H_Z be the X and Z parts of the checks H.  If rank(H) = rank(H_X) + rank(H_Z), ...``
+
 * Use the serial (Oxford) comma before the conjunction in a list of three or more items, as in ``X, Y, and Z``.
 * Docstrings use the section format of the Google convention, such as ``Args:`` and ``Returns:``.
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.

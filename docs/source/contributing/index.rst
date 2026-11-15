@@ -11,7 +11,7 @@ Contributor documentation comes in two kinds:
 * Guides, such as this page, explain how qLDPC works and how to make a change, and link to the standards rather than restating them.
 
 Read the standards that apply to a change before editing, and check the change against them in a :doc:`review <reviewing>`.
-Make recommendations, and present decisions, as :doc:`decisions and recommendations <decisions>` describes.
+Check each addition of process or apparatus against :ref:`the goal of the work <decisions-goal>`, make recommendations, and present decisions, as :doc:`decisions and recommendations <decisions>` describes.
 
 .. _kinds-of-change:
 
