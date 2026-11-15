@@ -3,7 +3,7 @@
 
 """Time the exact distance searches of qLDPC on pair-partition codes.
 
-The benchmark times the connected-support method and Brouwer-Zimmermann (BZ).  The embedded
+The benchmark times the connected-cluster method and Brouwer-Zimmermann (BZ).  The embedded
 instances, in ``workloads.py``, are ``qldpc.codes.PairPartitionCode`` codes, quasi-cyclic CSS codes
 with sparse parity checks, mostly of high rate (arXiv:2607.14091 and arXiv:2609.30069), whose
 sources ``workloads.py`` names.  A path to another file in their ``.cpm`` format (see
@@ -99,8 +99,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--methods",
         nargs="+",
-        default=["connected_support"],
-        choices=["connected_support", "brouwer_zimmermann"],
+        default=["connected_cluster"],
+        choices=["connected_cluster", "brouwer_zimmermann"],
         help="the exact-distance methods to time (default: %(default)s)",
     )
     parser.add_argument(

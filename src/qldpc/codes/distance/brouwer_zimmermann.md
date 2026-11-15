@@ -12,7 +12,7 @@ It is organized as follows:
 - [Section 4](#4-guide-to-the-source-code) is a guide to the source code: how the modules are organized, how a computation flows through them, which code names correspond to the concepts of [Section 2](#2-the-brouwer-zimmermann-algorithm) and [Section 3](#3-extensions-and-optimizations), and which behavior spans several files.
 - [Section 5](#5-correctness-requirements) summarizes the correctness requirements that apply when changing the implementation.
 
-[connected_support.md](connected_support.md) describes another exact search for codes with sparse checks, which searches supports that are connected in the Tanner graph of the checks.
+[connected_cluster.md](connected_cluster.md) describes another exact search for codes with sparse checks, which searches supports that are connected in the Tanner graph of the checks.
 
 Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) are intended to help readers understand the BZ algorithm and its implementation in qLDPC at a high level.
 Sections [4](#4-guide-to-the-source-code) and [5](#5-correctness-requirements) are highly technical summaries for contributors who need to locate identifiers in the BZ implementation of qLDPC, or check a change against its requirements.
@@ -793,7 +793,7 @@ A search of Pauli errors by CSS weight weighs words by that weight, and its scan
 
 For the CSS weight on a CSS state, the weight of a class of errors is the larger of the minimum weights of its X and Z parts.
 So `CosetLeaderSearch` searches the X part, and then, if its weight `w_x` is at most `ω`, the Z part with `w_x` as a floor: a word of the Z part within `w_x` ends the search, and gives the class the weight `w_x`.
-The connected-support searches of [connected_support.md](connected_support.md) find a minimum weight by trying increasing weight limits, and `CosetLeaderSearch` searches each part once, the Z part from the limit `w_x`.
+The connected-cluster searches of [connected_cluster.md](connected_cluster.md) find a minimum weight by trying increasing weight limits, and `CosetLeaderSearch` searches each part once, the Z part from the limit `w_x`.
 Certification keeps its queries, which stop at the first word within their maximum weight.
 
 On the residual-weight estimates of the circuits of [Section 3.9](#39-skipping-completions-by-completion-tables), at `ω` of six and of eight, by either weight, the searches for minimum weights gave every syndrome the weight of the queries at increasing maximum weights that they replaced, with either method.
@@ -810,7 +810,7 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
 The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose comments give their meanings and defaults, and the class of each default or, for a field in no class, how its default was chosen, and [Section 4.4](#44-heuristics-and-cost-models) says where each is used.
-Sections 3.5 and 3.8 of [connected_support.md](connected_support.md) describe the fields of the connected-support searches.
+Sections 3.5 and 3.8 of [connected_cluster.md](connected_cluster.md) describe the fields of the connected-cluster searches.
 
 ### 4.1 Module map and layering
 
@@ -825,7 +825,7 @@ The set-up functions of both searches can be compiled on request, through [_comp
 The code that only counting uses is in the `_counting` package.
 `build_overlapping_family_policy` in [_information_sets/basis_families.py](_information_sets/basis_families.py) builds the policy of every caller of the overlapping stage, with its fixed-seed generator, so a change to it applies to the distance search, the counts, and the coset routes of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py).
 The distance search and the counts call it through `get_overlapping_family_policy`, which reads the settings of the policy from the tuning.
-[core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_support/search.py](_connected_support/search.py), which [connected_support.md](connected_support.md) describes.
+[core.py](core.py) calls [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), [_brute_force.py](_brute_force.py), and [_connected_cluster/search.py](_connected_cluster/search.py), which [connected_cluster.md](connected_cluster.md) describes.
 All four modules use [_binary.py](_binary.py), and they and [_information_sets/basis_families.py](_information_sets/basis_families.py) use the bit-packed linear algebra over GF(2) in [qldpc/_binary.py](../../_binary.py).
 Every module with compiled functions uses [_compilation.py](../../_compilation.py).
 The distance functions of [core.py](core.py) build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector that they search, and pass the resulting problems to `get_distance_brouwer_zimmermann_many`, with `get_distance_css` passing both sectors of a CSS code at once.
@@ -847,7 +847,7 @@ The weight divisor of the certificate rounds its Hamming bounds up to multiples 
 `get_distance_instance` packs a basis family with its pivot columns deleted ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and takes the certificate that the distance search selects.
 The distance search builds another instance when it switches to an automorphism family, whose certificate covers every image of the one set that it scans.
 
-`CosetLeaderSearch` in [coset_leaders.py](coset_leaders.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `u + V` instead of `V`, unless it is built with `method="connected_support"` ([connected_support.md](connected_support.md)).
+`CosetLeaderSearch` in [coset_leaders.py](coset_leaders.py), which the fault-propagation certifier in `qldpc.circuits.certification` uses, applies the same search to a coset `u + V` instead of `V`, unless it is built with `method="connected_cluster"` ([connected_cluster.md](connected_cluster.md)).
 There a layer adds `w` rows to an **offset**, a word of the coset that is zero on the pivot columns ([Section 2.3](#23-systematic-bases-and-information-sets)), so layer zero is the offset itself.
 A **query** of `CosetLeaderSearch` asks whether the coset of a syndrome has a word of weight at most a given maximum weight.
 `CosetLeaderSearch` answers each query with one or two **coset searches**: a search of Pauli errors, or, for the CSS weight on a CSS state, searches of their X and Z parts, as described at the end of this section.
@@ -902,7 +902,7 @@ A certificate with linear programs instead checks the steps of the layer but the
 For the CSS weight `max(|x|, |z|)` on a CSS state, whose stabilizer group is generated by stabilizers with no Z part and stabilizers with no X part, `CosetLeaderSearch` instead runs this search on two classical codes, spanned by the X parts of the first kind and by the Z parts of the second, with words weighed by their Hamming weight.
 The BZ coset searches of `CosetLeaderSearch`, `BrouwerZimmermannCosetSearch` with `_search_coset` and `_find_min_weights`, are in [_brouwer_zimmermann/coset.py](_brouwer_zimmermann/coset.py).
 The tables of their steps and tails, such as `get_search_tables`, `get_stopping_step`, and `CosetTails`, are in [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py).
-What they share with the connected-support coset searches is in [_cosets.py](_cosets.py), and their answers, `MinWeightBound`, are in [min_weight_bounds.py](min_weight_bounds.py).
+What they share with the connected-cluster coset searches is in [_cosets.py](_cosets.py), and their answers, `MinWeightBound`, are in [min_weight_bounds.py](min_weight_bounds.py).
 
 ### 4.2 Flow and exit points
 

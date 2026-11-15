@@ -569,8 +569,8 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
         assert syndrome != failure.output_syndrome
 
 
-def test_the_connected_support_method_finds_the_same_fault() -> None:
-    """The connected-support search finds the fault that the default search finds.
+def test_the_connected_cluster_method_finds_the_same_fault() -> None:
+    """The connected-cluster search finds the fault that the default search finds.
 
     Two primitive faults that each fire the detector pass post-selection together, so the smallest
     violating fault has two error mechanisms, which the search over combinations of primitive faults
@@ -590,7 +590,7 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         circuits.certify_bounded_fault_propagation(
             circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
         )
-        for method in ("brouwer_zimmermann", "information_sets", "connected_support")
+        for method in ("brouwer_zimmermann", "information_sets", "connected_cluster")
     )
     assert alias == default
     _assert_valid_counterexample(result, circuit)
@@ -600,12 +600,12 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
     )
 
-    # The +1 eigenstate of Y is not CSS, so the connected-support search cannot weigh its errors by
+    # The +1 eigenstate of Y is not CSS, so the connected-cluster search cannot weigh its errors by
     # CSS weight, but the default search, also under its alias, can.
     y_state = stim.Circuit("H 0\nS 0")
     with pytest.raises(ValueError, match="only on CSS states"):
         circuits.certify_bounded_fault_propagation(
-            y_state, css_weight=True, method="connected_support"
+            y_state, css_weight=True, method="connected_cluster"
         )
     assert circuits.certify_bounded_fault_propagation(
         y_state, css_weight=True, method="information_sets"

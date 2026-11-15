@@ -274,9 +274,9 @@ def test_deprecated_distance_functions() -> None:
     get_distance_classical: Any = codes.get_distance_classical  # type: ignore[attr-defined]
     get_distance_quantum: Any = codes.get_distance_quantum  # type: ignore[attr-defined]
     for search in (
-        lambda: get_distance_classical(generator, method="connected_support"),
+        lambda: get_distance_classical(generator, method="connected_cluster"),
         lambda: get_distance_quantum(
-            generator[:1], generator[1:], homogeneous=True, method="connected_support"
+            generator[:1], generator[1:], homogeneous=True, method="connected_cluster"
         ),
     ):
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):

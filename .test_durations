@@ -51,7 +51,7 @@
     "src/qldpc/codes/distance/_search/brouwer_zimmermann_test.py": 28.39258421600009,
     "src/qldpc/codes/distance/_search/brute_force_test.py": 0.5622239110000038,
     "src/qldpc/codes/distance/_search/completion_bounds_test.py": 0.9394132229999883,
-    "src/qldpc/codes/distance/_search/connected_support_test.py": 29.579610028000012,
+    "src/qldpc/codes/distance/_search/connected_cluster_test.py": 29.579610028000012,
     "src/qldpc/codes/distance/_search/coset_leader_search_test.py": 77.95609898599989,
     "src/qldpc/codes/distance/_search/coset_routes_test.py": 0.8368327989999784,
     "src/qldpc/codes/distance/_search/information_sets_test.py": 38.329937457,

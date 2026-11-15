@@ -139,7 +139,7 @@ It draws 100 random samples for each of the other 33 choices, and saves 5,523 co
    Each code is written to a temporary `*.tmp` file and then renamed, so an interrupted search leaves no partial code file.
    Leftover `*.tmp` files are ignored by the other scripts, and overwritten when the search resumes.
    Run one search per results directory at a time.
-2. `compute_distances.py` computes exact distances of the distinct saved codes with `k > 0`, with the connected-support search of `qldpc`, and appends them to `results/exact_distances.csv`.
+2. `compute_distances.py` computes exact distances of the distinct saved codes with `k > 0`, with the connected-cluster search of `qldpc`, and appends them to `results/exact_distances.csv`.
    Each computation runs in its own process, which is stopped after `--time-limit` seconds.
    The script resumes where it left off, and a rerun with a longer `--time-limit` retries the codes that were stopped.
    This step is optional.
@@ -193,7 +193,7 @@ Verification requires `codes.QTCode.random` to sample the same code for the same
 
 ## Distance tuning
 
-[`distance_tuning/benchmark.py`](distance_tuning/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-support guide](../src/qldpc/codes/distance/connected_support.md)), and on a few other codes.
+[`distance_tuning/benchmark.py`](distance_tuning/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-cluster guide](../src/qldpc/codes/distance/connected_cluster.md)), and on a few other codes.
 It prints its results and saves nothing.
 For example:
 

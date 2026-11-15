@@ -392,8 +392,8 @@ def estimate_residual_weight_histogram(
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
         method: The exact search of residual weights where the tables do not apply, as for
             ``certify_bounded_fault_propagation``: ``"brouwer_zimmermann"``, with alias
-            ``"information_sets"``, or ``"connected_support"``.  With the same ``seed``, both give
-            the same histogram.  ``"connected_support"`` weighs errors by CSS weight only on CSS
+            ``"information_sets"``, or ``"connected_cluster"``.  With the same ``seed``, both give
+            the same histogram.  ``"connected_cluster"`` weighs errors by CSS weight only on CSS
             states.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
@@ -408,7 +408,7 @@ def estimate_residual_weight_histogram(
             a definite stabilizer state, if component scoring is requested for a non-CSS state, if
             the circuit has an error instruction with probability one, if Stim cannot convert the
             circuit to a detector error model, if ``method`` is unknown or ``"brute_force"``, or if
-            ``method`` is ``"connected_support"`` and errors on a state that is not CSS are weighed
+            ``method`` is ``"connected_cluster"`` and errors on a state that is not CSS are weighed
             by their CSS weight.
     """
     _check_coset_search_method(method)
@@ -917,7 +917,7 @@ class _ResidualWeightSetup:
 
     Raises:
         ValueError: If ``pauli`` is given and the state is not a CSS state, or if the method is
-            ``"connected_support"`` and errors on a state that is not CSS are weighed by their CSS
+            ``"connected_cluster"`` and errors on a state that is not CSS are weighed by their CSS
             weight.
     """
 
@@ -1043,7 +1043,7 @@ class _CosetSearchWeights:
     once.  It searches one coset for each syndrome, or, for the CSS weight on a CSS state, the coset
     of the X part and, if that part is within the largest weight, the coset of the Z part.  It is
     slower than ``_CSSWeightTables``, but works for any stabilizer state and either Pauli weight,
-    except that the connected-support method weighs errors by CSS weight only on CSS states.
+    except that the connected-cluster method weighs errors by CSS weight only on CSS states.
     """
 
     def __init__(

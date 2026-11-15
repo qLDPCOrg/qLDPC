@@ -298,10 +298,10 @@ class AbstractCode(abc.ABC):
         self._distance = self._distance_bound = None
         return self
 
-    def _reject_nonbinary_connected_support(self, method: DistanceMethod) -> None:
-        """Raise an error if the method is ``"connected_support"``, and this code is not binary."""
-        if method == "connected_support" and self.field is not galois.GF2:
-            raise ValueError("The 'connected_support' distance method is only for binary codes")
+    def _reject_nonbinary_connected_cluster(self, method: DistanceMethod) -> None:
+        """Raise an error if the method is ``"connected_cluster"``, and this code is not binary."""
+        if method == "connected_cluster" and self.field is not galois.GF2:
+            raise ValueError("The 'connected_cluster' distance method is only for binary codes")
 
 
 ####################################################################################################
@@ -518,21 +518,21 @@ class ClassicalCode(AbstractCode):
             method: Binary exact-distance method, including vector distances, unused when bounding
                 the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates code words; ``"connected_support"`` searches supports
+                ``"brute_force"`` enumerates code words; ``"connected_cluster"`` searches supports
                 that are connected in the Tanner graph of the parity checks (see
                 help(ClassicalCode.get_distance_exact)).  Nonbinary calculations use exhaustive
-                enumeration, and reject ``"connected_support"``.
+                enumeration, and reject ``"connected_cluster"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and ``NO_DISTANCE`` otherwise.
 
         Raises:
-            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+            ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
         method = _validate_distance_method(method)
-        self._reject_nonbinary_connected_support(method)
+        self._reject_nonbinary_connected_cluster(method)
         if not bound:
             if decoder is not None or bound_kwargs:
                 warnings.warn(
@@ -565,28 +565,28 @@ class ClassicalCode(AbstractCode):
                 an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method, including vector distances.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates code words.  ``"connected_support"`` searches supports
+                ``"brute_force"`` enumerates code words.  ``"connected_cluster"`` searches supports
                 that are connected in the Tanner graph of the parity checks, which can be fast only
                 for sparse parity checks, and is not always fast for them.  Its guide,
-                ``connected_support.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
+                ``connected_cluster.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
                 explains it.  Nonbinary calculations use exhaustive enumeration, and reject
-                ``"connected_support"``.
+                ``"connected_cluster"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
 
         Raises:
-            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+            ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
         method = _validate_distance_method(method)
-        self._reject_nonbinary_connected_support(method)
+        self._reject_nonbinary_connected_cluster(method)
         if (known_distance := self.get_distance_if_known(vector)) is not None:
             return known_distance
 
         # we do not know the exact distance, so compute it
         distance: int | Literal[NoDistance.NAN]
-        if vector is None and method == "connected_support":
+        if vector is None and method == "connected_cluster":
             distance = get_distance_from_checks(self.matrix, cutoff=cutoff, method=method)
             if cutoff <= 1:
                 self._distance = int(distance)
@@ -609,7 +609,7 @@ class ClassicalCode(AbstractCode):
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
-            if self.field is galois.GF2 and method == "connected_support":
+            if self.field is galois.GF2 and method == "connected_cluster":
                 # The vector itself is within the cutoff, or bounds the weight of its coset.
                 weight = int(np.count_nonzero(vector))
                 if weight <= cutoff:
@@ -1989,20 +1989,20 @@ class QuditCode(AbstractCode):
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
                 ``"brute_force"`` enumerates every nontrivial logical operator;
-                ``"connected_support"`` searches supports that are connected in the Tanner graph of
+                ``"connected_cluster"`` searches supports that are connected in the Tanner graph of
                 the stabilizers (see help(QuditCode.get_distance_exact)).  Nonbinary calculations
-                use exhaustive enumeration, and reject ``"connected_support"``.
+                use exhaustive enumeration, and reject ``"connected_cluster"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and ``NO_DISTANCE`` otherwise.
 
         Raises:
-            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+            ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
         method = _validate_distance_method(method)
-        self._reject_nonbinary_connected_support(method)
+        self._reject_nonbinary_connected_cluster(method)
         if not bound:
             if bound_kwargs:
                 warnings.warn(
@@ -2033,21 +2033,21 @@ class QuditCode(AbstractCode):
                 an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
-                operator.  ``"connected_support"`` searches supports that are connected in the
+                operator.  ``"connected_cluster"`` searches supports that are connected in the
                 Tanner graph of the stabilizers, which can be fast only for sparse stabilizers, and
-                is not always fast for them.  Its guide, ``connected_support.md`` in
+                is not always fast for them.  Its guide, ``connected_cluster.md`` in
                 ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.  Nonbinary
-                calculations use exhaustive enumeration, and reject ``"connected_support"``.
+                calculations use exhaustive enumeration, and reject ``"connected_cluster"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
 
         Raises:
-            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+            ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
         method = _validate_distance_method(method)
-        self._reject_nonbinary_connected_support(method)
+        self._reject_nonbinary_connected_cluster(method)
         if (known_distance := self.get_distance_if_known()) is not None:
             return known_distance
 
@@ -3628,20 +3628,20 @@ class CSSCode(QuditCode):
             method: Binary exact-distance method, unused when bounding the distance.
                 ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
                 ``"brute_force"`` enumerates every nontrivial logical operator;
-                ``"connected_support"`` searches supports that are connected in the Tanner graph of
+                ``"connected_cluster"`` searches supports that are connected in the Tanner graph of
                 the stabilizers (see help(CSSCode.get_distance_exact)).  Nonbinary calculations
-                use exhaustive enumeration, and reject ``"connected_support"``.
+                use exhaustive enumeration, and reject ``"connected_cluster"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
             An integer distance (or bound) if it is defined, and ``NO_DISTANCE`` otherwise.
 
         Raises:
-            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+            ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
         method = _validate_distance_method(method)
-        self._reject_nonbinary_connected_support(method)
+        self._reject_nonbinary_connected_cluster(method)
         if not bound:
             if decoder is not None or bound_kwargs:
                 warnings.warn(
@@ -3678,23 +3678,23 @@ class CSSCode(QuditCode):
                 an upper bound on distance, and no result is remembered.
             method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
                 alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
-                operator.  ``"connected_support"`` searches supports that are connected in the
+                operator.  ``"connected_cluster"`` searches supports that are connected in the
                 Tanner graph of the stabilizers, which can be fast only for sparse stabilizers, and
-                is not always fast for them.  Its guide, ``connected_support.md`` in
+                is not always fast for them.  Its guide, ``connected_cluster.md`` in
                 ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.
                 Closed forms that search classical codes, such as those of hypergraph product
                 codes, search them with the same method.  Nonbinary calculations use exhaustive
-                enumeration, and reject ``"connected_support"``.
+                enumeration, and reject ``"connected_cluster"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
 
         Raises:
-            ValueError: If the method is unknown, or is ``"connected_support"`` for a nonbinary
+            ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
                 code.
         """
         method = _validate_distance_method(method)
-        self._reject_nonbinary_connected_support(method)
+        self._reject_nonbinary_connected_cluster(method)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if (known_distance := self.get_distance_if_known(pauli)) is not None:
             return known_distance
@@ -3709,7 +3709,7 @@ class CSSCode(QuditCode):
         # Brute force searches the two sectors separately, so it may as well remember both.
         if (
             pauli is None
-            and method in ("brouwer_zimmermann", "connected_support")
+            and method in ("brouwer_zimmermann", "connected_cluster")
             and self.field is galois.GF2
             and type(self)._get_distance_exact is CSSCode._get_distance_exact
         ):
@@ -4358,7 +4358,7 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
-        Brouwer-Zimmermann and connected-support searches use the automorphisms of this code.
+        Brouwer-Zimmermann and connected-cluster searches use the automorphisms of this code.
         ``upper_bound``, if given, is the weight of a known logical operator of the other type,
         which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
         below ``cutoff`` can be an upper bound.

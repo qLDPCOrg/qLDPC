@@ -799,8 +799,8 @@ def test_exact_code_distance_method_api() -> None:
     assert arguments["pauli"] is None
 
 
-def test_connected_support_method_is_only_for_binary_codes() -> None:
-    """Nonbinary codes reject the connected-support method, also when they only bound distances."""
+def test_connected_cluster_method_is_only_for_binary_codes() -> None:
+    """Nonbinary codes reject the connected-cluster method, also when they only bound distances."""
     # a generic CSS code, unlike a product code, has no closed form that rejects the method first
     hgp_code = codes.HGPCode(codes.RepetitionCode(3, field=3))
     for code in (
@@ -809,19 +809,19 @@ def test_connected_support_method_is_only_for_binary_codes() -> None:
         codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z),
     ):
         with pytest.raises(ValueError, match="only for binary codes"):
-            code.get_distance(bound=1, method="connected_support")
+            code.get_distance(bound=1, method="connected_cluster")
         with pytest.raises(ValueError, match="only for binary codes"):
-            code.get_distance_exact(method="connected_support")
+            code.get_distance_exact(method="connected_cluster")
 
 
-def test_connected_support_distances_of_classical_codes() -> None:
+def test_connected_cluster_distances_of_classical_codes() -> None:
     """Classical codes search their parity checks, and vector distances search a coset.
 
     The tests of the search itself compare many codes with enumeration.
     """
     # an exact distance is remembered, and a result within a cutoff is an upper bound, which is not
     code = codes.ClassicalCode(codes.HammingCode(3).matrix)
-    assert code.get_distance(method="connected_support") == 3
+    assert code.get_distance(method="connected_cluster") == 3
     assert code.get_distance_if_known() == 3
     code = codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]])
     with unittest.mock.patch.object(
@@ -830,7 +830,7 @@ def test_connected_support_distances_of_classical_codes() -> None:
         autospec=True,
         side_effect=common.get_distance_from_checks,
     ) as search:
-        assert 2 <= code.get_distance_exact(cutoff=3, method="connected_support") <= 3
+        assert 2 <= code.get_distance_exact(cutoff=3, method="connected_cluster") <= 3
     assert search.call_args.kwargs["cutoff"] == 3
     assert code.get_distance_if_known() is None
 
@@ -839,12 +839,12 @@ def test_connected_support_distances_of_classical_codes() -> None:
     for vector, expected in [((0, 0, 1, 0, 1), 2), ((0, 1, 1, 0, 0), 1)]:
         for cutoff in range(4):
             distance = code.get_distance_exact(
-                vector=vector, cutoff=cutoff, method="connected_support"
+                vector=vector, cutoff=cutoff, method="connected_cluster"
             )
             assert distance == expected or expected <= distance <= cutoff
 
 
-def test_connected_support_distances_of_qubit_codes() -> None:
+def test_connected_cluster_distances_of_qubit_codes() -> None:
     """Qubit codes that are not CSS search their stabilizers.
 
     The tests of the search itself compare many codes with enumeration, and
@@ -855,36 +855,36 @@ def test_connected_support_distances_of_qubit_codes() -> None:
     with unittest.mock.patch.object(
         common, "get_distance_pauli", autospec=True, side_effect=common.get_distance_pauli
     ) as search:
-        assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_support") <= 5
+        assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_cluster") <= 5
     assert search.call_args.kwargs["cutoff"] == 5
     assert five_qubit_code.get_distance_if_known() is None
-    assert five_qubit_code.get_distance(method="connected_support") == 3
+    assert five_qubit_code.get_distance(method="connected_cluster") == 3
     assert five_qubit_code.get_distance_if_known() == 3
 
 
-def test_connected_support_distances_of_css_codes() -> None:
+def test_connected_cluster_distances_of_css_codes() -> None:
     """Sector distances, joint distances, and their caches have their known values."""
     # the sectors of this code have distances 3 and 2, and a known sector distance bounds the search
     # of the other sector
     checks_x = [[1, 1, 1, 1, 1, 1, 1], [1, 0, 1, 1, 1, 0, 0]]
     checks_z = [[1, 1, 0, 1, 0, 0, 1], [1, 1, 1, 0, 0, 1, 0], [1, 0, 1, 1, 1, 0, 0]]
     code = codes.CSSCode(checks_x, checks_z)
-    assert code.get_distance_exact(Pauli.X, method="connected_support") == 3
-    assert code.get_distance_exact(cutoff=0, method="connected_support") == 2
+    assert code.get_distance_exact(Pauli.X, method="connected_cluster") == 3
+    assert code.get_distance_exact(cutoff=0, method="connected_cluster") == 2
     assert code.get_distance_if_known() == 2 and code.get_distance_if_known(Pauli.Z) is None
-    assert code.get_distance_exact(Pauli.Z, method="connected_support") == 2
+    assert code.get_distance_exact(Pauli.Z, method="connected_cluster") == 2
 
     # once the lighter sector is known, the joint search is bounded by it
     code = codes.CSSCode(checks_x, checks_z)
-    assert code.get_distance_exact(Pauli.Z, method="connected_support") == 2
-    assert code.get_distance_exact(cutoff=0, method="connected_support") == 2
+    assert code.get_distance_exact(Pauli.Z, method="connected_cluster") == 2
+    assert code.get_distance_exact(cutoff=0, method="connected_cluster") == 2
 
     # an exit at a cutoff returns an upper bound, which is not remembered
     code = codes.CSSCode(checks_x, checks_z)
     with unittest.mock.patch.object(
         common, "get_distance_css", autospec=True, side_effect=common.get_distance_css
     ) as search:
-        assert 2 <= code.get_distance_exact(cutoff=7, method="connected_support") <= 7
+        assert 2 <= code.get_distance_exact(cutoff=7, method="connected_cluster") <= 7
     assert search.call_args.kwargs["cutoff"] == 7
     assert code.get_distance_if_known() is None
 
@@ -894,7 +894,7 @@ def test_connected_support_distances_of_css_codes() -> None:
     generic_bacon_shor_code = codes.CSSCode(
         bacon_shor_code.matrix_x, bacon_shor_code.matrix_z, is_subsystem_code=True
     )
-    assert generic_bacon_shor_code.get_distance_exact(Pauli.X, method="connected_support") == 3
+    assert generic_bacon_shor_code.get_distance_exact(Pauli.X, method="connected_cluster") == 3
 
 
 def test_css_joint_distance_cache() -> None:
@@ -1032,7 +1032,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     row_swap = np.arange(16).reshape(4, 4)[[1, 0, 2, 3]].ravel()
     cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
         (get_css_distance, translations, 6),
-        (functools.partial(get_css_distance, method="connected_support"), translations, 6),
+        (functools.partial(get_css_distance, method="connected_cluster"), translations, 6),
         (
             functools.partial(get_qudit_distance, bb_code.conjugated(range(36, 72)).matrix),
             translations,
@@ -1044,13 +1044,13 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
             4,
         ),
     ]
-    # the connected-support search verifies the automorphisms of qubit codes too
+    # the connected-cluster search verifies the automorphisms of qubit codes too
     cases += [
         (
             functools.partial(
                 get_qudit_distance,
                 bacon_shor_matrix,
-                method="connected_support",
+                method="connected_cluster",
                 is_subsystem_code=True,
             ),
             row_swap[None],

@@ -1,10 +1,10 @@
-# Connected-support distance search in qLDPC
+# Connected-cluster distance search in qLDPC
 
 ## 1. Purpose and scope
 
-The connected-support search computes the exact distance of a binary code from the Tanner graph of its parity checks.
+The connected-cluster search computes the exact distance of a binary code from the Tanner graph of its parity checks.
 The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and the quantum codes can be subsystem codes.
-It is the method `"connected_support"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
+It is the method `"connected_cluster"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
 Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 The same search also finds light vectors with a given syndrome, such as Pauli errors, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
@@ -31,8 +31,8 @@ The search of a subsystem code uses the Tanner graph of its stabilizers, which c
 `get_distance_css` and `get_distance_pauli` derive these stabilizers as a row-reduced basis, which can be dense even if the stabilizer group has sparse generators.
 So they search sparser generators instead ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
 These need not be the sparsest.
-A caller who knows sparser generators `S` of the stabilizer group, and gauge generators `G`, can get the same dressed distance by searching them as given, with `get_distance_from_checks(S, G, symplectic=True, method="connected_support")`.
-For a CSS code with sparse X-type and Z-type stabilizer generators, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_support")`, where `S_Z` holds the supports of the Z-type stabilizer generators and `G_X` those of the X-type gauge generators.
+A caller who knows sparser generators `S` of the stabilizer group, and gauge generators `G`, can get the same dressed distance by searching them as given, with `get_distance_from_checks(S, G, symplectic=True, method="connected_cluster")`.
+For a CSS code with sparse X-type and Z-type stabilizer generators, the X-distance comes from `get_distance_from_checks(S_Z, G_X, method="connected_cluster")`, where `S_Z` holds the supports of the Z-type stabilizer generators and `G_X` those of the X-type gauge generators.
 If the checks weigh much less than the distance, as those of surface codes do, many supports grow without being pruned ([Section 3.4](#34-pruning)), so the search visits many states below the distance.
 The search of a qubit code that is not CSS costs more than the searches of the sectors of an equivalent CSS code, such as the same code without Hadamards on some of its qubits.
 A `Y` can flip checks that act as `X` and checks that act as `Z` on its qubit at once, which weakens the bounds of [Section 3.4](#34-pruning), and each qubit of a check offers two symbols that flip it, the two Paulis that anticommute with the check there ([Section 3.7](#37-qubit-codes-that-are-not-css)).
@@ -41,11 +41,11 @@ A code that is CSS only up to local Cliffords, such as those Hadamards, is still
 
 Dense checks make the search slow unless the distance is small.
 Sparse checks do not ensure that it is fast, and no exact method of qLDPC is faster than the others on every code with sparse checks.
-In timings of the distance of one sector, on one machine, with a limit of 60 s, the connected-support search was faster than the Brouwer-Zimmermann search on most of the quantum LDPC codes timed (surface, toric, bivariate bicycle, lifted-product, quantum Tanner, and pair-partition codes), by up to several hundred times (lower bounds, where the Brouwer-Zimmermann search reached the limit).
+In timings of the distance of one sector, on one machine, with a limit of 60 s, the connected-cluster search was faster than the Brouwer-Zimmermann search on most of the quantum LDPC codes timed (surface, toric, bivariate bicycle, lifted-product, quantum Tanner, and pair-partition codes), by up to several hundred times (lower bounds, where the Brouwer-Zimmermann search reached the limit).
 In longer runs, it was more than a thousand times faster on the [[288, 12, 18]] bivariate bicycle code, whose Brouwer-Zimmermann search took several minutes.
 But it took several times as long on the [[170, 8, 20]] pair-partition code, where both searches took minutes.
 On random regular classical LDPC codes of 48 to 240 bits, it was faster when each check had 6 or 8 bits, slightly slower with 10 or 12, and much slower with 14 or more, usually by hundreds of times or more (lower bounds, where it reached the limit).
-The weight of the checks does not order codes of different families either: the connected-support search was faster on quantum Tanner codes whose checks have 16 bits, and on the [[276, 98, 14]] pair-partition code, whose checks have 12, but slower on the [[170, 8, 20]] pair-partition code, whose checks have 10.
+The weight of the checks does not order codes of different families either: the connected-cluster search was faster on quantum Tanner codes whose checks have 16 bits, and on the [[276, 98, 14]] pair-partition code, whose checks have 12, but slower on the [[170, 8, 20]] pair-partition code, whose checks have 10.
 So the sparsity of the checks alone does not say which method is faster.
 
 The script [experiments/distance_tuning/benchmark.py](../../../../experiments/distance_tuning/benchmark.py) times the exact distance searches of qLDPC on the pair-partition codes of Okada and Kasai and of Lee et al. (see the [references](#references)), and on a few other codes.
@@ -206,7 +206,7 @@ If every vector of `ker(H)` has even weight, as for the pair-partition codes, wh
 
 **Exact distance.**
 Let `L` be the smallest weight that an unexamined witness can have, which is the divisor at first.
-`get_distance_connected_support` searches the problem with the lowest `L`, such as one of the sectors of a CSS code, through the weight limit `W = L`.
+`get_distance_connected_cluster` searches the problem with the lowest `L`, such as one of the sectors of a CSS code, through the weight limit `W = L`.
 A witness is then a lightest one if the earlier limits found none, since weights are multiples of the divisor.
 Otherwise every witness is heavier than `W`, and `L` rises to the next multiple of the divisor.
 This ends when `L` is at least the weight of the best known witness, the distance.
@@ -295,7 +295,7 @@ Four parts of a distance search do not carry over:
 - Every vector with the syndrome counts, so the query has no logical test.
 
 The fault-propagation certifier in `qldpc.circuits.certification`, and the experimental residual-weight estimator, use `CosetLeaderSearch` in `coset_leaders.py`.
-When it is built with `method="connected_support"`, `CosetLeaderSearch` answers each of its queries by a table lookup, or by such queries at one or more weight limits.
+When it is built with `method="connected_cluster"`, `CosetLeaderSearch` answers each of its queries by a table lookup, or by such queries at one or more weight limits.
 It searches the Pauli errors of a state by their physical weight.
 The CSS weight `max(|x|, |z|)` is not a sum over qubits, so for it, on a CSS state, it searches the X and Z parts separately, and on any other state it raises an error.
 For the residual-weight estimator, it finds the minimum weight of each coset by trying increasing weight limits, and starts the search of a Z part at the weight of its X part ([Section 3.10 of brouwer_zimmermann.md](brouwer_zimmermann.md#310-minimum-weights-of-cosets)).
@@ -323,7 +323,7 @@ On longer codes of higher rate, a round rarely makes a light word one of its row
 On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 63.
 An exact second stage, which qLDPC does not implement, could lower it further.
 The greedy algorithm for matroids would take, again and again, the lightest word of the span outside the span of the words taken so far.
-The connected-support search finds such a word as a witness, with the words taken so far as its excluded rows ([Section 3.1](#31-the-problem)), and it is fast only if its checks are sparse, as the rounds make them.
+The connected-cluster search finds such a word as a witness, with the words taken so far as its excluded rows ([Section 3.1](#31-the-problem)), and it is fast only if its checks are sparse, as the rounds make them.
 For Pauli errors, the words of the span are the Paulis that commute with every sparse check, since the state is pure.
 For X or Z parts, they are the vectors that satisfy the sparse checks of the other part.
 But the cost of a search grows quickly with the weight of the word that it finds, and the words outside the stabilizer group of the code, such as the logical operators among the generators of `|0⟩`, weigh at least its distance.
@@ -352,7 +352,7 @@ The search of a subsystem code needs checks whose row space is its stabilizer gr
 For example, take the toric code on 256 qubits, and make one of its logical qubits a gauge qubit.
 Its stabilizers are generated by the plaquettes of the toric code, which weigh 4, but the derived basis has a mean weight of 15 and rows of weight up to 46.
 A search of the derived basis takes more than three minutes, and a search of the plaquettes about a second.
-So with `method="connected_support"`, the search of a subsystem code gets two sets of checks:
+So with `method="connected_cluster"`, the search of a subsystem code gets two sets of checks:
 
 - The gauge generators that commute with every gauge generator are stabilizers.
   The search keeps them as given, with any redundant rows.
@@ -374,22 +374,22 @@ So the rounds change a row only when they find a strictly lighter one, which lea
 
 ## 4. Guide to the source code
 
-The names below are in `_connected_support/search.py`, unless the table says otherwise.
+The names below are in `_connected_cluster/search.py`, unless the table says otherwise.
 
 | Concept | Code |
 | --- | --- |
-| Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_support` |
+| Pair `(H, G)`, its words and witnesses | `checks` and `excluded` of `SupportSearch` and `get_distance_connected_cluster` |
 | Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py`, which the `get_distance_exact` methods of `ClassicalCode` and `QuditCode` call |
 | Symplectic problems, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
-| Distance of several sectors | `get_distance_connected_support`, which `_search_css` of `core.py` calls |
+| Distance of several sectors | `get_distance_connected_cluster`, which `_search_css` of `core.py` calls |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
-| Coset leaders of Pauli errors | `ConnectedSupportCosetSearch` in `_connected_support/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
-| Sparser checks with the same span, for coset searches and for the distance searches of subsystem codes | `get_sparser_rows` and `_sparsify` in `_connected_support/sparse_checks.py`, and `_get_sparser_stabilizers` of `core.py` |
+| Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
+| Sparser checks with the same span, for coset searches and for the distance searches of subsystem codes | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `core.py` |
 | How many rounds make the checks of a coset search, or of a distance search of a subsystem code, sparser | `max_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedSupportCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_support/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `coset_leaders.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_cluster/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `coset_leaders.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
@@ -454,7 +454,7 @@ Changes to the search can use other bounds and orders, while keeping these requi
 
 ## References
 
-- K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes", Section V, [arXiv:2607.14091](https://arxiv.org/abs/2607.14091): the connected-support search for the pair-partition codes, with the implementation in [kasaikenta/pair-partition-cpm-css-codes](https://github.com/kasaikenta/pair-partition-cpm-css-codes).
+- K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes", Section V, [arXiv:2607.14091](https://arxiv.org/abs/2607.14091): the connected-cluster search for the pair-partition codes, with the implementation in [kasaikenta/pair-partition-cpm-css-codes](https://github.com/kasaikenta/pair-partition-cpm-css-codes).
 - J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes", [arXiv:2609.30069](https://arxiv.org/abs/2609.30069): the pair-partition codes, with the instances of [ultra-high-rate-qec/design-principles-data](https://github.com/ultra-high-rate-qec/design-principles-data).
 - G. Richter, "Finding small stopping sets in the Tanner graphs of LDPC codes", 4th International Symposium on Turbo Codes and Related Topics and 6th International ITG-Conference on Source and Channel Coding, 2006, pp. 1–5.
 - E. Rosnes and Ø. Ytrehus, "An efficient algorithm to find all small-size stopping sets of low-density parity-check matrices", IEEE Transactions on Information Theory 55, 4167 (2009).

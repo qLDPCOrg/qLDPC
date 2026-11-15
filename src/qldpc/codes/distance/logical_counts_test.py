@@ -744,8 +744,8 @@ def test_invalid_inputs() -> None:
         with pytest.raises(ValueError, match="Unknown logical-count method"):
             counter.count_logical_ops(method=unknown)
 
-    # The connected-support distance method does not count logical operators of every weight.
-    distance_method: Any = "connected_support"
+    # The connected-cluster distance method does not count logical operators of every weight.
+    distance_method: Any = "connected_cluster"
     with pytest.raises(ValueError, match="Unknown logical-count method"):
         counter.count_logical_ops(method=distance_method)
     for method in ("brouwer_zimmermann", "macwilliams", "brute_force"):

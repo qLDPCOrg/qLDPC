@@ -23,11 +23,11 @@ derived value needs, and prints each derived value beside its default.  It measu
 - the linear programming of a search of a large basis, ``distance/qt7/X`` of 181 rows: the seconds
   that its certificates spend in their bounds (planning, the checks of ``Certificate.certifies``,
   and the programs), with automorphisms off so that the search keeps its certificate throughout;
-- the seconds of one state of a connected-support search: for each traced search, the seconds of
+- the seconds of one state of a connected-cluster search: for each traced search, the seconds of
   its weight limits of at least ``10**4`` states, less the seconds of asking for automorphisms,
   divided by their states, and the median over the searches.  It converts the cost of asking into
   states;
-- asking for automorphisms in a connected-support search, which finds them, verifies them, and
+- asking for automorphisms in a connected-cluster search, which finds them, verifies them, and
   orders their orbits: the costliest of the traced searches, which ask before their first weight
   limit;
 - the five coefficients of the cost model of completion tables, from the traces of the cost data set
@@ -132,13 +132,13 @@ COST_MODEL_NAME = "cost-model"  # name of its directory of the traces of the cos
 # Layers below this many candidate/set evaluations, or supports, are dominated by fixed costs.
 LARGE_LAYER = 10**7
 
-# Weight limits of connected-support searches below this many states are dominated by fixed costs.
+# Weight limits of connected-cluster searches below this many states are dominated by fixed costs.
 LARGE_LIMIT = 10**4
 
 # The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop
 # after setup.  Linear programs are off in BZ searches that run layers, so that layers time scans:
 # ``trace.py`` repeats the planning of a certificate that solves programs.  Traces that stop after
-# setup keep the default of linear programs.  Connected-support searches ask for
+# setup keep the default of linear programs.  Connected-cluster searches ask for
 # automorphisms before their first weight limit, so that each of their traces measures that step.
 TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (name, workload, {"lp_minimum_work": _tuning.MAX_VALUE}, False)
@@ -580,7 +580,7 @@ def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The median, over traced connected-support searches, of their seconds per state.
+    """The median, over traced connected-cluster searches, of their seconds per state.
 
     Each search counts its weight limits of at least ``LARGE_LIMIT`` states, less the seconds of
     asking for automorphisms before them.
@@ -601,7 +601,7 @@ def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The costliest seconds of asking for automorphisms in a connected-support search."""
+    """The costliest seconds of asking for automorphisms in a connected-cluster search."""
     asks = [
         (trace["workload"], get_limit_ask_seconds(event))
         for trace in traces.values()

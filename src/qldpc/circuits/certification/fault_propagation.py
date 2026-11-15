@@ -107,18 +107,18 @@ def certify_bounded_fault_propagation(
             result.  Default: ``2**30`` (1 GiB).
         method: The exact search of the residual weights.  ``"brouwer_zimmermann"``, with alias
             ``"information_sets"``, searches cosets of the stabilizer group by information sets.
-            ``"connected_support"`` grows errors from their syndromes through generators of the
+            ``"connected_cluster"`` grows errors from their syndromes through generators of the
             stabilizer group.  It first replaces the generators with sparser ones that generate the
-            same group, and can be fast only if they are sparse (see the `connected-support guide
-            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
+            same group, and can be fast only if they are sparse (see the `connected-cluster guide
+            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
             Both certify the same circuits, and find the same smallest violating fault, but the
             ``output_pauli`` of a counterexample may be another equivalent error, and with
-            ``"connected_support"`` its bound is ``fault_weight + 1`` (see
+            ``"connected_cluster"`` its bound is ``fault_weight + 1`` (see
             ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, the
             ``output_pauli`` and the bound of a counterexample can also change between versions of
             qLDPC when its queries are costly.  Such queries can search other families of
             information sets, and the costliest can skip errors that tables prove too heavy.  The
-            verdict and the smallest violating fault do not change.  ``"connected_support"`` weighs
+            verdict and the smallest violating fault do not change.  ``"connected_cluster"`` weighs
             errors by CSS weight only on CSS states.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
@@ -132,7 +132,7 @@ def certify_bounded_fault_propagation(
             empty, repeats a qubit, or has an index out of range, if ``post_select`` has an index
             out of range, if the output qubits do not end in one definite stabilizer state, if
             Stim cannot convert the circuit to a DEM, if ``method`` is unknown or
-            ``"brute_force"``, or if ``method`` is ``"connected_support"`` and errors on a state
+            ``"brute_force"``, or if ``method`` is ``"connected_cluster"`` and errors on a state
             that is not CSS are weighed by their CSS weight.
     """
     _check_coset_search_method(method)
@@ -290,7 +290,7 @@ class BoundedFaultPropagationCounterexample:
             is 1 if the error anticommutes with the certificate's ``state_stabilizers[j]``.
         residual_weight_lower_bound: A lower bound on the fault's residual weight, which is the
             smallest Pauli weight of an error equivalent to ``output_pauli``; it exceeds
-            ``fault_weight``.  The method ``"connected_support"`` gives ``fault_weight + 1``.
+            ``fault_weight``.  The method ``"connected_cluster"`` gives ``fault_weight + 1``.
     """
 
     fault_indices: tuple[int, ...]
@@ -451,12 +451,12 @@ def _check_coset_search_method(method: DistanceMethod) -> None:
     if method == "brute_force":
         raise ValueError(
             "The 'brute_force' distance method has no search of residual weights: use"
-            " 'brouwer_zimmermann' or 'connected_support'."
+            " 'brouwer_zimmermann' or 'connected_cluster'."
         )
     if method not in typing.get_args(DistanceMethod):
         raise ValueError(
             f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets') or 'connected_support'."
+            " 'information_sets') or 'connected_cluster'."
         )
 
 

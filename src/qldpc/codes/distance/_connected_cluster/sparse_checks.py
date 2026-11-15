@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Sparser checks with the span of given checks, for the connected-support searches.
+"""Sparser checks with the span of given checks, for the connected-cluster searches.
 
 The searches are fast only if their checks are sparse.  ``get_sparser_rows`` makes checks sparser
 for the coset searches of ``coset.py`` and for the distance searches of subsystem codes in
-``qldpc.codes.distance.core`` (Sections 3.8 and 3.9 of ``connected_support.md``).
+``qldpc.codes.distance.core`` (Sections 3.8 and 3.9 of ``connected_cluster.md``).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 from .._binary import multiply_binary
 from .._cosets import get_unit_syndrome_words
 
-# The seed of the random orders of columns in which the connected-support searches row-reduce their
+# The seed of the random orders of columns in which the connected-cluster searches row-reduce their
 # checks to make them sparser (see ``get_sparser_rows``).  It makes the checks reproducible.
 _SPARSIFYING_SEED = 0
 

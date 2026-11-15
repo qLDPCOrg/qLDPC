@@ -27,7 +27,7 @@ from qldpc.objects import Pauli
 from . import _tuning, core
 from . import logical_counts as lc
 from ._brouwer_zimmermann import distance as bz
-from ._connected_support import search as connected_support
+from ._connected_cluster import search as connected_cluster
 from ._counting import scan
 from ._information_sets import basis_families
 from .conftest import CostlyStages, get_random_css_code, get_sector_problem
@@ -258,9 +258,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     and ``_information_sets/basis_families_test.py`` change them there.  Others are read once by
     ``CosetLeaderSearch``, which passes their values down to its coset searches:
     ``max_css_single_pairs`` and ``max_sparsifying_rounds``.  Tests in ``coset_leaders_test.py``,
-    ``_brouwer_zimmermann/coset_test.py``, and ``_connected_support/coset_test.py`` change or record
+    ``_brouwer_zimmermann/coset_test.py``, and ``_connected_cluster/coset_test.py`` change or record
     these, and the fields that the oracle passes down to the routes of its BZ searches.  The
-    connected-support distance search of the subsystem code with X-type gauge generator [1, 1, 0]
+    connected-cluster distance search of the subsystem code with X-type gauge generator [1, 1, 0]
     and Z-type gauge generators [0, 1, 1] and [1, 0, 0] shows that
     ``max_distance_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` reach
     ``get_sparser_rows``.
@@ -287,7 +287,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
-    record(connected_support.SupportSearch, "__init__", "automorphism_minimum_states")
+    record(connected_cluster.SupportSearch, "__init__", "automorphism_minimum_states")
     record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
     original_prepare = bz._prepare_brouwer_zimmermann_search
 
@@ -317,13 +317,13 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         sparsifying_rounds_without_improvement=2,
     ) as tuning:
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(Pauli.X)
-        codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="connected_support")
+        codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="connected_cluster")
         counter = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z)
         counter.count_logical_ops()
         counter.count_logical_ops(method="brute_force")
         lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(method="macwilliams")
         core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
-        core.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_support")
+        core.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
 
     expected = {
         "random_column_orders": {5},

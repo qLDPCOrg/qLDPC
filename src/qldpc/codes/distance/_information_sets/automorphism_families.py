@@ -10,7 +10,7 @@ on ``I``.  So a BZ search can scan ``I`` alone, and certify with the automorphis
 images of ``I`` under all of ``G``, which completes each coefficient layer when ``I`` does.
 Section 3.7 of ``brouwer_zimmermann.md`` derives the certificate of this family.
 
-The connected-support search of ``_connected_support/search.py`` also uses
+The connected-cluster search of ``_connected_cluster/search.py`` also uses
 ``verify_automorphisms``, and the orbits of ``get_orbits``, whose order fixes its ranks of
 variables.
 """

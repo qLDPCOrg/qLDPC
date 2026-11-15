@@ -27,7 +27,7 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
 
 - ``distance/<code>/<sector>``: ``get_distance_exact`` of a quantum code, for the sector ``X``,
   ``Z``, or ``both``, or of a classical code, whose sector must be ``-``;
-- ``csdistance/<code>/<sector>``: the same, by the connected-support method;
+- ``csdistance/<code>/<sector>``: the same, by the connected-cluster method;
 - ``hadamard/<code>``: ``get_distance_exact`` of the code that Hadamards on the second half of the
   qubits of a CSS code make, which is not CSS;
 - ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method;
@@ -443,7 +443,7 @@ def get_noisy_memory_circuit(code_name: str, basis: str) -> stim.Circuit:
 
 WORKLOADS: dict[str, Callable[..., str]] = {
     "distance": run_distance,
-    "csdistance": functools.partial(run_distance, method="connected_support"),
+    "csdistance": functools.partial(run_distance, method="connected_cluster"),
     "hadamard": run_hadamard_distance,
     "count": run_count,
     "ccount": run_count,

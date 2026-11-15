@@ -9,11 +9,11 @@ vectors of Pauli operators, whose weights count qubits.  It follows Algorithm 2 
 Okada and Kasai, https://arxiv.org/abs/2607.14091, which searches CSS codes.  The idea is older:
 searches of the Tanner graphs of classical LDPC codes, and the irreducible-cluster technique of
 Dumer, Kovalev, and Pryadko for classical and quantum LDPC codes, use it too (see the references
-of ``connected_support.md``).  The same search, started from a nonzero syndrome rather than from
+of ``connected_cluster.md``).  The same search, started from a nonzero syndrome rather than from
 a root, finds a light vector with that syndrome, such as a light Pauli error with a given syndrome
 on a stabilizer state.
 
-``connected_support.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
+``connected_cluster.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
 correctness requirements.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py``
 solves the same problem for any binary code.  This module reuses ``infer_weight_divisor`` of
 ``_information_sets/basis_families.py``, and ``verify_automorphisms`` and ``get_orbits`` of
@@ -49,7 +49,7 @@ _BLOCKED = 2**40
 # search entry points
 
 
-def get_distance_connected_support(
+def get_distance_connected_cluster(
     problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
     *,
     cutoff: int,
@@ -133,14 +133,14 @@ def get_distance_connected_support(
     # No witness of a problem has a weight below its lower bound, which is a multiple of the weight
     # divisor.  Search the problem with the lowest bound, until the best known witness is as light.
     # A correct search takes at most n // d limits for each problem of n variables and divisor d
-    # (see "Termination" in connected_support.md), and a broken one fails instead of looping.
+    # (see "Termination" in connected_cluster.md), and a broken one fails instead of looping.
     lower_bounds = [search.weight_divisor for search in searches]
     max_num_limits = sum(search.num_variables // search.weight_divisor for search in searches)
     num_limits = 0
     while best_weight is None or best_weight > min(lower_bounds):
         if num_limits == max_num_limits:
             raise RuntimeError(
-                f"The connected-support search needed more than {max_num_limits} weight limits,"
+                f"The connected-cluster search needed more than {max_num_limits} weight limits,"
                 " which only a bug can cause"
             )
         num_limits += 1
@@ -164,7 +164,7 @@ class SupportSearch:
     A word is a vector ``x`` that satisfies every check, and its support is the set of variables on
     which it is nonzero.  Its weight is the size of its support.  The row space of ``excluded`` must
     satisfy every check, and the words outside it are the witnesses.  The search grows a support
-    through the checks that it leaves unsatisfied (see ``connected_support.md``), so it can be fast
+    through the checks that it leaves unsatisfied (see ``connected_cluster.md``), so it can be fast
     only if ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
     satisfy the checks (see ``find_vector_with_syndrome``).
 
@@ -182,7 +182,7 @@ class SupportSearch:
     Keyword args:
         symplectic: Whether the problem is symplectic.  Default: False.
         get_automorphisms: A function that returns an array of generators of a group of
-            permutations of the variables, or None, as in ``get_distance_connected_support``.
+            permutations of the variables, or None, as in ``get_distance_connected_cluster``.
         automorphism_minimum_states: The search calls ``get_automorphisms`` at most once, before
             the first weight limit at which it expects its visited states, over all weight limits,
             to reach this number, as the field of ``SearchTuning`` says.  Zero asks for them before
@@ -344,7 +344,7 @@ class SupportSearch:
         The syndrome of a vector says which checks it fails, so the vectors with a syndrome are a
         coset of the vectors that satisfy every check, and the excluded rows play no part.  The
         search starts from the syndrome, and grows supports through its unsatisfied checks without
-        roots, symmetries, or a weight divisor (see Section 3.8 of ``connected_support.md``).  Like
+        roots, symmetries, or a weight divisor (see Section 3.8 of ``connected_cluster.md``).  Like
         ``find_witness``, it is exhaustive, but need not find a lightest vector.
 
         Args:
@@ -422,7 +422,7 @@ class SupportSearch:
 
         The number of states of each weight limit is expected to grow by the ratio between those of
         the last two limits.  It is expected not to grow if the limit before the last visited no
-        states, as before the second limit (see Section 3.5 of ``connected_support.md``).  A first
+        states, as before the second limit (see Section 3.5 of ``connected_cluster.md``).  A first
         limit above the weight divisor, which a cutoff can raise, skips the cheap limits below it,
         so it has no estimate.  It is expected to reach any threshold short of ``MAX_VALUE``.
         """
@@ -525,7 +525,7 @@ def _search_supports(
 
     With ``memoize``, each state computes the overlap and the repair of each symbol at most once
     (see ``_get_branches``).  This saves time when checks are dense, as those of syndrome queries
-    can be (see Section 3.8 of ``connected_support.md``).  It costs time when they are sparse.
+    can be (see Section 3.8 of ``connected_cluster.md``).  It costs time when they are sparse.
 
     Returns:
         The symbols of a witness, or of a solution, of weight at most ``max_weight``, or an empty
@@ -826,7 +826,7 @@ def _get_branches(
         available_level += 1
 
     # Branch on the available symbols of the chosen check, most repairing first, which Section 3.3
-    # of connected_support.md measures.
+    # of connected_cluster.md measures.
     num_branches = 0
     for position in range(check_starts[branch_check], check_starts[branch_check + 1]):
         symbol = check_symbols[position]
