@@ -33,8 +33,8 @@ Prose style
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
 * Fix unclear text by cutting or restructuring it before adding words.
-  In a change made to reword prose, no file ends with more words of prose than it had, apart from text moved into it from another file that the change edits.
-* Give each object, quantity, or concept that a text mentions more than once a short name or a symbol, such as one that the code or the literature uses.
+  In a change made to reword prose, no file has more words of prose after the change than before, apart from text moved into it from another file that the change edits.
+* When a text mentions an object, quantity, or concept more than once, give it a short name or a symbol, such as one that the code or the literature uses.
   Then use that name, rather than repeating a long description or chaining noun phrases.
 
   * **Repeated noun phrases:** ``If the rank of the checks equals the rank of their X parts plus the rank of their Z parts, ...``

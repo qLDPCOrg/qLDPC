@@ -209,4 +209,4 @@ Every skipped fault satisfies the bound, so skipping them would change neither t
 The search does not use this rule, because the time that it saves does not justify the added complexity.
 A trial implementation, in an earlier version of the search that worked with primitive faults rather than classes, applied the rule to each partial choice of primitive faults that contained a light primitive fault.
 It looked for such a Pauli error in the first two layers of the oracle's search of Pauli errors, at each light primitive fault added to a partial choice, and reused the answer for each heavy part.
-Each look costs a query of the oracle, and saves the faults that complete the choice, which grow in number with the fault weight, so the rule may pay off for searches at larger fault weights.
+Each look costs a shallow search by the oracle, and a successful look skips the faults that complete the choice, which grow in number with the fault weight, so the rule may pay off for searches at larger fault weights.
