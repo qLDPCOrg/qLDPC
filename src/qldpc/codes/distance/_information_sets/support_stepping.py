@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The step of the scans of information sets from one support of a layer to the next."""
+"""The step of the scans of search bases from one support of a layer to the next."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def advance_support(
     """Move to the next support of a layer of the search.
 
     Layer ``w = len(support) >= 1`` holds the sums of an offset and ``w`` of the packed ``rows`` of
-    an information set.  The sums use only the first ``width`` machine words of each row.  A support
+    a search basis.  The sums use only the first ``width`` machine words of each row.  A support
     lists the indices of the rows of a sum in increasing order, and the supports come in
     lexicographic order.
 

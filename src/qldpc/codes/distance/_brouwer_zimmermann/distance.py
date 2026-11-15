@@ -311,7 +311,7 @@ class _BrouwerZimmermannSearch:
                 instance.labels[index],
                 instance.ranks[index],
                 instance.widths[index],
-                instance.label_widths[index],
+                instance.labels.shape[2],
                 support,
                 prefixes,
                 depth,

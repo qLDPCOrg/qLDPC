@@ -97,6 +97,7 @@ def test_distance_instances_delete_pivot_columns(pytestconfig: pytest.Config) ->
     assert instance.weight_factor == 1
     assert np.array_equal(instance.ranks, family.ranks)
     assert np.array_equal(instance.pivots, family.pivots)
+    assert instance.labels.shape[2] == 1
     for index, (rows, set_labels, pivots, rank) in enumerate(
         zip(family.generators, family.labels, family.pivots, family.ranks, strict=True)
     ):
@@ -106,7 +107,6 @@ def test_distance_instances_delete_pivot_columns(pytestconfig: pytest.Config) ->
         assert np.array_equal(
             unpack_bits(instance.generators[index, :, :width], kept.shape[1]), kept
         )
-        assert instance.label_widths[index] == 1
         assert np.array_equal(unpack_bits(instance.labels[index], 4), set_labels)
 
 
@@ -126,7 +126,6 @@ def test_coset_instances_keep_every_column(pytestconfig: pytest.Config) -> None:
     for rows, packed in zip(family.generators, instance.generators, strict=True):
         assert np.array_equal(unpack_bits(packed, 70), rows)
     assert instance.labels.shape == (len(family.ranks), 5, 0)
-    assert not instance.label_widths.any()
 
     # An instance of two information sets that share a pivot column keeps their coverage of two.
     first = family.pivots[0]

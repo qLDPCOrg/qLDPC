@@ -209,7 +209,7 @@ def scan_coset_layer(
         _NO_TABLE_BYTES,
         _NO_TABLE_OFFSETS,
         0,
-        # This scan neither reads labels nor ranks nor weighs X parts nor records supports, nor
+        # This scan neither reads labels nor the rank nor weighs X parts nor records supports, nor
         # takes a skip bound.
         representative,
         representative,
@@ -262,7 +262,8 @@ def scan_coset_layer_by_css_weight(
         _NO_TABLE_BYTES,
         _NO_TABLE_OFFSETS,
         0,
-        # This scan neither reads labels nor ranks nor records supports, nor takes a skip bound.
+        # This scan neither reads labels nor the rank nor records supports, nor takes a skip
+        # bound.
         x_mask,
         representative,
         0,
@@ -461,9 +462,10 @@ def _scan(
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of one search basis, starting from ``support``.
 
-    The arguments are those of ``scan_set``, ``scan_coset_layer_by_css_weight``,
-    ``scan_coset_layer_by_tails``, and ``scan_coset_layer_by_tails_with_tables``, and the flags,
-    which callers pass as constants, choose what the scan does:
+    The arguments are those of ``scan_set``, ``scan_coset_layer``,
+    ``scan_coset_layer_by_css_weight``, ``scan_coset_layer_by_tails``, and
+    ``scan_coset_layer_by_tails_with_tables``, and the flags, which callers pass as constants,
+    choose what the scan does:
 
     - ``pair_steps``: with ``deleted_pivots``, step through the first of the last two rows of a
       support separately, and skip the completions whose bound by the completion tables, if any,
