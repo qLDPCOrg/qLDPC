@@ -2,8 +2,8 @@
 
 """Exact distances of binary codes, counts of their logical operators, and searches of cosets.
 
-These functions and classes take plain binary arrays, rather than code objects, and the
-exact-distance methods of the code classes in :mod:`qldpc.codes` call the distance functions for
+The functions and classes of this package take plain binary arrays rather than code objects.  The
+exact-distance methods of the code classes in :mod:`qldpc.codes` call its distance functions for
 binary codes.
 
 .. list-table::
@@ -42,13 +42,14 @@ matrices, and a single vector is one row.  A Pauli string on ``n`` qubits is a r
 searches takes a :data:`~qldpc.codes.distance.DistanceMethod`, and a search without a nontrivial
 word returns :data:`~qldpc.codes.distance.NO_DISTANCE`.
 
-Numba compiles the inner loops of the searches on first use, and caches them on disk, inside the
-directory of the ``NUMBA_CACHE_DIR`` environment variable if that is set (see "Disk caches" in the
-:doc:`library map </library_map>`).  If the cache cannot be used, qLDPC warns, and compiles again in
-every process; set ``NUMBA_CACHE_DIR`` to a writable directory, such as one that many jobs share, to
-avoid this.  :func:`~qldpc.codes.distance.compile_search_setup` also compiles the code that sets
-those loops up, in the current process only, for programs that count the logical operators of very
-many similar codes.
+Numba compiles the inner loops of the searches on first use, and caches them on disk in a
+directory named by a hash of qLDPC's source files, inside that of the ``NUMBA_CACHE_DIR``
+environment variable if that is set (see "Disk caches" in the :doc:`library map </library_map>`).
+If the cache cannot be used, qLDPC warns, and compiles again in every process; set
+``NUMBA_CACHE_DIR`` to a writable directory, such as one that many jobs share, to avoid this.
+:func:`~qldpc.codes.distance.compile_search_setup` also compiles the code that sets those loops up,
+in the current process only, for programs that count the logical operators of very many similar
+codes.
 
 Settings, whose defaults suit typical searches, control how exact searches choose their routes by
 cost models, and how they bound their batches, memory, and caches.  For very costly searches,

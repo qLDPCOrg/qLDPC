@@ -28,8 +28,9 @@ def plain_search_setup() -> None:
 
     A test needs this if it replaces a function that compiled-on-request code calls, since compiled
     callers would not call the replacement, or if it compares the plain set-up code with its
-    compiled version.  This fixture resets every compiled-on-request function, which undoes an
-    earlier replacement of one, so a fixture that replaces one must request this fixture first.
+    compiled version.  This fixture sets every compiled-on-request function back to plain Python,
+    which undoes an earlier replacement of one, so a fixture that replaces one must request this
+    fixture, which then runs first.
     """
     _compilation.set_on_request_functions_compiled(False)
 
@@ -75,7 +76,7 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# of the routes of coset searches (Section 4.4 of ``brouwer_zimmermann.md``):
+# that coset searches can take (Section 4.4 of ``brouwer_zimmermann.md``):
 #
 # - EVEN_ROUTES_CODE has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so its rows
 #   are even.  Its greedy packing has ranks three and two, but its columns hold two disjoint
@@ -84,8 +85,9 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 #   disjoint family of ranks six and four, and a family of three overlapping information sets, and
 #   queries take each family at some maximum weights.
 # - OVERLAPPING_ROUTES_CODE, a random [14, 8] code, has a greedy packing of ranks eight and six that
-#   uses every column.  Three overlapping information sets do less work for some queries only, so
-#   its overlapping family depends on the weight at which it is built, and changes some answers.
+#   uses every column.  Three overlapping information sets do less work than the greedy packing for
+#   some queries only, so its overlapping family depends on the weight at which it is built, and
+#   changes some answers.
 EVEN_ROUTES_CODE = get_binary_matrix(["100111", "010111", "001001"])
 TWO_FAMILIES_CODE = get_binary_matrix(
     ["1001010111", "0110001011", "0101111010", "0010111100", "0010100000", "0000100110"]
@@ -286,8 +288,8 @@ def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.N
 # Graph states whose costly queries of Pauli errors take a maximum disjoint family that beats the
 # greedy packing (Section 4.4 of ``brouwer_zimmermann.md``).  By physical weight, the family has
 # more information sets on the first of ROUTED_PHYSICAL_STATES, and a larger partial set on the
-# second, where it returns other errors for some classes without a light enough error.  By CSS
-# weight, it has a larger partial set on ROUTED_CSS_WEIGHT_STATE.
+# second, where it returns other errors than the greedy packing for some classes without an error
+# within the maximum weight.  By CSS weight, it has a larger partial set on ROUTED_CSS_WEIGHT_STATE.
 ROUTED_PHYSICAL_STATES = (
     get_graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
     get_graph_state(5, [(0, 4), (2, 3)]),

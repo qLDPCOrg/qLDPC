@@ -15,7 +15,8 @@ def test_the_readme_names_every_module_and_no_other_file() -> None:
         for name in files
         if not name.endswith("_test.py") and Path(name).name not in ("conftest.py", "__init__.py")
     }
-    # The README names files outside this package by their paths from the root of the repository.
+    # The README names files outside this package by their paths from the root of the repository,
+    # which start with src/.
     text = (package / "README.md").read_text(encoding="utf-8")
     named = {
         name

@@ -96,7 +96,7 @@ It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
 
 _CanonicalDistanceMethod = Literal["brouwer_zimmermann", "connected_cluster", "brute_force"]
 
-# The canonical name of every accepted exact-distance method name, including aliases.
+# The canonical name of every accepted method name, including aliases.
 _DISTANCE_METHODS: dict[str, _CanonicalDistanceMethod] = {
     "brouwer_zimmermann": "brouwer_zimmermann",
     "information_sets": "brouwer_zimmermann",
@@ -128,7 +128,7 @@ def get_distance_from_generators(
     its logical operators, and exclude its stabilizers.  For a subsystem code, excluding its gauge
     generators, such as the rows of the ``matrix`` of a :class:`~qldpc.codes.QuditCode`, gives its
     distance, which is dressed.  With bare logical operators as generators, such as those of
-    :meth:`~qldpc.codes.common.QuditCode.get_logical_ops`, excluding only its stabilizers gives its
+    :meth:`~qldpc.codes.common.QuditCode.get_logical_ops`, excluding only the stabilizers gives the
     bare distance instead (:func:`get_distance_from_checks` defines both).
 
     Args:
@@ -146,10 +146,10 @@ def get_distance_from_generators(
             ``"brute_force"`` (see :data:`DistanceMethod`).  ``"connected_cluster"`` needs parity
             checks: use :func:`get_distance_from_checks`.
         max_weight: If given, a nonnegative integer limit on the weights to search (see "Returns").
-            The search stops once it proves that every nontrivial word is heavier, which can be much
-            faster than finding a large distance exactly.  The limit caps ``cutoff``, so that an
-            early exit still returns the weight of a word within the limit.  Pass
-            ``cutoff=max_weight`` as well to stop at the first such word.
+            The search stops once it proves that every nontrivial word is heavier than the limit,
+            which can be much faster than finding a large distance exactly.  The limit caps
+            ``cutoff``, so that an early exit still returns the weight of a word within the limit.
+            Pass ``cutoff=max_weight`` as well to stop at the first such word.
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
             map the row space of ``excluded``, and that of both matrices together, onto themselves.
             Pass an array whose row ``p`` maps bit or qubit ``j`` to ``p[j]``, or a function that
@@ -228,9 +228,9 @@ def get_distance_from_checks(
     The bare Z-distance exchanges X and Z, and the bare distance is the smaller of the two.
 
     Excluding nothing, or only some stabilizers, counts stabilizers as logical operators.  For a
-    subsystem code, passing stabilizers as both the checks and ``excluded``, such as its Z-type
-    stabilizers and its X-type ones, counts gauge operators that are not stabilizers as logical
-    operators.
+    subsystem code, passing stabilizers as both the checks and ``excluded``, such as Z-type
+    stabilizers as checks and X-type ones excluded, counts gauge operators that are not stabilizers
+    as logical operators.
 
     Args:
         checks: A binary matrix whose rows are the checks.
@@ -318,8 +318,8 @@ def get_distance_css(
     code.  An X logical operator then commutes with every Z-type stabilizer, and is trivial if it is
     an X-type gauge operator, so the result is the dressed distance (see
     :func:`get_distance_from_checks`, which also gives the bare distance).
-    ``CSSCode(checks_x, checks_z, is_subsystem_code=False)`` raises an error if the checks do not
-    commute.
+    To ensure a stabilizer code, build ``CSSCode(checks_x, checks_z, is_subsystem_code=False)``,
+    which raises an error if the checks do not commute.
 
     Args:
         checks_x: A binary matrix of the X-type checks, which may be redundant.
@@ -389,8 +389,9 @@ def get_distance_pauli(
     code, whose stabilizers are the gauge operators that commute with every gauge operator, and the
     result is its dressed distance: the minimum weight of a Pauli string that commutes with every
     stabilizer but is not a gauge operator.  :func:`get_distance_from_checks` says how to find the
-    bare distance instead.  ``QuditCode(checks, is_subsystem_code=False)`` raises an error if the
-    rows do not commute.
+    bare distance instead.  To ensure a stabilizer code, build
+    ``QuditCode(checks, is_subsystem_code=False)``, which raises an error if the rows do not
+    commute.
 
     If X-type and Z-type operators generate the group that the rows generate, even if the rows mix
     X and Z, this function searches the code as :func:`get_distance_css` does, which is faster.
@@ -429,9 +430,9 @@ def get_distance_pauli(
     get_automorphisms = _get_automorphism_getter(automorphisms, num_qubits)
 
     # Each row is the product of its X part, a row of gauge_x, and its Z part, a row of gauge_z.  So
-    # the rows generate a CSS group exactly if they generate the group of all of these parts, whose
-    # rank is rank(gauge_x) + rank(gauge_z).  Two sectors of n bits are much cheaper to search than
-    # one of 2n bits.
+    # the rows generate a CSS group exactly if they generate the group of all of these parts, which
+    # holds the group of the rows and has rank rank(gauge_x) + rank(gauge_z).  Then search the CSS
+    # code of the parts, whose two sectors of n bits are much cheaper to search than one of 2n bits.
     gauge_x, gauge_z = gauge[:, :num_qubits], gauge[:, num_qubits:]
     rank = len(get_independent_rows(gauge))
     if rank == len(get_independent_rows(gauge_x)) + len(get_independent_rows(gauge_z)):
@@ -447,9 +448,9 @@ def get_distance_pauli(
 
     stabilizers = get_pauli_stabilizers(gauge)
 
-    # get_pauli_stabilizers returns new rows only for a subsystem code.  The gauge generators that
-    # commute with every gauge generator are stabilizers, which join the checks (Section 3.9 of
-    # connected_cluster.md).
+    # get_pauli_stabilizers returns gauge itself unless the code is a subsystem code, whose gauge
+    # generators that commute with every gauge generator are stabilizers, which join the checks
+    # (Section 3.9 of connected_cluster.md).
     kept_stabilizers = None
     if method == "connected_cluster" and stabilizers is not gauge:
         overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
@@ -479,8 +480,8 @@ def _search_css(
 ) -> int | Literal[NoDistance.NAN]:
     """Search the requested sectors of a CSS code, given its X-type and Z-type gauge generators.
 
-    The arguments are those of ``get_distance_css``, validated, with ``upper_bound`` the
-    ``max_weight + 1`` (or None) of ``_get_weight_limit``, and ``get_automorphisms`` from
+    The arguments are those of ``get_distance_css``, validated, but ``upper_bound`` is
+    ``max_weight + 1`` or None (see ``_get_weight_limit``), and ``get_automorphisms`` comes from
     ``_get_automorphism_getter``.
     """
     # Each sector takes the stabilizers of the other type as checks, and excludes the gauge
@@ -499,12 +500,13 @@ def _search_css(
     if num_logical_x == 0:
         return NO_DISTANCE
 
-    # Search the requested types at once, except by brute force, which searches each type in turn.
+    # Search the requested sectors at once, except by brute force, which searches each in turn.
     if method == "connected_cluster":
         tuning = get_tuning()
         if stabilizers_x is not gauge_x:
-            # get_css_stabilizers returns new rows, a row-reduced basis that can be dense, only for
-            # a subsystem code (Section 3.9 of connected_cluster.md).
+            # get_css_stabilizers returns gauge_x and gauge_z themselves unless the code is a
+            # subsystem code, whose derived basis can be dense, so search sparser checks with the
+            # same span (Section 3.9 of connected_cluster.md).
             overlaps = multiply_binary(gauge_x, gauge_z.T)
             kept_stabilizers = {
                 Pauli.X: gauge_z[~np.any(overlaps, axis=0)],
@@ -561,7 +563,8 @@ def _search_checks(
 ) -> int | Literal[NoDistance.NAN]:
     """Search the words that satisfy the checks, outside the row space of the excluded rows.
 
-    The excluded rows satisfy the checks, and the other arguments are as for ``_search_css``.  If
+    The excluded rows satisfy the checks, ``upper_bound`` and ``get_automorphisms`` are as for
+    ``_search_css``, and the other arguments are those of the public functions, validated.  If
     ``kept_stabilizers`` is given, the checks are the derived stabilizers of a subsystem code, which
     a connected-cluster search replaces with those of ``_get_sparser_stabilizers``.
     """
@@ -607,9 +610,10 @@ def _get_sparser_stabilizers(
     """Checks that span the stabilizers of a subsystem code, for a connected-cluster search.
 
     ``stabilizers`` is the basis that ``get_css_stabilizers`` or ``get_pauli_stabilizers`` derives,
-    and ``kept_stabilizers`` holds the gauge generators that are stabilizers.  The checks are the
-    rows of ``kept_stabilizers`` no heavier than some sparser row, followed by ``stabilizers`` made
-    sparser (Section 3.9 of ``connected_cluster.md``).
+    and ``kept_stabilizers`` holds the gauge generators that are stabilizers.  The checks are
+    ``stabilizers`` made sparser in up to ``max_distance_sparsifying_rounds`` rounds, preceded by
+    the rows of ``kept_stabilizers`` no heavier than the heaviest sparser row (Section 3.9 of
+    ``connected_cluster.md``).
     """
     rows = stabilizers
     if tuning.max_distance_sparsifying_rounds:
@@ -714,7 +718,8 @@ def _get_automorphism_getter(
 ) -> Callable[[], npt.NDArray[np.int_] | None] | None:
     """A function that returns the given automorphisms, checked to be permutations, or None.
 
-    A function that the caller gives is called at most once, when the searches first ask for it.
+    If the caller gives a function, it is called at most once, when a search first asks for
+    automorphisms.
     """
     if automorphisms is None:
         return None
@@ -797,7 +802,7 @@ def _validate_distance_method(
 def _reject_connected_cluster(
     method: _CanonicalDistanceMethod,
 ) -> Literal["brouwer_zimmermann", "brute_force"]:
-    """Return a method other than ``"connected_cluster"``, which needs parity checks."""
+    """Return the method, unless it is ``"connected_cluster"``, which needs parity checks."""
     if method == "connected_cluster":
         raise ValueError(
             "The 'connected_cluster' distance method searches parity checks rather than"

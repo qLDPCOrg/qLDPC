@@ -38,7 +38,7 @@ from .min_weight_bounds import MinWeightBound
 def _class_weights(
     matrix: npt.NDArray[np.uint8], syndrome: int, css_weight: bool
 ) -> npt.NDArray[np.int_]:
-    """Weights of every error with this syndrome, for stabilizers whose X parts are the identity.
+    """Weights of every error with the syndrome, for stabilizers whose X parts form the identity.
 
     Z on the set syndrome bits has the syndrome, and its products with the stabilizers are the
     other errors with it, so this enumeration is independent of the code under test.
@@ -53,7 +53,8 @@ def _class_weights(
 
 
 # Four-qubit blocks: a GHZ state, which is CSS, and the same state after S on its first qubit, which
-# is not.  The physical weight searches Pauli errors on both, so one block covers it.
+# is not.  By CSS weight, the oracle splits its search only on the GHZ block, and by physical weight
+# it searches Pauli errors on both, so one block covers that case.
 _GHZ_BLOCK = ("XXXX", "ZZ__", "_ZZ_", "__ZZ")
 _PHASED_GHZ_BLOCK = ("YXXX", "ZZ__", "_ZZ_", "__ZZ")
 _BLOCK_CASES = pytest.mark.parametrize(
@@ -119,8 +120,8 @@ def _find_each_not_within_max_weight(
 ) -> list[int]:
     """Find each syndrome whose class has no error of weight at most ``max_weight``, in turn.
 
-    Each bound must be valid, and from a maximum weight of two, equal to that of
-    ``get_min_weight_bound``, which computes it separately when there is one coset search.
+    Each bound must be valid, and, for maximum weights of two or more, equal to that of
+    ``get_min_weight_bound``, an independent computation when there is one coset search.
     """
     found: list[int] = []
     while True:
@@ -148,7 +149,8 @@ def test_bounds_match_exhaustive_minima(
 ) -> None:
     """Bounds agree with exhaustive minima."""
     # Graph states with phases on an even number of qubits are not CSS, so their queries by CSS
-    # weight look up errors of CSS weight one in a table, or, without the table, match them.
+    # weight look up errors of CSS weight one in a table, or, with no room for the table, match
+    # single-qubit X and Z errors.
     if not css_singles_table:
         tune(max_css_single_pairs=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -403,7 +405,8 @@ def test_queries_return_the_word_and_bound_of_the_search_order() -> None:
             <= get_pauli_weight(bound.representative, num_qubits, css_weight)
         )
 
-        # Every query accepts the syndromes of single-qubit errors, so a batch stops at the case.
+        # A batch of two syndromes of single-qubit errors, which every query accepts, and then the
+        # syndrome of the case stops at the case if its answer is no.
         words = split_syndromes_into_words(
             [get_syndrome(matrix, 1), get_syndrome(matrix, 1 << num_qubits), syndrome], num_qubits
         )
@@ -454,7 +457,7 @@ def test_stabilizers_must_define_a_pure_state() -> None:
 
 
 def test_methods_take_the_names_of_distance_methods() -> None:
-    """Coset-leader searches take every distance method but brute force, including aliases."""
+    """Coset-leader searches take each distance method but brute force, and reject invalid uses."""
     matrix = get_graph_state(2, [(0, 1)], phase=True)
     with pytest.raises(ValueError, match="only on CSS states"):
         CosetLeaderSearch(matrix, css_weight=True, method="connected_cluster")
@@ -577,9 +580,10 @@ def test_oracles_answer_exactly_with_other_families(
     matrix: npt.NDArray[np.uint8], css_weight: bool, tune: Tune
 ) -> None:
     """Oracles answer exactly when costly queries take other families."""
-    # At the threshold zero, costly queries take the maximum disjoint families of the graph states,
-    # and routes by tails, except in a search of Pauli errors by CSS weight.  On |0000>, the CSS
-    # weight splits the search, and the X parts have the empty code, which no other family improves.
+    # With coset_route_minimum_work at zero, costly queries take the maximum disjoint families of
+    # the graph states, and routes by tails, except in a search of Pauli errors by CSS weight.  On
+    # |0000>, the CSS weight splits the search, and the X parts have the empty code, which no other
+    # family improves.
     tune(coset_route_minimum_work=0)
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
     assert_exact_answers(oracle, matrix, css_weight)
@@ -607,7 +611,8 @@ def test_min_weights_match_exhaustive_minima(
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # Graph states with phases are not CSS, so one search covers their Pauli errors.  By physical
-    # weight, their words are even, so a BZ search keeps its incumbent one below its best word.
+    # weight, the binary words of their errors are even, so a BZ search keeps its incumbent one
+    # below the weight of its best word.
     cases = []
     for num_qubits in range(2, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
@@ -626,9 +631,9 @@ def test_min_weights_match_exhaustive_minima(
     cases.append((cycle_state, True, False))
     # The CSS weight splits the searches of CSS states, and the search of a Z part ends at a word
     # within the weight of its X part.  The code of X parts of the Steane state is even, and that of
-    # Z parts is not.  Both codes of a GHZ block beside its conjugate by Hadamards are even, and
-    # some of its classes have X parts of weight two and Z parts of weight three, which a
-    # connected-cluster search of the Z part weighs exactly only from a first limit of at most two.
+    # Z parts is not.  Both codes of a GHZ block beside its conjugate by Hadamards are even.  Some
+    # classes of that state have X parts of weight two and Z parts of weight three, and a
+    # connected-cluster search weighs such a Z part exactly only from a first limit of at most two.
     steane_zero = ("XXXX___", "XX__XX_", "X_X_X_X", "ZZZZ___", "ZZ__ZZ_", "Z_Z_Z_Z", "ZZZZZZZ")
     cases += [
         (get_stabilizer_matrix(steane_zero), css_weight, True) for css_weight in (False, True)

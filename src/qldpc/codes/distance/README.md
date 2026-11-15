@@ -109,11 +109,11 @@ For a single query, each looks up words of weight at most one in a table, then a
 
 - In general, one search of the Pauli errors, modulo the stabilizers, answers a query.
 - On a CSS state, where pure-X and pure-Z stabilizers generate its stabilizer group, two classical searches answer a query by CSS weight, the larger of the weights of the X and Z parts of an error, on `n` columns each rather than `2n`.
-  The pure-X and pure-Z stabilizers of a state meet only in the identity, so they generate its stabilizer group exactly if their dimensions add up to `n`.
+  The pure-X and pure-Z stabilizers of a state meet only in the identity, so they generate its stabilizer group, of dimension `n`, exactly if their dimensions add up to `n`.
   The X parts of the pure-X stabilizers span a code `C_X`, and the Z parts of the pure-Z stabilizers a code `C_Z`.
   Multiplying an error by a stabilizer adds a word of `C_X` to its X part `x` and, independently, a word of `C_Z` to its Z part `z`, so the smallest CSS weight with a given syndrome is the larger of the smallest weights in `x + C_X` and `z + C_Z`.
   `CosetLeaderSearch` maps the given syndrome to the syndromes of `x` for the pure-Z stabilizers and of `z` for the pure-X stabilizers.
-  Each pure-Z stabilizer is a product of given stabilizers, so the syndrome bit of `x` for it is the sum of the bits of the given syndrome for those factors, and likewise for `z`.
+  Each pure-Z stabilizer is a product of given stabilizers, so the syndrome bit of `x` for it, which is that of the error, is the sum of the bits of the given syndrome for those factors, and likewise for `z`.
   `get_min_weights` searches the Z part of an error only if its X part is within `max_weight`, with the weight of the X part as the floor of that search.
 
 By default, each coset search is a Brouwer-Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann.md`).
