@@ -89,7 +89,8 @@ A review covers each of these angles that the change can affect:
 * **Cold reading:** whether the changed comments, docstrings, documents, and notebook prose make sense to a reader who sees no code.
   For each changed Python file, the coordinator gives the reviewer of this angle the file's docstrings and comments, in order and without code examples, each under the name of the module, class, or function that contains it, and marks the changed ones.
   For changed notebooks and documents, the coordinator gives their prose without code cells or code blocks.
-  This reviewer's brief quotes no code, including in check output, earlier findings, and the requester's statement of the goal, where each code fragment becomes ``[code omitted]``.
+  The coordinator gives this reviewer that prose and this angle's instructions first.
+  It gives the rest of the brief, which may quote code, only after the reviewer has recorded this angle's findings, for example in a separate file or a second message.
   The reviewer records this angle's findings before reading any code, and does not withdraw them after reading it.
   The reviewer checks that each sentence reads clearly the first time, and checks definite references and pronouns against the writing standard.
   A finding of this angle is significant only if the prose could mislead a reader about what the code does or guarantees, or, for a change to the rules for working on qLDPC, as the significance instructions above describe.
