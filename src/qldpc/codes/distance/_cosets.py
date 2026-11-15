@@ -2,9 +2,8 @@
 
 """Parts that the coset searches of ``CosetLeaderSearch`` share.
 
-They are the words with unit syndromes (whose sums give a word of each syndrome), the packing of
-binary rows into integers and back, the sums of the rows that a support selects, and the tables of
-the errors of weight zero or one by syndrome.
+They are the words with unit syndromes, the packing of binary rows into integers, the sums of the
+rows that a support selects, and the tables of the errors of weight zero or one by syndrome.
 """
 
 from __future__ import annotations
@@ -51,9 +50,8 @@ def tabulate_singles(
     """Tabulate the words of weight zero or one by syndrome, and the single-qubit X and Z errors.
 
     The words are the identity and then, in this order, X, Z, and Y on each qubit in turn for packed
-    Paulis, or each single bit in turn for X or Z parts.  The syndrome of Y on a qubit is the sum of
-    those of X and Z there.  Each table maps each syndrome of its words to the first word with that
-    syndrome.
+    Paulis, or each single bit in turn for X or Z parts.  Each table maps each syndrome of its words
+    to the first word with that syndrome.
 
     Args:
         check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
@@ -100,8 +98,8 @@ def xor_selected_rows(
 ) -> None:
     """Add to ``word`` row ``b`` of ``rows`` for each set bit ``b`` of ``packed_bits``.
 
-    ``packed_bits`` is split into 64-bit machine words, with machine word ``j`` holding bits
-    ``64 j`` and up, and each set bit must be below the number of rows; this is not checked.
+    Machine word ``j`` of ``packed_bits`` holds bits ``64 j`` and up, and each set bit must index a
+    row, which is not checked.
     """
     for machine_word in range(len(packed_bits)):
         bits = packed_bits[machine_word]

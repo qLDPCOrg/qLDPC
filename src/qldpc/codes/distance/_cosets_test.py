@@ -37,10 +37,7 @@ def test_rows_pack_into_integers_and_back(pytestconfig: pytest.Config) -> None:
 
 
 def test_sums_of_selected_rows_follow_their_definition(pytestconfig: pytest.Config) -> None:
-    """Both sums of the rows that the set bits of a support select add those rows modulo two.
-
-    The 70 rows make the packed supports span two machine words.
-    """
+    """Both sums of selected rows add those rows modulo two, for supports of two machine words."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     rows = rng.integers(0, 2, (70, 9), dtype=np.uint8)
     row_values, packed_rows = _cosets.row_ints(rows), pack_bits(rows)
@@ -55,37 +52,31 @@ def test_sums_of_selected_rows_follow_their_definition(pytestconfig: pytest.Conf
 
 
 def test_tables_of_single_errors_keep_the_first_word_of_each_syndrome() -> None:
-    """Each table of the words of weight zero or one keeps the first word with each syndrome.
-
-    On two qubits, Z on qubit zero has the syndrome 0b11 of X on qubit one, and Y on qubit zero has
-    the syndrome 0b10, the sum of 0b01 and 0b11, of Z on qubit one.  The table of all words keeps
-    the words on qubit zero, since it takes the words of one qubit at a time.  On three qubits, X
-    and Z on qubit zero and X on qubit two have the syndrome 0b01, so the table of all words and
-    that of X errors keep X on qubit zero.  Y on qubit zero has the trivial syndrome, so the table
-    of all words keeps the identity, and Y on qubit one has the syndrome of X there, so it keeps
-    that X.  Z on qubit one has the trivial syndrome, so the table of Z errors keeps the identity.
-    On two qubits whose X errors have the trivial syndrome, the tables keep the identity rather than
-    those X errors, and Z on qubit zero rather than Y there or Z and Y on qubit one, so Z comes
-    before Y.  For X or Z parts, the table keeps the first of the two bits with the syndrome 0b01,
-    and the identity rather than the third bit, whose syndrome is trivial.  The tables of X and Z
-    errors hold only the identity.
-    """
+    """Each table of the words of weight zero or one keeps the first word with each syndrome."""
+    # Z on qubit 0 shares a syndrome with X on qubit 1, and Y on qubit 0 with Z on qubit 1.
     singles, x_singles, z_singles = _cosets.tabulate_singles(
         [0b01, 0b11, 0b11, 0b10], 2, symplectic=True
     )
     assert singles == {0: 0, 0b01: 0b0001, 0b11: 0b0100, 0b10: 0b0101}
     assert x_singles == {0: 0, 0b01: 0b0001, 0b11: 0b0010}
     assert z_singles == {0: 0, 0b11: 0b0100, 0b10: 0b1000}
+
+    # X and Z on qubit 0 and X on qubit 2 share a syndrome, Y on qubit 0 and Z on qubit 1 have the
+    # trivial syndrome, and Y on qubit 1 has that of X there.
     singles, x_singles, z_singles = _cosets.tabulate_singles(
         [0b01, 0b10, 0b01, 0b01, 0, 0b11], 3, symplectic=True
     )
     assert singles == {0: 0, 0b01: 0b000001, 0b10: 0b000010, 0b11: 0b100000}
     assert x_singles == {0: 0, 0b01: 0b000001, 0b10: 0b000010}
     assert z_singles == {0: 0, 0b01: 0b001000, 0b11: 0b100000}
+
+    # X errors have the trivial syndrome, and Z comes before Y.
     singles, x_singles, z_singles = _cosets.tabulate_singles([0, 0, 0b1, 0b1], 2, symplectic=True)
     assert singles == {0: 0, 0b1: 0b0100}
     assert x_singles == {0: 0}
     assert z_singles == {0: 0, 0b1: 0b0100}
+
+    # For X or Z parts, the tables of X and Z errors hold only the identity.
     singles, x_singles, z_singles = _cosets.tabulate_singles([0b01, 0b01, 0], 0, symplectic=False)
     assert singles == {0: 0, 0b01: 0b001}
     assert x_singles == z_singles == {0: 0}
