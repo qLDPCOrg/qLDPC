@@ -88,6 +88,7 @@ def get_distance_connected_cluster(
     # the search before it starts.
     tuning = get_tuning() if tuning is None else tuning
     automorphism_minimum_states = tuning.automorphism_minimum_states
+    restrict_viable_symbols = tuning.restrict_viable_symbols
     best_weight = upper_bound
     no_distance_bounds = []
     searches: list[SupportSearch] = []
@@ -98,6 +99,7 @@ def get_distance_connected_cluster(
             symplectic=symplectic,
             get_automorphisms=get_automorphisms,
             automorphism_minimum_states=automorphism_minimum_states,
+            restrict_viable_symbols=restrict_viable_symbols,
         )
         if search.has_witnesses:
             searches.append(search)
@@ -155,6 +157,8 @@ class SupportSearch:
         automorphism_minimum_states: The search calls ``get_automorphisms`` at most once, before
             the first weight limit at which it expects to have visited this many states over all
             its limits (Section 3.5).  Zero asks before the first limit.
+        restrict_viable_symbols: Whether states restrict their subtrees to viable symbols, as
+            Section 3.4 says.  The search is exact either way.
 
     Attributes:
         num_variables: The number of variables.
@@ -179,6 +183,7 @@ class SupportSearch:
         symplectic: bool = False,
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         automorphism_minimum_states: int,
+        restrict_viable_symbols: bool,
     ) -> None:
         # The compiled search would read invalid input without an error, so validate it here.
         assert_binary(checks, "checks")
@@ -197,6 +202,7 @@ class SupportSearch:
         self._excluded = excluded
         self._get_automorphisms = get_automorphisms
         self._automorphism_minimum_states = automorphism_minimum_states
+        self._restrict_viable_symbols = restrict_viable_symbols
 
         # A word satisfies a symplectic check if its dot product with the swapped check vanishes.
         if symplectic:
@@ -282,6 +288,7 @@ class SupportSearch:
             # The searches from roots ignore the starting syndrome, and do not memoize.
             np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
             False,
+            self._restrict_viable_symbols,
         )
         self.num_states += num_states
         last = self._last_two_num_states[1] if self._last_two_num_states else 0
@@ -347,6 +354,7 @@ class SupportSearch:
             int(min(max_weight, self.num_variables)),
             packed_syndrome,
             True,
+            self._restrict_viable_symbols,
         )
         return np.sort(support) if len(support) else None
 
@@ -423,6 +431,7 @@ def _search_supports(
     max_weight: int,
     start_syndrome: npt.NDArray[np.uint64],
     memoize: bool,
+    restrict_viable_symbols: bool,
 ) -> tuple[npt.NDArray[np.int64], int]:
     """Search the supports that grow from each root through unsatisfied checks.
 
@@ -435,7 +444,7 @@ def _search_supports(
     root uses only variables of higher rank.  A root of -1 starts a syndrome query (Section 3.8)
     from ``start_syndrome``, which is not empty, is packed as a row of ``symbol_masks``, and is
     ignored by the other roots.  With ``memoize``, each state computes the overlap and repair of
-    each symbol at most once.
+    each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.
 
     Returns:
         The symbols of a witness, or of a vector with the syndrome, of weight at most
@@ -508,6 +517,7 @@ def _search_supports(
                 branch_repairs,
                 memos,
                 stamp,
+                restrict_viable_symbols,
             )
             num_restrictions += restricts[0]
         else:
@@ -587,6 +597,7 @@ def _search_supports(
                 branch_repairs,
                 memos,
                 stamp,
+                restrict_viable_symbols,
             )
             num_restrictions += restricts[depth]
 
@@ -618,18 +629,19 @@ def _get_branches(
     branch_repairs: npt.NDArray[np.int64],
     memos: npt.NDArray[np.int64],
     stamp: int,
+    restrict_viable_symbols: bool,
 ) -> int:
     """Choose the branches of the state at ``depth``, whose syndrome is not empty, and count them.
 
     A symbol is available if its level is ``available_level``.  The support can take ``slack`` more
     variables.  The weights of the unsatisfied checks are in units of
-    ``1 / inverse_overlaps[1]``, and the state is pruned, or allows only viable symbols in its
-    subtree, as Section 3.4 of ``connected_cluster.md`` says.  A state that restricts its subtree
-    raises the levels of the symbols that it allows, lists them in ``allowances`` from
-    ``allowance_starts[depth]``, and sets ``restricts[depth]``.  The branches, the viable symbols of
-    the unsatisfied check with the fewest, go to ``branches[depth]``, most repairing first, and
-    their number is zero if the state is pruned.  ``check_weights`` and ``branch_repairs`` are
-    scratch space.
+    ``1 / inverse_overlaps[1]``, and the state is pruned, or, if ``restrict_viable_symbols``, allows
+    only viable symbols in its subtree, as Section 3.4 of ``connected_cluster.md`` says.  A state
+    that restricts its subtree raises the levels of the symbols that it allows, lists them in
+    ``allowances`` from ``allowance_starts[depth]``, and sets ``restricts[depth]``.  The branches,
+    the available symbols of the unsatisfied check with the fewest, which are viable after a
+    restriction, go to ``branches[depth]``, most repairing first, and their number is zero if the
+    state is pruned.  ``check_weights`` and ``branch_repairs`` are scratch space.
 
     If ``memos`` has a column for each symbol, row 0 holds the stamp of the call that computed the
     overlap of each symbol, row 1 that overlap, and rows 2 and 3 the same for repairs.  ``stamp`` is
@@ -678,7 +690,7 @@ def _get_branches(
     # Symbols that flip no unsatisfied check repair nothing, so they are viable exactly when every
     # symbol is; if they are not, allow only the viable symbols of the unsatisfied checks, and count
     # them in each check.
-    if total_weight > (slack - 1) * scale:
+    if restrict_viable_symbols and total_weight > (slack - 1) * scale:
         restricts[depth] = True
         allowance_end = allowance_starts[depth]
         branch_check = -1

@@ -12,6 +12,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from ...conftest import Tune
 from .._tuning import use_tuning
 from ..conftest import (
     get_exhaustive_minima,
@@ -21,7 +22,7 @@ from ..conftest import (
     get_syndrome,
 )
 from ..coset_leaders import CosetLeaderSearch
-from . import coset
+from . import coset, search
 
 
 def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
@@ -44,8 +45,36 @@ def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
     assert calls == [(5, 2)]
 
 
-def test_connected_cluster_answers_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
+def test_connected_cluster_queries_read_the_restriction_of_their_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``CosetLeaderSearch`` passes ``restrict_viable_symbols`` of its tuning to its queries."""
+    settings: list[bool] = []
+    search_supports = search._search_supports
+    signature = inspect.signature(search_supports)
+
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+        settings.append(signature.bind(*args, **kwargs).arguments["restrict_viable_symbols"])
+        return search_supports(*args, **kwargs)
+
+    # On this path graph state, the syndrome of X on the end qubits has no error of weight at most
+    # one, so the query searches.
+    monkeypatch.setattr(search, "_search_supports", record)
+    matrix = get_graph_state(4, [(0, 1), (1, 2), (2, 3)])
+    syndrome = get_syndrome(matrix, 0b1001)
+    assert get_exhaustive_minima(matrix, False)[syndrome] == 2
+    with use_tuning(restrict_viable_symbols=False):
+        oracle = CosetLeaderSearch(matrix, method="connected_cluster")
+    assert oracle.get_min_weight_bound(syndrome, 2).within_max_weight
+    assert settings and set(settings) == {False}
+
+
+@pytest.mark.parametrize("restrict_viable_symbols", [True, False])
+def test_connected_cluster_answers_match_exhaustive_minima(
+    pytestconfig: pytest.Config, restrict_viable_symbols: bool, tune: Tune
+) -> None:
     """Queries get the bounds that ``ConnectedClusterCosetSearch`` states."""
+    tune(restrict_viable_symbols=restrict_viable_symbols)
     # Graph states with phases are not CSS, and the connected-cluster method weighs errors on them
     # only by physical weight.  CSS states, with no pure-X stabilizer, only pure-X stabilizers, or
     # both, are weighed by both measures.
