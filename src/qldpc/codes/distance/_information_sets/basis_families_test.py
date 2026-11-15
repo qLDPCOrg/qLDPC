@@ -58,8 +58,8 @@ def test_information_set_packing() -> None:
     basis = np.array([[1, 1, 1, 0], [0, 0, 0, 1]], dtype=np.uint8)
     assert get_family(basis, None).ranks.tolist() == [2, 1]
 
-    # A packing of a basis of k rows keeps at most 2**k - 1 full sets, however many fit, and a
-    # natural order that reaches that limit needs no random orders: here 8 sets fit, and 7 stay.
+    # A packing of k rows keeps at most 2**k - 1 full sets, so here 7 of the 8 that fit, and a
+    # natural order that reaches that limit needs no random orders.
     three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
     packing = basis_families._get_disjoint_sets_for_columns
     with mock.patch.object(basis_families, "_get_disjoint_sets_for_columns", wraps=packing) as spy:
@@ -115,13 +115,9 @@ def test_weight_divisor_inference() -> None:
     [([10, 6, 2], 6, [10, 6]), ([10, 6, 2], 12, [10, 6, 2]), ([6, 2], 6, [6, 2])],
 )
 def test_prune_family(ranks: list[int], upper_bound: int, retained: list[int]) -> None:
-    """Pruning keeps full sets, and the partial sets that can help certify the target.
-
-    A set of ten rows with rank deficiency ``d`` adds to the bound only once layer ``d`` is
-    complete.  The full set alone certifies 6 once layer 5 is complete, so the set of deficiency 8
-    cannot help with 6, but no layer lets the full set alone certify 12.  Without a full set, every
-    set stays.
-    """
+    """Pruning keeps full sets, and the partial sets that can help certify the target."""
+    # A set of ten rows and deficiency d adds to the bound only from layer d.  The full set alone
+    # certifies 6 after layer 5, before the set of deficiency 8 adds anything, but never 12.
     no_columns = np.empty((len(ranks), 10, 0), dtype=np.uint8)
     pivots = np.full((len(ranks), 10), -1, dtype=np.int64)
     basis_family = basis_families.BasisFamily(
@@ -181,19 +177,14 @@ def test_overlapping_family_guards() -> None:
     assert not len(_get_overlapping_family(zeros, None, empty, 2).ranks)
 
     # An information set holds one of the third to fifth columns, which are equal, and two of the
-    # first, second, and sixth, so attempts rediscover the few such sets.  The search must terminate
-    # without a replacement that beats the disjoint family.
+    # first, second, and sixth, so attempts rediscover the few such sets.
     small = np.array([[1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 1, 0]], dtype=np.uint8)
     disjoint = basis_families.get_disjoint_family(small, None, random_column_orders=ORDERS)
     assert not len(_get_overlapping_family(small, None, disjoint, 3, minimum_work=0).ranks)
 
 
 def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Matroid partitioning replaces a disjoint family only in costly searches, and only if cheaper.
-
-    This [11, 4] basis has disjoint information sets of ranks four, four, and two, and information
-    sets that share columns certify the weight five with less work.
-    """
+    """Matroid partitioning replaces a disjoint family only in costly searches, if cheaper."""
     rows = ["10001011100", "01000001100", "00100000110", "00010011001"]
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     labels = np.eye(len(basis), dtype=np.uint8)
@@ -236,9 +227,8 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         np.testing.assert_array_equal(generators[:, pivots], np.eye(len(basis)))
     _assert_certificate_bounds_unvisited_words(basis, family)
 
-    # A family that the search would switch to rules partitioning out if it does no more work than
-    # any partitioned family could, and only then.  Partitioning asks for that work only if it
-    # would otherwise run.
+    # A competing family rules partitioning out exactly if it does no more work than any
+    # partitioned family could, and partitioning asks for its work only if it would otherwise run.
     tuning = dataclasses.replace(DEFAULT_TUNING, partition_work_ratio=0, max_information_sets=16)
     optimistic_work = basis_families._estimate_optimistic_work(
         len(basis),
@@ -280,13 +270,7 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
 
 
 def test_partitioning_runs_once_work_reaches_its_unit() -> None:
-    """Matroid partitioning runs only if the work of a search reaches a multiple of its unit.
-
-    The unit is the sum of ``b**2 * k**2 * n`` over the coverages ``b`` that partitioning tries, for
-    ``k`` rows and ``n`` nonzero columns.  Five full sets of this basis of 20 rows, whose disjoint
-    information sets have ranks 20, 20, and 5, could fit in its 45 nonzero columns from the coverage
-    ceil(5 * 20 / 45) = 3, so partitioning tries the coverages two and three.
-    """
+    """Matroid partitioning runs only if the work of a search reaches a multiple of its unit."""
     # The largest coverage and the unit agree with their definitions for largest coverages from zero
     # to eight, on a basis of 4 rows and 10 nonzero columns.
     for max_sets in range(20):
@@ -301,6 +285,8 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
     assert disjoint.ranks.tolist() == [20, 20, 5]
+    # Five full sets could fit in the 45 nonzero columns from the coverage ceil(5 * 20 / 45) = 3, so
+    # partitioning tries the coverages two and three.
     unit = (2**2 + 3**2) * 20**2 * 45
     ratio = disjoint.certificate.work(19) // unit
 
@@ -321,15 +307,9 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
 
 
 def test_maximum_disjoint_families_replace_smaller_packings() -> None:
-    """A maximum disjoint family has the most information sets, and then the largest partial set.
-
-    In natural column order, a greedy packing of the columns ``e1, e2, e3, e1 + e2, e1 + e2`` takes
-    the first three, and leaves a partial set of rank one, but ``e1 + e2, e2, e3`` leave ``e1`` and
-    ``e1 + e2``, of rank two.  Likewise, ``e1, e2, e1 + e2, e1 + e2`` hold two disjoint information
-    sets, but a greedy packing finds one.  The maximum families are disjoint sets, reduced on their
-    pivots, with valid certificates.  No family replaces a packing whose sets use every nonzero
-    column, or one of a basis whose packings all have the same ranks.
-    """
+    """A maximum disjoint family has the most information sets, then the largest partial set."""
+    # A greedy packing of e1, e2, e3, e1 + e2, e1 + e2 leaves a partial set of rank one, where the
+    # set e1 + e2, e2, e3 leaves rank two, and of e1, e2, e1 + e2, e1 + e2 finds one of two sets.
     for columns, ranks in (([1, 2, 4, 3, 3], [3, 2]), ([1, 2, 3, 3], [2, 2])):
         dimension = max(columns).bit_length()
         basis = ((np.array(columns) >> np.arange(dimension)[:, None]) & 1).astype(np.uint8)
@@ -358,9 +338,8 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
             assert not len(basis_families.get_maximum_disjoint_family(basis, disjoint).ranks)
         assert spy.call_count == num_partitions
 
-    # A maximum family keeps the limit of a packing: 8 information sets of three rows fit here, but
-    # a packing keeps 7.  So no family replaces those 7, and partitioning is skipped.  A family of 7
-    # replaces a family that holds only 3 of them.
+    # A maximum family keeps the limit of a packing, 7 of the 8 information sets that fit here, so
+    # it replaces a family of 3 of them, but not one of 7, which skips partitioning.
     three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
     capped = basis_families.get_disjoint_family(three_rows, None, random_column_orders=0)
     smaller = basis_families.BasisFamily(
@@ -487,12 +466,9 @@ def _get_overlapping_family(
 def _assert_certificate_bounds_unvisited_words(
     basis: npt.NDArray[np.uint8], family: basis_families.BasisFamily
 ) -> None:
-    """Check a basis family's certificates against every word that its search bases span.
+    """Check that each step's certificate bounds every word that no search basis has visited.
 
     A search basis visits a word after layer ``t`` if the word combines at most ``t`` of its rows.
-    After the first ``j`` search bases have completed layer ``t`` and the others layer ``t - 1``,
-    every word that none of them has visited must weigh at least the certificate of that step, with
-    or without the bound of linear programming.
     """
 
     def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
@@ -512,7 +488,6 @@ def _assert_certificate_bounds_unvisited_words(
         certificate,
         dataclasses.replace(certificate, pivot_blocks=pivot_blocks, lp_max_denominator=DENOMINATOR),
     ]
-    # Every search basis spans the same space as the original basis.
     assert all(weights.keys() == words.keys() for weights in coefficient_weights)
     weights = {word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words}
     steps = [
@@ -530,7 +505,6 @@ def _assert_certificate_bounds_unvisited_words(
                 for each in certificates:
                     assert weight >= each.step_lower_bound(layer, num_completed)
 
-    # Deciding whether a step certifies a bound agrees with the bound of that step.
     for each, (layer, num_completed) in itertools.product(certificates, steps):
         bound = each.step_lower_bound(layer, num_completed)
         for upper_bound in range(1, basis.shape[1] + 2):

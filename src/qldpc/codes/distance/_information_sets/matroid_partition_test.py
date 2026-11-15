@@ -26,8 +26,7 @@ def _is_information_set(basis: npt.NDArray[np.uint8], columns: list[int]) -> boo
 def _get_max_num_sets(basis: npt.NDArray[np.uint8], max_coverage: int, max_sets: int) -> int:
     """The most information sets, up to ``max_sets``, with no column in more than ``max_coverage``.
 
-    A depth-first search over the information sets, in a fixed order with repetition, which is
-    feasible for bases of a few columns.
+    A depth-first search, feasible for bases of a few columns.
     """
     information_sets = [
         columns
@@ -52,11 +51,7 @@ def _get_max_num_sets(basis: npt.NDArray[np.uint8], max_coverage: int, max_sets:
 
 
 def test_a_basis_whose_sets_need_columns_that_could_not_join_earlier() -> None:
-    """Three information sets of this [10, 4] basis use no column more than twice.
-
-    Filling the third set, some columns cannot join it, and the search skips their other copies, but
-    it must still try the columns after them.
-    """
+    """Filling a set still tries the columns after those whose copies could not join it."""
     rows = ["1100000100", "0010001000", "0000100100", "0000010100"]
     basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
     assert _get_max_num_sets(basis, 2, 16) == 3
@@ -64,10 +59,7 @@ def test_a_basis_whose_sets_need_columns_that_could_not_join_earlier() -> None:
 
 
 def test_sets_are_information_sets_with_bounded_coverage(pytestconfig: pytest.Config) -> None:
-    """On random bases, the sets are as many as brute force finds, and each is an information set.
-
-    A zero column is in no information set, so the sets never use one.
-    """
+    """On random bases, the sets are information sets within the coverage, as many as possible."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(25):
         dimension = int(rng.integers(1, 4))
@@ -86,13 +78,7 @@ def test_sets_are_information_sets_with_bounded_coverage(pytestconfig: pytest.Co
 def test_partial_sets_are_the_largest_that_information_sets_leave_room_for(
     pytestconfig: pytest.Config,
 ) -> None:
-    """With coverage one, a kept partial set is as large as any that disjoint sets leave room for.
-
-    On random bases, the sets are disjoint, as many information sets as brute force finds come
-    first, and then a partial set of independent columns, unless it would be empty.  Its size is
-    the largest rank of the columns that any choice of that many disjoint information sets leaves.
-    Without a partial set, those columns have rank zero.
-    """
+    """With coverage one, a partial set is as large as any that disjoint sets leave room for."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(25):
         dimension = int(rng.integers(1, 4))
@@ -115,8 +101,7 @@ def test_partial_sets_are_the_largest_that_information_sets_leave_room_for(
 def _get_largest_remaining_rank(basis: npt.NDArray[np.uint8], num_sets: int) -> int:
     """The largest rank of the columns that any ``num_sets`` disjoint information sets leave.
 
-    A search over the disjoint information sets, in a fixed order, which is feasible for bases of a
-    few columns.
+    An exhaustive search, feasible for bases of a few columns.
     """
     information_sets = [
         set(columns)

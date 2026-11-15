@@ -210,6 +210,7 @@ $$
 
 The coverage-divided certificate is the value of `y_i = 1/C`, and Zimmermann's is at most the value of `y_i = 1` on the blocks that contribute to it, so the optimum is at least both.
 It can be larger: for the seven columns `e1, e2, e3, e1+e2+e3, e1, e2, e3`, with `b_i = 2` on the four 3-subsets of the first four columns and on the last three, both certificates are four in every order of the blocks, but the linear program gives `ceil(14/3) = 5`.
+Its optimum is `14/3`, the value both of the point `x_c = 2/3` and of the dual weights `y_i = 1/3` on the four subsets and `y_i = 1` on the last three columns.
 
 qLDPC solves the program with `scipy.optimize.linprog`, evaluates the dual bound at the solver's `y` in exact rational arithmetic, and takes its ceiling, so rounding in the solver can only weaken the certificate.
 For disjoint blocks the program separates into the certificate of [Section 2.5](#25-the-stopping-certificate), so only overlapping families use it, and only in costly searches ([Section 4.4](#44-heuristics-and-cost-models)).
