@@ -128,11 +128,53 @@ def test_brute_force_visits_every_nontrivial_word_once(
     assert distance == expected_distance
 
 
-def test_get_distance_empty_stabilizers_symplectic() -> None:
-    """A symplectic-weight distance with no stabilizers returns the min logical operator weight.
+@pytest.mark.parametrize("num_bits", [300, 1000])
+def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
+    """The largest batch of an enumeration fills more than half of its room for packed integers.
 
-    With an empty ``stabilizers`` argument there is nothing to interleave, and the X/Z riffling
-    still handles the empty input.
+    A batch holds at most 2**batch_exponent packed integers, and each word packs into one 64-bit
+    integer for every 64 bits, so fewer long words fit in a batch.  Words of five integers, not a
+    power of two, check that a batch rounds its number of words down, and words of 16 integers check
+    that long words still share batches.
+    """
+    batch_exponent = 9
+    sizes = _get_batch_sizes(num_bits, batch_exponent, tune)
+    assert 2 ** (batch_exponent - 1) < max(sizes) <= 2**batch_exponent
+
+
+def test_brute_force_batches_hold_one_word_that_needs_more(tune: Tune) -> None:
+    """A word that alone needs more than 2**batch_exponent packed integers is weighed alone."""
+    assert set(_get_batch_sizes(129, 1, tune)) == {3}
+
+
+def _get_batch_sizes(num_bits: int, batch_exponent: int, tune: Tune) -> list[int]:
+    """The numbers of packed integers in the batches of an enumeration of random words."""
+    tune(enumeration_batch_exponent=batch_exponent)
+    rng = np.random.default_rng(num_bits)
+    logical_ops = rng.integers(2, size=(4, num_bits))
+    stabilizers = rng.integers(2, size=(8, num_bits))
+
+    # The weight spy records the number of packed integers in each batch that it weighs.
+    sizes: list[int] = []
+    bitwise_count = np.bitwise_count
+
+    def _spy_weight(
+        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
+    ) -> npt.NDArray[np.uint64]:
+        sizes.append(arr.size)
+        return bitwise_count(arr, out=out)
+
+    with mock.patch.object(np, "bitwise_count", _spy_weight):
+        qldpc.codes.distance.get_distance_from_generators(
+            logical_ops, stabilizers, method="brute_force"
+        )
+    return sizes
+
+
+def test_get_distance_empty_stabilizers_symplectic() -> None:
+    """Without stabilizers, a symplectic distance is the least weight of a logical operator.
+
+    Riffling the X and Z bits of the stabilizers handles their empty matrix.
     """
     # The symplectic vector [1, 0 | 0, 0] is an X operator on qubit 0 with symplectic weight 1.
     distance = qldpc.codes.distance.get_distance_from_generators(
@@ -142,12 +184,12 @@ def test_get_distance_empty_stabilizers_symplectic() -> None:
 
 
 def test_cutoff_early_exit(tune: Tune) -> None:
-    """cutoff makes get_distance_* return early once an operator of weight <= cutoff is found.
+    """A search returns early once it finds an operator of weight at most the cutoff.
 
-    Exercises all three early-exit return paths: the pre-loop vectorized block, the logical-op
-    sweep, and the nested stabilizer sweep.
+    The test reaches each of the three early exits: in the block before the sweep, in the sweep of
+    logical operators, and in the nested sweep of stabilizers.
     """
-    # The pre-loop vectorized block contains a codeword with Hamming weight 1.
+    # The block before the sweep contains a word of Hamming weight 1.
     assert (
         qldpc.codes.distance.get_distance_from_generators(
             [[1, 0, 0, 0]], cutoff=1, method="brute_force"
@@ -177,8 +219,8 @@ def test_cutoff_early_exit(tune: Tune) -> None:
     assert distance == 1
 
 
-@pytest.mark.parametrize("homogeneous", [True, False], ids=["hamming", "symplectic"])
-def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
+@pytest.mark.parametrize("symplectic", [False, True], ids=["hamming", "symplectic"])
+def test_early_exit_returns_only_weighed_operators(symplectic: bool) -> None:
     """An early exit returns the weight of an operator that the search has weighed.
 
     With a batch of one word, the vectorized block holds no logical operator, so the search has
@@ -186,14 +228,14 @@ def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
     there.
     """
     num_qubits = 3
-    logical_op = [1, 0, 0] if homogeneous else [1, 0, 0, 0, 0, 0]
-    stabilizer = [0, 1, 1] if homogeneous else [0, 1, 1, 0, 0, 0]
+    logical_op = [1, 0, 0, 0, 0, 0] if symplectic else [1, 0, 0]
+    stabilizer = [0, 1, 1, 0, 0, 0] if symplectic else [0, 1, 1]
     distance = _brute_force._get_distance_brute_force(
         [logical_op],
         [stabilizer],
         cutoff=len(logical_op),
         batch_exponent=0,
-        homogeneous=homogeneous,
+        symplectic=symplectic,
     )
     assert distance == 1
 
@@ -203,7 +245,7 @@ def test_early_exit_returns_only_weighed_operators(homogeneous: bool) -> None:
         [stabilizer],
         cutoff=100,
         batch_exponent=0,
-        homogeneous=homogeneous,
+        symplectic=symplectic,
     )
     assert distance == num_qubits + 1
 
@@ -218,7 +260,10 @@ def test_riffle() -> None:
 
 
 def test_symplectic_weight() -> None:
-    """Validate symplectic_weight against the reference bit-counting implementation."""
+    """``symplectic_weight`` matches a reference that counts bits one at a time.
+
+    Given ``out``, it writes the weights there and returns that array.
+    """
     rng = np.random.default_rng(64)
     vals = rng.integers(0, 2**64, size=(7, 11), dtype=np.uint64)
     expected_weights = count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)

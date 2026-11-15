@@ -1,78 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Routes of the BZ coset searches: the family of information sets that answers a maximum weight.
+"""Routes of BZ coset searches: the family, tails, and tables for the queries at a maximum weight.
 
-A BZ coset search of ``CosetLeaderSearch`` answers whether the coset of a syndrome has a word of
-weight at most ``max_weight`` by scanning the layers of a family of information sets of its code, up
-to the stopping step of ``max_weight`` (see ``coset.py``).  It is built with the disjoint
-information sets of a greedy packing, which are cheap to find.  A code whose length is less than
-twice its dimension has only one such information set, so queries at larger maximum weights scan
-many layers.  A greedy packing can also miss information sets.  The columns ``e1``, ``e2``,
-``e1 + e2``, and ``e1 + e2`` hold two disjoint information sets, but a greedy packing in natural
-order takes ``e1`` and ``e2``, and leaves a partial set of rank one.  Families with more information
-sets stop sooner, but take milliseconds to build, which only costly queries repay.
-
-The routes choose the family that answers each maximum weight.  A search has a table of the bounds
-of its steps for each parity of its cosets, or one table for every coset.  The work of a table at
-``max_weight`` is the work of the plan of its steps (see ``certificates.plan_steps``).  It is the
-number of words that a query that takes the table weighs, or skips by completion tables (Section 3.9
-of ``brouwer_zimmermann.md``), after the word of its syndrome if no word of its coset weighs at most
-``max_weight``, and at most that number otherwise.  The predicted examinations of a query at
-``max_weight`` are one more than the largest work of a table of the disjoint family: the
-examinations of the costliest query that finds no light enough word, without completion tables, and
-at most that number with them.  The gate compares them with its threshold, the field
-``overlapping_minimum_work`` of the tuning.  Below the threshold, the route of ``max_weight`` is the
-disjoint family.  Otherwise, the routes try to build two other families once, at the target weight,
-the smallest maximum weight from two whose predicted examinations reach the threshold.  They keep
-each that they find:
-
-- the maximum disjoint family of ``basis_families.get_maximum_disjoint_family``, if it has more
-  information sets or a larger partial set than the greedy packing; and
-- a family of overlapping information sets from ``basis_families.get_overlapping_family``, if it
-  finds one that does less work than the family that it starts from.  It is aimed at the Hamming
-  weight ``η * target_weight + 1`` that a query at the target weight without a light word must
-  certify, for the weight factor ``η`` of the search, and it is built with the fields
-  ``max_information_sets`` and ``overlapping_attempts_per_set``, as in the distance searches.
-
-The route of ``max_weight`` is then the family with the least work at ``max_weight``, summed over
-its tables, which weighs every parity.  Among families of equal work, it is the first of the
-disjoint, the maximum disjoint, and the overlapping family.  The certificate of every such family
-bounds the words of each coset (see ``affine_instance.get_coset_family_instance``), so every route
-answers exactly.  Routes can return different words and lower bounds, within the contract of
-``MinWeightBound``.  Each route depends only on the code, ``max_weight``, and the tuning, so the
-answers do not depend on which queries came before.  The routes keep a copy of the generators of
-the code, which they read when they build the other families, so later changes to the array of the
-caller do not reach them.
-
-The gate tests the predicted examinations with the disjoint family against its threshold, to decide
-whether a query may take another family.  A route is a route by tails if those with the route's own
-family, which can do less work, also reach the threshold.  The queries of a route by tails weigh the
-words of its family by their tails, which hold the columns other than the pivot columns of each set
-(see ``coset_tables.CosetTails``).  They also skip the completions that completion tables of the
-tails show to lie beyond their maximum weight (Section 3.9 of ``brouwer_zimmermann.md``).  So the
-routes also give the record of the tails and tables of the family of each route by tails, from
-``coset_tables.get_coset_tails``.  The search of Pauli errors by CSS weight has no routes by tails,
-so it gets no records.  The routes build the tails of a family once, and the tables of a set of the
-family once, for the first route that needs them.  A route needs the tables of the sets that its
-queries visit in layers of two or more rows, since tables bound the completions of a prefix by two
-more rows (see ``completion_bounds.considers_tables``).  It needs them whatever the work of those
-layers, since the gate of routes by tails replaces the minimum work of a layer and the cost model of
-the tables of distance searches.  A set gets tables only if they fit in the field
-``completion_bound_max_table_bytes`` of the tuning.  Every route by tails of a family gives the
-latest record of the family, which holds the tables of each set once.  That record can hold tables
-that other routes of the family needed, but the queries of a route read only the tables that it
-needs, so their answers do not depend on earlier queries.  A search for minimum weights up to the
-maximum weight of a route takes the route too, and visits no layer that its queries do not visit,
-since its stopping step comes no later than theirs (Section 3.10 of ``brouwer_zimmermann.md``).
-
-The tails change how a query weighs words, and the tables which words it skips, but neither changes
-which word of weight at most the maximum weight a query finds first, if any.  A query without such a
-word can return another word, and a lower bound of the least weight beyond the maximum weight that a
-word of its coset can have, within the contract of ``MinWeightBound``.  A query by tails took about
-50 ns more than a query of whole words in a prototype, for the tails of its offsets and the rebuild
-of its lightest word, which made batches of queries of under 100 examinations each up to about twice
-as slow.  So only queries that are costly even with the family of their route weigh words by their
-tails.
+For a BZ coset search of ``CosetLeaderSearch``, ``CosetRoutes`` chooses the route of each maximum
+weight once: its family of information sets, and whether its queries weigh words by their tails and
+skip completions by completion tables.  Every route answers within the contract of
+``MinWeightBound``, and depends only on the code, the maximum weight, and the tuning.  Section 4.4
+of ``brouwer_zimmermann.md`` gives the rules of the routes and their reasons, Section 4.1 says how
+``CosetRoutes`` keeps tails and tables, and Sections 3.1, 3.9, and 5 say why every route answers
+correctly and reproducibly.
 """
 
 from __future__ import annotations
@@ -93,11 +29,10 @@ from .coset_tables import CosetSearchTables, CosetTails
 _Family = tuple[affine_instance.AffineInstance, CosetSearchTables]
 
 # Threads that choose routes at once take turns.  Choosing a route runs plain Python, which threads
-# can interleave even with the global interpreter lock, and the route of a family by tails builds
-# the record of the family from its latest record.  Two threads that built from the same record at
-# once could each store a record without the tables of the other's route.  Routes are chosen
-# rarely, typically in milliseconds, so one shared lock costs little.  A lock on each search would
-# keep it from pickling.
+# can interleave despite the global interpreter lock, and the route of a family by tails builds the
+# record of the family from its latest record.  Two threads building from one record at once could
+# each store a record without the tables of the other's route.  A search chooses each route once, so
+# threads rarely wait for one shared lock; a lock per search would keep the search from pickling.
 _ROUTE_LOCK = threading.Lock()
 
 ####################################################################################################
@@ -108,18 +43,18 @@ class CosetRoutes:
     """The tables, and records of tails, with which a BZ coset search answers each maximum weight.
 
     Args:
-        basis: The independent embedded generators of the code of the search, which the routes
-            copy.
+        basis: The independent embedded generators of the code of the search.  The routes keep a
+            copy, from which they build the other families, so later changes to the array of the
+            caller do not reach them.
         disjoint: The coset instance of the disjoint information sets of ``basis``.
         inverse: The embedded words whose syndromes have one bit set, with every column of the
             embedded words.  The tables and records of tails of every family hold them (see
             ``coset_tables.get_search_tables`` and ``coset_tables.get_coset_tails``).
         num_x_columns: The number of the first columns of the embedded words that count as their X
             part (see ``coset_tables.get_search_tables``).
-        minimum_work: The threshold of the gate and of the routes by tails, the field
-            ``overlapping_minimum_work`` of the tuning.  A query whose predicted examinations with
-            the disjoint family are below it keeps that family.  A route is a route by tails if the
-            predicted examinations with its own family reach it.
+        minimum_work: The field ``coset_route_minimum_work`` of the tuning.  A query whose
+            predicted examinations with the disjoint family are below it keeps that family.  A route
+            is a route by tails if the predicted examinations with its own family reach it.
         max_sets: The most sets of a family of overlapping information sets, the field
             ``max_information_sets`` of the tuning.
         attempts_per_set: The field ``overlapping_attempts_per_set`` of the tuning.
@@ -194,11 +129,11 @@ class CosetRoutes:
     ) -> list[int]:
         """The work of a family at a maximum weight, for each table of its planning buffer.
 
-        This is the work of the plan of the steps of the table (see ``certificates.plan_steps``)
-        from layer zero, for the limit ``max_weight``, without the unused sets that a query leaves
-        out.  It is the number of words that a query that finds no word weighs, or skips by
-        completion tables (Section 3.9 of ``brouwer_zimmermann.md``), after the word of its
-        syndrome.
+        The work of a table is that of the plan of its steps from layer zero for the limit
+        ``max_weight``, without the unused sets that a query skips (see
+        ``certificates.plan_steps``).  It counts the words that a query without a light enough word
+        weighs, or skips by completion tables, after the word of its syndrome (Section 3.9 of
+        ``brouwer_zimmermann.md``).
         """
         return [
             certificates.plan_steps(
@@ -216,9 +151,8 @@ class CosetRoutes:
     def _choose(self, max_weight: int) -> tuple[CosetSearchTables, int | None]:
         """Choose the tables of the route of a maximum weight, and its family if it is by tails.
 
-        The record of the family of a route by tails gains the tables of the sets that the route
-        needs.  A route by tails gives the position of its family among the disjoint family and the
-        others.
+        A route by tails gives the position of its family among the disjoint family and the others,
+        and the record of that family gains the tables of the sets that the route needs.
         """
         disjoint = (self._disjoint, self.disjoint_tables)
         if self._get_examinations(*disjoint, max_weight) < self._minimum_work:
@@ -262,7 +196,7 @@ class CosetRoutes:
     def _get_examinations(
         self, instance: affine_instance.AffineInstance, tables: CosetSearchTables, max_weight: int
     ) -> int:
-        """The predicted examinations of a query with a family that finds no word.
+        """The predicted examinations of a query with a family, if it finds no light enough word.
 
         They are the largest work of the family over its tables, plus one for the word of the
         syndrome.

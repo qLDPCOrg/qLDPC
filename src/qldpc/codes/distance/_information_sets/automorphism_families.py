@@ -10,9 +10,9 @@ on ``I``.  So a BZ search can scan ``I`` alone, and certify with the automorphis
 images of ``I`` under all of ``G``, which completes each coefficient layer when ``I`` does.
 Section 3.7 of ``brouwer_zimmermann.md`` derives the certificate of this family.
 
-The connected-support search of ``_connected_support/search.py`` also uses
-``verify_automorphisms``, and the orbits of ``get_orbits``, whose order fixes its ranks of
-variables.
+The connected-cluster search of ``_connected_cluster/search.py`` also uses
+``verify_automorphisms`` and ``get_orbits``.  It ranks its variables orbit by orbit, in the order in
+which ``get_orbits`` numbers the orbits.
 """
 
 from __future__ import annotations
@@ -76,9 +76,10 @@ def get_automorphism_family(
 
     ``basis``, ``labels``, and ``automorphisms`` are as in ``verify_automorphisms``, which must
     accept them, and ``weight_divisor`` is a proven divisor of the Hamming weight of every eligible
-    word.  A column of an orbit ``O`` of the group lies in the same number of images of ``I`` as
-    every other column of ``O``, so the certificate is strongest when the scanned set ``I`` meets
-    every orbit in an even share ``|I ∩ O| / |O|``.
+    word.  Every column of an orbit ``O`` of the group lies in the same number of images of the
+    scanned set ``I``, in proportion to the share ``|I ∩ O| / |O|``.  The certificate depends on the
+    largest share, so it is strongest when every orbit has the same share.  The function chooses
+    ``I`` to lower the largest share (see ``_balance_orbit_shares``).
 
     Returns:
         A basis family of ``I`` alone, and the certificate of all of its images.
@@ -121,8 +122,9 @@ def estimate_automorphism_family_work(certificate: Certificate, upper_bound: int
     This is ``Certificate.work`` for a search that scans one set of the family of ``certificate``,
     whose other sets are its images, and it is pessimistic in the same way.  Every image completes
     each layer when the scanned set does, so the steps of the search are the complete layers of the
-    family.  Its plan (see ``plan_steps``) is that of one set whose bounds are those of the family
-    once it has completed each layer, the last column of the table of its bounds on Hamming weight.
+    family.  Its plan (see ``plan_steps``) is that of one set.  The bound after each layer of that
+    set is the bound of the family once every set has completed the layer, which is the last column
+    of the table of the family's bounds on Hamming weight.
     """
     dimension, num_sets = certificate.dimension, len(certificate.ranks)
     layer_bounds = certificate.get_weight_bounds(1)[:, [0, num_sets]]

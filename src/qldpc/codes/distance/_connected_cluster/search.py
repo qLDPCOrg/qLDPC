@@ -5,20 +5,17 @@
 The search finds a nonzero vector ``x`` that satisfies sparse parity checks ``H`` and is outside the
 row space of ``G``, by growing a support only through unsatisfied checks, and pruning with bounds on
 the number of variables that a support still needs.  The vectors are binary, or the symplectic
-vectors of Pauli operators, whose weights count qubits.  It follows Algorithm 2 in Section V of
-Okada and Kasai, https://arxiv.org/abs/2607.14091, which searches CSS codes.  The idea is older:
-searches of the Tanner graphs of classical LDPC codes, and the irreducible-cluster technique of
-Dumer, Kovalev, and Pryadko for classical and quantum LDPC codes, use it too (see the references
-of ``connected_support.md``).  The same search, started from a nonzero syndrome rather than from
+vectors of Pauli operators, whose weights count qubits.  It is the connected-cluster algorithm of
+Dumer, Kovalev, and Pryadko, https://arxiv.org/abs/1611.07164, with the branch and bound of
+Algorithm 2 in Section V of Okada and Kasai, https://arxiv.org/abs/2607.14091 (see the references
+of ``connected_cluster.md``).  The same search, started from a nonzero syndrome rather than from
 a root, finds a light vector with that syndrome, such as a light Pauli error with a given syndrome
 on a stabilizer state.
 
-``connected_support.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
-correctness requirements.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py``
-solves the same problem for any binary code.  This module reuses ``infer_weight_divisor`` of
-``_information_sets/basis_families.py``, and ``verify_automorphisms`` and ``get_orbits`` of
-``_information_sets/automorphism_families.py``.  The coset searches of ``CosetLeaderSearch`` that
-start from a syndrome are in ``coset.py`` beside this module.
+``connected_cluster.md`` in ``src/qldpc/codes/distance/`` derives the search and states its
+correctness requirements, and ``README.md`` there says which other modules use this one and which it
+uses.  The Brouwer-Zimmermann search in ``_brouwer_zimmermann/distance.py`` solves the same problem
+for any binary code.
 """
 
 from __future__ import annotations
@@ -49,12 +46,12 @@ _BLOCKED = 2**40
 # search entry points
 
 
-def get_distance_connected_support(
+def get_distance_connected_cluster(
     problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
     *,
     cutoff: int,
     upper_bound: int | None = None,
-    homogeneous: bool = True,
+    symplectic: bool = False,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning | None = None,
 ) -> int:
@@ -65,12 +62,13 @@ def get_distance_connected_support(
     the row space of ``excluded`` (see ``SupportSearch``).  The rows of ``excluded`` must satisfy
     every check.
 
-    The search of each problem raises its weight limit ``W`` through the weights that a witness may
-    have, one weight divisor at a time.  Each pass either finds a witness of weight at most ``W`` or
-    certifies that every witness is heavier, so a witness within a limit that follows such passes
-    is a lightest one.  The first limit of each problem is the larger of its weight divisor and
-    the largest multiple of it that is at most ``cutoff``.  If the search finds a witness of weight
-    at most ``cutoff``, the result is the weight of that witness, which can exceed the distance.
+    The search of each problem raises its weight limit ``W`` one weight divisor at a time, through
+    the weights that a witness may have.  At each limit, it either finds a witness of weight at most
+    ``W``, or certifies that every witness is heavier.  So a witness found after such certified
+    limits is a lightest one.  The first limit of each problem is its weight divisor, or the largest
+    multiple of the divisor that is at most ``cutoff`` if that is larger.  Once the search finds a
+    witness of weight at most ``cutoff``, it returns the weight of that witness, which can exceed
+    the distance.
 
     Args:
         problems: The ``(checks, excluded)`` pairs to search.
@@ -79,8 +77,8 @@ def get_distance_connected_support(
         upper_bound: A cap on the result, if any, such as the weight of a known witness that is not
             in ``problems``, or ``max_weight + 1`` under a weight limit.  The result is the minimum
             of this bound and the distances of ``problems``.
-        homogeneous: Whether the problems have binary words, rather than the symplectic words of
-            Pauli operators (see ``SupportSearch``).  Default: True.
+        symplectic: Whether the problems have the symplectic words of Pauli operators, rather than
+            binary words (see ``SupportSearch``).  Default: False.
         get_automorphisms: A function that returns an array of generators of a group of
             permutations of the variables, or None.  Each row ``p`` of the array maps variable ``j``
             to variable ``p[j]``.  Each generator must map the words of every problem, and the row
@@ -119,7 +117,7 @@ def get_distance_connected_support(
         search = SupportSearch(
             checks,
             excluded,
-            homogeneous=homogeneous,
+            symplectic=symplectic,
             get_automorphisms=get_automorphisms,
             automorphism_minimum_states=automorphism_minimum_states,
         )
@@ -133,14 +131,14 @@ def get_distance_connected_support(
     # No witness of a problem has a weight below its lower bound, which is a multiple of the weight
     # divisor.  Search the problem with the lowest bound, until the best known witness is as light.
     # A correct search takes at most n // d limits for each problem of n variables and divisor d
-    # (see "Termination" in connected_support.md), and a broken one fails instead of looping.
+    # (see "Termination" in connected_cluster.md), and a broken one fails instead of looping.
     lower_bounds = [search.weight_divisor for search in searches]
     max_num_limits = sum(search.num_variables // search.weight_divisor for search in searches)
     num_limits = 0
     while best_weight is None or best_weight > min(lower_bounds):
         if num_limits == max_num_limits:
             raise RuntimeError(
-                f"The connected-support search needed more than {max_num_limits} weight limits,"
+                f"The connected-cluster search needed more than {max_num_limits} weight limits,"
                 " which only a bug can cause"
             )
         num_limits += 1
@@ -164,12 +162,12 @@ class SupportSearch:
     A word is a vector ``x`` that satisfies every check, and its support is the set of variables on
     which it is nonzero.  Its weight is the size of its support.  The row space of ``excluded`` must
     satisfy every check, and the words outside it are the witnesses.  The search grows a support
-    through the checks that it leaves unsatisfied (see ``connected_support.md``), so it is fast if
-    ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
+    through the checks that it leaves unsatisfied (see ``connected_cluster.md``), so it can be fast
+    only if ``checks`` is sparse.  It also finds light vectors with a given syndrome, which need not
     satisfy the checks (see ``find_vector_with_syndrome``).
 
-    A homogeneous problem has binary words, whose coordinates are the variables, and a word ``x``
-    satisfies a check ``h`` if ``h @ x = 0``.  A problem that is not homogeneous has the symplectic
+    A problem that is not symplectic has binary words, whose coordinates are the variables, and a
+    word ``x`` satisfies a check ``h`` if ``h @ x = 0``.  A symplectic problem has the symplectic
     words ``x = (a | b)`` of Pauli operators on ``n`` qubits, which are its variables, and the value
     of a qubit is the Pauli ``X``, ``Z``, or ``Y`` that ``x`` has there.  Such a word satisfies a
     check if they commute, which is if their symplectic product vanishes.
@@ -180,17 +178,17 @@ class SupportSearch:
         excluded: A binary matrix whose row space is excluded.
 
     Keyword args:
-        homogeneous: Whether the problem is homogeneous, rather than symplectic.  Default: True.
+        symplectic: Whether the problem is symplectic.  Default: False.
         get_automorphisms: A function that returns an array of generators of a group of
-            permutations of the variables, or None, as in ``get_distance_connected_support``.
+            permutations of the variables, or None, as in ``get_distance_connected_cluster``.
         automorphism_minimum_states: The search calls ``get_automorphisms`` at most once, before
             the first weight limit at which it expects its visited states, over all weight limits,
             to reach this number, as the field of ``SearchTuning`` says.  Zero asks for them before
             the first weight limit.
 
     Attributes:
-        num_variables: The number of variables: the number of columns of ``checks`` if the problem
-            is homogeneous, and half of it otherwise.
+        num_variables: The number of variables: the number of columns of ``checks``, or half of it
+            if the problem is symplectic.
         weight_divisor: A divisor of the weight of every word.
         num_states: The number of states that ``find_witness`` has visited so far, over all of its
             weight limits.  The empty support at the start of the search from each root is not
@@ -210,7 +208,7 @@ class SupportSearch:
         checks: npt.ArrayLike,
         excluded: npt.ArrayLike,
         *,
-        homogeneous: bool = True,
+        symplectic: bool = False,
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         automorphism_minimum_states: int,
     ) -> None:
@@ -222,12 +220,12 @@ class SupportSearch:
         excluded = np.asarray(excluded, dtype=np.uint8)
         if checks.ndim != 2 or excluded.ndim != 2 or checks.shape[1] != excluded.shape[1]:
             raise ValueError("Checks and excluded rows must be matrices with equal widths")
-        if not homogeneous and checks.shape[1] % 2:
+        if symplectic and checks.shape[1] % 2:
             raise ValueError("Symplectic matrices must have an even number of columns")
 
-        self.num_variables = checks.shape[1] if homogeneous else checks.shape[1] // 2
+        self.num_variables = checks.shape[1] // 2 if symplectic else checks.shape[1]
         self.num_states = 0
-        self._homogeneous = homogeneous
+        self._symplectic = symplectic
         self._last_two_num_states: tuple[int, int] | None = None
         self._excluded = excluded
         self._get_automorphisms = get_automorphisms
@@ -235,7 +233,7 @@ class SupportSearch:
 
         # A symplectic check is satisfied if its dot product with a word vanishes once its halves
         # are swapped, and the excluded rows must satisfy every check.
-        if not homogeneous:
+        if symplectic:
             checks = swap_pauli_halves(checks)
         if np.any(multiply_binary(checks, excluded.T)):
             raise ValueError("The excluded rows must satisfy the checks")
@@ -267,12 +265,13 @@ class SupportSearch:
         # since their weights count qubits rather than bits.
         self._roots = np.arange(self.num_variables, dtype=np.int64)
         self._ranks = np.arange(self.num_variables, dtype=np.int64)
-        self.weight_divisor = infer_weight_divisor(get_kernel(self._checks)) if homogeneous else 1
+        self.weight_divisor = 1 if symplectic else infer_weight_divisor(get_kernel(self._checks))
 
-        # Weights of checks are multiples of 1 / scale, and an overlap is at most the largest number
-        # of checks of a symbol, which is taken to be at least one, so that the scale exists even
-        # without checks.  Every overlap divides the scale if the scale is small enough, and the
-        # inverse of an overlap is rounded down otherwise.
+        # Weigh checks in units of 1 / scale.  An overlap is at most the largest number of checks of
+        # a symbol, taken to be at least one so that the scale exists even without checks.  The
+        # scale is the least common multiple of the possible overlaps, which each divide it, unless
+        # that exceeds _MAX_SCALE.  The scale is then _MAX_SCALE, and the inverse of an overlap is
+        # rounded down.
         max_column_weight = int(np.max(np.sum(flips, axis=0), initial=1))
         scale = min(math.lcm(*range(1, max_column_weight + 1)), _MAX_SCALE)
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)
@@ -297,8 +296,9 @@ class SupportSearch:
             The sorted symbols of a witness, one for each variable of its support, or None if there
             is no witness of weight at most ``max_weight``.  A witness need not be a lightest one.
             Symbol ``k n + j`` gives variable ``j`` value ``k``, where ``n`` is the number of
-            variables.  A homogeneous problem has one value, so its symbols are its variables, and
-            a symplectic problem has the values ``X``, ``Z``, and ``Y``, in that order.
+            variables.  A problem that is not symplectic has one value, so its symbols are its
+            variables, and a symplectic problem has the values ``X``, ``Z``, and ``Y``, in that
+            order.
 
         Raises:
             ValueError: If the weight limit is less than one, or if this search asks for
@@ -343,7 +343,7 @@ class SupportSearch:
         The syndrome of a vector says which checks it fails, so the vectors with a syndrome are a
         coset of the vectors that satisfy every check, and the excluded rows play no part.  The
         search starts from the syndrome, and grows supports through its unsatisfied checks without
-        roots, symmetries, or a weight divisor (see Section 3.8 of ``connected_support.md``).  Like
+        roots, symmetries, or a weight divisor (see Section 3.8 of ``connected_cluster.md``).  Like
         ``find_witness``, it is exhaustive, but need not find a lightest vector.
 
         Args:
@@ -421,7 +421,7 @@ class SupportSearch:
 
         The number of states of each weight limit is expected to grow by the ratio between those of
         the last two limits.  It is expected not to grow if the limit before the last visited no
-        states, as before the second limit (see Section 3.5 of ``connected_support.md``).  A first
+        states, as before the second limit (see Section 3.5 of ``connected_cluster.md``).  A first
         limit above the weight divisor, which a cutoff can raise, skips the cheap limits below it,
         so it has no estimate.  It is expected to reach any threshold short of ``MAX_VALUE``.
         """
@@ -437,7 +437,7 @@ class SupportSearch:
         For a symplectic problem, the columns are those of the ``X`` part, of the ``Z`` part, and
         of their sum, for the values ``X``, ``Z``, and ``Y``.
         """
-        if self._homogeneous:
+        if not self._symplectic:
             return matrix
         part_x, part_z = matrix[:, : self.num_variables], matrix[:, self.num_variables :]
         return np.hstack([part_x, part_z, part_x ^ part_z])
@@ -466,9 +466,9 @@ class SupportSearch:
         """
         basis, labels = get_nested_code_basis(get_kernel(self._checks), self._excluded)
         lifted = (
-            automorphisms
-            if self._homogeneous
-            else np.hstack([automorphisms, automorphisms + self.num_variables])
+            np.hstack([automorphisms, automorphisms + self.num_variables])
+            if self._symplectic
+            else automorphisms
         )
         automorphism_families.verify_automorphisms(basis, labels, lifted)
         orbits = automorphism_families.get_orbits(automorphisms, self.num_variables)
@@ -524,7 +524,7 @@ def _search_supports(
 
     With ``memoize``, each state computes the overlap and the repair of each symbol at most once
     (see ``_get_branches``).  This saves time when checks are dense, as those of syndrome queries
-    can be (see Section 3.8 of ``connected_support.md``).  It costs time when they are sparse.
+    can be (see Section 3.8 of ``connected_cluster.md``).  It costs time when they are sparse.
 
     Returns:
         The symbols of a witness, or of a solution, of weight at most ``max_weight``, or an empty
@@ -824,8 +824,8 @@ def _get_branches(
         # The allowed symbols are now the available ones.
         available_level += 1
 
-    # Branch on the available symbols of the chosen check, most repairing first, which Section 3.3
-    # of connected_support.md measures.
+    # Branch on the chosen check's available symbols, most repairing first, which Section 3.3 of
+    # connected_cluster.md explains.
     num_branches = 0
     for position in range(check_starts[branch_check], check_starts[branch_check + 1]):
         symbol = check_symbols[position]
@@ -856,7 +856,7 @@ def _shift_other_values(
 ) -> None:
     """Add ``change`` to the levels of the symbols that give the variable of a symbol other values.
 
-    The loop is empty if every variable has one value, as for homogeneous problems.
+    The loop is empty if every variable has one value, as for problems that are not symplectic.
     """
     num_symbols = len(levels)
     for value in range(1, num_symbols // num_variables):

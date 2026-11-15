@@ -15,7 +15,20 @@ from ..common import CSSCode
 
 
 class TrivialCode(CSSCode):
-    """The trivial code with single-qubit logical operators."""
+    """The trivial code with single-qubit logical operators.
+
+    The code is a direct sum whose ``size`` qubits are laid out, in order, as
+
+    - ``dimension = size - gauge_dimension - num_stabs_x - num_stabs_z`` logical qubits,
+    - ``gauge_dimension`` gauge qubits (each carrying a weight-one X and Z gauge operator),
+    - ``num_stabs_x`` qubits each stabilized by a single-qubit X-type operator, and
+    - ``num_stabs_z`` qubits each stabilized by a single-qubit Z-type operator.
+
+    If ``self_dual is True``, then ``num_stabs_x`` and ``num_stabs_z`` must be equal, and the X-type
+    and Z-type stabilizers are paired into weight-two XX and ZZ operators on shared qubits, so that
+    ``matrix_x == matrix_z``.  It is enough to specify just one of ``num_stabs_x`` and
+    ``num_stabs_z`` in this case; the other defaults to the same value.
+    """
 
     def __init__(
         self,
@@ -27,20 +40,7 @@ class TrivialCode(CSSCode):
         self_dual: bool = False,
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
-        """Initialize a trivial code from single-qubit stabilizers and gauge operators.
-
-        The code is a direct sum whose ``size`` qubits are laid out, in order, as
-
-        - ``dimension = size - gauge_dimension - num_stabs_x - num_stabs_z`` logical qubits,
-        - ``gauge_dimension`` gauge qubits (each carrying a weight-one X and Z gauge operator),
-        - ``num_stabs_x`` qubits each stabilized by a single-qubit X-type operator, and
-        - ``num_stabs_z`` qubits each stabilized by a single-qubit Z-type operator.
-
-        If ``self_dual is True``, then ``num_stabs_x`` and ``num_stabs_z`` must be equal, and the
-        X-type and Z-type stabilizers are paired into weight-two XX and ZZ operators on shared
-        qubits, so that ``matrix_x == matrix_z``.  It is enough to specify just one of
-        ``num_stabs_x`` and ``num_stabs_z`` in this case; the other defaults to the same value.
-        """
+        """Initialize a trivial code from single-qubit stabilizers and gauge operators."""
         field = resolve_field(field)
 
         if self_dual:

@@ -27,8 +27,8 @@ NO_WORD_BOUND = np.iinfo(np.int64).max
 
 # Caps that keep work estimates within a native integer.  A binomial above _BINOMIAL_CAP counts as
 # the cap, and a sum saturates at WORK_CAP, so an estimate is exact only if it reaches neither cap.
-# Searches that reach a cap are infeasible, so their order, against other basis families or
-# exhaustive enumeration, does not matter.
+# Searches that reach a cap are infeasible, so their order against other basis families does not
+# matter.
 _BINOMIAL_CAP = 1 << 50
 WORK_CAP = 1 << 61
 
@@ -126,12 +126,13 @@ class Certificate:
 
         The search stops at its stopping step: the first step of the layer whose
         ``step_lower_bound`` exceeds ``limit``, or the last step, ``(layer, len(ranks))``, if none
-        does.  Returns the number of sets that have completed the layer at that step.  Without
-        linear programs, ``find_stopping_step`` finds the step.  A certificate that solves linear
-        programs checks the steps in order with ``certifies``, except the last step, which stops the
-        search anyway.  So it solves a program only for a step before the stopping step or at it,
-        never for the last step, and only when the coverage bound of the step does not exceed the
-        limit.
+        does.  Returns the number of sets that have completed the layer at that step.
+
+        Without linear programs, ``find_stopping_step`` finds the step.  A certificate that solves
+        linear programs checks the steps in order with ``certifies``, except the last step, which
+        stops the search anyway.  So it solves the program of a step only if the step comes no later
+        than the stopping step and is not the last step, and the coverage bound of the step does not
+        exceed the limit.
         """
         num_sets = len(self.ranks)
         if not self._solves_linear_programs:
@@ -154,18 +155,26 @@ class Certificate:
         """
         return self.plan(upper_bound - 1, weight)
 
-    def work(self, upper_bound: int) -> int:
+    def work(self, upper_bound: int, first_layer: int = 1) -> int:
         """Estimate the candidate/set evaluations needed to certify ``upper_bound``.
 
-        This is the work of ``plan_steps`` for every layer from one, every set, and the limit
-        ``upper_bound - 1``, on the table of the coverage bound.  So the estimate solves no linear
-        programs.  It is pessimistic: it includes systematic rows (coefficient weight one), and it
-        assumes no lighter witness is found before the certificate reaches the upper bound.
+        This is the work of ``plan_steps`` for every layer from ``first_layer``, every set, and the
+        limit ``upper_bound - 1``, on the table of the coverage bound.  So the estimate solves no
+        linear programs.  A later ``first_layer`` estimates the work left once every set has
+        completed the layers before it.  The estimate is pessimistic: it assumes no lighter witness
+        is found before the certificate reaches the upper bound, and from layer one it includes
+        systematic rows (coefficient weight one).
         """
         ranks, *_ = self._as_array_arguments()
         binomials = get_capped_binomials(self.dimension)
         _, _, work = plan_steps(
-            self._step_lower_bounds, upper_bound - 1, 1, self.dimension, ranks, binomials, False
+            self._step_lower_bounds,
+            upper_bound - 1,
+            first_layer,
+            self.dimension,
+            ranks,
+            binomials,
+            False,
         )
         return work
 
@@ -176,13 +185,14 @@ class Certificate:
 
         Every word must weigh at least its Hamming weight divided by ``weight_factor``.  Entry
         ``[w, j]`` is the entry of the table of ``get_step_lower_bounds`` for this certificate,
-        divided by ``weight_factor`` and rounded up, except that the entries ``[dimension, j]`` for
-        ``j >= 1`` stay ``NO_WORD_BOUND``, since no word remains unvisited.  Given ``parity``, zero
-        or one, which the Hamming weight of every eligible word must have, the entries of that table
-        are first rounded up to that parity: each becomes the smallest integer of that parity that
-        is at least the entry.  The bounds do not decrease in the order of the steps.  Column zero
-        of row zero, which precedes every step, stays zero, and column zero of each later row
-        repeats the last column of the row before.  Each call returns a new table.
+        divided by ``weight_factor`` and rounded up.  The entries ``[dimension, j]`` for ``j >= 1``
+        stay ``NO_WORD_BOUND``, since no word remains unvisited.  ``parity``, zero or one, is a
+        parity that the Hamming weight of every eligible word has.  Given it, each entry of that
+        table is first rounded up to the smallest integer of that parity that is at least the entry.
+
+        The bounds do not decrease in the order of the steps.  Column zero of row zero, which
+        precedes every step, stays zero, and column zero of each later row repeats the last column
+        of the row before.  Each call returns a new table.
         """
         bounds = self._step_lower_bounds
         if parity is not None:
@@ -340,11 +350,12 @@ def get_step_lower_bounds(
     have completed layer ``weight``, and the others have completed layer ``weight - 1``, in whatever
     order their words were visited.  So column ``len(ranks)`` holds once every set has completed
     layer ``weight``, and column zero of row ``weight`` repeats column ``len(ranks)`` of row
-    ``weight - 1``.  Rank deficiency limits how many selected rows can have zero pivot support: a
-    set with deficiency ``s`` that has completed layer ``c`` adds ``c + 1 - s`` to the occupancy if
-    positive, so it adds one more for each layer that it completes once its deficiency no longer
-    keeps its contribution at zero.  Entries ``[dimension, j]`` for ``j >= 1`` hold
-    ``NO_WORD_BOUND``, since a set that has completed layer ``dimension`` has visited every word.
+    ``weight - 1``.  Each bound comes from the occupancy of the sets.  Rank deficiency limits how
+    many selected rows can have zero pivot support, so a set with deficiency ``s`` that has
+    completed layer ``c`` adds ``c + 1 - s`` to the occupancy, or zero if that is negative.  Once
+    its contribution is positive, each layer that it completes adds one more.  Entries
+    ``[dimension, j]`` for ``j >= 1`` hold ``NO_WORD_BOUND``, since a set that has completed layer
+    ``dimension`` has visited every word.
     """
     num_sets = len(ranks)
     bounds = np.empty((dimension + 1, num_sets + 1), dtype=np.int64)
@@ -398,12 +409,14 @@ def plan_steps(
     The work adds ``binomials[w]`` candidate/set evaluations for each set that the plan keeps and
     each layer ``w`` from ``first_layer`` to ``w_i``.  Empty ``binomials`` give zero work.  The work
     saturates at ``WORK_CAP``: it is the cap once a layer up to ``w*`` has a binomial above
-    ``WORK_CAP // num_sets``, or once the sum reaches the cap after a layer.  With the binomials of
-    ``get_capped_binomials``, a plan from layer one for the limit ``U - 1`` gives the work estimate
-    of a distance search (Section 3.6 of ``brouwer_zimmermann.md``).  A plan from layer zero for a
-    maximum weight ``max_weight`` that skips unused sets gives the number of words that a coset
-    search weighs, or skips by completion tables (Section 3.9 of ``brouwer_zimmermann.md``), after
-    the word of its syndrome, if no word of the coset weighs at most ``max_weight``.
+    ``WORK_CAP // num_sets``, or once the sum reaches the cap after a layer.
+
+    Two plans count the work of searches.  With the binomials of ``get_capped_binomials``, a plan
+    from layer one for the limit ``U - 1`` gives the work estimate of a distance search (Section 3.6
+    of ``brouwer_zimmermann.md``).  A plan from layer zero for a maximum weight ``max_weight`` that
+    skips unused sets applies to a coset search if no word of the coset weighs at most
+    ``max_weight``.  It gives the number of words that the search weighs, or skips by completion
+    tables (Section 3.9 of ``brouwer_zimmermann.md``), after the word of its syndrome.
 
     Returns:
         The stopping step ``(w*, j*)``, and the work.

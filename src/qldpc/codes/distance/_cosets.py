@@ -46,22 +46,21 @@ def int_to_words(value: int, width: int) -> npt.NDArray[np.uint64]:
 
 
 def tabulate_singles(
-    check_columns: Sequence[int], num_qubits: int, *, is_pauli: bool
+    check_columns: Sequence[int], num_qubits: int, *, symplectic: bool
 ) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
     """Tabulate the words of weight zero or one by syndrome, and the single-qubit X and Z errors.
 
-    The words are the identity and, for packed Paulis, X, Z, and Y on each qubit, and for X or Z
-    parts, the single bits.  The syndrome of Y on a qubit is the sum of those of X and Z there.
-    Each table maps each syndrome of its words to the first word with that syndrome.  The words
-    come in this order: the identity, and then X, Z, and Y on each qubit in turn for packed Paulis,
-    or each bit in turn for X or Z parts.
+    The words are the identity and then, in this order, X, Z, and Y on each qubit in turn for packed
+    Paulis, or each single bit in turn for X or Z parts.  The syndrome of Y on a qubit is the sum of
+    those of X and Z there.  Each table maps each syndrome of its words to the first word with that
+    syndrome.
 
     Args:
         check_columns: Column ``c`` of the checks as an integer: the syndrome of the word with only
             bit ``c`` set.
         num_qubits: The number of qubits ``n`` of packed Paulis, which have ``2 n`` bits; unused for
             X or Z parts.
-        is_pauli: Whether the words are packed Paulis, rather than X or Z parts.
+        symplectic: Whether the words are packed Paulis, rather than X or Z parts.
 
     Returns:
         The table of these words, and the tables of the identity and the single-qubit X errors, and
@@ -69,7 +68,7 @@ def tabulate_singles(
         identity.
     """
     singles, x_singles, z_singles = {0: 0}, {0: 0}, {0: 0}
-    if not is_pauli:
+    if not symplectic:
         for column, syndrome in enumerate(check_columns):
             singles.setdefault(syndrome, 1 << column)
         return singles, x_singles, z_singles

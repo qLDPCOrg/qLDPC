@@ -13,20 +13,23 @@ from typing import Any, cast, get_args
 from unittest import mock
 
 import numpy as np
+import numpy.typing as npt
 import pytest
+import scipy.linalg
 import scipy.sparse
 from sympy.abc import x
 
 import qldpc
+from qldpc._binary import get_independent_rows
 from qldpc.objects import Pauli
 
 from ..conftest import Tune
 from . import core
+from ._binary import get_css_stabilizers
 from ._tuning import use_tuning
 from .conftest import get_random_full_rank_matrix, get_span
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_information_set_search() -> None:
     """Information-set search excludes stabilizers, finds logical products, and honors cutoffs."""
     # The Hamming-weight-one stabilizer is lighter than every logical operator.  With batches of one
@@ -58,7 +61,7 @@ def test_brouwer_zimmermann_information_set_search() -> None:
     assert core.get_distance_from_generators([[1, 1, 0], [0, 1, 1], [1, 1, 1]], cutoff=1) == 1
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
 def test_css_distances(method: core.DistanceMethod) -> None:
     """CSS distances of sectors and of codes, of subsystem codes, and of codes that encode nothing.
 
@@ -95,7 +98,7 @@ def test_css_distances(method: core.DistanceMethod) -> None:
     assert core.get_distance_css(np.zeros((0, 0)), [], method=method) is core.NO_DISTANCE
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
 def test_distances_from_checks(method: core.DistanceMethod) -> None:
     """Checks give the distances of classical codes, sectors of CSS codes, and stabilizer codes.
 
@@ -129,17 +132,19 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
     assert core.get_distance_from_checks([], [[1, 1, 0]], method=method) == 1
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
 def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod) -> None:
     """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes.
 
-    The checks of the stabilizer state include a redundant row.
+    The checks of the five-qubit code are repeated, and those of the stabilizer state include a
+    redundant row.
     """
     five_qubit_code = qldpc.codes.FiveQubitCode()
-    assert core.get_distance_pauli(five_qubit_code.matrix, method=method) == 3
+    assert core.get_distance_pauli(np.vstack([five_qubit_code.matrix] * 2), method=method) == 3
     assert core.get_distance_pauli(five_qubit_code.matrix, method=method, max_weight=1) == 2
     bacon_shor_code = qldpc.codes.BaconShorCode(3)
     assert core.get_distance_pauli(bacon_shor_code.matrix, method=method) == 3
+    assert core.get_distance_pauli(bacon_shor_code.matrix, method=method, max_weight=1) == 2
     stabilizer_state = [[0, 0, 1, 0], [0, 0, 0, 1], [0, 0, 1, 1]]
     assert core.get_distance_pauli(stabilizer_state, method=method) is core.NO_DISTANCE
 
@@ -159,7 +164,35 @@ def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod
     assert core.get_distance_from_checks(gauge, no_stabilizers, symplectic=True, method=method) == 3
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_support", "brute_force"])
+def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pauli checks that generate a CSS group are searched as a CSS code, even if they mix X and Z.
+
+    Adding the Z-type checks of the Steane code to its X-type checks mixes the X and Z parts of the
+    rows, but keeps the group that they generate.  The connected-cluster search finds the distance
+    3, and gets a problem of 7 bits for each type of logical operator, rather than one problem of 14
+    symplectic bits.
+    """
+    steane_code = qldpc.codes.SteaneCode()
+    checks_x = steane_code.matrix_x.view(np.ndarray)
+    checks_z = steane_code.matrix_z.view(np.ndarray)
+    checks = np.block([[checks_x, checks_z], [np.zeros_like(checks_z), checks_z]])
+
+    searched: list[tuple[list[int], bool]] = []
+
+    def record(problems: Any, **kwargs: Any) -> Any:
+        widths = [np.shape(sector_checks)[1] for sector_checks, _ in problems]
+        searched.append((widths, kwargs.get("symplectic", False)))
+        return get_distance_connected_cluster(problems, **kwargs)
+
+    get_distance_connected_cluster = core.get_distance_connected_cluster
+    monkeypatch.setattr(core, "get_distance_connected_cluster", record)
+    assert core.get_distance_pauli(checks, method="connected_cluster") == 3
+    assert searched == [([7, 7], False)]
+
+
+@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
 def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     """The recipes of get_distance_from_checks give the bare and dressed distances of a code.
 
@@ -199,7 +232,7 @@ def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
 
     # Bare logical operators as generators give the dressed distance with the gauge generators
     # excluded, and the bare distance with only the stabilizers excluded.
-    if method != "connected_support":
+    if method != "connected_cluster":
         logical_ops = code.get_logical_ops()
         for excluded, expected in ((code.matrix, 1), (stabilizers, 3)):
             assert (
@@ -252,16 +285,16 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
 
     The code words of the checks [[1, 1, 0], [0, 1, 1]] are 000 and 111, so the distance is 3, and
     the cyclic shift [1, 2, 0] is an automorphism.  With ``automorphism_minimum_states=0``, a
-    connected-support search asks for automorphisms before its first weight limit, so both sectors
+    connected-cluster search asks for automorphisms before its first weight limit, so both sectors
     of the [[14, 6, 3]] bicycle code would ask for them.
     """
     tune(automorphism_minimum_states=0)
     checks = [[1, 1, 0], [0, 1, 1]]
-    for method in ("brouwer_zimmermann", "connected_support"):
+    for method in ("brouwer_zimmermann", "connected_cluster"):
         assert core.get_distance_from_checks(checks, method=method, automorphisms=[[1, 2, 0]]) == 3
     get_automorphisms = mock.Mock(return_value=[[1, 2, 0]])
     distance = core.get_distance_from_checks(
-        checks, method="connected_support", automorphisms=get_automorphisms
+        checks, method="connected_cluster", automorphisms=get_automorphisms
     )
     assert distance == 3
     get_automorphisms.assert_called_once()
@@ -270,7 +303,7 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
     code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
     get_automorphisms = mock.Mock(return_value=code._get_qudit_automorphisms())
     distance = core.get_distance_css(
-        code.matrix_x, code.matrix_z, method="connected_support", automorphisms=get_automorphisms
+        code.matrix_x, code.matrix_z, method="connected_cluster", automorphisms=get_automorphisms
     )
     assert distance == 3
     get_automorphisms.assert_called_once()
@@ -280,14 +313,83 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
             core.get_distance_from_checks(checks, automorphisms=automorphisms)
     with pytest.raises(ValueError, match="permutations of range"):
         core.get_distance_from_checks(
-            checks, method="connected_support", automorphisms=lambda: [[0, 0, 1]]
+            checks, method="connected_cluster", automorphisms=lambda: [[0, 0, 1]]
         )
 
 
-def test_connected_support_needs_parity_checks() -> None:
+def test_connected_cluster_searches_sparse_stabilizers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A connected-cluster search of a subsystem code searches sparse checks that span S.
+
+    S is the stabilizer group.  With X and Z on a bulk qubit of the [[16, 1, 4]] surface code as
+    gauge generators, the two checks of each type on that qubit merge into one stabilizer of weight
+    6, and the dressed distance drops to 3.  The other checks are gauge generators that are
+    stabilizers, but they do not span S, and the row-reduced basis of S has rows of weight 8.  The
+    search gets checks that include these stabilizers, weigh at most 6, and span S.  It finds the
+    distance that brute force finds, in the CSS form, and in a Pauli form with Hadamards on half of
+    the qubits, which is not CSS.  The search of the surface code itself gets its checks as given.
+    """
+    code = qldpc.codes.SurfaceCode(4)
+    qubit = 5
+    gauge_qubit = np.zeros((1, len(code)), dtype=np.uint8)
+    gauge_qubit[0, qubit] = 1
+    checks_x = code.matrix_x.view(np.ndarray).astype(np.uint8)
+    checks_z = code.matrix_z.view(np.ndarray).astype(np.uint8)
+    gauge_x, gauge_z = np.vstack([checks_x, gauge_qubit]), np.vstack([checks_z, gauge_qubit])
+    derived_x, derived_z = get_css_stabilizers(gauge_x, gauge_z)
+    assert derived_x.sum(axis=1).max() == derived_z.sum(axis=1).max() == 8
+
+    # The stabilizers are the checks off the gauge qubit, and the product of those on it.
+    def get_stabilizers(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        on_qubit = checks[:, qubit] == 1
+        return np.vstack([checks[~on_qubit], checks[on_qubit].sum(axis=0) % 2])
+
+    searched: list[npt.NDArray[np.uint8]] = []
+
+    def record(problems: Any, **kwargs: Any) -> Any:
+        searched.extend(np.asarray(checks) for checks, _ in problems)
+        return get_distance_connected_cluster(problems, **kwargs)
+
+    get_distance_connected_cluster = core.get_distance_connected_cluster
+    monkeypatch.setattr(core, "get_distance_connected_cluster", record)
+    distance = core.get_distance_css(gauge_x, gauge_z, method="connected_cluster")
+    assert distance == core.get_distance_css(gauge_x, gauge_z, method="brute_force") == 3
+    for checks, stabilizers in zip(
+        searched, (get_stabilizers(checks_z), get_stabilizers(checks_x)), strict=True
+    ):
+        assert checks.sum(axis=1).max() <= 6
+        assert set(map(tuple, stabilizers[:-1])) <= set(map(tuple, checks))
+        assert np.array_equal(get_independent_rows(checks), get_independent_rows(stabilizers))
+    assert core.get_distance_css(gauge_x, gauge_z, Pauli.Z, method="connected_cluster") == 3
+
+    searched.clear()
+    assert core.get_distance_css(checks_x, checks_z, method="connected_cluster") == 4
+    assert [checks.tolist() for checks in searched] == [checks_z.tolist(), checks_x.tolist()]
+
+    searched.clear()
+    qubits = np.arange(0, len(code), 2)
+    columns, swapped = np.r_[qubits, qubits + len(code)], np.r_[qubits + len(code), qubits]
+
+    def apply_hadamards(rows: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        rows = rows.copy()
+        rows[:, columns] = rows[:, swapped]
+        return rows
+
+    gauge = apply_hadamards(scipy.linalg.block_diag(gauge_x, gauge_z))
+    assert core.get_distance_pauli(gauge, method="connected_cluster") == 3
+    (checks,) = searched
+    assert (checks[:, : len(code)] | checks[:, len(code) :]).sum(axis=1).max() <= 6
+    stabilizers = scipy.linalg.block_diag(get_stabilizers(checks_x), get_stabilizers(checks_z))
+    assert np.array_equal(
+        get_independent_rows(checks), get_independent_rows(apply_hadamards(stabilizers))
+    )
+    kept = scipy.linalg.block_diag(get_stabilizers(checks_x)[:-1], get_stabilizers(checks_z)[:-1])
+    assert set(map(tuple, apply_hadamards(kept))) <= set(map(tuple, checks))
+
+
+def test_connected_cluster_needs_parity_checks() -> None:
     """Generator matrices do not describe Tanner graphs, so their function rejects the method."""
     with pytest.raises(ValueError, match="use get_distance_from_checks"):
-        core.get_distance_from_generators([[1, 1, 0]], method="connected_support")
+        core.get_distance_from_generators([[1, 1, 0]], method="connected_cluster")
 
 
 def test_special_inputs_of_generators() -> None:
@@ -383,8 +485,8 @@ def test_distances_of_known_css_codes(code: qldpc.codes.CSSCode, expected_distan
     distance_css = core.get_distance_css(code.matrix_x, code.matrix_z)
     assert distance_x == distance_z == distance_all == distance_css == expected_distance
 
-    # CSSCode.forget_distance clears the X-sector and Z-sector distance caches before recomputation.
-    # Assigning only CSSCode._distance would leave cached sector distances available to the method.
+    # CSSCode.forget_distance also clears the cached distances of the X and Z sectors, which the
+    # method would otherwise reuse.
     code.forget_distance()
     assert code.get_distance_exact() == expected_distance
 
@@ -410,7 +512,6 @@ def test_distances_of_known_noncss_codes(
     assert code.get_distance_exact() == expected_distance
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
     """Searches use qubit permutations for binary words, and lift them for Pauli strings.
 
@@ -440,7 +541,6 @@ def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
             search(automorphisms=transposition[None])
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_brouwer_zimmermann_random_cross_checks() -> None:
     """Information-set search agrees with exhaustive enumeration on random nested codes."""
     rng = np.random.default_rng(118)
@@ -467,7 +567,7 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
         )
 
 
-def test_max_weight(request: pytest.FixtureRequest) -> None:
+def test_max_weight() -> None:
     """A weight limit returns the smaller of the distance and max_weight + 1, on every route."""
     rng = np.random.default_rng(7)
     basis = get_random_full_rank_matrix(rng, 4, 7)
@@ -493,13 +593,11 @@ def test_max_weight(request: pytest.FixtureRequest) -> None:
         for method in ["brouwer_zimmermann", "brute_force"]:
             check(distance_with_limit, distance, method)
 
-    # Small problems take exhaustive routes by default, so also force the BZ search.  The Pauli case
-    # also checks the doubled bound.
-    request.getfixturevalue("force_information_sets")
+    # The Pauli case checks that the BZ route, which searches binary words of twice the weight of
+    # the Pauli strings, doubles the bound.
     check(pauli, pauli_distance, "brouwer_zimmermann")
 
 
-@pytest.mark.usefixtures("force_information_sets")
 def test_max_weight_caps_cutoff() -> None:
     """A large cutoff cannot make the search give up on a word within the limit.
 
@@ -542,7 +640,7 @@ def test_max_weight_conventions_and_validation() -> None:
 
 def test_distance_method_validation() -> None:
     """Exact-method selectors are restricted to documented values, and resolve aliases."""
-    for method in ["brouwer_zimmermann", "brute_force", "connected_support"]:
+    for method in ["brouwer_zimmermann", "brute_force", "connected_cluster"]:
         assert core._validate_distance_method(method) == method  # type: ignore[arg-type]
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):

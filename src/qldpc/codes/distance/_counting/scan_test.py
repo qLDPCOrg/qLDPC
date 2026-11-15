@@ -18,7 +18,7 @@ from qldpc.objects import Pauli
 from ...conftest import Tune
 from .. import logical_counts as lc
 from .._information_sets import basis_families, completion_bounds
-from .._tuning import MAX_VALUE
+from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from ..conftest import (
     HAND_X,
     HAND_Z,
@@ -111,7 +111,7 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
         return replacement
 
     monkeypatch.setattr(basis_families, "get_overlapping_family", record)
-    tune(overlapping_minimum_work=0)
+    tune(overlapping_minimum_work=0, max_information_sets=16)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     weights = range(len(code) + 1)
     for weight in weights:
@@ -144,21 +144,25 @@ def test_a_gate_that_breaks_a_set_of_a_basis_family_leaves_counts_exact() -> Non
 ####################################################################################################
 # skipping completions with completion tables
 
-# Tuning that makes every step of two or more rows of an information set use completion tables.
+# Tuning that makes every step of two or more rows of an information set use completion tables.  The
+# fewest samples that the cost model accepts keep its predictions quick as plain Python.
 FORCED_TABLES: dict[str, Any] = {
     "completion_bound_minimum_layer_work": 0,
     "completion_bound_max_cost_percent": MAX_VALUE,
+    "completion_bound_samples": DEFAULT_TUNING.completion_bound_min_samples,
 }
 
 
-@pytest.mark.parametrize("chunk_size", [1, 3, 1 << 16])
+@pytest.mark.parametrize("chunk_size, seed", [(1, 0), (3, 1), (1 << 16, 2)])
 def test_counts_with_completion_tables_match_enumeration(
-    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int, seed: int
 ) -> None:
     """Steps that skip completions still count every word, also when they stop at every lookup.
 
     Some completions of these codes have bounds equal to the target weight, so a scan that skipped
-    them, rather than only heavier ones, would lose words that this enumeration counts.
+    them, rather than only heavier ones, would lose words that this enumeration counts.  Each chunk
+    size counts a different random code; each of these codes alone catches that error at every
+    chunk size.
     """
     selected: list[completion_bounds.CompletionTables] = []
     select = completion_bounds.select_completion_tables
@@ -171,9 +175,8 @@ def test_counts_with_completion_tables_match_enumeration(
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", record)
     tune(overlapping_minimum_work=0, scan_chunk_size=chunk_size, **FORCED_TABLES)
-    for seed in range(3):
-        code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
-        assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
+    code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
+    assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert selected
 
 
@@ -206,7 +209,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
 def test_counts_return_to_python_only_around_steps_that_may_use_tables(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """A count whose steps are too small for tables scans them all in one call."""
+    """A count whose steps are too small for tables scans each sector in one call."""
     calls: list[int] = []
     scan_layers = scan._scan_coefficient_layers
 
@@ -276,12 +279,12 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
         tables, step_rows = step_tables.select(2, set_index)
         tails = pack_bits(np.delete(family.generators[set_index], family.pivots[set_index], axis=1))
         assert len(tables.tables)
-        assert step_rows.shape == (1, len(basis), rows_and_labels.shape[2] + tails.shape[1])
-        assert step_rows.shape[2] == step_tables.max_row_width
+        assert step_rows.shape == (len(basis), rows_and_labels.shape[2] + tails.shape[1])
+        assert step_rows.shape[1] == step_tables.max_row_width
         np.testing.assert_array_equal(
-            step_rows[0, :, : rows_and_labels.shape[2]], rows_and_labels[set_index]
+            step_rows[:, : rows_and_labels.shape[2]], rows_and_labels[set_index]
         )
-        np.testing.assert_array_equal(step_rows[0, :, rows_and_labels.shape[2] :], tails)
+        np.testing.assert_array_equal(step_rows[:, rows_and_labels.shape[2] :], tails)
         assert step_tables.select(2, set_index)[0] is tables
         assert step_tables.select(3, set_index)[0] is tables
 
@@ -293,7 +296,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     assert step_tables.select(3, 1)[0] is second
     assert step_tables.select(3, 0)[0] is not first
 
-    # A step whose tables the gate declines scans without them.
+    # A step for which select_completion_tables declines tables scans without them.
     declining = tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=1)
     step_tables = scan._StepTables(family, rows_and_labels, 4, declining)
     assert step_tables.may_use_tables(2, 0)
@@ -310,9 +313,9 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
     tables = completion_bounds.CompletionTables.build(pack_bits(tails), 8)
     count_chunk = scan._count_chunk_skipping
     support = np.zeros(2, dtype=np.int64)
-    prefixes = np.zeros((3, 1, step_rows.shape[1]), dtype=np.uint64)
+    prefixes = np.zeros((3, step_rows.shape[1]), dtype=np.uint64)
     histogram = np.zeros(1, dtype=np.int64)
-    arguments = (step_rows[np.newaxis], 1, 2, np.zeros((1, 0, 1), dtype=np.uint64), 0, support)
+    arguments = (step_rows, 1, 2, np.zeros((1, 0, 1), dtype=np.uint64), 0, support)
     rank_rows = np.zeros((0, 1), dtype=np.uint64)
     options = (rank_rows, False, 0, histogram)
     table_arguments = (1 << 10, tables.tables, tables.offsets, tables.block_bits)

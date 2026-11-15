@@ -42,7 +42,7 @@ import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Literal, SupportsIndex, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, SupportsIndex, TypeVar
 
 import stim
 
@@ -58,9 +58,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
     from qldpc.abstract.groups import NestedSequence
-    from qldpc.codes import DistanceMethod, NoDistance, QuditCode
+    from qldpc.codes import CSSCode, DistanceMethod, NoDistance, QuditCode
+    from qldpc.decoders import DeferredErrorDecoderInput
     from qldpc.decoders.dems import ErrorMechanism
-    from qldpc.objects import TannerGraph
+    from qldpc.objects import PauliXZLike, TannerGraph
 
 # the type of physical error rates that qldpc.codes.monte_carlo.ErrorRateFunc formerly accepted
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
@@ -419,6 +420,7 @@ def get_distance_quantum(
     ``homogeneous`` is True.
     """
     from qldpc.codes.distance import get_distance_from_generators
+    from qldpc.codes.distance._binary import as_binary_matrix_pair
 
     warn_deprecated(
         "get_distance_quantum is deprecated; use"
@@ -426,10 +428,11 @@ def get_distance_quantum(
         " symplectic=not homogeneous) instead",
         stacklevel=get_external_caller_stacklevel(),
     )
-    # Unlike ``excluded``, the stabilizers have no default, so None is an error, not "no rows".
-    if stabilizers is None:
-        raise TypeError("stabilizers must be an array of binary entries, not None")
     with _use_block_size(block_size):
+        # Check the rows here, so that errors name the arguments of this function.  This also
+        # rejects None as the stabilizers, which get_distance_from_generators would read as no
+        # excluded rows.
+        as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
         return get_distance_from_generators(
             logical_ops,
             stabilizers,
@@ -490,7 +493,7 @@ def get_primitive_central_idempotents(
 def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager[object]:
     """Warn about a deprecated block_size argument, if given, and return a context that applies it.
 
-    Within the context, the active tuning has the batches that block_size gave before it was
+    Within the context, the active tuning has the batch exponents that block_size gave before it was
     deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
     information sets took at most it.  As before, any integer, including a bool, is accepted, and an
     exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive
@@ -504,8 +507,8 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
 
     warn_deprecated(
         "The block_size argument of exact distance searches is deprecated and will be removed in a"
-        " future release.  Use qldpc.codes.distance._tuning.use_tuning to set"
-        " enumeration_batch_exponent and information_set_batch_exponent instead",
+        " future release.  It changes only the speed and memory use of a search.  To tune"
+        " searches, see the documentation page 'Exact-search performance and tuning'",
         stacklevel=get_external_caller_stacklevel(),
     )
     exponent = max(0, min(operator.index(block_size), 62))
@@ -527,6 +530,7 @@ def install_deprecated_methods() -> None:
     from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
     from qldpc.decoders.dems import DetectorErrorModelArrays
+    from qldpc.objects import PAULIS_XZ, Pauli
 
     _attach_tanner_graph_methods(ClassicalCode, symplectic=False)
     _attach_tanner_graph_methods(QuditCode, symplectic=True)
@@ -662,6 +666,43 @@ def install_deprecated_methods() -> None:
         )
         return QuditCode(self._matrix) if self.symplectic else ClassicalCode(self._matrix)
 
+    @_deprecated_method(CSSCode)
+    def reduce_logical_op(
+        self: CSSCode,
+        pauli: PauliXZLike,
+        logical_index: int,
+        *,
+        decoder: DeferredErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> CSSCode:
+        """Deprecated method that tries to reduce the weight of a logical operator."""
+        warn_deprecated(
+            f"{type(self).__name__}.reduce_logical_op is DEPRECATED, since it does not reliably"
+            " reduce weight, and will be removed in a future release",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        _reduce_logical_op(self, pauli, logical_index, decoder, decoder_kwargs)
+        return self
+
+    @_deprecated_method(CSSCode)
+    def reduce_logical_ops(
+        self: CSSCode,
+        pauli: PauliXZLike | None = None,
+        *,
+        decoder: DeferredErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> CSSCode:
+        """Deprecated method that tries to reduce the weights of logical operators."""
+        warn_deprecated(
+            f"{type(self).__name__}.reduce_logical_ops is DEPRECATED, since it does not reliably"
+            " reduce weight, and will be removed in a future release",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        for pauli_xz in PAULIS_XZ if pauli is None else [Pauli.coerce_xz(pauli)]:
+            for logical_index in range(self.dimension):
+                _reduce_logical_op(self, pauli_xz, logical_index, decoder, decoder_kwargs)
+        return self
+
 
 def _attach_tanner_graph_methods(cls: type, *, symplectic: bool) -> None:
     """Attach deprecated static methods that convert between matrices and Tanner graphs."""
@@ -691,6 +732,60 @@ def _attach_tanner_graph_methods(cls: type, *, symplectic: bool) -> None:
         )
         field = getattr(graph, "field", galois.GF2)
         return TannerGraph(graph, field=field, symplectic=symplectic).to_matrix()
+
+
+def _reduce_logical_op(
+    code: CSSCode,
+    pauli: PauliXZLike,
+    logical_index: int,
+    decoder: DeferredErrorDecoderInput,
+    decoder_kwargs: dict[str, Any],
+) -> None:
+    """Replace a logical operator of a CSS code by one that a decoder finds.
+
+    The new operator has a trivial syndrome, and commutes with every logical operator except the
+    dual of the one that it replaces.
+    """
+    import numpy as np
+
+    from qldpc.codes.common import _DECODING_FAILURE_MESSAGE, _decode
+    from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
+    from qldpc.objects import Pauli
+
+    from .decoders import merge_legacy_decoder_args
+
+    pauli = Pauli.coerce_xz(pauli)
+    if not 0 <= logical_index < code.dimension:
+        raise ValueError(
+            f"logical_index must lie in range({code.dimension}) (provided: {logical_index})"
+        )
+    reject_prebuilt_decoder(
+        decoder,
+        "logical operators are found by decoding an internal effective check matrix that stacks"
+        " the checks and dual logical operators of the code",
+    )
+
+    # effective check matrix = parity checks and dual-pauli logical operators
+    check_code = code.get_code(pauli.swap_xz())
+    dual_logical_ops = code.get_logical_ops(pauli.swap_xz())
+    effective_check_matrix = np.vstack([check_code.matrix, dual_logical_ops]).view(code.field)
+
+    # enforce that the new logical operator commutes with everything except its dual
+    effective_syndrome = code.field.Zeros(check_code.num_checks + code.dimension)
+    effective_syndrome[check_code.num_checks + logical_index] = 1
+
+    if decoder_kwargs:
+        decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
+    error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
+    candidate_logical_op = _decode(error_decoder, effective_check_matrix, effective_syndrome)
+    if candidate_logical_op is None:
+        raise ValueError(_DECODING_FAILURE_MESSAGE)
+
+    # cached logical operators are read-only, so replace them by an updated copy
+    logical_ops = code.get_logical_ops().copy()
+    blocks = np.reshape(logical_ops, (2, code.dimension, 2, len(code)), copy=False)
+    blocks[pauli, logical_index, pauli, :] = candidate_logical_op
+    code._logical_ops = logical_ops
 
 
 def _deprecated_method(

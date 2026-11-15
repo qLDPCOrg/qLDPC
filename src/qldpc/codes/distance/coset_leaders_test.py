@@ -342,11 +342,14 @@ def test_exhausted_search_gives_the_exact_minimum() -> None:
 
 
 @pytest.mark.parametrize("css_weight", [False, True])
-def test_wide_states_span_several_packed_words(css_weight: bool) -> None:
+def test_wide_states_span_several_packed_words(css_weight: bool, tune: Tune) -> None:
     """Eleven GHZ blocks use 99 bits for the physical weight, more than one 64-bit word.
 
     For the CSS weight, the X and Z parts are searched separately, on 33 bits each.
     """
+    # Eight-column blocks, rather than the default sixteen, keep the tables quick to build as plain
+    # Python; this test is about packing, not tables.
+    tune(coset_completion_block_bits=8)
     num_blocks = 11
     matrix, syndrome = _ghz_blocks(num_blocks)
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
@@ -504,13 +507,13 @@ def test_stabilizers_must_define_a_pure_state() -> None:
 def test_methods_take_the_names_of_distance_methods() -> None:
     """The alias ``"information_sets"`` selects the default method, and other names raise errors.
 
-    The connected-support method weighs errors by CSS weight only on CSS states, so on a state that
+    The connected-cluster method weighs errors by CSS weight only on CSS states, so on a state that
     is not CSS, only the default method can answer queries by CSS weight.  ``"brute_force"`` has no
     coset searches.
     """
     matrix = get_graph_state(2, [(0, 1)], phase=True)
     with pytest.raises(ValueError, match="only on CSS states"):
-        CosetLeaderSearch(matrix, css_weight=True, method="connected_support")
+        CosetLeaderSearch(matrix, css_weight=True, method="connected_cluster")
     assert_exact_answers(
         CosetLeaderSearch(matrix, css_weight=True, method="information_sets"), matrix, True
     )
@@ -649,7 +652,7 @@ def test_oracles_answer_exactly_with_other_families(
     except in the search of Pauli errors by CSS weight, which has none.  Every single query, and
     every batch, at every maximum weight, agrees with exhaustive minima.
     """
-    tune(overlapping_minimum_work=0)
+    tune(coset_route_minimum_work=0)
     oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
     assert_exact_answers(oracle, matrix, css_weight)
     num_qubits = len(matrix)
@@ -664,8 +667,8 @@ def test_oracles_answer_exactly_with_other_families(
     "tuning",
     [
         {},
-        {"overlapping_minimum_work": 0},
-        {"overlapping_minimum_work": 0, "completion_bound_max_table_bytes": 0},
+        {"coset_route_minimum_work": 0},
+        {"coset_route_minimum_work": 0, "completion_bound_max_table_bytes": 0},
     ],
     ids=["disjoint", "tables", "no-tables"],
 )
@@ -685,12 +688,12 @@ def test_min_weights_match_exhaustive_minima(
     GHZ block beside its conjugate by Hadamard gates, whose codes are both even, are weighed by CSS
     weight, which splits their searches.  The search of the Z part of a class then ends at a word
     within the weight of its X part.  Some classes of the GHZ blocks have an X part of weight two
-    and a Z part of weight three, which a connected-support search of the Z part weighs exactly only
+    and a Z part of weight three, which a connected-cluster search of the Z part weighs exactly only
     from a weight limit of at most two.  The Steane state is also weighed by physical weight.  An
     oracle answers one batch of every syndrome, in random order, at every maximum weight from zero
     to one past the number of qubits.  The BZ searches take the disjoint families, and at the
     threshold zero other families by tails, with completion tables and without them.  The
-    connected-support method, which the tuning of these families does not configure, answers under
+    connected-cluster method, which the tuning of these families does not configure, answers under
     the default tuning, but not by CSS weight on states that are not CSS.
     """
     tune(**tuning)
@@ -721,7 +724,7 @@ def test_min_weights_match_exhaustive_minima(
         packed_syndromes = split_syndromes_into_words(syndromes.tolist(), num_qubits)
         methods: list[DistanceMethod] = ["brouwer_zimmermann"]
         if by_support and not tuning:
-            methods.append("connected_support")
+            methods.append("connected_cluster")
         for method in methods:
             oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method=method)
             for max_weight in range(num_qubits + 2):
@@ -749,10 +752,10 @@ def test_batches_are_checked() -> None:
     assert search.get_min_weights(np.array([[3]], dtype=np.uint64), 1).tolist() == [2]
 
 
-def test_connected_support_batches_by_css_weight_join_their_parts(
+def test_connected_cluster_batches_by_css_weight_join_their_parts(
     pytestconfig: pytest.Config,
 ) -> None:
-    """Batches of the connected-support method by CSS weight find the classes above ``max_weight``.
+    """Batches of the connected-cluster method by CSS weight find the classes above ``max_weight``.
 
     On CSS states, the CSS weight splits the search of a class into searches of its X and Z parts.
     Every syndrome of random CSS states on one to five qubits, in random order, is checked at every
@@ -761,7 +764,7 @@ def test_connected_support_batches_by_css_weight_join_their_parts(
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
         matrix = get_random_css_state(num_qubits, num_qubits // 2, rng)
-        oracle = CosetLeaderSearch(matrix, css_weight=True, method="connected_support")
+        oracle = CosetLeaderSearch(matrix, css_weight=True, method="connected_cluster")
         syndromes = rng.permutation(1 << num_qubits)
         minima = get_exhaustive_minima(matrix, css_weight=True)[syndromes]
         words = split_syndromes_into_words(syndromes.tolist(), num_qubits)
@@ -770,10 +773,10 @@ def test_connected_support_batches_by_css_weight_join_their_parts(
             assert found == np.flatnonzero(minima > max_weight).tolist()
 
 
-def test_connected_support_batches_read_syndromes_of_several_words(
+def test_connected_cluster_batches_read_syndromes_of_several_words(
     pytestconfig: pytest.Config, tune: Tune
 ) -> None:
-    """On 17 phased GHZ blocks, batches of the connected-support engine agree with block minima.
+    """On 17 phased GHZ blocks, batches of the connected-cluster engine agree with block minima.
 
     The 68 syndrome bits span two words, and the physical weight takes one search of the Pauli
     errors.  The batch holds the syndromes of 30 errors.  The first acts on one qubit in each of
@@ -788,7 +791,7 @@ def test_connected_support_batches_read_syndromes_of_several_words(
     num_blocks = 17
     generators = _block_generators(_PHASED_GHZ_BLOCK, num_blocks)
     matrix = get_stabilizer_matrix(generators)
-    oracle = CosetLeaderSearch(matrix, method="connected_support")
+    oracle = CosetLeaderSearch(matrix, method="connected_cluster")
     syndromes, minima = [], []
     for error_index in range(30):
         error = stim.PauliString(4 * num_blocks)

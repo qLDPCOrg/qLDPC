@@ -48,7 +48,7 @@ def test_hypergraph_product(
     code.set_logical_ops(code.get_logical_ops(), skip_validation=False)
 
     # the closed-form X and Z distances agree with those of a plain CSS code with the same checks
-    if field == 2:  # the brute-force kernel behind the generic route is binary
+    if field == 2:  # the Brouwer-Zimmermann search behind the generic route is binary
         plain = codes.CSSCode(code.matrix_x, code.matrix_z)
         with unittest.mock.patch("qldpc.external.gap.is_installed", return_value=False):
             assert code.get_distance(Pauli.X) == plain.get_distance(Pauli.X)
@@ -103,7 +103,7 @@ def test_hypergraph_product_distance_by_sector(
 @pytest.mark.parametrize(
     "pauli, method",
     [(None, "brute_force"), (Pauli.X, "brute_force"), (Pauli.Z, "brute_force")]
-    + [(None, "connected_support")],
+    + [(None, "connected_cluster")],
 )
 def test_closed_forms_search_seed_codes_with_the_given_method(
     pauli: PauliXZ | None, method: DistanceMethod
@@ -111,7 +111,7 @@ def test_closed_forms_search_seed_codes_with_the_given_method(
     """The closed-form distances of product codes search their seed codes with the given method.
 
     Both products of the ring code of length 4 have distance 4 in every sector.  The joint distance
-    of a CSS code searches its sectors together with the connected-support method, unless a subclass
+    of a CSS code searches its sectors together with the connected-cluster method, unless a subclass
     has a closed form, which this case guards.
     """
     for product in (codes.HGPCode, codes.SHPCode):

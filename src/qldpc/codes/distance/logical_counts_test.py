@@ -180,8 +180,8 @@ def test_frozen_qubits_preserve_counts(width: int) -> None:
     assert counter.count_logical_ops(count_pauli=True) == Counts(2, 2, 3, 6)
 
 
-# (16, 10, 2) builds families of three disjoint sets, and the count scans of (24, 12, 8) check
-# which set counts a word.
+# In (16, 10, 2), the disjoint family of one sector has three sets.  In (24, 12, 8), the scans of
+# the counts check which set counts a word.
 @pytest.mark.parametrize("num_qubits, rank_x, rank_z", [(16, 10, 2), (24, 12, 8)])
 def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int) -> None:
     """Brute force visits every word once, so it checks the information sets used by BZ."""
@@ -280,7 +280,7 @@ def test_deprecated_max_information_sets_argument(
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     checks = code.matrix_x, code.matrix_z
     expected = lc.CSSLogicalCounter(*checks).count_logical_ops()
-    with pytest.warns(DeprecationWarning, match="use_tuning") as records:
+    with pytest.warns(DeprecationWarning, match="Exact-search performance and tuning") as records:
         counts = [
             lc.CSSLogicalCounter(*checks).count_logical_ops(max_information_sets=np.int32(3)),
             lc.count_logical_ops_css(*checks, max_information_sets=3),
@@ -328,12 +328,8 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
         return family
 
     monkeypatch.setattr(basis_families, "get_overlapping_family", record)
-    # Make the distance search build information sets, and every search try overlapping families.
-    tune(
-        allow_enumeration_by_size=False,
-        allow_enumeration_by_work=False,
-        overlapping_minimum_work=0,
-    )
+    # Make every search try overlapping families.
+    tune(overlapping_minimum_work=0)
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
 
     # A count of the same weight, without the distance search, builds the families of the scans.
@@ -748,8 +744,8 @@ def test_invalid_inputs() -> None:
         with pytest.raises(ValueError, match="Unknown logical-count method"):
             counter.count_logical_ops(method=unknown)
 
-    # The connected-support distance method does not count logical operators of every weight.
-    distance_method: Any = "connected_support"
+    # The connected-cluster distance method does not count logical operators of every weight.
+    distance_method: Any = "connected_cluster"
     with pytest.raises(ValueError, match="Unknown logical-count method"):
         counter.count_logical_ops(method=distance_method)
     for method in ("brouwer_zimmermann", "macwilliams", "brute_force"):

@@ -100,7 +100,7 @@ def test_star_imports_do_not_warn() -> None:
 
 
 def test_deprecated_methods() -> None:
-    """Deprecated methods warn and delegate to their replacements."""
+    """Deprecated methods warn, and return what they returned before."""
     classical_code = codes.RepetitionCode(3)
     qudit_code = codes.QuditCode(codes.FiveQubitCode())
     css_code = codes.SteaneCode()
@@ -112,6 +112,8 @@ def test_deprecated_methods() -> None:
         (bb_code, "modular_inverse", (((1, 1), (0, 1)), 1, 0), (1, 2), "BBCode"),
         (qudit_code, "get_dual_subsystem_code", (), qudit_code.dual(), "QuditCode"),
         (qudit_code, "conjugate", (), qudit_code.conjugated(), "QuditCode"),
+        (css_code, "reduce_logical_op", ("X", 0), css_code, "SteaneCode"),
+        (css_code, "reduce_logical_ops", (), css_code, "SteaneCode"),
         (css_code, "conjugate", (), css_code.conjugated().to_css(), "SteaneCode"),
     ]
     for code, method_name, args, expected, class_name in cases:
@@ -128,6 +130,31 @@ def test_deprecated_methods() -> None:
     assert puncture.__module__ == codes.ClassicalCode.__module__
     assert puncture.__qualname__ == "ClassicalCode.puncture"
     assert str(inspect.signature(puncture)).startswith("(self, bits")
+
+
+def test_deprecated_reduce_logical_ops() -> None:
+    """The deprecated reduction of logical operators stores the operators that a decoder finds."""
+    # the first code starts with a heavy X-type operator at index 0, the second with a heavy Z-type
+    # operator at index 1
+    for dist, code in [(4, codes.ToricCode(4)), (3, codes.ToricCode(3, rotated=False))]:
+        reduce_logical_ops = code.reduce_logical_ops  # type: ignore[attr-defined]
+        with pytest.warns(DeprecationWarning, match="reduce_logical_ops is DEPRECATED"):
+            reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
+        assert np.all(np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=1) == dist)
+    reduce_logical_op = code.reduce_logical_op  # type: ignore[attr-defined]
+
+    # an invalid index, a failed decoding, and a removed decoder argument raise errors
+    for reduce, error, message in [
+        (lambda: reduce_logical_op("X", 2), ValueError, "logical_index must lie in"),
+        (
+            lambda: reduce_logical_op("X", 0, decoder=decoders.lookup(max_weight=0)),
+            ValueError,
+            "failed to infer",
+        ),
+        (lambda: reduce_logical_ops(static_decoder=None), TypeError, "static_decoder"),
+    ]:
+        with pytest.warns(DeprecationWarning), pytest.raises(error, match=message):
+            reduce()
 
 
 def test_deprecated_tanner_graph_methods() -> None:
@@ -247,21 +274,29 @@ def test_deprecated_distance_functions() -> None:
     get_distance_classical: Any = codes.get_distance_classical  # type: ignore[attr-defined]
     get_distance_quantum: Any = codes.get_distance_quantum  # type: ignore[attr-defined]
     for search in (
-        lambda: get_distance_classical(generator, method="connected_support"),
+        lambda: get_distance_classical(generator, method="connected_cluster"),
         lambda: get_distance_quantum(
-            generator[:1], generator[1:], homogeneous=True, method="connected_support"
+            generator[:1], generator[1:], homogeneous=True, method="connected_cluster"
         ),
     ):
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
             search()
 
-    # get_distance_quantum required its stabilizers, so it rejects None.
-    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="not None"):
+    # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
+    # arguments.
+    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="stabilizers"):
         get_distance_quantum(generator[:1], None, homogeneous=True)
+    nonbinary = [[2] + [0] * 6]
+    for logical_ops, stabilizers, name in (
+        (nonbinary, generator[1:], "logical_ops"),
+        (generator[:1], nonbinary, "stabilizers"),
+    ):
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=name):
+            get_distance_quantum(logical_ops, stabilizers, homogeneous=True)
 
-    # The block_size argument gives the batches that it gave before it was deprecated: exhaustive
-    # enumeration took it as its exponent, and scans of information sets took at most it, clamped to
-    # the range of the fields.
+    # The block_size argument gives the batch exponents that it gave before it was deprecated:
+    # exhaustive enumeration took it as its exponent, and scans of information sets took at most
+    # it, clamped to the range of the fields.
     from qldpc.codes.distance import _tuning
 
     with _tuning.use_tuning(information_set_batch_exponent=10) as active_tuning:
@@ -274,7 +309,7 @@ def test_deprecated_distance_functions() -> None:
             (-3, (0, 0)),
             (True, (1, 1)),
         ):
-            with pytest.warns(DeprecationWarning, match="use_tuning"):
+            with pytest.warns(DeprecationWarning, match="Exact-search performance and tuning"):
                 context = _deprecations.core._use_block_size(block_size)
             with context:
                 tuning = _tuning.get_tuning()
@@ -285,7 +320,7 @@ def test_deprecated_distance_functions() -> None:
 
     # The functions search with those batches, and warn at their caller about both deprecations.
     # Rows that record the active batch exponent when the search reads them show the batches, since
-    # nothing else observable does.
+    # nothing else observable does.  The search reads the rows last, after any checks of them.
     exponents: list[int] = []
 
     class RecordingRows:
@@ -306,7 +341,7 @@ def test_deprecated_distance_functions() -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             assert search() == 3
-        assert exponents and set(exponents) == {2}
+        assert exponents[-1:] == [2]
         assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
 
 

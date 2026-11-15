@@ -160,9 +160,9 @@ class _Partition:
 
         In the exchange graph, an element ``x`` points to the members of a set that ``x`` could
         replace: the members of its circuit in that set.  The path ends at an element that is
-        independent of a set, which then has room for it: every set but the last is full, and
-        ``size`` columns of a basis of ``size`` rows span every column, so only the last set can be
-        independent of it.
+        independent of some set, which then has room for it.  Only the last set can be that set:
+        every other set is full, and the ``size`` columns of a full set span every column of a basis
+        of ``size`` rows.
         """
         parent: dict[int, tuple[int, int]] = {}
         queue = deque([element])

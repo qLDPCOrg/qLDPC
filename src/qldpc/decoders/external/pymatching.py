@@ -40,10 +40,13 @@ _FAULTS_MATRIX_MESSAGE = (
     " the detector error model"
 )
 
+# Declare the lazily created backend class, with its docstring, for type checkers and AutoAPI, which
+# read source statically.
 if TYPE_CHECKING:
     import pymatching
 
-    class Matching(pymatching.Matching, BatchErrorDecoder): ...
+    class Matching(pymatching.Matching, BatchErrorDecoder):
+        """A pymatching.Matching that is also a BatchErrorDecoder."""
 
 
 ####################################################################################################

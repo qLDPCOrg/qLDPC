@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import itertools
+import tracemalloc
 from typing import Any
 
 import numpy as np
@@ -15,6 +16,7 @@ from qldpc._binary import get_kernel
 from .. import _cosets
 from .._information_sets import certificates as certificates_module
 from .._information_sets import completion_bounds
+from .._tuning import MAX_VALUE
 from ..conftest import EVEN_ROUTES_CODE, RANK_DEFICIENT_CODE
 from . import affine_instance, coset_tables
 
@@ -123,7 +125,43 @@ def test_records_of_tails_add_the_tables_of_the_sets_that_fit() -> None:
             tables.tables.tolist() for tables in expected
         ]
         assert len(both.completion_tables) == sum(len(tables.tables) for tables in expected)
-    assert get_set_tables(first, 1) == []
+    assert [get_set_tables(first, index) for index in range(2)] == [expected[0].tables.tolist(), []]
+
+
+def test_records_of_tails_build_the_tables_that_they_add_in_place() -> None:
+    """``get_coset_tails`` holds the tables that a record gains once while it builds them.
+
+    NumPy reports its arrays to tracemalloc.  The record of a random code of 24 rows and 96 columns
+    gains the tables of a second set, of about 50 kB on blocks of eight columns.  The traced memory
+    then peaks at the tables of the new record, plus less than half the tables that it adds.  A
+    build that kept the new tables apart from the array of the record would hold them twice.
+    """
+    code = np.random.default_rng(0).integers(0, 2, (24, 96), dtype=np.uint8)
+    instance = affine_instance.get_coset_instance(code, random_column_orders=0, weight_factor=1)
+    inverse = _cosets.get_unit_syndrome_words(get_kernel(code))
+
+    def get_record(
+        sets: list[int], record: coset_tables.CosetTails | None
+    ) -> coset_tables.CosetTails:
+        """The record of the tails of the family, with the tables of the given sets."""
+        return coset_tables.get_coset_tails(
+            instance, sets, record, inverse=inverse, block_bits=8, max_table_bytes=MAX_VALUE
+        )
+
+    first = get_record([0], None)
+    was_tracing = tracemalloc.is_tracing()
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        before = tracemalloc.get_traced_memory()[0]
+        second = get_record([1], first)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        if not was_tracing:
+            tracemalloc.stop()
+    added = len(second.completion_tables) - len(first.completion_tables)
+    assert added > 40_000
+    assert peak - before < len(second.completion_tables) + added // 2
 
 
 def test_search_tables_plan_by_parity_exactly_when_cosets_of_an_even_code_differ() -> None:

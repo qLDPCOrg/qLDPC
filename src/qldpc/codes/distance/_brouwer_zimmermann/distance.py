@@ -2,19 +2,16 @@
 
 """Exact BZ searches with disjoint, overlapping, or automorphism families of information sets.
 
-The disjoint/rank-deficient certificates follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_;
-the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
-The overlapping-set certificate and implementation invariants are derived in
-``brouwer_zimmermann.md`` in ``src/qldpc/codes/distance/``.
+The certificates of disjoint and rank-deficient information sets follow
+`Algorithm 994 <https://arxiv.org/abs/1603.06757>`_, and the symplectic reduction follows an
+`adaptation of the algorithm to quantum codes <https://arxiv.org/abs/2408.10743>`_.
+``brouwer_zimmermann.md`` in ``src/qldpc/codes/distance/`` derives the certificate of overlapping
+sets and the invariants of this implementation.
 
-Information-set families and their certificates are built in ``_information_sets/``, which
-fixed-weight logical counting shares.  Its ``basis_families.py`` builds the families, and
-``certificates.py`` their certificates.  Its ``automorphism_families.py`` builds families of the
-images of one information set under automorphisms, and ``completion_bounds.py`` the tables that let
-a scan skip hopeless supports.  Beside this module, ``affine_search.py`` holds the compiled scans of
-layers, and ``affine_instance.py`` packs the sets of a search with their certificate.  The coset
-searches share both.  This module owns witness discovery, early exits, exhaustive dispatch, and the
-resumable scans of layers in chunks.
+This module prepares each search, finds its witnesses, takes its early exits, and scans its layers
+in resumable chunks.  The families and their certificates come from ``_information_sets/``, and
+the compiled scans from ``affine_search.py``.  The package's ``README.md`` says where everything
+else lives.
 """
 
 from __future__ import annotations
@@ -30,7 +27,6 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits
 
 from .._binary import get_eligible_rows
-from .._brute_force import get_nested_distance_brute_force
 from .._information_sets import (
     automorphism_families,
     basis_families,
@@ -40,10 +36,12 @@ from .._information_sets import (
 from .._tuning import SearchTuning, get_tuning
 from . import affine_instance, affine_search
 
+# The automorphism family of a problem: a basis family of the one set that a search scans, and the
+# certificate of all of its images.
+_AutomorphismFamily = tuple[basis_families.BasisFamily, certificates.Certificate]
+
 # A function that returns the automorphism family of a problem for a weight divisor, or None.
-_GetAutomorphismFamily = Callable[
-    [int], tuple[basis_families.BasisFamily, certificates.Certificate] | None
-]
+_GetAutomorphismFamily = Callable[[int], _AutomorphismFamily | None]
 
 ####################################################################################################
 # search entry points
@@ -75,17 +73,18 @@ def get_distance_brouwer_zimmermann_many(
             not in ``problems``, or ``max_weight + 1`` under a weight limit.  The searches stop
             once they certify that every word is at least this heavy.
         get_disjoint_basis_families: If given, holds a function for each problem that returns a
-            disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the
-            problem's basis, with quotient labels of the problem, certified with this
-            ``weight_divisor``.  The result of ``basis_families.get_disjoint_family`` is one, and a
-            caller that keeps such families saves that first stage.  Each function is called only if
-            its search needs it.
+            disjoint basis family of it, such as the result of
+            ``basis_families.get_disjoint_family``.  Such a family holds sets with pairwise disjoint
+            pivot blocks that span the problem's basis, with the quotient labels of the problem,
+            and is certified with this ``weight_divisor``.  A caller that keeps these families
+            saves the searches that first stage.  Each function is called only if its search needs
+            it.
         get_automorphisms: If given, returns an array of generators of a group of column
             permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.
             Each generator must map the searched space and the excluded subspace of every problem
-            onto themselves.  A search calls the function before a costly layer, verifies the
-            generators for its problem, and may then scan fewer information sets (see
-            ``automorphism_families``).
+            onto themselves.  A search calls the function at most once: before matroid partitioning
+            if it would partition, or else before a costly layer.  It verifies the generators for
+            its problem, and may then scan fewer information sets (see ``automorphism_families``).
         tuning: Sets the thresholds that choose the route of each search (see ``_tuning``), and
             defaults to the active tuning, which every search then uses throughout.
 
@@ -149,46 +148,6 @@ def get_distance_brouwer_zimmermann_many(
 
 
 ####################################################################################################
-# cost models
-
-
-def enumeration_is_cheaper_than_setup(
-    dimension: int, length: int, max_dimension: int, setup_cost_factor: int
-) -> bool:
-    """Estimate whether enumerating every codeword is cheaper than building information sets.
-
-    Setup costs dominate the Brouwer-Zimmermann search for small dimensions, up to
-    ``max_dimension``.  For long, low-dimensional codes, byte-wise elimination for each information
-    set can cost more than packed ``uint64`` enumeration of all ``2**dimension`` codewords, which
-    ``setup_cost_factor`` times the dimension and the length estimates.  Below 63 rows, the count of
-    codewords fits a native integer.
-    """
-    return dimension <= max_dimension or (
-        dimension < 63 and 1 << dimension <= setup_cost_factor * dimension * length
-    )
-
-
-def _enumeration_is_cheaper_than_search(
-    *,
-    num_logical_rows: int,
-    certificate: certificates.Certificate,
-    upper_bound: int,
-) -> bool:
-    """Estimate whether exhaustive nested-code enumeration will outperform BZ.
-
-    The BZ estimate pessimistically assumes that the search must certify the current upper bound,
-    whereas lighter witnesses usually end the search sooner.  Although the vectorized exhaustive
-    kernel is a few times cheaper per candidate than the serial Numba BZ kernel, whole-search
-    timings near this boundary favor BZ until the exhaustive count reaches roughly the estimated BZ
-    count, so the two counts are compared directly.
-    """
-    dimension = certificate.dimension
-    bz_candidates = certificate.work(upper_bound)
-    exhaustive_candidates = ((1 << num_logical_rows) - 1) << (dimension - num_logical_rows)
-    return exhaustive_candidates <= bz_candidates
-
-
-####################################################################################################
 # resumable searches
 
 
@@ -203,26 +162,30 @@ class _BrouwerZimmermannSearch:
     images of that set under automorphisms of the problem, which complete each layer when the set
     does (see ``automorphism_families``).
 
-    ``lower_bound`` bounds the weights of the eligible words lighter than ``best``: the search
-    certifies that no eligible word weighs less than ``min(lower_bound, best)``, and it has finished
-    once ``lower_bound`` reaches ``best``.  An eligible word lighter than ``best`` cannot have been
-    examined or skipped, so the bounds of every family that the search has scanned hold for it.
-    ``lower_bound`` alone can exceed the weight of heavier words, such as the words of supports that
-    the search skipped, so a bound on the distance is ``min(lower_bound, best)``.
+    The search certifies that no eligible word weighs less than ``min(lower_bound, best)``, and it
+    has finished once ``lower_bound`` reaches ``best``.  ``lower_bound`` bounds only the eligible
+    words lighter than ``best``.  The search can neither have examined nor skipped such a word, so
+    the bounds of every family that it has scanned hold for it.  Heavier words, such as those of
+    supports that the search skipped, can weigh less than ``lower_bound``.
 
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
-    The search calls it once, before the first layer whose scan would cost at least
-    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  The search switches to
-    the automorphism family if it predicts less work (see ``_switch_to_automorphism_family``).
+    The search calls it at most once, the first time that it considers switching to that family,
+    and then sets it to None.  If the search would partition, setup calls it first, and the search
+    considers the switch at the end of setup.  Otherwise the search first considers the switch
+    before the first layer whose scan would cost at least ``tuning.automorphism_minimum_layer_work``
+    candidate/set evaluations.  Either way, setup's cache builds the family at most once.  The
+    search switches to the family if it predicts less work (see ``_switch_to_automorphism_family``).
+    A search that declines keeps the family in ``automorphism_family``, and its best weight at that
+    time in ``declined_best``.  It considers the switch again before a later costly layer once its
+    best weight has dropped below ``declined_best`` (see ``_considers_automorphism_family``).
 
-    A layer of two or more rows that scans one set whose block is an information set uses
-    ``affine_search.scan_information_set``.  Such a layer may skip the supports whose last two rows
-    cannot complete a word lighter than the best weight, with tables that the completion fields of
-    ``tuning`` choose (see ``completion_bounds``).  ``completion_tables`` keeps the most recently
-    chosen tables of such a layer for reuse, until the basis changes or the search finishes.  A
-    layer of two or more rows that scans several sets, all of whose blocks are information sets,
-    scans them one at a time in the same way if tables pay for some of them and for the whole layer
-    (see ``_choose_tables_of_sets``), and otherwise scans them in lockstep.
+    A layer scans its sets one at a time, in the order of the family, with
+    ``affine_search.scan_set``.  The scan of a set whose block is an information set may use
+    completion tables, which the completion fields of ``tuning`` choose for it (see
+    ``completion_bounds``).  The tables let the scan skip supports whose words cannot be lighter
+    than the best weight.  ``completion_tables`` keeps the most recently chosen tables, of the set
+    ``completion_tables_set``, for reuse in later layers of that set.  The search keeps them until
+    it chooses tables for another set, the basis changes, or the search finishes.
     """
 
     instance: affine_instance.AffineInstance
@@ -234,9 +197,12 @@ class _BrouwerZimmermannSearch:
     next_weight: int = 1
     get_automorphism_family: _GetAutomorphismFamily | None = field(default=None, repr=False)
     uses_automorphism_family: bool = field(default=False, init=False)
+    automorphism_family: _AutomorphismFamily | None = field(default=None, init=False, repr=False)
+    declined_best: int = field(default=0, init=False)
     completion_tables: completion_bounds.CompletionTables | None = field(
         default=None, init=False, repr=False
     )
+    completion_tables_set: int = field(default=0, init=False, repr=False)
 
     @property
     def dimension(self) -> int:
@@ -261,17 +227,18 @@ class _BrouwerZimmermannSearch:
     def advance(self) -> int:
         """Search the next coefficient layer, and return the best shared upper bound.
 
-        The search scans at most the fewest leading sets whose completion of the layer certifies the
-        best weight at the start of the layer, or every set if no fewer do (see
-        ``Certificate.get_num_sets_to_certify``).  A search that uses an automorphism family scans
-        its one set, which completes the layer for the whole family.
+        It scans at most the fewest leading sets whose completion of the layer certifies the best
+        weight at the start of the layer, or every set if no fewer do (see
+        ``Certificate.get_num_sets_to_certify``).  If the layer finds a lighter word, the search
+        stops once the sets that it has scanned certify the new best weight.  A search that uses an
+        automorphism family scans its one set, which completes the layer for the whole family.
         """
         if self.finished:
             return self.best
 
-        # Scan only the first sets of this layer if their completion of it certifies the best
-        # weight: an unvisited eligible word lighter than that would contradict the certificate, and
-        # lighter witnesses found during the scan only lower the best weight further.
+        # Scan only as many leading sets as certify the best weight.  An unvisited eligible word
+        # lighter than that weight would contradict the certificate, and the witnesses that the scan
+        # finds only lower the best weight further.
         weight = self.next_weight
         instance = self.instance
         certificate = instance.certificate
@@ -282,42 +249,29 @@ class _BrouwerZimmermannSearch:
             num_completed = certificate.get_num_sets_to_certify(weight, self.best)
             num_scanned = num_completed
 
-        # Before a costly layer, consider scanning one set and certifying with its images.  Like
-        # the work estimates of certificates, this estimate saturates at their cap, so that the
-        # largest threshold of a tuning forbids the switch.
+        # Before a costly layer, consider scanning one set and certifying with its images.  This
+        # estimate saturates at the cap of the work estimates of certificates, as they do, so that
+        # the largest threshold of a tuning forbids the switch.
         layer_work = min(num_scanned * math.comb(self.dimension, weight), certificates.WORK_CAP)
         if (
-            self.get_automorphism_family is not None
+            self._considers_automorphism_family
             and layer_work >= self.tuning.automorphism_minimum_layer_work
         ):
             self._switch_to_automorphism_family()
             return self.advance()
 
-        # Scan one information set alone, several one at a time if completion tables pay for some
-        # of them and for the whole layer, or else every scanned set in lockstep.  A scan of several
-        # sets one at a time may stop after fewer sets, once they certify the best weight.
-        scans_information_sets = weight >= 2 and bool(
-            np.all(instance.ranks[:num_scanned] == self.dimension)
-        )
-        block_bits = (
-            self._choose_tables_of_sets(weight, num_scanned)
-            if scans_information_sets and num_scanned > 1
-            else None
-        )
-        if scans_information_sets and num_scanned == 1:
-            tables = self._select_completion_tables(weight)
-            if not self._scan_information_set(
-                0, weight, completion_bounds.NO_TABLES if tables is None else tables
-            ):
+        # Scan the sets one at a time, in the order of the family.  Each set completes a step of the
+        # layer, so the scan stops after the first set whose step certifies the best weight
+        # (Sections 2.5 and 3.9 of ``brouwer_zimmermann.md``).  ``certifies`` solves a linear
+        # program only if the program could certify that weight.  Each set steps through the
+        # supports of the layer on its own, which keeps the scan simple but repeats the stepping, a
+        # cost that shows on layers of many sets of short rows.
+        for index in range(num_scanned):
+            if not self._scan_set(index, weight):
                 return self.best
-        elif block_bits is None:
-            if not self._scan_sets_in_lockstep(weight, num_scanned):
-                return self.best
-        else:
-            num_completed_in_turn = self._scan_sets_in_turn(weight, block_bits)
-            if num_completed_in_turn is None:
-                return self.best
-            num_completed = num_completed_in_turn
+            if index + 1 < num_scanned and certificate.certifies(weight, index + 1, self.best):
+                num_completed = index + 1
+                break
 
         # The first ``num_completed`` sets have completed the layer, so the family certificate may
         # advance.  The bound of a family scanned before a switch to an automorphism family still
@@ -332,33 +286,32 @@ class _BrouwerZimmermannSearch:
 
     @property
     def _scan_cutoff(self) -> int:
-        """The cutoff that the compiled scans take.
+        """The cutoff that the compiled scans take: ``cutoff``, clamped below at -1.
 
-        Any negative Python cutoff disables early exit, so it is passed as -1, within int64 range.
+        Every negative cutoff disables early exits alike, and -1 is within int64 range.
         """
         return max(-1, self.cutoff)
 
-    def _scan_information_set(
-        self, index: int, weight: int, tables: completion_bounds.CompletionTables
-    ) -> bool:
-        """Scan a layer of the set ``index``, whose block is an information set.
+    def _scan_set(self, index: int, weight: int) -> bool:
+        """Scan a layer of the set ``index``, with the completion tables that it chooses, if any.
 
-        ``tables`` are the completion tables of the rows of the set, or
-        ``completion_bounds.NO_TABLES``.  Returns False if the scan stopped at the cutoff.
+        The block of the set need not be an information set.  Returns False if the scan stopped at
+        the cutoff.
         """
+        tables = self._select_completion_tables(index, weight)
         instance = self.instance
-        selected = slice(index, index + 1)
         support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros((weight + 1, 1, instance.generators.shape[2]), dtype=np.uint64)
+        prefixes = np.zeros((weight + 1, instance.generators.shape[2]), dtype=np.uint64)
 
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         depth = 0
         while depth >= 0:
-            self.best, depth, _, _, _ = affine_search.scan_information_set(
-                instance.generators[selected],
-                instance.labels[selected],
-                instance.widths[selected],
-                instance.label_widths[selected],
+            self.best, depth, _, _, _ = affine_search.scan_set(
+                instance.generators[index],
+                instance.labels[index],
+                instance.ranks[index],
+                instance.widths[index],
+                instance.labels.shape[2],
                 support,
                 prefixes,
                 depth,
@@ -373,141 +326,82 @@ class _BrouwerZimmermannSearch:
                 return False
         return True
 
-    def _scan_sets_in_lockstep(self, weight: int, num_scanned: int) -> bool:
-        """Scan a layer of the first ``num_scanned`` sets in lockstep.
+    def _select_completion_tables(
+        self, index: int, weight: int
+    ) -> completion_bounds.CompletionTables:
+        """Choose the completion tables of a layer of the set ``index``.
 
-        Returns False if the scan stopped at the cutoff.
-        """
-        instance = self.instance
-        scanned = slice(0, num_scanned)
-        support = np.zeros(weight, dtype=np.int64)
-        prefixes = np.zeros(
-            (weight + 1, num_scanned, instance.generators.shape[2]), dtype=np.uint64
-        )
-
-        # Scan in chunks, returning early once the upper bound reaches the cutoff.
-        depth = 0
-        while depth >= 0:
-            self.best, depth, _ = affine_search.scan_family(
-                instance.generators[scanned],
-                instance.labels[scanned],
-                instance.ranks[scanned],
-                instance.widths[scanned],
-                instance.label_widths[scanned],
-                support,
-                prefixes,
-                depth,
-                self.best,
-                self._scan_cutoff,
-                self.batch_size,
-            )
-            if self.best <= self.cutoff:
-                return False
-        return True
-
-    def _choose_tables_of_sets(self, weight: int, num_scanned: int) -> list[int] | None:
-        """Choose whether to scan a layer of several information sets one at a time, with tables.
-
-        A set gets completion tables if their predicted cost is within the limit of the tuning (see
-        ``completion_bounds.predict_completion_cost``).  The layer scans its sets one at a time if
-        some set gets tables, and if the predicted cost of the layer is within that limit too,
-        counting the full cost for each set without tables.  Scanning the sets one at a time
-        without tables costs about as much as scanning them in lockstep.
+        Only a set whose block is an information set can have tables.  It reuses the tables that the
+        search keeps if they are its own.  Otherwise the search frees them before choosing, so that
+        it holds the tables of one set at a time.  The search keeps the chosen tables.
 
         Returns:
-            The width of the blocks of the tables of each set, or zero for a set without tables, or
-            None if the layer scans its sets in lockstep.
-        """
-        costs, block_bits = [], []
-        for index in range(num_scanned):
-            cost, bits = completion_bounds.predict_completion_cost(
-                self.instance.generators[index, :, : self.instance.widths[index]],
-                weight,
-                self.best,
-                reuse=False,
-                tuning=self.tuning,
-            )
-            if not completion_bounds.is_within_cost_limit(cost, self.tuning):
-                cost, bits = 1.0, 0
-            costs.append(cost)
-            block_bits.append(bits)
-        if any(block_bits) and completion_bounds.is_within_cost_limit(
-            sum(costs) / num_scanned, self.tuning
-        ):
-            return block_bits
-        return None
-
-    def _scan_sets_in_turn(self, weight: int, block_bits: list[int]) -> int | None:
-        """Scan a layer of information sets one at a time, in the order of the family.
-
-        Each set is scanned by ``_scan_information_set``, with tables on blocks of its entry of
-        ``block_bits`` columns, built just before its scan, or without tables for an entry of zero.
-        So the search holds the tables of one set at a time.  Each set scanned completes a step of
-        the layer, so the scan stops after the first set whose step certifies the best weight
-        (Section 3.9 of ``brouwer_zimmermann.md``).
-
-        Returns:
-            The number of leading sets that have completed the layer: those up to the set whose step
-            certifies the best weight, or every set.  None if the scan stopped at the cutoff.
+            The chosen tables, or ``completion_bounds.NO_TABLES``.
         """
         instance = self.instance
-        for index, bits in enumerate(block_bits):
-            rows = instance.generators[index, :, : instance.widths[index]]
-            tables = (
-                completion_bounds.CompletionTables.build(rows, bits)
-                if bits
-                else completion_bounds.NO_TABLES
-            )
-            if not self._scan_information_set(index, weight, tables):
-                return None
-            del tables
-
-            # Stop once the sets that have completed the layer certify the best weight.
-            # ``certifies`` solves a linear program only if the program could certify that weight.
-            if instance.certificate.certifies(weight, index + 1, self.best):
-                return index + 1
-        return len(block_bits)
-
-    def _select_completion_tables(self, weight: int) -> completion_bounds.CompletionTables | None:
-        """Choose the completion tables of a layer of one information set, or None.
-
-        The search reuses its tables while it scans the same set, and keeps the chosen tables.
-        """
+        if instance.ranks[index] < self.dimension:
+            return completion_bounds.NO_TABLES
+        if self.completion_tables_set != index:
+            self.completion_tables = None
         tables = completion_bounds.select_completion_tables(
-            self.instance.generators[0, :, : self.instance.widths[0]],
+            instance.generators[index, :, : instance.widths[index]],
             weight,
             self.best,
             current=self.completion_tables,
             tuning=self.tuning,
         )
-        if tables is not None:
-            self.completion_tables = tables
+        if tables is None:
+            return completion_bounds.NO_TABLES
+        self.completion_tables, self.completion_tables_set = tables, index
         return tables
+
+    @property
+    def _considers_automorphism_family(self) -> bool:
+        """Whether the search would consider switching to an automorphism family before a layer.
+
+        It would until it has switched or has found that the problem has no such family.  After it
+        declines the switch, it would again only once its best weight has dropped.  At the same best
+        weight it would decline again: the work of the automorphism family is the same, and the
+        work left in the current family only falls as the search completes layers.  This property
+        is False right after every consideration, which ends the recursion of ``advance`` after it
+        considers the switch.
+        """
+        if self.get_automorphism_family is not None:
+            return True
+        return self.automorphism_family is not None and self.best < self.declined_best
 
     def _switch_to_automorphism_family(self) -> None:
         """Scan one set and certify with its images from now on, if that predicts less work.
 
-        The search keeps its lower bound.  An eligible word lighter than the best weight is
-        unvisited by both families, so the bounds of both hold for it.  The certificate of the
-        automorphism family counts every layer of the scanned set, so the search scans that set
-        again from layer two.
+        The first call gets the automorphism family, which the search keeps while it declines the
+        switch.  The certificate of the automorphism family counts every layer of the scanned set,
+        so after a switch the search scans that set again from layer two.  The switch abandons the
+        layers that the current family has completed.  So it compares the work of the automorphism
+        family with the work left in the current family, from its next layer.  The search keeps its
+        lower bound: an eligible word lighter than the best weight is unvisited by both families, so
+        the bounds of both hold for it.
         """
-        assert self.get_automorphism_family is not None
-        get_automorphism_family, self.get_automorphism_family = self.get_automorphism_family, None
-        automorphism_family = get_automorphism_family(self.instance.certificate.weight_divisor)
-        if automorphism_family is None:
+        if self.get_automorphism_family is not None:
+            weight_divisor = self.instance.certificate.weight_divisor
+            self.automorphism_family = self.get_automorphism_family(weight_divisor)
+            self.get_automorphism_family = None
+        if self.automorphism_family is None:
             return
 
-        # The rows of the scanned set are the layer-one words of every image.
-        basis_family, certificate = automorphism_family
+        # The layer-one words of every image weigh as much as the rows of the scanned set.  The work
+        # of the automorphism family counts them too, one evaluation each, so that it stays small
+        # when they certify the best weight.
+        basis_family, certificate = self.automorphism_family
         self.best = _get_basis_family_upper_bound(basis_family, self.best)
         work = automorphism_families.estimate_automorphism_family_work(certificate, self.best)
-        if work >= self.instance.certificate.work(self.best):
+        if work >= self.instance.certificate.work(self.best, self.next_weight):
+            self.declined_best = self.best
             return
         self.instance = affine_instance.get_distance_instance(basis_family, certificate)
         self.lower_bound = max(self.lower_bound, certificate.lower_bound(1))
         self.next_weight = 2
         self.uses_automorphism_family = True
+        self.automorphism_family = None
         # Tables of the old set bound nothing in the new one.
         self.completion_tables = None
 
@@ -524,13 +418,16 @@ def _prepare_brouwer_zimmermann_search(
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning,
 ) -> int | _BrouwerZimmermannSearch:
-    """Prepare one BZ search, or return immediately when another route is cheaper.
+    """Prepare one BZ search, or return its result if setup already settles it.
 
-    The basis family stages of ``basis_families`` run in order, with distance-specific witness,
-    cutoff, certificate, and exhaustive exits between them.  ``tuning`` sets the thresholds of the
-    stages and exits.  ``get_disjoint_basis_family``, if given, returns the result of the first
-    stage.  ``get_automorphisms``, if given, lets the search switch to an automorphism family before
-    a costly layer (see ``_BrouwerZimmermannSearch``).
+    The basis family stages of ``basis_families`` run in order.  Between them, setup returns early
+    if the rows of the family bring the best weight to the cutoff, or if its certificate already
+    proves the best weight.  ``tuning`` sets the thresholds of the stages.
+    ``get_disjoint_basis_family``, if given, returns the result of the first stage.
+    ``get_automorphisms``, if given, lets the search switch to an automorphism family before a
+    costly layer (see ``_BrouwerZimmermannSearch``).  If the search would partition, setup builds
+    that family first.  It skips matroid partitioning if that family predicts no more work than any
+    partitioned family could, and has the search consider switching to it at once.
     """
     dimension = len(basis)
     best = min(
@@ -544,22 +441,8 @@ def _prepare_brouwer_zimmermann_search(
     if best <= cutoff:
         return best
 
-    if tuning.allow_enumeration_by_size and enumeration_is_cheaper_than_setup(
-        dimension,
-        basis.shape[1],
-        tuning.enumeration_max_dimension,
-        tuning.enumeration_setup_cost_factor,
-    ):
-        distance = get_nested_distance_brute_force(
-            basis,
-            labels,
-            cutoff=cutoff,
-            batch_exponent=tuning.enumeration_batch_exponent,
-            homogeneous=True,
-        )
-        return min(best, distance)
-
-    # The disjoint basis family's certificate also uses any inferred even ambient parity.
+    # The certificate of the disjoint basis family also uses any even parity of the words that the
+    # family infers.
     basis_family = (
         basis_families.get_disjoint_family(
             basis,
@@ -575,14 +458,29 @@ def _prepare_brouwer_zimmermann_search(
         return best
 
     basis_family = basis_families.prune_family(basis_family, upper_bound=best)
-    # Each basis family of an independent basis has a set, whose systematic rows complete layer one.
+    # A family of an independent basis has at least one set, and the systematic rows of its sets,
+    # which the upper bound above weighed, complete layer one.
     completed_weight = 1
     lower_bound = basis_family.certificate.lower_bound(completed_weight)
     if lower_bound >= best:
         return best
 
-    # Replace the basis family only when overlapping sets, built heuristically and then, for costly
-    # searches, by matroid partitioning, predict less certification work.
+    # Build the automorphism family at most once: before matroid partitioning, to decide whether to
+    # partition, or before the first costly layer of the search.  Layer work saturates at the cap of
+    # work estimates, so a threshold above that cap turns automorphisms off, and needs no family.
+    get_automorphism_family = (
+        None
+        if get_automorphisms is None
+        or tuning.automorphism_minimum_layer_work > certificates.WORK_CAP
+        else functools.cache(
+            functools.partial(_get_automorphism_family, basis, labels, get_automorphisms)
+        )
+    )
+
+    # Two stages may replace the basis family by overlapping sets: a heuristic, and then, for costly
+    # searches, matroid partitioning.  Each replaces it only if its sets predict less certification
+    # work.  Partitioning is skipped if an automorphism family does no more work than any
+    # partitioned family could, since the search then switches to that family at once.
     for get_replacement in (
         lambda family, best: basis_families.get_overlapping_family(
             basis,
@@ -597,6 +495,14 @@ def _prepare_brouwer_zimmermann_search(
             family,
             best,
             tuning,
+            get_competing_work=None
+            if get_automorphism_family is None
+            else functools.partial(
+                _get_automorphism_family_work,
+                get_automorphism_family,
+                family.weight_divisor,
+                best,
+            ),
         ),
     ):
         replacement = get_replacement(basis_family, best)
@@ -614,21 +520,7 @@ def _prepare_brouwer_zimmermann_search(
         if lower_bound >= best:
             return best
 
-    if tuning.allow_enumeration_by_work and _enumeration_is_cheaper_than_search(
-        num_logical_rows=int(np.count_nonzero(get_eligible_rows(labels))),
-        certificate=basis_family.certificate,
-        upper_bound=best,
-    ):
-        distance = get_nested_distance_brute_force(
-            basis,
-            labels,
-            cutoff=cutoff,
-            batch_exponent=tuning.enumeration_batch_exponent,
-            homogeneous=True,
-        )
-        return min(best, distance)
-
-    return _BrouwerZimmermannSearch(
+    search = _BrouwerZimmermannSearch(
         affine_instance.get_distance_instance(
             basis_family,
             basis_family.get_search_certificate(
@@ -641,10 +533,17 @@ def _prepare_brouwer_zimmermann_search(
         best=best,
         lower_bound=lower_bound,
         next_weight=completed_weight + 1,
-        get_automorphism_family=None
-        if get_automorphisms is None
-        else functools.partial(_get_automorphism_family, basis, labels, get_automorphisms),
+        get_automorphism_family=get_automorphism_family,
     )
+
+    # If setup found automorphisms to decide whether to partition, it has already paid for them.  So
+    # the search considers switching to their family at once, rather than before a costly layer.
+    # The rows of that family can lower the best weight, and its certificate can finish the search.
+    if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
+        search._switch_to_automorphism_family()
+        if search.finished:
+            return search.best
+    return search
 
 
 def _get_automorphism_family(
@@ -652,7 +551,7 @@ def _get_automorphism_family(
     labels: npt.NDArray[np.uint8],
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None],
     weight_divisor: int,
-) -> tuple[basis_families.BasisFamily, certificates.Certificate] | None:
+) -> _AutomorphismFamily | None:
     """Verify the automorphisms of a problem, and build the automorphism family of one set.
 
     Args:
@@ -678,13 +577,29 @@ def _get_automorphism_family(
     )
 
 
+def _get_automorphism_family_work(
+    get_automorphism_family: _GetAutomorphismFamily,
+    weight_divisor: int,
+    upper_bound: int,
+) -> int:
+    """The estimated work of the automorphism family that a search can switch to.
+
+    Returns ``WORK_CAP`` if the problem has no automorphism family.
+    """
+    automorphism_family = get_automorphism_family(weight_divisor)
+    if automorphism_family is None:
+        return certificates.WORK_CAP
+    _, certificate = automorphism_family
+    return automorphism_families.estimate_automorphism_family_work(certificate, upper_bound)
+
+
 def _get_lightest_eligible_row_weight(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
 ) -> int:
     """Return the weight of the lightest eligible row of a nested-code basis."""
     packed_basis = pack_bits(basis[get_eligible_rows(labels)])
-    # get row weights, summing in uint64 to avoid overflow in wide rows
+    # Sum the weights of the packed words of each row in uint64, so that wide rows cannot overflow.
     return int(np.bitwise_count(packed_basis).sum(axis=-1, dtype=np.uint64).min())
 
 

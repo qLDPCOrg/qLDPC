@@ -71,21 +71,21 @@ def test_tables_of_single_errors_keep_the_first_word_of_each_syndrome() -> None:
     errors hold only the identity.
     """
     singles, x_singles, z_singles = _cosets.tabulate_singles(
-        [0b01, 0b11, 0b11, 0b10], 2, is_pauli=True
+        [0b01, 0b11, 0b11, 0b10], 2, symplectic=True
     )
     assert singles == {0: 0, 0b01: 0b0001, 0b11: 0b0100, 0b10: 0b0101}
     assert x_singles == {0: 0, 0b01: 0b0001, 0b11: 0b0010}
     assert z_singles == {0: 0, 0b11: 0b0100, 0b10: 0b1000}
     singles, x_singles, z_singles = _cosets.tabulate_singles(
-        [0b01, 0b10, 0b01, 0b01, 0, 0b11], 3, is_pauli=True
+        [0b01, 0b10, 0b01, 0b01, 0, 0b11], 3, symplectic=True
     )
     assert singles == {0: 0, 0b01: 0b000001, 0b10: 0b000010, 0b11: 0b100000}
     assert x_singles == {0: 0, 0b01: 0b000001, 0b10: 0b000010}
     assert z_singles == {0: 0, 0b01: 0b001000, 0b11: 0b100000}
-    singles, x_singles, z_singles = _cosets.tabulate_singles([0, 0, 0b1, 0b1], 2, is_pauli=True)
+    singles, x_singles, z_singles = _cosets.tabulate_singles([0, 0, 0b1, 0b1], 2, symplectic=True)
     assert singles == {0: 0, 0b1: 0b0100}
     assert x_singles == {0: 0}
     assert z_singles == {0: 0, 0b1: 0b0100}
-    singles, x_singles, z_singles = _cosets.tabulate_singles([0b01, 0b01, 0], 0, is_pauli=False)
+    singles, x_singles, z_singles = _cosets.tabulate_singles([0b01, 0b01, 0], 0, symplectic=False)
     assert singles == {0: 0, 0b01: 0b001}
     assert x_singles == z_singles == {0: 0}

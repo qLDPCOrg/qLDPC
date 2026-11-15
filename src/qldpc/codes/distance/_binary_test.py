@@ -7,6 +7,7 @@ from __future__ import annotations
 import itertools
 from typing import Any, cast
 
+import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -23,7 +24,10 @@ from . import _binary as binary
 
 
 def test_binary_matrices_and_nested_bases() -> None:
-    """Check matrix conversion and basis ownership independently of distance dispatch."""
+    """Binary matrices are checked and take the documented widths, and nested bases are adapted.
+
+    The rows of an adapted basis that span the stabilizers come first, with zero quotient labels.
+    """
     assert binary.as_binary_matrix(np.empty((0, 3))).shape == (0, 3)
     assert binary.as_binary_matrix([], num_cols=3).shape == (0, 3)
     with pytest.raises(ValueError, match="infer the width"):
@@ -108,6 +112,14 @@ def test_distance_requires_binary_input() -> None:
     ternary_code = qldpc.codes.classical.HammingCode(3, 3)
     with pytest.raises(ValueError, match=r"only take binary input.*GF\(3\)"):
         qldpc.codes.distance.get_distance_from_generators(ternary_code.generator)
+
+    # Rows of a GF(3) matrix, or their entries, in tuples or lists are rejected too, although NumPy
+    # drops their field.  Over GF(3), the checks [[1, 1, 0], [0, 1, 1], [1, 0, 1]] have full rank,
+    # so they have no nonzero word, whereas over GF(2) they have the word 111.
+    checks = galois.GF(3)([[1, 1, 0], [0, 1, 1], [1, 0, 1]])
+    for rows in (tuple(checks), [list(row) for row in checks]):
+        with pytest.raises(ValueError, match=r"only take binary input.*GF\(3\)"):
+            qldpc.codes.distance.get_distance_from_checks(rows)
 
     # A plain integer array with a nonbinary entry is rejected by value validation.
     with pytest.raises(ValueError, match="entries other than 0 and 1"):

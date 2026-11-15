@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the exact binary distance search over supports that are connected in a Tanner graph."""
+"""Tests of the search of the supports that are connected in a Tanner graph, and its queries."""
 
 from __future__ import annotations
 
@@ -253,7 +253,7 @@ def test_the_distance_matches_enumeration(name: str) -> None:
     """The distance search, and a search through each weight limit, agree with an enumeration."""
     problem = PROBLEMS[name]
     distance = get_brute_force_distance(problem)
-    assert cs.get_distance_connected_support([problem], cutoff=0) == distance
+    assert cs.get_distance_connected_cluster([problem], cutoff=0) == distance
 
     # A search finds a witness exactly if its weight limit reaches the distance.
     for max_weight in range(1, distance + 1):
@@ -271,7 +271,7 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str) -> None
     """The search from a variable alone, through the distance, finds the witnesses that it roots.
 
     Every lightest witness has a support that is connected, and the search from its least variable
-    finds it (Section 3.3 of ``connected_support.md``).  So the search from a variable finds a
+    finds it (Section 3.3 of ``connected_cluster.md``).  So the search from a variable finds a
     witness exactly if some lightest witness has that least variable.
     """
     problem = PROBLEMS[name]
@@ -418,7 +418,7 @@ def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
     found = []
     search = get_search(
         *QUBIT_PROBLEMS["five-qubit"],
-        homogeneous=False,
+        symplectic=True,
         get_automorphisms=lambda: found.append(True),
         automorphism_minimum_states=10**6,
     )
@@ -450,7 +450,7 @@ def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
         limits.clear()
         get_automorphisms = unittest.mock.Mock(return_value=None)
         with _tuning.use_tuning(automorphism_minimum_states=10**5):
-            distance = cs.get_distance_connected_support(
+            distance = cs.get_distance_connected_cluster(
                 [problem], cutoff=cutoff, get_automorphisms=get_automorphisms
             )
         assert 4 <= distance <= max(4, cutoff)
@@ -501,7 +501,7 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
         return find_witness(search, max_weight)
 
     monkeypatch.setattr(cs.SupportSearch, "find_witness", record_limit)
-    assert cs.get_distance_connected_support(sectors, cutoff=0) == 3
+    assert cs.get_distance_connected_cluster(sectors, cutoff=0) == 3
     assert max(limits) == 3
 
 
@@ -547,7 +547,7 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
     which fails if a qubit can take two values.
 
     Every lightest witness has a support that is connected, and the search from its least qubit
-    finds it (Section 3.3 of ``connected_support.md``).  So the search from a qubit alone, through
+    finds it (Section 3.3 of ``connected_cluster.md``).  So the search from a qubit alone, through
     the distance, finds a witness exactly if some lightest witness has that least qubit, which
     fails if the search misses a value of a qubit.
     """
@@ -579,9 +579,9 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
         supports = get_symplectic_witness_supports(problem)
         distance = min(support.bit_count() for support in supports)
         assert distance >= 2
-        assert cs.get_distance_connected_support([problem], cutoff=0, homogeneous=False) == distance
+        assert cs.get_distance_connected_cluster([problem], cutoff=0, symplectic=True) == distance
         for max_weight in range(1, num_qubits + 1):
-            witness = get_search(*problem, homogeneous=False).find_witness(max_weight)
+            witness = get_search(*problem, symplectic=True).find_witness(max_weight)
             assert (witness is None) == (max_weight < distance)
             assert witness is None or (
                 len(witness) <= max_weight and is_symplectic_witness(problem, witness)
@@ -593,7 +593,7 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
             if support.bit_count() == distance
         }
         for root in range(num_qubits):
-            search = get_search(*problem, homogeneous=False)
+            search = get_search(*problem, symplectic=True)
             search._roots = np.array([root])
             witness = search.find_witness(distance)
             assert (witness is not None) == (root in least_qubits)
@@ -604,8 +604,8 @@ def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
     """The cyclic shift of the five-qubit code leaves one root, and so fewer states."""
     problem = QUBIT_PROBLEMS["five-qubit"]
     shift = (np.arange(5) + 1) % 5
-    plain = get_search(*problem, homogeneous=False)
-    symmetric = get_search(*problem, homogeneous=False, get_automorphisms=lambda: shift[None])
+    plain = get_search(*problem, symplectic=True)
+    symmetric = get_search(*problem, symplectic=True, get_automorphisms=lambda: shift[None])
     for search in (plain, symmetric):
         assert search.find_witness(2) is None
         witness = search.find_witness(3)
@@ -637,7 +637,7 @@ def test_a_broken_search_fails_instead_of_looping(
 
     monkeypatch.setattr(cs.SupportSearch, "find_witness", find_witness)
     with pytest.raises(RuntimeError, match="only a bug"):
-        cs.get_distance_connected_support([PROBLEMS["toric-X"], PROBLEMS["toric-X"]], cutoff=0)
+        cs.get_distance_connected_cluster([PROBLEMS["toric-X"], PROBLEMS["toric-X"]], cutoff=0)
 
     # Each of the two problems has 16 variables and weight divisor 2, so a correct search needs at
     # most 8 limits for each.
@@ -656,36 +656,36 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(cs.SupportSearch, "find_witness", record_limit)
     assert get_brute_force_distance(problem) == 4
-    assert 4 <= cs.get_distance_connected_support([problem], cutoff=16) <= 16
+    assert 4 <= cs.get_distance_connected_cluster([problem], cutoff=16) <= 16
 
     # A known upper bound is a candidate for the distance, and the search can only lower it.
-    assert cs.get_distance_connected_support([problem], cutoff=0, upper_bound=3) == 3
-    assert cs.get_distance_connected_support([], cutoff=0, upper_bound=5) == 5
+    assert cs.get_distance_connected_cluster([problem], cutoff=0, upper_bound=3) == 3
+    assert cs.get_distance_connected_cluster([], cutoff=0, upper_bound=5) == 5
 
     # A known upper bound within the cutoff ends the search before it starts.
     limits.clear()
-    assert cs.get_distance_connected_support([problem], cutoff=3, upper_bound=3) == 3
+    assert cs.get_distance_connected_cluster([problem], cutoff=3, upper_bound=3) == 3
     assert not limits
 
     # The first weight limit is the cutoff, a multiple of the weight divisor of 1, so a search can
     # exit at a word that is not the lightest.
     components = PROBLEMS["components"]
-    assert cs.get_distance_connected_support([components], cutoff=0) == 2
-    assert cs.get_distance_connected_support([components], cutoff=3) == 3
+    assert cs.get_distance_connected_cluster([components], cutoff=0) == 2
+    assert cs.get_distance_connected_cluster([components], cutoff=3) == 3
 
 
 def test_a_problem_without_logical_operators_has_no_distance() -> None:
     """Without a vector outside the excluded rows, the distance is one more than the width."""
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
     assert not get_search(*trivial).has_witnesses
-    assert cs.get_distance_connected_support([trivial], cutoff=0) == 3
-    assert cs.get_distance_connected_support([PROBLEMS["toric-X"], trivial], cutoff=0) == 3
+    assert cs.get_distance_connected_cluster([trivial], cutoff=0) == 3
+    assert cs.get_distance_connected_cluster([PROBLEMS["toric-X"], trivial], cutoff=0) == 3
 
     # The Pauli X on one qubit is excluded, and the identity and X are the operators that commute
     # with it, so a symplectic problem on one qubit has no distance either.
     one_qubit = (np.array([[1, 0]], dtype=np.uint8), np.array([[1, 0]], dtype=np.uint8))
-    assert not get_search(*one_qubit, homogeneous=False).has_witnesses
-    assert cs.get_distance_connected_support([one_qubit], cutoff=0, homogeneous=False) == 2
+    assert not get_search(*one_qubit, symplectic=True).has_witnesses
+    assert cs.get_distance_connected_cluster([one_qubit], cutoff=0, symplectic=True) == 2
 
 
 def test_degenerate_checks() -> None:
@@ -695,7 +695,7 @@ def test_degenerate_checks() -> None:
     assert witness is not None and list(witness) == [0]
     checks, excluded = PROBLEMS["steane-X"]
     padded = np.vstack([checks, checks[0], np.zeros_like(checks[0])])
-    assert cs.get_distance_connected_support([(padded, excluded)], cutoff=0) == 3
+    assert cs.get_distance_connected_cluster([(padded, excluded)], cutoff=0) == 3
 
     # The matrices of codes are arrays over GF(2).
     steane_code = codes.SteaneCode()
@@ -704,33 +704,34 @@ def test_degenerate_checks() -> None:
 
 
 def get_vector(
-    symbols: npt.NDArray[np.int64], width: int, homogeneous: bool
+    symbols: npt.NDArray[np.int64], width: int, symplectic: bool
 ) -> npt.NDArray[np.uint8]:
     """The binary or symplectic vector of the symbols of a search."""
-    if not homogeneous:
+    if symplectic:
         return get_symplectic_vector(symbols, width // 2)
     vector = np.zeros(width, dtype=np.uint8)
     vector[symbols] = 1
     return vector
 
 
-# Problems for syndrome queries.  The states of nested-restrictions restrict their subtrees.
-# copied-and-zero-checks has a zero check and a check before its copy, so a query maps its syndrome
-# onto fewer checks, and some syndromes have no vector.  five-qubit-state is the stabilizers of a
-# pure state: the five-qubit code, with its logical X.  zero-checks has only zero checks, and the
-# syndrome 11 of identity needs every variable, so a query reaches the limit of their number.
+# Problems for syndrome queries.  The states of "nested-restrictions" restrict their subtrees.
+# "copied-and-zero-checks" has a zero check, and a check before its copy, so a query maps its
+# syndrome onto fewer checks, and some syndromes have no vector.  "five-qubit-state" has the
+# stabilizers of a pure state: those of the five-qubit code, and its logical X.  "zero-checks" has
+# only zero checks.  In "identity", the syndrome 11 needs every variable, so a query reaches the
+# limit of their number.
 SYNDROME_PROBLEMS = {
-    "nested-restrictions": (PROBLEMS["nested-restrictions"][0], True),
+    "nested-restrictions": (PROBLEMS["nested-restrictions"][0], False),
     "copied-and-zero-checks": (
         np.vstack([np.zeros((1, 7)), PROBLEMS["steane-X"][0][2:], PROBLEMS["steane-X"][0]]),
-        True,
+        False,
     ),
     "five-qubit-state": (
         np.vstack([QUBIT_PROBLEMS["five-qubit"][0], [[1] * 5 + [0] * 5]]),
-        False,
+        True,
     ),
-    "zero-checks": (np.zeros((2, 3)), True),
-    "identity": (np.eye(2), True),
+    "zero-checks": (np.zeros((2, 3)), False),
+    "identity": (np.eye(2), False),
 }
 
 
@@ -741,19 +742,19 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
     An enumeration of every vector gives the least weight of each syndrome, and a syndrome that no
     vector has, of any weight, has no vector within any limit.
     """
-    checks, homogeneous = SYNDROME_PROBLEMS[name]
+    checks, symplectic = SYNDROME_PROBLEMS[name]
     checks = np.asarray(checks, dtype=np.uint8)
     width = checks.shape[1]
-    num_variables = width if homogeneous else width // 2
-    products = checks if homogeneous else np.roll(checks, num_variables, axis=1)
+    num_variables = width // 2 if symplectic else width
+    products = np.roll(checks, num_variables, axis=1) if symplectic else checks
     least_weights: dict[tuple[int, ...], int] = {}
     for entries in itertools.product([0, 1], repeat=width):
         vector = np.array(entries, dtype=np.uint8)
-        support = vector if homogeneous else vector[:num_variables] | vector[num_variables:]
+        support = (vector[:num_variables] | vector[num_variables:]) if symplectic else vector
         syndrome = tuple(products @ vector % 2)
         least_weights[syndrome] = min(least_weights.get(syndrome, width), int(np.sum(support)))
 
-    search = get_search(checks, np.zeros((0, width)), homogeneous=homogeneous)
+    search = get_search(checks, np.zeros((0, width)), symplectic=symplectic)
     for syndrome in itertools.product([0, 1], repeat=len(checks)):
         least_weight = least_weights.get(syndrome, num_variables + 1)
         for max_weight in range(num_variables + 1):
@@ -762,7 +763,7 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
             if symbols is not None:
                 assert len(symbols) <= max_weight and list(symbols) == sorted(symbols)
                 assert len(set(symbols % num_variables)) == len(symbols)
-                vector = get_vector(symbols, width, homogeneous)
+                vector = get_vector(symbols, width, symplectic)
                 assert tuple(products @ vector % 2) == syndrome
 
     # Syndrome queries are not states of witness searches.
@@ -824,8 +825,8 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
     own stamps in the memos.  A memo that kept stale values could still find correct vectors, with
     different pruning, but would likely change the number of states.
     """
-    checks, homogeneous = SYNDROME_PROBLEMS[name]
-    search = get_search(checks, np.zeros((0, np.shape(checks)[1])), homogeneous=homogeneous)
+    checks, symplectic = SYNDROME_PROBLEMS[name]
+    search = get_search(checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic)
     for bits in itertools.product([0, 1], repeat=len(search._checks)):
         if not any(bits):
             continue
@@ -877,8 +878,8 @@ def test_invalid_problems_are_rejected() -> None:
     with pytest.raises(ValueError, match="at least one"):
         get_search(*PROBLEMS["steane-X"]).find_witness(0)
     with pytest.raises(ValueError, match="at least one problem or an upper bound"):
-        cs.get_distance_connected_support([], cutoff=0)
+        cs.get_distance_connected_cluster([], cutoff=0)
     with pytest.raises(ValueError, match="even number of columns"):
         get_search(
-            np.ones((1, 3), dtype=np.uint8), np.ones((0, 3), dtype=np.uint8), homogeneous=False
+            np.ones((1, 3), dtype=np.uint8), np.ones((0, 3), dtype=np.uint8), symplectic=True
         )

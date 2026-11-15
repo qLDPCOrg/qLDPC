@@ -55,9 +55,9 @@ class CosetSearchTables(NamedTuple):
             share a cached search share them.
         x_mask: Selects the bits of a packed embedded word that count as its X part, with one
             machine word for each machine word of the embedded words.  Only searches of Pauli
-            errors by CSS weight use the X part, and their layers scan with it, but every search
-            reads the mask when it weighs the word of a syndrome, and a search of whole words also
-            reads it when it weighs the offsets of layer zero.
+            errors by CSS weight use the X part, and their layers scan with it.  But every search
+            reads the mask when it weighs the word of a syndrome and the offsets of layer zero, or
+            their tails.
     """
 
     inverse: npt.NDArray[np.uint64]
@@ -151,8 +151,11 @@ def get_coset_tails(
     blocks of ``block_bits`` columns.  Given the ``record`` of the family, the function keeps its
     tails, tables, and blocks rather than build them again.  The record that it returns also has the
     completion tables of each set of ``sets``, unless they would exceed ``max_table_bytes`` bytes or
-    be empty (see ``completion_bounds.build_tables_within``).  It holds the tables of each set once,
-    and is ``record`` itself if it adds no tables.
+    be empty (see ``completion_bounds.get_table_bytes_within``).  That record holds the tables of
+    each set once, and is ``record`` itself if it adds no tables.  The function builds the new
+    tables in place in the array of that record, so that it never holds two copies of them; it
+    copies the earlier tables of ``record`` into that array, so that they are held twice until the
+    caller drops ``record``.
     """
     # Build the tails of the family once, with a layout of no tables.
     if record is None:
@@ -176,27 +179,34 @@ def get_coset_tails(
         layout = np.zeros((num_sets, max_blocks + 3), dtype=np.int64)
         record = CosetTails(tails, inverse_tails, np.zeros(0, np.uint8), layout, block_bits)
 
-    # Append the tables of each set that has none yet, if they fit, and lay them out.  The routes
-    # keep only the latest record of a family, so the earlier tables are held once.
-    layout = record.layout.copy()
-    added = []
-    start = len(record.completion_tables)
-    for set_index in sets:
-        if layout[set_index, 1]:
-            continue
-        tables = completion_bounds.build_tables_within(
+    # Size the tables of each set that has none yet, and keep those that fit.
+    sizes = {
+        set_index: completion_bounds.get_table_bytes_within(
             record.tails[set_index], record.block_bits, max_table_bytes
         )
-        if tables is not None:
-            num_blocks = len(tables.offsets) - 1
-            layout[set_index, : num_blocks + 3] = [start, num_blocks, *tables.offsets]
-            added.append(tables.tables)
-            start += len(tables.tables)
-    if not added:
+        for set_index in sets
+        if not record.layout[set_index, 1]
+    }
+    sizes = {set_index: size for set_index, size in sizes.items() if size}
+    if not sizes:
         return record
-    return record._replace(
-        completion_tables=np.concatenate([record.completion_tables, *added]), layout=layout
-    )
+
+    # Copy the earlier tables into one array with room for the new ones, build the new tables in
+    # place there, and lay them out.  So the build holds the new tables once.  The earlier tables
+    # are held twice until the routes replace the record of the family with this one, since they
+    # keep only the latest record.
+    start = len(record.completion_tables)
+    completion_tables = np.empty(start + sum(sizes.values()), dtype=np.uint8)
+    completion_tables[:start] = record.completion_tables
+    layout = record.layout.copy()
+    for set_index, size in sizes.items():
+        tables = completion_bounds.CompletionTables.build(
+            record.tails[set_index], record.block_bits, out=completion_tables[start : start + size]
+        )
+        num_blocks = len(tables.offsets) - 1
+        layout[set_index, : num_blocks + 3] = [start, num_blocks, *tables.offsets]
+        start += size
+    return record._replace(completion_tables=completion_tables, layout=layout)
 
 
 @always_compiled
@@ -217,16 +227,18 @@ def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[in
 
     The stopping step is the first step whose bound in the table exceeds the maximum weight: the
     step at which ``stop_num_completed`` sets complete layer ``stop_layer``.  A query stops there,
-    unless it finds a light enough word sooner.  The bounds of the steps do not decrease in their
-    order.  Column zero of each row of bounds holds the bound before the first step of the row,
-    which is zero in row zero.  So the bound of the step before step ``(w, j)`` is entry
-    ``[w, j - 1]``, and for a nonnegative maximum weight, step ``(w, j)`` is the stopping step
-    exactly if its bound exceeds the maximum weight and entry ``[w, j - 1]`` does not.  The step
-    cached in the table (see ``_get_planning``) is reused if it passes this check.  Otherwise,
-    ``certificates.find_stopping_step`` finds the stopping step by binary search, and it is cached
-    in its place.  A negative maximum weight fails the check, and the binary search returns the
-    first step.  If no bound exceeds the maximum weight, which happens only when the maximum weight
-    reaches the largest native integer, the binary search returns the last step.
+    unless it finds a light enough word sooner.
+
+    The bounds of the steps do not decrease in their order.  Column zero of each row of bounds holds
+    the bound before the first step of the row, which is zero in row zero.  So the bound of the step
+    before step ``(w, j)`` is entry ``[w, j - 1]``.  For a nonnegative maximum weight, step
+    ``(w, j)`` is therefore the stopping step exactly if its bound exceeds the maximum weight and
+    entry ``[w, j - 1]`` does not.  The step cached in the table (see ``_get_planning``) is reused
+    if it passes this check.  Otherwise, ``certificates.find_stopping_step`` finds the stopping step
+    by binary search, and it is cached in its place.  A negative maximum weight fails the check, and
+    the binary search returns the first step.  If no bound exceeds the maximum weight, which happens
+    only when the maximum weight reaches the largest native integer, the binary search returns the
+    last step.
 
     Oracles that share a cached search share its planning buffer.  Compiled calls hold the global
     interpreter lock, since numba compiles them without ``nogil``, so calls interleave only when

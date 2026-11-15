@@ -15,23 +15,18 @@ import pytest
 
 from qldpc._binary import pack_bits
 
-from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning
+from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from . import completion_bounds as cb
 
-# A tuning that considers every layer, uses tables whatever they cost, and allows any size.
 Z = DEFAULT_TUNING.completion_bound_confidence_z
 MAX_SAMPLES = 2**12
+# A tuning that considers every layer, uses tables whatever they cost, and allows any size.
 FORCED = dataclasses.replace(
     DEFAULT_TUNING,
     completion_bound_minimum_layer_work=0,
     completion_bound_max_cost_percent=MAX_VALUE,
     completion_bound_max_table_bytes=MAX_VALUE,
 )
-
-
-def _with_table_bytes(max_table_bytes: int) -> SearchTuning:
-    """The default tuning with a memory limit for completion tables."""
-    return dataclasses.replace(DEFAULT_TUNING, completion_bound_max_table_bytes=max_table_bytes)
 
 
 def get_random_tails(
@@ -121,36 +116,44 @@ def test_bounds_ignore_ones_past_the_tails() -> None:
 
 
 def test_tables_fit_their_memory_limit() -> None:
-    """Tables use the blocks of the tuning that fit, or else its fallback blocks.
+    """Tables fit only within their memory limit.
 
-    Tables of tails without ones skip nothing, so a search builds none.
+    Tables of tails without ones skip nothing, so they never fit.
     """
-    # Three rows of tables of five eight-column blocks take 3 * 5 * 256 bytes.
-    assert cb._get_block_bits(4, 40, _with_table_bytes(3 * 5 * 256)) == 8
-    assert cb._get_block_bits(4, 40, _with_table_bytes(3 * 5 * 256 - 1)) == 0
-    assert cb._get_block_bits(4, 40, _with_table_bytes(2**30)) == 16
-    # With blocks of four columns, and two as the fallback, the tables of the same tails take
-    # 3 * 10 * 16 and 3 * 20 * 4 bytes.
-    narrow = dataclasses.replace(
-        DEFAULT_TUNING, completion_bound_block_bits=4, completion_bound_fallback_block_bits=2
-    )
-    for max_table_bytes, block_bits in ((480, 4), (479, 2), (239, 0)):
-        tuning = dataclasses.replace(narrow, completion_bound_max_table_bytes=max_table_bytes)
-        assert cb._get_block_bits(4, 40, tuning) == block_bits
+    # Three rows of tables of three sixteen-column blocks (the last of eight columns) take
+    # 3 * (2 * 2**16 + 2**8) bytes.
+    fitting_bytes = 3 * (2 * 2**16 + 2**8)
+    assert cb._tables_fit(4, 40, 16, fitting_bytes)
+    assert not cb._tables_fit(4, 40, 16, fitting_bytes - 1)
+    # With blocks of four columns, the tables of the same tails take 3 * 10 * 16 bytes.
+    assert cb._tables_fit(4, 40, 4, 480)
+    assert not cb._tables_fit(4, 40, 4, 479)
     assert cb._get_num_tail_bits(np.zeros((4, 2), dtype=np.uint64)) == 0
-    assert cb._get_block_bits(4, 0, _with_table_bytes(2**30)) == 0
+    assert not cb._tables_fit(4, 0, 16, 2**30)
 
 
-def test_tables_within_a_limit_are_built_only_if_they_fit_and_skip_something() -> None:
-    """Tables are built only within their limit, and not for tails without ones or a single row."""
+def test_tables_within_a_limit_fit_only_if_they_skip_something_and_build_in_place() -> None:
+    """Tables fit only within their limit, and not for tails without ones or a single row.
+
+    Tables built in place in a given array fill exactly that array, with the tables that a build
+    without one returns.
+    """
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 4, 40))
     tables = cb.CompletionTables.build(rows, 8)
-    built = cb.build_tables_within(rows, 8, len(tables.tables))
-    assert built is not None
-    np.testing.assert_array_equal(built.tables, tables.tables)
-    assert cb.build_tables_within(rows, 8, len(tables.tables) - 1) is None
-    assert cb.build_tables_within(np.zeros_like(rows), 8, MAX_VALUE) is None
-    assert cb.build_tables_within(rows[:1], 8, MAX_VALUE) is None
+    num_bytes = len(tables.tables)
+    assert cb.get_table_bytes_within(rows, 8, num_bytes) == num_bytes
+    assert cb.get_table_bytes_within(rows, 8, MAX_VALUE) == num_bytes
+    assert cb.get_table_bytes_within(rows, 8, num_bytes - 1) == 0
+    assert cb.get_table_bytes_within(np.zeros_like(rows), 8, MAX_VALUE) == 0
+    assert cb.get_table_bytes_within(rows[:1], 8, MAX_VALUE) == 0
+
+    array = np.full(num_bytes + 2, 255, dtype=np.uint8)
+    cb.CompletionTables.build(rows, 8, out=array[1:-1])
+    np.testing.assert_array_equal(array[1:-1], tables.tables)
+    assert array[0] == array[-1] == 255
+    for size in (num_bytes - 1, num_bytes + 1):
+        with pytest.raises(AssertionError):
+            cb.CompletionTables.build(rows, 8, out=np.empty(size, dtype=np.uint8))
 
 
 def test_sampled_supports_are_counted_exactly(pytestconfig: pytest.Config) -> None:
@@ -178,14 +181,17 @@ def test_selection_follows_its_policy() -> None:
     """Tables are used if their predicted cost is within the limit, and reused for the same rows.
 
     With a best weight equal to the coefficient weight, every bound reaches its limit of zero, so
-    tables skip every sampled support; with a best weight far above every word, they skip none.  In
+    tables skip every sampled support.  With a best weight far above every word, they skip none.  In
     layer six of 60 rows, building tables costs a small part of the layer.  In layer two, building
     them costs far more than the layer, while looking up bounds in tables already built does not.
     """
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 60, 24))
     assert cb.select_completion_tables(rows, 1, 12, None, FORCED) is None
     default = DEFAULT_TUNING
-    assert cb.select_completion_tables(rows, 6, 6, None, default) is None
+    # A layer with fewer supports than the minimum layer work is not considered.
+    minimum_layer_work = math.comb(60, 6) + 1
+    gated = dataclasses.replace(default, completion_bound_minimum_layer_work=minimum_layer_work)
+    assert cb.select_completion_tables(rows, 6, 6, None, gated) is None
 
     # Tables that skip every support repay their lookups and their construction.
     finite = dataclasses.replace(default, completion_bound_minimum_layer_work=0)
@@ -197,8 +203,9 @@ def test_selection_follows_its_policy() -> None:
     assert cb.select_completion_tables(rows, 2, 2, None, finite) is None
     assert cb.select_completion_tables(rows, 2, 2, tables, finite) is tables
 
-    # Each coefficient of the cost model, made large enough, makes the same tables too costly, and
-    # the most cautious estimate of the share that they skip still accepts them.
+    # Each coefficient of the cost model, made large enough, makes the same tables too costly,
+    # although, at the default limit of cost, even the most cautious estimate of the share that they
+    # skip accepts them.
     for name in (
         "completion_bound_lookup_block_cost",
         "completion_bound_lookup_block_cost_per_mib",
@@ -209,8 +216,9 @@ def test_selection_follows_its_policy() -> None:
         change: dict[str, Any] = {name: 1e6}
         costly = dataclasses.replace(finite, **change)
         assert cb.select_completion_tables(rows, 6, 6, None, costly) is None, name
-    # Tables that skip every sampled support predict about a fifth of the cost of the layer, so a
-    # limit of 20% accepts them at the usual confidence, but not at the most cautious one.
+    # Tables that skip every sampled support predict about an eighth of the cost of the layer at the
+    # usual confidence, and more than a fifth at the most cautious one.  So a limit of 20% accepts
+    # them at the usual confidence, but not at the most cautious one.
     tight = dataclasses.replace(finite, completion_bound_max_cost_percent=20)
     assert cb.select_completion_tables(rows, 6, 6, None, tight) is not None
     cautious = dataclasses.replace(tight, completion_bound_confidence_z=10.0)
@@ -224,6 +232,16 @@ def test_selection_follows_its_policy() -> None:
     no_memory = dataclasses.replace(FORCED, completion_bound_max_table_bytes=1)
     assert cb.select_completion_tables(rows, 6, 6, None, no_memory) is None
     assert cb.select_completion_tables(rows[:5], 7, 7, None, FORCED) is None
+
+    # Tables use blocks of the width of the tuning.  Four-column tables of these rows take
+    # 59 * 6 * 16 bytes: one row of tables for each row but the last, with 6 blocks of 16 entries.
+    # Sixteen-column tables do not fit in that.
+    small = dataclasses.replace(FORCED, completion_bound_max_table_bytes=59 * 6 * 16)
+    narrow = dataclasses.replace(small, completion_bound_block_bits=4)
+    narrow_tables = cb.select_completion_tables(rows, 6, 6, None, narrow)
+    assert narrow_tables is not None and narrow_tables.block_bits == 4
+    wide = dataclasses.replace(small, completion_bound_block_bits=16)
+    assert cb.select_completion_tables(rows, 6, 6, None, wide) is None
 
 
 def test_tunings_consider_tables_for_large_enough_layers_of_two_or_more_rows() -> None:
