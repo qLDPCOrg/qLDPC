@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from qldpc.conftest import check_import_layering
 
-# The top-level modules and subpackages of qldpc.codes.distance, in layers from shared foundations
-# (first) to public interfaces (last).  Add each new top-level module or subpackage to a layer.
+# Layers from shared foundations (first) to public interfaces (last).  Add each new top-level module
+# or subpackage to one.
 _LAYERS = (
     ("_binary",),
     ("_tuning",),

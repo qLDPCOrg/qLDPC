@@ -26,12 +26,11 @@ from .coset_leaders import CosetLeaderSearch
 def plain_search_setup() -> None:
     """Run the set-up code of searches as plain Python, even with ``--compile-search-setup``.
 
-    A test needs this if it relies on a compiled-on-request function calling a function that the
-    test replaces, such as to record calls to it, since compiled callers would not call the
-    replacement.  A test that compares the plain Python set-up code with its compiled version needs
-    it too.  This fixture sets every compiled-on-request function back to plain Python, which also
-    undoes an earlier replacement of one.  So a fixture that replaces one must request this fixture,
-    which then runs first.
+    A test needs this if it replaces a function that compiled-on-request code calls, since compiled
+    callers would not call the replacement, or if it compares the plain set-up code with its
+    compiled version.  This fixture sets every compiled-on-request function back to plain Python,
+    which undoes an earlier replacement of one, so a fixture that replaces one must request this
+    fixture, which then runs first.
     """
     _compilation.set_on_request_functions_compiled(False)
 
@@ -77,20 +76,18 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# of the routes of coset searches (see ``_brouwer_zimmermann/coset_routes.py``).
+# that coset searches can take (Section 4.4 of ``brouwer_zimmermann.md``):
 #
-# The even code has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has
-# even weight.  Its greedy packing has ranks three and two, but its columns hold two disjoint
-# information sets.
-#
-# In the random [10, 6] code, a greedy packing of ranks six and three leaves room for a disjoint
-# family of ranks six and four, and for a family of three overlapping information sets.  Queries
-# take each of these families at some maximum weights.
-#
-# In the random [14, 8] code, a greedy packing of ranks eight and six uses every column.  Three
-# overlapping information sets do less work for some queries, but not for others.  So the
-# overlapping family of this code depends on the weight at which it is built, and that family
-# changes some answers.
+# - EVEN_ROUTES_CODE has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so its rows
+#   are even.  Its greedy packing has ranks three and two, but its columns hold two disjoint
+#   information sets.
+# - TWO_FAMILIES_CODE, a random [10, 6] code, has a greedy packing of ranks six and three, a
+#   disjoint family of ranks six and four, and a family of three overlapping information sets, and
+#   queries take each family at some maximum weights.
+# - OVERLAPPING_ROUTES_CODE, a random [14, 8] code, has a greedy packing of ranks eight and six that
+#   uses every column.  Three overlapping information sets do less work than the greedy packing for
+#   some queries only, so its overlapping family depends on the weight at which it is built, and
+#   changes some answers.
 EVEN_ROUTES_CODE = get_binary_matrix(["100111", "010111", "001001"])
 TWO_FAMILIES_CODE = get_binary_matrix(
     ["1001010111", "0110001011", "0101111010", "0010111100", "0010100000", "0000100110"]
@@ -288,13 +285,11 @@ def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.N
     return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
 
 
-# Graph states whose searches of Pauli errors, by physical or by CSS weight, have a maximum disjoint
-# family that beats their greedy packing, and that their costly queries take (see
-# ``_brouwer_zimmermann/coset_routes.py``).  For the physical weight, the family of the first state
-# has more information sets than its greedy packing, and that of the second state a larger partial
-# set.  The family of the state for the CSS weight has a larger partial set too.  The two states for
-# the physical weight differ in the answers that their families change: on the second, the family
-# returns other errors for some classes without a light enough error.
+# Graph states whose costly queries of Pauli errors take a maximum disjoint family that beats the
+# greedy packing (Section 4.4 of ``brouwer_zimmermann.md``).  By physical weight, the family has
+# more information sets on the first of ROUTED_PHYSICAL_STATES, and a larger partial set on the
+# second, where it returns other errors than the greedy packing for some classes without an error
+# within the maximum weight.  By CSS weight, it has a larger partial set on ROUTED_CSS_WEIGHT_STATE.
 ROUTED_PHYSICAL_STATES = (
     get_graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
     get_graph_state(5, [(0, 4), (2, 3)]),
@@ -309,8 +304,7 @@ def get_random_css_state(
     """Stabilizer matrix [X|Z] of a random CSS state, with generators that mix pure-X and pure-Z.
 
     The X parts of the pure-X stabilizers are random independent rows, and the Z parts of the pure-Z
-    stabilizers span their null space.  The generators are random invertible combinations of these
-    stabilizers.
+    stabilizers span their null space.
     """
     while True:
         x_rows = rng.integers(2, size=(num_x_stabilizers, num_qubits), dtype=np.uint8)
@@ -323,11 +317,7 @@ def get_random_css_state(
 
 
 def scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDArray[np.uint8]:
-    """Random invertible combinations of the rows of a stabilizer matrix, which generate its group.
-
-    The combinations are a random permutation of an upper triangular matrix with ones on its
-    diagonal and random bits above it.
-    """
+    """Random invertible combinations of the rows of a stabilizer matrix, which keep its group."""
     size = len(matrix)
     upper = np.triu(rng.integers(2, size=(size, size), dtype=np.uint8), 1) + np.eye(
         size, dtype=np.uint8
@@ -336,10 +326,7 @@ def scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDA
 
 
 def get_exhaustive_minima(matrix: npt.NDArray[np.uint8], css_weight: bool) -> npt.NDArray[np.int_]:
-    """The smallest CSS (or physical) weight of an error with each packed syndrome.
-
-    The minima come from all ``4**n`` Paulis.
-    """
+    """The smallest CSS (or physical) weight of a Pauli error with each packed syndrome."""
     n = len(matrix)
     errors = (np.arange(1 << (2 * n))[:, None] >> np.arange(2 * n)) & 1
     checks = math.symplectic_conjugate(matrix.astype(int))
