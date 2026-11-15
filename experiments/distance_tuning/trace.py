@@ -2,23 +2,23 @@
 
 """Trace the decisions and stage times of the exact searches of a workload, or compare two traces.
 
-The script diagnoses which decisions the exact searches of a workload make, and what each of their
-stages costs.  It wraps functions of ``qldpc.codes.distance`` in this process only, warms up as
+The script wraps functions of ``qldpc.codes.distance`` in this process only, warms up as
 ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or ``mcount``
 workload once under the given tuning.  It cannot trace ``ccount`` workloads, whose compiled setup
 calls the stages past the wrappers.  It records an event for each family of information sets,
-certificate, linear program, consideration of automorphisms, test or prediction of completion
-tables, and layer of a Brouwer-Zimmermann (BZ) search; for each weight limit of a connected-cluster
-search; and for each walk and test of a count by the MacWilliams method.  The wrapper of each event
-says what it records.  The script prints the events, and with ``--output`` saves them as JSON with
-the tuning and the source of qLDPC.  With ``--setup-only``, it stops the first BZ distance search
-before its first layer.
+certificate, linear program, consideration of automorphisms, prediction of the cost of completion
+tables, and layer of a Brouwer-Zimmermann (BZ) search, and for the first test of each number of rows
+and weight for tables; for each weight limit of a connected-cluster search; and for each walk and
+test of a count by the MacWilliams method.  The wrapper of each event says what it records.  The
+script prints the events, and with ``--output`` saves them as JSON with the tuning and a fingerprint
+of the qLDPC source.  With ``--setup-only``, it stops the first BZ distance search before its first
+layer, and runs other searches in full.
 
-With ``--compare``, the script instead compares the decisions of two saved traces of one workload,
-such as traces under two tunings or of two checkouts.  If the tunings differ only in thresholds and
-every decision is the same, so is the search, apart from the time of the decisions themselves.  The
-comparison sees the number of sets of each family but not the sets, and not the states that a
-connected-cluster search visits within a weight limit.
+With ``--compare``, the script instead says whether two saved traces of one workload, such as traces
+under two tunings or of two checkouts, make the same decisions, and prints the first that differs.
+If the tunings differ only in thresholds and every decision is the same, so is the search, apart
+from the time of the decisions themselves.  The comparison sees the number of sets of each family
+but not the sets, and not the states that a connected-cluster search visits within a weight limit.
 
 The script refuses to run if this process imports qLDPC from another checkout; to trace another
 checkout, run the script of that checkout with its own Python.
@@ -263,12 +263,15 @@ def get_partition_gate(
 ) -> dict[str, Any]:
     """The quantities that ``basis_families.get_partitioned_family`` compares to skip it.
 
-    These are the estimated work of the family that partitioning would replace, in candidate/set
-    evaluations, the largest coverage that it tries, the unit ``b**2 * k**2 * n``, summed over the
-    coverages ``b`` from two to that one, that the search multiplies by ``partition_work_ratio``
-    (see ``basis_families._get_partition_coverage_and_unit``), and the least work that any
-    partitioned family could do, which a search with automorphisms compares with the work of their
-    family.
+    These are, in candidate/set evaluations where they are work:
+
+    - the estimated work of the family that partitioning would replace;
+    - the largest coverage that partitioning tries;
+    - the unit that the search multiplies by ``partition_work_ratio``: the sum of
+      ``b**2 * r**2 * N`` over the coverages ``b`` that it tries, for ``r`` rows and ``N`` nonzero
+      columns;
+    - the least work that any partitioned family could do, which a search with automorphisms
+      compares with the work of their family.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
@@ -351,7 +354,7 @@ def wrap_linear_program(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_considers(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the first test of each layer shape for whether it considers completion tables."""
+    """Record, for each number of rows and weight, the first test of whether to consider tables."""
     seen = set()
 
     @functools.wraps(function)
@@ -389,9 +392,10 @@ def wrap_limit(function: Callable[..., Any]) -> Callable[..., Any]:
 def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
     """Record each consideration of a switch to automorphism images, and its outcome.
 
-    The works are those that ``_switch_to_automorphism_family`` compares, at the best weight after
-    it checks the rows of the automorphism family: the work of that family from layer one, and the
-    work left in the current family from the layer before which the search considers the switch.
+    The works are those that ``_switch_to_automorphism_family`` compares, at the search's best
+    weight after it checks the rows of the automorphism family: the work of that family from layer
+    one, and the work left in the current family from the layer before which it considers the
+    switch.
     """
 
     @functools.wraps(function)
@@ -452,8 +456,8 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
             "build_seconds": 0.0,
         }
         # The work of the layer that the switch to automorphism images compares with its threshold,
-        # as the source of ``advance`` computes it.  Its certificate may solve linear programs,
-        # which the search would solve in this layer anyway.
+        # as the source of ``advance`` computes it.  The certificate of the search may solve linear
+        # programs, which the search would solve in this layer anyway.
         if can_switch:
             num_scanned = search.instance.certificate.get_num_sets_to_certify(weight, search.best)
             switch_work = min(num_scanned * math.comb(dimension, weight), certificates.WORK_CAP)
@@ -610,7 +614,7 @@ def wrap_use_automorphisms(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_find_witness(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each weight limit of a connected-cluster search, and whether it asked before it.
+    """Record each weight limit of a connected-cluster search, and whether the search asked first.
 
     The predicted states are those that ``find_witness`` adds to the states visited so far, and
     compares with ``automorphism_minimum_states``, while the search has not yet asked.

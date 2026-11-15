@@ -10,9 +10,10 @@ codes of ``workloads.INSTANCES`` (arXiv:2607.14091 and arXiv:2609.30069) or of o
 code) and the rotated ``surface:D`` and ``toric:D`` codes of distance ``D``, which is even for a
 toric code.  The script calls ``get_distance_exact`` once for each code, method, and sector, on one
 core, and prints the distance and the wall and CPU time.  It flags a distance of an embedded
-instance that contradicts the published distance: one below it, or, for both sectors, one other than
-it.  It saves nothing.  Numba caches compiled code on disk, so run the script twice for the times of
-a warm cache.  Some searches run for hours, so run them under a guard, such as a hard deadline.
+instance below the published one, or, for both sectors, different from it; Hadamards from
+``--hadamards`` keep the distance.  It saves nothing.  Numba caches compiled code on disk, so run
+the script twice for the times of a warm cache.  Some searches run for hours, so run them with a
+hard deadline.
 
 Examples:
 

@@ -3,31 +3,31 @@
 """Compare the whole current tuning of the exact searches with a whole proposed one, by timing.
 
 The comparison catches gross regressions or bugs when the tuning or the search code changes, and
-never sets or justifies a value (see the Retuning section of the module docstring of
-``qldpc.codes.distance._tuning``).  It times workloads (see ``workloads.py``) under two arms: the
-defaults of ``SearchTuning``, and those defaults with the changes of ``--proposed``.  With
-``--worktrees``, the arms are instead the defaults of two checkouts, the current one first, each
-with its own ``trial.py`` and source.  Each trial runs ``trial.py`` in a new single-threaded
+never sets or justifies a value (see the Retuning section of ``qldpc.codes.distance._tuning``).  It
+times workloads (see ``workloads.py``) under two arms: the defaults of ``SearchTuning``, and those
+defaults with the changes of ``--proposed``.  With ``--worktrees``, the arms are instead the
+defaults of two checkouts, the current one first, each with its own ``trial.py`` and source, and
+both with the Python of this process.  Each trial runs ``trial.py`` in a new single-threaded
 process, one trial at a time, and each round runs both arms on each workload in an order that
 alternates, so that drifts of the load of the machine affect both arms alike.
 
 Each trial appends a JSON line to ``trials.jsonl`` in the results directory, and a comparison skips
 the trials that the file holds, so an interrupted comparison resumes where it stopped.  The script
 prints a summary and writes it to ``summary-<tag>.csv``: for each workload, the median time and peak
-memory of each arm, and the median ratio of the times of the arms over rounds, with its spread and a
-confidence interval (see ``summarize``).  The summary flags each workload whose arms disagree on a
-result.
+memory of each arm, and the median ratio of the times of the arms over rounds, with its spread and,
+from six rounds on, a confidence interval (see ``summarize``).  The summary flags each workload
+whose arms disagree on a result.
 
-The README of this directory says when to time with ``--repeat``.  Run comparisons under a guard of
-memory and time.
+The README of this directory says when to time with ``--repeat``.  Run comparisons with limits on
+their time and memory.
 
 Examples, the first of which proposes a value of ``automorphism_minimum_states``, and the second of
 which compares the defaults of two checkouts:
 
-    python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \\
+    python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6 \\
         --workloads ccdistance/lp13s5/X ccdistance/surface:17/X \\
         --proposed '{"automorphism_minimum_states": 100000}'
-    python experiments/distance_tuning/sweep.py --tag branch --rounds 3 \\
+    python experiments/distance_tuning/sweep.py --tag branch --rounds 6 \\
         --workloads distance/qt7/X count/gross/12 --worktrees ../qLDPC-main .
 """
 
@@ -311,7 +311,7 @@ def read_trials(path: pathlib.Path) -> list[dict[str, Any]]:
 
 
 def summarize(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """One row for each workload of a comparison, which pairs the arms of each round.
+    """One row for each workload of a comparison, pairing the arms of each round.
 
     Ratios of one round share the conditions of the machine, so their spread measures noise better
     than the spread of times.  It warns of a workload whose arms disagree on a result, since no

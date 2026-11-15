@@ -3,20 +3,20 @@
 """Check the orders of magnitude of the costs that the heuristics of exact searches assume.
 
 Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` gates an optional step,
-and assumes the cost of the step to an order of magnitude (see the Retuning section of the module
-docstring of ``_tuning``).  The script traces quick searches, measures the cost of each such step,
-and prints it in seconds and in the unit of its field, with the value that the heuristic of the
-field gives for it, under ``derived``, beside the default.  It then traces the searches of
+and assumes the cost of the step to an order of magnitude (see the Retuning section of
+``_tuning.py``).  The script traces quick searches and measures the cost of each such step.  It
+prints the cost in seconds and in the unit of the field that gates the step, and, under ``derived``,
+the cost rounded as ``round_to_grid`` does, beside the default.  It then traces the searches of
 ``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which can take hours, and prints each
-coefficient of the cost model of completion tables beside its default.  The functions below say how
-the script measures each cost, and the README of this directory says how to read the output; the
+coefficient of the cost model of completion tables beside its default.  The functions of this script
+say how it measures each cost, and the README of this directory says how to read the output; the
 script sets no value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
-the results directory with the source of qLDPC that it ran on.  So the script measures again after
-any change of the source, and an interrupted run resumes where it stopped.  It refuses to run if
-this process imports qLDPC from another checkout.  Run it on a quiet machine, under a guard of time
-and memory.
+the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
+commit or a change to ``src/``, and an interrupted run resumes where it stopped.  It refuses to run
+if this process imports qLDPC from another checkout.  Run it on a quiet machine, with limits on its
+time and memory.
 
 Example:
 
@@ -61,11 +61,11 @@ LARGE_LAYER = 10**7
 # Weight limits of connected-cluster searches below this many states are dominated by fixed costs.
 LARGE_LIMIT = 10**4
 
-# The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop
-# after setup.  Linear programs are off in BZ searches that run layers, so that layers time scans:
-# ``trace.py`` repeats the planning of a certificate that solves programs.  Traces that stop after
-# setup keep the default of linear programs.  Connected-cluster searches ask for
-# automorphisms before their first weight limit, so that each of their traces measures that step.
+# The traces of quick searches: a name, a workload, changes of the tuning, and whether to stop after
+# setup.  Linear programs are off in BZ searches that run layers, so that layer times exclude the
+# planning that ``trace.py`` repeats.  Traces that stop after setup keep the default of linear
+# programs.  Connected-cluster searches ask for automorphisms before their first weight limit, so
+# that each of their traces measures that step.
 TRACES: list[tuple[str, str, dict[str, int], bool]] = [
     (name, workload, {"lp_minimum_work": _tuning.MAX_VALUE}, False)
     for name, workload in (
@@ -140,7 +140,7 @@ class Constant:
 
 
 def main() -> None:
-    """Measure the constants, or time the linear programming of one search."""
+    """Measure the assumed costs, or time the linear programming of one search."""
     args = parse_args()
     sweep.check_local_import()
     if args.linear_programs_of is not None:
@@ -280,9 +280,9 @@ def is_current(path: pathlib.Path, source: dict[str, str]) -> bool:
 
 
 def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib.Path) -> None:
-    """Time the bounds of the certificates of one search that solve linear programs, and save them.
+    """Time the methods of the certificates of one search that solve linear programs, and save them.
 
-    The bounds of such a certificate (``plan``, ``certifies``, and ``step_lower_bound``) plan its
+    The methods ``plan``, ``certifies``, and ``step_lower_bound`` of such a certificate plan its
     steps with exact arithmetic and solve its programs, so their seconds, outside nested calls, are
     the cost of linear programming in the search.
     """
@@ -382,9 +382,9 @@ def report(directory: pathlib.Path) -> None:
             f"  {constant.description}"
         )
 
-    # The heuristic of each gate gives the costliest measurement of its step, in the unit of the
-    # field, as a round value (see round_to_grid).  The cost limit of completion tables compares two
-    # estimates in one unit, so it breaks even at 100.
+    # Round the costliest measurement of each step, in the unit of its field, as round_to_grid
+    # does, to compare it with the default.  The cost limit of completion tables is a limit at
+    # equality, 100.
     gates = {
         "partition_work_ratio": "partitioning, per unit",
         "completion_bound_minimum_layer_work": "costliest prediction",
@@ -487,7 +487,8 @@ def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     Each trace holds one search.  A search that would partition first finds, verifies, and builds
     the family of its automorphisms, to compare its work (``competing_seconds``), and then considers
     the switch at the end of setup; another takes these steps at its first consideration.  So each
-    search counts both, and searches that consider no switch do not count.
+    search counts both its competing seconds and its first consideration, and searches that consider
+    no switch do not count.
     """
     searches = []
     for trace in traces.values():
@@ -543,7 +544,7 @@ def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_limit_ask_seconds(limit: dict[str, Any]) -> float:
-    """The seconds of asking for automorphisms before a weight limit, or zero if it did not ask."""
+    """The seconds of asking for automorphisms before a weight limit, or zero if none were asked."""
     return limit.get("find_seconds", 0.0) + limit.get("verify_seconds", 0.0)
 
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Named codes and workloads on which the exact distance searches of qLDPC are timed and traced.
+"""Named codes, and the workloads of exact searches that this directory times and traces.
 
 A code name is one of:
 
