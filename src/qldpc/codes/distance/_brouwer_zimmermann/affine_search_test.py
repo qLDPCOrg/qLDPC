@@ -19,11 +19,7 @@ from . import affine_search
 
 
 def test_scans_of_sets_of_any_rank() -> None:
-    """Chunked scans of a set enumerate each combination of its rows once, whatever its rank.
-
-    A word weighs its rows below the rank of the set plus its packed tail.  Each chunk resumes where
-    the one before it stopped, and the labels of some sets span two packed words.
-    """
+    """Chunked scans of a set weigh each combination of its rows once, whatever its rank."""
     rng = np.random.default_rng(120)
     no_tables = completion_bounds.NO_TABLES
 
@@ -49,7 +45,7 @@ def test_scans_of_sets_of_any_rank() -> None:
             support = arguments[5]
             depth, best, expected = 0, 1000, 1000
             for indices in itertools.combinations(range(dimension), weight):
-                # Update the expected running minimum from the current combination of rows.
+                # Update the expected minimum with the current combination of rows.
                 words = np.bitwise_xor.reduce(generators[index, indices, : widths[index]])
                 eligible = not label_widths[index] or np.any(
                     np.bitwise_xor.reduce(labels[index, indices], axis=0)
@@ -59,7 +55,7 @@ def test_scans_of_sets_of_any_rank() -> None:
                 if eligible:
                     expected = min(expected, candidate)
 
-                # Scan one combination of rows, and compare the running minimum and kernel state.
+                # Scan one combination of rows.
                 best, depth, *visited = affine_search.scan_set(
                     *arguments,
                     depth,
@@ -71,11 +67,10 @@ def test_scans_of_sets_of_any_rank() -> None:
                     no_tables.block_bits,
                 )
                 assert visited == [1, 0, 0] and best == expected
-                # The last selected row index has advanced in preparation for the next chunk.
                 np.testing.assert_array_equal(support[:-1], indices[:-1])
                 assert support[-1] == indices[-1] + 1
 
-            # One more kernel call reports completion after every combination of rows is visited.
+            # One more call finds the layer complete.
             best, depth, *visited = affine_search.scan_set(
                 *arguments,
                 depth,
@@ -90,15 +85,7 @@ def test_scans_of_sets_of_any_rank() -> None:
 
 
 def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
-    """A scan of one information set finds the lightest eligible word of a layer, in chunks.
-
-    With or without tables, a layer that runs to completion weighs or skips every support exactly
-    once, and each chunk weighs supports and looks up bounds at most ``batch_size`` times together.
-    While the best weight stays the same, a scan with tables skips exactly the supports whose block
-    bound reaches its limit.  A scan returns at the first support, in order, that brings the best
-    weight to the cutoff.  The sets have multiword labels or no labels, which make every word
-    eligible.
-    """
+    """Chunked scans of an information set, with or without tables, find the lightest word."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     no_tables = completion_bounds.NO_TABLES
     for dimension, num_label_words in itertools.product(range(2, 7), (0, 2)):
@@ -108,8 +95,7 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
         if num_label_words:
             labels[:, 1] = rng.integers(0, 4, dimension, dtype=np.uint64)
         width = generators.shape[1]
-        # Both widths split the 70 columns into blocks with a narrower last block, and build quickly
-        # as plain Python; completion_bounds_test checks the default width.
+        # Blocks of 4 and 8 columns leave a narrower last block, and build quickly as plain Python.
         all_tables = [no_tables] + [
             completion_bounds.CompletionTables.build(generators, bits) for bits in (4, 8)
         ]
@@ -162,8 +148,6 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                                 for rows in itertools.combinations(range(dimension), weight)
                             )
                     elif tables is no_tables and initial_best > expected:
-                        # Without tables, the scan weighs every support up to the first that
-                        # reaches the cutoff, and no more.
                         running = itertools.accumulate(
                             (value if value is not None else initial_best for value in weights),
                             min,
@@ -178,13 +162,7 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
 def test_coset_layer_scans_keep_the_first_lightest_word(
     css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """A scan of a layer of a coset weighs the offset plus each sum of rows of the layer, in order.
-
-    It keeps each word lighter than every word before it and than the initial best weight, and
-    returns after the first word at which the best weight so far is at most the cutoff, having
-    weighed exactly the supports up to it.  The words span two machine words, and the X parts of
-    the CSS weight take bits of both.
-    """
+    """A scan of a layer of a coset keeps the first lightest word, and stops at the cutoff."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_bits = 6, 100
     row_bits = (rng.random((num_rows, num_bits)) < 0.3).astype(np.uint8)
@@ -245,10 +223,7 @@ def test_coset_layer_scans_keep_the_first_lightest_word(
 
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_coset_layer_scans_keep_the_first_of_equally_light_words(css_weight: bool) -> None:
-    """A scan keeps the first of the equally light words ``001``, ``010``, and ``100`` of layer one.
-
-    The X mask selects every bit, so the CSS weight of each word is its Hamming weight.
-    """
+    """A scan keeps the first of equally light words."""
     rows = np.array([[0b001], [0b010], [0b100]], dtype=np.uint64)
     arguments = (
         np.zeros(1, dtype=np.uint64),
@@ -271,11 +246,7 @@ def test_coset_layer_scans_keep_the_first_of_equally_light_words(css_weight: boo
 
 
 def test_coset_layer_scans_reach_their_last_support() -> None:
-    """A layer visits every support, including the last one.
-
-    The rows are unit words and the offset is the sum of the last ``layer`` rows, so that only the
-    last support of the layer gives the zero word.
-    """
+    """A scan of a layer of a coset weighs its last support."""
     for num_rows in range(1, 7):
         rows = (np.uint64(1) << np.arange(num_rows, dtype=np.uint64)).reshape(num_rows, 1)
         for layer in range(1, num_rows + 1):
@@ -300,9 +271,7 @@ def _get_tail_weights(
 ) -> list[tuple[tuple[int, ...], int]]:
     """Each support of a layer of a coset basis by tails, in order, with the weight of its word.
 
-    The full rows of the basis have a pivot column for each of the first ``rank`` rows, on which
-    every other row and the offset are zero.  So the word of a support has a one on the pivot of
-    each of its rows below ``rank``, and its tail on the other columns.
+    The word of a support has a one on the pivot of each of its rows below ``rank``.
     """
     return [
         (
@@ -317,14 +286,7 @@ def _get_tail_weights(
 def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
     pytestconfig: pytest.Config,
 ) -> None:
-    """A coset scan by tails gives each word its full Hamming weight, and keeps the first lightest.
-
-    The bases have full rank, rank deficiency one, and rank zero, and their tails span two machine
-    words.  Each scan keeps the support of each word lighter than every word before it and than the
-    initial best weight, and returns after the first word at which the best weight so far is at most
-    the cutoff, having weighed exactly the supports up to it.  Without tables, the scan with pair
-    steps does the same for layers of two or more rows.
-    """
+    """A coset scan by tails weighs each word whole, and keeps the first lightest."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows = 5
     tails = (rng.random((num_rows, 70)) < 0.3).astype(np.uint8)
@@ -383,21 +345,10 @@ def test_coset_tail_scans_weigh_words_by_their_pivot_rows_and_tails(
 def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound(
     deficiency: int, pytestconfig: pytest.Config
 ) -> None:
-    """A coset tail scan with tables skips completions only if their bound reaches the skip bound.
-
-    The bound of the completions of a prefix by two rows from row ``s`` on adds three terms, each
-    found here by enumeration: a pivot one for each row of the prefix below the rank, the fewest
-    pivot ones of any such pair, and the block bound of the tables on their tails.  The bases of six
-    rows have rank deficiency zero, one, and three, so that their pairs have two, one, or no pivot
-    ones.  Only the last has rows of a prefix at or above its rank, which add nothing.  With a
-    cutoff one below the skip bound, every skipped word weighs more than the cutoff, so the scan
-    finds a word of weight at most the cutoff exactly when the layer has one.  With skip bounds at
-    most the least weight of the layer, the scan visits the whole layer: it skips exactly the
-    supports whose bounds reach the skip bound, and weighs the others.
-    """
+    """A coset tail scan skips completions only if their bound reaches the skip bound."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_columns, block_bits = 6, 24, 4
-    # The last column has a one, so that the tables cover every column.
+    # A one in the last column makes the tables cover every column.
     tails = (rng.random((num_rows, num_columns)) < 0.25).astype(np.uint8)
     tails[0, -1] = 1
     packed_tails = pack_bits(tails)
@@ -450,16 +401,7 @@ def test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_
 def test_coset_tail_scans_below_the_best_skip_only_completions_that_cannot_lower_it(
     pytestconfig: pytest.Config,
 ) -> None:
-    """A coset tail scan below the best weight skips completions only if they cannot lower it.
-
-    The scan takes its best weight at the start as its skip bound, as a search for the minimum
-    weight of a coset does.  The bases of six rows have rank deficiency zero and three.  From a best
-    weight of at most the least weight of a layer, which no word lowers, the scan skips the supports
-    that a scan with that skip bound skips, which the test above checks against enumeration.  From a
-    best weight above every word of the layer, it finds a lightest word, since every word that it
-    skips weighs at least the best weight at the time.  It weighs or skips every support, and skips
-    some.
-    """
+    """A coset tail scan below the best weight skips completions only if they cannot lower it."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_columns, block_bits = 6, 24, 4
     tails = (rng.random((num_rows, num_columns)) < 0.25).astype(np.uint8)
@@ -507,10 +449,10 @@ def _get_completion_bound(
     block_bits: int,
     offset: npt.NDArray[np.uint8] | None = None,
 ) -> int:
-    """The block bound on the completions of a support from its first row of its last pair on.
+    """The block bound on the completions of a support by pairs from the first row of its last pair.
 
-    Add, over blocks of columns, the least weight on the block of the offset, if any, plus the first
-    rows of the support plus any pair of rows from the first row of its last pair on.
+    It sums, over blocks of columns, the least weight on the block of the offset, if any, plus the
+    other rows of the support plus such a pair.
     """
     prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
     if offset is not None:
