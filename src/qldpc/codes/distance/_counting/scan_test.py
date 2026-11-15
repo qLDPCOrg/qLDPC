@@ -279,12 +279,12 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
         tables, step_rows = step_tables.select(2, set_index)
         tails = pack_bits(np.delete(family.generators[set_index], family.pivots[set_index], axis=1))
         assert len(tables.tables)
-        assert step_rows.shape == (1, len(basis), rows_and_labels.shape[2] + tails.shape[1])
-        assert step_rows.shape[2] == step_tables.max_row_width
+        assert step_rows.shape == (len(basis), rows_and_labels.shape[2] + tails.shape[1])
+        assert step_rows.shape[1] == step_tables.max_row_width
         np.testing.assert_array_equal(
-            step_rows[0, :, : rows_and_labels.shape[2]], rows_and_labels[set_index]
+            step_rows[:, : rows_and_labels.shape[2]], rows_and_labels[set_index]
         )
-        np.testing.assert_array_equal(step_rows[0, :, rows_and_labels.shape[2] :], tails)
+        np.testing.assert_array_equal(step_rows[:, rows_and_labels.shape[2] :], tails)
         assert step_tables.select(2, set_index)[0] is tables
         assert step_tables.select(3, set_index)[0] is tables
 
@@ -313,9 +313,9 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
     tables = completion_bounds.CompletionTables.build(pack_bits(tails), 8)
     count_chunk = scan._count_chunk_skipping
     support = np.zeros(2, dtype=np.int64)
-    prefixes = np.zeros((3, 1, step_rows.shape[1]), dtype=np.uint64)
+    prefixes = np.zeros((3, step_rows.shape[1]), dtype=np.uint64)
     histogram = np.zeros(1, dtype=np.int64)
-    arguments = (step_rows[np.newaxis], 1, 2, np.zeros((1, 0, 1), dtype=np.uint64), 0, support)
+    arguments = (step_rows, 1, 2, np.zeros((1, 0, 1), dtype=np.uint64), 0, support)
     rank_rows = np.zeros((0, 1), dtype=np.uint64)
     options = (rank_rows, False, 0, histogram)
     table_arguments = (1 << 10, tables.tables, tables.offsets, tables.block_bits)

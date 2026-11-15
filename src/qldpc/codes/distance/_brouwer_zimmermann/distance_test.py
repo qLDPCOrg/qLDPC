@@ -281,6 +281,23 @@ def test_brouwer_zimmermann_shared_search() -> None:
     assert actual == min(expected_a, expected_b)
 
 
+def test_labels_of_more_than_one_machine_word() -> None:
+    """A search reads every machine word of labels wider than 64 columns.
+
+    Only row 0 has a label in the first word, and the lightest words of this basis do not use row
+    0, so a search that read only the first word of the labels would return a larger distance.
+    """
+    rng = np.random.default_rng(28)
+    basis = (rng.random((11, 30)) < 0.35).astype(np.uint8)
+    labels = np.zeros((11, 76), dtype=np.uint8)
+    labels[0, 0] = 1
+    labels[np.arange(1, 11), 64 + np.arange(1, 11)] = 1
+    expected = qldpc.codes.distance.get_distance_from_generators(
+        basis, cutoff=0, method="brute_force"
+    )
+    assert bz.get_distance_brouwer_zimmermann_many([(basis, labels)], cutoff=0) == expected
+
+
 def test_a_given_disjoint_basis_family_replaces_the_first_stage() -> None:
     """A search that reaches the first stage takes its result from the given function instead.
 
@@ -1240,12 +1257,12 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
-        rows, widths, tables, block_bits = args[0], args[3], args[11], args[13]
+        rows, width, tables, block_bits = args[0], args[3], args[11], args[13]
         if scanned_index:
             later_scans["with tables" if len(tables) else "without tables"] += 1
         if len(tables):
             returns_with_tables += returned_to_first_set
-            own = completion_bounds.CompletionTables.build(rows[0, :, : widths[0]], block_bits)
+            own = completion_bounds.CompletionTables.build(rows[:, :width], block_bits)
             assert np.array_equal(tables, own.tables)
         return scan(*args)
 

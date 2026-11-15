@@ -47,9 +47,9 @@ _NO_TABLE_OFFSETS = np.zeros(1, dtype=np.int64)
 def scan_set(
     generators: npt.NDArray[np.uint64],
     labels: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    widths: npt.NDArray[np.int64],
-    label_widths: npt.NDArray[np.int64],
+    rank: int,
+    width: int,
+    label_width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     depth: int,
@@ -76,15 +76,15 @@ def scan_set(
     the bounds that it looked up reach ``batch_size`` together.
 
     Args:
-        generators: Packed rows of the set, with shape ``(1, num_rows, num_words)``.
+        generators: Packed rows of the set, with shape ``(num_rows, num_words)``.
         labels: Packed quotient labels of the rows, whose nonzero XOR marks eligible words, with
-            shape ``(1, num_rows, num_label_words)``.
-        ranks: ``[rank]``, for the rank of the block of the set.
-        widths: ``[width]``, for the number of packed words of the rows that the set uses.
-        label_widths: ``[label_width]``, for the number of packed words of the labels that it uses.
+            shape ``(num_rows, num_label_words)``.
+        rank: The rank of the block of the set.
+        width: The number of packed words of the rows that the set uses.
+        label_width: The number of packed words of the labels that it uses.
         support: Mutable row indices of the current support, as many as the rows of the layer.
         prefixes: Mutable prefix XORs for the depths of the support, with shape
-            ``(len(support) + 1, 1, num_words)``.
+            ``(len(support) + 1, num_words)``.
         depth: Current depth of the support, or ``-1`` once the layer is complete.
         best: Current upper bound; only strictly lighter eligible words replace it.
         cutoff: Weight that stops this chunk once ``best <= cutoff``.
@@ -104,13 +104,13 @@ def scan_set(
     # whose bound shows that they cannot lower the best weight.  The scan of an information set,
     # each of whose rows has a pivot, counts one pivot per row without comparing the row with the
     # set's rank.
-    if ranks[0] == generators.shape[1]:
+    if rank == generators.shape[0]:
         return _scan(
             generators,
             labels,
-            ranks,
-            widths,
-            label_widths,
+            rank,
+            width,
+            label_width,
             support,
             prefixes,
             depth,
@@ -120,8 +120,8 @@ def scan_set(
             tables,
             offsets,
             block_bits,
-            prefixes[0, 0],
-            prefixes[0, 0],
+            prefixes[0],
+            prefixes[0],
             best,
             support,
             pair_steps=True,
@@ -136,9 +136,9 @@ def scan_set(
     return _scan(
         generators,
         labels,
-        ranks,
-        widths,
-        label_widths,
+        rank,
+        width,
+        label_width,
         support,
         prefixes,
         depth,
@@ -148,8 +148,8 @@ def scan_set(
         tables,
         offsets,
         block_bits,
-        prefixes[0, 0],
-        prefixes[0, 0],
+        prefixes[0],
+        prefixes[0],
         best,
         support,
         pair_steps=True,
@@ -171,7 +171,7 @@ def scan_set(
 def scan_coset_layer(
     offset: npt.NDArray[np.uint64],
     rows: npt.NDArray[np.uint64],
-    widths: npt.NDArray[np.int64],
+    width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     best: int,
@@ -181,25 +181,25 @@ def scan_coset_layer(
     """Weigh the offset plus each sum of ``len(support)`` rows of one search basis of a coset.
 
     The words are packed and full width, with no columns deleted, and weigh their Hamming weight.
-    ``rows`` has shape ``(1, num_rows, num_words)``, a stack of one search basis, and ``widths`` is
-    ``[num_words]``.  The layer must have ``1 <= len(support) <= num_rows`` rows; the coset driver
-    weighs the offset itself, layer zero, without a scan.  ``prefixes``, of at least
-    ``len(support)`` rows, and ``support`` are work space.  The scan keeps each word lighter than
-    ``best`` in ``representative``.  After each word, it returns if the best weight so far, which
-    starts at ``best``, is at most ``cutoff``, and otherwise it returns once the layer is complete.
+    ``rows`` has shape ``(num_rows, width)``.  The layer must have ``1 <= len(support) <= num_rows``
+    rows; the coset driver weighs the offset itself, layer zero, without a scan.  ``prefixes``, of
+    at least ``len(support)`` rows, and ``support`` are work space.  The scan keeps each word
+    lighter than ``best`` in ``representative``.  After each word, it returns if the best weight so
+    far, which starts at ``best``, is at most ``cutoff``, and otherwise it returns once the layer is
+    complete.
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the number of
         words weighed.
     """
-    prefixes[0, 0] = offset
+    prefixes[0] = offset
     support[0] = 0
     best, _, weighed, _, _ = _scan(
         rows,
         rows,
-        widths,
-        widths,
-        widths,
+        width,
+        width,
+        width,
         support,
         prefixes,
         0,
@@ -209,7 +209,7 @@ def scan_coset_layer(
         _NO_TABLE_BYTES,
         _NO_TABLE_OFFSETS,
         0,
-        # This scan neither reads labels nor ranks nor weighs X parts nor records supports, nor
+        # This scan neither reads labels nor the rank nor weighs X parts nor records supports, nor
         # takes a skip bound.
         representative,
         representative,
@@ -231,7 +231,7 @@ def scan_coset_layer(
 def scan_coset_layer_by_css_weight(
     offset: npt.NDArray[np.uint64],
     rows: npt.NDArray[np.uint64],
-    widths: npt.NDArray[np.int64],
+    width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     best: int,
@@ -245,14 +245,14 @@ def scan_coset_layer_by_css_weight(
     selects, its X part, and of the other bits, its Z part.  The layer must have
     ``1 <= len(support) <= num_rows`` rows, as for ``scan_coset_layer``.
     """
-    prefixes[0, 0] = offset
+    prefixes[0] = offset
     support[0] = 0
     best, _, weighed, _, _ = _scan(
         rows,
         rows,
-        widths,
-        widths,
-        widths,
+        width,
+        width,
+        width,
         support,
         prefixes,
         0,
@@ -262,7 +262,8 @@ def scan_coset_layer_by_css_weight(
         _NO_TABLE_BYTES,
         _NO_TABLE_OFFSETS,
         0,
-        # This scan neither reads labels nor ranks nor records supports, nor takes a skip bound.
+        # This scan neither reads labels nor the rank nor records supports, nor takes a skip
+        # bound.
         x_mask,
         representative,
         0,
@@ -283,8 +284,8 @@ def scan_coset_layer_by_css_weight(
 def scan_coset_layer_by_tails(
     offset_tail: npt.NDArray[np.uint64],
     tails: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    widths: npt.NDArray[np.int64],
+    rank: int,
+    width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     best: int,
@@ -294,27 +295,26 @@ def scan_coset_layer_by_tails(
     """Scan a layer as ``scan_coset_layer`` does, but weigh each word by its pivot rows and tail.
 
     The tail of a word holds its columns other than the pivot columns of the basis, packed.
-    ``tails`` holds the tails of the rows, with shape ``(1, num_rows, num_words)``, and
-    ``offset_tail`` that of the offset; ``ranks`` is ``[rank]``, for the rank of the basis, and
-    ``widths`` is ``[num_words]``.  Each of the first ``rank`` rows has a one on its own pivot
-    column, where the other rows and the offset are zero.  So the Hamming weight of a word is the
-    number of its rows below ``rank`` plus the weight of its tail.  The layer, ``support``,
-    ``prefixes``, ``best``, and ``cutoff`` are as for ``scan_coset_layer``.  The scan keeps the
-    support of each word lighter than ``best`` in ``best_support``, of at least ``len(support)``
-    entries, rather than the word.
+    ``tails`` holds the tails of the rows, with shape ``(num_rows, width)``, and ``offset_tail``
+    that of the offset.  The basis has rank ``rank``, and each of its first ``rank`` rows has a one
+    on its own pivot column, where the other rows and the offset are zero.  So the Hamming weight
+    of a word is the number of its rows below ``rank`` plus the weight of its tail.  The layer,
+    ``support``, ``prefixes``, ``best``, and ``cutoff`` are as for ``scan_coset_layer``.  The scan
+    keeps the support of each word lighter than ``best`` in ``best_support``, of at least
+    ``len(support)`` entries, rather than the word.
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the number of
         words weighed.
     """
-    prefixes[0, 0] = offset_tail
+    prefixes[0] = offset_tail
     support[0] = 0
     best, _, weighed, _, _ = _scan(
         tails,
         tails,
-        ranks,
-        widths,
-        widths,
+        rank,
+        width,
+        width,
         support,
         prefixes,
         0,
@@ -326,8 +326,8 @@ def scan_coset_layer_by_tails(
         0,
         # This scan neither reads labels nor weighs X parts nor records words, nor takes a skip
         # bound.
-        prefixes[0, 0],
-        prefixes[0, 0],
+        prefixes[0],
+        prefixes[0],
         0,
         best_support,
         pair_steps=False,
@@ -346,8 +346,8 @@ def scan_coset_layer_by_tails(
 def scan_coset_layer_by_tails_with_tables(
     offset_tail: npt.NDArray[np.uint64],
     tails: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    widths: npt.NDArray[np.int64],
+    rank: int,
+    width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     best: int,
@@ -362,7 +362,7 @@ def scan_coset_layer_by_tails_with_tables(
 
     The scan weighs the words of the layer as ``scan_coset_layer_by_tails`` does, which describes
     the arguments that the two share, for a layer of ``2 <= len(support) <= num_rows`` rows of a
-    basis of rank ``rank = ranks[0]``.  ``tables``, ``offsets``, and ``block_bits`` are those of
+    basis of rank ``rank``.  ``tables``, ``offsets``, and ``block_bits`` are those of
     ``completion_bounds.CompletionTables`` of the tails of the rows, or
     ``completion_bounds.NO_TABLES``, which skip nothing.
 
@@ -393,14 +393,14 @@ def scan_coset_layer_by_tails_with_tables(
         The weight of the lightest word found, or ``best`` if none is lighter, and the numbers of
         words weighed and of supports skipped.
     """
-    prefixes[0, 0] = offset_tail
+    prefixes[0] = offset_tail
     support[0] = 0
     best, _, weighed, _, skipped = _scan(
         tails,
         tails,
-        ranks,
-        widths,
-        widths,
+        rank,
+        width,
+        width,
         support,
         prefixes,
         0,
@@ -411,8 +411,8 @@ def scan_coset_layer_by_tails_with_tables(
         offsets,
         block_bits,
         # This scan neither reads labels nor weighs X parts nor records words.
-        prefixes[0, 0],
-        prefixes[0, 0],
+        prefixes[0],
+        prefixes[0],
         skip_bound,
         best_support,
         pair_steps=True,
@@ -435,9 +435,9 @@ def scan_coset_layer_by_tails_with_tables(
 def _scan(
     generators: npt.NDArray[np.uint64],
     labels: npt.NDArray[np.uint64],
-    ranks: npt.NDArray[np.int64],
-    widths: npt.NDArray[np.int64],
-    label_widths: npt.NDArray[np.int64],
+    rank: int,
+    width: int,
+    label_width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
     depth: int,
@@ -462,9 +462,10 @@ def _scan(
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of one search basis, starting from ``support``.
 
-    The arguments are those of ``scan_set``, ``scan_coset_layer_by_css_weight``,
-    ``scan_coset_layer_by_tails``, and ``scan_coset_layer_by_tails_with_tables``, and the flags,
-    which callers pass as constants, choose what the scan does:
+    The arguments are those of ``scan_set``, ``scan_coset_layer``,
+    ``scan_coset_layer_by_css_weight``, ``scan_coset_layer_by_tails``, and
+    ``scan_coset_layer_by_tails_with_tables``, and the flags, which callers pass as constants,
+    choose what the scan does:
 
     - ``pair_steps``: with ``deleted_pivots``, step through the first of the last two rows of a
       support separately, and skip the completions whose bound by the completion tables, if any,
@@ -477,19 +478,18 @@ def _scan(
     - ``css_weight``: weigh words by their CSS weight, with ``x_mask``, rather than Hamming weight.
     - ``chunked``: return once the weighed supports and the lookups reach ``batch_size`` together.
     - ``ranked``: with ``deleted_pivots``, lift the assumption that the basis is an information
-      set: only its first ``ranks[0]`` rows hold pivots.  A word then weighs the number of its rows
-      below ``ranks[0]``, rather than ``len(support)``, plus the weight of its packed tail.  A bound
-      of completions adds the rows of the prefix below ``ranks[0]`` and the fewest rows below
-      ``ranks[0]`` of a completing pair, rather than ``len(support)``.
+      set: only its first ``rank`` rows hold pivots.  A word then weighs the number of its rows
+      below ``rank``, rather than ``len(support)``, plus the weight of its packed tail.  A bound of
+      completions adds the rows of the prefix below ``rank`` and the fewest rows below ``rank`` of
+      a completing pair, rather than ``len(support)``.
     - ``record_support``: copy the support of each lighter word into ``best_support``.
 
     Returns:
         Updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked up,
         and of supports skipped.
     """
-    num_rows = generators.shape[1]
+    num_rows = generators.shape[0]
     weight = len(support)
-    width = widths[0]
     # With pair steps, the scan steps through the heads of the supports: their first weight - 1
     # rows, the last of which is the first of the last two rows of the support.  It tries the last
     # row of each support in its own loop.  The first of the last two rows is never the last row of
@@ -498,16 +498,16 @@ def _scan(
     # ``_counting/scan.py`` skips completions the same way, but with a fixed limit, since it must
     # visit every word of its target weight.
     head = support[: weight - 1]
-    head_rows = generators[:, : num_rows - 1]
+    head_rows = generators[: num_rows - 1]
     pair_depth = weight - 2
     evaluated, lookups, skipped = 0, 0, 0
     while True:
         if not pair_steps:
-            depth = advance_support(generators, widths, support, prefixes, depth)
+            depth = advance_support(generators, width, support, prefixes, depth)
             if depth < 0:
                 return best, depth, evaluated, lookups, skipped
         elif depth < weight - 1:
-            depth = advance_support(head_rows, widths, head, prefixes, depth)
+            depth = advance_support(head_rows, width, head, prefixes, depth)
             if depth < 0:
                 return best, depth, evaluated, lookups, skipped
             first = support[pair_depth]
@@ -516,7 +516,7 @@ def _scan(
             # skip bound and the best weight.  The scan checks for tables once for each prefix,
             # rather than taking a constant flag.  With a flag, numba would merge the lookup into
             # the loop, and then count references to the tables at each lookup.
-            prefix = prefixes[pair_depth, 0]
+            prefix = prefixes[pair_depth]
             if len(tables):
                 lookups += 1
                 # Count the pivot ones that every completion has: one for each row of the support in
@@ -526,9 +526,9 @@ def _scan(
                 # max(0, 2 - (num_rows - rank)).
                 pivot_ones = weight
                 if ranked:
-                    pivot_ones = max(0, 2 - (num_rows - ranks[0]))
+                    pivot_ones = max(0, 2 - (num_rows - rank))
                     for selected in range(pair_depth):
-                        if support[selected] < ranks[0]:
+                        if support[selected] < rank:
                             pivot_ones += 1
                 limit = min(skip_bound, best) - pivot_ones
                 if get_completion_bound(tables, offsets, block_bits, first, prefix, limit) >= limit:
@@ -541,7 +541,7 @@ def _scan(
 
             # Otherwise add row first to the prefix, and try every later row as the last row.
             for word in range(width):
-                prefixes[weight - 1, 0, word] = prefix[word] ^ generators[0, first, word]
+                prefixes[weight - 1, word] = prefix[word] ^ generators[first, word]
             depth = weight - 1
             support[depth] = first + 1
             if chunked and evaluated + lookups >= batch_size:
@@ -556,7 +556,7 @@ def _scan(
         head_pivots = np.int64(0)
         if ranked:
             for selected in range(depth):
-                if support[selected] < ranks[0]:
+                if support[selected] < rank:
                     head_pivots += 1
         while row < num_rows:
             # Each selected row whose pivot column was deleted contributes one to the Hamming
@@ -565,12 +565,12 @@ def _scan(
             candidate = np.int64(0)
             if deleted_pivots:
                 if ranked:
-                    candidate = head_pivots + (1 if row < ranks[0] else 0)
+                    candidate = head_pivots + (1 if row < rank else 0)
                 else:
                     candidate = np.int64(weight)
             z_ones = np.int64(0)
             for word in range(width):
-                value = prefixes[depth, 0, word] ^ generators[0, row, word]
+                value = prefixes[depth, word] ^ generators[row, word]
                 if css_weight:
                     candidate += popcount_word(value & x_mask[word])
                     z_ones += popcount_word(value & ~x_mask[word])
@@ -587,12 +587,12 @@ def _scan(
             lighter = bool(candidate < best)
             if lighter and test_labels:
                 support[depth] = row
-                lighter = _is_eligible(labels, label_widths, support)
+                lighter = _is_eligible(labels, label_width, support)
             if lighter:
                 best = int(candidate)
                 if record:
                     for word in range(width):
-                        representative[word] = prefixes[depth, 0, word] ^ generators[0, row, word]
+                        representative[word] = prefixes[depth, word] ^ generators[row, word]
                 if record_support:
                     for selected in range(depth):
                         best_support[selected] = support[selected]
@@ -613,7 +613,7 @@ def _scan(
 @always_compiled(inline=True)
 def _is_eligible(
     labels: npt.NDArray[np.uint64],
-    label_widths: npt.NDArray[np.int64],
+    label_width: int,
     support: npt.NDArray[np.int64],
 ) -> bool:
     """Decide whether the word of a support of a search basis lies outside the excluded subcode.
@@ -622,11 +622,11 @@ def _is_eligible(
     the XOR of the quotient labels of its rows is nonzero.
     """
     weight = len(support)
-    eligible = label_widths[0] == 0
-    for word in range(label_widths[0]):
-        combined = labels[0, support[0], word]
+    eligible = label_width == 0
+    for word in range(label_width):
+        combined = labels[support[0], word]
         for selected in range(1, weight):
-            combined ^= labels[0, support[selected], word]
+            combined ^= labels[support[selected], word]
         if combined:
             eligible = True
             break

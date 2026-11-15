@@ -43,9 +43,6 @@ class AffineInstance:
         labels: The packed quotient labels of the rows of each scanned set, with the same first two
             axes, and no words for a problem without labels.
         widths: The number of words of ``generators`` that each scanned set uses.
-        label_widths: The number of words of ``labels`` that each scanned set uses.  Every set
-            uses all of them.  The array holds a number for each set because each compiled scan
-            takes one-element slices of the arrays, for the set that it scans.
         pivots: The pivot columns of each scanned set, padded with -1, with shape ``(num_sets,
             dimension)``.  They are columns of the full rows, and are bit positions of the rows of
             ``generators`` only in a coset instance.
@@ -62,7 +59,6 @@ class AffineInstance:
     generators: npt.NDArray[np.uint64]
     labels: npt.NDArray[np.uint64]
     widths: npt.NDArray[np.int64]
-    label_widths: npt.NDArray[np.int64] = field(init=False)
     pivots: npt.NDArray[np.int64]
     ranks: npt.NDArray[np.int64] = field(init=False)
     certificate: certificates.Certificate
@@ -71,9 +67,7 @@ class AffineInstance:
     def __post_init__(self) -> None:
         assert len(self.generators) == len(self.labels) == len(self.pivots)
         assert self.certificate.dimension == self.generators.shape[1]
-        label_widths = np.full(len(self.labels), self.labels.shape[2], dtype=np.int64)
         ranks = np.count_nonzero(self.pivots >= 0, axis=1).astype(np.int64)
-        object.__setattr__(self, "label_widths", label_widths)
         object.__setattr__(self, "ranks", ranks)
 
     def get_weight_bounds(self, parity: int | None = None) -> npt.NDArray[np.int64]:

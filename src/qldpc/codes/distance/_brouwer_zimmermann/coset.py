@@ -673,10 +673,9 @@ def _search_from_syndrome_word(
     # and the others keep the word itself in ``best``.
     best_set, best_layer = -1, 0
     weighed, skipped = 0, 0
-    widths = np.full(1, width, dtype=np.int64)
     support = np.empty(num_rows, dtype=np.int64)
     best_support = np.empty(num_rows, dtype=np.int64)
-    prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
+    prefixes = np.empty((num_rows, width), dtype=np.uint64)
     for layer in range(stop_layer + 1):
         for set_index in range(num_sets if layer < stop_layer else stop_num_completed):
             if certificates.is_unused_set(pivots, set_index, stop_layer, stop_num_completed):
@@ -692,8 +691,8 @@ def _search_from_syndrome_word(
                 if scale == 0:
                     found, count = affine_search.scan_coset_layer_by_css_weight(
                         offsets[set_index],
-                        generators[set_index : set_index + 1],
-                        widths,
+                        generators[set_index],
+                        width,
                         support[:layer],
                         prefixes,
                         best_units,
@@ -704,8 +703,8 @@ def _search_from_syndrome_word(
                 else:
                     found, count = affine_search.scan_coset_layer(
                         offsets[set_index],
-                        generators[set_index : set_index + 1],
-                        widths,
+                        generators[set_index],
+                        width,
                         support[:layer],
                         prefixes,
                         best_units,
@@ -721,9 +720,9 @@ def _search_from_syndrome_word(
                 end = start + (num_rows - 1) * block_offsets[-1]
                 found, count, set_skipped = affine_search.scan_coset_layer_by_tails_with_tables(
                     offsets[set_index],
-                    tail_rows[set_index : set_index + 1],
-                    ranks[set_index : set_index + 1],
-                    widths,
+                    tail_rows[set_index],
+                    ranks[set_index],
+                    width,
                     support[:layer],
                     prefixes,
                     best_units,
@@ -737,9 +736,9 @@ def _search_from_syndrome_word(
             else:
                 found, count = affine_search.scan_coset_layer_by_tails(
                     offsets[set_index],
-                    tail_rows[set_index : set_index + 1],
-                    ranks[set_index : set_index + 1],
-                    widths,
+                    tail_rows[set_index],
+                    ranks[set_index],
+                    width,
                     support[:layer],
                     prefixes,
                     best_units,
@@ -906,10 +905,9 @@ def _search_coset_for_min_weight(
     # lighter word in ``best``, or its support in ``best_support`` by tails, which are only work
     # space, since the search returns no word.
     weighed, skipped = 0, 0
-    widths = np.full(1, width, dtype=np.int64)
     support = np.empty(num_rows, dtype=np.int64)
     best_support = np.empty(num_rows, dtype=np.int64)
-    prefixes = np.empty((num_rows, 1, width), dtype=np.uint64)
+    prefixes = np.empty((num_rows, width), dtype=np.uint64)
     layer = 0
     while True:
         for set_index in range(num_sets):
@@ -931,8 +929,8 @@ def _search_coset_for_min_weight(
                     if scale == 0:
                         found, count = affine_search.scan_coset_layer_by_css_weight(
                             offsets[set_index],
-                            generators[set_index : set_index + 1],
-                            widths,
+                            generators[set_index],
+                            width,
                             support[:layer],
                             prefixes,
                             incumbent,
@@ -943,8 +941,8 @@ def _search_coset_for_min_weight(
                     else:
                         found, count = affine_search.scan_coset_layer(
                             offsets[set_index],
-                            generators[set_index : set_index + 1],
-                            widths,
+                            generators[set_index],
+                            width,
                             support[:layer],
                             prefixes,
                             incumbent,
@@ -960,9 +958,9 @@ def _search_coset_for_min_weight(
                     end = start + (num_rows - 1) * block_offsets[-1]
                     found, count, set_skipped = affine_search.scan_coset_layer_by_tails_with_tables(
                         offsets[set_index],
-                        tail_rows[set_index : set_index + 1],
-                        ranks[set_index : set_index + 1],
-                        widths,
+                        tail_rows[set_index],
+                        ranks[set_index],
+                        width,
                         support[:layer],
                         prefixes,
                         incumbent,
@@ -976,9 +974,9 @@ def _search_coset_for_min_weight(
                 else:
                     found, count = affine_search.scan_coset_layer_by_tails(
                         offsets[set_index],
-                        tail_rows[set_index : set_index + 1],
-                        ranks[set_index : set_index + 1],
-                        widths,
+                        tail_rows[set_index],
+                        ranks[set_index],
+                        width,
                         support[:layer],
                         prefixes,
                         incumbent,

@@ -594,7 +594,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
 | Support, prefix XORs | `support` and `prefixes` in `_BrouwerZimmermannSearch._scan_set` and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
-| Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
+| Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion |
 | Batch of a compiled scan | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
 | Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
 | Completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), chosen by `select_completion_tables` and kept, with the index of their set, in `completion_tables` and `completion_tables_set` of a distance search, or in `CosetTails` of a coset search |
