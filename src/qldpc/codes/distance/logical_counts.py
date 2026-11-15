@@ -2,19 +2,19 @@
 
 """Exact counts of the logical operators of a given weight in binary CSS codes.
 
-See :class:`CSSLogicalCounter` for the conventions.
+See :class:`CSSLogicalCounter` for the conventions, and for what a counter of a code deformed by
+local CSS-preserving Cliffords keeps from the counter that it deforms.
 
 The default method, ``"brouwer_zimmermann"``, counts the words of a target weight ``w`` in each X/Z
 sector, which it represents by a normalizer basis whose quotient labels mark nontrivial words
 (Section 3.4 of ``brouwer_zimmermann.md``).  The scan of ``_counting/scan.py`` enumerates these
 words in layers over Brouwer-Zimmermann (BZ) information sets.  Unlike a distance search, it stops
-only when the BZ lower bound exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``).  Self-dual
-codes scan one sector.
+only when the BZ lower bound exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``).  A counter
+that knows its code is self-dual, since it was built from self-dual checks or deformed by gates that
+act alike on X and Z, scans one sector.
 
-Full Pauli counts at the distance ``d`` come from the homogeneous words of weight ``d``.  Codes that
-are not self-dual need one masked rank per word, and self-dual codes have
-``count_pauli = 3 * count_x``.  :class:`CSSLogicalCounter` says what a counter of a code deformed by
-local CSS-preserving Cliffords keeps from the counter that it deforms.
+Full Pauli counts at the distance ``d`` come from the homogeneous words of weight ``d``.  Such a
+counter has ``count_pauli = 3 * count_x``, and any other counter needs one masked rank per word.
 
 The method ``"macwilliams"`` counts from the weight distributions of the check spaces instead; see
 ``_counting/macwilliams.py`` for the algorithm.
@@ -560,9 +560,8 @@ class CSSLogicalCounter:
             )
 
         # Transform the kept work where the gate allows it, and drop the rest.  A gate can change
-        # the distance, so the deformed counter searches for it again.  A gate also changes the
-        # weight of every check word that touches its qubits, so the weight enumerators are not
-        # kept.
+        # the distance, so the deformed counter searches for it again.  A gate can also change the
+        # weight of a check word that touches its qubits, so the weight enumerators are not kept.
         counter._forget_kept_work()
         if self._sectors is not None:
             (basis_x, labels_x), (basis_z, labels_z) = self._sectors
@@ -807,8 +806,8 @@ def _warm_up_compiled_functions() -> None:
     counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
 
     # The distance search of so small a code ends before some of its stages, so call them here.  Any
-    # upper bound compiles them; this one exceeds the distance of the code, 3.  Their purpose is
-    # compilation, not a search.  So they use the default tuning, which builds families whatever the
+    # upper bound compiles them; this one exceeds the distance of the code, 3.  These calls compile,
+    # rather than search, so they use the default tuning, which makes them independent of the
     # active tuning.
     basis, labels = counter._get_sectors()[0]
     upper_bound = 4

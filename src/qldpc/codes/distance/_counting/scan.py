@@ -466,10 +466,8 @@ def _scan_coefficient_layers(
     ``completion_bounds.CompletionTables`` of a step, or of ``completion_bounds.NO_TABLES``:
 
     - With tables, the call covers one step.  ``step_rows`` holds the rows and labels of its set,
-      followed by their tails.  The step skips the completions that cannot be lighter than
-      ``target + 1`` (see ``_count_chunk_skipping``).  Skipped words weigh more than ``target``, so
-      they are neither counted nor lighter than ``target``.  The certificate still rules out the
-      words of the target weight that the scan neither visits nor skips.
+      followed by their tails.  The step skips completions as a count does in Section 3.9 of
+      ``brouwer_zimmermann.md`` (see ``_count_chunk_skipping``).
     - Without tables, the steps visit every support, and the call ignores ``step_rows``.
 
     Compiled code cannot be interrupted, so the scan is resumable.  ``cursor`` holds the layer, the
