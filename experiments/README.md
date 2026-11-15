@@ -209,13 +209,13 @@ The option `--hadamards` applies Hadamards to the second half of the qubits of e
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
 
-The other scripts of [`distance_tuning/`](distance_tuning/) derive the tuning of the exact searches, and confirm a change of it, as [its README](distance_tuning/README.md) describes.
-[`constants.py`](distance_tuning/constants.py) measures the constants of the machine from which the derived values of `SearchTuning` follow, and prints those values.
-Its quick measurements take a few minutes, and its traces of the searches that measure the cost model of completion tables take hours, so run it on a quiet machine, under a guard of time and memory.
+The other scripts of [`distance_tuning/`](distance_tuning/) check the tuning of the exact searches, as [its README](distance_tuning/README.md) describes, and none of them sets or justifies a value.
+[`constants.py`](distance_tuning/constants.py) checks that the orders of magnitude that the heuristics of `SearchTuning` assume still hold on a machine.
+Its traces of the searches that check the cost model of completion tables can take hours, so run it on a quiet machine, under a guard of time and memory.
 [`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of the searches of one workload of [`workloads.py`](distance_tuning/workloads.py), such as the families of information sets that a search builds, and compares the decisions of two traces.
 [`sweep.py`](distance_tuning/sweep.py) times the whole current tuning against a whole proposed one, or the defaults of two checkouts, in paired rounds of trials that alternate their order, each in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)), and summarizes the ratios of the two arms.
-Such a comparison confirms a change of values, and never chooses them.
-For example, to measure the constants, and then to time the earlier value of `automorphism_minimum_states`, `10**5`, against its derived default:
+It catches gross regressions or bugs when the tuning or the search code changes.
+For example, to check the orders of magnitude, and then to time a proposed value of `automorphism_minimum_states` against the default:
 
 ```bash
 python experiments/distance_tuning/constants.py

@@ -1,130 +1,103 @@
-# Deriving the tuning of the exact distance searches
+# Checking the tuning of the exact distance searches
 
-The derived defaults of `SearchTuning` in `qldpc.codes.distance._tuning` follow from rules and from constants of the machine, not from timing candidates.
-The [Retuning section](../../src/qldpc/codes/distance/_tuning.py) of its module docstring states the classes of values and their rules, and the comment of each field names the class of its default.
-This directory holds what determines the derived values, and what confirms a change of rule:
+The defaults of `SearchTuning` in `qldpc.codes.distance._tuning` are round values that simple heuristics give, such as "run an optional step once the work that it acts on reaches the cost of the step".
+The [Retuning section](../../src/qldpc/codes/distance/_tuning.py) of the module docstring of `_tuning` names the classes of defaults and their heuristics, and says when to change a default.
+The comment of each field names the class of its default.
+The scripts of this directory check the tuning, and none of them sets or justifies a value:
 
-- [`constants.py`](constants.py) measures every constant of the machine that a derived value needs, including the five coefficients of the cost model of completion tables, and prints the values that the rules give beside the defaults.
-- [`trace.py`](trace.py) records the decisions of the searches of one workload under one tuning, and compares the decisions of two traces.
-- [`sweep.py`](sweep.py) times the whole current tuning against a whole proposed one, or the defaults of two checkouts, in paired trials of [`trial.py`](trial.py).
+- [`constants.py`](constants.py) checks that the orders of magnitude that the heuristics assume still hold on a machine.
+- [`trace.py`](trace.py) shows which decisions the searches of one workload make and what each of their stages costs, and compares the decisions of two traces.
+- [`sweep.py`](sweep.py) times the whole current tuning against a whole proposed one, or the defaults of two checkouts, in paired trials of [`trial.py`](trial.py), to catch gross regressions or bugs when the tuning or the search code changes.
 - [`workloads.py`](workloads.py) names the codes and the workloads that these scripts run.
 
-[`benchmark.py`](benchmark.py) is a benchmark of the exact distance methods, which is not part of tuning.
+[`benchmark.py`](benchmark.py) compares the exact distance methods on known codes, and plays no part in tuning.
 The [experiments README](../README.md#distance-tuning) introduces the scripts, and their docstrings give their options.
-`constants.py` and `sweep.py` write their results to `results/`, which Git ignores; `trace.py` writes a trace to the file that `--output` names.
+`constants.py` and `sweep.py` write their results to `results/`, which Git ignores, and `trace.py` writes a trace to the file that `--output` names.
+The outputs of the scripts belong in the description of the pull request that they support, never in `_tuning.py` or the documentation.
 
-## Rules and constants
+## Checking the orders of magnitude
 
-Every derived value follows from a rule fixed before measuring and, unless it is a limit at equality, from a constant of the machine that `constants.py` measures:
+Run `constants.py` on a quiet machine, under a guard of time and memory:
 
-- **Break-even gates.** An optional step, such as building a family of information sets, solving linear programs, or asking for automorphisms, runs once the work that it acts on reaches the cost of the step, the costliest of its measurements.
-  Work counts candidate/set evaluations in BZ searches, and states in connected-cluster searches.
-  The value is rounded by ratio to 1, 2, or 5 times a power of ten.
-- **Limits at equality.** A limit that compares two estimates in one unit breaks even where they are equal.
-- **Measured coefficients.** The coefficients of the cost model of completion tables are constants of the machine, measured on the searches of the cost data set of the Retuning section: those of lookups on their large layers of one information set, and those of builds on every table that they build with tables forced.
+```bash
+python experiments/distance_tuning/constants.py
+```
 
-The other values are budgets of memory, interrupt latency, or setup effort, statistical conventions, or the widest width of blocks allowed, as the Retuning section defines them.
-Two fields, `coset_route_minimum_work` and `macwilliams_shared_walk_rank`, are in no class, and their comments say how they were chosen.
-`macwilliams_shared_walk_rank` gates a test that lets one walk of a check space serve both sectors of a count by the MacWilliams method.
-Its break-even constant lies on the edge between two ranks.
-Five runs of an earlier version of `constants.py` traced `mcount/qgolay/8`, `mcount/qrm:2:6/4`, and `mcount/qrm:2:7/1`, with the test forced.
-Each compared the costliest test with the seconds per step of a walk, the median over the workloads of their walks of at least `2**16` steps.
-In each run, the costliest test took as long as a walk of `2.0 * 10**4` to `3.4 * 10**4` steps, on both sides of `2**14.5`, so breaking even gives 14 in one run and 15 in four.
-Every traced test found checks that do not span the same space.
-To repeat the measurement, trace the three workloads with `trace.py --tuning '{"macwilliams_shared_walk_rank": 0}'`, and compare their `self-dual test` and `walk` events in the same way.
+The script first traces a few quick searches.
+It prints a table of the cost of each optional step that a derived value gates, in seconds and in the unit of the field that gates the step: candidate/set evaluations for Brouwer-Zimmermann searches, and states for connected-cluster searches.
+It then prints the value that the heuristic of each derived value gives for that cost, under `derived`, beside the default.
+Last, it traces the searches of its cost data set, `COST_DATA_SET`, under four tunings, which can take hours, and prints each coefficient of the cost model of completion tables, under `measured`, beside its default.
+The docstring of `constants.py` says how it measures each cost.
 
-On an Apple M3 Max that also ran other work, on the library code that follows #869 and #870, one candidate/set evaluation of a BZ search took 1.17 to 1.20 ns, the median over five searches of 1.15 to 1.95 ns, and three runs of the script gave these constants, each the costliest of its measurements, and values:
+Read the output by the rule of the Retuning section: a default calls for a change only if the cost that its heuristic assumes is off by more than a factor of about 3.
+So compare the cost of each step, under `in units`, with the default of the field that gates the step.
+Neighboring values of 1, 2, or 5 times a power of ten differ by at most a factor of 2.5, so a derived value one step away from its default calls for no change.
+The coefficients of the cost model are rough estimates, and compare with their defaults in the same way.
 
-| Field | Value | The step, and its cost |
-| --- | --- | --- |
-| `partition_work_ratio` | 5 | Matroid partitioning, for each unit `b^2 k^2 n` of its gate: 4.53 to 4.56 ns, or 3.81 to 3.86 evaluations, on `distance/classical:128:80:6/-`, which tries coverages up to 6; `distance/lp13s5/X` with automorphisms off, which tries coverages up to 9, took 3.23 to 3.26 ns, or 2.7 to 2.8 evaluations |
-| `completion_bound_minimum_layer_work` | `2 * 10**7` | A prediction of the cost of completion tables, which samples supports: 29.5 to 29.7 ms, or `2.48 * 10**7` to `2.53 * 10**7` evaluations, on layer 4 of `distance/qt7/X`, of 181 rows |
-| `overlapping_minimum_work` | `2 * 10**6` | Building a family of overlapping information sets: 2.89 to 3.57 ms, or `2.44 * 10**6` to `2.99 * 10**6` evaluations, on `distance/qt7/X`, of 181 rows; the builds on the 175 rows of `distance/lp13s5/X` took 2.7 to 3.0 ms, and on the 48 rows of `distance/classical:128:80:6/-` 0.5 to 0.6 ms |
-| `lp_minimum_work` | `2 * 10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.21 s, or `1.79 * 10**8` to `1.81 * 10**8` evaluations, for planning and programs |
-| `completion_bound_max_cost_percent` | 100 | None: the limit compares two estimates in one unit |
-| `automorphism_minimum_layer_work` | `5 * 10**6` | Finding the automorphisms of a BZ search, verifying them, and building their images: 7.56 to 8.57 ms, on `hadamard/gross` set up only, or `6.4 * 10**6` to `7.2 * 10**6` evaluations; `distance/qt7/X` took 6.35 to 6.68 ms |
-| `automorphism_minimum_states` | `5 * 10**4` | Asking for automorphisms in a connected-cluster search, which finds them, verifies them, and orders their orbits: 8.9 to 9.4 ms, on `ccdistance/qt7/X`, or `3.4 * 10**4` to `3.7 * 10**4` states at 253 to 263 ns each, the median over six searches of 99 to 828 ns |
+The script saves each measurement with the commit and the uncommitted changes of `src/` that it ran on.
+So it measures every cost again after a commit or a change to `src/`, and an interrupted run resumes where it stopped.
 
-The row of `automorphism_minimum_states` comes from six later runs of the script, which gave the other values again.
-The row of `automorphism_minimum_layer_work` comes from three runs on the library code that follows #871, at 1.18 to 1.19 ns per evaluation, which gave the other values again; in them, the constant of `automorphism_minimum_states` was `3.33 * 10**4` to `3.52 * 10**4` states.
-One of the three runs gave `10**7` for `automorphism_minimum_layer_work`, since its single trace of `hadamard/gross` took 8.57 ms.
-Ten more traces of that search then took 6.71 to 9.37 ms, with a median of 7.54 ms, or `6.3 * 10**6` evaluations, and a test fixed before they ran, that a median above the edge would give `10**7`, kept `5 * 10**6`.
-To repeat them, run `trace.py hadamard/gross --setup-only`, and add the `competing_seconds` of its partitioned family to the seconds of its first `automorphisms` event.
-These constants carry the sizes of the searches measured: predictions, overlapping families, and linear programming cost less on smaller bases, and a state of a connected-cluster search took 99 to 828 ns across the six searches.
-The edges of their rounding are the geometric means of neighboring values.
-In the three runs of the table, the constant of `overlapping_minimum_work` lies 5 to 23% below `3.16 * 10**6`, that of `partition_work_ratio` 20 to 22% above 3.16, that of `completion_bound_minimum_layer_work` 20 to 22% below `3.16 * 10**7`, and that of `lp_minimum_work` 27 to 28% above `1.41 * 10**8`.
-In the three runs on the library code that follows #871, that of `automorphism_minimum_layer_work` lies 10% below to 1% above `7.07 * 10**6`, and in those and the six runs of its row, that of `automorphism_minimum_states` 5 to 18% above `3.16 * 10**4`.
-The five coefficients of the cost model keep values measured on the cost data set before `constants.py` measured them, and no run of the script has measured them yet.
+`macwilliams_shared_walk_rank` gates a test of whether the X and Z checks of a counter span the same space, and `constants.py` does not check the assumption of its comment.
+To check that assumption, trace `mcount` workloads with the test forced, as in `trace.py mcount/qgolay/8 --tuning '{"macwilliams_shared_walk_rank": 0}'`.
+Then compare the seconds of each `self-dual test` event with the seconds per step of the `walk` events.
 
-## Workflow
+## Tracing decisions
 
-1. **Measure the constants.**
-   First record predictions, as the criteria below say.
-   Then run `python experiments/distance_tuning/constants.py` on a quiet machine, under a guard of time and memory.
-   Its quick measurements take a few minutes, after which it prints the derived values; its traces of the cost data set then take hours.
-   It saves each measurement with the commit and the uncommitted changes of `src/` that it ran on, so it measures every constant again after a commit or a change to `src/`, and an interrupted run resumes where it stopped.
-2. **Re-derive the values.**
-   The script prints each derived value beside its default, and each coefficient of the cost model of completion tables, before rounding, beside its default.
-   Round the two coefficients of builds up, and accept the coefficients, as the Retuning section says; no rule rounds the other three.
-   The values that differ from their defaults, with the defaults of the other fields, make the proposed tuning.
-3. **Trace which decisions move.**
-   Trace key searches under the current and the proposed tuning, and compare the traces.
-   In these examples, the proposed tuning holds the earlier value of `automorphism_minimum_states`, `10**5`, so they repeat the confirmation of its derived value with the arms swapped:
+For example, to trace a search under the current tuning and under a proposed one, and to compare the decisions of the two traces:
 
-   ```bash
-   python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
-       --output experiments/distance_tuning/results/current.json
-   python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
-       --tuning '{"automorphism_minimum_states": 100000}' \
-       --output experiments/distance_tuning/results/proposed.json
-   python experiments/distance_tuning/trace.py --compare \
-       experiments/distance_tuning/results/current.json experiments/distance_tuning/results/proposed.json
-   ```
+```bash
+python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
+    --output experiments/distance_tuning/results/current.json
+python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
+    --tuning '{"automorphism_minimum_states": 100000}' \
+    --output experiments/distance_tuning/results/proposed.json
+python experiments/distance_tuning/trace.py --compare \
+    experiments/distance_tuning/results/current.json experiments/distance_tuning/results/proposed.json
+```
 
-   If the tunings differ only in thresholds, a search whose decisions do not change takes the same steps, apart from the time of the decisions themselves.
-   The docstring of `trace.py` says what the comparison leaves out, such as the sets of each family.
-4. **Confirm by timing the whole tuning.**
-   Time the workloads whose decisions move, and controls, under the whole current and the whole proposed tuning:
+A trace lists the events of each stage of the searches of its workload, such as the families of information sets that a search builds, its decisions to use completion tables or automorphisms, and the layers that it scans, each with its seconds.
+`--compare` lists the decisions that differ between two traces of one workload.
+If two tunings differ only in thresholds, a search whose decisions do not change takes the same steps, apart from the time of the decisions themselves.
+The docstring of `trace.py` lists the events, and says what the comparison leaves out, such as the sets of each family.
 
-   ```bash
-   python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \
-       --workloads ccdistance/lp13s5/X ccdistance/surface:17/X ccdistance/qt7/X \
-       --proposed '{"automorphism_minimum_states": 100000}'
-   ```
+## Catching regressions
 
-   With `--worktrees CURRENT PROPOSED` instead of `--proposed`, it compares the defaults of two checkouts.
+For example, to time the whole current tuning against a proposed one on three workloads:
 
-## Criteria for changing a derived value
+```bash
+python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \
+    --workloads ccdistance/lp13s5/X ccdistance/surface:17/X ccdistance/qt7/X \
+    --proposed '{"automorphism_minimum_states": 100000}'
+```
 
-- **Change rules or constants, never one value.**
-  A value changes only because its rule, a measured constant, or a stated budget changed, and a changed rule applies to every field of its class.
-- **Record predictions before measuring.**
-  Record the rule, the values that it should give, the decisions that it should change, and how large a difference in time must be to matter, in absolute terms.
-- **Trace decisions before timing.**
-  Traces show which searches a change can affect; time those, and controls.
-- **Compare the whole tuning against the current one.**
-  Time the whole proposed tuning against the whole current one, including quick searches and peak memory, and report every comparison made.
-  A slowdown calls for changing a rule, never for adjusting one value.
-- **Publish a profile for each machine.**
-  On another machine, rerun `constants.py`, and publish the values that it derives as that machine's profile, rather than retuning by timing.
+With `--worktrees CURRENT PROPOSED` instead of `--proposed`, the script compares the defaults of two checkouts.
+For each workload, its summary gives the median time of each arm, the median ratio of the time of the proposed arm to that of the current arm, with the spread of the ratios and a confidence interval, and the median peak memory of each arm.
+It also flags each workload whose arms disagree on a result.
+A disagreement, or a ratio far from one on a workload whose traced decisions do not change, points to a bug or a regression.
+No ratio justifies a change of a default by itself (see the Retuning section).
 
-## Before measuring
+Before timing:
 
-- Time searches in new single-threaded processes, one at a time, as `sweep.py` and `constants.py` do: completion tables save less when several searches run at once.
+- Time searches in new single-threaded processes, one at a time, as `sweep.py` and `constants.py` do, since completion tables save less when several searches run at once.
 - Do not edit `src/` while the scripts run, since each process imports it anew.
-- A trial of one repetition also times work that a search caches on its code, such as the generator matrix of a classical code given by checks, which is the same in every arm: under a second for most distance workloads, most of a trial of an `mcount` workload of a small code, such as `mcount/qgolay/8`, and up to minutes for the classical codes of 4000 and 8000 bits.
-  It shrinks ratios toward 1 without reversing them; time such workloads with `--repeat 3`, whose median leaves it out.
+- A trial of one repetition also times work that a search caches on its code, such as the generator matrix of a classical code given by checks.
+  That work is the same in every arm, and can dominate a trial of a small code.
+  It shrinks ratios toward one without reversing them, so time such workloads with `--repeat 3`, whose median leaves it out.
 - A code also remembers its automorphisms once a search finds them, and whether a search finds them depends on the tuning.
-  Time a change of when searches ask for automorphisms, such as of `automorphism_minimum_states` or `automorphism_minimum_layer_work`, with one repetition, so that every trial pays for asking.
+  So time a change of when searches ask for automorphisms, such as of `automorphism_minimum_states` or `automorphism_minimum_layer_work`, with one repetition, so that every trial pays for asking.
+
+## Changing a default
+
+The Retuning section of the module docstring of `_tuning` says when to change a default.
+The scripts of this directory make the checks that the section calls for: `constants.py` checks the orders of magnitude that the heuristics assume, and `trace.py` and `sweep.py` catch the regressions and bugs that a change can bring.
 
 ## Limits
 
-- The rules were chosen while studying the workloads of this directory, and the constants are measured on a few of them, so the derived values carry the sizes of those searches.
-- The estimated work of a BZ search, which `overlapping_minimum_work`, `partition_work_ratio`, and `lp_minimum_work` read, can exceed the work done many times over, so these gates break even with the estimated work, not with the work done.
-- The cost model of completion tables errs in both directions, so a cost limit at break-even accepts some tables that cost more than they save.
-- A gate that a search asks once, such as that of `automorphism_minimum_states`, decides on a prediction of the states of the next weight limit, which can be wrong.
-- A constant near the edge of its rounding can give another value in another run, as that of `automorphism_minimum_layer_work` did, and the rules do not yet say how to combine runs that disagree.
+Two weak spots of the heuristics are known:
 
-These limits can cost searches time or memory, but never change an exact result.
+- The cost of matroid partitioning varies a lot between families of codes of the same size.
+  Its gate, `partition_work_ratio`, compares that cost with the estimated work of a search, which can far exceed the work that the search does.
+  So a search can partition and then turn out to be small.
+- The cost model of completion tables decides at break-even with rough coefficients, so its marginal decisions can go either way.
 
-At commit 1a2c05293 (#871), this page also described the timing campaign that had chosen the values that #871 replaced with derived ones, and recorded the commands of its sweeps.
+These weak spots can cost searches time or memory, but never change an exact result.
