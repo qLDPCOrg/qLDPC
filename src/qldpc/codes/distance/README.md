@@ -34,7 +34,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 ## Layout
 
 - `core.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
-- `coset_leaders.py` is the public interface of the coset-leader search, and `min_weight_bounds.py` defines the answer of its queries, which its coset searches build too.
+- `coset_leaders.py` is the public interface of the coset-leader search, and `min_weight_bounds.py` defines `MinWeightBound`, which its coset searches build too.
 - `_brouwer_zimmermann/` holds the Brouwer-Zimmermann searches, which scan information sets, and `_connected_cluster/` the connected-cluster searches, which grow connected supports.
   Each holds the distance search of its method, and the coset searches with which the coset-leader search answers queries by that method.
   `_brute_force.py` holds exhaustive enumeration.
@@ -66,7 +66,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
-| The answers of the queries of the coset-leader search and of its coset searches (`MinWeightBound`) | `min_weight_bounds.py` |
+| The bound for one syndrome that the coset-leader search and its coset searches give (`MinWeightBound`) | `min_weight_bounds.py` |
 | The parts that the coset searches of both methods share: words with unit syndromes, packed rows, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
 | How basis families are built | `_information_sets/basis_families.py` |
 | Certificates, and how searches plan their steps: where they stop, and the work of the steps up to there | `_information_sets/certificates.py` |
@@ -105,7 +105,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecat
 ## The coset-leader search
 
 `CosetLeaderSearch` answers each query with one or two coset searches, each over the cosets of a binary code.
-Each answers a single query with `MinWeightBound`, after it looks up words of weight at most one in a table.
+For a single query, each looks up words of weight at most one in a table, then answers with `MinWeightBound`.
 
 - In general, one search of the Pauli errors, modulo the stabilizers, answers a query.
 - On a CSS state, where pure-X and pure-Z stabilizers generate its stabilizer group, two classical searches answer a query by CSS weight, the larger of the weights of the X and Z parts of an error, on `n` columns each rather than `2n`.
@@ -124,19 +124,21 @@ With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset
 This method weighs errors by CSS weight only on CSS states (Section 3.8 of `connected_cluster.md`).
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
 `find_first_not_within_max_weight` and `get_min_weights` try increasing weight limits (`_get_batch_cluster_bound` and `_get_min_cluster_weight`), which can find light errors sooner than one search at `max_weight`.
-For the CSS weight, the bound that `find_first_not_within_max_weight` returns holds an error for each part, and the error of a part within `max_weight` can differ from the one that `get_min_weight_bound` gives.
+For the CSS weight, the bound that `find_first_not_within_max_weight` returns holds an error for each part, and for a part within `max_weight`, that error can differ from the one that `get_min_weight_bound` gives.
 
 The table "Routes and the names that control them" of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) names the fields that configure the searches of `CosetLeaderSearch`.
 
 ## Tuning
 
-A value that changes how long a search takes or how much memory it uses, but no result that the search guarantees, and that a search reads when it starts, such as a threshold that chooses a route, a limit, a coefficient of a cost model, or a batch size, is a field of `SearchTuning` in `_tuning.py`, not an argument of a public function.
+A value that a search reads when it starts, and that changes how long the search takes or how much memory it uses but no result that it guarantees, is a field of `SearchTuning` in `_tuning.py`.
+Such values include a threshold that chooses a route, a limit, a coefficient of a cost model, and a batch size.
+They are not arguments of public functions, whose arguments say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down as arguments, including to compiled code, so that one search never mixes two tunings.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_cluster` read it only if their callers pass none.
   A cache that outlives a search is keyed by the values that it depends on, as the fields of `_CosetTuning` in `_brouwer_zimmermann/coset.py` key the cached searches of `CosetLeaderSearch`.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
-  Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
+  Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
 - Each field and constant has its own `#:` comment directly above it, for Sphinx to render, with no colon on its first line, since Sphinx reads text before such a colon as a type.
   A field's comment says what the field controls, with its unit and special values, and the class and rule of its default, as the "Retuning" section of the module docstring defines them, or why a field in no class has its default; where a guide section or a cost model explains its heuristic, the comment points there.
   A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
@@ -146,7 +148,7 @@ A value that changes how long a search takes or how much memory it uses, but no 
 - [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders these comments after hand-written tables that lead from symptoms and routes to the values; update the tables, and for a constant the list of constants, when you add, rename, or remove a value.
   `_tuning_test.py` checks that the table of routes names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each value has its own comment.
   The documentation build fails on a broken reference into `_tuning`.
-- A heuristic whose value could change a result that a search guarantees does not belong in `SearchTuning`; the module docstring of `_tuning.py` says which results a tuning can change.
+- The module docstring of `_tuning.py` says which results a tuning can change.
 - To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
 - If the implementation cannot safely support a field's full range, narrow it in the field's metadata rather than adding code for unsupported values.
 

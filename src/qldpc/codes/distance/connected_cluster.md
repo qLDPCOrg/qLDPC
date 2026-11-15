@@ -143,9 +143,9 @@ For a large code, finding the automorphisms, verifying them, and ordering their 
 So the search of each problem asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
 That field of `SearchTuning` in `_tuning.py` defaults to a round number of states assumed to cost about as much to visit as asking.
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
+The search predicts rather than counts because it can ask only between limits, each a single compiled call, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
 A first limit that a `cutoff` sets above the weight divisor ([Section 3.6](#36-from-a-search-to-the-distance)) has no prediction, so the search asks before it.
 Setting `automorphism_minimum_states` to `MAX_VALUE` turns asking off.
-The search predicts rather than counts because it can ask only between limits, each one compiled call, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
 
 With symmetries, the search from the first root does most of the work: it forbids nothing, and every witness that meets the first orbit has an image that holds this root.
 A witness with several variables in the first orbit can have several such images, one for each such variable if `Γ` acts regularly on the orbit, so the search can visit several images of one state; rejecting such duplicates soundly for general groups is left open.
@@ -270,7 +270,7 @@ These can strengthen it, since each unsatisfied check can prune a state or offer
 Since a distance search uses its checks once, while a `CosetLeaderSearch` sparsifies once for many queries, `max_distance_sparsifying_rounds` defaults to fewer rounds than `max_sparsifying_rounds`.
 
 Sparsity is not all that matters: bases of equal weight can make the search visit very different numbers of states.
-So the set of checks changes only when its total weight drops, which leaves a basis that is already as sparse as possible, such as the derived basis of a Bacon-Shor code, as it is.
+So sparsifying changes the checks only when their total weight drops, which leaves a basis that is already as sparse as possible, such as the derived basis of a Bacon-Shor code, as it is.
 
 ## 4. Guide to the source code
 
@@ -283,7 +283,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py` |
 | Problems of Section 3.7, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
 | Distance of several problems | `get_distance_connected_cluster` |
-| Distance of a vector `v` from a classical code | `ClassicalCode.get_distance_exact(vector=v)` in `src/qldpc/codes/common.py`, which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])`, for a generator matrix `G_C` of the code, and subtracts one |
+| Distance of a vector `v` from a classical code with generator matrix `G_C` | `ClassicalCode.get_distance_exact(vector=v)` in `src/qldpc/codes/common.py`, which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
 | Overlaps and repairs that a syndrome query reuses within a state | `memoize` of `_search_supports`, and `memos` and `stamp` of `_get_branches` |
