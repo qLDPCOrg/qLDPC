@@ -78,9 +78,9 @@ _Family = tuple[affine_instance.AffineInstance, CosetSearchTables]
 # Threads that choose routes at once take turns.  Choosing a route runs plain Python, which threads
 # can interleave even with the global interpreter lock, and the route of a family by tails builds
 # the record of the family from its latest record.  Two threads that built from the same record at
-# once could each store a record without the tables of the other's route.  Routes are chosen
-# rarely, typically in milliseconds, so one shared lock costs little.  A lock on each search would
-# keep it from pickling.
+# once could each store a record without the tables of the other's route.  A search chooses the
+# route of each maximum weight once, and later queries read it without the lock, so one shared lock
+# costs little.  A lock on each search would keep the search from pickling.
 _ROUTE_LOCK = threading.Lock()
 
 ####################################################################################################

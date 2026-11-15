@@ -195,8 +195,8 @@ class BrouwerZimmermannCosetSearch:
     def _get_route(self, max_weight: int) -> tuple[CosetSearchTables, TailFields | None]:
         """The tables of the route of a maximum weight, and the fields of its tails, if any.
 
-        The fields are a plain tuple, which numba types at each call of a compiled search several
-        times faster than the named tuple ``CosetTails``.
+        The fields are a plain tuple, which numba types at each call of a compiled search more
+        cheaply than the named tuple ``CosetTails``.
         """
         tables, tails = self._routes.get_route(max_weight)
         return tables, None if tails is None else tails[:]
