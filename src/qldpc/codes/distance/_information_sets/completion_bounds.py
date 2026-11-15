@@ -2,25 +2,14 @@
 
 """Tables that bound the weights of the words that complete a BZ support with two more rows.
 
-A BZ scan of a systematic basis ``[I | P]`` sums the rows of each support, a set of ``w`` rows.  The
-word of a support weighs ``w`` plus the weight of its tail, the sum of the selected rows of ``P``.
-Fix the first ``w - 2`` rows of a support, its prefix, and a row ``s``.  ``CompletionTables`` gives
-a lower bound on the tail weight of every word that completes the prefix with two rows
-``s <= i < j``.  A scan skips all these completions if that bound proves that none of them is
-lighter than the limit of the scan.  Section 3.9 of ``brouwer_zimmermann.md`` derives the bound,
-says when searches use the tables, and shows that a search that skips completions still meets its
-contract.
-
-Each kind of search sets the limit of its scans so that it never skips a word that it needs:
-
-- A distance search sets it to its best weight ``U``.
-- A count of the words of weight ``t`` sets it to ``t + 1`` (``_counting/scan.py``).
-- A coset query sets it to the least bound that proves a word heavier than its maximum weight, and a
-  search for the minimum weight of a coset lowers it as the search finds lighter words
-  (``_brouwer_zimmermann/coset.py``, and Section 3.10 of ``brouwer_zimmermann.md``).  The bases of
-  coset searches need not be information sets, so in place of ``w``, their scans bound the pivot
-  ones of a completion (``scan_coset_layer_by_tails_with_tables`` in
-  ``_brouwer_zimmermann/affine_search.py``).
+A BZ scan weighs the sums of sets of ``w`` rows of a systematic basis.  For the first ``w - 2`` rows
+of such a set and a row ``s``, ``CompletionTables`` bound the weight outside the pivot columns of
+every word that completes those rows with two rows from ``s`` on.  A scan skips these completions
+when the bound shows that they reach its limit: the best weight ``U`` in a distance search,
+``t + 1`` in a count of the words of weight ``t``, and in a coset query, the least bound that proves
+a word heavier than its maximum weight.  Sections 3.9 and 3.10 of ``brouwer_zimmermann.md`` derive
+the bound and the limits, show that skipping keeps each search exact, and say when searches use
+the tables.
 """
 
 from __future__ import annotations

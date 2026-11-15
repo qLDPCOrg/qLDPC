@@ -1047,6 +1047,7 @@ The bullets below give the rule of each heuristic and its reason, and the Retuni
   The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`.
   Below that limit, it also holds the largest partial set on the columns that the information sets leave.
   `CosetRoutes` keeps this family only if it has more information sets or a larger partial set than the greedy packing.
+  A greedy packing can miss information sets: the columns `e1`, `e2`, `e1 + e2`, and `e1 + e2` hold two disjoint information sets, but a greedy packing in natural order takes `e1` and `e2`, and leaves a partial set of rank one.
   The second is an overlapping family of `get_overlapping_family`, aimed at the Hamming weight `η ω_T + 1` for the weight factor `η` of [Section 4.1](#41-module-map-and-layering).
   `CosetRoutes` keeps it only if the stage finds one that does less work than the family that the stage starts from.
   The route of `ω` is the family with the least work at `ω`, summed over its tables, and among families of equal work, the disjoint family, then the maximum disjoint one.
@@ -1061,7 +1062,6 @@ The bullets below give the rule of each heuristic and its reason, and the Retuni
   This gate replaces, in coset searches, the minimum layer work and the cost model of `select_completion_tables`.
   So a route by tails asks for the tables of the search bases that its queries scan in layers of two or more rows, whatever the work of those layers.
   `get_coset_tails` gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
-  The module docstring of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) gives an example of disjoint information sets that a greedy packing misses.
 - **`select_completion_tables`** decides whether an information set in a layer of a distance search, or a step of a count, uses completion tables, by the steps of [Section 3.9](#39-skipping-completions-by-completion-tables).
   It considers only the layers that `considers_tables` allows, which have at least `completion_bound_minimum_layer_work` supports.
   This gate breaks even with the cost of the prediction, which bounds sampled supports directly from the rows.
