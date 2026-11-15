@@ -5,15 +5,16 @@
 See :class:`CSSLogicalCounter` for the conventions.
 
 The default method, ``"brouwer_zimmermann"``, counts the words of a target weight ``w`` in each X/Z
-sector, a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
-``brouwer_zimmermann.md``).  The scan of ``_counting/scan.py`` enumerates these words in layers over
-Brouwer-Zimmermann (BZ) information sets.  Unlike a distance search, it stops only when the BZ lower
-bound exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``).  Self-dual codes scan one sector.
+sector, which it represents by a normalizer basis whose quotient labels mark nontrivial words
+(Section 3.4 of ``brouwer_zimmermann.md``).  The scan of ``_counting/scan.py`` enumerates these
+words in layers over Brouwer-Zimmermann (BZ) information sets.  Unlike a distance search, it stops
+only when the BZ lower bound exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``).  Self-dual
+codes scan one sector.
 
 Full Pauli counts at the distance ``d`` come from the homogeneous words of weight ``d``.  Codes that
 are not self-dual need one masked rank per word, and self-dual codes have
-``count_pauli = 3 * count_x``.  Counters for codes deformed by local CSS-preserving Cliffords
-transform the kept sector bases and basis families rather than recomputing them.
+``count_pauli = 3 * count_x``.  :class:`CSSLogicalCounter` says what a counter of a code deformed by
+local CSS-preserving Cliffords keeps from the counter that it deforms.
 
 The method ``"macwilliams"`` counts from the weight distributions of the check spaces instead; see
 ``_counting/macwilliams.py`` for the algorithm.
@@ -573,8 +574,9 @@ class CSSLogicalCounter:
             )
             counter._sectors = (sector_x, sector_z)
 
-            # The kept families follow the gate.  If one cannot, the sector is prepared again when
-            # it is next counted.  A self-dual code keeps one family, for both of its sectors.
+            # The kept families follow the gate.  If one cannot, the disjoint family of its sector
+            # is built again when the sector is next counted.  A self-dual code keeps one family,
+            # for both of its sectors.
             for (
                 source,
                 random_column_orders,
@@ -805,9 +807,9 @@ def _warm_up_compiled_functions() -> None:
     counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
 
     # The distance search of so small a code ends before some of its stages, so call them here.  Any
-    # upper bound compiles them; this one exceeds the distance of the code, 3.  These calls use the
-    # default tuning, so that they build families whatever the active tuning, since their purpose is
-    # compilation, not a search.
+    # upper bound compiles them; this one exceeds the distance of the code, 3.  Their purpose is
+    # compilation, not a search.  So they use the default tuning, which builds families whatever the
+    # active tuning.
     basis, labels = counter._get_sectors()[0]
     upper_bound = 4
     basis_family = basis_families.prune_family(

@@ -14,7 +14,7 @@ searches start.  ``transport_basis_family`` moves such a family through a local 
 counters.
 
 ``logical_counts.py`` calls both functions.  Sections 2 and 3 of ``brouwer_zimmermann.md`` describe
-the search, and Section 5 states what a count requires.
+the Brouwer-Zimmermann algorithm, and Section 5 states what a count requires.
 """
 
 from __future__ import annotations
@@ -291,9 +291,9 @@ class _StepTables:
 
     ``tuning`` chooses the tables of a step as for a layer of a distance search (see
     ``completion_bounds.select_completion_tables``).  A count keeps the tables of the sets that it
-    has used for their later steps, as Section 3.9 of ``brouwer_zimmermann.md`` describes.  Between
-    steps, the kept tables take at most ``tuning.completion_bound_max_table_bytes`` in all.  While a
-    count builds the tables of another set, it holds them in addition to the kept tables.
+    has used for their later steps.  Between steps, the kept tables take at most
+    ``tuning.completion_bound_max_table_bytes`` in all.  While a count builds the tables of another
+    set, it holds them in addition to the kept tables.
     """
 
     def __init__(
@@ -462,8 +462,8 @@ def _scan_coefficient_layers(
     function of its own so that it can be compiled, which saves a call from Python for every chunk.
 
     The call stops before the step ``(stop_layer, stop_set)``, or runs to the end of the scan if
-    that step is ``(0, 0)``.  ``tables`` either holds the tables of a step, from
-    ``completion_bounds.CompletionTables``, or is ``completion_bounds.NO_TABLES``:
+    that step is ``(0, 0)``.  ``tables``, ``offsets``, and ``block_bits`` are the fields of the
+    ``completion_bounds.CompletionTables`` of a step, or of ``completion_bounds.NO_TABLES``:
 
     - With tables, the call covers one step.  ``step_rows`` holds the rows and labels of its set,
       followed by their tails.  The step skips the completions that cannot be lighter than
@@ -693,8 +693,7 @@ def _count_chunk_skipping(
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
     # Step through the supports of the first layer - 1 rows, whose last row is the first of the last
     # two rows of a support, and visit the last rows of each in a loop of their own.  Completions
-    # are skipped only if all of their words weigh more than the target, that is, with the limit of
-    # a best weight of target + 1 (Section 3.9 of brouwer_zimmermann.md).  The pair steps of
+    # are skipped as for a count in Section 3.9 of brouwer_zimmermann.md.  The pair steps of
     # ``_scan`` in ``_brouwer_zimmermann/affine_search.py`` skip completions the same way, with a
     # limit that falls as a search for a lightest word finds lighter words.
     head = support[: layer - 1]
