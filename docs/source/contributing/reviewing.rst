@@ -87,9 +87,10 @@ A review covers each of these angles that the change can affect:
 * **Testing standard:** the :doc:`testing standard <standards/testing>`.
 * **Writing standard:** the :doc:`writing standard <standards/writing>`, applied to every changed comment, docstring, document, and notebook.
 * **Cold reading:** whether the changed comments, docstrings, documents, and notebook prose make sense to a reader who has not read the implementation.
-  For changed Python files, the coordinator gives the reviewer of this angle only their docstrings and comments, in order, with the names and signatures of the documented objects, and marks the changed ones.
+  For changed Python files, the coordinator gives the reviewer of this angle their docstrings and comments, in order and without code examples, each under the name of the object that it documents, and marks the changed ones.
   For changed notebooks and documents, the coordinator gives their prose without code cells or code blocks.
-  The reviewer records this angle's findings before reading any code, including code quoted in its brief, and does not withdraw them after reading it.
+  The coordinator quotes no code in this reviewer's brief.
+  The reviewer records this angle's findings before reading any code, and does not withdraw them after reading it.
   The reviewer checks that each sentence reads clearly the first time, and checks definite references and pronouns against the writing standard.
   A finding of this angle is significant only if the prose could mislead a reader about what the code does or guarantees.
 * **Deprecations:** the :doc:`deprecation standard <standards/deprecations>`, for a change to a public name, argument, mode, or default.
@@ -136,7 +137,7 @@ The coordinator runs each round as follows:
    If the coordinator is not permitted to revise the change, as for another contributor's pull request, report every fix as a suggestion, and end the review after one round.
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
-   A fix that adds process or apparatus to guard against a problem that other process or apparatus caused or left open is a decision; see :ref:`the goal of the work <decisions-goal>`.
+   A fix that :ref:`the goal of the work <decisions-goal>` says to escalate is a decision.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
    Present each decision to that person as :doc:`decisions and recommendations <decisions>` describes.
 4. Fix a minor pre-existing problem in the change, such as a misleading message, a missing check, or an untested edge case, if its fix is local, evidently correct, and needs no decision.

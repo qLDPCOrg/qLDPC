@@ -579,16 +579,16 @@ def _append_parity_gadget(
 #
 # The deferral passes of this module work on lists of the following plain Python objects, rather
 # than on stim's instructions, because stim.Circuit.append and stim.CircuitInstruction convert each
-# target slowly, while stim parses the text of a circuit orders of magnitude faster.  The passes
-# therefore build each output circuit by parsing its text once (see _get_circuit).
+# target slowly, while stim parses the text of a circuit much faster.  The passes therefore build
+# each output circuit by parsing its text once (see _get_circuit).
 #
-# The slow conversion in stim.Circuit.append is https://github.com/quantumlib/Stim/issues/1087.
-# The upstream fix, https://github.com/quantumlib/Stim/pull/1090, is pending release in stim 1.17,
-# and makes stim.Circuit.append about as fast as parsing text when it is given integer targets or
+# The slow conversion in stim.Circuit.append is https://github.com/quantumlib/Stim/issues/1087.  The
+# upstream fix, https://github.com/quantumlib/Stim/pull/1090, is pending release in stim 1.17, and
+# makes stim.Circuit.append about as fast as parsing text when it is given integer targets or
 # targets returned by stim.target_* functions, so that _get_circuit can then append instructions.
 # The fix leaves the constructors of stim.CircuitInstruction and stim.GateTarget slow, however, so
 # _GateTarget and _CircuitInstruction should stay: even with the fix, running the passes on stim's
-# own instructions and targets takes several times as long.
+# own instructions and targets takes much longer.
 #
 # Once qLDPC requires stim 1.17, build output circuits by appending rather than by parsing text, as
 # follows.  Do not do so before then: with stim 1.16, appending is far slower.

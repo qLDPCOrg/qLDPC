@@ -38,6 +38,7 @@ Use judgment to point out when a change would be easier to review as a sequence 
 
 Before adding process or apparatus, such as a rule, a review step, or an experiment, check it against [the goal of the work](docs/source/contributing/decisions.rst#the-goal-of-the-work).
 Make every recommendation, and present every decision, as [decisions and recommendations](docs/source/contributing/decisions.rst) describes.
+When you brief a subagent, quote word for word the original requester's statement of the goal of the work, or their request if they stated no goal, so that the subagent can check its work against it.
 A request for "the standard format" refers to the format that it defines.
 
 ## Working on a change
@@ -54,7 +55,6 @@ A request to finish a change, as in "finish this PR", asks for steps 2 to 4.
 Run checks individually, never through `checks/all_.py`.
 Run tests over the whole repository only as part of the extended checks.
 Leave notebook runs and the GAP integration tests to CI.
-When you brief a subagent, quote the requester's statement of the goal of the work word for word, so that the subagent can check its work against it.
 
 ## Handing off a change
 
