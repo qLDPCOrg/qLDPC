@@ -96,14 +96,14 @@ NO_DISTANCE = NoDistance.NAN
 It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
 """
 
-_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "brute_force", "connected_cluster"]
+_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "connected_cluster", "brute_force"]
 
 # The canonical name of every accepted exact-distance method name, including aliases.
 _DISTANCE_METHODS: dict[str, _CanonicalDistanceMethod] = {
     "brouwer_zimmermann": "brouwer_zimmermann",
-    "brute_force": "brute_force",
     "information_sets": "brouwer_zimmermann",
     "connected_cluster": "connected_cluster",
+    "brute_force": "brute_force",
 }
 
 
