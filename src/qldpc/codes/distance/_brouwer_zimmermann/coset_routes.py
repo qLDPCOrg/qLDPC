@@ -91,8 +91,8 @@ class CosetRoutes:
         # The tables of the route of each maximum weight, and the position of its family among the
         # disjoint family and the others if it is a route by tails.
         self._routes_by_weight: dict[int, tuple[CosetSearchTables, int | None]] = {}
-        # The other families, with their tables, once the predicted examinations of a query reach
-        # the threshold.
+        # The other families, with their tables, once the predicted examinations of a query with the
+        # disjoint family reach the threshold.
         self._candidates: list[_Family] | None = None
         # The latest record of the tails of each family of a route by tails, by its position.
         self._tails: dict[int, CosetTails] = {}

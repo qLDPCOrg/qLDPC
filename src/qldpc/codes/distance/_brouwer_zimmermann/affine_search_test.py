@@ -163,7 +163,7 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
 def test_coset_layer_scans_keep_the_first_lightest_word(
     css_weight: bool, pytestconfig: pytest.Config
 ) -> None:
-    """A coset layer scan keeps each word lighter than all before it, and stops at the cutoff."""
+    """A coset layer scan keeps each word lighter than the best so far, and stops at the cutoff."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_rows, num_bits = 6, 100
     row_bits = (rng.random((num_rows, num_bits)) < 0.3).astype(np.uint8)
@@ -454,7 +454,7 @@ def _get_completion_bound(
     """The block bound on the completions of a support by pairs from its next-to-last row on.
 
     It sums, over blocks of columns, the least weight on the block of the offset, if any, plus the
-    rows before that row plus such a pair.
+    support's rows before that row plus such a pair.
     """
     prefix = np.bitwise_xor.reduce(tails[list(support[:-2])], axis=0, initial=0)
     if offset is not None:

@@ -594,8 +594,8 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
 ) -> None:
     """A search of an automorphism family finds a distance that only its last layer reaches."""
     # The lightest rows of the scanned set weigh ten, and the first word of weight eight that the
-    # search finds sums four of them.  Completing layer four certifies weight ten, so a search that
-    # certified that layer before scanning it would return ten.
+    # search finds sums four rows of that set.  Completing layer four certifies weight ten, so a
+    # search that certified that layer before scanning it would return ten.
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     problem = get_sector_problem(code, Pauli.X)
     expected = bz.get_distance_brouwer_zimmermann_many([problem], cutoff=0)
@@ -746,7 +746,7 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
 def test_a_decline_at_the_end_of_setup_is_reconsidered_before_a_costly_layer(
     switch_decisions: list[tuple[int, bool]],
 ) -> None:
-    """A switch declined in setup is reconsidered at a costly layer once the best weight drops."""
+    """Setup's declined switch is reconsidered before a costly layer once the best weight drops."""
     rows = [
         "110100010001010110111011100110110110011100111",
         "011011101011000011001011111000101110001010101",
@@ -905,7 +905,8 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
 ) -> None:
     """The rows of a scanned set with images can end a search at the cutoff."""
     # The rows of the disjoint family weigh more than six, and a row of the scanned set weighs six.
-    # The search switches before its first layer, or, if it would partition, at the end of setup.
+    # The search switches before its first layer, or, if it would partition, at the end of setup,
+    # after asking for automorphisms to decide whether to partition.
     tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=partition_work_ratio)
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problem = get_sector_problem(code, Pauli.Z)

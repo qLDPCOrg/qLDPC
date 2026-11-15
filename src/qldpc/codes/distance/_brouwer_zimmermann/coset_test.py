@@ -291,8 +291,8 @@ _SKIPPING_CODE = np.array(
 
 # A longer code with cosets of minimum weight six.  At maximum weight four and the threshold zero,
 # its searches of these cosets for minimum weights skip completions whose bound reaches the skip
-# bound but not the weight of the lightest word weighed.  Some of these searches, such as those of
-# syndromes 1126, 4578, and 6129, stop early within steps.
+# bound but not the weight of the lightest word weighed.  Its searches by tails of some other
+# cosets, such as those of syndromes 1126, 4578, and 6129, stop early within steps.
 _HEAVY_COSETS_CODE = get_binary_matrix(
     [
         "11100011110000110001",
