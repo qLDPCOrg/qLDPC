@@ -200,6 +200,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if (args.proposed is None) == (args.worktrees is None):
         parser.error("give either --proposed or --worktrees")
+    # Trials run in the directories of their checkouts, so they need an absolute path.
+    args.results_dir = args.results_dir.resolve()
     return args
 
 

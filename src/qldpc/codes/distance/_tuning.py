@@ -104,14 +104,13 @@ The two fields whose comments name no class, ``coset_route_minimum_work`` and
 
 A value changes only because its rule, a measured constant of the machine, or a stated budget
 changes.  To set the values on a machine, rerun ``constants.py`` of ``experiments/distance_tuning``.
-It measures the constants of every derived value but ``automorphism_minimum_layer_work``, whose
-comment says how it was measured, on a few quick searches and on the cost data set below, and
-prints the values that they give beside the defaults.  The README of that directory tables, for an
-Apple M3 Max, the steps, their measured costs, and the values that they give.
+It measures the constants of every derived value, on a few quick searches and on the cost data set
+below, and prints the values that they give beside the defaults.  The README of that directory
+tables, for an Apple M3 Max, the steps, their measured costs, and the values that they give.
 
-Timing confirms a change, and never chooses a value.  Before timing, record the rule, the values
-that it gives, the decisions that it should change, and how large a difference in time must be to
-matter.  Trace the decisions of key searches under both tunings with ``trace.py`` of
+Timing confirms a change, and never chooses a value.  Before measuring, record the rule, the values
+that it should give, the decisions that it should change, and how large a difference in time must
+be to matter.  Trace the decisions of key searches under both tunings with ``trace.py`` of
 ``experiments/distance_tuning``, and compare them with its ``--compare``.  Then time the whole new
 tuning against the whole current one with ``sweep.py``, on warmed searches in new processes,
 single-threaded, in paired runs that alternate their order, and record the time and peak memory of
@@ -119,39 +118,38 @@ each run.  A slowdown calls for changing a rule, never for adjusting one value.
 
 The coefficients of the cost model of the completion tables of distance searches and counts
 (Section 3.9 of ``brouwer_zimmermann.md``) were measured, and the widths of their blocks compared,
-on layers of one information set of ``4 * 10**7`` to ``5 * 10**10`` supports, timed on an Apple M3
-Max, from two data sets:
+on searches timed on an Apple M3 Max, from two data sets:
 
-- The width data set holds layers of weights 4 to 6 of both sectors of
+- The width data set holds layers of one information set, of weights 4 to 6, of both sectors of
   ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]] code, and of
   ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, and of two lifted-product codes of
   3 x 4 random monomials of ``CyclicGroup(13)``, drawn with NumPy's default generator from seeds 5
   and 8.
-- The cost data set holds the layers of at least ``10**7`` supports of the X sector of that
-  bivariate bicycle code and of the [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]]
-  pair-partition codes, ``pp232``, ``pp170``, and ``pp276`` of
-  ``experiments/distance_tuning/workloads.py``.  The current coefficients were measured on nine
-  such layers.
+- The cost data set holds the searches of the X sector of that bivariate bicycle code and of the
+  [[232, 62, 12]], [[170, 8, 20]], and [[276, 98, 14]] pair-partition codes, ``pp232``, ``pp170``,
+  and ``pp276`` of ``experiments/distance_tuning/workloads.py``.  The coefficients of lookups are
+  fitted to their layers of one information set of at least ``10**7`` supports, which for the
+  current coefficients were nine layers of ``4 * 10**7`` to ``5 * 10**10`` supports, and those of
+  builds to every table that these searches build with tables forced, in layers of any size.
 
 The default width of the blocks is the widest allowed, not the outcome of the comparison of widths.
 
 The functions ``predict_completion_cost`` and ``_estimate_build_cost`` of
 ``_information_sets/completion_bounds.py`` compute the cost model of completion tables.  To measure
-its coefficients on the layers of the cost data set:
+its coefficients on the cost data set:
 
-1. Time layers of one information set with tables disabled
-   (``completion_bound_max_table_bytes=0``), forced (``completion_bound_minimum_layer_work=0`` and
-   ``completion_bound_max_cost_percent=MAX_VALUE``), and at the defaults.  For each layer, record
-   the share of its supports that tables skipped and its number of lookups, which
-   ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py`` returns for each call, and
-   time ``CompletionTables.build`` separately.
+1. Time its searches with tables disabled (``completion_bound_max_table_bytes=0``), forced
+   (``completion_bound_minimum_layer_work=0`` and ``completion_bound_max_cost_percent=MAX_VALUE``),
+   and at the defaults.  For each layer, record the share of its supports that tables skipped and
+   its number of lookups, which ``scan_information_set`` in ``_brouwer_zimmermann/affine_search.py``
+   returns for each call, and time ``CompletionTables.build`` separately.
 2. Express times in scanned supports, the time per support of the arm without tables.
-3. Measure the coefficients that the cost model reads, ``completion_bound_lookup_block_cost``,
-   ``completion_bound_lookup_block_cost_per_mib``, ``completion_bound_kept_first_row_ratio``,
-   ``completion_bound_table_byte_cost``, and ``completion_bound_build_step_cost``, by fitting them
-   to the measured lookups, scans, and builds.  The builds measure one scale of the last two, whose
-   ratio of one to two was set by hand; scale both, and round each up to 1, 2, or 5 times a power
-   of ten.
+3. Measure the coefficients that the cost model reads.  Fit ``completion_bound_lookup_block_cost``,
+   ``completion_bound_lookup_block_cost_per_mib``, and ``completion_bound_kept_first_row_ratio`` to
+   the lookups and scans of the layers of one information set of at least ``10**7`` supports, and
+   ``completion_bound_table_byte_cost`` and ``completion_bound_build_step_cost`` to the builds.  The
+   builds measure one scale of the last two, whose ratio of one to two was set by hand; scale both,
+   and round each up to 1, 2, or 5 times a power of ten.  No rule rounds the first three.
 
 ``constants.py`` of ``experiments/distance_tuning`` takes these steps, and prints each coefficient,
 before rounding, beside its default.  Accept values if, at the defaults, no layer is slower than
@@ -313,9 +311,9 @@ class SearchTuning:
     #: finding them on cheaper searches; raising it searches more limits from every variable.  Zero
     #: asks before the first limit, and ``MAX_VALUE`` never.  Defaults to ``5 * 10**4``, a derived
     #: value (see :ref:`Retuning <tuning-retuning>`): asking, which finds the automorphisms,
-    #: verifies them, and orders their orbits, took up to 8.9 to 9.4 ms, on ``csdistance/qt7/X`` of
+    #: verifies them, and orders their orbits, took 8.9 to 9.4 ms on ``csdistance/qt7/X`` of
     #: ``experiments/distance_tuning``, or ``3.4 * 10**4`` to ``3.7 * 10**4`` states at 253 to 263
-    #: ns each, the median over six of its connected-support searches.
+    #: ns each, the median cost per state of six connected-support searches of that directory.
     automorphism_minimum_states: int = 50_000
 
     #: A ``CosetLeaderSearch`` with the connected-support method makes its checks sparser in up to

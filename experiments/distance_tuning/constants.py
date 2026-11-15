@@ -5,8 +5,7 @@
 The derived values of ``qldpc.codes.distance._tuning`` follow from rules and from constants of the
 machine.  The Retuning section of its module docstring states the rules, and "Rules and constants"
 in the README of this directory tables the measurements.  The script measures every constant that a
-derived value needs, except that of ``automorphism_minimum_layer_work``, whose comment says how it
-was measured, and prints each derived value beside its default.  It measures:
+derived value needs, and prints each derived value beside its default.  It measures:
 
 - the seconds of one candidate/set evaluation of a BZ search: for each traced search, the seconds of
   its layers of at least ``10**7`` evaluations without completion tables, less the seconds of
@@ -17,6 +16,10 @@ was measured, and prints each derived value beside its default.  It measures:
 - the costliest prediction of the cost of completion tables, which samples supports, over the
   layers of the traced searches;
 - building a family of overlapping information sets: the costliest of the families built;
+- finding automorphisms of a BZ search and building their images: for each traced search, the
+  seconds of finding, verifying, and building their family before partitioning, if it does, and
+  of its first consideration of a switch to automorphism images, which includes those steps if it
+  has not taken them; the costliest of the searches;
 - the linear programming of a search of a large basis, ``distance/qt7/X`` of 181 rows: the seconds
   that its certificates spend in their bounds (planning, the checks of ``Certificate.certifies``,
   and the programs), with automorphisms off so that the search keeps its certificate throughout;
@@ -27,8 +30,8 @@ was measured, and prints each derived value beside its default.  It measures:
 - asking for automorphisms in a connected-support search, which finds them, verifies them, and
   orders their orbits: the costliest of the traced searches, which ask before their first weight
   limit;
-- the five coefficients of the cost model of completion tables, from the costs of the layers of the
-  cost data set (see below).
+- the five coefficients of the cost model of completion tables, from the traces of the cost data set
+  (see below).
 
 Each gate breaks even with the costliest measurement of its step, in the unit of its field, rounded
 by ratio to 1, 2, or 5 times a power of ten.
@@ -36,8 +39,8 @@ by ratio to 1, 2, or 5 times a power of ten.
 The cost model of completion tables (Section 3.9 of ``brouwer_zimmermann.md``), which
 ``predict_completion_cost`` and ``_estimate_build_cost`` in
 ``_information_sets/completion_bounds.py`` compute, has five coefficients, which are constants of
-the machine.  The script measures them on the costs of the layers of the cost data set of the
-Retuning section, ``COST_DATA_SET``: the X sectors of the [[288, 12, 18]] bivariate bicycle code and
+the machine.  The script measures them on the searches of the cost data set of the Retuning
+section, ``COST_DATA_SET``: the X sectors of the [[288, 12, 18]] bivariate bicycle code and
 of the pair-partition codes ``pp232``, ``pp170``, and ``pp276``.  It traces each of these searches
 three times under each of four tunings: tables disabled (``completion_bound_max_table_bytes=0``),
 tables forced (``completion_bound_minimum_layer_work=0`` and
@@ -53,16 +56,19 @@ supports that a forced trace scanned with tables, it computes:
   which measures ``completion_bound_kept_first_row_ratio``, for a layer of one set;
 - its excess cost over the scan of the supports that it kept, per lookup and block, to which it
   fits ``completion_bound_lookup_block_cost`` and ``completion_bound_lookup_block_cost_per_mib`` by
-  least squares, for a layer of one set;
-- the seconds of building its tables, which ``completion_bound_table_byte_cost`` and
-  ``completion_bound_build_step_cost`` predict, as ``_estimate_build_cost`` counts bytes and steps.
-  Bytes and steps grow together, so the builds measure one scale of both coefficients, the median
-  ratio of measured to predicted builds.  The ratio of the two coefficients, one to two, was set
-  by hand.  Searches with tables forced keep the tables of one information set at a time, and a set
-  reuses its tables only if no other set has chosen tables since it did, so a layer that scans
-  several information sets builds tables for each of them.  So every layer that builds tables
-  counts, for each table that it builds, with the seconds per candidate/set evaluation of the
-  search's layers of at least ``10**7`` supports with tables disabled.
+  least squares, for a layer of one set.
+
+It also measures every build of tables in the forced traces, in a layer of any size, since searches
+build tables at the first layers that consider them, which are often small.  The coefficients
+``completion_bound_table_byte_cost`` and ``completion_bound_build_step_cost`` predict the cost of a
+build, as ``_estimate_build_cost`` counts bytes and steps.  The script expresses the seconds of each
+build in candidate/set evaluations, at the seconds per evaluation of the search's layers of at least
+``10**7`` supports with tables disabled.  Bytes and steps grow together, so the builds measure one
+scale of both coefficients, the median ratio of measured to predicted builds.  The ratio of the two
+coefficients, one to two, was set by hand.  Searches with tables forced keep the tables of one
+information set at a time, and a set reuses its tables only if no other set has chosen tables since
+it did, so a layer that scans several information sets builds tables for each of them, and each
+table counts.
 
 The fits of lookups and of the kept-first-row ratio use only the layers that scan one set, as the
 cost model assumes: such a layer chooses one width of tables, and its skipped supports and lookups
@@ -70,7 +76,9 @@ belong to that set.  The kept-first-row ratio is the median over the layers with
 ``completion_bound_block_bits`` columns that skip at most 99% of their supports, since the few
 lookups of a layer that skips more, beyond those of prefixes, cannot resolve it.  Medians over
 repeats replace single times.  The script prints these layers, with whether the defaults used tables
-on them and how many sets they scan, and each measured coefficient beside its default.
+on them and how many sets they scan, and each measured coefficient, before rounding, beside its
+default.  The Retuning section says how to round the two coefficients of builds; no rule rounds the
+other three.
 
 Each measurement is a trace of ``trace.py``, or, for linear programming, a run of this script with
 ``--linear-programs-of``, in a new single-threaded process, which first warms up as ``trial.py``
@@ -152,6 +160,7 @@ TRACES: list[tuple[str, str, dict[str, int], bool]] = [
         {"partition_work_ratio": 0, "automorphism_minimum_layer_work": _tuning.MAX_VALUE},
         True,
     ),
+    ("hadamard-gross", "hadamard/gross", {}, True),
 ]
 TRACES += [
     (
@@ -243,6 +252,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.linear_programs_of is not None and args.output is None:
         parser.error("--linear-programs-of needs --output")
+    # Measurements run in the directory of the repository, so they need an absolute path.
+    args.results_dir = args.results_dir.resolve()
     return args
 
 
@@ -418,6 +429,7 @@ def report(directory: pathlib.Path) -> None:
         "partitioning, per unit": (get_partition_seconds(traces), "evaluation"),
         "costliest prediction": (get_prediction_seconds(traces), "evaluation"),
         "overlapping family": (get_overlapping_seconds(traces), "evaluation"),
+        "automorphisms of a BZ search": (get_automorphism_seconds(traces), "evaluation"),
         "linear programming of a search": (
             Constant(
                 linear_programs["bound_seconds"],
@@ -449,6 +461,7 @@ def report(directory: pathlib.Path) -> None:
         "completion_bound_minimum_layer_work": "costliest prediction",
         "overlapping_minimum_work": "overlapping family",
         "lp_minimum_work": "linear programming of a search",
+        "automorphism_minimum_layer_work": "automorphisms of a BZ search",
         "automorphism_minimum_states": "asking for automorphisms",
     }
     values = {field: round_to_grid(counts[name]) for field, name in gates.items()}
@@ -539,6 +552,32 @@ def get_overlapping_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     return Constant(max(seconds for *_, seconds in builds), description)
 
 
+def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
+    """The costliest seconds of finding the automorphisms of a BZ search and building their images.
+
+    Each trace holds one search.  A search that would partition first finds, verifies, and builds
+    the family of its automorphisms, to compare its work (``competing_seconds``), and then considers
+    the switch at the end of setup; another takes these steps at its first consideration.  So each
+    search counts both, and searches that consider no switch do not count.
+    """
+    searches = []
+    for trace in traces.values():
+        events = trace["events"]
+        first = next((event for event in events if event["event"] == "automorphisms"), None)
+        if first is None:
+            continue
+        competing = sum(
+            event.get("competing_seconds", 0.0)
+            for event in events
+            if event["event"] == "family" and event["kind"] == "partitioned"
+        )
+        searches.append((trace["workload"], competing + first["seconds"]))
+    description = "costliest of " + ", ".join(
+        f"{workload}: {seconds * 1e3:.2f} ms" for workload, seconds in searches
+    )
+    return Constant(max(seconds for _, seconds in searches), description)
+
+
 def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The median, over traced connected-support searches, of their seconds per state.
 
@@ -550,7 +589,7 @@ def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
         seconds = states = 0.0
         for event in trace["events"]:
             if event["event"] == "weight limit" and event["states"] >= LARGE_LIMIT:
-                seconds += event["seconds"] - get_seconds_of_ask(event)
+                seconds += event["seconds"] - get_limit_ask_seconds(event)
                 states += event["states"]
         if states:
             rates[trace["workload"]] = seconds / states
@@ -563,7 +602,7 @@ def get_state_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The costliest seconds of asking for automorphisms in a connected-support search."""
     asks = [
-        (trace["workload"], get_seconds_of_ask(event))
+        (trace["workload"], get_limit_ask_seconds(event))
         for trace in traces.values()
         for event in trace["events"]
         if event["event"] == "weight limit" and event["asked"]
@@ -574,9 +613,9 @@ def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     return Constant(max(seconds for _, seconds in asks), description)
 
 
-def get_seconds_of_ask(event: dict[str, Any]) -> float:
+def get_limit_ask_seconds(limit: dict[str, Any]) -> float:
     """The seconds of asking for automorphisms before a weight limit, or zero if it did not ask."""
-    return event.get("find_seconds", 0.0) + event.get("verify_seconds", 0.0)
+    return limit.get("find_seconds", 0.0) + limit.get("verify_seconds", 0.0)
 
 
 ####################################################################################################
