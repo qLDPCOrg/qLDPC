@@ -5,9 +5,9 @@
 The distance search (``distance.py``) and the coset searches of the coset-leader search
 (``coset.py``) run the same Brouwer-Zimmermann (BZ) search over the words of an affine space (see
 ``brouwer_zimmermann.md``).  The layers of this search add rows of an information set to an offset.
-An :class:`AffineInstance` holds what a search builds for its problem once, before it scans, rather
-than for each layer or query: its packed sets and their certificate.  The offsets and stopping step
-of a coset search depend on the query, so the instance holds neither.
+An :class:`AffineInstance` holds what a search builds for its problem once for each family, before
+it scans, rather than for each layer or query: its packed sets and their certificate.  The offsets
+and stopping step of a coset search depend on the query, so the instance holds neither.
 
 A distance search builds an instance with ``get_distance_instance``, and builds another when it
 switches to an automorphism family.  A coset search of ``CosetLeaderSearch`` has an instance from

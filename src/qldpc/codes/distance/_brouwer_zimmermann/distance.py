@@ -227,9 +227,8 @@ class _BrouwerZimmermannSearch:
     def advance(self) -> int:
         """Search the next coefficient layer, and return the best shared upper bound.
 
-        The search scans the sets of the layer one at a time, in the order of the family.  It scans
-        at most the fewest leading sets whose completion of the layer certifies the best weight at
-        the start of the layer, or every set if no fewer do (see
+        It scans at most the fewest leading sets whose completion of the layer certifies the best
+        weight at the start of the layer, or every set if no fewer do (see
         ``Certificate.get_num_sets_to_certify``).  If the layer finds a lighter word, the search
         stops once the sets that it has scanned certify the new best weight.  A search that uses an
         automorphism family scans its one set, which completes the layer for the whole family.
@@ -391,9 +390,9 @@ class _BrouwerZimmermannSearch:
         if self.automorphism_family is None:
             return
 
-        # The rows of the scanned set are the layer-one words of every image.  The work of the
-        # automorphism family counts them too, one evaluation each, so that it stays small when they
-        # certify the best weight.
+        # The layer-one words of every image weigh as much as the rows of the scanned set.  The work
+        # of the automorphism family counts them too, one evaluation each, so that it stays small
+        # when they certify the best weight.
         basis_family, certificate = self.automorphism_family
         self.best = _get_basis_family_upper_bound(basis_family, self.best)
         work = automorphism_families.estimate_automorphism_family_work(certificate, self.best)
@@ -425,13 +424,12 @@ def _prepare_brouwer_zimmermann_search(
 
     The basis family stages of ``basis_families`` run in order.  Between them, setup returns early
     if the rows of the family bring the best weight to the cutoff, or if its certificate already
-    proves the best weight.
-    ``tuning`` sets the thresholds of the stages.  ``get_disjoint_basis_family``, if given, returns
-    the result of the first stage.  ``get_automorphisms``, if given, lets the search switch to an
-    automorphism family before a costly layer (see ``_BrouwerZimmermannSearch``).  If the search
-    would partition, setup builds that family first.  It skips matroid partitioning if that family
-    predicts no more work than any partitioned family could, and has the search consider switching
-    to it at once.
+    proves the best weight.  ``tuning`` sets the thresholds of the stages.
+    ``get_disjoint_basis_family``, if given, returns the result of the first stage.
+    ``get_automorphisms``, if given, lets the search switch to an automorphism family before a
+    costly layer (see ``_BrouwerZimmermannSearch``).  If the search would partition, setup builds
+    that family first.  It skips matroid partitioning if that family predicts no more work than any
+    partitioned family could, and has the search consider switching to it at once.
     """
     dimension = len(basis)
     best = min(

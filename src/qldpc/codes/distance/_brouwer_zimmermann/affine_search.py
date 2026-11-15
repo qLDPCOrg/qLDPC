@@ -67,10 +67,10 @@ def scan_set(
     number of its rows below ``rank`` plus the weight of its packed tail.
 
     Tables apply to layers of two or more rows, in which the first ``len(support) - 2`` rows of a
-    support are its prefix.  Before the scan tries row ``s`` as the first of the last two rows of a
-    support, it bounds the weights of the completions of the prefix by two rows from row ``s`` on.
-    It counts their pivot ones as ``scan_coset_layer_by_tails_with_tables`` does.  If their words
-    cannot weigh less than ``best``, it skips them all.
+    support are its prefix.  With tables, before the scan tries row ``s`` as the first of the last
+    two rows of a support, it bounds the weights of the completions of the prefix by two rows from
+    row ``s`` on.  It counts their pivot ones as ``scan_coset_layer_by_tails_with_tables`` does.  If
+    their words cannot weigh less than ``best``, it skips them all.
 
     A chunk ends when the layer is complete, at the cutoff, or once the supports that it weighed and
     the bounds that it looked up reach ``batch_size`` together.
