@@ -11,8 +11,8 @@ import pytest
 
 from . import local_cliffords
 
-# The CNOT, with its control first, acts on X supports by this matrix, and on Z supports by its
-# inverse transpose.  The SWEL-preserving Clifford acts by the second matrix on both.
+# The matrices by which the CNOT, with its control first, and the SWEL-preserving Clifford act on X
+# supports.
 CNOT_MATRIX = [[1, 0], [1, 1]]
 SWEL_MATRIX = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
 

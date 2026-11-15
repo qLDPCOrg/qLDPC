@@ -70,9 +70,8 @@ def test_scans_resume_after_every_chunk(
 def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: int) -> None:
     """Large basis families of overlapping sets give the counts of a brute-force scan."""
     tune(overlapping_minimum_work=0, max_information_sets=max_sets)
-    # With a limit of 16 sets, this code makes the basis family stages choose basis families of over
-    # four overlapping sets, as test_the_information_set_limit_bounds_the_basis_families_of_a_count
-    # checks.
+    # With a limit of 16 sets, this code gets families of over four sets (see
+    # test_the_information_set_limit_bounds_the_basis_families_of_a_count).
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     counter = lc.CSSLogicalCounter.from_code(code)
     weights = range(len(code) + 1)
@@ -157,13 +156,7 @@ FORCED_TABLES: dict[str, Any] = {
 def test_counts_with_completion_tables_match_enumeration(
     monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int, seed: int
 ) -> None:
-    """Steps that skip completions still count every word, also when they stop at every lookup.
-
-    Some completions of these codes have bounds equal to the target weight, so a scan that skipped
-    them, rather than only heavier ones, would lose words that this enumeration counts.  Each chunk
-    size counts a different random code; each of these codes alone catches that error at every
-    chunk size.
-    """
+    """Steps that skip completions still count every word, also when they stop at every lookup."""
     selected: list[completion_bounds.CompletionTables] = []
     select = completion_bounds.select_completion_tables
 
@@ -175,6 +168,8 @@ def test_counts_with_completion_tables_match_enumeration(
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", record)
     tune(overlapping_minimum_work=0, scan_chunk_size=chunk_size, **FORCED_TABLES)
+    # Some completions of each of these codes have bounds equal to the target weight, so a scan that
+    # also skipped those would lose words, at every chunk size.
     code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
     assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert selected
@@ -262,8 +257,8 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     rows_and_labels[:, :, : rows.shape[2]] = rows
     tuning = tune(**FORCED_TABLES)
 
-    # No step of a brute-force scan, of layer one, of a set without a full block, or below the
-    # minimum work, may use tables.
+    # No step of brute force, of layer one, of a partial set, or below the minimum work may use
+    # tables.
     rows_of_disjoint = scan._pack_basis_family(disjoint, basis.shape[1], labels.shape[1])[0]
     assert not scan._StepTables(None, rows_and_labels, 4, tuning).may_use_tables(2, 0)
     assert not scan._StepTables(family, rows_and_labels, 4, tuning).may_use_tables(1, 0)

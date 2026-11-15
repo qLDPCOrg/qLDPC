@@ -107,10 +107,9 @@ def test_counts_match_enumeration(method: lc.LogicalCountMethod) -> None:
 
 
 def test_counting_continues_at_an_equal_lower_bound() -> None:
-    """With no checks, every one of the three words of weight two is a logical of each type.
-
-    After the first layer, the bound on unvisited words equals two, so the count must continue.
-    """
+    """A count continues after a step whose bound equals its weight."""
+    # With no checks, each of the three words of weight two is a logical of each type, and the
+    # bound after the first layer is two.
     counter = lc.CSSLogicalCounter(np.zeros((0, 3)), np.zeros((0, 3)))
     assert counter.count_logical_ops(2) == Counts(2, 3, 3, None)
 
@@ -197,12 +196,8 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
 
 @pytest.mark.usefixtures("plain_search_setup")
 def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Calling ``compile_search_setup`` up front leaves the counts and distances unchanged.
-
-    The test starts from functions that no other test has compiled.  Its counters are deformed after
-    a count, so that they move their kept basis families through a named and a general gate.  Once
-    the set-up code is compiled, nothing compiles afterwards.
-    """
+    """Compiling the set-up code up front changes no count, and leaves nothing to compile later."""
+    # Start from functions that no other test has compiled.
     fresh = [replace(item, compiled=None) for item in _compilation._ON_REQUEST_FUNCTIONS]
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", fresh)
     code = qldpc.codes.SurfaceCode(5)
@@ -213,6 +208,7 @@ def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
         assert results[0].weight is not qldpc.codes.NO_DISTANCE
         with use_tuning(max_information_sets=4):
             results.append(counter.count_logical_ops(count_pauli=True))
+        # Deform after a count, so that the kept families move through a named and a general gate.
         for deformed in (counter.deformed_cnot(0, 1), counter.deformed([0, 1], [[1, 0], [1, 1]])):
             results.append(deformed.count_logical_ops())
             results.append(deformed.count_logical_ops(results[0].weight + 1))
@@ -253,11 +249,7 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
 def test_deprecated_max_information_sets_argument(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """The argument warns, and sets the limit of every search of one count, as the field would.
-
-    It accepts an integer of any integer type, and rejects a float, a bool, or a negative.  At
-    weight three, the scans of this code build families of nine and six sets by default.
-    """
+    """The argument warns, takes only integers, and sets the limit of every search of a count."""
     counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
     for value in (2.5, True):
         not_an_integer: Any = value
@@ -290,7 +282,8 @@ def test_deprecated_max_information_sets_argument(
     assert [record.filename for record in records] == [__file__, __file__]
     assert limits == [DEFAULT_TUNING.max_information_sets, 3, 3]
 
-    # The limit also reaches the scans of a count of a given weight, which searches no distance.
+    # The limit also reaches the scans of a count of a given weight, which searches no distance.  At
+    # weight three, the scans of this code build families of nine and six sets by default.
     sizes: list[int] = []
     original_family = basis_families.get_overlapping_family
 
@@ -313,12 +306,7 @@ def test_deprecated_max_information_sets_argument(
 def test_the_information_set_limit_reaches_every_search_of_a_count(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """The limit of the active tuning bounds every family that a count builds.
-
-    A count of the default weight first searches for the distance, and then scans the sectors.  With
-    the default limit, the distance search of this code builds a family of more than three sets, so
-    that a limit of three bounds it only if the limit reaches the distance search.
-    """
+    """The active limit bounds every family that a count builds, also for its distance search."""
     sizes: list[int] = []
     original = basis_families.get_overlapping_family
 
@@ -338,6 +326,7 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
     sizes_with_distance = collections.Counter(sizes)
     sizes.clear()
     lc.CSSLogicalCounter.from_code(code).count_logical_ops(expected.weight)
+    # With the default limit, the distance search of this code builds a family of over three sets.
     distance_sizes = sizes_with_distance - collections.Counter(sizes)
     assert max(distance_sizes) > 3
 
@@ -348,11 +337,9 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
 
 
 def test_later_counts_reuse_the_first_family_stage() -> None:
-    """Counts at other weights, as when a guessed weight fails, and distance searches share it.
-
-    The distance search of the unrotated distance-five surface code uses information sets.  Its
-    lightest logical operators of each type are the five straight lines across the lattice.
-    """
+    """Counts at other weights and distance searches share the disjoint basis families."""
+    # The distance search of this code uses information sets, and its lightest logical operators of
+    # each type are the five straight lines across the lattice.
     counter = lc.CSSLogicalCounter.from_code(codes.SurfaceCode(5, rotated=False))
     with mock.patch.object(
         basis_families, "get_disjoint_family", wraps=basis_families.get_disjoint_family
@@ -382,11 +369,7 @@ def test_counters_remember_the_distance_of_each_method() -> None:
 
 
 def test_deformed_counter_reuses_the_first_family_stage() -> None:
-    """A deformed counter moves the kept basis families through its gate, and counts correctly.
-
-    The counter keeps a family for each number of column orders that its counts used, and the
-    deformed counter receives each of them, so its counts under either tuning build none.
-    """
+    """A deformed counter receives every kept basis family, so it counts exactly and builds none."""
     counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
     counter.count_logical_ops()
     with use_tuning(disjoint_random_column_orders=3):
@@ -556,12 +539,10 @@ def test_macwilliams_counts_match_enumeration() -> None:
 
 
 def test_macwilliams_counts_of_wide_codes() -> None:
-    """At length 130, counts exceed 64-bit integers.
-
-    The X check is all ones, and the Z checks pair qubits 0 to 5, so an X-only logical repeats each
-    pair, and a Z-only logical has even weight.  The excluded words are 0 and all ones for X, and
-    the three pairs combined for Z.
-    """
+    """MacWilliams counts match a direct count where they exceed 64-bit integers."""
+    # The X check is all ones, and the Z checks pair qubits 0 to 5, so an X-only logical repeats
+    # each pair, and a Z-only logical has even weight.  The excluded words are 0 and all ones for
+    # X, and the three pairs combined for Z.
     num_qubits = 130
     pairs = np.zeros((3, num_qubits), dtype=int)
     for pair in range(3):
