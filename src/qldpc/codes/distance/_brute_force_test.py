@@ -64,7 +64,7 @@ def test_brute_force_visits_every_code_word_once(batch_exponent: int, tune: Tune
 def test_brute_force_visits_every_nontrivial_word_once(
     symplectic: bool, batch_exponent: int, tune: Tune
 ) -> None:
-    """Exhaustive enumeration visits every combination of stabilizers and logical operators once."""
+    """Exhaustive enumeration visits every combination with at least one logical operator once."""
     tune(enumeration_batch_exponent=batch_exponent)
     rng = np.random.default_rng(97)
     num_stabilizers, num_bits = (3, 98) if symplectic else (4, 97)

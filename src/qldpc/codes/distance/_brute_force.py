@@ -69,8 +69,8 @@ def _get_distance_brute_force(
     Returns:
         The minimum weight of a nontrivial logical operator.  After an early exit, it is instead the
         weight of the lightest operator seen, which is at most ``cutoff``.  Without ``logical_ops``,
-        the result is one more than the largest possible weight: the number of qubits if symplectic,
-        and otherwise the number of columns.
+        the result is one more than the number of qubits if symplectic, and otherwise than the
+        number of columns.
     """
     num_bits = np.shape(logical_ops)[-1]
 

@@ -33,8 +33,8 @@ def get_sparser_rows(
     Starting from the rows of ``_sparsify``, each round adds the rows of a row reduction in a random
     order of the columns as candidates, and keeps a lightest basis of the candidates, weighed by
     ``get_row_weights`` (Section 3.8 of ``connected_cluster.md``).  The rounds stop after
-    ``max_rounds``, or after ``rounds_without_improvement`` rounds in a row without a lighter total
-    weight, and ``_sparsify`` makes a last pass.
+    ``max_rounds``, or at the end of a round once ``rounds_without_improvement`` rounds in a row
+    have left the total weight unchanged, and ``_sparsify`` makes a last pass.
 
     Returns:
         The rows, and the invertible transform ``T`` for which the rows are ``T @ matrix % 2``.

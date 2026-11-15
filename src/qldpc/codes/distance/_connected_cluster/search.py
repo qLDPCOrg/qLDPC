@@ -355,9 +355,9 @@ class SupportSearch:
 
         The number is expected to grow by the ratio between those of the last two limits, or not to
         grow if the earlier of them visited no states, as before the second limit (Section 3.5 of
-        ``connected_cluster.md``).  A first limit is expected to visit no states if it is the weight
-        divisor, and otherwise, with no limits below it to predict from, enough to reach any
-        ``automorphism_minimum_states`` short of ``MAX_VALUE``.
+        ``connected_cluster.md``).  A first limit is expected to visit no states if it is at most
+        the weight divisor, and otherwise, with no limits below it to predict from, enough to reach
+        any ``automorphism_minimum_states`` short of ``MAX_VALUE``.
         """
         if self._last_two_num_states is None:
             return MAX_VALUE - 1 if max_weight > self.weight_divisor else 0

@@ -62,7 +62,8 @@ def test_rounds_of_random_reductions_make_rows_sparser() -> None:
 
 
 def test_rounds_stop_once_they_leave_the_weight_unchanged() -> None:
-    """Rounds stop once one leaves the total weight unchanged, and no rows give no rows."""
+    """With ``rounds_without_improvement=1``, a round without a lighter total ends the rounds."""
+    # No round makes the rows of an identity lighter, and no rows give no rows.
     for matrix in (np.eye(3, dtype=np.uint8), np.zeros((0, 3), dtype=np.uint8)):
         rows, transform = sparse_checks.get_sparser_rows(
             matrix, symplectic=False, max_rounds=10**12, rounds_without_improvement=1

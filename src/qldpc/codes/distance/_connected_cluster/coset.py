@@ -45,8 +45,10 @@ class ConnectedClusterCosetSearch:
             for Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a
             word is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
         symplectic: True for Paulis, and False for X or Z parts.
-        max_rounds: The ``max_sparsifying_rounds`` of the tuning (see ``get_sparser_rows``).
-        rounds_without_improvement: The ``sparsifying_rounds_without_improvement`` of the tuning.
+        max_rounds: The field ``max_sparsifying_rounds`` of ``SearchTuning`` (see
+            ``get_sparser_rows``).
+        rounds_without_improvement: The field ``sparsifying_rounds_without_improvement`` of
+            ``SearchTuning``.
     """
 
     def __init__(

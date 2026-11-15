@@ -129,8 +129,8 @@ PROBLEMS: dict[str, Problem] = {
     "reed-muller-X": get_sectors(codes.QuantumReedMullerCode(1, 4))[0],
 }
 
-# Words of weight 3 on the first three variables, and of weight 2 on the last two, whose least
-# variable is greater than that of the first.
+# The checks have the words {0, 1, 2} and {3, 4}, and their sum, so the lightest word, {3, 4}, has
+# the greater least variable.
 PROBLEMS["components"] = (
     np.array([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]], dtype=np.uint8),
     np.zeros((0, 5), dtype=np.uint8),
@@ -502,8 +502,8 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
         assert distance >= 2
         assert cs.get_distance_connected_cluster([problem], cutoff=0, symplectic=True) == distance
 
-        # The checks at every limit catch a witness with two values on a qubit, and the checks from
-        # every root catch a value that the search misses.
+        # Searching at every limit catches a witness with two values on a qubit, and searching from
+        # every root catches a value that the search misses.
         for max_weight in range(1, num_qubits + 1):
             witness = get_search(*problem, symplectic=True).find_witness(max_weight)
             assert (witness is None) == (max_weight < distance)

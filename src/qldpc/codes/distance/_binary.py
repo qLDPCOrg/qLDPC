@@ -143,7 +143,8 @@ def get_nested_code_basis(
         rows: row ``i`` of the labels holds the coordinates of row ``i`` of the basis in the
         quotient, which are zero exactly for the stabilizer rows.  If the quotient is trivial, the
         labels have no columns.  Callers must handle that case first, since ``get_eligible_rows``
-        and the scans read labels with no columns as excluding nothing.
+        and the scans of ``_brouwer_zimmermann/affine_search.py`` read labels with no columns as
+        excluding nothing.
     """
     stabilizer_basis = get_independent_rows(stabilizers)
     stabilizer_pivots = [int(np.flatnonzero(row)[0]) for row in stabilizer_basis]

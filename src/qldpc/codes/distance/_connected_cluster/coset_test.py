@@ -27,7 +27,7 @@ from . import coset
 def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An oracle built under a tuning passes its sparsifying rounds to ``get_sparser_rows``."""
+    """``CosetLeaderSearch`` passes the sparsifying rounds of its tuning to ``get_sparser_rows``."""
     calls: list[tuple[int, int]] = []
     get_sparser_rows = coset.get_sparser_rows
     signature = inspect.signature(get_sparser_rows)
@@ -37,7 +37,7 @@ def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
         calls.append((arguments["max_rounds"], arguments["rounds_without_improvement"]))
         return get_sparser_rows(*args, **kwargs)
 
-    # A graph state with phases is not CSS, so the oracle has one coset search.
+    # Without ``css_weight``, the ``CosetLeaderSearch`` has one coset search.
     monkeypatch.setattr(coset, "get_sparser_rows", record)
     with use_tuning(max_sparsifying_rounds=5, sparsifying_rounds_without_improvement=2):
         CosetLeaderSearch(get_graph_state(2, [(0, 1)], phase=True), method="connected_cluster")
@@ -45,9 +45,10 @@ def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
 
 
 def test_connected_cluster_answers_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
-    """Queries get the bounds that ``ConnectedClusterCosetSearch`` states, exact for batches."""
-    # Graph states with phases are not CSS, so they are weighed only by physical weight, and CSS
-    # states with no pure-X stabilizer, only pure-X stabilizers, or both by both measures.
+    """Queries get the bounds that ``ConnectedClusterCosetSearch`` states."""
+    # Graph states with phases are not CSS, and the connected-cluster method weighs errors on them
+    # only by physical weight.  CSS states, with no pure-X stabilizer, only pure-X stabilizers, or
+    # both, are weighed by both measures.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
@@ -78,6 +79,8 @@ def test_connected_cluster_answers_match_exhaustive_minima(pytestconfig: pytest.
                         expected_bound = minimum if minimum < 2 else max(2, max_weight + 1)
                         assert bound.lower_bound == expected_bound
                     elif exact or minimum < 2:
+                        # Batches, from limit two, and words of weight at most one are exact within
+                        # max_weight.
                         assert bound.lower_bound == weight == minimum
                     else:
                         assert bound.lower_bound == 2 and weight <= max_weight
