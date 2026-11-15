@@ -390,11 +390,10 @@ def estimate_residual_weight_histogram(
         max_exact_faults: Fault weights with at most this many faults (and every smaller fault
             weight) are computed exactly rather than sampled.  Default: ``10**6``.
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
-        method: The exact search of residual weights where the tables do not apply, as for
-            ``certify_bounded_fault_propagation``: ``"brouwer_zimmermann"``, with alias
-            ``"information_sets"``, or ``"connected_cluster"``.  With the same ``seed``, both give
-            the same histogram.  ``"connected_cluster"`` weighs errors by CSS weight only on CSS
-            states.  Default: ``"brouwer_zimmermann"``.
+        method: The exact search of residual weights where the tables do not apply:
+            ``"brouwer_zimmermann"``, its alias ``"information_sets"``, or ``"connected_cluster"``
+            (see :class:`~qldpc.codes.distance.CosetLeaderSearch`).  With the same ``seed``, the
+            methods give the same histogram.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
         A ``ResidualWeightHistogram``.
