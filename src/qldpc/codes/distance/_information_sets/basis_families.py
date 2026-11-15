@@ -2,35 +2,13 @@
 
 """Basis families of information sets, shared by exact BZ and coset searches and by counts.
 
-A basis family is the set of information sets of one basis that a search scans together, layer by
-layer, and certifies together.  Layer ``w`` of a set holds the words that add ``w`` of its rows to
-an offset.  The offset is zero in the distance search (``_brouwer_zimmermann/distance.py``) and the
-counts (``_counting/scan.py``).  In the coset searches with which ``CosetLeaderSearch`` answers its
-queries, the offset is a fixed word of the searched coset (see ``_search_coset`` in
-``_brouwer_zimmermann/coset.py``).  ``brouwer_zimmermann.md`` defines the terms (Sections 2.2 to
-2.4), derives the certificate (Sections 2.5 and 3.1), and describes the heuristics of the stages
-below (Section 4.4).
-
-This module builds basis families, prunes them, and replaces them by cheaper ones.  A
-``BasisFamily`` stacks its sets into arrays, so that the same functions serve every caller and can
-be compiled (see ``qldpc/_compilation.py``).  ``certificates.py`` holds the certificate of a family
-and the plans of the steps of searches, and ``support_stepping.py`` the step from one support of a
-layer to the next.
-
-The construction runs in stages, so that a caller can take its own exits between them:
-
-1. :func:`get_disjoint_family` packs disjoint information sets and infers ambient even parity.
-2. :func:`prune_family` drops partial sets that cannot help certify a target.
-3. :func:`get_overlapping_family` may build a cheaper basis family of overlapping full sets.
-4. :func:`get_partitioned_family` may build a cheaper one still, by matroid partitioning, for
-   costly searches.
-
-Each stage aims at a target ``upper_bound``.  The distance search passes the weight ``U`` of its
-best witness, and stops once the certificate reaches ``U``.  A count of the words of weight ``t``
-must also visit every word of weight ``t``, so it passes ``t + 1``, and stops only once the
-certificate exceeds ``t``.  The coset searches use the disjoint family, and, for costly queries, the
-families of :func:`get_maximum_disjoint_family` and :func:`get_overlapping_family` (see
-``_brouwer_zimmermann/coset_routes.py``).
+A basis family holds the information sets of one basis that a search scans and certifies together.
+Distance searches and counts build theirs in stages, with their own exits between them:
+``get_disjoint_family``, ``prune_family``, ``get_overlapping_family``, and
+``get_partitioned_family``.  Each stage aims at a target ``upper_bound``: the best weight ``U`` of a
+distance search, or ``t + 1`` for a count of the words of weight ``t``.  Sections cited in this
+module are those of ``brouwer_zimmermann.md``, whose Section 4.4 gives the rules of the stages and
+of the families of the coset searches.
 """
 
 from __future__ import annotations
@@ -74,9 +52,10 @@ class BasisFamily(NamedTuple):
     Each information set is the basis, row reduced on a block of pivot columns.  ``generators`` has
     shape ``(num_sets, dimension, num_columns)``, and ``labels``, the quotient labels that follow
     the row operations, has the same first two axes, with no columns for a basis without labels.
-    ``pivots`` has shape ``(num_sets, dimension)``, and the pivot columns of a set with rank
-    deficiency are padded with -1.  ``ranks``, ``weight_divisor`` and ``max_coverage`` are the
-    parameters of its :attr:`certificate`.
+    ``pivots`` has shape ``(num_sets, dimension)``, padded with -1 beyond each set's rank.
+    ``ranks``, ``weight_divisor``, and ``max_coverage`` are the parameters of its
+    :attr:`certificate`.  Compiled code can take the family, since it holds only arrays and
+    integers.
     """
 
     generators: npt.NDArray[np.uint8]
@@ -101,9 +80,9 @@ class BasisFamily(NamedTuple):
     ) -> Certificate:
         """The certificate with which to search this basis family for ``upper_bound``.
 
-        A search of overlapping sets whose estimated work reaches ``lp_minimum_work`` also bounds
-        unvisited words by linear programming, which can stop it sooner, with dual weights whose
-        denominators are at most ``lp_max_denominator``.
+        A search of overlapping sets whose estimated work reaches ``lp_minimum_work`` also solves
+        linear programs (Section 4.4), with dual weights of denominators at most
+        ``lp_max_denominator``.
         """
         certificate = self.certificate
         if self.max_coverage == 1 or certificate.work(upper_bound) < lp_minimum_work:
@@ -130,9 +109,8 @@ def get_disjoint_family(
 ) -> BasisFamily:
     """Stage one: pack disjoint information sets, and certify them with any inferred parity.
 
-    ``labels`` are the quotient labels of ``basis``, and None stands for labels with no columns.  If
-    the natural column order packs too few full sets, up to ``random_column_orders`` random orders
-    are tried (see ``_get_disjoint_sets``).
+    ``labels`` are the quotient labels of ``basis``, and None stands for labels with no columns.
+    The packing may try up to ``random_column_orders`` random column orders (Section 4.4).
     """
     dimension = len(basis)
     set_labels = np.empty((dimension, 0), dtype=np.uint8) if labels is None else labels
@@ -151,7 +129,7 @@ def get_disjoint_family(
 
 @compiled_on_request
 def prune_family(basis_family: BasisFamily, upper_bound: int) -> BasisFamily:
-    """Stage two: retain partial sets that can strengthen certification of ``upper_bound``."""
+    """Stage two: keep the full sets and the partial sets that can help certify ``upper_bound``."""
     retained = np.flatnonzero(
         get_retained_set_mask(
             basis_family.generators.shape[1],
@@ -173,9 +151,6 @@ def prune_family(basis_family: BasisFamily, upper_bound: int) -> BasisFamily:
 
 class OverlappingFamilyPolicy(NamedTuple):
     """How stage three builds a replacement basis family (see ``get_overlapping_family``).
-
-    Searches take it from :func:`get_overlapping_family_policy`, or from
-    :func:`build_overlapping_family_policy` for settings that their tuning does not hold.
 
     Attributes:
         max_sets: The most sets of a replacement.
@@ -203,16 +178,10 @@ def get_overlapping_family(
 ) -> BasisFamily:
     """Stage three: build a replacement basis family of overlapping full sets that does less work.
 
-    ``basis_family`` holds the full and partial sets of one independent binary basis, whose quotient
-    labels ``labels`` have no columns if it has none.  A replacement holds only full sets, with
-    their labels transformed alongside their rows, and is certified with its maximum coverage of a
-    Hamming coordinate.  ``max_sets`` of ``policy`` bounds its size and the effort spent building
-    it: more sets can avoid costly coefficient layers in hard searches, while fewer reduce set-up
-    work.  No replacement is built if the estimated work of ``basis_family`` is below
-    ``minimum_work``.  The construction tries ``attempts_per_set`` column orders for each set that
-    it may add.
-
-    Returns the replacement, which has no sets if no replacement does less work.
+    ``basis_family`` holds the sets of the independent binary ``basis``, whose quotient labels
+    ``labels`` have no columns if it has none.  The replacement holds only full sets, with labels
+    that follow their row operations, and is certified with its maximum coverage.  It has no sets if
+    the construction does not run or finds no family that does less work (Section 4.4).
     """
     max_sets, minimum_work, attempts_per_set, binomials, rng = policy
     dimension = basis.shape[0]
@@ -271,14 +240,14 @@ def get_overlapping_family(
     )
     for _ in range(num_attempts):
         # Order the columns by load, and then randomly, with two stable sorts, since numba has no
-        # lexicographic sort.  Transform the labels along with each candidate.
+        # lexicographic sort, and reduce the basis and its labels on them.
         by_random = np.argsort(rng.random(num_columns), kind="mergesort")
         by_coverage = np.argsort(column_coverage[columns][by_random], kind="mergesort")
         reduced, reduced_labels, new_pivots = row_reduce_packed(
             packed_basis, packed_labels, columns[by_random[by_coverage]]
         )
 
-        # Do not add duplicate sets.  Their row reductions still count against the attempt limit.
+        # Skip duplicate sets, whose row reductions still count against the attempt limit.
         new_sorted_pivots = np.sort(new_pivots)
         duplicate = False
         for index in range(num_sets):
@@ -301,7 +270,7 @@ def get_overlapping_family(
         num_sets += 1
         coverage = int(column_coverage.max())
 
-        # Keep improvements.  Stop at the set limit, or once the optimistic work bound is attained.
+        # Keep improvements, and stop at the set limit or once the optimistic work bound is met.
         full_ranks = np.full(num_sets, dimension, dtype=np.int64)
         work = estimate_certificate_work(
             dimension, full_ranks, weight_divisor, coverage, upper_bound, binomials
@@ -322,11 +291,7 @@ def get_overlapping_family(
 
 
 def get_overlapping_family_policy(tuning: SearchTuning, dimension: int) -> OverlappingFamilyPolicy:
-    """The policy of stage three for a search of a basis of a given dimension, under a tuning.
-
-    It holds the most sets, the minimum work, and the attempts per set of ``tuning`` (see
-    ``build_overlapping_family_policy``).
-    """
+    """The policy of stage three under ``tuning``, for a basis of ``dimension`` rows."""
     return build_overlapping_family_policy(
         tuning.max_information_sets,
         tuning.overlapping_minimum_work,
@@ -338,12 +303,10 @@ def get_overlapping_family_policy(tuning: SearchTuning, dimension: int) -> Overl
 def build_overlapping_family_policy(
     max_sets: int, minimum_work: int, attempts_per_set: int, dimension: int
 ) -> OverlappingFamilyPolicy:
-    """The policy of stage three with given settings, for a search of a basis of a given dimension.
+    """The policy of stage three with given settings, for a basis of ``dimension`` rows.
 
-    It holds the most sets, the minimum work, and the attempts per set, the capped binomials of the
-    dimension, and a new generator with a fixed seed.  So every search, of the distance, of the
-    counts, or of cosets (see ``_brouwer_zimmermann/coset_routes.py``), chooses the same replacement
-    for the same basis family and settings.
+    Its generator is new, with a fixed seed, so that every search chooses the same replacement for
+    the same basis family and settings (Section 4.4).
     """
     return OverlappingFamilyPolicy(
         max_sets,
@@ -363,35 +326,25 @@ def get_partitioned_family(
     *,
     get_competing_work: Callable[[], int] | None = None,
 ) -> BasisFamily:
-    """Stage four: a basis family of information sets with bounded coverage, if it does less work.
+    """Stage four: a basis family of information sets of bounded coverage, if it does less work.
 
-    ``basis_family`` is the family that a search would otherwise use for the independent binary
-    ``basis``, whose quotient labels ``labels`` have no columns if it has none.  For each maximum
-    coverage from two up to the least at which ``tuning.max_information_sets`` full sets could fit,
-    by counting their pivots (see ``_get_least_coverage``), matroid partitioning finds the most full
-    information sets, up to that limit, that contain no column more often than that coverage (see
-    ``matroid_partition``).  This follows Section 5.1 of Lisoněk and Trummer (2016), which shows
-    that such families can do less work than those of the Brouwer-Zimmermann algorithm.
+    For each coverage that it tries, matroid partitioning finds the most information sets, up to
+    ``tuning.max_information_sets``, that use no column more often (Section 4.4).  ``basis``,
+    ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.  ``get_competing_work``,
+    if given, returns the work of a family, such as an automorphism family, to which the caller
+    would switch instead, discarding this stage's family (Section 3.7).  It is called only if
+    partitioning would otherwise run, which it then does only if that work exceeds the least that a
+    family of this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if that is less
-    than the work of ``basis_family``, and otherwise a family with no sets.  Partitioning costs
-    roughly in proportion to a unit: the sum of ``b**2 * k**2 * n`` over the coverages ``b``, for
-    ``k`` rows and ``n`` nonzero columns.  No family is built if the estimated work of
-    ``basis_family`` is below ``tuning.partition_work_ratio`` units, or if no family of at most
-    ``tuning.max_information_sets`` full sets could do less work.
-
-    ``get_competing_work``, if given, returns the estimated work of a family that the search would
-    switch to instead, such as a family of automorphism images, and the switch would discard any
-    family of this stage.  It is called only if partitioning would otherwise run, and no family is
-    built if that work is at most the least work that a family of this stage could do.
+    than the work of ``basis_family``, and otherwise a family with no sets.
     """
     max_sets = tuning.max_information_sets
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
 
-    # Skip partitioning if it would cost too much for this search, if it would try no coverage, or
-    # if no family of full sets could do less work, which is certain if no sets are allowed.
-    # Coverage one is the disjoint packing of the earlier stages.
+    # Skip partitioning if it would cost too much for this search, if it would try no coverage
+    # above one, which is the disjoint packing of stage one, or if no family could do less work.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     max_coverage, partition_unit = _get_partition_coverage_and_unit(
@@ -411,7 +364,7 @@ def get_partitioned_family(
         return best
 
     # Skip partitioning if the search would switch to a family that does no more work than any
-    # family of this stage could, since the switch would discard it.
+    # family of this stage could.
     if get_competing_work is not None and get_competing_work() <= optimistic_work:
         return best
 
@@ -452,23 +405,20 @@ def get_maximum_disjoint_family(
 ) -> BasisFamily:
     """A disjoint family with the most information sets, and then the largest partial set.
 
-    ``basis_family`` is a disjoint family of the independent binary ``basis``, such as that of
-    ``get_disjoint_family``.  Its greedy packing can miss an information set, or leave a smaller
-    partial set than another packing would.  Matroid partitioning with coverage one finds the most
-    disjoint information sets, and the largest partial set on the columns that they leave (see
-    ``matroid_partition``).  The sets of the family have no labels.  Like a greedy packing, the
-    family holds information sets and then at most one partial set.  It also holds at most as many
-    information sets as a packing keeps (see ``_get_full_set_limit``).  No other such family does
-    better than ``basis_family`` if the pivots of ``basis_family`` use every nonzero column, or if
-    it already holds that many information sets, so then this skips partitioning.
+    ``basis_family`` is a disjoint family of the independent binary ``basis``, such as the greedy
+    packing of ``get_disjoint_family``.  Matroid partitioning with coverage one finds the new
+    family, which has no labels, and at most as many information sets as a packing keeps
+    (Section 4.4).
 
     Returns:
-        That family, if its tuple of ranks is lexicographically larger than that of
+        The new family, if its tuple of ranks is lexicographically larger than that of
         ``basis_family``, and otherwise a family with no sets.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     no_labels = np.empty((dimension, 0), dtype=np.uint8)
+    # No disjoint family improves on one whose pivots use every nonzero column, or that holds as
+    # many information sets as a packing keeps.
     if int(basis_family.ranks.sum()) == num_columns:
         return _get_no_replacement(basis_family, basis, no_labels)
     full_set_limit = _get_full_set_limit(dimension)
@@ -524,9 +474,9 @@ def _get_no_replacement(
 ) -> BasisFamily:
     """A family of no sets, for when no better family is found.
 
-    Stages three and four return it, and so does ``get_maximum_disjoint_family``.  The distance
-    search and the counts then keep their basis family, and the routes of coset searches (see
-    ``_brouwer_zimmermann/coset_routes.py``) leave the family out of their candidates.
+    Stages three and four and ``get_maximum_disjoint_family`` return it, and the distance search,
+    the counts, and the routes of coset searches then keep the families that they have
+    (Section 4.4).
     """
     dimension = basis.shape[0]
     return BasisFamily(
@@ -542,11 +492,11 @@ def _get_no_replacement(
 def _get_disjoint_sets(
     basis: npt.NDArray[np.uint8], labels: npt.NDArray[np.uint8], random_column_orders: int
 ) -> list[_DisjointSet]:
-    """Construct a large deterministic packing of disjoint information sets.
+    """Construct a large deterministic packing of disjoint information sets (Section 4.4).
 
-    The natural column order is tried first, and then up to ``random_column_orders`` random orders,
-    until one reaches a bound on its full sets.  The bound is the nonzero columns divided by the
-    rows, or the limit of ``_get_full_set_limit`` if that is smaller, and a basis may not reach it.
+    The natural column order comes first, and then up to ``random_column_orders`` random orders,
+    until one packs ``min(N // r, 2**r - 1)`` full sets, for ``r`` rows and ``N`` nonzero columns,
+    which no order exceeds.
     """
     # Only columns that are nonzero in the basis can be pivots.  Pack them in their natural order.
     nonzero_columns = np.flatnonzero(np.any(basis, axis=0))
@@ -556,19 +506,15 @@ def _get_disjoint_sets(
         nonzero_columns,
     )
 
-    # A full set has ``len(basis)`` pivots, and only the last set of a packing can have fewer.  Full
-    # sets use disjoint nonzero columns, and a packing stops at its limit of full sets, so there are
-    # at most this many, and possibly fewer.  Return if the natural order already reaches this
-    # bound.
+    # Return if the natural order packs as many full sets as any order could.
     max_full_sets = min(len(nonzero_columns) // len(basis), _get_full_set_limit(len(basis)))
     if sum(len(pivots) == len(basis) for *_, pivots in best) == max_full_sets:
         return best
 
-    # Otherwise, try a few random column orders.  The fixed seed makes the result reproducible.
+    # Otherwise, try random column orders, from a fixed seed for reproducible results.
     rng = np.random.default_rng(0)
     for _ in range(random_column_orders):
-        # Keep the packing with the lexicographically larger tuple of ranks: more full sets, or
-        # equally many and a larger last set.
+        # Keep the packing with the lexicographically larger tuple of ranks.
         candidate = _get_disjoint_sets_for_columns(
             basis,
             labels,
@@ -586,10 +532,7 @@ def _get_disjoint_sets(
 
 
 def _get_full_set_limit(dimension: int) -> int:
-    """The limit on the full disjoint information sets that a packing of ``dimension`` rows keeps.
-
-    Section 4.4 of ``brouwer_zimmermann.md`` gives the reason for the limit.
-    """
+    """The most full sets that a packing of ``dimension`` rows keeps (Section 4.4)."""
     return (1 << dimension) - 1
 
 
@@ -611,8 +554,7 @@ def _get_disjoint_sets_for_columns(
     information_sets: list[_DisjointSet] = []
 
     while len(active_columns):
-        # Row-reduce on the available columns, taking pivots in their order, so that each pivot
-        # column has a single one.  The labels follow the same row operations.
+        # Row reduce the basis and its labels on the available columns, taking pivots in order.
         working, reduced_labels, pivots = row_reduce_binary(
             working, working_labels, columns=active_columns
         )
@@ -622,9 +564,8 @@ def _get_disjoint_sets_for_columns(
         assert rank  # The available columns are nonzero, so they give at least one pivot.
         information_sets.append((working, working_labels, pivots))
 
-        # A set with fewer pivots than rows is partial.  The columns that remain span at most
-        # ``rank`` dimensions, so no later set could be full, and this is the last one.  A packing
-        # also stops at its limit of full sets.
+        # A partial set is the last, since the available columns have rank ``rank``, too little
+        # for a later full set.  A packing also stops at its limit of full sets.
         if rank < dimension or len(information_sets) == full_set_limit:
             break
 
@@ -638,14 +579,11 @@ def _get_disjoint_sets_for_columns(
 def _get_partition_coverage_and_unit(
     max_sets: int, dimension: int, num_columns: int
 ) -> tuple[int, int]:
-    """The largest coverage that matroid partitioning tries, and the unit of its gate.
+    """The largest coverage that matroid partitioning tries, and the unit of its gate (Section 4.4).
 
-    The basis has ``dimension`` rows and ``num_columns`` nonzero columns.  Partitioning tries each
-    coverage ``b`` from two up to ``_get_least_coverage(max_sets, dimension, num_columns)``, and the
-    unit that ``partition_work_ratio`` multiplies is the sum of ``b**2 * dimension**2 *
-    num_columns`` over these coverages.  This computes the bound itself, in Python integers, rather
-    than call that helper, which is compiled with 64-bit integers that ``max_sets`` up to
-    ``MAX_VALUE`` would overflow.
+    For a basis of ``dimension`` rows and ``num_columns`` nonzero columns, the largest coverage is
+    ``_get_least_coverage(max_sets, dimension, num_columns)``, computed here in Python integers,
+    since ``max_sets`` up to ``MAX_VALUE`` would overflow that compiled helper.
     """
     max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
     if max_coverage < 2:
@@ -701,9 +639,10 @@ def _estimate_optimistic_work(
 ) -> int:
     """Return a lower bound on the estimated work of a family of at most ``max_sets`` full sets.
 
-    The basis has ``dimension`` rows and ``num_columns`` nonzero columns, and ``binomials`` are
-    ``get_capped_binomials(dimension)``.  No family of ``m`` full sets is certified with a maximum
-    coverage below ``_get_least_coverage(m, dimension, num_columns)``.
+    The family is of a basis of ``dimension`` rows and ``num_columns`` nonzero columns, and
+    ``binomials`` are ``get_capped_binomials(dimension)``.  No family of ``m`` full sets has a
+    coverage below ``_get_least_coverage(m, dimension, num_columns)``, which this takes for each
+    ``m``.
     """
     optimistic_work = WORK_CAP
     for num_sets in range(1, max_sets + 1):
@@ -720,10 +659,8 @@ def _estimate_optimistic_work(
 def _get_least_coverage(num_sets: int, dimension: int, num_columns: int) -> int:
     """A lower bound on the maximum coverage of ``num_sets`` full information sets of a basis.
 
-    The basis has ``dimension`` rows and ``num_columns`` nonzero columns.  The sets have
-    ``num_sets * dimension`` pivots in all, so some column is in at least
-    ``ceil(num_sets * dimension / num_columns)`` of them: the least coverage at which they could
-    fit, by counting their pivots.  A word of low weight can force more, since every information set
-    contains a column of its support.
+    The basis has ``dimension`` rows and ``num_columns`` nonzero columns, so the sets' pivots put
+    some column in at least ``ceil(num_sets * dimension / num_columns)`` of them (Section 4.4).  A
+    light word can force more, since every information set meets its support.
     """
     return (num_sets * dimension + num_columns - 1) // num_columns

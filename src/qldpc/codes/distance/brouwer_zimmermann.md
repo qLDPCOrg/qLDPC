@@ -333,6 +333,7 @@ Then `L(t) = ceil(N(t+1)/r)`, which no coverage-divided certificate of a family 
 
 qLDPC row reduces on the nonzero columns in natural order, then exchanges pivots between orbits while that lowers the largest share; pivoting a row on another column with a one in that row gives another information set.
 For two orbits, the exchanges reach the least largest share of any information set: they stop once the emptier orbit's own pivot columns span all of its columns, or one more pivot would make it at least as full.
+In the first case, no information set has more pivots in the emptier orbit, and so none has fewer in the fuller one; in the second, any information set with fewer pivots in the fuller orbit makes the emptier one at least as full.
 With more orbits, the exchanges are a heuristic.
 
 #### When a search uses an automorphism family
@@ -403,6 +404,7 @@ The pivot ones must number exactly `w`, as only in an information set ([Section 
 
 For each block and each `s`, a table stores the distance from every value of `p` on the block to the nearest sum of a pair from row `s` on.
 The table for `s` starts from that for `s + 1`: the new pairs of row `s` lower the distance at their sums to zero, and a breadth-first search from those sums lowers the distances around them.
+The search stops at each distance that it does not lower, since that distance already bounds those beyond it.
 With blocks of `β` columns, the tables take `(r - 1) Σ_b 2^|J_b|` bytes, and building them costs about `2^β β^2` steps for each block, plus a step for each pair of rows on each block, and writing each table.
 A lookup reads one entry per block.
 The scan looks up the bound each time it tries a new first row `s` for the pair that completes a prefix, and if `w + B ≥ U`, skips every completion of the prefix from row `s` on.
@@ -637,6 +639,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   1. If the predicted examinations with the disjoint family are below `coset_route_minimum_work`, the route is the disjoint family.
   2. Otherwise, `CosetRoutes` tries once to build two families, at `ω_T`, the least weight from two at which the predicted examinations with the disjoint family reach the threshold, so that they do not depend on the order of queries.
      The first, which `get_maximum_disjoint_family` finds by matroid partitioning with coverage one, holds the most disjoint information sets, up to the limit of `get_disjoint_family`, and below that limit a rank-deficient block of the largest rank ([Section 2.4](#24-search-bases-and-rank-deficient-blocks)) on the other columns.
+     Edmonds' matroid partitioning algorithm maximizes the number of columns in the sets, all but the last of which are information sets, so no other choice of as many information sets leaves a block of larger rank.
      It is kept if it has more information sets, or a rank-deficient block of larger rank, than the greedy packing.
      A greedy packing can miss sets: the columns `e1`, `e2`, `e1 + e2`, and `e1 + e2` hold two disjoint information sets, but a greedy packing in natural order takes `e1` and `e2`, and leaves a rank-deficient block of rank one.
      The second, an overlapping family of `get_overlapping_family` aimed at the Hamming weight `η ω_T + 1`, is kept if it does less work than the family that it starts from: the first, if kept, and otherwise the disjoint family.

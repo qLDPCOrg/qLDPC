@@ -34,14 +34,12 @@ from . import certificates
 class CompletionTables:
     """Bounds on the completions by two more rows of the supports of every layer of one basis.
 
-    The tables belong to the packed tails of one systematic basis, whose rows a search sums in their
-    given order, and bound nothing for another basis or row order.
-
-    Block ``b`` covers the tail columns from ``b * block_bits`` up to, but not including,
-    ``(b + 1) * block_bits``, and the last block may be narrower.  Viewed with shape
-    ``(num_rows - 1, offsets[-1])``, entry ``offsets[b] + x`` of row ``s`` of ``tables`` is the
-    least weight of ``x + P_i + P_j`` on block ``b`` over the pairs ``s <= i < j``, where ``x`` is
-    the value of a tail on the block.
+    The tables belong to the packed tails of one systematic basis, with its rows in the order in
+    which a search sums them (Section 3.9).  Block ``b`` covers the tail columns from
+    ``b * block_bits`` up to, but not including, ``(b + 1) * block_bits``, and the last block may be
+    narrower.  Viewed with shape ``(num_rows - 1, offsets[-1])``, entry ``offsets[b] + x`` of row
+    ``s`` of ``tables`` is the least weight of ``x + P_i + P_j`` on block ``b`` over the pairs
+    ``s <= i < j``, where ``x`` is the value of a tail on the block.
     """
 
     tables: npt.NDArray[np.uint8]
@@ -54,11 +52,9 @@ class CompletionTables:
     ) -> CompletionTables:
         """Build the tables of the packed tails of a basis, on blocks of columns.
 
-        A block must lie within one packed word of 64 bits, and its table has ``2**block_bits``
-        entries for each row, so ``block_bits`` divides 64 and is at most 16, as a tuning ensures.
-        If ``out`` is given, the tables fill it in place, so that a caller can build the tables of
-        several bases in one array.  It must have the size of the tables (see
-        ``get_table_bytes_within``).
+        A block lies within one packed word, and its table has ``2**block_bits`` entries for each
+        row, so ``block_bits`` divides 64 and is at most 16, as a tuning ensures.  The tables fill
+        ``out``, if given, which must have their size (see ``get_table_bytes_within``).
         """
         assert block_bits <= 16 and 64 % block_bits == 0
         offsets = _get_block_offsets(_get_num_tail_bits(rows), block_bits)
@@ -78,8 +74,8 @@ def get_table_bytes_within(rows: npt.NDArray[np.uint64], block_bits: int, max_by
     """The bytes of the tables of the packed tails of a basis on blocks of columns, if they fit.
 
     Returns:
-        The bytes, or zero if the tables would exceed ``max_bytes`` bytes, or be empty, as for tails
-        without ones or a basis of fewer than two rows, whose tables would skip nothing.
+        The bytes, or zero if the tables would exceed ``max_bytes`` bytes, or be empty and skip
+        nothing (see ``_tables_fit``).
     """
     num_bits = _get_num_tail_bits(rows)
     if not _tables_fit(len(rows), num_bits, block_bits, max_bytes):
@@ -94,22 +90,15 @@ def select_completion_tables(
     current: CompletionTables | None,
     tuning: SearchTuning,
 ) -> CompletionTables | None:
-    """Choose the tables, if any, that a scan of a layer should use to skip completions.
+    """Choose the tables, if any, with which to scan a layer, by the steps of Section 3.9.
 
-    A search with the tuning ``tuning`` is about to scan layer ``weight`` of a systematic basis,
-    whose packed tails are ``rows``, with the best weight ``upper_bound``.  A count of the words of
-    weight ``t`` passes ``t + 1``, the lightest weight that it may skip.  If the tuning considers
-    tables for the layer (see ``considers_tables``), this function estimates a conservative lower
-    bound on the share of supports that tables would skip, from random supports of the layer.  It
-    then predicts the cost of scanning the layer with tables.  The prediction counts the cost of
-    building them, unless the search passes its tables of ``rows`` as ``current``.  Tables use
-    blocks of ``tuning.completion_bound_block_bits`` columns, and a layer whose tables would need
-    more than ``tuning.completion_bound_max_table_bytes`` bytes gets none.
+    A search is about to scan layer ``weight`` of a systematic basis whose packed tails are
+    ``rows``.  ``upper_bound`` is its best weight, or ``t + 1`` in a count of the words of weight
+    ``t``, and ``current``, if given, are its tables of ``rows``, which need no build.
 
     Returns:
-        Tables, possibly ``current``, if the predicted cost is at most
-        ``tuning.completion_bound_max_cost_percent`` percent of the cost of a scan without them, or
-        None.
+        Tables, possibly ``current``, if the predicted cost of the layer with them is at most
+        ``tuning.completion_bound_max_cost_percent`` percent of the cost without them, or None.
     """
     cost, block_bits = predict_completion_cost(
         rows, weight, upper_bound, reuse=current is not None, tuning=tuning
@@ -137,13 +126,13 @@ def predict_completion_cost(
 ) -> tuple[float, int]:
     """Predict the cost of a scan of a layer with completion tables, and the width of their blocks.
 
-    The arguments are those of ``select_completion_tables``, and ``reuse`` says whether the search
-    has the tables already, so that the prediction leaves out the cost of building them.
+    The arguments are those of ``select_completion_tables``, and ``reuse`` means that the tables
+    exist already, so that the prediction leaves out their build.
 
     Returns:
         The predicted cost of the layer with tables, as a share of its cost without them, and the
         width of the blocks of the tables; or infinity and zero for a layer whose tables the tuning
-        does not consider, or that do not fit within ``tuning.completion_bound_max_table_bytes``.
+        does not consider or that do not fit.
     """
     # Consider only the layers and tables that the tuning allows.
     num_rows = len(rows)
@@ -160,9 +149,8 @@ def predict_completion_cost(
     )
     share = _get_share_lower_bound(share, num_samples, tuning.completion_bound_confidence_z)
 
-    # Predict the cost of the layer with tables, as a share of the cost of scanning it without them,
-    # with the cost of building them unless they are reused.  Dividing the integer binomials first
-    # keeps their ratios small, even for layers whose binomials are too large for floating point.
+    # Predict the cost of the layer with tables, and any build, as a share of the cost without
+    # them.  Dividing the integer binomials works even where they exceed floating point.
     offsets = _get_block_offsets(num_bits, block_bits)
     num_supports = math.comb(num_rows, weight)
     kept_ratio = math.comb(num_rows, weight - 1) / num_supports
@@ -192,12 +180,10 @@ def is_within_cost_limit(cost: float, tuning: SearchTuning) -> bool:
 def considers_tables(num_rows: int, weight: int, tuning: SearchTuning) -> bool:
     """Whether a tuning considers completion tables for layer ``weight`` of a basis of ``num_rows``.
 
-    Tables bound the completions of a prefix by two more rows, so the layer must have at least two
-    rows, and no more than the basis.  It must have at least
-    ``tuning.completion_bound_minimum_layer_work`` supports.  This count saturates at the cap of the
-    work estimates of certificates, which lies below the largest threshold of a tuning, so that
-    threshold considers no layer.  A tuning that allows no cost or no bytes of tables considers
-    none.
+    The layer must have two to ``num_rows`` rows, since tables bound completions by two rows, and
+    at least ``tuning.completion_bound_minimum_layer_work`` supports.  That count saturates at
+    ``WORK_CAP``, which lies below the largest threshold, so that threshold considers no layer.  A
+    tuning that allows no cost or no bytes of tables considers none.
     """
     return (
         2 <= weight <= num_rows
@@ -268,8 +254,8 @@ def _tables_fit(num_rows: int, num_bits: int, block_bits: int, max_bytes: int) -
     """Whether the tables of a basis on blocks of ``block_bits`` columns fit in ``max_bytes``.
 
     The basis has ``num_rows`` rows, and its tails have ``num_bits`` columns up to the last with a
-    one.  Tables of tails without ones, or of fewer than two rows, would be empty and skip nothing,
-    so they never fit.
+    one.  Empty tables, of tails without ones or of fewer than two rows, skip nothing, so they never
+    fit.
     """
     num_bytes = _get_table_bytes(num_rows, _get_block_offsets(num_bits, block_bits))
     return 0 < num_bytes <= max_bytes
@@ -294,9 +280,8 @@ def _estimate_build_cost(
 ) -> float:
     """Estimate the cost of building tables, in units of the scan of a support without tables.
 
-    ``offsets`` are those of the tables, and ``tuning`` holds the coefficients of the cost.
-    Building writes every table and adds the sums of pairs of rows to each block.  Each distance of
-    a block falls at most ``block_bits + 1`` times, and then updates ``block_bits`` neighbors.
+    Building writes every table, adds the sum of each pair of rows to each block, and lowers each
+    distance at most ``block_bits + 1`` times, each time updating ``block_bits`` neighbors.
     """
     num_blocks = len(offsets) - 1
     steps = int(offsets[-1]) * (block_bits + 1) * block_bits + num_blocks * num_rows**2 // 2
@@ -314,18 +299,15 @@ def _estimate_skipped_share(
     num_bits: int,
     tuning: SearchTuning,
 ) -> tuple[float, int]:
-    """Estimate the share of the supports of a layer that tables would skip.
+    """Estimate the share of the supports of a layer that tables would skip, by sampling.
 
-    Let ``s`` be the first row of the last pair of a support.  The support is skipped exactly if the
-    bound of its first ``weight - 2`` rows and ``s`` proves that it cannot lower ``upper_bound``,
-    since the bound for a smaller ``s`` is weaker, and skips it only if this bound would.
-    ``tuning.completion_bound_samples`` random supports, or as many as fit the budget
-    ``tuning.completion_bound_sampling_work``, estimate this share.  The estimate assumes that
-    ``upper_bound`` stays fixed.
+    A support is skipped exactly if the bound of its prefix and the first row of its last pair
+    proves that it cannot lower ``upper_bound`` (Section 3.9), which the estimate takes as fixed.
 
     Returns:
-        The sampled share and the number of samples, or zeros if fewer than
-        ``tuning.completion_bound_min_samples`` supports fit the budget.
+        The share in ``tuning.completion_bound_samples`` random supports, or as many as fit the
+        budget ``tuning.completion_bound_sampling_work``, and their number; or zeros if fewer than
+        ``tuning.completion_bound_min_samples`` fit.
     """
     # Draw sorted random supports of the layer, no more than the budget could afford, since each
     # costs at least one unit for each row.
@@ -364,13 +346,10 @@ def _fill_tables(
     offsets: npt.NDArray[np.int64],
     tables: npt.NDArray[np.uint8],
 ) -> None:
-    """Fill the tables of ``CompletionTables`` for the packed tails of a basis.
+    """Fill the tables of ``CompletionTables`` for the packed tails of a basis (Section 3.9).
 
     On each block, the table of row ``s`` holds the distance from each value to the nearest sum of a
-    pair of rows from ``s`` on.  It is the table of row ``s + 1``, lowered by the sums of the new
-    pairs of row ``s``, which are at distance zero.  A breadth-first search from these sums lowers
-    the distances.  It does not continue past a distance that it does not lower, since the old
-    distances already bound every distance beyond it.
+    pair of rows from ``s`` on.  A breadth-first search computes it from the table of row ``s + 1``.
     """
     num_rows = rows.shape[0]
     row_bytes = offsets[-1]
