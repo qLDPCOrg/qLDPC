@@ -4,18 +4,18 @@
 
 See :class:`CSSLogicalCounter` for the conventions.
 
-Each X/Z sector uses a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
-``brouwer_zimmermann.md``).  Words are enumerated in layers over Brouwer-Zimmermann (BZ) information
-sets, whose family and certificate come from the stages in ``_information_sets/`` that the distance
-search shares.  Unlike a distance search, the scan stops only when the BZ lower bound exceeds ``w``
-(Section 5 of ``brouwer_zimmermann.md``), and a word visited by several information sets is counted
-by only one of them.  Full Pauli counts are derived from the homogeneous words of weight ``d``, with
-one masked rank per word.  Self-dual codes scan only one sector, and have
-``count_pauli = 3 * count_x``.  Counters for codes deformed by local CSS-preserving Cliffords
-transform the stored sector bases and information-set families rather than recomputing them.
+The default method, ``"brouwer_zimmermann"``, counts the words of a target weight ``w`` in each X/Z
+sector, a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
+``brouwer_zimmermann.md``).  The scan of ``_counting/scan.py`` enumerates these words in layers over
+Brouwer-Zimmermann (BZ) information sets.  Unlike a distance search, it stops only when the BZ lower
+bound exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``).  Self-dual codes scan one sector.
 
-The default method is ``"brouwer_zimmermann"``, whose scan is in ``_counting/scan.py``.  The
-alternative ``"macwilliams"`` counts from check-space weight distributions; see
+Full Pauli counts at the distance ``d`` come from the homogeneous words of weight ``d``.  Codes that
+are not self-dual need one masked rank per word, and self-dual codes have
+``count_pauli = 3 * count_x``.  Counters for codes deformed by local CSS-preserving Cliffords
+transform the kept sector bases and basis families rather than recomputing them.
+
+The method ``"macwilliams"`` counts from the weight distributions of the check spaces instead; see
 ``_counting/macwilliams.py`` for the algorithm.
 
 References:
@@ -154,7 +154,8 @@ class CSSLogicalCounter:
     methods support subsystem codes, but the MacWilliams method does not.
 
     Counters for codes deformed by local CSS-preserving Cliffords (see :meth:`deformed`) reuse the
-    work of this counter, except for the distance, which they search for again.
+    sectors and basis families of this counter, where the gate allows.  They search for the distance
+    again, and the MacWilliams method walks their checks again.
 
     :meth:`from_code` builds a counter from the checks of a :class:`~qldpc.codes.CSSCode`.
 
@@ -292,8 +293,8 @@ class CSSLogicalCounter:
                 respectively.
             count_pauli: If True, also count full Pauli operators, including Y and mixed operators.
                 For codes that are not self-dual, each homogeneous word of the counted weight costs
-                one rank calculation.  These counts are exact up to the distance and zero below it,
-                and are not supported above it.  Defaults to False.
+                one rank calculation.  These counts are supported only up to the distance, and are
+                zero below it.  Defaults to False.
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
@@ -369,14 +370,14 @@ class CSSLogicalCounter:
             target = _get_distance(sectors, method, get_disjoint_basis_families, tuning)
             self._distances[method] = target
 
-        # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  Either x is
-        # a nontrivial X logical with support T of size d, and z is one of 2**(d - rank(S_X[:, T]))
-        # Z words supported in T that commute with S_X, or x is an X gauge operator, and z is a
-        # nontrivial Z logical of weight d whose support T contains that of x, which leaves
-        # 2**(rank(G_X) - rank(G_X[:, ~T])) choices of x.  Each support T of a self-dual code
-        # carries exactly three operators, so self-dual codes need no ranks.  Above d, a logical
-        # Pauli need not have the support of a homogeneous logical, so the scans reject any
-        # nontrivial word lighter than the target.
+        # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  In the
+        # first, x is a nontrivial X logical with a support T of size d, and z is one of the
+        # 2**(d - rank(S_X[:, T])) Z words supported in T that commute with S_X.  In the second, x
+        # is an X gauge operator, and z is a nontrivial Z logical of weight d whose support T
+        # contains that of x, which leaves 2**(rank(G_X) - rank(G_X[:, ~T])) choices of x.  Each
+        # support T of a self-dual code carries exactly three operators, so self-dual codes need no
+        # ranks.  Above d, a logical Pauli need not have the support of a homogeneous logical, so
+        # the scans reject any nontrivial word lighter than the target.
         count_masked_ranks = count_pauli and not self._self_dual
         reject_lighter = count_pauli or within_distance
         no_rows = self._gauge_x[:0]
@@ -444,8 +445,7 @@ class CSSLogicalCounter:
         Raises:
             TypeError: If the targets are not a collection of integer qubit indices.
             ValueError: If the targets are not 1 to 64 distinct, in-range indices, or if
-                ``matrix_x`` is not an invertible binary
-                matrix that matches the number of targets.
+                ``matrix_x`` is not an invertible binary matrix that matches the number of targets.
         """
         positions = self._get_positions(targets)
         local_x, local_z = local_cliffords.get_local_matrices(matrix_x, len(positions))
@@ -525,9 +525,10 @@ class CSSLogicalCounter:
     ) -> CSSLogicalCounter:
         """Apply validated, packed local matrices to every stored X-type and Z-type matrix.
 
-        The Clifford maps each gauge, stabilizer and sector space onto that of the new code, and
-        keeps the quotient labels, so nothing is recomputed.  The checks are no longer in reduced
-        row echelon form, which is recomputed only if needed.
+        The Clifford maps each gauge, stabilizer, and sector space onto that of the new code, and
+        keeps the quotient labels, so the sectors are not computed again.  The kept basis families
+        follow the gate where they can.  The checks are no longer in reduced row echelon form, which
+        is recomputed only if needed.
         """
         counter = CSSLogicalCounter.__new__(CSSLogicalCounter)
         counter._num_qubits, counter._dimension = self._num_qubits, self._dimension
@@ -629,12 +630,13 @@ class CSSLogicalCounter:
         """Count logical operators by the weight enumerators of the checks of a stabilizer code.
 
         Each support of a nontrivial logical Pauli operator of weight ``d`` in a self-dual code
-        carries exactly three such operators: one X-only, one Z-only, and one Y-only.  The checks of
-        a self-dual code may share one weight distribution, even if a deformation gave them
-        different bases.  Equal check spaces have equal distributions, so whether they share one
-        changes only the number of walks, never the counts.  The enumerators are kept, so that later
-        counts at any weight, with any options, do not walk again.  Each native call of a walk
-        visits at most ``chunk_size`` steps.
+        carries exactly three such operators: one X-only, one Z-only, and one Y-only.
+
+        The checks of a self-dual code may share one weight distribution, even if a deformation gave
+        them different bases.  Equal check spaces have equal distributions, so sharing one changes
+        only the number of walks, never the counts.  The enumerators are kept, so later counts at
+        any weight, with any options, do not walk again.  Each native call of a walk visits at most
+        ``chunk_size`` steps.
         """
         # Walk the check spaces once per counter.
         if self._enumerators is None:
@@ -682,11 +684,11 @@ class CSSLogicalCounter:
     def _get_disjoint_basis_family(
         self, index: int, random_column_orders: int
     ) -> basis_families.BasisFamily:
-        """The disjoint basis family of a sector, the first stage of its basis families, kept.
+        """The disjoint basis family of a sector, which is the first stage of its basis families.
 
-        This stage does not depend on the counted weight, so counting at another weight, as when a
-        guessed weight fails, does not repeat it.  It does depend on ``random_column_orders``, the
-        ``disjoint_random_column_orders`` of the tuning of the count.
+        The family is built once and kept.  It does not depend on the counted weight, so counting at
+        another weight, as when a guessed weight fails, does not build it again.  It does depend on
+        ``random_column_orders``, the ``disjoint_random_column_orders`` of the tuning of the count.
         """
         key = (index, random_column_orders)
         if key not in self._disjoint_basis_families:
@@ -803,9 +805,9 @@ def _warm_up_compiled_functions() -> None:
     counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
 
     # The distance search of so small a code ends before some of its stages, so call them here.  Any
-    # upper bound compiles them; this one exceeds the distance of the code, 3.  The default tuning
-    # makes these calls build families whatever the active tuning, since compilation, not a search,
-    # is their purpose.
+    # upper bound compiles them; this one exceeds the distance of the code, 3.  These calls use the
+    # default tuning, so that they build families whatever the active tuning, since their purpose is
+    # compilation, not a search.
     basis, labels = counter._get_sectors()[0]
     upper_bound = 4
     basis_family = basis_families.prune_family(
@@ -836,7 +838,8 @@ def _get_distance(
     """Minimum weight of a nontrivial word in any of the given sectors.
 
     ``get_disjoint_basis_families`` holds a function for each sector that returns its disjoint basis
-    family, and ``tuning`` sets the thresholds, for the BZ search.
+    family, for the BZ search.  ``tuning`` sets the thresholds of the BZ search, and the batch size
+    of brute force.
     """
     if method == "brute_force":
         return min(

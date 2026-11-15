@@ -209,7 +209,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
 def test_counts_return_to_python_only_around_steps_that_may_use_tables(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """A count whose steps are too small for tables scans them all in one call."""
+    """A count whose steps are too small for tables scans each sector in one call."""
     calls: list[int] = []
     scan_layers = scan._scan_coefficient_layers
 
@@ -296,7 +296,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     assert step_tables.select(3, 1)[0] is second
     assert step_tables.select(3, 0)[0] is not first
 
-    # A step whose tables the gate declines scans without them.
+    # A step for which select_completion_tables declines tables scans without them.
     declining = tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=1)
     step_tables = scan._StepTables(family, rows_and_labels, 4, declining)
     assert step_tables.may_use_tables(2, 0)
