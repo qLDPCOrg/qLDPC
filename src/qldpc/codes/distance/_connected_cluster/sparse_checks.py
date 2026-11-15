@@ -2,9 +2,9 @@
 
 """Sparser checks with the span of given checks, for the connected-cluster searches.
 
-The searches are fast only if their checks are sparse.  ``get_sparser_rows`` makes checks sparser
-for the coset searches of ``coset.py`` and for the distance searches of subsystem codes in
-``qldpc.codes.distance.core`` (Sections 3.8 and 3.9 of ``connected_cluster.md``).
+``get_sparser_rows`` makes checks sparser for the coset searches of ``coset.py`` and for the
+distance searches of subsystem codes in ``qldpc.codes.distance.core`` (Sections 3.8 and 3.9 of
+``connected_cluster.md``).
 """
 
 from __future__ import annotations
@@ -17,8 +17,7 @@ from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 from .._binary import multiply_binary
 from .._cosets import get_unit_syndrome_words
 
-# The seed of the random orders of columns in which the connected-cluster searches row-reduce their
-# checks to make them sparser (see ``get_sparser_rows``).  It makes the checks reproducible.
+# The seed of the random column orders of ``get_sparser_rows``, which makes its rows reproducible.
 _SPARSIFYING_SEED = 0
 
 
@@ -31,39 +30,23 @@ def get_sparser_rows(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Rows with the span of independent rows, made sparser by row reductions in random orders.
 
-    The rows start as those of ``_sparsify``, and are weighed as it weighs them.  Each round
-    row-reduces the given rows with pivots in a random order of the columns, which gives the words
-    of the span that have exactly one pivot column in their support.  Those that are lighter than
-    the heaviest current row join the rows as candidates.  The greedy algorithm for matroids then
-    keeps the lightest independent candidates: it takes them by increasing weight, and keeps each
-    that is independent of those that it kept.  So the rows are always a lightest basis drawn from
-    the candidates, and their total weight never rises.  The rounds stop after ``max_rounds``, or
-    once ``rounds_without_improvement`` rounds in a row have left the total weight unchanged.  A
-    last pass of ``_sparsify`` then adds rows to each other where that helps.
-
-    The rows need not be the sparsest.  Rows with the same span give a search the same answers and
-    bounds, though perhaps other representatives.  So the rounds may be random, and a fixed seed
-    makes them reproducible.
-
-    Args:
-        matrix: Independent rows.
-        symplectic: Whether the rows are symplectic.
-        max_rounds: The maximum number of rounds, or zero for the rows of ``_sparsify``.
-        rounds_without_improvement: The number of rounds in a row without a lower total weight after
-            which the rounds stop.
+    Starting from the rows of ``_sparsify``, each round adds the rows of a row reduction in a random
+    order of the columns as candidates, and keeps a lightest basis of the candidates, weighed by
+    ``get_row_weights`` (Section 3.8 of ``connected_cluster.md``).  The rounds stop after
+    ``max_rounds``, or at the end of a round once ``rounds_without_improvement`` rounds in a row
+    have left the total weight unchanged, and ``_sparsify`` makes a last pass.
 
     Returns:
-        The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.  The
-        total weight of the rows is at most that of the rows of ``_sparsify``.
+        The rows, and the invertible transform ``T`` for which the rows are ``T @ matrix % 2``.
     """
     rows, transform = _sparsify(matrix, symplectic=symplectic)
     if not len(rows):
         return rows, transform
 
-    # Each round adds the rows of a reduction that are lighter than the heaviest current row.  The
-    # rows come first among candidates of equal weight, so a round that does not lower the total
-    # weight leaves the rows as they are.  Row-reducing the transposed candidates, sorted by weight,
-    # takes as pivots the first candidates that are independent of those before them.
+    # Each round adds the rows of a reduction that are lighter than the heaviest current row.
+    # Row-reducing the transposed candidates, sorted stably by weight, keeps each candidate that is
+    # independent of those before it, and since the current rows come first among candidates of
+    # equal weight, a round that does not lower the total weight keeps them.
     rng = np.random.default_rng(_SPARSIFYING_SEED)
     weights = get_row_weights(rows, symplectic=symplectic)
     rounds_unchanged = 0
@@ -82,15 +65,14 @@ def get_sparser_rows(
         if rounds_unchanged >= rounds_without_improvement:
             break
 
-    # Add rows to each other where that helps, and find the transform from the given rows.  The rows
-    # are in the span of ``matrix``, whose product with the transpose of ``get_unit_syndrome_words``
-    # of ``matrix`` is the identity, so their product with it is the transform.
+    # Add rows to each other where that helps, and find the transform: ``matrix`` times the
+    # transpose of ``get_unit_syndrome_words(matrix)`` is the identity, so the rows times it are T.
     rows, _ = _sparsify(rows, symplectic=symplectic)
     return rows, multiply_binary(rows, get_unit_syndrome_words(matrix).T)
 
 
 def get_row_weights(rows: npt.NDArray[np.uint8], *, symplectic: bool) -> npt.NDArray[np.int64]:
-    """The weights of rows, as ``_sparsify`` counts them: of nonzero entries, or of qubits."""
+    """The numbers of nonzero entries of rows, or of the qubits on which symplectic rows act."""
     if not symplectic:
         return rows.sum(axis=1, dtype=np.int64)
     half = rows.shape[1] // 2
@@ -102,19 +84,14 @@ def _sparsify(
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """Rows with the span of the given rows, made sparser by adding rows to each other.
 
-    The weight of a row is its number of nonzero entries, or, if the rows are symplectic, the number
-    of qubits on which its X part ``[:n]`` or its Z part ``[n:]`` is nonzero.  While adding another
-    row to a row lowers its weight, the row takes the sum that is lightest.  Every addition lowers
-    the total weight, so this ends.
-
-    Args:
-        matrix: The rows.
-        symplectic: Whether the rows are symplectic.
+    While adding another row to a row lowers its weight, as ``get_row_weights`` counts it, the row
+    takes its lightest such sum.  Every addition lowers the total weight, so this ends.
 
     Returns:
-        The rows, and the invertible transform ``T``, so that the rows are ``T @ matrix % 2``.
+        The rows, and the invertible transform ``T`` for which the rows are ``T @ matrix % 2``.
     """
-    # Pack the X and Z parts, or the rows and zeros, so that a weight counts the nonzero qubits.
+    # Pack the X and Z parts of symplectic rows, or binary rows with zero Z parts, so that a weight
+    # counts the nonzero qubits or entries.
     num_rows, width = matrix.shape
     num_variables = width // 2 if symplectic else width
     part_x = pack_bits(np.ascontiguousarray(matrix[:, :num_variables]))
@@ -127,7 +104,7 @@ def _sparsify(
     weights = np.bitwise_count(part_x | part_z).sum(axis=1, dtype=np.int64)
 
     # Replace each row by its lightest sum with another row, while that lowers its weight.  A row
-    # added to itself would vanish, so its own entry keeps its weight, which never wins.
+    # added to itself would vanish, so that sum takes the weight of the row, which never wins.
     improved = True
     while improved:
         improved = False

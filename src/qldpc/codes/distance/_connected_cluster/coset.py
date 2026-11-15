@@ -24,34 +24,31 @@ from .sparse_checks import get_sparser_rows
 class ConnectedClusterCosetSearch:
     """A coset search of a ``CosetLeaderSearch`` by the connected-cluster search of its checks.
 
-    The words, checks, and syndromes are those of a ``BrouwerZimmermannCosetSearch``
-    (``_brouwer_zimmermann/coset.py``): packed Paulis, whose syndrome for the stabilizers is that of
-    the symplectic search of ``SupportSearch``, or the X or Z parts of Paulis, whose syndrome is
-    that of a binary search of the checks.  The search starts from the syndrome of a query, and
-    grows supports through its unsatisfied checks (Section 3.8 of ``connected_cluster.md``).
+    The words and syndromes are those of a ``BrouwerZimmermannCosetSearch``: packed Paulis, or X or
+    Z parts of Paulis.  The coset search makes its checks sparser, with the same span, and searches
+    from the syndrome of each query, mapped to them (Section 3.8 of ``connected_cluster.md``).
+    ``get_min_weight_bound`` gives these lower bounds on the weight of the words of a coset:
 
-    Like a ``BrouwerZimmermannCosetSearch``, it first looks up a word of weight zero or one by its
-    syndrome: the identity, a single variable, or a single-qubit Pauli.  A coset with such a word
-    gets the weight of that word as its lower bound, and only the other cosets are searched.  Of
-    these, a coset with a word within ``max_weight`` gets the lower bound two from a single search
-    at ``max_weight``, and the weight of its lightest words from increasing weight limits that start
-    at two (see ``get_min_weight_bound``).  From a higher first limit, a word that the search finds
-    at that limit gives the bound two, since it can be lighter than the limit, and a word that it
-    finds at a later limit gives that limit, the weight of its lightest words.  A coset without a
-    word within ``max_weight`` gets the larger of two and ``max_weight + 1``.  These bounds are
-    often weaker than those of a ``BrouwerZimmermannCosetSearch``.
+    - The weight of the word, for a coset with a word of weight zero or one, which a table finds.
+    - Two, for any other coset whose word the search finds within its first weight limit
+      (``max_weight`` for a single query), since the word can be lighter than that limit.
+    - The weight limit, for a coset whose word the search finds within a later limit, which is then
+      the weight of the lightest words.
+    - The larger of two and ``max_weight + 1``, for any other coset without a word within
+      ``max_weight``.
 
-    The search is fast only if its checks are sparse, but the given checks, such as row-reduced
-    stabilizers, can be dense.  So it searches the sparser checks of ``get_sparser_rows``, which
-    span the same space, and maps the syndrome of a query to them.
+    So with a first limit of two, every coset with a word within ``max_weight`` gets the weight of
+    its lightest words.
 
     Args:
-        matrix: The checks, whose kernel is the code: the stabilizers, in ``[X|Z]`` order, for
-            Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a word
-            is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
+        matrix: Independent checks, whose kernel is the code: the stabilizers, in ``[X|Z]`` order,
+            for Paulis, or the rows that check the X or Z parts.  Bit ``j`` of the syndrome of a
+            word is its symplectic product with row ``j`` for Paulis, and its dot product for parts.
         symplectic: True for Paulis, and False for X or Z parts.
-        max_rounds: The ``max_sparsifying_rounds`` of the tuning (see ``get_sparser_rows``).
-        rounds_without_improvement: The ``sparsifying_rounds_without_improvement`` of the tuning.
+        max_rounds: The field ``max_sparsifying_rounds`` of ``SearchTuning`` (see
+            ``get_sparser_rows``).
+        rounds_without_improvement: The field ``sparsifying_rounds_without_improvement`` of
+            ``SearchTuning``.
     """
 
     def __init__(
@@ -62,9 +59,8 @@ class ConnectedClusterCosetSearch:
         max_rounds: int,
         rounds_without_improvement: int,
     ) -> None:
-        # Map each syndrome of a word of weight zero or one to such a word.  The syndrome of a word
-        # with one nonzero bit is a column of the checks, once the halves of symplectic checks are
-        # swapped.
+        # Tabulate the words of weight zero or one by syndrome.  The syndrome of a single bit is a
+        # column of the checks, with the halves of symplectic checks swapped.
         num_variables = matrix.shape[1] // 2 if symplectic else matrix.shape[1]
         syndrome_matrix = swap_pauli_halves(matrix) if symplectic else matrix
         columns = row_ints(np.ascontiguousarray(syndrome_matrix.T))
@@ -77,9 +73,8 @@ class ConnectedClusterCosetSearch:
             rounds_without_improvement=rounds_without_improvement,
         )
         self._num_checks = len(rows)
-        # Row ``i`` of the sparse rows sums the given rows that row ``i`` of the transform selects,
-        # so bit ``i`` of a syndrome for them is the parity of those bits of the given syndrome.
-        # Entry ``j`` of the map is column ``j`` of the transform, which a given syndrome bit adds.
+        # Row ``i`` of ``rows`` sums the given rows that row ``i`` of ``transform`` selects, so a
+        # given syndrome maps to the sum of the columns of ``transform`` that its bits select.
         self._syndrome_map_columns = row_ints(np.ascontiguousarray(transform.T))
         # Without a function that finds automorphisms, the search never asks for them.
         self._search = SupportSearch(
@@ -88,8 +83,8 @@ class ConnectedClusterCosetSearch:
             symplectic=symplectic,
             automorphism_minimum_states=_tuning.MAX_VALUE,
         )
-        # Word ``j`` of ``get_unit_syndrome_words`` of the sparser rows has a syndrome of only bit
-        # ``j``, so the words of the set bits of a syndrome sum to a representative of its coset.
+        # For ``rows``, word ``j`` of ``get_unit_syndrome_words`` has a syndrome of only bit ``j``,
+        # so the words of the set bits of a syndrome sum to a representative of its coset.
         syndrome_rows = swap_pauli_halves(rows) if symplectic else rows
         self._inverse_rows = row_ints(get_unit_syndrome_words(syndrome_rows))
 
@@ -102,18 +97,11 @@ class ConnectedClusterCosetSearch:
     ) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
 
-        A negative ``max_weight`` admits no word, as for a ``BrouwerZimmermannCosetSearch``.  The
-        class docstring states the lower bounds of the answers.
-
-        A search with weight limit ``max_weight`` can visit many heavy supports before it finds a
-        much lighter word.  Given ``first_limit``, the search instead tries every limit from
-        ``first_limit`` to ``max_weight``, and stops at the first limit within which it finds a
-        word.  It tries no limit below two, since the lookup of words of weight at most one answers
-        those, and it lowers a first limit above ``max_weight`` to ``max_weight``.  This can save
-        time on cosets with words much lighter than ``max_weight``, and repeats the work of the
-        lower limits on cosets without a word within ``max_weight``.  From the first limit two, the
-        search finds a lightest word.  A higher first limit suits callers to which any word within
-        it gives the same answer.
+        The search tries each weight limit from ``max(min(first_limit, max_weight), 2)`` through
+        ``max_weight``, or, without ``first_limit``, only ``max_weight`` if it is at least two, and
+        stops at the first within which it finds a word (Section 3.8 of ``connected_cluster.md``).
+        A first limit above two suits callers to which any word within it gives the same answer.
+        The class docstring states the lower bounds of the answers.
         """
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)
@@ -121,18 +109,14 @@ class ConnectedClusterCosetSearch:
             weight = int(word != 0)
             return MinWeightBound(weight <= max_weight, word, weight)
 
-        # Map the syndrome to the sparse checks.  The map is invertible, and the lookup above
-        # answers the zero syndrome, so the mapped syndrome is not zero.  The sparse checks are
-        # independent, so the search keeps all of them, in order, and the mapped syndrome has one
-        # bit for each check that it keeps.  So the search can start from the packed syndrome,
-        # without the validation of ``find_vector_with_syndrome``, which would cost more than the
-        # search itself in many queries.
+        # Map the syndrome to the sparser checks, which are independent, so the search keeps them
+        # all, in order.  The map is invertible and the lookup answers the zero syndrome, so the
+        # mapped syndrome is not zero, as ``_find_vector_with_packed_syndrome`` requires.
         syndrome = xor_selected(self._syndrome_map_columns, syndrome)
         packed_syndrome = int_to_words(syndrome, (self._num_checks + 63) // 64)
 
-        # The lookup leaves only cosets without a word below weight two, so no limit below two is
-        # searched, and a single query searches only at ``max_weight``.  Each limit within which the
-        # search finds no word raises the lower bound above that limit.
+        # The lookup leaves only cosets without a word below weight two, so search no limit below
+        # two, and raise the lower bound above each limit within which the search finds no word.
         lower_bound = 2
         first = max_weight if first_limit is None else min(first_limit, max_weight)
         for limit in range(max(2, first), max_weight + 1):
@@ -144,10 +128,9 @@ class ConnectedClusterCosetSearch:
         return MinWeightBound(False, representative, lower_bound)
 
     def _get_word(self, symbols: npt.NDArray[np.int64]) -> int:
-        """Pack the symbols of a support into a word.
+        """Pack symbols into a word, in which the values 0, 1, and 2 of a symbol are X, Z, and Y.
 
-        A symbol gives the qubit ``symbol % n`` the Pauli X, Z, or Y for values 0, 1, and 2.  The
-        symbols of an X or Z part have only the value 0.
+        The symbols of an X or Z part all have the value 0.
         """
         num_variables = self._search.num_variables
         word = 0
