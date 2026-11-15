@@ -561,7 +561,7 @@ def completion_tables(
             completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
         )
     select = completion_bounds.select_completion_tables
-    scan = affine_search.scan_set
+    scan_set = affine_search.scan_set
 
     def recording_select(*args: Any, **kwargs: Any) -> completion_bounds.CompletionTables | None:
         tables = select(*args, **kwargs)
@@ -569,7 +569,7 @@ def completion_tables(
         return tables
 
     def counting_scan(*args: Any) -> tuple[int, int, int, int, int]:
-        result = scan(*args)
+        result = scan_set(*args)
         record.lookups += result[3]
         record.skipped += result[4]
         return result
@@ -1096,8 +1096,8 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
 ) -> None:
     """Searches that scan several sets of a layer, each with its own tables or none, are exact."""
     select = completion_bounds.select_completion_tables
-    scan_set = bz._BrouwerZimmermannSearch._scan_set
-    scan = affine_search.scan_set
+    scan_set_method = bz._BrouwerZimmermannSearch._scan_set
+    scan_set = affine_search.scan_set
     num_choices, scanned_index, returned_to_first_set = 0, 0, False
     later_scans = {"with tables": 0, "without tables": 0}
     returns_with_tables = 0
@@ -1112,7 +1112,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
         nonlocal scanned_index, returned_to_first_set
         returned_to_first_set = index == 0 and scanned_index > 0
         scanned_index = index
-        return scan_set(search, index, weight)
+        return scan_set_method(search, index, weight)
 
     def checking_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal returns_with_tables
@@ -1123,7 +1123,7 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
             returns_with_tables += returned_to_first_set
             own = completion_bounds.CompletionTables.build(rows[:, :width], block_bits)
             assert np.array_equal(tables, own.tables)
-        return scan(*args)
+        return scan_set(*args)
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", mixing_select)
     monkeypatch.setattr(bz._BrouwerZimmermannSearch, "_scan_set", recording_scan_set)
@@ -1163,11 +1163,11 @@ def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(cut
         next_weight=2,
     )
     scanned: list[int] = []
-    scan_set = bz._BrouwerZimmermannSearch._scan_set
+    scan_set_method = bz._BrouwerZimmermannSearch._scan_set
 
     def recording_scan_set(search: bz._BrouwerZimmermannSearch, index: int, weight: int) -> bool:
         scanned.append(index)
-        return scan_set(search, index, weight)
+        return scan_set_method(search, index, weight)
 
     with mock.patch.object(bz._BrouwerZimmermannSearch, "_scan_set", recording_scan_set):
         assert search.advance() == 5
