@@ -84,12 +84,12 @@ The sizes of caches, ``coset_route_minimum_work``, and ``macwilliams_shared_walk
 by hand, and the comments of the two fields say why.
 
 Change a default only when its heuristic changes, when a check shows that its assumption, such as
-the cost of a step, is off by more than a factor of about 3, or when the maintainer changes a
-budget.  Never change a default to gain a factor of two on particular codes.  The scripts of
-``experiments/distance_tuning`` check the tuning and set no value: ``constants.py`` checks the
-orders of magnitude that the heuristics assume, ``trace.py`` shows which decisions a search makes,
-and ``sweep.py`` catches gross regressions or bugs.  The README of that directory says how to run
-them.
+the cost of a step, is off by more than a factor of about 3, or when the maintainer changes a budget
+or a value chosen by hand.  Never change a default to gain a factor of two on particular codes.  The
+scripts of ``experiments/distance_tuning`` check the tuning and set no value: ``constants.py``
+checks the orders of magnitude that the heuristics assume, ``trace.py`` shows which decisions a
+search makes, and ``sweep.py`` catches gross regressions or bugs.  The README of that directory says
+how to run them.
 """
 
 from __future__ import annotations
