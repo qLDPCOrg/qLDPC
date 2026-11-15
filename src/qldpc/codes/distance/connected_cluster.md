@@ -27,7 +27,7 @@ Checks much lighter than the distance, as in surface codes, also slow it: a supp
 
 The checks of a subsystem code are its stabilizers ([Section 3.1](#31-the-problem)), which can be much heavier than its gauge generators.
 `get_distance_css` and `get_distance_pauli` derive them as a row-reduced basis, which can also be much heavier than the lightest generators of the stabilizer group, and so first make it sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
-A caller who knows sparse stabilizer generators can search them as given with `get_distance_from_checks`, whose docstring says how.
+A caller who knows sparse stabilizer generators can search them as given: for a CSS subsystem code, `get_distance_from_checks(S_Z, G_X, method="connected_cluster")`, with Z-type stabilizer generators `S_Z` and X-type gauge generators `G_X`, gives the dressed X-distance, whereas excluding X-type stabilizers instead of `G_X` would count gauge operators as logical operators.
 
 A code that is not CSS costs more than the two sectors of a CSS code ([Section 3.7](#37-qubit-codes-that-are-not-css)): each qubit of a check offers two Paulis that flip the check rather than one variable, and a `Y` can flip both a check that acts on its qubit as `X` and one that acts as `Z`, which weakens the bounds.
 So `get_distance_pauli` searches checks as a CSS code whenever X-type and Z-type operators generate their group, even if the checks mix X and Z, but searches a code that is CSS only up to local Cliffords, such as a CSS code with Hadamards on some qubits, as a code that is not CSS.
@@ -211,7 +211,7 @@ Sections 3.2 to 3.6 carry over with symbols for variables:
 - **Symmetries.**
   A permutation of the qubits moves both halves of each vector, and qLDPC verifies it on all `2n` columns; the roots and ranks are those of variables, and a root blocks every value of the variables of lower rank.
 - **Logical test and divisor.**
-  The test block of a `Y` is the sum of those of `X` and `Z`, and these problems have no weight divisor, so their limits step by one.
+  The test block of a `Y` is the sum of those of `X` and `Z`, and qLDPC gives these problems no weight divisor, so their limits step by one.
 
 ### 3.8 Vectors with a given syndrome
 
@@ -229,7 +229,7 @@ The roots and ranks, symmetries, weight divisor, and logical test of a distance 
 
 `CosetLeaderSearch` of `coset_leaders.py`, which `certify_bounded_fault_propagation` and the experimental `estimate_residual_weight_histogram` use, answers its queries by syndrome queries when built with `method="connected_cluster"`.
 It searches Pauli errors for the physical weight, but the CSS weight `max(|x|, |z|)` of an error with X part `x` and Z part `z` is not a sum over qubits, so it supports that weight only on a CSS state, whose X and Z parts it searches separately.
-Each of its coset searches, a `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, searches sparser checks with the span of the given checks, and maps the syndrome of each query to them, since given checks, such as the row-reduced stabilizers that `certify_bounded_fault_propagation` passes, can be dense ([Section 2](#2-what-the-cost-of-the-search-depends-on)).
+Each of its coset searches, a `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, searches sparser checks with the span of the given checks, and maps the syndrome of each query to them, since given checks, such as the row-reduced stabilizers that `certify_bounded_fault_propagation` passes, or the X and Z parts that `CosetLeaderSearch` row-reduces for the CSS weight, can be dense ([Section 2](#2-what-the-cost-of-the-search-depends-on)).
 
 The sparsest such checks are a lightest basis of the span, which the greedy algorithm for matroids finds by taking, again and again, the lightest word outside the span of those taken; but each step would be an exact search, whose cost grows quickly with the weight of the word.
 So `get_sparser_rows` of `_connected_cluster/sparse_checks.py` instead takes candidates from row reductions in random orders of the columns, and keeps a lightest basis of the candidates and the current checks, so that their total weight never rises.
@@ -269,9 +269,8 @@ Together, the two sets span exactly the stabilizer group, since the second spans
 A distance search needs only the span of its checks, and no map of syndromes, so it can keep redundant checks, which can strengthen it, since each unsatisfied check can prune a state or offer fewer branches.
 It uses its checks for one search, while a `CosetLeaderSearch` sparsifies once for many queries, so `max_distance_sparsifying_rounds` defaults to fewer rounds than `max_sparsifying_rounds`.
 
-Sparsity is not all that matters.
-The derived basis of a Bacon-Shor code is already as sparse as possible, with each row acting on one line of the lattice and on the last line, and a basis of the same weight whose rows act on neighboring lines makes the search visit far more states.
-So the rounds change the checks only when they lower their total weight, which leaves the derived basis of a Bacon-Shor code as it is.
+Sparsity is not all that matters: bases of equal weight can make the search visit very different numbers of states.
+So a round changes the checks only when that lowers their total weight, which leaves a basis that is already as sparse as possible, such as the derived basis of a Bacon-Shor code, as it is.
 
 ## 4. Guide to the source code
 
@@ -314,7 +313,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - **Forbid a variable for a subtree only if no completion of the state within the weight limit holds it**, and make it available again when the search leaves the state.
 - **Give each variable at most one value**: block the other values of the variable of a symbol while the symbol is in the support, unblock them when the search leaves its branch, and let a sibling forbid only its own symbol.
   Without the blocking, distances would not change, but a witness could hold two symbols on one variable and overstate its weight, so the tests check witnesses at every weight limit.
-- **Block the variables of earlier siblings, and every value of the variables of lower rank than the root.**
+- **Forbid each earlier sibling's symbol, and every value of the variables of lower rank than the root.**
   Without this, the results would not change, and the search would only be slower, so the tests compare `num_states` with a count by hand.
 - **Verify the automorphisms, and make each root the lowest-ranked variable of its orbit under all generators**, since roots from unverified permutations are unsound.
 - **Preserve the logical test**: a state with an empty syndrome holds a witness exactly if it fails a test, and no word of `rowspan(G)` may be reported.
