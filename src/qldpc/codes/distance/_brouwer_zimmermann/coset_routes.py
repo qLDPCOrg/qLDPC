@@ -14,13 +14,14 @@ Families with more information sets stop sooner, but take milliseconds to build,
 queries repay.
 
 So ``CosetRoutes`` chooses, once for each maximum weight, the family of the route that answers it.
-A gate predicts the examinations of a query with the disjoint family, and keeps that family below
-its threshold, the field ``coset_route_minimum_work`` of the tuning.  Once a maximum weight reaches
-the threshold, the routes try, once for the search, to build a maximum disjoint family and a family
-of overlapping information sets.  The route of each maximum weight that reaches the threshold is
-then the family that does the least work at that weight.  Section 4.4 of ``brouwer_zimmermann.md``
-defines the work and the predicted examinations, and says at which weight the routes build the
-families and how they break ties.
+A gate predicts the examinations of a query with the disjoint family, and keeps the disjoint family
+for a maximum weight whose predicted examinations are below the threshold, the field
+``coset_route_minimum_work`` of the tuning.  Once the predicted examinations at a maximum weight
+reach the threshold, the routes try, once for the search, to build a maximum disjoint family and a
+family of overlapping information sets.  The route of each such maximum weight is then the family
+that does the least work at that weight.  Section 4.4 of ``brouwer_zimmermann.md`` defines the work
+and the predicted examinations, and says at which weight the routes build the families and how they
+break ties.
 
 Every route answers exactly, since the certificate of every family bounds the words of each coset
 (see ``affine_instance.get_coset_family_instance``).  Routes can return different words and lower
@@ -43,9 +44,9 @@ tails of a family once, and the tables of each set of the family once, for the f
 needs them.  Every route by tails of a family gives the latest record of the family.  That record
 can hold tables that other routes of the family asked for, but the queries of a route read only the
 tables that the route asked for, so their answers do not depend on earlier queries.  A search for
-minimum weights up to the maximum weight of a route takes the route too.  Its stopping step comes no
-later than that of the queries of the route, so it visits no layer that they do not visit (Section
-3.10 of ``brouwer_zimmermann.md``).
+minimum weights up to a maximum weight takes the route of that weight, or of the number of qubits if
+that is smaller.  Its stopping step comes no later than that of the queries of the route, so it
+visits no layer that they do not visit (Section 3.10 of ``brouwer_zimmermann.md``).
 
 Tails and tables change how a query weighs words and which words it skips, but not which word of
 weight at most the maximum weight it finds first, if any.  A query without such a word can return
@@ -179,8 +180,8 @@ class CosetRoutes:
 
         The work of a table is that of the plan of its steps from layer zero for the limit
         ``max_weight``, without the unused sets that a query skips (see
-        ``certificates.plan_steps``).  It counts the words, after the word of its syndrome, that a
-        query without a light enough word weighs or skips by completion tables (Section 3.9 of
+        ``certificates.plan_steps``).  It counts the words that a query without a light enough word
+        weighs, or skips by completion tables, after the word of its syndrome (Section 3.9 of
         ``brouwer_zimmermann.md``).
         """
         return [

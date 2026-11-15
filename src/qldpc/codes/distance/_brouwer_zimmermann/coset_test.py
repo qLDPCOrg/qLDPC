@@ -216,11 +216,11 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     """Costly queries build their families and tables with the tuning of the oracle that answers.
 
     With the threshold of the gate at zero, the first query that searches builds the other families
-    of the search and their completion tables (see ``coset_routes``).  The test records the most
-    sets and the attempts per set that reach ``basis_families.get_overlapping_family``, and the
-    width of the blocks and the limit of bytes that reach
-    ``completion_bounds.get_table_bytes_within``.  They are those of the tuning in force when the
-    oracle was built, not when it answers.
+    of the search, and the routes by tails build completion tables (see ``coset_routes``).  The test
+    records the most sets and the attempts per set that reach
+    ``basis_families.get_overlapping_family``, and the width of the blocks and the limit of bytes
+    that reach ``completion_bounds.get_table_bytes_within``.  They are those of the tuning in force
+    when the oracle was built, not when it answers.
     """
     calls: list[tuple[int, int]] = []
     table_calls: set[tuple[int, int]] = set()
@@ -848,9 +848,9 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
     they skip words beyond the maximum weight, which changes only the answers to cosets without a
     word within it.
 
-    The family of each code reduces its generators on blocks of as many columns as they have rows,
-    alternating with blocks of one column fewer, whose sets are rank deficient.  So the tails of the
-    sets differ in their numbers of columns.  The codes are:
+    The family of each code, except the graph state with tables, reduces its generators on blocks of
+    as many columns as they have rows, alternating with blocks of one column fewer, whose sets are
+    rank deficient.  So the tails of the sets differ in their numbers of columns.  The codes are:
 
     - Small random codes, each with a column of zeros, which a coset can still have ones on.  With
       tables, each is also made even by a column of the parities of its rows, so that the searches
