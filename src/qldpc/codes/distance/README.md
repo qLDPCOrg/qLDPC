@@ -14,52 +14,56 @@ Users reach it through the public functions and classes below, which take plain 
 - `CSSLogicalCounter`, `CSSLogicalCounts`, `count_logical_ops_css`, `LogicalCountMethod`, and `compile_search_setup`, from `logical_counts.py`.
 - `CosetLeaderSearch`, from `coset_leaders.py`, and `MinWeightBound`, the answer of its queries, from `min_weight_bounds.py`.
 
-`qldpc.codes` re-exports only `NoDistance`, `NO_DISTANCE`, and `DistanceMethod`, which the code classes take or return, and docs cite the other names at `qldpc.codes.distance`.
+`qldpc.codes` re-exports only `NoDistance`, `NO_DISTANCE`, and `DistanceMethod`, which the code classes take or return.
+The documentation cites the other names at `qldpc.codes.distance`.
 
 ## Terms
 
 - **Sector:** the words of one type that a search examines, such as the logical operators of one type of a CSS code.
   A Brouwer-Zimmermann search takes a basis of them, with labels that tell nontrivial words from trivial ones, such as logical operators from stabilizers.
   A connected-cluster search takes the parity checks whose kernel holds them, and a matrix whose row space has the trivial ones.
-- **Information set:** in the code, the basis of a sector, row reduced so that a block of its columns forms an identity matrix.
-  `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" for the block of columns itself.
+- **Information set:** in the code, the basis of a sector, row reduced on a block of `rank` pivot columns, so that its first `rank` rows form an identity matrix on the block and its other rows are zero there.
+  In a full set, `rank` is the dimension of the basis.
+  A partial set, whose block has a smaller rank, goes by the same name.
+  `brouwer_zimmermann.md` calls this basis a search basis, and uses "information set" only for a block of full rank (Sections 2.3 and 2.4).
 - **Basis family** (`BasisFamily`): the information sets that one Brouwer-Zimmermann search or count uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither visited nor skipped, which tells the search when it can stop.
   With completion tables, it bounds only the words lighter than the best weight (see Section 3.9 of `brouwer_zimmermann.md`).
 - **Connected-cluster search** (`SupportSearch`): the depth-first search of the supports that grow through unsatisfied parity checks, for a binary matrix of checks `H` and an excluded matrix `G`, whose words are binary, or symplectic for qubit codes that are not CSS.
   It is another exact method, selected by `method="connected_cluster"`, and it also finds light vectors with a given syndrome.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer.
-  Counting scans in `_counting/scan.py`.
-  The Brouwer-Zimmermann distance search in `_brouwer_zimmermann/distance.py` and the Brouwer-Zimmermann coset searches in `_brouwer_zimmermann/coset.py` scan with the compiled scans of `_brouwer_zimmermann/affine_search.py`.
+  Counts have their own scan, in `_counting/scan.py`.
+  The Brouwer-Zimmermann distance search in `_brouwer_zimmermann/distance.py` and the Brouwer-Zimmermann coset searches in `_brouwer_zimmermann/coset.py` use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
   All of them step through a layer with `advance_support` in `_information_sets/support_stepping.py`.
 
 ## Layout
 
 - `core.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
 - `coset_leaders.py` is the public interface of the coset-leader search, and `min_weight_bounds.py` defines the answer of its queries, which its coset searches build too.
-- `_brouwer_zimmermann/` holds the Brouwer-Zimmermann searches, which scan information sets, and `_connected_cluster/` the searches over connected supports.
-  Each holds its distance search, and the coset searches with which the coset-leader search answers its queries by that method.
-  Exhaustive enumeration fits in one module, `_brute_force.py`.
+- `_brouwer_zimmermann/` holds the Brouwer-Zimmermann searches, which scan information sets, and `_connected_cluster/` the connected-cluster searches, which grow connected supports.
+  Each holds the distance search of its method, and the coset searches with which the coset-leader search answers queries by that method.
+  `_brute_force.py` holds exhaustive enumeration.
 - `_counting/` holds the word scan of the counts, the local Clifford gates of deformed counters, and the MacWilliams method.
 - `_information_sets/` holds the families of information sets and their certificates, which the Brouwer-Zimmermann searches and the counts share.
   The method name `"information_sets"` is an alias of `"brouwer_zimmermann"`, for distances and counts alike.
-- `_cosets.py` holds what the coset searches of both methods share.
-- `_tuning.py` holds the settings of the searches, and `_binary.py` the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
+- `_cosets.py` holds the parts that the coset searches of both methods share.
+- `_tuning.py` holds the settings of the searches.
+- `_binary.py` holds the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
   The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
 
 ## Where to look
 
 | To change… | Look in (this directory) |
 | --- | --- |
-| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; and where `logical_counts.py`, `_counting/scan.py`, `get_distance_exact`, and `get_distance` in `src/qldpc/codes/common.py` dispatch on the method name |
+| A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; where `logical_counts.py`, and `get_distance_exact` and `get_distance` in `src/qldpc/codes/common.py`, dispatch on the method name; and the `brute_force` flag that `logical_counts.py` passes to `_counting/scan.py` |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
-| The queries of the minimum weights of syndrome classes of Pauli errors (coset-leader weights), and how a query splits into coset searches, used by `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` | `coset_leaders.py` |
+| The coset-leader search, which `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` use: its queries of the least weight of the Pauli errors with a given syndrome, and how a query splits into coset searches | `coset_leaders.py` |
 | The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
-| The compiled scans of layers that the BZ distance search and the BZ coset-leader search share, one body specialized by constant flags | `_brouwer_zimmermann/affine_search.py` |
-| The packed information sets of a BZ distance search or a BZ coset-leader search, and the certificate of their steps | `_brouwer_zimmermann/affine_instance.py` |
+| The compiled scans of layers that the BZ distance search and the BZ coset searches share, one body specialized by constant flags | `_brouwer_zimmermann/affine_search.py` |
+| The instances of BZ distance searches and BZ coset searches: their packed information sets, and the certificate of these sets | `_brouwer_zimmermann/affine_instance.py` |
 | The BZ coset searches of the coset-leader search | `_brouwer_zimmermann/coset.py` |
-| The tables of the steps and tails of BZ coset searches | `_brouwer_zimmermann/coset_tables.py` |
-| The families of information sets with which a BZ coset-leader search answers costly queries, the gate that chooses them for each maximum weight, and the routes whose queries weigh words by their tails and skip completions by tables | `_brouwer_zimmermann/coset_routes.py` |
+| The tables of BZ coset searches: the bounds of their steps and their stopping steps, and the tails and completion tables of their routes by tails | `_brouwer_zimmermann/coset_tables.py` |
+| The routes of BZ coset searches: the family of information sets that answers the queries of each maximum weight, the gate that chooses it, and the routes by tails, whose queries weigh words by their tails and skip completions by tables | `_brouwer_zimmermann/coset_routes.py` |
 | The connected-cluster search, of distances and of vectors with a given syndrome | `_connected_cluster/search.py` |
 | The connected-cluster coset searches of the coset-leader search | `_connected_cluster/coset.py` |
 | How the connected-cluster searches make their checks sparser with the same span | `_connected_cluster/sparse_checks.py` |
@@ -72,10 +76,10 @@ Users reach it through the public functions and classes below, which take plain 
 | How basis families are built | `_information_sets/basis_families.py` |
 | Certificates, and how searches plan their steps: where they stop, and the work of the steps up to there | `_information_sets/certificates.py` |
 | The step from one support of a layer to the next, which every scan of layers shares | `_information_sets/support_stepping.py` |
-| Automorphism families: the images of one information set under automorphisms of a code, and the check of those automorphisms, which the connected-cluster search uses too | `_information_sets/automorphism_families.py` |
-| Completion tables, which bound the words that complete the first rows of a BZ support with two more rows: a distance search skips the supports whose words cannot be lighter than its best word, a count those whose words all weigh more than its target weight, and a BZ coset query on a route by tails those whose words all weigh more than its maximum weight. A BZ search for the minimum weight of a coset skips those too, and those whose words cannot be lighter than its lightest word so far. Also the choice of whether to build them | `_information_sets/completion_bounds.py` |
+| Automorphism families, the images of one information set under automorphisms of a code; and the check of those automorphisms and their orbits, which the connected-cluster search uses too | `_information_sets/automorphism_families.py` |
+| Completion tables, which bound the weights of the words that complete a BZ support with two more rows, so that a scan can skip the supports whose words are too heavy for its search; and the choice of whether to build them | `_information_sets/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
-| The settings that a search reads when it starts, such as the thresholds that choose the kinds of information-set families and completion tables, the threshold of states before which a connected-cluster search asks for automorphisms, the coefficients of cost models, memory limits, and batch sizes (`SearchTuning`, `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
+| The settings that a search reads when it starts (`SearchTuning` and `use_tuning`), such as the thresholds that choose routes, the coefficients of cost models, memory limits, and batch sizes; and the constants that size caches when qLDPC is imported | `_tuning.py` |
 | Binary input checks, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -108,30 +112,30 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecat
 `CosetLeaderSearch` answers each query with one or two coset searches, each of the cosets of one binary code.
 
 - In general, one search of the Pauli errors, modulo the stabilizers, answers a query.
-  Its syndromes are for the given stabilizers, so it is cached for the most recently used stabilizer matrices (see `PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`).
 - For the CSS weight on a CSS state, two classical searches cover the X parts and the Z parts of the errors separately, on `n` columns each rather than `2n`.
   A pure-X stabilizer has no Z part, a pure-Z stabilizer has no X part, and a stabilizer state is CSS if pure-X and pure-Z stabilizers generate its stabilizer group.
   The X parts of the pure-X stabilizers span a binary code `C_X`, and the Z parts of the pure-Z stabilizers a binary code `C_Z`.
   Multiplying an error by a stabilizer adds a word of `C_X` to its X part `x` and a word of `C_Z` to its Z part `z`, independently, so the smallest CSS weight of an error with a given syndrome is the larger of the smallest Hamming weights in the cosets `x + C_X` and `z + C_Z`.
-  The coset of an X part is labeled by its syndrome for the pure-Z stabilizers, and that of a Z part by its syndrome for the pure-X stabilizers, and the search maps a syndrome for the given stabilizers to these two syndromes.
-  The two coset searches depend only on the stabilizer group, so they are cached for the most recently used groups (see `CSS_SEARCH_CACHE_SIZE` in `_tuning.py`), and searches for different generating sets of one state share them.
+  The coset of an X part is labeled by its syndrome for the pure-Z stabilizers, and that of a Z part by its syndrome for the pure-X stabilizers.
+  The search maps a syndrome for the given stabilizers to these two syndromes.
 
 The coset searches answer their own queries with `MinWeightBound` too, whose representative is then a word of their code: a packed Pauli error, or an X or Z part.
 Each coset search first looks up the words of weight at most one in a table.
 
 By default, each coset search is a Brouwer-Zimmermann (BZ) search, `BrouwerZimmermannCosetSearch` in `_brouwer_zimmermann/coset.py`, whose `_search_coset` scans the information sets of its code (Section 4.1 of `brouwer_zimmermann.md`).
-With one BZ search, `find_first_not_within_max_weight` returns the bound that the batch search found, so the syndrome is not searched again, and with two, the bound that `get_min_weight_bound` gives.
+The search of the Pauli errors depends on the given stabilizers, since its syndromes are for them, so it is cached for the most recently used stabilizer matrices (see `PAULI_SEARCH_CACHE_SIZE` in `_tuning.py`).
+The two searches of X and Z parts depend only on the stabilizer group, so they are cached for the most recently used groups (see `CSS_SEARCH_CACHE_SIZE` in `_tuning.py`), and searches for different generating sets of one state share them.
+With one BZ search, `find_first_not_within_max_weight` returns the bound that the batch search found, so the syndrome is not searched again.
+With two, it returns the bound that `get_min_weight_bound` gives.
 `get_min_weights` answers the syndromes of a batch in one compiled loop for each coset search, with `BrouwerZimmermannCosetSearch.get_min_weights` (Section 3.10 of `brouwer_zimmermann.md`).
 For the CSS weight, it searches the Z part of a class only if its X part is within the maximum weight, with the weight of the X part as the floor of that search.
 
 With `method="connected_cluster"`, each coset search is a `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, which runs `SupportSearch` of `_connected_cluster/search.py` from the syndrome of a query (Section 3.8 of `connected_cluster.md`).
-It searches through the unsatisfied stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
-It can be fast only if its checks are sparse.
-Given stabilizers, such as row-reduced ones, can be dense, so it first replaces its checks with sparser ones that span the same space, which can fall short of the sparsest generators.
+Each `CosetLeaderSearch` builds its own connected-cluster coset searches.
+A search grows supports through the unsatisfied stabilizers for Pauli errors, the pure-Z stabilizers for X parts, and the pure-X stabilizers for Z parts.
+Given stabilizers, such as row-reduced ones, can be dense, so each search first replaces its checks with sparser ones that span the same space, with `get_sparser_rows` of `_connected_cluster/sparse_checks.py`.
 The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only on CSS states, whose X and Z parts it searches separately.
-A syndrome with an error of weight at most one gets the weight of its lightest errors as a lower bound.
-For any other syndrome, a query with an error within `max_weight` gives the lower bound two, and a query with none gives the larger of two and `max_weight + 1`.
-The BZ searches often give higher bounds.
+The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers, which are often lower than those of the BZ searches.
 `find_first_not_within_max_weight` searches each syndrome that the table lacks with increasing weight limits (`_get_batch_cluster_bound`), which can find light errors sooner than one search at `max_weight`.
 So for the CSS weight, the representative of a part within `max_weight` can differ from the one that `get_min_weight_bound` gives.
 `get_min_weights` also tries increasing weight limits (`_get_min_cluster_weight`), and starts the search of a Z part at the weight of its X part.
@@ -141,7 +145,8 @@ So for the CSS weight, the representative of a part within `max_weight` can diff
 - `disjoint_random_column_orders` configures every BZ search.
 - `max_css_single_pairs` configures the BZ searches by CSS weight that are not split into two classical searches.
 - `coset_route_minimum_work`, `max_information_sets`, and `overlapping_attempts_per_set` configure the families of information sets with which a BZ search answers costly queries (see `_brouwer_zimmermann/coset_routes.py`).
-  The threshold `coset_route_minimum_work` also decides which queries of the BZ searches by physical weight, and of the classical searches, weigh words without the pivot columns of each set of their family, and skip the words that tables of bounds prove to weigh more than `max_weight`.
+  The threshold `coset_route_minimum_work` also decides which queries of the BZ searches by physical weight, and of the classical searches, take routes by tails.
+  These queries weigh words without the pivot columns of each set of their family, and skip the words that tables of bounds prove to weigh more than `max_weight`.
   `coset_completion_block_bits` and `completion_bound_max_table_bytes` configure these tables.
 - `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` configure how the connected-cluster coset searches make their checks sparser.
 
@@ -152,7 +157,8 @@ The arguments of the public functions say what to compute and by which method, s
 Section 4.4 of `brouwer_zimmermann.md` says where each heuristic of a Brouwer-Zimmermann search uses its fields, and Sections 3.5, 3.8, and 3.9 of `connected_cluster.md` where the connected-cluster searches use theirs.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down to the stages and loops that use them.
-  The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_cluster` read it only if their callers pass none.
+  The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built.
+  `get_distance_brouwer_zimmermann_many` and `get_distance_connected_cluster` read it only if their callers pass none.
   Pass these values as arguments, including to compiled code, and do not read the tuning anywhere else, so that one search never mixes two tunings.
   A value that the code keeps in a cache that outlives a search also keys that cache, as the fields of `_CosetTuning` in `_brouwer_zimmermann/coset.py` key the cached searches of `CosetLeaderSearch`.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
