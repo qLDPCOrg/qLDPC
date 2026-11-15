@@ -145,9 +145,9 @@ def warm_up(kind: str) -> None:
         kind = "count"
     for changes in ({}, FORCE_EVERY_ROUTE):
         with _tuning.use_tuning(**changes):
-            if kind in ("distance", "csdistance"):
+            if kind in ("distance", "ccdistance"):
                 method: DistanceMethod = (
-                    "connected_cluster" if kind == "csdistance" else "brouwer_zimmermann"
+                    "connected_cluster" if kind == "ccdistance" else "brouwer_zimmermann"
                 )
                 classical = workloads.get_code("classical:40:20:0")
                 classical.forget_distance()

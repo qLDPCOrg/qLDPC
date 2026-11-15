@@ -43,7 +43,7 @@ On an Apple M3 Max that also ran other work, on the library code that follows #8
 | `lp_minimum_work` | `2 * 10**8` | The linear programming of `distance/qt7/X` with automorphisms off, a search of 181 rows that solves 11 programs: 0.21 s, or `1.79 * 10**8` to `1.81 * 10**8` evaluations, for planning and programs |
 | `completion_bound_max_cost_percent` | 100 | None: the limit compares two estimates in one unit |
 | `automorphism_minimum_layer_work` | `5 * 10**6` | Finding the automorphisms of a BZ search, verifying them, and building their images: 7.56 to 8.57 ms, on `hadamard/gross` set up only, or `6.4 * 10**6` to `7.2 * 10**6` evaluations; `distance/qt7/X` took 6.35 to 6.68 ms |
-| `automorphism_minimum_states` | `5 * 10**4` | Asking for automorphisms in a connected-cluster search, which finds them, verifies them, and orders their orbits: 8.9 to 9.4 ms, on `csdistance/qt7/X`, or `3.4 * 10**4` to `3.7 * 10**4` states at 253 to 263 ns each, the median over six searches of 99 to 828 ns |
+| `automorphism_minimum_states` | `5 * 10**4` | Asking for automorphisms in a connected-cluster search, which finds them, verifies them, and orders their orbits: 8.9 to 9.4 ms, on `ccdistance/qt7/X`, or `3.4 * 10**4` to `3.7 * 10**4` states at 253 to 263 ns each, the median over six searches of 99 to 828 ns |
 
 The row of `automorphism_minimum_states` comes from six later runs of the script, which gave the other values again.
 The row of `automorphism_minimum_layer_work` comes from three runs on the library code that follows #871, at 1.18 to 1.19 ns per evaluation, which gave the other values again; in them, the constant of `automorphism_minimum_states` was `3.33 * 10**4` to `3.52 * 10**4` states.
@@ -72,9 +72,9 @@ The five coefficients of the cost model keep values measured on the cost data se
    In these examples, the proposed tuning holds the earlier value of `automorphism_minimum_states`, `10**5`, so they repeat the confirmation of its derived value with the arms swapped:
 
    ```bash
-   python experiments/distance_tuning/trace.py csdistance/lp13s5/X \
+   python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
        --output experiments/distance_tuning/results/current.json
-   python experiments/distance_tuning/trace.py csdistance/lp13s5/X \
+   python experiments/distance_tuning/trace.py ccdistance/lp13s5/X \
        --tuning '{"automorphism_minimum_states": 100000}' \
        --output experiments/distance_tuning/results/proposed.json
    python experiments/distance_tuning/trace.py --compare \
@@ -88,7 +88,7 @@ The five coefficients of the cost model keep values measured on the cost data se
 
    ```bash
    python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \
-       --workloads csdistance/lp13s5/X csdistance/surface:17/X csdistance/qt7/X \
+       --workloads ccdistance/lp13s5/X ccdistance/surface:17/X ccdistance/qt7/X \
        --proposed '{"automorphism_minimum_states": 100000}'
    ```
 

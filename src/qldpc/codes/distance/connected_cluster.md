@@ -8,13 +8,13 @@ It is the method `"connected_cluster"` of the `get_distance_exact` methods of `C
 Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 The same search also finds light vectors with a given syndrome, such as Pauli errors, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
 The search is the connected-cluster algorithm of Dumer, Kovalev, and Pryadko, and later works cite their 2017 paper for it (see the [references](#references)).
-Its earliest known form is the linked-cluster technique of Kovalev, Dumer, and Pryadko (2013), for the distances of quantum LDPC codes.
+Its earliest known application to quantum codes is the linked-cluster technique of Kovalev, Dumer, and Pryadko (2013), for the distances of quantum LDPC codes.
 Dumer, Kovalev, and Pryadko (2014) then grew each cluster through the checks that it leaves unsatisfied, as qLDPC does.
-qLDPC follows the branch and bound of Okada and Kasai (Algorithm 2 in Section V) and of Lee et al. (Appendix B).
+qLDPC follows the branch and bound of Okada and Kasai (Algorithm 2 in Section V) and of Lee et al. (Appendix B), who also extend it to stabilizer codes that are not CSS (Appendix B.2).
 They branch on the unsatisfied check with the fewest choices, forbid the variables of earlier siblings, prune by lower bounds, and search from one root per orbit of cyclic shifts.
 G. Lee (Appendix C.4) takes the roots from general groups of automorphisms of the Tanner graph, and [Section 3.5](#35-symmetries) says which automorphisms qLDPC uses.
 Related searches of classical LDPC codes look for small stopping sets and low-weight codewords: those of Richter, of Rosnes and Ytrehus, and of Khatami et al.
-The name follows `dist-m4ri`, the program of Pryadko and Zeng, which calls the search the "connected-cluster (CC) algorithm" of Dumer, Kovalev, and Pryadko.
+The method's name, `"connected_cluster"`, follows `dist-m4ri`, the program of Pryadko and Zeng, which calls the search the "connected-cluster (CC) algorithm" of Dumer, Kovalev, and Pryadko.
 Webster, Jacob, and Higgott (Section 4.3.2) note that it is "also referred to as the irreducible cluster or linked cluster algorithm".
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
@@ -98,7 +98,7 @@ Then `y` and `x + y`, the restriction of `x` to the rest of its support, are in 
 They cannot both be in `rowspan(G)`, since their sum is `x`.
 One of them would be a lighter witness, which is a contradiction. ∎
 
-The lemma rests on results of Dumer, Kovalev, and Pryadko (see the [references](#references)), though none of their papers states it in one place for `ker(H)` outside `rowspan(G)`.
+The lemma is due to Dumer, Kovalev, and Pryadko (see the [references](#references)), though none of their papers states it in one place for `ker(H)` outside `rowspan(G)`.
 Theorem 1 of their 2013 paper states its first part for the minimum-weight words of a linear code.
 The second part of the lemma says that `x` is irreducible: it is not the sum of two nonzero words of `ker(H)` with disjoint supports.
 Their 2015 paper defines irreducible Pauli operators, and its Lemma 4 writes every undetectable operator as a product of irreducible ones with disjoint supports.
@@ -400,7 +400,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Coset leaders of Pauli errors | `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, and `CosetLeaderSearch` in `coset_leaders.py` |
 | Sparser checks with the same span, for coset searches and for the distance searches of subsystem codes | `get_sparser_rows` and `_sparsify` in `_connected_cluster/sparse_checks.py`, and `_get_sparser_stabilizers` of `core.py` |
 | How many rounds make the checks of a coset search, or of a distance search of a subsystem code, sparser | `max_sparsifying_rounds`, `max_distance_sparsifying_rounds`, and `sparsifying_rounds_without_improvement` of `SearchTuning` in `_tuning.py` |
-| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_cluster/coset.py`, and `_get_batch_support_bound` and `_get_min_support_weight` of `CosetLeaderSearch` in `coset_leaders.py` |
+| Table of light vectors, and increasing limits for batches and minimum weights | `ConnectedClusterCosetSearch` (its `_singles` and `get_min_weight_bound`) in `_connected_cluster/coset.py`, and `_get_batch_cluster_bound` and `_get_min_cluster_weight` of `CosetLeaderSearch` in `coset_leaders.py` |
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |

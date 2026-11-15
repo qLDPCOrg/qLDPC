@@ -166,7 +166,7 @@ TRACES: list[tuple[str, str, dict[str, int], bool]] = [
 TRACES += [
     (
         f"support-{code.replace(':', '-')}",
-        f"csdistance/{code}/X",
+        f"ccdistance/{code}/X",
         {"automorphism_minimum_states": 0},
         False,
     )

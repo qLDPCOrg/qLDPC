@@ -76,7 +76,7 @@ def test_connected_cluster_answers_match_exhaustive_minima(pytestconfig: pytest.
             ):
                 minimum = int(minima[syndrome])
                 single = oracle.get_min_weight_bound(syndrome, max_weight)
-                batched = oracle._get_batch_support_bound(syndrome, max_weight)
+                batched = oracle._get_batch_cluster_bound(syndrome, max_weight)
                 if not css_weight:
                     search = oracle._connected_cluster_searches[0]
                     late = search.get_min_weight_bound(

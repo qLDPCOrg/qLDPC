@@ -132,9 +132,9 @@ The CSS weight is not a sum over qubits, so it weighs errors by CSS weight only 
 A syndrome with an error of weight at most one gets the weight of its lightest errors as a lower bound.
 For any other syndrome, a query with an error within `max_weight` gives the lower bound two, and a query with none gives the larger of two and `max_weight + 1`.
 The BZ searches often give higher bounds.
-`find_first_not_within_max_weight` searches each syndrome that the table lacks with increasing weight limits (`_get_batch_support_bound`), which can find light errors sooner than one search at `max_weight`.
+`find_first_not_within_max_weight` searches each syndrome that the table lacks with increasing weight limits (`_get_batch_cluster_bound`), which can find light errors sooner than one search at `max_weight`.
 So for the CSS weight, the representative of a part within `max_weight` can differ from the one that `get_min_weight_bound` gives.
-`get_min_weights` also tries increasing weight limits (`_get_min_support_weight`), and starts the search of a Z part at the weight of its X part.
+`get_min_weights` also tries increasing weight limits (`_get_min_cluster_weight`), and starts the search of a Z part at the weight of its X part.
 
 `CosetLeaderSearch` reads the active tuning when it is built, and the module docstring of `_tuning.py` says what a tuning can change about its answers.
 

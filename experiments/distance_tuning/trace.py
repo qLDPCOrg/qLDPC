@@ -3,7 +3,7 @@
 """Trace the decisions and stage times of the exact searches of a workload, or compare two traces.
 
 The script wraps functions of the exact searches of ``qldpc.codes.distance`` in this process only,
-warms up as ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``csdistance``, or
+warms up as ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or
 ``mcount`` workload once under the given tuning.  It cannot trace ``ccount`` workloads: their
 compiled setup calls the stages directly, past the wrappers.  For BZ searches, it records:
 
@@ -136,7 +136,7 @@ LAST_PREDICTION: dict[str, Any] = {"rows": None, "weight": None}
 CURRENT_ASK: dict[str, Any] = {}
 
 # The kinds of workloads that the script can trace.
-TRACED_KINDS = ("distance", "hadamard", "count", "csdistance", "mcount")
+TRACED_KINDS = ("distance", "hadamard", "count", "ccdistance", "mcount")
 
 
 class SetupDone(Exception):

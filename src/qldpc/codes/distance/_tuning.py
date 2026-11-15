@@ -313,7 +313,7 @@ class SearchTuning:
     #: finding them on cheaper searches; raising it searches more limits from every variable.  Zero
     #: asks before the first limit, and ``MAX_VALUE`` never.  Defaults to ``5 * 10**4``, a derived
     #: value (see :ref:`Retuning <tuning-retuning>`): asking, which finds the automorphisms,
-    #: verifies them, and orders their orbits, took 8.9 to 9.4 ms on ``csdistance/qt7/X`` of
+    #: verifies them, and orders their orbits, took 8.9 to 9.4 ms on ``ccdistance/qt7/X`` of
     #: ``experiments/distance_tuning``, or ``3.4 * 10**4`` to ``3.7 * 10**4`` states at 253 to 263
     #: ns each, the median cost per state of six connected-cluster searches of that directory.
     automorphism_minimum_states: int = 50_000

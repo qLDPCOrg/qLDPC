@@ -115,7 +115,7 @@ class CosetLeaderSearch:
         # Read the active tuning, and prepare the searches.  The connected-cluster searches make
         # their checks sparser in rounds that the tuning bounds.
         tuning = get_tuning()
-        support_search = functools.partial(
+        cluster_search = functools.partial(
             ConnectedClusterCosetSearch,
             max_rounds=tuning.max_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
@@ -136,7 +136,7 @@ class CosetLeaderSearch:
                     " use css_weight=False or the default method"
                 )
             else:
-                self._connected_cluster_searches = (support_search(matrix, symplectic=True),)
+                self._connected_cluster_searches = (cluster_search(matrix, symplectic=True),)
             return
 
         # Combine the stabilizers into pure-X and pure-Z stabilizers, and row-reduce the X parts of
@@ -154,8 +154,8 @@ class CosetLeaderSearch:
             # The Z parts of the pure-Z stabilizers check the X parts, and the X parts of the pure-X
             # stabilizers check the Z parts.
             self._connected_cluster_searches = (
-                support_search(z_rows, symplectic=False),
-                support_search(x_rows, symplectic=False),
+                cluster_search(z_rows, symplectic=False),
+                cluster_search(x_rows, symplectic=False),
             )
         else:
             self._brouwer_zimmermann_searches = get_css_searches(x_rows, z_rows, tuning)
@@ -251,7 +251,7 @@ class CosetLeaderSearch:
         # The connected-cluster searches answer one syndrome at a time.
         if self._connected_cluster_searches:
             for index, row in enumerate(syndromes):
-                bound = self._get_batch_support_bound(words_to_int(row), max_weight)
+                bound = self._get_batch_cluster_bound(words_to_int(row), max_weight)
                 if not bound.within_max_weight:
                     return index, bound
             return len(syndromes), None
@@ -301,7 +301,7 @@ class CosetLeaderSearch:
         # The connected-cluster searches answer one syndrome at a time.
         if self._connected_cluster_searches:
             return np.array(
-                [self._get_min_support_weight(words_to_int(row), max_weight) for row in syndromes],
+                [self._get_min_cluster_weight(words_to_int(row), max_weight) for row in syndromes],
                 dtype=np.int64,
             )
 
@@ -368,7 +368,7 @@ class CosetLeaderSearch:
         data = np.frombuffer(value.to_bytes((num_bits + 7) // 8, "little"), dtype=np.uint8)
         return np.unpackbits(data, count=num_bits, bitorder="little")
 
-    def _get_min_support_weight(self, syndrome: int, max_weight: int) -> int:
+    def _get_min_cluster_weight(self, syndrome: int, max_weight: int) -> int:
         """Find the minimum weight of the class of a syndrome with the connected-cluster searches.
 
         The search of the Pauli errors or of the X part tries increasing weight limits from two, so
@@ -395,7 +395,7 @@ class CosetLeaderSearch:
             return max_weight + 1
         return max(x_bound.lower_bound, z_bound.lower_bound)
 
-    def _get_batch_support_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
+    def _get_batch_cluster_bound(self, syndrome: int, max_weight: int) -> MinWeightBound:
         """Answer a query of a batch with the connected-cluster searches, by increasing limits.
 
         Most syndromes of a batch have an error within ``max_weight``, which a search at a lower
