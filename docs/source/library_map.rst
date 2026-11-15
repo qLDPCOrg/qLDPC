@@ -136,7 +136,8 @@ Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <htt
 Binary codes with sparse parity checks can instead use ``method="connected_cluster"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_.
 All exact methods can take exponential time.
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
-``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``, so a result of at most ``c`` is only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
+``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
+A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.
 Exact searches choose their routes, such as which optional steps to take, by simple heuristics, and :doc:`exact_search_tuning` leads from symptoms of slow or memory-hungry searches to the settings of these heuristics.
 Distance-bound backends depend on the class: ``ClassicalCode`` uses a decoder, a ``QuditCode`` that is not a ``CSSCode`` uses GAP's QDistRnd, and ``CSSCode`` supports ``sqetch`` (binary only), GAP, and a decoder.
 For ``CSSCode``, the default ``backend="auto"`` tries those three in order and uses GAP only if a GAP binding or executable can be called, so it never falls back to the manual copy-and-paste workflow.
@@ -151,7 +152,7 @@ An explicit ``num_trials`` runs that many trials, and never returns a worse boun
 For a subsystem code, they count dressed logical operators, and the MacWilliams method does not support subsystem codes.
 ``CSSLogicalCounter.from_code`` builds a counter from a ``CSSCode`` instead.
 
-The exact-distance methods of binary codes call public functions of :mod:`qldpc.codes.distance`, which take plain binary arrays.
+The ``get_distance_exact`` methods of binary codes call public functions of :mod:`qldpc.codes.distance`, which take plain binary arrays.
 :func:`~qldpc.codes.distance.get_distance_from_generators` and :func:`~qldpc.codes.distance.get_distance_from_checks` take a generator or parity-check matrix, :func:`~qldpc.codes.distance.get_distance_css` takes the X-type and Z-type checks of a CSS code, and :func:`~qldpc.codes.distance.get_distance_pauli` takes the parity checks of a stabilizer or subsystem code as Pauli strings, as in ``QuditCode``.
 The docstring of :mod:`qldpc.codes.distance` leads from tasks to these functions.
 
@@ -247,7 +248,7 @@ Other limitations:
 What qLDPC computes exactly, bounds, and trusts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default), or whenever its result exceeds the cutoff; ``get_distance`` without ``bound=``, which calls it; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
+* Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default), or whenever its result exceeds the cutoff; ``get_distance`` without ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.
