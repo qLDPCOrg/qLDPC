@@ -296,10 +296,10 @@ class SearchTuning:
     #: search that declined reconsiders once its best weight drops.  Lowering it pays for
     #: automorphisms on cheaper searches; zero considers before the first layer, and ``MAX_VALUE``
     #: never.  Defaults to ``5 * 10**6``, a derived value (see :ref:`Retuning <tuning-retuning>`):
-    #: finding automorphisms and building their images took at most 7.33 ms, on ``hadamard/gross``
-    #: of ``experiments/distance_tuning``, or about ``5.6 * 10**6`` evaluations at 1.32 ns each, the
-    #: median over six of its workloads of the net seconds per evaluation of layers of at least
-    #: ``10**7`` evaluations without tables.
+    #: finding automorphisms and building their images took 7.56 to 8.57 ms, on ``hadamard/gross``
+    #: of ``experiments/distance_tuning``, or ``6.4 * 10**6`` to ``7.2 * 10**6`` evaluations, near
+    #: the edge of its rounding, ``7.07 * 10**6``, so that one run of three gave ``10**7`` (see the
+    #: README of that directory).
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-support searches.
