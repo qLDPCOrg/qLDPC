@@ -135,11 +135,11 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
     """The stopping step and the work of a plan follow their definitions.
 
     The stopping step is the first step of the given layers whose bound exceeds the limit, or the
-    last step if none does.  At that step, each set has completed its last layer, and the work adds
-    the binomial of each layer from the first layer to the last layer of each set, leaving out the
-    sets whose rank keeps them out of the bound if unused sets are skipped.  The work saturates at
+    last step if none does.  At that step, each set has completed its last layer.  The work adds the
+    binomial of each layer from the first layer to the last layer of each set.  If unused sets are
+    skipped, it leaves out the sets whose rank keeps them out of the bound.  The work saturates at
     the cap if a layer up to that of the step has a binomial above the cap divided by the number of
-    sets, or the sum reaches the cap, and no binomials give no work.
+    sets, or if the sum reaches the cap.  Empty binomials give no work.
 
     At the stopping step of a plan over every layer, ``get_completed_layer`` gives the last layer of
     each set.  ``is_unused_set`` tells from the pivots of a set, which are -1 beyond its rank,
@@ -149,8 +149,8 @@ def test_plans_follow_their_definition(pytestconfig: pytest.Config) -> None:
     and the weight bounds of the coset searches, which divide them by a weight factor after rounding
     them to a parity.  The limits run past both ends of each table, to the largest native integer.
     The binomials are random, and some exceed the share of the cap of each set.  Thousands of sets
-    tell the cap of a layer from the cap of the sum, since the stopping step comes after the first
-    set of a layer whose binomial exceeds the share, while the sum stays below the cap.
+    tell the cap of a layer from the cap of the sum: the stopping step comes after the first set of
+    a layer whose binomial exceeds the share, while the sum stays below the cap.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     work_cap = certificates.WORK_CAP
@@ -317,7 +317,8 @@ def test_linear_programming_can_beat_the_coverage_bound() -> None:
     """
     blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
     assert certificates.get_lp_lower_bound(blocks, [2] * 5, DENOMINATOR) == 5
-    # Dual weights of thirds need a denominator of three; coarser ones round part of the bound away.
+    # Dual weights of thirds need a denominator of three.  Coarser ones round part of the bound
+    # away.
     bounds = [certificates.get_lp_lower_bound(blocks, [2] * 5, d) for d in (1, 2, 3)]
     assert bounds == [2, 4, 5]
     certificate = certificates.Certificate(3, (3,) * 5, max_coverage=3)

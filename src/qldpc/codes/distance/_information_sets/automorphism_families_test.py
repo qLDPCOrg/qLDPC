@@ -36,7 +36,8 @@ def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
             automorphism_families.verify_automorphisms(basis, labels, automorphisms)
 
     # Swapping the last two columns preserves the excluded subspace, spanned by 100, but not the
-    # searched space; swapping the first two preserves the searched space, but not the excluded one.
+    # searched space.  Swapping the first two preserves the searched space, but not the excluded
+    # one.
     basis = np.array([[1, 0, 0], [0, 1, 0]], dtype=np.uint8)
     labels = np.array([[0], [1]], dtype=np.uint8)
     for swap in ([0, 2, 1], [1, 0, 2]):
@@ -113,10 +114,12 @@ def test_automorphism_family_work_scans_one_set_per_layer() -> None:
     """The work estimate counts each layer of one set, through the layer that certifies a bound.
 
     This certificate of three images of an information set of a five-row basis, with coverage two,
-    bounds unvisited words by ``ceil(3 (t + 1) / 2)`` once every image has completed layer ``t``.
+    bounds unvisited words by ``ceil(3 (t + 1) / 2)`` once every image has completed layer ``t``,
+    for ``t`` below five; after layer five, no word is left.
     """
     certificate = certificates.Certificate(5, (5,) * 3, max_coverage=2)
-    # layer one certifies weight three; layer two certifies five; no layer certifies 100
+    # Layer one certifies the weight three, and layer two the weight five.  No layer before the last
+    # certifies 100, so the search scans every layer.
     assert automorphism_families.estimate_automorphism_family_work(certificate, 3) == 5
     assert automorphism_families.estimate_automorphism_family_work(certificate, 4) == 5 + 10
     assert automorphism_families.estimate_automorphism_family_work(certificate, 100) == 2**5 - 1

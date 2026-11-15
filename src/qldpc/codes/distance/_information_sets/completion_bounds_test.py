@@ -18,9 +18,9 @@ from qldpc._binary import pack_bits
 from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from . import completion_bounds as cb
 
-# A tuning that considers every layer, uses tables whatever they cost, and allows any size.
 Z = DEFAULT_TUNING.completion_bound_confidence_z
 MAX_SAMPLES = 2**12
+# A tuning that considers every layer, uses tables whatever they cost, and allows any size.
 FORCED = dataclasses.replace(
     DEFAULT_TUNING,
     completion_bound_minimum_layer_work=0,
@@ -181,7 +181,7 @@ def test_selection_follows_its_policy() -> None:
     """Tables are used if their predicted cost is within the limit, and reused for the same rows.
 
     With a best weight equal to the coefficient weight, every bound reaches its limit of zero, so
-    tables skip every sampled support; with a best weight far above every word, they skip none.  In
+    tables skip every sampled support.  With a best weight far above every word, they skip none.  In
     layer six of 60 rows, building tables costs a small part of the layer.  In layer two, building
     them costs far more than the layer, while looking up bounds in tables already built does not.
     """
@@ -203,8 +203,9 @@ def test_selection_follows_its_policy() -> None:
     assert cb.select_completion_tables(rows, 2, 2, None, finite) is None
     assert cb.select_completion_tables(rows, 2, 2, tables, finite) is tables
 
-    # Each coefficient of the cost model, made large enough, makes the same tables too costly, and
-    # the most cautious estimate of the share that they skip still accepts them.
+    # Each coefficient of the cost model, made large enough, makes the same tables too costly,
+    # although, at the default limit of cost, even the most cautious estimate of the share that they
+    # skip accepts them.
     for name in (
         "completion_bound_lookup_block_cost",
         "completion_bound_lookup_block_cost_per_mib",
@@ -215,8 +216,9 @@ def test_selection_follows_its_policy() -> None:
         change: dict[str, Any] = {name: 1e6}
         costly = dataclasses.replace(finite, **change)
         assert cb.select_completion_tables(rows, 6, 6, None, costly) is None, name
-    # Tables that skip every sampled support predict about a fifth of the cost of the layer, so a
-    # limit of 20% accepts them at the usual confidence, but not at the most cautious one.
+    # Tables that skip every sampled support predict about an eighth of the cost of the layer at the
+    # usual confidence, and more than a fifth at the most cautious one.  So a limit of 20% accepts
+    # them at the usual confidence, but not at the most cautious one.
     tight = dataclasses.replace(finite, completion_bound_max_cost_percent=20)
     assert cb.select_completion_tables(rows, 6, 6, None, tight) is not None
     cautious = dataclasses.replace(tight, completion_bound_confidence_z=10.0)

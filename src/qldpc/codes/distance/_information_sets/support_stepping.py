@@ -21,18 +21,21 @@ def advance_support(
     """Move to the next support of a layer of the search.
 
     Layer ``w = len(support) >= 1`` holds, for each information set, the sums of its offset and
-    ``w`` of its rows.  A support lists the indices of such rows in increasing order, and the
+    ``w`` of its rows.  A support lists the indices of these rows in increasing order, and the
     supports come in lexicographic order.  ``rows`` holds the packed rows of each information set,
-    and set ``j`` uses the first ``widths[j]`` machine words of each row.  The rows chosen so far
-    are ``support[:depth]``, and ``support[depth]`` is the next row to try at ``depth``.  Row
-    ``level`` of ``prefixes`` holds, for each set, its offset plus its rows ``support[:level]``.
-    Start with ``depth = 0``, ``support[0] = 0``, and the offsets in ``prefixes[0]``, which this
-    function does not change.
+    and set ``j`` uses the first ``widths[j]`` machine words of each row.
 
-    Return the last depth, ``len(support) - 1``, once ``support`` is complete.  The word of the
+    The state of the walk is ``support``, ``prefixes``, and ``depth``.  The rows chosen so far are
+    ``support[:depth]``, and ``support[depth]`` is the next row to try at ``depth``.  Row ``level``
+    of ``prefixes`` holds, for each set, its offset plus its rows ``support[:level]``.  Start with
+    ``depth = 0``, ``support[0] = 0``, and the offsets in ``prefixes[0]``, which this function does
+    not change.
+
+    Returns the last depth, ``len(support) - 1``, once ``support`` is complete.  The word of the
     support in set ``j`` is then ``prefixes[depth, j] ^ rows[j, support[depth]]``.  To continue,
-    raise ``support[depth]``, by one or past the last row to skip the supports that differ only in
-    their last row, and call again from that depth.  Return -1 once every support has been visited.
+    raise ``support[depth]`` and call again from that depth.  Raising it by one moves to the next
+    support, and raising it past the last row skips the supports that differ from this one only in
+    their last row.  Returns -1 once every support has been visited.
     """
     num_rows = rows.shape[1]
     weight = len(support)
