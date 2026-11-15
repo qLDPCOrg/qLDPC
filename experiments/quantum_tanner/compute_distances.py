@@ -5,7 +5,7 @@
 
 The distances that run_search.py saves are randomized upper bounds, which can be far from exact.
 This script computes the exact distance of every distinct code saved by run_search.py that has at
-least one logical qubit, with the connected-support search of qLDPC (method "connected_support" of
+least one logical qubit, with the connected-cluster search of qLDPC (method "connected_cluster" of
 qldpc.codes.CSSCode.get_distance_exact).  Saved codes count as distinct if their generating data
 (subsets, local codes, and complex; see saved_codes.get_code_key) differ.  The exact distance of
 each distinct code is computed once.
@@ -216,7 +216,7 @@ def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[int |
 def print_exact_distance(path: pathlib.Path) -> None:
     """Print the exact distance of a saved code on the last line of output."""
     code = codes.QTCode.load(str(path))
-    print(int(code.get_distance_exact(method="connected_support")))
+    print(int(code.get_distance_exact(method="connected_cluster")))
 
 
 if __name__ == "__main__":

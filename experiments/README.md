@@ -7,11 +7,11 @@ They are not part of the installed `qldpc` package, and the test suite does not 
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
-| [`connected_support_distance/`](connected_support_distance/) | Timings of the connected-support and Brouwer–Zimmermann exact distance searches on pair-partition and other codes | `benchmark.py` |
+| [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and the measurements that derive their tuning, with paired comparisons that confirm a change of it | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
-The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro–Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
+The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro-Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
 If GAP cannot be called, `abstract.SmallGroup` retrieves groups from GroupNames.org instead.
 The generators of a group from GroupNames.org can differ from those of GAP, so the same file names can then save different codes, which fail verification on a machine that uses GAP.
 qLDPC caches retrieved groups and codes on disk, so the first source that a machine uses for a group stays in use there.
@@ -31,6 +31,7 @@ Each results directory holds a CSV summary, together with the resumable intermed
 | --- | --- | --- |
 | Bivariate bicycle | `results/cache/`: disk cache of code parameters | `results/codes.csv`: codes with `k d^2 / n > 1` |
 | Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
+| Distance tuning | `results/trials.jsonl`: one line per trial of a comparison; `results/constants/`: the measurements of `constants.py` | `results/summary-<tag>.csv`: times of both arms of a comparison on each workload, and their ratios |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
 ## Bivariate bicycle codes
@@ -75,7 +76,7 @@ The options of `run_search.py` choose the groups, the local codes, and the compl
 
 - `--groups` chooses between all groups of order at most `--max-order` in the SmallGroups library (the default), and the dihedral groups of orders 6 to `--max-order`, which are the symmetry groups of regular polygons.
   [arXiv:2508.05095](https://arxiv.org/abs/2508.05095) uses dihedral groups for the expansion of their Cayley graphs.
-- `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro–Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
+- `--base-codes` lists the classical base codes, by default the Hamming codes, Cordaro-Wagner codes, and modified Hamming codes called "Mittal" codes in `BASE_CODE_IDS`.
   Identifiers such as `Random-5-3-0` name random codes, here with 5 bits and 3 parity checks; `saved_codes.py` lists all identifiers.
 - `--pairs` chooses the pairs of local codes.
   By default, each base code is paired with its dual.
@@ -138,7 +139,7 @@ It draws 100 random samples for each of the other 33 choices, and saves 5,523 co
    Each code is written to a temporary `*.tmp` file and then renamed, so an interrupted search leaves no partial code file.
    Leftover `*.tmp` files are ignored by the other scripts, and overwritten when the search resumes.
    Run one search per results directory at a time.
-2. `compute_distances.py` computes exact distances of the distinct saved codes with `k > 0`, with the connected-support search of `qldpc`, and appends them to `results/exact_distances.csv`.
+2. `compute_distances.py` computes exact distances of the distinct saved codes with `k > 0`, with the connected-cluster search of `qldpc`, and appends them to `results/exact_distances.csv`.
    Each computation runs in its own process, which is stopped after `--time-limit` seconds.
    The script resumes where it left off, and a rerun with a longer `--time-limit` retries the codes that were stopped.
    This step is optional.
@@ -190,23 +191,37 @@ It has 252 qubits and distance 16, whereas single runs with `--num-trials 100` b
 
 Verification requires `codes.QTCode.random` to sample the same code for the same seed, enumerated subsets to be listed in the same order (see `saved_codes.get_symmetric_subsets`), and local codes to be constructed in the same way, so codes saved with a different version of `qldpc` may fail verification.
 
-## Connected-support distance
+## Distance tuning
 
-[`connected_support_distance/benchmark.py`](connected_support_distance/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-support guide](../src/qldpc/codes/distance/connected_support.md)), and on a few other codes.
-It prints its results and saves nothing, so it takes no `--results-dir`.
+[`distance_tuning/benchmark.py`](distance_tuning/benchmark.py) times the exact distance searches of `qldpc` on pair-partition codes of Okada and Kasai and of Lee et al. (see [the connected-cluster guide](../src/qldpc/codes/distance/connected_cluster.md)), and on a few other codes.
+It prints its results and saves nothing.
 For example:
 
 ```bash
-python experiments/connected_support_distance/benchmark.py 110 232 276
-python experiments/connected_support_distance/benchmark.py 232 --methods brouwer_zimmermann
-python experiments/connected_support_distance/benchmark.py gross surface:11 surface:15
-python experiments/connected_support_distance/benchmark.py 110 232 --hadamards
+python experiments/distance_tuning/benchmark.py 110 232 276
+python experiments/distance_tuning/benchmark.py 232 --methods brouwer_zimmermann
+python experiments/distance_tuning/benchmark.py gross surface:11 surface:15
+python experiments/distance_tuning/benchmark.py 110 232 --hadamards
 ```
 
 The option `--hadamards` applies Hadamards to the second half of the qubits of each code, and times the resulting code, which is not CSS.
 
 Numba compiles the searches on first use, so run the script twice for the times of a warm cache.
 Some searches run for hours or more, so run it under a deadline.
+
+The other scripts of [`distance_tuning/`](distance_tuning/) derive the tuning of the exact searches, and confirm a change of it, as [its README](distance_tuning/README.md) describes.
+[`constants.py`](distance_tuning/constants.py) measures the constants of the machine from which the derived values of `SearchTuning` follow, and prints those values.
+Its quick measurements take a few minutes, and its traces of the searches that measure the cost model of completion tables take hours, so run it on a quiet machine, under a guard of time and memory.
+[`trace.py`](distance_tuning/trace.py) records the decisions and the time of each stage of the searches of one workload of [`workloads.py`](distance_tuning/workloads.py), such as the families of information sets that a search builds, and compares the decisions of two traces.
+[`sweep.py`](distance_tuning/sweep.py) times the whole current tuning against a whole proposed one, or the defaults of two checkouts, in paired rounds of trials that alternate their order, each in a new single-threaded process that first warms up the compiled code ([`trial.py`](distance_tuning/trial.py)), and summarizes the ratios of the two arms.
+Such a comparison confirms a change of values, and never chooses them.
+For example, to measure the constants, and then to time the earlier value of `automorphism_minimum_states`, `10**5`, against its derived default:
+
+```bash
+python experiments/distance_tuning/constants.py
+python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 3 \
+    --workloads ccdistance/lp13s5/X ccdistance/qt7/X --proposed '{"automorphism_minimum_states": 100000}'
+```
 
 ## Lattice surgery
 

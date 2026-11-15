@@ -2,25 +2,26 @@
 
 """Exact counts of the logical operators of a given weight in binary CSS codes.
 
-See :class:`CSSLogicalCounter` for the conventions.
+See :class:`CSSLogicalCounter` for the conventions, and for what a counter of a code deformed by
+local CSS-preserving Cliffords keeps from the counter that it deforms.
 
-Each X/Z sector uses a normalizer basis whose quotient labels mark nontrivial words (Section 3.4 of
-``brouwer_zimmermann.md``).  Words are enumerated in layers over Brouwer--Zimmermann (BZ)
-information sets, whose family and certificate come from the stages in ``information_sets.py`` that
-the distance search shares.  Unlike a distance search, the scan stops only when the BZ lower bound
-exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``), and a word visited by several information
-sets is counted by only one of them.  Full Pauli counts are derived from the homogeneous words of
-weight ``d``, with one masked rank per word.  Self-dual codes scan only one sector, and have
-``count_pauli = 3 * count_x``.  Counters for codes deformed by local CSS-preserving Cliffords
-transform the stored sector bases and information-set families rather than recomputing them.
+The default method, ``"brouwer_zimmermann"``, counts the words of a target weight ``w`` in each X/Z
+sector, which it represents by a normalizer basis whose quotient labels mark nontrivial words
+(Section 3.4 of ``brouwer_zimmermann.md``).  The scan of ``_counting/scan.py`` enumerates these
+words in layers over Brouwer-Zimmermann (BZ) information sets.  Unlike a distance search, it stops
+only when the BZ lower bound exceeds ``w`` (Section 5 of ``brouwer_zimmermann.md``).  A counter
+that knows its code is self-dual, since it was built from self-dual checks or deformed by gates that
+act alike on X and Z, scans one sector.
 
-The default method is ``"brouwer_zimmermann"``, whose scan is in ``_counting/scan.py``.  The
-alternative ``"macwilliams"`` counts from check-space weight distributions; see
+Full Pauli counts at the distance ``d`` come from the homogeneous words of weight ``d``.  Such a
+counter has ``count_pauli = 3 * count_x``, and any other counter needs one masked rank per word.
+
+The method ``"macwilliams"`` counts from the weight distributions of the check spaces instead; see
 ``_counting/macwilliams.py`` for the algorithm.
 
 References:
 
-- https://arxiv.org/abs/1603.06757 (Brouwer--Zimmermann information sets)
+- https://arxiv.org/abs/1603.06757 (Brouwer-Zimmermann information sets)
 """
 
 from __future__ import annotations
@@ -39,16 +40,20 @@ from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
 from qldpc._utils import get_external_caller_stacklevel
 
-from ._binary import as_integer, get_nested_code_basis
+from ._binary import (
+    as_binary_matrix_pair,
+    as_integer,
+    get_css_stabilizers,
+    get_nested_code_basis,
+)
+from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
+from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
-from ._search import information_sets
-from ._search.brouwer_zimmermann import get_distance_brouwer_zimmermann_many
-from ._search.brute_force import get_nested_distance_brute_force
+from ._information_sets import basis_families
 from ._tuning import DEFAULT_TUNING, SearchTuning, get_tuning
 from .core import NO_DISTANCE, NoDistance
 
-# codes.common imports this package, and codes.quantum imports codes.common, so code classes are
-# imported only where they are used.
+# codes.common imports this package, so code classes are imported only where they are used.
 if TYPE_CHECKING:
     from ..common import CSSCode
 
@@ -59,6 +64,15 @@ _Sector = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 LogicalCountMethod = Literal[
     "brouwer_zimmermann", "macwilliams", "brute_force", "information_sets", "weight_enumerator"
 ]
+"""The methods of exact counts of logical operators.
+
+- ``"brouwer_zimmermann"``, the default, and its alias ``"information_sets"``: a scan of the words
+  of each weight in several information sets.
+- ``"macwilliams"``, and its alias ``"weight_enumerator"``: the weight distributions of the spaces
+  of the checks, through the MacWilliams identities.  It does not support subsystem codes, full
+  Pauli counts of codes that are not self-dual, or checks of rank above 63.
+- ``"brute_force"``: the enumeration of every word, for small codes and tests.
+"""
 
 _CanonicalLogicalCountMethod = Literal["brouwer_zimmermann", "macwilliams", "brute_force"]
 
@@ -118,7 +132,9 @@ class CSSLogicalCounts:
 class CSSLogicalCounter:
     """Exact counter of the logical operators of a given weight in a binary CSS code.
 
-    For a CSS stabilizer code with checks ``H_X`` and ``H_Z``, the nontrivial X logicals are the
+    A counter takes the two check matrices of the code.  The rows of ``checks_x``, or ``H_X``, are
+    its X-type checks, which detect Z errors.  The rows of ``checks_z``, or ``H_Z``, are its Z-type
+    checks, which detect X errors.  For a CSS stabilizer code, the nontrivial X logicals are the
     words in ``ker(H_Z)`` outside ``row(H_X)``, and likewise for Z with X and Z exchanged.  At a
     weight ``w`` that defaults to the distance ``d``, ``count_logical_ops`` counts:
 
@@ -139,32 +155,35 @@ class CSSLogicalCounter:
     methods support subsystem codes, but the MacWilliams method does not.
 
     Counters for codes deformed by local CSS-preserving Cliffords (see :meth:`deformed`) reuse the
-    work of this counter, except for the distance, which they search for again.
+    sectors and basis families of this counter, where the gate allows.  They search for the distance
+    again, and the MacWilliams method walks their checks again.
+
+    :meth:`from_code` builds a counter from the checks of a :class:`~qldpc.codes.CSSCode`.
 
     Args:
-        code: A binary CSS code, which may be a subsystem code and may have redundant checks.
+        checks_x: The X-type checks ``H_X`` of the code, as the rows of a binary matrix: a NumPy
+            array, a nested list, a ``galois`` array over GF(2), or a SciPy sparse matrix.  A single
+            vector is one check.  They may be redundant, and in a subsystem code they are the X
+            gauge generators ``G_X``.
+        checks_z: The Z-type checks ``H_Z`` of the code, as the rows of a binary matrix with as
+            many columns as ``checks_x``, in any of the same forms.  They may be redundant, and in a
+            subsystem code they are the Z gauge generators ``G_Z``.  If either matrix is an empty
+            list or has shape ``(0, 0)``, it takes the width of the other.
 
     Raises:
-        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`.
-        ValueError: If the code is not binary.
+        TypeError: If ``checks_x`` or ``checks_z`` is not array-like, as when a code is given
+            instead of its checks (see :meth:`from_code`).
+        ValueError: If the checks are not binary or have more than two dimensions, if they have
+            different numbers of columns, or if both are empty lists, which have no width.
     """
 
-    def __init__(self, code: CSSCode) -> None:
-        from ..common import CSSCode, QuditCode
-
-        if not isinstance(code, CSSCode):
-            hint = "; convert it with code.to_css()" if isinstance(code, QuditCode) else ""
-            raise TypeError(f"Expected a CSSCode, not {type(code).__name__}{hint}")
-        if code.field.order != 2:
-            raise ValueError(f"Logical counts require a binary code, not GF({code.field.order})")
-
-        # Reduce the checks to independent bases in reduced row echelon form.
-        self._code: CSSCode | None = code
-        checks_x = code.matrix_x.view(np.ndarray).astype(np.uint8)
-        checks_z = code.matrix_z.view(np.ndarray).astype(np.uint8)
-        self._num_qubits = checks_x.shape[1]
-        self._gauge_x = get_independent_rows(checks_x)
-        self._gauge_z = get_independent_rows(checks_z)
+    def __init__(self, checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> None:
+        # Validate the checks, and reduce them to independent bases in reduced row echelon form.
+        matrix_x, matrix_z = as_binary_matrix_pair(checks_x, checks_z, ("checks_x", "checks_z"))
+        self._code: CSSCode | None = None
+        self._num_qubits = matrix_x.shape[1]
+        self._gauge_x = get_independent_rows(matrix_x)
+        self._gauge_z = get_independent_rows(matrix_z)
         # Reduced row echelon form is unique, so the X and Z checks span the same space exactly when
         # these arrays are equal.  A self-dual code then shares one array for each X/Z pair.
         self._self_dual = np.array_equal(self._gauge_x, self._gauge_z)
@@ -172,7 +191,7 @@ class CSSLogicalCounter:
             self._gauge_z = self._gauge_x
 
         # Identify the stabilizers among the gauge operators, which fixes the number of logicals.
-        self._stabilizers_x, self._stabilizers_z = _get_stabilizers(self._gauge_x, self._gauge_z)
+        self._stabilizers_x, self._stabilizers_z = get_css_stabilizers(self._gauge_x, self._gauge_z)
         if self._self_dual:
             self._stabilizers_z = self._stabilizers_x
         self._dimension = self._num_qubits - len(self._gauge_x) - len(self._stabilizers_z)
@@ -183,6 +202,31 @@ class CSSLogicalCounter:
             self._gauge_x,
             self._gauge_z,
         )
+
+    @classmethod
+    def from_code(cls, code: CSSCode) -> CSSLogicalCounter:
+        """Build a counter from the X and Z checks of a binary CSS code.
+
+        The counter keeps the code, which its :attr:`code` property returns.
+
+        Args:
+            code: A binary CSS code, which may be a subsystem code and may have redundant checks.
+
+        Returns:
+            A counter for the code.
+
+        Raises:
+            TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`.
+            ValueError: If the code is not binary.
+        """
+        from ..common import CSSCode, QuditCode
+
+        if not isinstance(code, CSSCode):
+            hint = "; convert it with code.to_css()" if isinstance(code, QuditCode) else ""
+            raise TypeError(f"Expected a CSSCode, not {type(code).__name__}{hint}")
+        counter = cls(code.matrix_x, code.matrix_z)
+        counter._code = code
+        return counter
 
     @property
     def num_qubits(self) -> int:
@@ -198,8 +242,8 @@ class CSSLogicalCounter:
     def code(self) -> CSSCode:
         """The code whose logical operators are counted.
 
-        For a counter built by a deformation method, this is a new :class:`~qldpc.codes.CSSCode`
-        with the counter's independent checks, built on first access.
+        For a counter built by :meth:`from_code`, this is the given code.  Otherwise, it is a new
+        :class:`~qldpc.codes.CSSCode` with the counter's independent checks, built on first access.
         """
         if self._code is None:
             from ..common import CSSCode
@@ -250,13 +294,13 @@ class CSSLogicalCounter:
                 respectively.
             count_pauli: If True, also count full Pauli operators, including Y and mixed operators.
                 For codes that are not self-dual, each homogeneous word of the counted weight costs
-                one rank calculation.  These counts are exact up to the distance and zero below it,
-                and are not supported above it.  Defaults to False.
+                one rank calculation.  These counts are supported only up to the distance, and are
+                zero below it.  Defaults to False.
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Deprecated.  Use
-                ``qldpc.codes.distance._tuning.use_tuning(max_information_sets=...)`` instead.
+            max_information_sets: Deprecated.  To tune counts instead, see the page
+                :doc:`/exact_search_tuning` of the documentation.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
@@ -284,8 +328,8 @@ class CSSLogicalCounter:
         if max_information_sets is not None:  # DEPRECATED: see qldpc._deprecations
             _deprecations.warn_deprecated(
                 "The max_information_sets argument of logical-operator counts is deprecated and"
-                " will be removed in a future release.  Use"
-                " qldpc.codes.distance._tuning.use_tuning(max_information_sets=...) instead",
+                " will be removed in a future release.  To tune counts, see the documentation page"
+                " 'Exact-search performance and tuning'",
                 stacklevel=get_external_caller_stacklevel(),
             )
             max_sets = as_integer(max_information_sets, "max_information_sets")
@@ -327,14 +371,14 @@ class CSSLogicalCounter:
             target = _get_distance(sectors, method, get_disjoint_basis_families, tuning)
             self._distances[method] = target
 
-        # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  Either x is
-        # a nontrivial X logical with support T of size d, and z is one of 2**(d - rank(S_X[:, T]))
-        # Z words supported in T that commute with S_X, or x is an X gauge operator, and z is a
-        # nontrivial Z logical of weight d whose support T contains that of x, which leaves
-        # 2**(rank(G_X) - rank(G_X[:, ~T])) choices of x.  Each support T of a self-dual code
-        # carries exactly three operators, so self-dual codes need no ranks.  Above d, a logical
-        # Pauli need not have the support of a homogeneous logical, so the scans reject any
-        # nontrivial word lighter than the target.
+        # A nontrivial logical Pauli (x, z) of weight d has one of two disjoint forms.  In the
+        # first, x is a nontrivial X logical with a support T of size d, and z is one of the
+        # 2**(d - rank(S_X[:, T])) Z words supported in T that commute with S_X.  In the second, x
+        # is an X gauge operator, and z is a nontrivial Z logical of weight d whose support T
+        # contains that of x, which leaves 2**(rank(G_X) - rank(G_X[:, ~T])) choices of x.  Each
+        # support T of a self-dual code carries exactly three operators, so self-dual codes need no
+        # ranks.  Above d, a logical Pauli need not have the support of a homogeneous logical, so
+        # the scans reject any nontrivial word lighter than the target.
         count_masked_ranks = count_pauli and not self._self_dual
         reject_lighter = count_pauli or within_distance
         no_rows = self._gauge_x[:0]
@@ -402,8 +446,7 @@ class CSSLogicalCounter:
         Raises:
             TypeError: If the targets are not a collection of integer qubit indices.
             ValueError: If the targets are not 1 to 64 distinct, in-range indices, or if
-                ``matrix_x`` is not an invertible binary
-                matrix that matches the number of targets.
+                ``matrix_x`` is not an invertible binary matrix that matches the number of targets.
         """
         positions = self._get_positions(targets)
         local_x, local_z = local_cliffords.get_local_matrices(matrix_x, len(positions))
@@ -435,8 +478,9 @@ class CSSLogicalCounter:
 
         The Clifford applies the same binary matrix, whose rows have weight three, to X and Z
         supports on the four targets.  It therefore maps self-dual codes to self-dual codes, and
-        preserves the self-dual-with-equivalent-logicals (SWEL) property of
-        :meth:`qldpc.codes.CSSCode.is_swel`.  It is valid for any CSS code.
+        preserves the self-dual-with-equivalent-logicals (SWEL) property that
+        :attr:`CSSCode.is_swel <qldpc.codes.common.CSSCode.is_swel>` tests.  It is valid for any CSS
+        code.
 
         Args:
             qubit_0: The qubit of the first matrix row.
@@ -482,9 +526,10 @@ class CSSLogicalCounter:
     ) -> CSSLogicalCounter:
         """Apply validated, packed local matrices to every stored X-type and Z-type matrix.
 
-        The Clifford maps each gauge, stabilizer and sector space onto that of the new code, and
-        keeps the quotient labels, so nothing is recomputed.  The checks are no longer in reduced
-        row echelon form, which is recomputed only if needed.
+        The Clifford maps each gauge, stabilizer, and sector space onto that of the new code, and
+        keeps the quotient labels, so the sectors are not computed again.  The kept basis families
+        follow the gate where they can.  The checks are no longer in reduced row echelon form, which
+        is recomputed only if needed.
         """
         counter = CSSLogicalCounter.__new__(CSSLogicalCounter)
         counter._num_qubits, counter._dimension = self._num_qubits, self._dimension
@@ -515,9 +560,8 @@ class CSSLogicalCounter:
             )
 
         # Transform the kept work where the gate allows it, and drop the rest.  A gate can change
-        # the distance, so the deformed counter searches for it again.  A gate also changes the
-        # weight of every check word that touches its qubits, so the weight enumerators are not
-        # kept.
+        # the distance, so the deformed counter searches for it again.  A gate can also change the
+        # weight of a check word that touches its qubits, so the weight enumerators are not kept.
         counter._forget_kept_work()
         if self._sectors is not None:
             (basis_x, labels_x), (basis_z, labels_z) = self._sectors
@@ -529,8 +573,9 @@ class CSSLogicalCounter:
             )
             counter._sectors = (sector_x, sector_z)
 
-            # The kept families follow the gate.  If one cannot, the sector is prepared again when
-            # it is next counted.  A self-dual code keeps one family, for both of its sectors.
+            # The kept families follow the gate.  If one cannot, the disjoint family of its sector
+            # is built again when the sector is next counted.  A self-dual code keeps one family,
+            # for both of its sectors.
             for (
                 source,
                 random_column_orders,
@@ -553,7 +598,7 @@ class CSSLogicalCounter:
         self._distances: dict[_CountDistanceMethod, int] = {}
         self._sectors: tuple[_Sector, _Sector] | None = None
         # Disjoint basis families, by sector and number of column orders.
-        self._disjoint_basis_families: dict[tuple[int, int], information_sets.BasisFamily] = {}
+        self._disjoint_basis_families: dict[tuple[int, int], basis_families.BasisFamily] = {}
         self._enumerators: macwilliams.CheckEnumerators | None = None
 
     def _validate_macwilliams_request(self, count_pauli: bool) -> None:
@@ -586,12 +631,13 @@ class CSSLogicalCounter:
         """Count logical operators by the weight enumerators of the checks of a stabilizer code.
 
         Each support of a nontrivial logical Pauli operator of weight ``d`` in a self-dual code
-        carries exactly three such operators: one X-only, one Z-only, and one Y-only.  The checks of
-        a self-dual code may share one weight distribution, even if a deformation gave them
-        different bases.  Equal check spaces have equal distributions, so whether they share one
-        changes only the number of walks, never the counts.  The enumerators are kept, so that later
-        counts at any weight, with any options, do not walk again.  Each native call of a walk
-        visits at most ``chunk_size`` steps.
+        carries exactly three such operators: one X-only, one Z-only, and one Y-only.
+
+        The checks of a self-dual code may share one weight distribution, even if a deformation gave
+        them different bases.  Equal check spaces have equal distributions, so sharing one changes
+        only the number of walks, never the counts.  The enumerators are kept, so later counts at
+        any weight, with any options, do not walk again.  Each native call of a walk visits at most
+        ``chunk_size`` steps.
         """
         # Walk the check spaces once per counter.
         if self._enumerators is None:
@@ -638,16 +684,16 @@ class CSSLogicalCounter:
 
     def _get_disjoint_basis_family(
         self, index: int, random_column_orders: int
-    ) -> information_sets.BasisFamily:
-        """The disjoint basis family of a sector, the first stage of its basis families, kept.
+    ) -> basis_families.BasisFamily:
+        """The disjoint basis family of a sector, which is the first stage of its basis families.
 
-        This stage does not depend on the counted weight, so counting at another weight, as when a
-        guessed weight fails, does not repeat it.  It does depend on ``random_column_orders``, the
-        ``disjoint_random_column_orders`` of the tuning of the count.
+        The family is built once and kept.  It does not depend on the counted weight, so counting at
+        another weight, as when a guessed weight fails, does not build it again.  It does depend on
+        ``random_column_orders``, the ``disjoint_random_column_orders`` of the tuning of the count.
         """
         key = (index, random_column_orders)
         if key not in self._disjoint_basis_families:
-            self._disjoint_basis_families[key] = information_sets.get_disjoint_family(
+            self._disjoint_basis_families[key] = basis_families.get_disjoint_family(
                 *self._get_sectors()[index], random_column_orders=random_column_orders
             )
         return self._disjoint_basis_families[key]
@@ -663,7 +709,8 @@ class CSSLogicalCounter:
 
 
 def count_logical_ops_css(
-    code: CSSCode,
+    checks_x: npt.ArrayLike,
+    checks_z: npt.ArrayLike,
     weight: SupportsIndex | None = None,
     *,
     method: LogicalCountMethod = "brouwer_zimmermann",
@@ -673,7 +720,7 @@ def count_logical_ops_css(
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
-    This is shorthand for ``CSSLogicalCounter(code).count_logical_ops(...)``; see
+    This is shorthand for ``CSSLogicalCounter(checks_x, checks_z).count_logical_ops(...)``; see
     :class:`CSSLogicalCounter` and :meth:`CSSLogicalCounter.count_logical_ops` for the arguments and
     conventions.
 
@@ -681,12 +728,12 @@ def count_logical_ops_css(
         The counted weight and the counts.
 
     Raises:
-        TypeError: If the code is not a :class:`~qldpc.codes.CSSCode`, or if the weight is not an
-            integer, or is a bool.
-        ValueError: If the code is not binary, or for invalid arguments as described in
-            :meth:`CSSLogicalCounter.count_logical_ops`.
+        TypeError: If the checks are not valid for :class:`CSSLogicalCounter`, or if the weight is
+            not an integer, or is a bool.
+        ValueError: If the checks are not valid for :class:`CSSLogicalCounter`, or for invalid
+            arguments as described in :meth:`CSSLogicalCounter.count_logical_ops`.
     """
-    return CSSLogicalCounter(code).count_logical_ops(
+    return CSSLogicalCounter(checks_x, checks_z).count_logical_ops(
         weight,
         method=method,
         count_pauli=count_pauli,
@@ -703,7 +750,7 @@ def compile_search_setup() -> None:
     selects and bounds the information sets of a code, packs them for the scan of its words, and
     moves them through local gates.  This function compiles that code instead, for the rest of this
     process.  It does not change any result, and it does not affect the MacWilliams method or the
-    connected-support distance method, which do not use that code.
+    connected-cluster distance method, which do not use that code.
 
     Call it once, at the start of a program that makes very many counts of similar codes, such as a
     search over many deformed codes.  Every process that calls it compiles the code again, so it
@@ -727,7 +774,7 @@ def _validate_logical_count_method(
     The aliases ``"information_sets"`` and ``"weight_enumerator"`` resolve to
     ``"brouwer_zimmermann"`` and ``"macwilliams"``, respectively.
     """
-    if method not in _LOGICAL_COUNT_METHODS:
+    if not isinstance(method, str) or method not in _LOGICAL_COUNT_METHODS:
         raise ValueError(
             f"Unknown logical-count method {method!r}; choose from 'brouwer_zimmermann',"
             " 'macwilliams', or 'brute_force'."
@@ -749,30 +796,33 @@ def _warm_up_compiled_functions() -> None:
     Later calls of these functions compile them again only for arguments of other types, such as
     arrays in Fortran order.
     """
-    from ..quantum import SteaneCode
-
-    counter = CSSLogicalCounter(SteaneCode())
+    # The X and Z checks of the Steane code are those of the [7, 4] Hamming code, whose column j
+    # holds the binary digits of j + 1.
+    hamming = np.array(
+        [[0, 0, 0, 1, 1, 1, 1], [0, 1, 1, 0, 0, 1, 1], [1, 0, 1, 0, 1, 0, 1]], dtype=np.uint8
+    )
+    counter = CSSLogicalCounter(hamming, hamming)
     counter.count_logical_ops(method="brouwer_zimmermann")
     counter.deformed_cnot(0, 1).count_logical_ops(method="brouwer_zimmermann")
 
-    # The distance search of so small a code is exhaustive, so call the stages that it uses here.
-    # Any upper bound compiles them; this one exceeds the distance of the code, 3.  The default
-    # tuning makes these calls build families whatever the active tuning, since compilation, not a
-    # search, is their purpose.
+    # The distance search of so small a code ends before some of its stages, so call them here.  Any
+    # upper bound compiles them; this one exceeds the distance of the code, 3.  These calls compile,
+    # rather than search, so they use the default tuning, which makes them independent of the
+    # active tuning.
     basis, labels = counter._get_sectors()[0]
     upper_bound = 4
-    basis_family = information_sets.prune_family(
-        information_sets.get_disjoint_family(
+    basis_family = basis_families.prune_family(
+        basis_families.get_disjoint_family(
             basis, labels, random_column_orders=DEFAULT_TUNING.disjoint_random_column_orders
         ),
         upper_bound,
     )
-    information_sets.get_overlapping_family(
+    basis_families.get_overlapping_family(
         basis,
         labels,
         basis_family,
         upper_bound,
-        information_sets.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
+        basis_families.get_overlapping_family_policy(DEFAULT_TUNING, len(basis)),
     )
 
 
@@ -783,13 +833,14 @@ def _warm_up_compiled_functions() -> None:
 def _get_distance(
     sectors: Sequence[_Sector],
     method: _CountDistanceMethod,
-    get_disjoint_basis_families: Sequence[Callable[[], information_sets.BasisFamily]],
+    get_disjoint_basis_families: Sequence[Callable[[], basis_families.BasisFamily]],
     tuning: SearchTuning,
 ) -> int:
     """Minimum weight of a nontrivial word in any of the given sectors.
 
     ``get_disjoint_basis_families`` holds a function for each sector that returns its disjoint basis
-    family, and ``tuning`` sets the thresholds, for the BZ search.
+    family, for the BZ search.  ``tuning`` sets the thresholds of the BZ search, and the batch size
+    of brute force.
     """
     if method == "brute_force":
         return min(
@@ -798,7 +849,7 @@ def _get_distance(
                 labels,
                 cutoff=0,
                 batch_exponent=tuning.enumeration_batch_exponent,
-                homogeneous=True,
+                symplectic=False,
             )
             for basis, labels in sectors
         )
@@ -807,28 +858,4 @@ def _get_distance(
         cutoff=0,
         get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],
         tuning=tuning,
-    )
-
-
-####################################################################################################
-# stabilizers of subsystem codes
-
-
-def _get_stabilizers(
-    gauge_x: npt.NDArray[np.uint8], gauge_z: npt.NDArray[np.uint8]
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Independent bases of the stabilizers among the given gauge generators.
-
-    The stabilizers are the gauge operators that commute with every gauge operator of the other
-    type.  If all gauge generators commute, the given arrays are returned.
-    """
-    overlaps = (gauge_x.astype(int) @ gauge_z.T.astype(int) % 2).astype(np.uint8)
-    if not np.any(overlaps):
-        return gauge_x, gauge_z
-    # A combination c @ gauge_x commutes with every Z gauge generator exactly when c @ overlaps = 0.
-    stabilizers_x = get_kernel(overlaps.T).astype(int) @ gauge_x % 2
-    stabilizers_z = get_kernel(overlaps).astype(int) @ gauge_z % 2
-    return (
-        get_independent_rows(stabilizers_x.astype(np.uint8)),
-        get_independent_rows(stabilizers_z.astype(np.uint8)),
     )

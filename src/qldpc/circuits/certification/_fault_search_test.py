@@ -292,15 +292,19 @@ def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.Monke
     num_classes = 200
     hashes = np.random.default_rng(0).integers(2**64, size=num_classes, dtype=np.uint64)
     _fault_search._get_closing_map(hashes[:3], 2)
+    was_tracing = tracemalloc.is_tracing()
     tracemalloc.start()
     try:
+        tracemalloc.reset_peak()
+        before = tracemalloc.get_traced_memory()[0]
         _fault_search._get_closing_map(hashes, 2)
-        _, peak = tracemalloc.get_traced_memory()
+        peak = tracemalloc.get_traced_memory()[1]
     finally:
-        tracemalloc.stop()
+        if not was_tracing:
+            tracemalloc.stop()
     # Allow a few kilobytes that do not grow with the number of pairs.
     num_pairs = num_classes * (num_classes - 1) // 2
-    assert peak <= num_pairs * _fault_search._BYTES_PER_PAIR + 2**14
+    assert peak - before <= num_pairs * _fault_search._BYTES_PER_PAIR + 2**14
 
 
 def test_key_slots_find_the_first_entry_of_each_key(pytestconfig: pytest.Config) -> None:
@@ -447,6 +451,16 @@ def test_hand_derived_dependency_cases() -> None:
     ):
         failure = _certify_map(flags, syndromes, max_weight, 6)
         assert (failure is None) == certified
+
+
+def test_batches_have_a_word_for_every_64_output_qubits() -> None:
+    """On 70 qubits, the batches of syndromes below ``2**64`` have two words, as the oracle needs.
+
+    The two primitive faults fire the same flag, so together they pass post-selection, and they
+    leave X on the first three qubits, which violates the bound at fault weight two.
+    """
+    failure = _certify_map([1, 1], [0b011, 0b100], None, 70)
+    assert failure is not None and failure.fault_indices == (0, 1)
 
 
 def test_failures_report_the_smallest_faults() -> None:

@@ -27,9 +27,9 @@ from .. import _tuning
 # Clifford acts by [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]] on both.
 CNOT = (np.array([1, 3], dtype=np.uint64), np.array([3, 2], dtype=np.uint64))
 SWEL = (np.array([7, 11, 13, 14], dtype=np.uint64),) * 2
-# Like the cached matrices of other gates, these are shared, so they are read-only.  Numba gives
-# read-only arrays a type of their own, so every local matrix then has the same type, and code that
-# is compiled for one gate serves all of them.
+# These matrices are shared, as are the cached matrices of other gates, so they are read-only.
+# Numba gives read-only arrays a type of their own.  Every local matrix then has that type, so code
+# that is compiled for one gate serves all of them.
 for _matrix in (*CNOT, *SWEL):
     _matrix.setflags(write=False)
 
@@ -50,11 +50,11 @@ def get_local_matrices(
 def _get_cached_local_matrices(
     size: int, order: int | None, shape: tuple[int, ...], dtype: str, data: bytes
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:
-    """Validate and pack ``matrix_x`` given by its bytes, and the matrix for Z supports.
+    """Validate and pack ``matrix_x``, given by its bytes, and the matrix for Z supports.
 
     Searches apply the same local Cliffords repeatedly, so results are cached.  The key identifies
     the input completely, including its shape and field, so invalid input never matches a cached
-    entry.  Results are read-only so that callers cannot alter the cache.
+    entry.  Results are read-only, so that callers cannot alter the cache.
     """
     if order is not None and order != 2:
         raise ValueError("Local Clifford matrices must be binary")
@@ -101,8 +101,8 @@ def apply_local(
 ) -> npt.NDArray[np.uint8]:
     """Apply a packed local matrix to the target columns of a copy of the given rows.
 
-    Column ``positions[i]`` of a row becomes the parity of ``local[i]`` and the word whose bit ``j``
-    is the row's entry at ``positions[j]``.
+    Let ``word`` be the word whose bit ``j`` is a row's entry at ``positions[j]``.  Column
+    ``positions[i]`` of that row becomes the parity of ``local[i] & word``.
     """
     result = rows.copy()
     for row in range(rows.shape[0]):

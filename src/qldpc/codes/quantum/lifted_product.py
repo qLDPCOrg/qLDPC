@@ -14,7 +14,7 @@ import qldpc
 from qldpc import abstract
 from qldpc.abstract.linalg import get_howell_dual
 
-from ..common import CSSCode
+from ..common import CSSCode, _mark_read_only
 from .hypergraph_product import HGPCode, SHPCode, _check_same_ring
 from .two_block import _get_abelian_block_translations
 
@@ -45,6 +45,15 @@ class LPCode(CSSCode):
     commute.  Otherwise, LPCode verifies that they commute, and raises a ValueError if they do not.
     The involution of a ``MatrixRing`` transposes lifts, as does that of a group algebra whose group
     members lift to orthogonal matrices, such as permutation matrices.
+
+    If ``set_logicals`` is True, an LPCode sets its canonical logical line operators.  These
+    operators need a group algebra whose group order is not divisible by the field characteristic,
+    or seed matrices that split at trailing pivot blocks over a ring whose involution transposes
+    lifts.  See ``get_canonical_logical_line_ops`` for these conditions.  Lifted products of binary
+    codes over groups of even order are common but often fail both conditions, so ``set_logicals``
+    defaults to False.  If it is True for matrices that fail both conditions, a ValueError is
+    raised.  A ValueError is also raised if these operators are invalid, which can happen for a
+    group algebra whose involution does not transpose lifts.
 
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
@@ -104,23 +113,11 @@ class LPCode(CSSCode):
         *,
         set_logicals: bool = False,
     ) -> None:
-        """Lifted product of two RingArrays, as in arXiv:2012.04068.
-
-        The two RingArrays must be over the same ring, or else a ValueError is raised.
-
-        If ``set_logicals`` is True, set the canonical logical line operators of the code.  These
-        operators need a group algebra whose group order is not divisible by the field
-        characteristic, or seed matrices that split at trailing pivot blocks over a ring whose
-        involution transposes lifts.  See ``get_canonical_logical_line_ops`` for these conditions.
-        Lifted products of binary codes over groups of even order are common but often fail both
-        conditions, so ``set_logicals`` defaults to False.  If it is True for matrices that fail
-        both conditions, a ValueError is raised.  A ValueError is also raised if these operators are
-        invalid, which can happen for a group algebra whose involution does not transpose lifts.
-        """
+        """Lifted product of two RingArrays, as in arXiv:2012.04068."""
         if matrix_b is None:
             matrix_b = matrix_a
-        self.matrix_a = abstract.RingArray(matrix_a)
-        self.matrix_b = abstract.RingArray(matrix_b)
+        self.matrix_a = _mark_read_only(abstract.RingArray(matrix_a).copy())
+        self.matrix_b = _mark_read_only(abstract.RingArray(matrix_b).copy())
 
         ring = self.matrix_a.ring
         field = ring.field
@@ -129,9 +126,8 @@ class LPCode(CSSCode):
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
 
         # identify the number of qudits in each sector
-        self.sector_size = ring.lift_dim * np.outer(
-            self.matrix_a.shape[::-1],
-            self.matrix_b.shape[::-1],
+        self.sector_size = _mark_read_only(
+            ring.lift_dim * np.outer(self.matrix_a.shape[::-1], self.matrix_b.shape[::-1])
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
@@ -293,7 +289,7 @@ class SLPCode(CSSCode):
     The subsystem lifted product code is a lifted version of the subsystem hypergraph product code.
     That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See
     help(qldpc.codes.LPCode) for additional information.  The ring of an SLPCode must satisfy
-    requirements 1 and 2 of an LPCode.
+    requirements 1 and 2 of an LPCode.  ``set_logicals`` is as for :class:`LPCode`.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by::
@@ -331,15 +327,11 @@ class SLPCode(CSSCode):
         *,
         set_logicals: bool = False,
     ) -> None:
-        """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302.
-
-        The two RingArrays must be over the same ring, or else a ValueError is raised.
-        ``set_logicals`` is as for :class:`LPCode`.
-        """
+        """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302."""
         if matrix_b is None:
             matrix_b = matrix_a
-        self.matrix_a = abstract.RingArray(matrix_a)
-        self.matrix_b = abstract.RingArray(matrix_b)
+        self.matrix_a = _mark_read_only(abstract.RingArray(matrix_a).copy())
+        self.matrix_b = _mark_read_only(abstract.RingArray(matrix_b).copy())
 
         ring = self.matrix_a.ring
         field = ring.field

@@ -172,10 +172,9 @@ def get_qdistrnd_distance_bound(
     The estimate is a randomized upper bound (QDistRnd samples random codewords).  Requires the GAP
     GUAVA and QDistRnd packages.  See https://qec-pages.github.io/QDistRnd/doc/chap4.html.
 
-    Note that QDistRnd does not support subsystem codes.  In the case of a CSS code, however, we can
-    still compute the Z-distance by promoting all Z-type gauge group generators to stabilizers.
-    ``maxav`` is passed through to QDistRnd as a raw GAP value (default "fail"); see the QDistRnd
-    documentation linked above.
+    QDistRnd does not support subsystem codes, but for a CSS code it bounds the dressed Z-distance,
+    given the Z-type gauge generators as if they were stabilizers.  ``maxav`` is passed through to
+    QDistRnd as a raw GAP value (default "fail"); see the QDistRnd documentation linked above.
 
     Args:
         matrix: The symplectic parity check matrix of a stabilizer code, with rows of the form
@@ -194,8 +193,15 @@ def get_qdistrnd_distance_bound(
         An upper bound on the distance of the code.
 
     Raises:
-        ValueError: If given a non-CSS subsystem code, or if QDistRnd output is missing or invalid.
+        ValueError: If given the symplectic checks of a subsystem code, or if QDistRnd output is
+            missing or invalid.
     """
+    # Reject unsupported input before require_package, which can ask to install packages.
+    if matrix_z is None and is_subsystem_code:
+        raise ValueError(
+            "QDistRnd cannot estimate the distance of a subsystem code from its symplectic checks;"
+            " for a CSS subsystem code, convert it with code.to_css()"
+        )
     qldpc.external.gap.require_package("GUAVA")
     qldpc.external.gap.require_package("QDistRnd", "https://github.com/QEC-pages/QDistRnd")
 
@@ -205,6 +211,13 @@ def get_qdistrnd_distance_bound(
     cutoff = cutoff or 0
     kwargs = ",".join([f"field:={field}", f"maxav:={maxav}"])
 
+    # QDistRnd fails on a matrix without rows, so give each such matrix a zero row, which keeps its
+    # row space.
+    if not len(matrix):
+        matrix = type(matrix).Zeros((1, matrix.shape[1]))
+    if matrix_z is not None and not len(matrix_z):
+        matrix_z = type(matrix_z).Zeros((1, matrix_z.shape[1]))
+
     if matrix_z is not None:
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
@@ -213,9 +226,6 @@ def get_qdistrnd_distance_bound(
             *_get_gap_sparse_matrix_commands("matrix_z", field_order, matrix_z),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
-
-    elif is_subsystem_code:
-        raise ValueError("QDistRnd cannot estimate the distance of non-CSS subsystem codes.")
 
     else:
         # "riffle" the parity check matrix to put X and Z support bits each qudit next to each other

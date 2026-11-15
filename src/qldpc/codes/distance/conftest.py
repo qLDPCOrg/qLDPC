@@ -1,30 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared fixtures and helpers for exact-distance, binary-algebra, BZ, and count tests."""
+"""Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
 import itertools
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
+import stim
 
-from qldpc import _compilation, codes
-from qldpc._binary import get_independent_rows, get_kernel
+from qldpc import _compilation, codes, math
+from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
 from qldpc.objects import Pauli, PauliXZ
 
-from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._search import information_sets
-
-
-@pytest.fixture
-def force_information_sets(tune: Tune) -> None:
-    """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
-    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
+from ._information_sets import basis_families, certificates
+from .coset_leaders import CosetLeaderSearch
 
 
 @pytest.fixture
@@ -44,8 +39,8 @@ def plain_search_setup() -> None:
 class CostlyStages(NamedTuple):
     """The results of the costly stages of searches, which the costly_stages fixture records."""
 
-    partitioned_families: list[information_sets.BasisFamily]
-    search_certificates: list[information_sets.Certificate]
+    partitioned_families: list[basis_families.BasisFamily]
+    search_certificates: list[certificates.Certificate]
 
 
 @pytest.fixture
@@ -56,23 +51,23 @@ def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
     family, and a certificate with pivot blocks shows that a search used linear programming.
     """
     stages = CostlyStages([], [])
-    get_partitioned_family = information_sets.get_partitioned_family
-    get_search_certificate = information_sets.BasisFamily.get_search_certificate
+    get_partitioned_family = basis_families.get_partitioned_family
+    get_search_certificate = basis_families.BasisFamily.get_search_certificate
 
-    def record_family(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+    def record_family(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
         family = get_partitioned_family(*args, **kwargs)
         stages.partitioned_families.append(family)
         return family
 
     def record_certificate(
-        basis_family: information_sets.BasisFamily, *args: Any, **kwargs: Any
-    ) -> information_sets.Certificate:
+        basis_family: basis_families.BasisFamily, *args: Any, **kwargs: Any
+    ) -> certificates.Certificate:
         certificate = get_search_certificate(basis_family, *args, **kwargs)
         stages.search_certificates.append(certificate)
         return certificate
 
-    monkeypatch.setattr(information_sets, "get_partitioned_family", record_family)
-    monkeypatch.setattr(information_sets.BasisFamily, "get_search_certificate", record_certificate)
+    monkeypatch.setattr(basis_families, "get_partitioned_family", record_family)
+    monkeypatch.setattr(basis_families.BasisFamily, "get_search_certificate", record_certificate)
     return stages
 
 
@@ -82,15 +77,20 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# of the routes of coset searches (see ``_search/coset_routes.py``).  The even code has the columns
-# e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has even weight.  Its greedy packing
-# has ranks three and two, and its columns hold two disjoint information sets.  In the random [10,
-# 6] code, a greedy packing of ranks six and three leaves room for one of ranks six and four, and
-# for a family of three overlapping information sets, and queries take each of these at some maximum
-# weights.  In the random [14, 8] code, a greedy packing of ranks eight and six uses every column,
-# and three overlapping information sets do less work for some queries, but not for others.  So its
-# overlapping family depends on the weight at which it is built, and that family changes some
-# answers.
+# of the routes of coset searches (see ``_brouwer_zimmermann/coset_routes.py``).
+#
+# The even code has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so every row has
+# even weight.  Its greedy packing has ranks three and two, but its columns hold two disjoint
+# information sets.
+#
+# In the random [10, 6] code, a greedy packing of ranks six and three leaves room for a disjoint
+# family of ranks six and four, and for a family of three overlapping information sets.  Queries
+# take each of these families at some maximum weights.
+#
+# In the random [14, 8] code, a greedy packing of ranks eight and six uses every column.  Three
+# overlapping information sets do less work for some queries, but not for others.  So the
+# overlapping family of this code depends on the weight at which it is built, and that family
+# changes some answers.
 EVEN_ROUTES_CODE = get_binary_matrix(["100111", "010111", "001001"])
 TWO_FAMILIES_CODE = get_binary_matrix(
     ["1001010111", "0110001011", "0101111010", "0010111100", "0010100000", "0000100110"]
@@ -138,12 +138,6 @@ Counts = lc.CSSLogicalCounts
 METHODS: tuple[lc.LogicalCountMethod, ...] = ("brouwer_zimmermann", "brute_force")
 
 
-def get_counter(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> lc.CSSLogicalCounter:
-    """A counter for the CSS code with the given binary checks."""
-    code = codes.CSSCode(np.asarray(checks_x, dtype=int), np.asarray(checks_z, dtype=int))
-    return lc.CSSLogicalCounter(code)
-
-
 def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
     """Binary rows whose bit j is bit j of each integer."""
     return np.array([[value >> jj & 1 for jj in range(width)] for value in values], dtype=np.uint8)
@@ -152,7 +146,7 @@ def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
 def append_frozen_qubits(
     checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Append qubits fixed in |0> by a Z check each; no logical of minimum weight touches them."""
+    """Append qubits fixed in |0> by a Z check each.  No logical of minimum weight touches them."""
     x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
     extra = width - x.shape[1]
     padded_x = np.pad(x, ((0, 0), (0, extra)))
@@ -242,3 +236,144 @@ def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: An
 # {2,4}, {0,3} and {1,3}.  The Z word {2,4} also supports the X stabilizer {2,4}, so in total there
 # are 2 + 3 + 1 = 6 logical Pauli operators of weight two.
 HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
+
+
+####################################################################################################
+# helpers for the tests of coset-leader searches
+
+
+def get_stabilizer_matrix(generators: Sequence[stim.PauliString | str]) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
+    return np.array(
+        [np.concatenate(stim.PauliString(gg).to_numpy()) for gg in generators], dtype=np.uint8
+    )
+
+
+def get_graph_state(
+    num_qubits: int, edges: Sequence[tuple[int, int]], phase: bool = False
+) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of a graph state, with S gates on every qubit if ``phase``.
+
+    Generator j acts as X (or Y) on qubit j, so the X parts of the generators form the identity.
+    """
+    circuit = stim.Circuit()
+    circuit.append("H", range(num_qubits))
+    for edge in edges:
+        circuit.append("CZ", edge)
+    if phase:
+        circuit.append("S", range(num_qubits))
+    return get_stabilizer_matrix(stim.Tableau.from_circuit(circuit).to_stabilizers())
+
+
+def get_pauli_weight(pauli: int, num_qubits: int, css_weight: bool) -> int:
+    """Weight of a packed Pauli, with X in the low bits and Z in the next block."""
+    x, z = pauli & ((1 << num_qubits) - 1), pauli >> num_qubits
+    return (x | z).bit_count() if not css_weight else max(x.bit_count(), z.bit_count())
+
+
+def get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
+    """Syndrome of a packed Pauli: its symplectic product with each row of the stabilizer matrix."""
+    bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
+    products = matrix @ math.symplectic_conjugate(bits) % 2
+    return sum(int(bit) << jj for jj, bit in enumerate(products))
+
+
+def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.NDArray[np.uint64]:
+    """Split packed syndromes of ``num_bits`` bits into rows of 64-bit words.
+
+    Bit ``k`` of word ``j`` of a row is bit ``64 j + k`` of its syndrome.
+    """
+    width = (num_bits + 63) // 64
+    words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
+    return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
+
+
+# Graph states whose searches of Pauli errors, by physical or by CSS weight, have a maximum disjoint
+# family that beats their greedy packing, and that their costly queries take (see
+# ``_brouwer_zimmermann/coset_routes.py``).  For the physical weight, the family of the first state
+# has more information sets than its greedy packing, and that of the second state a larger partial
+# set.  The family of the state for the CSS weight has a larger partial set too.  The two states for
+# the physical weight differ in the answers that their families change: on the second, the family
+# returns other errors for some classes without a light enough error.
+ROUTED_PHYSICAL_STATES = (
+    get_graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
+    get_graph_state(5, [(0, 4), (2, 3)]),
+)
+
+ROUTED_CSS_WEIGHT_STATE = get_graph_state(5, [(0, 1), (0, 4), (1, 4)])
+
+
+def get_random_css_state(
+    num_qubits: int, num_x_stabilizers: int, rng: np.random.Generator
+) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of a random CSS state, with generators that mix pure-X and pure-Z.
+
+    The X parts of the pure-X stabilizers are random independent rows, and the Z parts of the pure-Z
+    stabilizers span their null space.  The generators are random invertible combinations of these
+    stabilizers.
+    """
+    while True:
+        x_rows = rng.integers(2, size=(num_x_stabilizers, num_qubits), dtype=np.uint8)
+        if len(row_reduce_binary(x_rows)[2]) == num_x_stabilizers:
+            break
+    pure = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
+    pure[:num_x_stabilizers, :num_qubits] = x_rows
+    pure[num_x_stabilizers:, num_qubits:] = get_kernel(x_rows)
+    return scramble(pure, rng)
+
+
+def scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDArray[np.uint8]:
+    """Random invertible combinations of the rows of a stabilizer matrix, which generate its group.
+
+    The combinations are a random permutation of an upper triangular matrix with ones on its
+    diagonal and random bits above it.
+    """
+    size = len(matrix)
+    upper = np.triu(rng.integers(2, size=(size, size), dtype=np.uint8), 1) + np.eye(
+        size, dtype=np.uint8
+    )
+    return (upper[rng.permutation(size)] @ matrix) % 2
+
+
+def get_exhaustive_minima(matrix: npt.NDArray[np.uint8], css_weight: bool) -> npt.NDArray[np.int_]:
+    """The smallest CSS (or physical) weight of an error with each packed syndrome.
+
+    The minima come from all ``4**n`` Paulis.
+    """
+    n = len(matrix)
+    errors = (np.arange(1 << (2 * n))[:, None] >> np.arange(2 * n)) & 1
+    checks = math.symplectic_conjugate(matrix.astype(int))
+    syndromes = (errors @ checks.T % 2) @ (1 << np.arange(n))
+    x, z = errors[:, :n], errors[:, n:]
+    weights = np.maximum(x.sum(axis=1), z.sum(axis=1)) if css_weight else (x | z).sum(axis=1)
+    minima = np.full(1 << n, 2 * n + 1)
+    np.minimum.at(minima, syndromes, weights)
+    return minima
+
+
+# A code whose disjoint information sets have ranks five and four.
+RANK_DEFICIENT_CODE = np.array(
+    [
+        [0, 0, 1, 1, 0, 1, 1, 1, 0, 0],
+        [0, 0, 1, 1, 0, 0, 1, 1, 1, 1],
+        [1, 0, 1, 1, 0, 1, 0, 1, 1, 0],
+        [0, 1, 1, 0, 1, 1, 0, 1, 0, 1],
+        [1, 0, 1, 1, 0, 1, 1, 1, 0, 1],
+    ],
+    dtype=np.uint8,
+)
+
+
+def assert_exact_answers(
+    oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
+) -> None:
+    """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
+    num_qubits = len(matrix)
+    minima = get_exhaustive_minima(matrix, css_weight)
+    for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
+        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        weight = get_pauli_weight(bound.representative, num_qubits, css_weight)
+        assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+        assert get_syndrome(matrix, bound.representative) == syndrome
+        assert bound.lower_bound <= minima[syndrome] <= weight
+        assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight

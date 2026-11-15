@@ -44,7 +44,7 @@ def test_the_local_matrices_are_a_matrix_and_its_inverse_transpose(
 
 
 def test_the_local_matrix_may_be_any_array_of_zeros_and_ones() -> None:
-    """Lists, integer, object and GF(2) arrays give the same packed matrices."""
+    """Lists, integer, object, and GF(2) arrays give the same packed matrices."""
     expected = local_cliffords.get_local_matrices(CNOT_MATRIX, 2)
     objects = np.array(CNOT_MATRIX, dtype=object)
     for matrix in (np.array(CNOT_MATRIX), objects, galois.GF(2)(CNOT_MATRIX)):

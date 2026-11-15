@@ -17,15 +17,14 @@ from qldpc.objects import Pauli
 
 from ...conftest import Tune
 from .. import logical_counts as lc
-from .._search import completion_bounds, information_sets
-from .._tuning import MAX_VALUE
+from .._information_sets import basis_families, completion_bounds
+from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from ..conftest import (
     HAND_X,
     HAND_Z,
     METHODS,
     CostlyStages,
     assert_counts_match_enumeration,
-    get_counter,
     get_random_css_code,
     get_sector_problem,
 )
@@ -39,7 +38,7 @@ def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max
     # Build overlapping basis families even for cheap counts.
     tune(overlapping_minimum_work=0, max_information_sets=max_sets)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    counter = lc.CSSLogicalCounter(get_random_css_code(rng, 12, 4, 4))
+    counter = lc.CSSLogicalCounter.from_code(get_random_css_code(rng, 12, 4, 4))
     assert_counts_match_enumeration(counter)
 
     # The counts above prepared basis families, which the deformed counters transport.
@@ -49,7 +48,7 @@ def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max
 
 def test_a_deformed_self_dual_counter_shares_its_basis_family() -> None:
     """A self-dual code stays self-dual under a SWEL-preserving gate, and keeps one basis family."""
-    counter = lc.CSSLogicalCounter(codes.SteaneCode())
+    counter = lc.CSSLogicalCounter.from_code(codes.SteaneCode())
     assert_counts_match_enumeration(counter)
     deformed = counter.deformed_swel(0, 1, 2, 3)
     assert deformed.is_self_dual
@@ -63,7 +62,7 @@ def test_scans_resume_after_every_chunk(
     """A scan that stops after each combination, and after each call, still visits every word."""
     tune(overlapping_minimum_work=0, scan_chunk_size=1, scan_chunks_per_call=1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    counter = lc.CSSLogicalCounter(get_random_css_code(rng, 10, 3, 3))
+    counter = lc.CSSLogicalCounter.from_code(get_random_css_code(rng, 10, 3, 3))
     assert_counts_match_enumeration(counter, method=method)
 
 
@@ -75,7 +74,7 @@ def test_overlapping_basis_families_count_every_word_once(tune: Tune, max_sets: 
     # four overlapping sets, as test_the_information_set_limit_bounds_the_basis_families_of_a_count
     # checks.
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
-    counter = lc.CSSLogicalCounter(code)
+    counter = lc.CSSLogicalCounter.from_code(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
     assert [counter.count_logical_ops(weight) for weight in weights] == expected
@@ -87,7 +86,7 @@ def test_counts_through_the_costly_stages_count_every_word_once(
     """Counts with partitioned families and the certificate of linear programs are exact."""
     tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
-    counter = lc.CSSLogicalCounter(code)
+    counter = lc.CSSLogicalCounter.from_code(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
     assert [counter.count_logical_ops(weight) for weight in weights] == expected
@@ -104,25 +103,25 @@ def test_the_information_set_limit_bounds_the_basis_families_of_a_count(
 ) -> None:
     """The limit shrinks the overlapping basis families that a count may use, not the counts."""
     sizes: list[int] = []
-    original = information_sets.get_overlapping_family
+    original = basis_families.get_overlapping_family
 
-    def record(*args: Any) -> information_sets.BasisFamily:
+    def record(*args: Any) -> basis_families.BasisFamily:
         replacement = original(*args)
         sizes.append(len(replacement.ranks))
         return replacement
 
-    monkeypatch.setattr(information_sets, "get_overlapping_family", record)
-    tune(overlapping_minimum_work=0)
+    monkeypatch.setattr(basis_families, "get_overlapping_family", record)
+    tune(overlapping_minimum_work=0, max_information_sets=16)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
     weights = range(len(code) + 1)
     for weight in weights:
-        lc.count_logical_ops_css(code, weight)
+        lc.count_logical_ops_css(code.matrix_x, code.matrix_z, weight)
     assert max(sizes) > 4
 
     sizes.clear()
     tune(max_information_sets=4)
     for weight in weights:
-        lc.count_logical_ops_css(code, weight)
+        lc.count_logical_ops_css(code.matrix_x, code.matrix_z, weight)
     assert sizes and max(sizes) <= 4
 
 
@@ -132,12 +131,12 @@ def test_a_count_of_full_paulis_above_the_distance_raises_an_error(
 ) -> None:
     """A count of full Paulis at a weight above the distance raises an error."""
     with pytest.raises(ValueError, match="less than weight 3"):
-        get_counter(HAND_X, HAND_Z).count_logical_ops(3, method=method, count_pauli=True)
+        lc.CSSLogicalCounter(HAND_X, HAND_Z).count_logical_ops(3, method=method, count_pauli=True)
 
 
 def test_a_gate_that_breaks_a_set_of_a_basis_family_leaves_counts_exact() -> None:
     """A counter deformed by a gate that breaks a set of its basis family still counts exactly."""
-    counter = get_counter(HAND_X, HAND_Z)
+    counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
     counter.count_logical_ops(count_pauli=True)
     assert_counts_match_enumeration(counter.deformed_cnot(0, 3))
 
@@ -145,21 +144,25 @@ def test_a_gate_that_breaks_a_set_of_a_basis_family_leaves_counts_exact() -> Non
 ####################################################################################################
 # skipping completions with completion tables
 
-# Tuning that makes every step of two or more rows of an information set use completion tables.
+# Tuning that makes every step of two or more rows of an information set use completion tables.  The
+# fewest samples that the cost model accepts keep its predictions quick as plain Python.
 FORCED_TABLES: dict[str, Any] = {
     "completion_bound_minimum_layer_work": 0,
     "completion_bound_max_cost_percent": MAX_VALUE,
+    "completion_bound_samples": DEFAULT_TUNING.completion_bound_min_samples,
 }
 
 
-@pytest.mark.parametrize("chunk_size", [1, 3, 1 << 16])
+@pytest.mark.parametrize("chunk_size, seed", [(1, 0), (3, 1), (1 << 16, 2)])
 def test_counts_with_completion_tables_match_enumeration(
-    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, chunk_size: int, seed: int
 ) -> None:
     """Steps that skip completions still count every word, also when they stop at every lookup.
 
     Some completions of these codes have bounds equal to the target weight, so a scan that skipped
-    them, rather than only heavier ones, would lose words that this enumeration counts.
+    them, rather than only heavier ones, would lose words that this enumeration counts.  Each chunk
+    size counts a different random code; each of these codes alone catches that error at every
+    chunk size.
     """
     selected: list[completion_bounds.CompletionTables] = []
     select = completion_bounds.select_completion_tables
@@ -172,9 +175,8 @@ def test_counts_with_completion_tables_match_enumeration(
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", record)
     tune(overlapping_minimum_work=0, scan_chunk_size=chunk_size, **FORCED_TABLES)
-    for seed in range(3):
-        code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
-        assert_counts_match_enumeration(lc.CSSLogicalCounter(code))
+    code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
+    assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert selected
 
 
@@ -197,7 +199,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
     monkeypatch.setattr(scan._StepTables, "select", record)
     tune(overlapping_minimum_work=0, max_information_sets=max_sets, **FORCED_TABLES)
     code = get_random_css_code(np.random.default_rng(5), 14, 5, 5)
-    counter = lc.CSSLogicalCounter(code)
+    counter = lc.CSSLogicalCounter.from_code(code)
     weights = range(len(code) + 1)
     expected = [counter.count_logical_ops(weight, method="brute_force") for weight in weights]
     assert [counter.count_logical_ops(weight) for weight in weights] == expected
@@ -207,7 +209,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
 def test_counts_return_to_python_only_around_steps_that_may_use_tables(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """A count whose steps are too small for tables scans them all in one call."""
+    """A count whose steps are too small for tables scans each sector in one call."""
     calls: list[int] = []
     scan_layers = scan._scan_coefficient_layers
 
@@ -217,13 +219,13 @@ def test_counts_return_to_python_only_around_steps_that_may_use_tables(
 
     monkeypatch.setattr(scan, "_scan_coefficient_layers", record)
     code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
-    lc.CSSLogicalCounter(code).count_logical_ops(6)
+    lc.CSSLogicalCounter.from_code(code).count_logical_ops(6)
     assert len(calls) == 2
 
     # With tables considered for every step, a count calls once for each step that may use them.
     calls.clear()
     tune(**FORCED_TABLES)
-    lc.CSSLogicalCounter(code).count_logical_ops(6)
+    lc.CSSLogicalCounter.from_code(code).count_logical_ops(6)
     assert len(calls) > 2
 
 
@@ -243,7 +245,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     """Steps get tables only for layers of two or more rows of full sets, within a memory limit."""
     code = get_random_css_code(np.random.default_rng(1), 24, 8, 8)
     basis, labels = get_sector_problem(code, Pauli.X)
-    disjoint = information_sets.get_disjoint_family(basis, labels, random_column_orders=0)
+    disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
     deficient = len(disjoint.ranks) - 1
     assert disjoint.ranks[0] == len(basis) and disjoint.ranks[deficient] < len(basis)
 
@@ -294,7 +296,7 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     assert step_tables.select(3, 1)[0] is second
     assert step_tables.select(3, 0)[0] is not first
 
-    # A step whose tables the gate declines scans without them.
+    # A step for which select_completion_tables declines tables scans without them.
     declining = tune(completion_bound_minimum_layer_work=0, completion_bound_max_cost_percent=1)
     step_tables = scan._StepTables(family, rows_and_labels, 4, declining)
     assert step_tables.may_use_tables(2, 0)

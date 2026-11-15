@@ -15,7 +15,7 @@ from sympy.abc import x, y
 
 from qldpc import abstract, codes
 from qldpc.abstract.monomials import get_coefficient_and_exponents
-from qldpc.codes.distance._search import automorphism_families
+from qldpc.codes.distance._information_sets import automorphism_families
 from qldpc.objects import Node
 
 from ..conftest import (

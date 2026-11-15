@@ -22,7 +22,7 @@ from qldpc.objects import (
     Node,
 )
 
-from ..common import ClassicalCode, CSSCode
+from ..common import ClassicalCode, CSSCode, _mark_read_only
 
 ####################################################################################################
 # two-block codes
@@ -159,10 +159,14 @@ class GALACode(CSSCode):
         self.num_blocks = 2 * len(self.generators_f)
         self.num_active_rows = num_active_rows
 
-        self.matrix_f = self._get_block_circulant(self.generators_f)
-        self.matrix_g = self._get_block_circulant(self.generators_g)
-        self.parent_matrix_x = abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
-        self.parent_matrix_z = abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+        self.matrix_f = _mark_read_only(self._get_block_circulant(self.generators_f))
+        self.matrix_g = _mark_read_only(self._get_block_circulant(self.generators_g))
+        self.parent_matrix_x = _mark_read_only(
+            abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
+        )
+        self.parent_matrix_z = _mark_read_only(
+            abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+        )
 
         # lift only active block rows so inactive GALA checks are not added to the code
         active_matrix_x = abstract.RingArray(self.parent_matrix_x[: self.num_active_rows])

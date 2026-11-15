@@ -17,8 +17,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.codes.distance import DistanceMethod
-from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
+from qldpc.codes.distance import DistanceMethod, MinWeightBound
 
 from . import fault_propagation
 
@@ -570,8 +569,8 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
         assert syndrome != failure.output_syndrome
 
 
-def test_the_connected_support_method_finds_the_same_fault() -> None:
-    """The connected-support search finds the fault that the default search finds.
+def test_the_connected_cluster_method_finds_the_same_fault() -> None:
+    """The connected-cluster search finds the fault that the default search finds.
 
     Two primitive faults that each fire the detector pass post-selection together, so the smallest
     violating fault has two error mechanisms, which the search over combinations of primitive faults
@@ -591,7 +590,7 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         circuits.certify_bounded_fault_propagation(
             circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
         )
-        for method in ("brouwer_zimmermann", "information_sets", "connected_support")
+        for method in ("brouwer_zimmermann", "information_sets", "connected_cluster")
     )
     assert alias == default
     _assert_valid_counterexample(result, circuit)
@@ -601,35 +600,33 @@ def test_the_connected_support_method_finds_the_same_fault() -> None:
         result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
     )
 
-    # The +1 eigenstate of Y is not CSS, so the connected-support search cannot weigh its errors by
+    # The +1 eigenstate of Y is not CSS, so the connected-cluster search cannot weigh its errors by
     # CSS weight, but the default search, also under its alias, can.
     y_state = stim.Circuit("H 0\nS 0")
     with pytest.raises(ValueError, match="only on CSS states"):
         circuits.certify_bounded_fault_propagation(
-            y_state, css_weight=True, method="connected_support"
+            y_state, css_weight=True, method="connected_cluster"
         )
     assert circuits.certify_bounded_fault_propagation(
         y_state, css_weight=True, method="information_sets"
     ).certified
 
 
-def test_coset_search_method_of_each_distance_method() -> None:
-    """Each exact-distance method except brute force selects a coset-leader search.
+def test_every_distance_method_but_brute_force_searches_residual_weights() -> None:
+    """Each exact-distance method except brute force passes the check of methods.
 
-    The alias ``"information_sets"`` selects the default search, and unknown methods are rejected.
-    Certification checks its method before it reads the circuit, so the lack of an unmeasured qubit
-    of this circuit raises no error first.
+    Unknown methods are rejected.  Certification checks its method before it reads the circuit, so
+    the lack of an unmeasured qubit of this circuit raises no error first.
     """
     for method in typing.get_args(DistanceMethod):
         if method == "brute_force":
             with pytest.raises(ValueError, match="no search of residual weights"):
-                fault_propagation._get_coset_search_method(method)
+                fault_propagation._check_coset_search_method(method)
         else:
-            expected = "brouwer_zimmermann" if method == "information_sets" else method
-            assert fault_propagation._get_coset_search_method(method) == expected
+            fault_propagation._check_coset_search_method(method)
     unknown: Any = "gap"
     with pytest.raises(ValueError, match="Unknown distance method"):
-        fault_propagation._get_coset_search_method(unknown)
+        fault_propagation._check_coset_search_method(unknown)
     with pytest.raises(ValueError, match="no search of residual weights"):
         circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
 

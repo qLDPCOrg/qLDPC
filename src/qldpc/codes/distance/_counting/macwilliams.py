@@ -2,21 +2,21 @@
 
 """Exact logical counts of binary CSS stabilizer codes from the weight enumerators of their checks.
 
-The X logicals of a CSS stabilizer code are the words of ``ker(H_Z)`` outside ``row(H_X)``.  The
-kernel is the dual of ``row(H_Z)``, so the MacWilliams identity gives its number of words of weight
-``w`` from the weight distribution ``A_Z`` of ``row(H_Z)``, and
+The X logicals of a CSS stabilizer code are the words of ``ker(H_Z)`` outside ``row(H_X)``.  Let
+``A_X`` and ``A_Z`` be the weight distributions of ``row(H_X)`` and ``row(H_Z)``.  The kernel is the
+dual of ``row(H_Z)``, so the MacWilliams identity gives its number of words of each weight from
+``A_Z``.  The number of X logicals of weight ``w`` is then
 
     ``N_X(w) = 2**(-rank(H_Z)) * sum_j K_w(j) A_Z(j) - A_X(w)``,
 
-where ``K_w`` is a binary Krawtchouk polynomial and ``A_X`` is the weight distribution of
-``row(H_X)``.  The Z counts exchange X and Z.  Each weight distribution comes from a walk over all
-``2**rank`` words of a check space, so the cost is exponential in the ranks of the checks rather
-than in the number of logical qubits.  The transforms use 64-bit integers at the weights where a
-bound rules out overflow, and exact Python integers at the others.
+where ``K_w`` is a binary Krawtchouk polynomial.  The Z counts exchange X and Z.
 
-The walk visits the words of a span in reflected Gray-code order, as the brute-force distance search
-in ``_search/brute_force.py`` does, but it reduces every word to a weight histogram in one compiled
-loop instead of to a minimum weight over vectorized blocks.
+Each weight distribution comes from a walk over all ``2**rank`` words of a check space.  The cost is
+therefore exponential in the ranks of the checks, rather than in the number of logical qubits.  The
+walk visits the words in reflected Gray-code order, as the brute-force distance search in
+``_brute_force.py`` does, and adds each word to a histogram of weights in one compiled loop.  The
+transforms use 64-bit integers at the weights where a bound rules out overflow, and exact Python
+integers at the others.
 
 References:
 
@@ -53,8 +53,8 @@ class CheckEnumerators:
         checks_x: Independent X checks.
         checks_z: Independent Z checks that commute with the X checks.  If they are the same array
             as ``checks_x``, one distribution serves both spaces.
-        chunk_size: The most steps of the walk of a check space in one native call (see
-            ``get_span_weights``).
+        chunk_size: The largest number of steps that the walk of a check space takes in one native
+            call (see ``get_span_weights``).
 
     Raises:
         ValueError: If a check space has more than ``2**63`` words.
@@ -120,8 +120,8 @@ class CheckEnumerators:
 def get_span_weights(generators: npt.NDArray[np.uint8], chunk_size: int) -> npt.NDArray[np.uint64]:
     """The number of words of each weight in the span of independent binary rows, as uint64s.
 
-    The Gray-code walk of the span visits at most ``chunk_size`` steps in each native call, which
-    cannot be interrupted.
+    A native call cannot be interrupted, so the Gray-code walk of the span takes at most
+    ``chunk_size`` steps in each call.
     """
     rank, num_bits = generators.shape
     weights = np.zeros(num_bits + 1, dtype=np.uint64)
@@ -152,13 +152,17 @@ def _count_light_dual_words(
 ) -> list[int]:
     """The numbers of words of weights ``0, 1, ...`` orthogonal to a span, in 64-bit arithmetic.
 
-    Since ``|K_w(j)| <= C(n, w)`` and the weight distribution ``A`` of the span sums to ``2**rank``,
-    no product ``K_w(j) A(j)`` and no partial sum of ``sum_j K_w(j) A(j)`` exceeds
-    ``2**rank * C(n, w)`` in magnitude.  Signed 64-bit arithmetic is therefore exact at the weights
-    ``w`` below the first one at which this bound reaches ``2**63``, and the counts stop there.  At
-    those weights, every Krawtchouk value is at most ``C(n, w) < 2**63`` in magnitude, and the rank
-    is at most 62 because ``C(n, 0) = 1``, so the entries of the distribution, which are at most
-    ``2**rank``, and the divisor ``2**rank`` also fit.  The counts are returned as Python integers.
+    Let ``A`` be the weight distribution of the span, which sums to ``2**rank``.  Since
+    ``|K_w(j)| <= C(n, w)``, no product ``K_w(j) A(j)``, and no partial sum of
+    ``sum_j K_w(j) A(j)``, exceeds ``2**rank * C(n, w)`` in magnitude.  The counts stop at the first
+    weight ``w`` at which this bound reaches ``2**63``, so signed 64-bit arithmetic is exact at
+    every weight that they reach.
+
+    The other values of the transform also fit at those weights.  Every Krawtchouk value is at most
+    ``C(n, w) < 2**63`` in magnitude.  The bound at weight zero is ``2**rank``, since
+    ``C(n, 0) = 1``, so the counts reach a weight only if the rank is at most 62.  The entries of
+    the distribution, which are at most ``2**rank``, and the divisor ``2**rank`` then fit too.  The
+    counts are returned as Python integers.
     """
     krawtchouk = _get_light_krawtchouk_rows(num_bits, rank)
     counts = _transform_weights(krawtchouk, span_weights, rank)
@@ -213,9 +217,9 @@ def _add_span_weights(
 ) -> None:
     """Continue a Gray-code walk over the span of packed generators, from step ``start``.
 
-    Step ``s`` adds the generator indexed by the number of trailing zeros of ``s`` to ``word``, the
-    word of the previous step, so steps ``1`` to ``2**rank - 1`` visit every nonzero word once.
-    Each visited word increments the entry of ``weights`` for its weight.
+    ``word`` holds the word of the previous step.  Step ``s`` adds to it the generator whose index
+    is the number of trailing zeros of ``s``, so steps ``1`` to ``2**rank - 1`` visit every nonzero
+    word once.  Each visited word increments the entry of ``weights`` for its weight.
     """
     if generators.shape[1] == 1:
         # Up to 64 bits fit in one word, which can stay in a register.
@@ -240,7 +244,7 @@ def _transform_weights(
 ) -> npt.NDArray[np.int64]:
     """Apply Krawtchouk rows to a weight distribution, and divide by ``2**rank``, in int64.
 
-    The caller guarantees that every Krawtchouk value, distribution entry, product and partial sum
+    The caller guarantees that every Krawtchouk value, distribution entry, product, and partial sum
     fits in int64, so converting the uint64 entries to int64 is exact.
     """
     counts = np.empty(len(krawtchouk), dtype=np.int64)

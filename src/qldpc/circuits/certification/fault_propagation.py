@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import typing
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
@@ -13,8 +14,7 @@ import stim
 
 from qldpc import math
 from qldpc._binary import get_rank_packed, pack_bits
-from qldpc.codes.distance import DistanceMethod
-from qldpc.codes.distance._search.coset_leader_search import CosetSearchMethod, MinWeightBound
+from qldpc.codes.distance import DistanceMethod, MinWeightBound
 
 from .._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from ..bookkeeping import DetectorRecord
@@ -71,6 +71,11 @@ def certify_bounded_fault_propagation(
     other, such as the cases of an ``ELSE_CORRELATED_ERROR`` chain, count as separate error
     mechanisms that can occur together.
 
+    If the prepared state is a state of a subsystem code whose gauge the circuit fixes, an error
+    that changes only the gauge is harmless to the code but is not a stabilizer of the state, so it
+    counts toward the residual weight.  The certificate is therefore conservative: a fault that
+    leaves only such an error can fail the bound.
+
     Args:
         state_prep_circuit: Noisy Stim Clifford circuit starting in Stim's all-zero state.
 
@@ -102,18 +107,18 @@ def certify_bounded_fault_propagation(
             result.  Default: ``2**30`` (1 GiB).
         method: The exact search of the residual weights.  ``"brouwer_zimmermann"``, with alias
             ``"information_sets"``, searches cosets of the stabilizer group by information sets.
-            ``"connected_support"`` grows errors from their syndromes through generators of the
+            ``"connected_cluster"`` grows errors from their syndromes through generators of the
             stabilizer group.  It first replaces the generators with sparser ones that generate the
-            same group, and is fast if they are sparse (see the `connected-support guide
-            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_support.md>`_).
+            same group, and can be fast only if they are sparse (see the `connected-cluster guide
+            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
             Both certify the same circuits, and find the same smallest violating fault, but the
             ``output_pauli`` of a counterexample may be another equivalent error, and with
-            ``"connected_support"`` its bound is ``fault_weight + 1`` (see
+            ``"connected_cluster"`` its bound is ``fault_weight + 1`` (see
             ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, the
             ``output_pauli`` and the bound of a counterexample can also change between versions of
             qLDPC when its queries are costly.  Such queries can search other families of
             information sets, and the costliest can skip errors that tables prove too heavy.  The
-            verdict and the smallest violating fault do not change.  ``"connected_support"`` weighs
+            verdict and the smallest violating fault do not change.  ``"connected_cluster"`` weighs
             errors by CSS weight only on CSS states.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
@@ -127,10 +132,10 @@ def certify_bounded_fault_propagation(
             empty, repeats a qubit, or has an index out of range, if ``post_select`` has an index
             out of range, if the output qubits do not end in one definite stabilizer state, if
             Stim cannot convert the circuit to a DEM, if ``method`` is unknown or
-            ``"brute_force"``, or if ``method`` is ``"connected_support"`` and errors on a state
+            ``"brute_force"``, or if ``method`` is ``"connected_cluster"`` and errors on a state
             that is not CSS are weighed by their CSS weight.
     """
-    search_method = _get_coset_search_method(method)
+    _check_coset_search_method(method)
     if max_weight is not None:
         if not is_integer(max_weight):
             raise TypeError("max_weight must be an integer or None")
@@ -165,7 +170,7 @@ def certify_bounded_fault_propagation(
         circuit, stabilizers, qubits, selected
     )
     violation = find_smallest_violation(
-        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit), search_method
+        flags, syndromes, matrix, max_weight, css_weight, int(memory_limit), method
     )
     return BoundedFaultPropagationCertificate(
         output_qubits=qubits,
@@ -285,7 +290,7 @@ class BoundedFaultPropagationCounterexample:
             is 1 if the error anticommutes with the certificate's ``state_stabilizers[j]``.
         residual_weight_lower_bound: A lower bound on the fault's residual weight, which is the
             smallest Pauli weight of an error equivalent to ``output_pauli``; it exceeds
-            ``fault_weight``.  The method ``"connected_support"`` gives ``fault_weight + 1``.
+            ``fault_weight``.  The method ``"connected_cluster"`` gives ``fault_weight + 1``.
     """
 
     fault_indices: tuple[int, ...]
@@ -434,10 +439,10 @@ def _validate_output_qubits(output_qubits: Sequence[int], num_qubits: int) -> tu
     return tuple(map(int, qubits))
 
 
-def _get_coset_search_method(method: DistanceMethod) -> CosetSearchMethod:
-    """Validate an exact-distance method, and return the method of the coset-leader search.
+def _check_coset_search_method(method: DistanceMethod) -> None:
+    """Check that an exact-distance method names a search of residual weights.
 
-    The alias ``"information_sets"`` is ``"brouwer_zimmermann"``.
+    ``CosetLeaderSearch`` checks its method too, but only after the costly analysis of the circuit.
 
     Raises:
         ValueError: If the method is unknown, or is ``"brute_force"``, which has no search of
@@ -446,16 +451,13 @@ def _get_coset_search_method(method: DistanceMethod) -> CosetSearchMethod:
     if method == "brute_force":
         raise ValueError(
             "The 'brute_force' distance method has no search of residual weights: use"
-            " 'brouwer_zimmermann' or 'connected_support'."
+            " 'brouwer_zimmermann' or 'connected_cluster'."
         )
-    if method == "connected_support":
-        return "connected_support"
-    if method in ("brouwer_zimmermann", "information_sets"):
-        return "brouwer_zimmermann"
-    raise ValueError(
-        f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' or"
-        " 'connected_support'."
-    )
+    if method not in typing.get_args(DistanceMethod):
+        raise ValueError(
+            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
+            " 'information_sets') or 'connected_cluster'."
+        )
 
 
 def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:

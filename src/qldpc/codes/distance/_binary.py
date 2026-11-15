@@ -1,22 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Binary input checks, nested bases, packed weights, and array helpers for distance searches.
+"""Binary input checks, nested bases, stabilizers, and the symplectic map for distance searches.
 
 The generic bit-packed linear algebra over GF(2) that the searches use is in ``qldpc._binary``.
 """
 
 from __future__ import annotations
 
+import numbers
 import operator
 from typing import SupportsIndex
 
+import galois
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
 
-from qldpc._binary import get_independent_rows
-
-_MASK55 = np.uint64(0x5555555555555555)
-
+from qldpc._binary import get_independent_rows, get_kernel
 
 ####################################################################################################
 # input checks
@@ -36,56 +36,103 @@ def as_integer(value: SupportsIndex, name: str) -> int:
         raise TypeError(f"{name} must be an integer, not {value!r}") from error
 
 
+def infer_field(vectors: object) -> type[galois.FieldArray] | None:
+    """Return the finite field of a field array, or of the field arrays in nested lists or tuples.
+
+    NumPy drops the field of the field arrays in a list or tuple, such as the rows of a field array,
+    so a list of rows over GF(3) with entries 0 and 1 would pass as a binary matrix.  The binary
+    checks of the exact searches, and the field checks of the code constructors, therefore read the
+    field with this function.  It follows only the first item at each level of nesting, so its cost
+    grows only with the depth of nesting.  It returns None if it finds no field.
+    """
+    while not isinstance(vectors, galois.FieldArray):
+        if not isinstance(vectors, list | tuple) or not vectors:
+            return None
+        vectors = vectors[0]
+    return type(vectors)
+
+
 ####################################################################################################
 # binary matrices
 
 
 def assert_binary(vectors: npt.ArrayLike, name: str) -> None:
-    """Assert that the given vectors are binary.
+    """Check that the given vectors are binary, and raise an error if they are not.
 
     The distance searches pack rows into the bits of ``uint64`` words and combine them by bitwise
     XOR, so they are only correct over GF(2).  Non-binary input would otherwise be truncated
-    silently and yield a wrong distance rather than an error.
+    silently and yield a wrong distance rather than an error.  Input over another field, as
+    ``infer_field`` finds it, raises a ``ValueError`` even if its entries are 0 and 1.  A single
+    object that is neither array-like nor a number, such as a code, raises a ``TypeError``.
     """
-    order = getattr(type(vectors), "order", None)
-    if order is not None and order != 2:
+    field = infer_field(vectors)
+    if field is not None and field.order != 2:
         raise ValueError(
-            f"Distance calculations only support binary codes, but {name} is defined over"
-            f" GF({order})"
+            f"Exact searches only take binary input, but {name} is defined over GF({field.order})"
         )
-    array = np.asarray(vectors)
+    array = np.asarray(_as_dense(vectors))
+    if array.dtype == object and array.ndim == 0:
+        item = array.item()
+        if not isinstance(item, numbers.Number | np.generic):
+            raise TypeError(
+                f"{name} must be an array of binary entries, not an object of type"
+                f" {type(item).__name__}"
+            )
     if array.size and not np.all((array == 0) | (array == 1)):
         raise ValueError(
-            f"Distance calculations only support binary codes, but {name} has entries other"
-            " than 0 and 1"
+            f"Exact searches only take binary input, but {name} has entries other than 0 and 1"
         )
 
 
 def as_binary_matrix(
     vectors: npt.ArrayLike, name: str = "rows", *, num_cols: int | None = None
 ) -> npt.NDArray[np.uint8]:
-    """Convert a collection of binary rows to a two-dimensional uint8 array.
+    """Check that a collection of rows is binary, and return it as a two-dimensional uint8 array.
 
-    The dimension and width checks use ``name`` in their error messages, as ``assert_binary`` does.
-    If NumPy cannot convert the rows to an array, such as when their lengths differ, it raises its
-    own error.
+    A single vector is one row.  If ``num_cols`` is given, the matrix must have that many columns,
+    except that an empty list, or a matrix of shape ``(0, 0)``, gets that width.  Otherwise, an
+    empty list has no width, and raises an error.  The checks use ``name``, the name of the
+    argument, in their error messages.  If NumPy cannot convert the rows to an array, such as when
+    their lengths differ, it raises its own error.
     """
-    matrix = np.asarray(vectors, dtype=np.uint8)
-    if matrix.size == 0:
+    dense = _as_dense(vectors)
+    assert_binary(dense, name)
+    matrix = np.asarray(dense, dtype=np.uint8)
+    if matrix.ndim == 1 and not matrix.size:
         if num_cols is None:
-            if matrix.ndim != 2:
-                raise ValueError(f"Cannot infer the width of {name}, which are empty")
-            num_cols = matrix.shape[1]
+            raise ValueError(f"Cannot infer the width of {name}, which is empty")
         return np.empty((0, num_cols), dtype=np.uint8)
     matrix = np.atleast_2d(matrix)
     if matrix.ndim != 2:
-        raise ValueError(f"The {name} must be a two-dimensional matrix")
-    if num_cols is not None and matrix.shape[1] != num_cols:
+        raise ValueError(f"{name} must be a matrix or a single row, not a {matrix.ndim}-D array")
+    if num_cols is not None and matrix.shape[1] != num_cols and matrix.shape != (0, 0):
         raise ValueError(
-            f"The {name} have {matrix.shape[1]} columns, which is incompatible with the width"
-            f" {num_cols}"
+            f"{name} has {matrix.shape[1]} columns, which is incompatible with the width {num_cols}"
         )
+    if not len(matrix):
+        return np.empty((0, matrix.shape[1] if num_cols is None else num_cols), dtype=np.uint8)
     return matrix
+
+
+def as_binary_matrix_pair(
+    first: npt.ArrayLike, second: npt.ArrayLike, names: tuple[str, str]
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Check two binary matrices with the same number of columns, and return them as uint8 arrays.
+
+    Each is checked as by ``as_binary_matrix``, under its name in ``names``.  An empty list has no
+    width, and a matrix of shape ``(0, 0)`` can take any width, so either takes the width of the
+    other.  If both are empty lists, neither has a width, which raises an error.
+    """
+    first_shape, second_shape = np.shape(first), np.shape(second)
+    if first_shape == second_shape == (0,):
+        raise ValueError(
+            f"Cannot infer the width of {names[0]} or {names[1]}, which are both empty"
+        )
+    if first_shape in ((0,), (0, 0)) and second_shape != (0,):
+        second_matrix = as_binary_matrix(second, names[1])
+        return as_binary_matrix(first, names[0], num_cols=second_matrix.shape[1]), second_matrix
+    first_matrix = as_binary_matrix(first, names[0])
+    return first_matrix, as_binary_matrix(second, names[1], num_cols=first_matrix.shape[1])
 
 
 def get_nested_code_basis(
@@ -126,6 +173,26 @@ def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
     return np.any(labels, axis=1)
 
 
+def multiply_binary(
+    left: npt.NDArray[np.uint8], right: npt.NDArray[np.uint8]
+) -> npt.NDArray[np.uint8]:
+    """The product of two binary matrices over GF(2).
+
+    Products of matrices of zeros and ones in float32 are exact while their inner dimension is below
+    ``2**24``, and faster than in integers.
+    """
+    assert left.shape[1] < 2**24
+    return (left.astype(np.float32) @ right.astype(np.float32) % 2).astype(np.uint8)
+
+
+def swap_pauli_halves(paulis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Swap the X and Z halves of Pauli strings in ``[X|Z]`` order.
+
+    The symplectic product of two Pauli strings is the dot product of one with the other swapped.
+    """
+    return np.roll(paulis, paulis.shape[1] // 2, axis=1)
+
+
 def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """Map ``(X | Z)`` to ``(X | Z | X xor Z)``, doubling symplectic weight.
 
@@ -137,50 +204,54 @@ def symplectic_to_hamming(vectors: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint
     return np.hstack([vectors_x, vectors_z, vectors_x ^ vectors_z])
 
 
-####################################################################################################
-# weight functions
+def _as_dense(vectors: npt.ArrayLike) -> npt.ArrayLike:
+    """Convert a SciPy sparse matrix or array to a dense array, and return other input as is.
 
-
-def symplectic_weight(
-    words: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
-) -> npt.NDArray[np.uint64]:
-    """Count the qubits in the support of each riffled word (see ``riffle``).
-
-    Each qubit occupies one aligned bit pair ``(2m, 2m + 1)`` of a word, so a qubit is in the
-    support if either bit of its pair is set.  The result is uint64, and ``out`` doubles as scratch
-    space.
+    NumPy would otherwise wrap a sparse matrix in an array of one object.
     """
-    out = np.right_shift(words, 1, out=out)
-    out |= words
-    out &= _MASK55
-    return np.bitwise_count(out, out=out)
+    if isinstance(vectors, scipy.sparse.sparray | scipy.sparse.spmatrix):
+        return vectors.toarray()
+    return vectors
 
 
 ####################################################################################################
-# array helpers
+# stabilizers of subsystem codes
 
 
-def inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
-    """Destructively compute ``arr.sum(-1)``, placing the result in the first column of ``arr``.
+def get_css_stabilizers(
+    gauge_x: npt.NDArray[np.uint8], gauge_z: npt.NDArray[np.uint8]
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """The stabilizers among the X and Z gauge operators of a binary CSS subsystem code.
 
-    When complete, the returned sum will be stored in ``arr[..., 0]``, while other entries in
-    ``arr[..., 1:]`` will be left in indeterminate states.  This permits a faster sum
-    implementation.
+    The stabilizers are the gauge operators that commute with every gauge operator of the other
+    type.  If all gauge generators commute, the given arrays are returned, with any redundant rows.
+    Otherwise, the results are independent bases.
     """
-    width = arr.shape[-1]
-    while width > 1:
-        split = width // 2
-        arr[..., :split] += arr[..., width - split : width]
-        width -= split
-
-    return arr[..., 0]
+    overlaps = multiply_binary(gauge_x, gauge_z.T)
+    if not np.any(overlaps):
+        return gauge_x, gauge_z
+    return _get_commuting_span(gauge_x, overlaps), _get_commuting_span(gauge_z, overlaps.T)
 
 
-def riffle(array: npt.ArrayLike) -> npt.ArrayLike:
-    """'Riffle' Pauli strings, putting X and Z support bits for each qubit next to each other."""
-    arr = np.asarray(array)
-    num_bits = arr.shape[-1]
-    assert num_bits % 2 == 0
-    if arr.size == 0:
-        return np.empty((0, num_bits), dtype=arr.dtype)  # nothing to riffle (e.g. no stabilizers)
-    return np.reshape(arr, (-1, 2, num_bits // 2)).transpose(0, 2, 1).reshape(-1, num_bits)
+def get_pauli_stabilizers(gauge: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """The stabilizers among the gauge operators of a binary subsystem code, in ``[X|Z]`` order.
+
+    The stabilizers are the gauge operators that commute with every gauge operator.  If all gauge
+    generators commute, the given array is returned, with any redundant rows.  Otherwise, the result
+    is an independent basis.
+    """
+    overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
+    if not np.any(overlaps):
+        return gauge
+    return _get_commuting_span(gauge, overlaps)
+
+
+def _get_commuting_span(
+    rows: npt.NDArray[np.uint8], overlaps: npt.NDArray[np.uint8]
+) -> npt.NDArray[np.uint8]:
+    """An independent basis of the combinations of rows that commute with a set of other rows.
+
+    Entry ``(i, j)`` of ``overlaps`` is one if row ``i`` anticommutes with other row ``j``.  A
+    combination ``c @ rows`` commutes with every other row exactly when ``c @ overlaps`` is zero.
+    """
+    return get_independent_rows(multiply_binary(get_kernel(overlaps.T), rows))

@@ -2,16 +2,19 @@
 
 """The scan of the words of one weight in a sector: its set-up, its loop, and its native chunks.
 
-A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` selects
-information sets for the basis, with the basis family stages of ``information_sets.py``, packs
-them, and visits each word of the given weight once, by enumerating combinations of the rows of
-every set, layer by layer.  A step of two or more rows of an information set may skip the supports
-whose words all weigh more than the given weight, with the completion tables of
-``_search/completion_bounds.py`` (Section 3.9 of ``brouwer_zimmermann.md``).
-``transport_basis_family`` moves the disjoint basis family that a counter keeps for a sector, from
-which both its counts and its distance searches start, through a local gate, for deformed counters.
-``logical_counts.py`` calls both.  Section 3 of ``brouwer_zimmermann.md`` describes the algorithm,
-and Section 5 states the counting requirement.
+A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` counts each
+nontrivial word of a given weight in a sector once.  It selects information sets for the basis with
+the basis family stages of ``_information_sets/``, packs them, and enumerates combinations of the
+rows of each set, layer by layer.  A step of two or more rows of an information set may skip the
+supports whose words all weigh more than the given weight, with the completion tables of
+``_information_sets/completion_bounds.py`` (Section 3.9 of ``brouwer_zimmermann.md``).
+
+A counter keeps a disjoint basis family for each sector, from which both its counts and its distance
+searches start.  ``transport_basis_family`` moves such a family through a local gate, for deformed
+counters.
+
+``logical_counts.py`` calls both functions.  Sections 2 and 3 of ``brouwer_zimmermann.md`` describe
+the Brouwer-Zimmermann algorithm, and Section 5 states what a count requires.
 """
 
 from __future__ import annotations
@@ -25,9 +28,9 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, popcount_word, row_reduce_packed, unpack_bits
 from qldpc._compilation import always_compiled, compiled_on_request
 
-from .._search import completion_bounds, information_sets
-from .._search.completion_bounds import get_completion_bound
-from .._search.information_sets import advance_support
+from .._information_sets import basis_families, certificates, completion_bounds
+from .._information_sets.completion_bounds import get_completion_bound
+from .._information_sets.support_stepping import advance_support
 from .._tuning import SearchTuning
 from . import local_cliffords
 
@@ -56,19 +59,21 @@ def count_words(
     complement: bool,
     max_exponent: int,
     reject_lighter: bool,
-    get_disjoint_basis_family: Callable[[], information_sets.BasisFamily],
+    get_disjoint_basis_family: Callable[[], basis_families.BasisFamily],
     tuning: SearchTuning,
 ) -> npt.NDArray[np.int64] | None:
-    """Visit each nontrivial word of one sector with the given weight exactly once.
+    """Count each nontrivial word of one sector with the given weight exactly once.
 
-    Returns a histogram over exponents ``max_exponent - rank(rank_rows[:, mask])``, where the mask
-    is the support of the word, or its complement.  The histogram sums to the number of words, and
-    the caller weighs each exponent by ``2**exponent``, which could overflow a native integer.  The
-    scan also visits every lighter word, so with ``reject_lighter`` it returns None as soon as it
-    finds a nontrivial one.  With ``brute_force``, it scans the whole basis as one set, rather than
-    the information sets of the Brouwer-Zimmermann search.  ``tuning`` sets the thresholds that
-    choose those information sets, the completion tables of its steps, and the sizes of the chunks
-    of the scan (see ``_tuning``).
+    Returns a histogram over the exponents ``max_exponent - rank(rank_rows[:, mask])``, where
+    ``mask`` is the support of a counted word, or its complement with ``complement``.  The histogram
+    sums to the number of words.  The caller weighs each exponent by ``2**exponent``, which could
+    overflow a native integer.
+
+    The scan also visits every lighter word.  With ``reject_lighter``, it returns None as soon as it
+    finds a lighter nontrivial word.  With ``brute_force``, it scans the whole basis as one set,
+    rather than the information sets of the Brouwer-Zimmermann search.  ``tuning`` sets the
+    thresholds that choose those information sets, the completion tables of its steps, and the sizes
+    of the chunks of the scan (see ``_tuning``).
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
     if brute_force:
@@ -81,10 +86,11 @@ def count_words(
             labels,
             weight,
             get_disjoint_basis_family(),
-            information_sets.get_overlapping_family_policy(tuning, len(basis)),
+            basis_families.get_overlapping_family_policy(tuning, len(basis)),
         )
-        # Matroid partitioning runs outside of _select_basis_family, which can be compiled.
-        partitioned = information_sets.get_partitioned_family(
+        # Matroid partitioning is plain Python, so it runs after _select_basis_family, which can be
+        # compiled.
+        partitioned = basis_families.get_partitioned_family(
             basis,
             labels,
             basis_family,
@@ -111,9 +117,9 @@ def count_words(
     )
     steps = _Steps(len(rows_and_labels), last_layer, last_num_completed)
 
-    # Scan in bounded calls, since compiled code cannot be interrupted within a call.  A call that
-    # starts a step that may use completion tables ends with that step, and any other call ends
-    # before the next such step, so that the tables of each step can be chosen.
+    # Scan in bounded calls, since compiled code cannot be interrupted within a call.  The tables of
+    # each step are chosen in Python, between calls.  So a call that starts a step that may use
+    # completion tables ends with that step, and any other call ends before the next such step.
     histogram = np.zeros(max_exponent + 1, dtype=np.int64)
     cursor = np.zeros(3, dtype=np.int64)
     cursor[_CURSOR_LAYER] = 1
@@ -156,16 +162,17 @@ def count_words(
 
 
 def transport_basis_family(
-    basis_family: information_sets.BasisFamily,
+    basis_family: basis_families.BasisFamily,
     positions: npt.NDArray[np.int64],
     local: npt.NDArray[np.uint64],
     basis: npt.NDArray[np.uint8],
-) -> information_sets.BasisFamily | None:
-    """The basis family of a sector after a local gate, or None if one of its sets stops being one.
+) -> basis_families.BasisFamily | None:
+    """The basis family of a sector after a local gate, or None if the gate breaks one of its sets.
 
     Each set is mapped through the gate and reduced again on its own pivot columns, so the pivots
-    stay disjoint and the labels move with their rows.  A set stops being one if its pivot columns
-    are no longer independent.
+    stay disjoint, and the labels move with their rows.  The gate breaks a set if the set's rows,
+    restricted to its pivot columns, lose rank.  ``basis`` is the basis of the sector after the
+    gate, from which the weight divisor of the family is inferred again.
     """
     moved, generators, labels = _transport_sets(
         basis_family.generators,
@@ -180,7 +187,7 @@ def transport_basis_family(
     return basis_family._replace(
         generators=generators,
         labels=labels,
-        weight_divisor=information_sets.infer_weight_divisor(basis),
+        weight_divisor=basis_families.infer_weight_divisor(basis),
     )
 
 
@@ -189,25 +196,23 @@ def _select_basis_family(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     weight: int,
-    basis_family: information_sets.BasisFamily,
-    policy: information_sets.OverlappingFamilyPolicy,
-) -> information_sets.BasisFamily:
+    basis_family: basis_families.BasisFamily,
+    policy: basis_families.OverlappingFamilyPolicy,
+) -> basis_families.BasisFamily:
     """Run the basis family stages that can be compiled: pruning, then an overlapping replacement.
 
-    The stages aim at the counting stop ``L(t) >= weight + 1``; any basis family gives an exact
-    count.  ``policy`` is that of the overlapping replacement.
+    The stages aim at the counting stop ``L(t) >= weight + 1``, though any basis family gives an
+    exact count.  ``policy`` is that of the overlapping replacement.
     """
     upper_bound = weight + 1
-    pruned = information_sets.prune_family(basis_family, upper_bound)
-    replacement = information_sets.get_overlapping_family(
-        basis, labels, pruned, upper_bound, policy
-    )
+    pruned = basis_families.prune_family(basis_family, upper_bound)
+    replacement = basis_families.get_overlapping_family(basis, labels, pruned, upper_bound, policy)
     return replacement if len(replacement.ranks) > 0 else pruned
 
 
 @compiled_on_request
 def _pack_basis_family(
-    basis_family: information_sets.BasisFamily, num_columns: int, num_label_columns: int
+    basis_family: basis_families.BasisFamily, num_columns: int, num_label_columns: int
 ) -> tuple[_PackedMatrix, _PackedMatrix, _PackedMatrix]:
     """Pack the rows and labels of the sets of a basis family, and their coefficient extractors.
 
@@ -223,13 +228,13 @@ def _pack_basis_family(
     return rows, packed_labels, _get_coefficient_extractors(basis_family, width)
 
 
-def _get_last_step(certificate: information_sets.Certificate, weight: int) -> tuple[int, int]:
+def _get_last_step(certificate: certificates.Certificate, weight: int) -> tuple[int, int]:
     """The first step after which the certificate rules out unvisited words of the given weight.
 
     A step completes a layer of one set, and the scan visits the sets of each layer in family order.
-    Returns the layer of that step, and the number of sets that have completed that layer.  Equality
-    with the weight would still allow unvisited words of the weight, so the certificate must exceed
-    it.
+    Returns the layer of that step, and the number of sets that have completed that layer.  The
+    certificate must exceed the weight, since equality would still allow unvisited words of that
+    weight.
     """
     # The first set to complete the last layer visits every word, so some step certifies.
     steps = itertools.product(
@@ -278,20 +283,22 @@ def _get_next_step(
 class _StepTables:
     """The completion tables, if any, with which each step of a count skips completions.
 
-    A step visits one layer of one set of ``basis_family``, or of the whole basis for brute force,
-    for which ``basis_family`` is None and no step skips anything.  A step of at least two rows of a
-    set whose block is an information set may skip the supports whose words, by the bound of
-    ``completion_bounds``, all weigh at least ``upper_bound``: the target weight plus one, so that
-    no word of the target weight, and no lighter word, is skipped.  ``tuning`` chooses its tables as
-    for a layer of a distance search (see ``completion_bounds.select_completion_tables``).  The
-    tables of the sets that a count has used are kept for their later steps, within
-    ``tuning.completion_bound_max_table_bytes`` in all, between steps; while it builds the tables of
-    another set, a count also holds that set's tables.
+    A step visits one layer of one set of ``basis_family``.  For brute force, ``basis_family`` is
+    None, a step visits a layer of the whole basis, and no step skips anything.  A step of at least
+    two rows of a set whose block is an information set may skip supports.  It skips those whose
+    words, by the bound of ``completion_bounds``, all weigh at least ``upper_bound``, which is the
+    target weight plus one.  So it skips no word of the target weight, and no lighter word.
+
+    ``tuning`` chooses the tables of a step as for a layer of a distance search (see
+    ``completion_bounds.select_completion_tables``).  A count keeps the tables of the sets that it
+    has used for their later steps.  Between steps, the kept tables take at most
+    ``tuning.completion_bound_max_table_bytes`` in all.  While a count builds the tables of another
+    set, it holds them in addition to the kept tables.
     """
 
     def __init__(
         self,
-        basis_family: information_sets.BasisFamily | None,
+        basis_family: basis_families.BasisFamily | None,
         rows_and_labels: _PackedMatrix,
         upper_bound: int,
         tuning: SearchTuning,
@@ -306,8 +313,8 @@ class _StepTables:
         self._step: tuple[int, int] | None = None
         self._selected: tuple[completion_bounds.CompletionTables, _PackedMatrix] | None = None
 
-        # The layers whose steps the tuning considers for tables, which form a range since binomials
-        # rise and then fall.
+        # The layers whose steps the tuning considers for tables.  They form a range, since
+        # binomials rise and then fall.
         self.layers = range(0)
         num_rows = 0 if basis_family is None else basis_family.generators.shape[1]
         considered = [
@@ -343,9 +350,9 @@ class _StepTables:
     ) -> tuple[completion_bounds.CompletionTables, _PackedMatrix]:
         """The tables of a step that ``may_use_tables``, and the rows, labels, and tails of its set.
 
-        A step whose tables the gate declines gets ``completion_bounds.NO_TABLES``, and rows that
-        its scan ignores.  Selecting the same step again, as when the scan resumes it, returns the
-        same choice.
+        If ``completion_bounds.select_completion_tables`` declines tables for the step, the step
+        gets ``completion_bounds.NO_TABLES``, and rows that its scan ignores.  Selecting the same
+        step again, as when the scan resumes it, returns the same choice.
         """
         if self._step == (layer, set_index) and self._selected is not None:
             return self._selected
@@ -387,7 +394,7 @@ class _StepTables:
 
 @compiled_on_request
 def _get_coefficient_extractors(
-    basis_family: information_sets.BasisFamily, width: int
+    basis_family: basis_families.BasisFamily, width: int
 ) -> _PackedMatrix:
     """Packed rows ``E.T`` for each set such that ``generators @ E`` is the identity over GF(2).
 
@@ -448,29 +455,27 @@ def _scan_coefficient_layers(
     """Visit the supports of the steps from ``cursor`` on, for at most ``max_chunks`` chunks.
 
     A step visits all supports of one layer of one set (see ``_count_chunk``).  The steps run in the
-    order of ``_Steps``, given by ``_get_next_step``, which is lexicographic in their layer and set,
-    so the steps that the scan visits are a prefix of that order.  Each word of the target weight
-    is owned by the first step that visits it (see ``_is_owned``), which therefore lies in the
-    prefix, since the certificate rules out unvisited words of the target weight after its last
-    step.  This loop is a function of its own so that it can be compiled, which saves a call from
-    Python for every chunk.
+    order of ``_Steps``, which is lexicographic in their layer and set, so the steps that the scan
+    visits are a prefix of that order.  The certificate rules out unvisited words of the target
+    weight after the last step of the prefix.  Each word of the target weight is owned by the first
+    step that visits it (see ``_is_owned``), so its owner lies in the prefix.  This loop is a
+    function of its own so that it can be compiled, which saves a call from Python for every chunk.
 
     The call stops before the step ``(stop_layer, stop_set)``, or runs to the end of the scan if
-    that step is ``(0, 0)``.  With ``tables`` of ``completion_bounds.CompletionTables``, its steps
-    skip the completions that cannot be lighter than ``target + 1`` (see ``_count_chunk_skipping``),
-    and ``step_rows`` holds the rows and labels of their set followed by their tails, so a call
-    with tables covers one step.  With ``completion_bounds.NO_TABLES``, its steps visit every
-    support, and it ignores ``step_rows``.  Skipped words weigh more than ``target``, so they are
-    neither counted nor lighter than ``target``, and the certificate still rules out the words of
-    the target weight that the scan neither visits nor skips.
+    that step is ``(0, 0)``.  ``tables``, ``offsets``, and ``block_bits`` are the fields of the
+    ``completion_bounds.CompletionTables`` of a step, or of ``completion_bounds.NO_TABLES``:
 
-    The scan is resumable, since compiled code cannot be interrupted.  ``cursor`` holds the layer,
-    the set, and the depth at which to resume, and ``support`` and ``prefixes`` hold the current
-    support and its prefix XORs, so that a later call continues the scan.  The first call passes a
-    cursor at layer one, set zero, and depth zero, and zero prefixes.  Every call passes on the
-    same ``cursor``, ``support``, ``prefixes``, and ``histogram``, and every call of a step the same
-    tables.  ``support[:layer]`` is the support of the current layer, which is how the chunks know
-    its length.
+    - With tables, the call covers one step.  ``step_rows`` holds the rows and labels of its set,
+      followed by their tails.  The step skips completions as a count does in Section 3.9 of
+      ``brouwer_zimmermann.md`` (see ``_count_chunk_skipping``).
+    - Without tables, the steps visit every support, and the call ignores ``step_rows``.
+
+    Compiled code cannot be interrupted, so the scan is resumable.  ``cursor`` holds the layer, the
+    set, and the depth at which to resume.  ``support`` and ``prefixes`` hold the current support
+    and its prefix XORs, and ``support[:layer]`` is the support of the current layer, which is how
+    the chunks know its length.  The first call passes a cursor at layer one, set zero, and depth
+    zero, and zero prefixes.  Every call passes on the same ``cursor``, ``support``, ``prefixes``,
+    and ``histogram``, and every call of a step passes the same tables.
 
     Returns ``_SCAN_FINISHED`` once the last step is complete, ``_SCAN_UNFINISHED`` if steps or
     chunks remain, or ``_SCAN_FOUND_LIGHTER_WORD``.
@@ -588,13 +593,15 @@ def _count_chunk(
     """Visit up to ``chunk_size`` supports of ``len(support)`` rows, resuming at ``depth``.
 
     ``rows_and_labels`` has shape ``(1, num_rows, total_width)``, a stack of one set, because
-    ``advance_support`` takes a stack of sets.  Each row has ``width`` machine words of the word
-    followed by those of its quotient label.  ``support`` holds the current support, the increasing
-    indices of its rows, and ``prefixes`` its prefix XORs (see ``advance_support``); ``depth`` is
-    the position being advanced, or -1 once every support has been visited.  Each owned nontrivial
-    word of weight ``target`` adds one to ``histogram`` (see ``count_words``).  Returns the depth
-    from which to resume, and whether the scan stopped at a nontrivial word lighter than ``target``,
-    which is checked only with ``reject_lighter``.
+    ``advance_support`` takes a stack of sets.  Each row holds ``width`` machine words of its word,
+    followed by those of its quotient label.  ``support`` holds the current support, as the
+    increasing indices of its rows, and ``prefixes`` holds its prefix XORs (see
+    ``advance_support``).  ``depth`` is the position being advanced, or -1 once every support has
+    been visited.  Each owned nontrivial word of weight ``target`` adds one to an entry of
+    ``histogram`` (see ``count_words``).
+
+    Returns the depth from which to resume, and whether the chunk stopped at a nontrivial word
+    lighter than ``target``.  It checks for such words only with ``reject_lighter``.
     """
     rows = rows_and_labels[0]
     num_rows, total_width = rows.shape
@@ -661,18 +668,20 @@ def _count_chunk_skipping(
     """Visit a chunk of a layer of at least two rows of one set, skipping hopeless completions.
 
     The arguments are those of ``_count_chunk``, for a set whose block is an information set, with
-    ``label_end`` words of word and label in each row of ``step_rows``, followed by the row's tail:
-    the row without its pivot columns, which ``tables``, ``offsets``, and ``block_bits`` of
-    ``completion_bounds.CompletionTables`` index.  Each word weighs the number of its rows plus the
-    weight of its tail.  Before the scan tries row ``s`` as the first of the last two rows of a
-    support, it bounds the weights of the words that complete the first ``len(support) - 2`` rows
-    with two rows from row ``s`` on, and skips them all if none weighs at most ``target``.  Words of
-    the target weight, and lighter ones, are therefore visited exactly as ``_count_chunk`` visits
-    them, though chunks end at other supports, since lookups count toward ``chunk_size``.
+    these differences.  Each row of ``step_rows`` holds ``label_end`` machine words of its word and
+    label, followed by its tail: the row without its pivot columns.  ``tables``, ``offsets``, and
+    ``block_bits``, of ``completion_bounds.CompletionTables``, index the tails.
+
+    Each word weighs the number of its rows plus the weight of its tail.  Before the scan tries row
+    ``s`` as the first of the last two rows of a support, it bounds the weights of the words that
+    complete the first ``len(support) - 2`` rows with two rows from row ``s`` on.  If none of them
+    weighs at most ``target``, it skips them all.  Words of the target weight, and lighter ones, are
+    therefore visited exactly as ``_count_chunk`` visits them.  Chunks end at other supports,
+    though, since lookups count toward ``chunk_size``: a chunk ends once the supports that it
+    weighed and the bounds that it looked up reach ``chunk_size`` together.
 
     ``depth`` is below ``len(support) - 1`` while the scan chooses the rows before the last one, and
-    ``len(support) - 1`` while it visits last rows.  A chunk ends once the supports that it weighed
-    and the bounds that it looked up reach ``chunk_size`` together.
+    ``len(support) - 1`` while it visits last rows.
     """
     rows = step_rows[0]
     num_rows, total_width = rows.shape
@@ -680,10 +689,11 @@ def _count_chunk_skipping(
     layer = len(support)
     word = np.empty(width, dtype=np.uint64)
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
-    # The count steps through the supports of the first layer - 1 rows, whose last row is the first
-    # of the last two rows of a support, and visits the last row of each in its own loop.  It skips
-    # completions only if every one of their words weighs more than the target, so its limit is that
-    # of a best weight of target + 1.
+    # Step through the supports of the first layer - 1 rows, whose last row is the first of the last
+    # two rows of a support, and visit the last rows of each in a loop of their own.  Completions
+    # are skipped as for a count in Section 3.9 of brouwer_zimmermann.md.  The pair steps of
+    # ``_scan`` in ``_brouwer_zimmermann/affine_search.py`` skip completions the same way, with a
+    # limit that falls as a search for a lightest word finds lighter words.
     head = support[: layer - 1]
     head_rows = step_rows[:, : num_rows - 1]
     pair_depth = layer - 2
@@ -768,18 +778,19 @@ def _visit_last_rows(
 ) -> bool:
     """Visit the words ``prefix ^ rows[row]`` for rows from ``start`` up to ``stop``.
 
-    Each row has ``width`` machine words of the word, followed by those of its quotient label up to
-    ``label_end``.  Each owned nontrivial word of weight ``target`` adds one to ``histogram`` (see
-    ``count_words``).  ``word`` and ``pivots`` are scratch space.  Returns whether a nontrivial word
-    is lighter than ``target``, which is checked only with ``reject_lighter``, and at which the
-    visit stops.
+    Each row holds ``width`` machine words of its word, followed by those of its quotient label up
+    to ``label_end``.  Each owned nontrivial word of weight ``target`` adds one to an entry of
+    ``histogram`` (see ``count_words``).  ``word`` and ``pivots`` are scratch space.
+
+    With ``reject_lighter``, the visit stops at the first nontrivial word lighter than ``target``.
+    Returns whether it stopped there.
     """
     for row in range(start, stop):
         weight = np.int64(0)
         for index in range(width):
             word[index] = prefix[index] ^ rows[row, index]
             weight += popcount_word(word[index])
-            # A heavier word is rejected below, so its unwritten words are never read.
+            # A heavier word is rejected below, so its unwritten machine words are never read.
             if weight > target:
                 break
         if weight > target or (weight < target and not reject_lighter):
@@ -843,7 +854,8 @@ def _get_masked_rank(
     rank = 0
     for row in rows:
         current = row & ~mask if complement else row & mask
-        # Pivot rows are reduced when stored, so eliminating them in order clears every pivot bit.
+        # Each pivot row was reduced by the earlier ones when it was stored, so eliminating them in
+        # order clears every pivot bit.
         for previous in range(rank):
             if current[pivot_words[previous]] & pivot_bits[previous]:
                 current ^= pivots[previous]
