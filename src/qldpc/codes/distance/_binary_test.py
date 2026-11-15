@@ -24,7 +24,10 @@ from . import _binary as binary
 
 
 def test_binary_matrices_and_nested_bases() -> None:
-    """Check matrix conversion and basis ownership independently of distance dispatch."""
+    """Binary matrices are checked and take the documented widths, and nested bases are adapted.
+
+    The rows of an adapted basis that span the stabilizers come first, with zero quotient labels.
+    """
     assert binary.as_binary_matrix(np.empty((0, 3))).shape == (0, 3)
     assert binary.as_binary_matrix([], num_cols=3).shape == (0, 3)
     with pytest.raises(ValueError, match="infer the width"):

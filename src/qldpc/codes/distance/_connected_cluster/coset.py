@@ -31,11 +31,14 @@ class ConnectedClusterCosetSearch:
     grows supports through its unsatisfied checks (Section 3.8 of ``connected_cluster.md``).
 
     Like a ``BrouwerZimmermannCosetSearch``, it first looks up a word of weight zero or one by its
-    syndrome: a single variable, or a single-qubit Pauli.  It searches only cosets with no such
-    word, so a coset with such a word gets the weight of that word as a lower bound.  Any other
-    coset gets two if it has a word within ``max_weight``.  With increasing weight limits from two
-    (see ``get_min_weight_bound``), it instead gets the weight of its lightest words.  Without a
-    word within ``max_weight``, it gets the larger of two and ``max_weight + 1``.  These bounds are
+    syndrome: the identity, a single variable, or a single-qubit Pauli.  A coset with such a word
+    gets the weight of that word as its lower bound, and only the other cosets are searched.  Of
+    these, a coset with a word within ``max_weight`` gets the lower bound two from a single search
+    at ``max_weight``, and the weight of its lightest words from increasing weight limits that start
+    at two (see ``get_min_weight_bound``).  From a higher first limit, a word that the search finds
+    at that limit gives the bound two, since it can be lighter than the limit, and a word that it
+    finds at a later limit gives that limit, the weight of its lightest words.  A coset without a
+    word within ``max_weight`` gets the larger of two and ``max_weight + 1``.  These bounds are
     often weaker than those of a ``BrouwerZimmermannCosetSearch``.
 
     The search is fast only if its checks are sparse, but the given checks, such as row-reduced
@@ -99,18 +102,18 @@ class ConnectedClusterCosetSearch:
     ) -> MinWeightBound:
         """Decide whether the coset of this syndrome has a word of weight at most ``max_weight``.
 
-        A negative ``max_weight`` admits no word, as for a ``BrouwerZimmermannCosetSearch``.
+        A negative ``max_weight`` admits no word, as for a ``BrouwerZimmermannCosetSearch``.  The
+        class docstring states the lower bounds of the answers.
 
         A search with weight limit ``max_weight`` can visit many heavy supports before it finds a
-        word that is much lighter.  Given ``first_limit``, the search instead tries every limit from
+        much lighter word.  Given ``first_limit``, the search instead tries every limit from
         ``first_limit`` to ``max_weight``, and stops at the first limit within which it finds a
-        word.  It tries no limit below two, which the lookup of words of weight at most one makes
-        useless, and lowers a first limit above ``max_weight`` to it.  From the first limit two, it
-        finds a lightest word.  This can save time on cosets with words much lighter than
-        ``max_weight``, and repeats the work of the lower limits on cosets without a word within
-        ``max_weight``.  A first limit above two suits callers to which any word within it gives the
-        same answer.  A word that the search finds at that limit can be lighter than the limit, so
-        its coset gets the lower bound two.
+        word.  It tries no limit below two, since the lookup of words of weight at most one answers
+        those, and it lowers a first limit above ``max_weight`` to ``max_weight``.  This can save
+        time on cosets with words much lighter than ``max_weight``, and repeats the work of the
+        lower limits on cosets without a word within ``max_weight``.  From the first limit two, the
+        search finds a lightest word.  A higher first limit suits callers to which any word within
+        it gives the same answer.
         """
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)

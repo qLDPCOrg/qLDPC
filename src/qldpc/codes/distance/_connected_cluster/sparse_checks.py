@@ -34,14 +34,16 @@ def get_sparser_rows(
     The rows start as those of ``_sparsify``, and are weighed as it weighs them.  Each round
     row-reduces the given rows with pivots in a random order of the columns, which gives the words
     of the span that have exactly one pivot column in their support.  Those that are lighter than
-    the heaviest current row join the rows as candidates, and the greedy algorithm for matroids
+    the heaviest current row join the rows as candidates.  The greedy algorithm for matroids then
     keeps the lightest independent candidates: it takes them by increasing weight, and keeps each
     that is independent of those that it kept.  So the rows are always a lightest basis drawn from
     the candidates, and their total weight never rises.  The rounds stop after ``max_rounds``, or
-    once ``rounds_without_improvement`` rounds in a row have left the total weight unchanged, and a
-    last pass of ``_sparsify`` adds rows to each other where that helps.  The rows need not be the
-    sparsest.  Rows with the same span give a search the same answers and bounds, though perhaps
-    other representatives.  So the rounds may be random, and a fixed seed makes them reproducible.
+    once ``rounds_without_improvement`` rounds in a row have left the total weight unchanged.  A
+    last pass of ``_sparsify`` then adds rows to each other where that helps.
+
+    The rows need not be the sparsest.  Rows with the same span give a search the same answers and
+    bounds, though perhaps other representatives.  So the rounds may be random, and a fixed seed
+    makes them reproducible.
 
     Args:
         matrix: Independent rows.

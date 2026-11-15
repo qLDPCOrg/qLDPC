@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the exact binary distance search over supports that are connected in a Tanner graph."""
+"""Tests of the search of the supports that are connected in a Tanner graph, and its queries."""
 
 from __future__ import annotations
 
@@ -714,11 +714,12 @@ def get_vector(
     return vector
 
 
-# Problems for syndrome queries.  The states of nested-restrictions restrict their subtrees.
-# copied-and-zero-checks has a zero check and a check before its copy, so a query maps its syndrome
-# onto fewer checks, and some syndromes have no vector.  five-qubit-state is the stabilizers of a
-# pure state: the five-qubit code, with its logical X.  zero-checks has only zero checks, and the
-# syndrome 11 of identity needs every variable, so a query reaches the limit of their number.
+# Problems for syndrome queries.  The states of "nested-restrictions" restrict their subtrees.
+# "copied-and-zero-checks" has a zero check, and a check before its copy, so a query maps its
+# syndrome onto fewer checks, and some syndromes have no vector.  "five-qubit-state" has the
+# stabilizers of a pure state: those of the five-qubit code, and its logical X.  "zero-checks" has
+# only zero checks.  In "identity", the syndrome 11 needs every variable, so a query reaches the
+# limit of their number.
 SYNDROME_PROBLEMS = {
     "nested-restrictions": (PROBLEMS["nested-restrictions"][0], False),
     "copied-and-zero-checks": (
