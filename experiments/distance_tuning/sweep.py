@@ -14,9 +14,9 @@ alternates, so that drifts of the load of the machine affect both arms alike.
 Each trial appends a JSON line to ``trials.jsonl`` in the results directory, and a comparison skips
 the trials that the file holds, so an interrupted comparison resumes where it stopped.  The script
 prints a summary and writes it to ``summary-<tag>.csv``: for each workload, the median time and peak
-memory of each arm, and the median ratio of the times of the arms over rounds, with its spread and,
-from six rounds on, a confidence interval (see ``summarize``).  The summary flags each workload
-whose arms disagree on a result.
+memory of each arm, and the median ratio of the proposed arm's time to the current arm's over
+rounds, with its spread and, from six rounds on, a confidence interval (see
+``get_median_interval``).  The summary flags each workload whose arms disagree on a result.
 
 The README of this directory says when to time with ``--repeat``.  Run comparisons with limits on
 their time and memory.

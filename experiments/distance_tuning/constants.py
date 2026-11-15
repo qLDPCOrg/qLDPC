@@ -4,19 +4,17 @@
 
 Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` gates an optional step,
 and assumes the cost of the step to an order of magnitude (see the Retuning section of
-``_tuning.py``).  The script traces quick searches and measures the cost of each such step.  It
-prints the cost in seconds and in the unit of the field that gates the step, and, under ``derived``,
-the cost rounded as ``round_to_grid`` does, beside the default.  It then traces the searches of
-``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which can take hours, and prints each
-coefficient of the cost model of completion tables beside its default.  The functions of this script
-say how it measures each cost, and the README of this directory says how to read the output; the
-script sets no value.
+``_tuning.py``).  The script measures the cost of each such step on quick searches, and then the
+coefficients of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each
+tuning of ``COST_MODEL_ARMS``, which together can take hours.  It prints each beside its default:
+the README of this directory explains the columns, and the functions of this script say how it
+measures each cost.  The script sets no value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
 commit or a change to ``src/``, and an interrupted run resumes where it stopped.  It refuses to run
-if this process imports qLDPC from another checkout.  Run it on a quiet machine, with limits on its
-time and memory.
+if this process imports qLDPC from elsewhere.  Run it on a quiet machine, with limits on its time
+and memory.
 
 Example:
 
@@ -280,7 +278,7 @@ def is_current(path: pathlib.Path, source: dict[str, str]) -> bool:
 
 
 def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib.Path) -> None:
-    """Time the methods of the certificates of one search that solve linear programs, and save them.
+    """Time the methods of one search's certificates that solve linear programs, and save the times.
 
     The methods ``plan``, ``certifies``, and ``step_lower_bound`` of such a certificate plan its
     steps with exact arithmetic and solve its programs, so their seconds, outside nested calls, are
@@ -329,11 +327,11 @@ def time_linear_programs(workload: str, changes: dict[str, Any], output: pathlib
 
 
 ####################################################################################################
-# constants and derived values
+# constants and rounded costs
 
 
 def report(directory: pathlib.Path) -> None:
-    """Print the constants and the derived values of gates, from the measurements in the directory.
+    """Print the measured constants, and the cost of each gated step rounded beside its default.
 
     Print nothing else if a measurement is missing, or was made on other source code.
     """
@@ -414,7 +412,7 @@ def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The median, over the traced searches, of their seconds per candidate/set evaluation.
 
     Each search counts its layers of at least ``LARGE_LAYER`` evaluations without completion tables,
-    less the seconds of choosing tables and, in a layer that switches to automorphism images, of
+    less the seconds of choosing tables and, in a layer that may switch to automorphism images, of
     switching.
     """
     rates = {}
@@ -544,7 +542,7 @@ def get_ask_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_limit_ask_seconds(limit: dict[str, Any]) -> float:
-    """The seconds of asking for automorphisms before a weight limit, or zero if none were asked."""
+    """The seconds of asking for automorphisms before a weight limit, or zero without asking."""
     return limit.get("find_seconds", 0.0) + limit.get("verify_seconds", 0.0)
 
 

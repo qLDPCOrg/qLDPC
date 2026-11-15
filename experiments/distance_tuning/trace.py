@@ -6,22 +6,24 @@ The script wraps functions of ``qldpc.codes.distance`` in this process only, war
 ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or ``mcount``
 workload once under the given tuning.  It cannot trace ``ccount`` workloads, whose compiled setup
 calls the stages past the wrappers.  It records an event for each family of information sets,
-certificate, linear program, consideration of automorphisms, prediction of the cost of completion
-tables, and layer of a Brouwer-Zimmermann (BZ) search, and for the first test of each number of rows
-and weight for tables; for each weight limit of a connected-cluster search; and for each walk and
-test of a count by the MacWilliams method.  The wrapper of each event says what it records.  The
-script prints the events, and with ``--output`` saves them as JSON with the tuning and a fingerprint
-of the qLDPC source.  With ``--setup-only``, it stops the first BZ distance search before its first
-layer, and runs other searches in full.
+certificate, linear program, consideration of a switch to automorphism images, prediction of the
+cost of completion tables, comparison of a predicted cost with the limit, and layer of a
+Brouwer-Zimmermann (BZ) search, and for the first test of each number of rows and weight for tables;
+for each weight limit of a connected-cluster search; and for each walk and test of a count by the
+MacWilliams method.  The wrapper of each event says what it records.  The script prints the events,
+and with ``--output`` saves them as JSON with the tuning and a fingerprint of the qLDPC source.
+With ``--setup-only``, it ends the workload before the first layer of a BZ distance search, after
+its setup; workloads of other kinds run in full.
 
 With ``--compare``, the script instead says whether two saved traces of one workload, such as traces
-under two tunings or of two checkouts, make the same decisions, and prints the first that differs.
-If the tunings differ only in thresholds and every decision is the same, so is the search, apart
-from the time of the decisions themselves.  The comparison sees the number of sets of each family
-but not the sets, and not the states that a connected-cluster search visits within a weight limit.
+under two tunings or of two checkouts, make the same decisions, and prints the first that differs,
+if both traces have it.  If the tunings differ only in thresholds and every decision is the same, so
+is the search, apart from the time of the decisions themselves.  The comparison sees the number of
+sets of each family but not the sets, and not the states that a connected-cluster search visits
+within a weight limit.
 
-The script refuses to run if this process imports qLDPC from another checkout; to trace another
-checkout, run the script of that checkout with its own Python.
+The script refuses to run if this process imports qLDPC from elsewhere; to trace another checkout,
+run the script of that checkout with its own Python.
 
 Examples:
 
@@ -271,7 +273,8 @@ def get_partition_gate(
       ``b**2 * r**2 * N`` over the coverages ``b`` that it tries, for ``r`` rows and ``N`` nonzero
       columns;
     - the least work that any partitioned family could do, which a search with automorphisms
-      compares with the work of their family.
+      compares with the work of their family;
+    - whether the search tried partitioning (``partitioned``), even if it found no family.
     """
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
@@ -378,7 +381,7 @@ def wrap_considers(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_limit(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each comparison of a predicted cost of completion tables with the limit."""
+    """Record each comparison of a predicted cost with ``completion_bound_max_cost_percent``."""
 
     @functools.wraps(function)
     def wrapper(cost: float, tuning: Any) -> bool:
@@ -502,7 +505,11 @@ def wrap_select(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_predict(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each prediction of the cost of completion tables."""
+    """Record each prediction of the cost of completion tables.
+
+    The cost is a share of the cost of a scan without tables, and ``at``, the seconds since the
+    workload started, also times the steps of counts.
+    """
 
     @functools.wraps(function)
     def wrapper(rows: Any, weight: int, *args: Any, **kwargs: Any) -> Any:
@@ -614,7 +621,7 @@ def wrap_use_automorphisms(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_find_witness(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each weight limit of a connected-cluster search, and whether the search asked first.
+    """Record each weight limit of a connected-cluster search, and any request for automorphisms.
 
     The predicted states are those that ``find_witness`` adds to the states visited so far, and
     compares with ``automorphism_minimum_states``, while the search has not yet asked.

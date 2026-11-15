@@ -47,8 +47,8 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
   one, by CSS weight, on that state, for the syndromes of random Pauli errors of ``error_weight``
   qubits, as certifications of fault propagation query each primitive fault;
 - ``first/<code>/<weighing>/<error_weight>/<max_weight>/<num_syndromes>``:
-  ``find_first_not_within_max_weight`` for the same syndromes, as certifications of fault
-  propagation search them;
+  ``find_first_not_within_max_weight`` for the syndromes of ``coset`` workloads, as certifications
+  of fault propagation search them;
 - ``certify/<code>/<weighing>/<max_weight>``: ``certify_bounded_fault_propagation`` of the encoding
   circuit of ``|0...0>`` of a CSS code under ``DepolarizingNoiseModel(1e-3)``, by ``css`` or
   ``physical`` weight, whose result is the fault weight of the smallest violation, if any;
