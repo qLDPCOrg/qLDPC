@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Routes of the BZ coset searches: the family, tails, and tables that answer a maximum weight.
+"""Routes of BZ coset searches: the family, tails, and tables for the queries at a maximum weight.
 
-``CosetRoutes`` chooses the route of each maximum weight of a BZ coset search of
-``CosetLeaderSearch`` once: its family of information sets, and whether its queries weigh words by
-their tails and skip completions by completion tables.  Every route answers within the contract of
+For a BZ coset search of ``CosetLeaderSearch``, ``CosetRoutes`` chooses the route of each maximum
+weight once: its family of information sets, and whether its queries weigh words by their tails and
+skip completions by completion tables.  Every route answers within the contract of
 ``MinWeightBound``, and depends only on the code, the maximum weight, and the tuning.  Section 4.4
 of ``brouwer_zimmermann.md`` gives the rules of the routes and their reasons, Section 4.1 says how
 ``CosetRoutes`` keeps tails and tables, and Sections 3.1, 3.9, and 5 say why every route answers
-exactly and reproducibly.
+correctly and reproducibly.
 """
 
 from __future__ import annotations
