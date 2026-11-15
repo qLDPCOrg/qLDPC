@@ -23,8 +23,8 @@ Code constructions
   ``MBCode._get_qudit_automorphisms`` is an example, which uses ``_get_block_translations`` for a group that translates every block of qudits at once.
   For codes built from lifts of a group algebra, ``_get_abelian_block_translations`` returns these translations if the group is abelian and its generators lift to permutation matrices, and None otherwise.
   Prove that each generator maps the row space of the parity check matrix onto itself, and test that it does.
-  Give the proof in the guide of the package if it has one, and otherwise in the docstring of the override.
   For a CSS code, a generator does so if it maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.
+  Give the proof in the guide of the package that defines the code, if any, and otherwise in the override's docstring.
 
 .. _implementation-algebra:
 

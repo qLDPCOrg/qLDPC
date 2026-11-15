@@ -12,7 +12,7 @@ The goal of the work
 --------------------
 
 Process and apparatus, such as rules, review steps, checks, experiments, and measurement protocols, must serve the goal of the work that they are added to.
-This section covers the workflow around the library, including experiment, benchmark, and check scripts, but not the library code and tests that a change adds or edits.
+This section applies to additions to the workflow around the library, such as experiment, benchmark, and check scripts and tests that enforce the standards, but not to library code or the tests of its behavior.
 Before adding or recommending any process or apparatus, restate in one sentence the goal that the work as a whole was requested for, not the purpose of the addition, and check that the addition serves that goal.
 State that sentence in the recommendation, if there is one, and otherwise in the report on the work.
 When a fix would add process or apparatus to guard against a problem that other process or apparatus caused or left open, escalate the fix as a decision instead, and include removing or simplifying that other process or apparatus among its options.

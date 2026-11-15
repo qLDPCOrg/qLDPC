@@ -87,13 +87,13 @@ A review covers each of these angles that the change can affect:
 * **Testing standard:** the :doc:`testing standard <standards/testing>`.
 * **Writing standard:** the :doc:`writing standard <standards/writing>`, applied to every changed comment, docstring, document, and notebook.
 * **Cold reading:** whether the changed comments, docstrings, documents, and notebook prose make sense to a reader who sees no code.
-  For each changed Python file, the coordinator gives the reviewer of this angle the file's docstrings and comments, in order and without code examples, each under the name of the module, class, or function that contains it, and marks the changed ones.
+  For each changed Python file, the coordinator gives this reviewer the file's docstrings and comments in order, without code examples, each under the name of the module, class, or function that contains it, and marks the changed ones.
   For changed notebooks and documents, the coordinator gives their prose without code cells or code blocks.
-  The coordinator gives this reviewer that prose and this angle's instructions first.
-  It gives the rest of the brief, which may quote code, only after the reviewer has recorded this angle's findings, for example in a separate file or a second message.
+  The coordinator first gives this reviewer these texts, the instructions above, and this angle's instructions.
+  The coordinator gives the rest of the brief, which may quote code, including the requester's goal, separately, as in a second file or message, and only after the reviewer has recorded this angle's findings.
   The reviewer records this angle's findings before reading any code, and does not withdraw them after reading it.
   The reviewer checks that each sentence reads clearly the first time, and checks definite references and pronouns against the writing standard.
-  A finding of this angle is significant only if the prose could mislead a reader about what the code does or guarantees, or, for a change to the rules for working on qLDPC, as the significance instructions above describe.
+  For prose in the rules for working on qLDPC, the significance instructions above apply; for other prose, a finding of this angle is significant only if the prose could mislead a reader about what the code does or guarantees.
 * **Deprecations:** the :doc:`deprecation standard <standards/deprecations>`, for a change to a public name, argument, mode, or default.
 
 An angle applies only to changes in its area, even when a request asks for all angles.
