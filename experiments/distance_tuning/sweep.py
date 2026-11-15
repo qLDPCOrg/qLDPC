@@ -6,10 +6,10 @@ The comparison catches gross regressions or bugs when the tuning or the search c
 never sets or justifies a value (see the Retuning section of ``qldpc.codes.distance._tuning``).  It
 times workloads (see ``workloads.py``) under two arms: the defaults of ``SearchTuning``, and those
 defaults with the changes of ``--proposed``.  With ``--worktrees``, the arms are instead the
-defaults of two checkouts, the current one first, each with its own ``trial.py`` and source, and
-both with the Python of this process.  Each trial runs ``trial.py`` in a new single-threaded
-process, one trial at a time, and each round runs both arms on each workload in an order that
-alternates, so that drifts of the load of the machine affect both arms alike.
+defaults of two checkouts, current and proposed, each with its own ``trial.py`` and source, and both
+with the Python of this process.  Each trial runs ``trial.py`` in a new single-threaded process, one
+trial at a time, and each round runs both arms on each workload in an order that alternates, so that
+drifts of the load of the machine affect both arms alike.
 
 Each trial appends a JSON line to ``trials.jsonl`` in the results directory, and a comparison skips
 the trials that the file holds, so an interrupted comparison resumes where it stopped.  The script

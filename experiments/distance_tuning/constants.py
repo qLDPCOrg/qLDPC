@@ -6,7 +6,7 @@ Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` gates
 and assumes the cost of the step to an order of magnitude (see the Retuning section of
 ``_tuning.py``).  The script measures the cost of each such step on quick searches, and then the
 coefficients of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each
-tuning of ``COST_MODEL_ARMS``, which together can take hours.  It prints each beside its default:
+tuning of ``COST_MODEL_ARMS``, which together can take hours.  It prints both beside their defaults;
 the README of this directory explains the columns, and the functions of this script say how it
 measures each cost.  The script sets no value.
 
@@ -381,7 +381,7 @@ def report(directory: pathlib.Path) -> None:
         )
 
     # Round the costliest measurement of each step, in the unit of its field, as round_to_grid
-    # does, to compare it with the default.  The cost limit of completion tables is a limit at
+    # does, to print it beside the default.  The cost limit of completion tables is a limit at
     # equality, 100.
     gates = {
         "partition_work_ratio": "partitioning, per unit",

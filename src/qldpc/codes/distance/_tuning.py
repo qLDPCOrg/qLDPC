@@ -6,7 +6,7 @@
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
 routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.5, 3.8, and 3.9 of
-``connected_cluster.md`` explain the heuristics that read them.
+``connected_cluster.md`` explain the heuristics that read the fields.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -64,28 +64,29 @@ Retuning:
 Each default is in one of these classes, or was chosen by hand:
 
 - A derived value gates an optional step, such as building a family of information sets, solving
-  linear programs, or asking for automorphisms.  The step runs when the work that it acts on reaches
-  the value, or the value times a formula of the size of the search; work counts candidate/set
-  evaluations in BZ searches and states in connected-cluster searches.  The value is the cost of the
-  step on a large basis or code, or its cost per unit of the formula, known to an order of magnitude
-  and written as 1, 2, or 5 times a power of ten (Section 4.4 of ``brouwer_zimmermann.md``).  On a
-  small search, where the step costs less, a gate can skip a step that would have paid.
+  linear programs, or asking for automorphisms.  The step runs when the estimated work that it acts
+  on reaches the value, or, for ``partition_work_ratio``, the value times a formula; work counts
+  candidate/set evaluations in BZ searches and states in connected-cluster searches.  The value is
+  the cost of the step on a large basis or code, or its cost per unit of the formula, known to an
+  order of magnitude and written as 1, 2, or 5 times a power of ten (Section 4.4 of
+  ``brouwer_zimmermann.md``).  On a small search, where the step costs less, a gate can skip a step
+  that would have paid.
 - A limit at equality compares two estimates in one unit.
 - The rough coefficients of the cost model of completion tables (``predict_completion_cost`` in
-  ``_information_sets/completion_bounds.py``) are rough estimates of costs, not round values.
-- A budget, set by hand, limits memory, interrupt latency, or setup effort, which it trades against
-  speed.  A batch or chunk size is meant to be the smallest whose overhead per call of compiled code
-  is negligible, though not all current sizes meet this.
+  ``_information_sets/completion_bounds.py``) are rough estimates, not round values.
+- A budget, chosen by hand, limits memory, interrupt latency, or setup effort, which it trades
+  against speed.  A batch or chunk size is meant to be the smallest whose overhead per call of
+  compiled code is negligible, though not all current sizes meet this.
 - A convention is a statistical or numerical setting, and its comment says what it guarantees.
-- The blocks of completion tables take the widest allowed width, and a budget bounds their memory
+- Blocks of completion tables default to the widest allowed width, and a budget bounds their memory
   (Section 4.4 of ``brouwer_zimmermann.md``).
 
 The sizes of caches, ``coset_route_minimum_work``, and ``macwilliams_shared_walk_rank`` were chosen
 by hand, and the comments of the two fields say why.
 
-Change a default only when its heuristic changes, when a check shows that its assumption, such as
-the cost of a step, is off by more than a factor of about 3, or when the maintainer changes a budget
-or a value chosen by hand.  Never change a default to gain a factor of two on particular codes.  The
+Change a default only when its heuristic changes, or when a check shows that its assumption, such as
+the cost of a step, is off by more than a factor of about 3; only a maintainer changes a budget or a
+value chosen by hand.  Never change a default to gain a factor of two on particular codes.  The
 scripts of ``experiments/distance_tuning`` check the tuning and set no value: ``constants.py``
 checks the orders of magnitude that the heuristics assume, ``trace.py`` shows which decisions a
 search makes, and ``sweep.py`` catches gross regressions or bugs.  The README of that directory says
@@ -106,8 +107,8 @@ from typing import Any
 from ._binary import as_integer
 
 #: The largest value of an integer field.  Searches add and multiply some fields in compiled code
-#: with 64-bit integers, which a larger value could overflow, or make numba compile again for
-#: another integer type.
+#: with 64-bit integers; a larger value could overflow them, or make numba compile again for another
+#: integer type.
 MAX_VALUE = 2**62
 
 ####################################################################################################
@@ -133,8 +134,8 @@ class SearchTuning:
 
     # Fields of exhaustive enumeration.
 
-    #: Exhaustive enumeration finds distances by the method ``"brute_force"``, including the
-    #: distance that a count by that method finds first.  It handles batches of at most
+    #: Exhaustive enumeration finds distances by the method ``"brute_force"``, also when a count by
+    #: that method first finds the distance.  It handles batches of at most
     #: ``2**enumeration_batch_exponent`` packed 64-bit integers, or one word if a word needs more,
     #: and takes keyboard interrupts between batches.  At most 62.  Defaults to 15, a budget of
     #: interrupt latency and memory (Section 3.6 of ``brouwer_zimmermann.md``).
@@ -309,7 +310,7 @@ class SearchTuning:
     #: 0.04, a rough coefficient.
     completion_bound_lookup_block_cost_per_mib: float = 0.04
 
-    #: A multiplier of the predicted number of lookups of completion tables, which stands for the
+    #: A multiplier of the predicted number of lookups of completion tables, an estimate of the
     #: share of heads (supports less their last row) that a scan with tables keeps, divided by the
     #: share of supports that it keeps.  It is below one, since tables most often skip heads whose
     #: last row is late, which have few supports each.  Defaults to 0.35, a rough coefficient.
@@ -317,7 +318,7 @@ class SearchTuning:
 
     #: The cost of building completion tables, in scanned supports for each byte of tables; with
     #: ``completion_bound_build_step_cost``, it predicts the cost of a build.  Defaults to 0.1, a
-    #: rough coefficient, half of ``completion_bound_build_step_cost`` by a ratio set by hand.
+    #: rough coefficient, half of ``completion_bound_build_step_cost`` by a ratio chosen by hand.
     completion_bound_table_byte_cost: float = 0.1
 
     #: The cost of building completion tables, in scanned supports for each step of the
@@ -457,8 +458,8 @@ BINOMIAL_CACHE_SIZE = 1024
 #: in ``_brouwer_zimmermann/coset.py`` caches, one for each CSS state and tuning of their setup.
 CSS_SEARCH_CACHE_SIZE = 8
 
-#: The most results that each of two caches of the MacWilliams method keeps, one of single
-#: Krawtchouk rows and one of arrays of the Krawtchouk rows of the lightest weights.
+#: The most results that each of two caches of the MacWilliams method keeps, one for single
+#: Krawtchouk rows and one for arrays of the Krawtchouk rows of the lightest weights.
 KRAWTCHOUK_CACHE_SIZE = 1024
 
 #: The most local Clifford matrices of deformed counters that their cache keeps, each a pair of
