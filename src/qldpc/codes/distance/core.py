@@ -34,7 +34,7 @@ from ._connected_cluster.sparse_checks import get_row_weights, get_sparser_rows
 from ._tuning import SearchTuning, get_tuning
 
 DistanceMethod = Literal[
-    "brouwer_zimmermann", "brute_force", "information_sets", "connected_cluster"
+    "brouwer_zimmermann", "information_sets", "connected_cluster", "brute_force"
 ]
 """The methods of exact distance searches.
 
