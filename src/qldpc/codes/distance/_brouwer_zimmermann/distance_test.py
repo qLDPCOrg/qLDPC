@@ -746,7 +746,7 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
 def test_a_decline_at_the_end_of_setup_is_reconsidered_before_a_costly_layer(
     switch_decisions: list[tuple[int, bool]],
 ) -> None:
-    """Setup's declined switch is reconsidered before a costly layer once the best weight drops."""
+    """A switch declined in setup is reconsidered before a costly layer at a lower best weight."""
     rows = [
         "110100010001010110111011100110110110011100111",
         "011011101011000011001011111000101110001010101",
