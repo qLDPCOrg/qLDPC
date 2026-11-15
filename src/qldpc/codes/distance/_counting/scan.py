@@ -27,8 +27,8 @@ from . import local_cliffords
 
 _PackedMatrix = npt.NDArray[np.uint64]
 
-# How a scan call ends: with every layer visited, after its allowance of chunks, or at a word that
-# is lighter than the target and nontrivial.
+# How a scan call ends: with every layer visited, after its allowance of chunks or before its
+# stopping step, or at a word that is lighter than the target and nontrivial.
 _SCAN_FINISHED, _SCAN_UNFINISHED, _SCAN_FOUND_LIGHTER_WORD = 0, 1, 2
 
 # The positions in the cursor of a scan, which marks where a later call resumes it: the layer, the
@@ -59,7 +59,7 @@ def count_words(
     ``mask`` is the support of a counted word, or its complement with ``complement``.  The caller
     weighs each exponent by ``2**exponent``, which could overflow a native integer.  The scan also
     visits every lighter word, and with ``reject_lighter`` returns None at the first that is
-    nontrivial.  With ``brute_force``, it scans the whole basis as one set.
+    nontrivial.  With ``brute_force``, it scans the whole basis rather than a basis family.
     """
     # Select the information sets, or scan the whole basis as one set for brute force.
     if brute_force:
@@ -216,7 +216,7 @@ def _pack_basis_family(
 def _get_last_step(certificate: certificates.Certificate, weight: int) -> tuple[int, int]:
     """The first step after which the certificate rules out unvisited words of the given weight.
 
-    Returns the layer of the step, and its number of completed sets (see ``_Steps``).  The
+    Returns the step's layer, and how many sets have completed that layer (see ``_Steps``).  The
     certificate must exceed the weight, not equal it (Section 5).
     """
     # The first set to complete the last layer visits every word, so some step certifies.
@@ -310,7 +310,10 @@ class _StepTables:
             self.max_row_width += (num_tail_columns + 63) // 64
 
     def may_use_tables(self, layer: int, set_index: int) -> bool:
-        """Whether the tuning considers tables for a step: one in ``layers`` of a full set."""
+        """Whether a step might use tables: whether the tuning considers them for it.
+
+        Such a step is in one of ``layers``, and its set's block is an information set.
+        """
         family = self._basis_family
         return (
             layer in self.layers
@@ -434,7 +437,8 @@ def _scan_coefficient_layers(
     so that it can be compiled, which saves a call from Python for every chunk.
 
     Compiled code cannot be interrupted, so the scan resumes across calls.  ``cursor`` holds the
-    layer, the set, and the depth at which to resume, and ``support[:layer]`` the current support.
+    layer, the set, and the depth at which to resume, ``support[:layer]`` the current support, and
+    ``prefixes`` its prefix XORs.
     Every call passes the same ``cursor``, ``support``, ``prefixes``, and ``histogram``, and every
     call of a step the same tables.  The first call passes a cursor at layer one, set zero, and
     depth zero, and zero prefixes.  Returns how the call ended, as a ``_SCAN_*`` code.
@@ -554,9 +558,10 @@ def _count_chunk(
     ``rows_and_labels`` holds the rows of one set, each with ``width`` machine words of its word,
     then those of its quotient label.  ``prefixes`` holds the prefix XORs of ``support``, and
     ``depth`` is the position being advanced, or -1 once every support has been visited (see
-    ``advance_support``).  Owned nontrivial words of weight ``target`` enter ``histogram`` (see
-    ``count_words``).  Returns the depth from which to resume, and whether the chunk stopped at a
-    nontrivial word lighter than ``target``, which it checks for only with ``reject_lighter``.
+    ``advance_support``).  Owned nontrivial words (see ``_is_owned``) of weight ``target`` enter
+    ``histogram`` (see ``count_words``).  Returns the depth from which to resume, and whether the
+    chunk stopped at a nontrivial word lighter than ``target``, which it checks for only with
+    ``reject_lighter``.
     """
     num_rows, total_width = rows_and_labels.shape
     layer = len(support)
@@ -633,9 +638,10 @@ def _count_chunk_skipping(
     layer = len(support)
     word = np.empty(width, dtype=np.uint64)
     pivots = np.empty((len(rank_rows), width), dtype=np.uint64)
-    # Step through the heads of the supports, their first layer - 1 rows, whose last row starts the
-    # pair that completes a support, and visit the last rows of each head in a loop of their own.
-    # The pair steps of ``_scan`` in ``_brouwer_zimmermann/affine_search.py`` skip the same way.
+    # Step through the heads of the supports, their first ``layer - 1`` rows, and visit the rows
+    # that complete each head in a loop of their own.  A head ends with the first of the last two
+    # rows.  The pair steps of ``_scan`` in ``_brouwer_zimmermann/affine_search.py`` skip the same
+    # way, with a limit that falls as they find lighter words.
     head = support[: layer - 1]
     head_rows = step_rows[: num_rows - 1]
     pair_depth = layer - 2

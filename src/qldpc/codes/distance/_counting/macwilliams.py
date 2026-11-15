@@ -58,7 +58,8 @@ class CheckEnumerators:
         self.weights_z = (
             self.weights_x if self.self_dual else get_span_weights(checks_z, chunk_size)
         )
-        # Counts of the light words of ker(H_Z) and ker(H_X), from one 64-bit transform each.
+        # Counts of the words of ker(checks_z) and ker(checks_x) at the weights where one 64-bit
+        # transform is exact.
         self.light_counts_x = _count_light_dual_words(self.weights_z, self.rank_z, self.num_bits)
         self.light_counts_z = (
             self.light_counts_x
@@ -102,8 +103,8 @@ class CheckEnumerators:
 def get_span_weights(generators: npt.NDArray[np.uint8], chunk_size: int) -> npt.NDArray[np.uint64]:
     """The number of words of each weight in the span of independent binary rows, as uint64s.
 
-    Each native call of the Gray-code walk over the span, which cannot be interrupted, takes at
-    most ``chunk_size`` steps.
+    A native call cannot be interrupted, so the Gray-code walk of the span takes at most
+    ``chunk_size`` steps in each call.
     """
     rank, num_bits = generators.shape
     weights = np.zeros(num_bits + 1, dtype=np.uint64)

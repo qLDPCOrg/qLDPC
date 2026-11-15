@@ -257,8 +257,8 @@ def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     rows_and_labels[:, :, : rows.shape[2]] = rows
     tuning = tune(**FORCED_TABLES)
 
-    # No step of brute force, of layer one, of a partial set, or below the minimum work may use
-    # tables.
+    # No step of brute force, of layer one, of a set without a full block, or below the minimum
+    # work may use tables.
     rows_of_disjoint = scan._pack_basis_family(disjoint, basis.shape[1], labels.shape[1])[0]
     assert not scan._StepTables(None, rows_and_labels, 4, tuning).may_use_tables(2, 0)
     assert not scan._StepTables(family, rows_and_labels, 4, tuning).may_use_tables(1, 0)

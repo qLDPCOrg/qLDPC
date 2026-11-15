@@ -86,9 +86,9 @@ class CSSLogicalCounts:
             if the code encodes no qubits, and so has no distance.
         count_x: The number of X-only nontrivial logical operators of weight ``weight``.
         count_z: The number of Z-only nontrivial logical operators of weight ``weight``.
-        count_pauli: The number of nontrivial logical Pauli operators of weight ``weight``, ignoring
-            phase and including X-only, Z-only, Y, and mixed operators, or None if it was not
-            requested.
+        count_pauli: The number of nontrivial logical Pauli operators of weight ``weight``,
+            ignoring phase, or None if it was not requested.  It includes the X-only and Z-only
+            operators counted by ``count_x`` and ``count_z``, as well as Y and mixed operators.
 
     Two counts of exactly the same class are equal if their attributes are, and ``NO_DISTANCE``
     equals itself here, although as a ``nan`` it does not equal itself elsewhere.
@@ -115,8 +115,8 @@ class CSSLogicalCounts:
 class CSSLogicalCounter:
     """Exact counter of the logical operators of a given weight in a binary CSS code.
 
-    The rows of ``checks_x``, or ``H_X``, are the X-type checks of the code, which detect Z errors,
-    and the rows of ``checks_z``, or ``H_Z``, are its Z-type checks, which detect X errors.  In a
+    The rows of ``checks_x``, or ``H_X``, are the X-type checks of the code, which detect Z errors.
+    The rows of ``checks_z``, or ``H_Z``, are its Z-type checks, which detect X errors.  In a
     stabilizer code, the nontrivial X logicals are the words of ``ker(H_Z)`` outside ``row(H_X)``,
     and likewise for Z with X and Z exchanged.  At a weight ``w`` that defaults to the distance
     ``d``, :meth:`count_logical_ops` counts:
@@ -124,12 +124,13 @@ class CSSLogicalCounter:
     - ``count_x`` and ``count_z``: the X-only and Z-only nontrivial logical operators of weight
       ``w``;
     - optionally ``count_pauli``: all nontrivial logical operators of weight ``w``, including Y and
-      mixed operators, which it counts only for ``w <= d``, and which number zero for ``w < d``.
+      mixed operators.  This count is supported only for ``w <= d``, and is zero for ``w < d``.
 
     Counts are of physical operators ignoring phase, not of logical classes.  At the default weight,
     ``d`` is the minimum over both sectors, so ``count_x`` or ``count_z`` may be zero.  Counting
-    generally takes exponential time.  A counter remembers the distance that each method finds, so
-    later counts at the default weight by that method do not search again.
+    generally takes exponential time.  A counter remembers the distance that the Brouwer-Zimmermann
+    or brute-force method finds, so later counts at the default weight by that method do not search
+    again.
 
     In a subsystem code, the checks ``G_X`` and ``G_Z`` are gauge generators, and the stabilizers
     ``S_X`` and ``S_Z`` are the gauge operators that commute with every gauge operator of the other
@@ -349,9 +350,9 @@ class CSSLogicalCounter:
             target = _get_distance(sectors, method, get_disjoint_basis_families, tuning)
             self._distances[method] = target
 
-        # Full Pauli counts need a masked rank for each counted word, unless the counter knows its
-        # code to be self-dual, and fail at a nontrivial word lighter than the weight (Section 3.11
-        # of brouwer_zimmermann.md).
+        # Full Pauli counts need a rank of checks restricted to the support of each counted word, or
+        # to its complement, unless the counter knows its code to be self-dual, and raise an error
+        # at a nontrivial word lighter than the weight (Section 3.11 of brouwer_zimmermann.md).
         count_masked_ranks = count_pauli and not self._self_dual
         reject_lighter = count_pauli or within_distance
         no_rows = self._gauge_x[:0]
@@ -449,8 +450,8 @@ class CSSLogicalCounter:
         """Return a counter for this code deformed by a four-qubit SWEL-preserving Clifford.
 
         The Clifford applies the same binary matrix, whose rows have weight three, to X and Z
-        supports on the four targets, so it maps self-dual codes to self-dual codes, and preserves
-        the self-dual-with-equivalent-logicals (SWEL) property that
+        supports on the four targets.  It therefore maps self-dual codes to self-dual codes, and
+        preserves the self-dual-with-equivalent-logicals (SWEL) property that
         :attr:`CSSCode.is_swel <qldpc.codes.common.CSSCode.is_swel>` tests.  It is valid for any CSS
         code.
 
@@ -600,8 +601,7 @@ class CSSLogicalCounter:
 
         Section 3.11 of ``brouwer_zimmermann.md`` derives the counts.  The checks of a self-dual
         code may share one distribution, even if a deformation gave them different bases, since
-        equal spaces have equal distributions.  The distributions are kept for later counts, and
-        each native call of a walk takes at most ``chunk_size`` steps.
+        equal spaces have equal distributions.
         """
         # Walk the check spaces once per counter.
         if self._enumerators is None:
@@ -708,8 +708,8 @@ def count_logical_ops_css(
 def compile_search_setup() -> None:
     """Compile the code that sets up exact distance and logical-operator count searches.
 
-    The inner loops of these searches are compiled by numba, and cached on disk, when first used,
-    but the code that sets them up runs as plain Python: it selects, bounds, and packs the
+    Numba compiles the inner loops of these searches when they are first used, and caches them on
+    disk.  The code that sets them up runs as plain Python: it selects, bounds, and packs the
     information sets of a code, and moves them through local gates.  This function compiles that
     code for the rest of this process.  It changes no result, and does not affect the MacWilliams
     method or the connected-cluster distance method, which do not use that code.

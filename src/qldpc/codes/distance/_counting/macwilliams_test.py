@@ -39,7 +39,7 @@ def test_logical_counts(monkeypatch: pytest.MonkeyPatch, num_bits: int) -> None:
         )
         expected = kernel - {0: 1, 4: 2, 8: 1}.get(weight, 0)
         assert enumerators.count_logical_ops(weight) == (expected, expected)
-    # Each call of the walk takes one step, the given chunk size.
+    # With a chunk size of one, each call of the walk takes one step.
     assert chunk_sizes and set(chunk_sizes) == {1}
 
 

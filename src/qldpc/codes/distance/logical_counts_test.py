@@ -107,7 +107,7 @@ def test_counts_match_enumeration(method: lc.LogicalCountMethod) -> None:
 
 
 def test_counting_continues_at_an_equal_lower_bound() -> None:
-    """A count continues after a step whose bound equals its weight."""
+    """A count continues after a step whose bound equals the counted weight."""
     # With no checks, each of the three words of weight two is a logical of each type, and the
     # bound after the first layer is two.
     counter = lc.CSSLogicalCounter(np.zeros((0, 3)), np.zeros((0, 3)))
@@ -249,7 +249,7 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
 def test_deprecated_max_information_sets_argument(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """The argument warns, takes only integers, and sets the limit of every search of a count."""
+    """The argument warns, takes only nonnegative integers, and limits every search of a count."""
     counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
     for value in (2.5, True):
         not_an_integer: Any = value
@@ -326,7 +326,8 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
     sizes_with_distance = collections.Counter(sizes)
     sizes.clear()
     lc.CSSLogicalCounter.from_code(code).count_logical_ops(expected.weight)
-    # With the default limit, the distance search of this code builds a family of over three sets.
+    # With the default limit, the distance search of this code builds a family of over three sets,
+    # so a limit of three bounds it only if the limit reaches that search.
     distance_sizes = sizes_with_distance - collections.Counter(sizes)
     assert max(distance_sizes) > 3
 
@@ -337,7 +338,7 @@ def test_the_information_set_limit_reaches_every_search_of_a_count(
 
 
 def test_later_counts_reuse_the_first_family_stage() -> None:
-    """Counts at other weights and distance searches share the disjoint basis families."""
+    """Distance searches, and counts at other weights, share the disjoint basis families."""
     # The distance search of this code uses information sets, and its lightest logical operators of
     # each type are the five straight lines across the lattice.
     counter = lc.CSSLogicalCounter.from_code(codes.SurfaceCode(5, rotated=False))
@@ -369,7 +370,7 @@ def test_counters_remember_the_distance_of_each_method() -> None:
 
 
 def test_deformed_counter_reuses_the_first_family_stage() -> None:
-    """A deformed counter receives every kept basis family, so it counts exactly and builds none."""
+    """A deformed counter counts exactly, and builds no family, since it receives every kept one."""
     counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
     counter.count_logical_ops()
     with use_tuning(disjoint_random_column_orders=3):
