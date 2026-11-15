@@ -48,8 +48,7 @@ class CosetSearchTables(NamedTuple):
         inverse: Row ``j`` is the packed embedded word of a word whose syndrome has only bit ``j``
             set.
         generators: The packed rows of each set of a family of information sets of the embedded
-            generators of the code (see ``coset_routes``).  The last set of a disjoint family may be
-            partial.
+            generators of the code (Section 4.4).  The last set of a disjoint family may be partial.
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family (see ``_get_planning``).
             Queries write only its cached stopping steps, which oracles that share a cached search

@@ -139,9 +139,10 @@ def get_coset_family_instance(
 ) -> AffineInstance:
     """Pack the sets of any basis family of a code for the coset search, with every column.
 
-    The sets may overlap.  The certificate takes the ranks and maximum coverage of the family, and
-    no weight divisor, and holds for every coset (Section 3.1, "Families for coset searches").
-    ``weight_factor`` is as for ``get_coset_instance``.
+    The sets may overlap, as in the families of the routes of coset searches (Section 4.4).  The
+    certificate takes the ranks and maximum coverage of the family, and no weight divisor, and holds
+    for every coset (Section 3.1, "Families for coset searches").  ``weight_factor`` is as for
+    ``get_coset_instance``.
     """
     num_sets, num_generators, num_columns = basis_family.generators.shape
     packed_generators = pack_bits(basis_family.generators.reshape(-1, num_columns)).reshape(

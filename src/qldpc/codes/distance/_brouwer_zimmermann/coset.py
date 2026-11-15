@@ -53,7 +53,7 @@ class BrouwerZimmermannCosetSearch:
     modulo the span of the Z parts of the pure-Z stabilizers.  A coset is labeled by the syndrome of
     its words, whose bit ``j`` is the parity of a word with row ``j`` of a matrix of checks.  The
     search answers the queries of each maximum weight with the route that ``routes`` choose
-    (Section 4.1).
+    (Section 4.4).
 
     Args:
         routes: The routes of the search.
@@ -291,7 +291,7 @@ class _CosetTuning(NamedTuple):
     """The fields of the tuning that the setup of a BZ coset search reads, which key its cache.
 
     The search builds its families, tails, and tables after the cache stores it, so the fields that
-    configure them key the cache too (see ``coset_routes``).
+    configure them key the cache too (Section 4.4).
     """
 
     disjoint_random_column_orders: int
@@ -514,7 +514,7 @@ def _search_coset(
     may update the cached stopping steps of ``planning``.  A word weighs its CSS weight if ``scale``
     is zero, and otherwise the Hamming weight of its embedded word divided by ``scale``: two for the
     physical weight of a Pauli error, and one for an X or Z part.  ``tails`` is None, or the fields
-    of the ``CosetTails`` of a route by tails, on which ``scale`` is one or two.
+    of the ``CosetTails`` of a route by tails (Section 4.4), on which ``scale`` is one or two.
 
     The search starts from the word of the syndrome, and visits the layers of the sets in order, up
     to its stopping step, until it finds a word within ``max_weight`` (Sections 3.1 and 4.1).  By

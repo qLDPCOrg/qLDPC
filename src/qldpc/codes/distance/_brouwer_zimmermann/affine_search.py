@@ -269,7 +269,7 @@ def scan_coset_layer_by_tails(
     the tails of the rows, with shape ``(num_rows, width)``, and ``offset_tail`` that of the offset.
     A word weighs its rows below ``rank`` plus its tail (Section 3.5).  The scan copies the support
     of each lighter word, rather than the word, into ``best_support``, of at least ``len(support)``
-    entries.
+    entries.  The routes by tails of coset searches weigh words this way (Section 4.4).
 
     Returns:
         The weight of the lightest word found, or ``best`` if none is lighter, and the number of
