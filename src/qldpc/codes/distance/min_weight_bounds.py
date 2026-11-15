@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The answer to a query about the lightest Pauli errors with a given syndrome.
-
-The queries ``get_min_weight_bound`` and ``find_first_not_within_max_weight`` of
-:class:`~qldpc.codes.distance.CosetLeaderSearch` answer with a :class:`MinWeightBound`.
-"""
+"""The answer of a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` for one syndrome."""
 
 from __future__ import annotations
 
@@ -15,10 +11,10 @@ from dataclasses import dataclass
 class MinWeightBound:
     """Whether a syndrome class has an error within a maximum weight, with an error and a bound.
 
-    A query of :class:`~qldpc.codes.distance.CosetLeaderSearch` asks whether some Pauli error with a
-    given syndrome has weight at most ``max_weight``.  Whether it has one never depends on the
-    method or tuning of the search.  Which error and which lower bound the query returns can depend
-    on the method, the tuning, and the version of qLDPC, within the guarantees below.
+    The queries ``get_min_weight_bound`` and ``find_first_not_within_max_weight`` of
+    :class:`~qldpc.codes.distance.CosetLeaderSearch` return it.  Which error and which lower bound
+    they return can depend on the method, the tuning, and the version of qLDPC, within the
+    guarantees below, but ``within_max_weight`` cannot.
 
     Attributes:
         within_max_weight: Whether some error with the syndrome has weight at most ``max_weight``.
