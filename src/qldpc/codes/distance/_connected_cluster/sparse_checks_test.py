@@ -16,10 +16,7 @@ from . import sparse_checks
 
 
 def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
-    """Adding rows to each other leaves rows of the same span, which no such addition makes lighter.
-
-    The weight of a symplectic row counts the qubits on which it acts, whether by X, Y, or Z.
-    """
+    """``_sparsify`` keeps the span, and leaves no row that adding another row would lighten."""
 
     def get_weights(rows: npt.NDArray[np.uint8], symplectic: bool) -> npt.NDArray[np.int_]:
         if not symplectic:
@@ -43,14 +40,10 @@ def test_sparser_rows_span_the_same_space(pytestconfig: pytest.Config) -> None:
 
 
 def test_rounds_of_random_reductions_make_rows_sparser() -> None:
-    """Rounds reach a lightest basis, which adding rows to each other misses.
-
-    Three independent words of the span of these Paulis on five qubits act on three qubits each, so
-    they form a lightest basis, of total weight 9.  Adding rows to each other replaces the first row
-    with its sum with the second, which is one of them, and then no sum of two rows is lighter than
-    a row, so zero rounds give total weight 10.  Another of the three words has two Ys, so it counts
-    five bits, and rows weighed by bits would miss it.
-    """
+    """Rounds reach a lightest basis, which adding rows to each other misses."""
+    # Three independent words of the span act on three qubits each, a lightest basis of total weight
+    # 9, and one of them has two Ys, so weighing bits would miss it.  Adding rows to each other
+    # finds one of the words, and stops at total weight 10.
     matrix = np.array(
         [
             [0, 1, 1, 0, 1, 1, 0, 0, 0, 1],
@@ -69,11 +62,7 @@ def test_rounds_of_random_reductions_make_rows_sparser() -> None:
 
 
 def test_rounds_stop_once_they_leave_the_weight_unchanged() -> None:
-    """Rounds stop after the given number of rounds without a lighter total weight.
-
-    The rows of an identity matrix weigh one each, so no round makes them lighter, and the first
-    round ends the rounds, long before ``max_rounds`` would.  No rows give no rows.
-    """
+    """Rounds stop once one leaves the total weight unchanged, and no rows give no rows."""
     for matrix in (np.eye(3, dtype=np.uint8), np.zeros((0, 3), dtype=np.uint8)):
         rows, transform = sparse_checks.get_sparser_rows(
             matrix, symplectic=False, max_rounds=10**12, rounds_without_improvement=1
