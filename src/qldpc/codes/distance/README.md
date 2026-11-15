@@ -11,7 +11,7 @@ Users reach it through the public functions and classes below, which take plain 
 
 - `get_distance_from_generators`, `get_distance_from_checks`, `get_distance_css`, `get_distance_pauli`, `DistanceMethod`, and `NoDistance`, whose only member `NoDistance.NAN` is also exported as `NO_DISTANCE`, from `core.py`.
 - `CSSLogicalCounter`, `CSSLogicalCounts`, `count_logical_ops_css`, `LogicalCountMethod`, and `compile_search_setup`, from `logical_counts.py`.
-- `CosetLeaderSearch`, from `coset_leaders.py`, and `MinWeightBound`, the answer of its queries, from `min_weight_bounds.py`.
+- `CosetLeaderSearch`, from `coset_leaders.py`, and `MinWeightBound`, its bound for one syndrome, from `min_weight_bounds.py`.
 
 `qldpc.codes` re-exports only `NoDistance`, `NO_DISTANCE`, and `DistanceMethod`, which the code classes take or return.
 The documentation cites the other names at `qldpc.codes.distance`.
@@ -28,7 +28,8 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither visited nor skipped, which tells the search when it can stop; with completion tables, it bounds only the words lighter than the best weight `U` of the search (Section 3.9 of `brouwer_zimmermann.md`).
 - **Connected-cluster search** (`SupportSearch`): the depth-first search that `method="connected_cluster"` selects, which grows supports through the unsatisfied rows of a check matrix `H` to find light binary or symplectic words outside the row space of an excluded matrix `G`, or light vectors with a given syndrome.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer, a layer holding the combinations of a given number of rows.
-  Counts have their own scan, in `_counting/scan.py`; the Brouwer-Zimmermann distance searches, and the coset searches of the coset-leader search (below), use the compiled scans of `_brouwer_zimmermann/affine_search.py`; every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.
+  Counts have their own scan, in `_counting/scan.py`, and the Brouwer-Zimmermann distance and coset searches (see "The coset-leader search") use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
+  Every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.
 
 ## Layout
 
@@ -104,7 +105,7 @@ Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecat
 ## The coset-leader search
 
 `CosetLeaderSearch` answers each query with one or two coset searches, each over the cosets of a binary code.
-Each first looks up words of weight at most one in a table, and answers with `MinWeightBound`.
+Each answers a single query with `MinWeightBound`, after it looks up words of weight at most one in a table.
 
 - In general, one search of the Pauli errors, modulo the stabilizers, answers a query.
 - On a CSS state, where pure-X and pure-Z stabilizers generate its stabilizer group, two classical searches answer a query by CSS weight, the larger of the weights of the X and Z parts of an error, on `n` columns each rather than `2n`.
@@ -123,13 +124,13 @@ With `method="connected_cluster"`, each `CosetLeaderSearch` builds its own coset
 This method weighs errors by CSS weight only on CSS states (Section 3.8 of `connected_cluster.md`).
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
 `find_first_not_within_max_weight` and `get_min_weights` try increasing weight limits (`_get_batch_cluster_bound` and `_get_min_cluster_weight`), which can find light errors sooner than one search at `max_weight`.
-For the CSS weight, the bound that `find_first_not_within_max_weight` returns for a class without an error within `max_weight` holds an error for each part, and that of a part within `max_weight` can differ from the one that `get_min_weight_bound` gives.
+For the CSS weight, the bound that `find_first_not_within_max_weight` returns holds an error for each part, and the error of a part within `max_weight` can differ from the one that `get_min_weight_bound` gives.
 
 The table "Routes and the names that control them" of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) names the fields that configure the searches of `CosetLeaderSearch`.
 
 ## Tuning
 
-A value that changes only how long a search takes or how much memory it uses, and that a search reads when it starts, such as a threshold that chooses a route, a limit, a coefficient of a cost model, or a batch size, is a field of `SearchTuning` in `_tuning.py`, not an argument of a public function.
+A value that changes how long a search takes or how much memory it uses, but no result that the search guarantees, and that a search reads when it starts, such as a threshold that chooses a route, a limit, a coefficient of a cost model, or a batch size, is a field of `SearchTuning` in `_tuning.py`, not an argument of a public function.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down as arguments, including to compiled code, so that one search never mixes two tunings.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built; `get_distance_brouwer_zimmermann_many` and `get_distance_connected_cluster` read it only if their callers pass none.
@@ -138,7 +139,7 @@ A value that changes only how long a search takes or how much memory it uses, an
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
 - Each field and constant has its own `#:` comment directly above it, for Sphinx to render, with no colon on its first line, since Sphinx reads text before such a colon as a type.
   A field's comment says what the field controls, with its unit and special values, and the class and rule of its default, as the "Retuning" section of the module docstring defines them, or why a field in no class has its default; where a guide section or a cost model explains its heuristic, the comment points there.
-  A constant's comment says what it controls; the Retuning section says how the sizes of caches were chosen.
+  A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
   Comments, docstrings, and guides in this package give no measurements; those belong in pull request descriptions.
   The comment of a derived value, a gate on an optional step, may state the cost of the step that its heuristic assumes, as a round order of magnitude.
 - Change a default only as the "Retuning" section allows.
