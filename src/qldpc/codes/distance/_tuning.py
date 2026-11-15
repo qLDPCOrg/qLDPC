@@ -128,7 +128,7 @@ class SearchTuning:
     combination of rows of one information set); coefficient layer ``w`` evaluates the supports
     of ``w`` rows of each set (Sections 2.5 and 3.6 of ``brouwer_zimmermann.md``).  Integer fields
     lie between zero and ``MAX_VALUE``, and float fields are finite and non-negative, unless a
-    comment narrows them.  Each comment names the class of its default (see
+    comment narrows them.  Each comment says how its default was chosen (see
     :ref:`Retuning <tuning-retuning>`).
     """
 

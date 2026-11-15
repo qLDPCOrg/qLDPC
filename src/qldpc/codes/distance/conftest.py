@@ -75,7 +75,7 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# of the routes of coset searches (see ``_brouwer_zimmermann/coset_routes.py``):
+# of the routes of coset searches (Section 4.4 of ``brouwer_zimmermann.md``):
 #
 # - EVEN_ROUTES_CODE has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so its rows
 #   are even.  Its greedy packing has ranks three and two, but its columns hold two disjoint
@@ -284,7 +284,7 @@ def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.N
 
 
 # Graph states whose costly queries of Pauli errors take a maximum disjoint family that beats the
-# greedy packing (see ``_brouwer_zimmermann/coset_routes.py``).  By physical weight, the family has
+# greedy packing (Section 4.4 of ``brouwer_zimmermann.md``).  By physical weight, the family has
 # more information sets on the first of ROUTED_PHYSICAL_STATES, and a larger partial set on the
 # second, where it returns other errors for some classes without a light enough error.  By CSS
 # weight, it has a larger partial set on ROUTED_CSS_WEIGHT_STATE.

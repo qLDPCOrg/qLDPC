@@ -89,7 +89,7 @@ class NoDistance(float, enum.ReprEnum):
 
 
 NO_DISTANCE = NoDistance.NAN
-"""The distance returned for an object without one: the only member of :class:`NoDistance`.
+"""The distance returned for an object without one, the only member of :class:`NoDistance`.
 
 It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
 """
