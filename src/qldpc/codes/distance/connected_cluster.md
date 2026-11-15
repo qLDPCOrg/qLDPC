@@ -48,7 +48,7 @@ A code that is CSS only up to local Cliffords, such as those Hadamards, is still
 
 Dense checks make the search slow unless the distance is small.
 Sparse checks do not ensure that it is fast, and no exact method of qLDPC is faster than the others on every code with sparse checks.
-Timings of the distance of one sector, on one machine, with a limit of 60 s, compared the two searches on surface, toric, bivariate bicycle, lifted-product, quantum Tanner, and pair-partition codes.
+Timings of the distance of one sector, on one machine, with a limit of 60 s, compared the connected-cluster and Brouwer-Zimmermann searches on surface, toric, bivariate bicycle, lifted-product, quantum Tanner, and pair-partition codes.
 The connected-cluster search was faster than the Brouwer-Zimmermann search on most of these codes, by up to several hundred times (lower bounds, where the Brouwer-Zimmermann search reached the limit).
 In longer runs, it was more than a thousand times faster on the [[288, 12, 18]] bivariate bicycle code, whose Brouwer-Zimmermann search took several minutes.
 But it took several times as long on the [[170, 8, 20]] pair-partition code, where both searches took minutes.
@@ -163,7 +163,7 @@ So `|T| ≥ 1 + Y - R_v`, and if this exceeds `W - s`, then `v` is in no complet
 Otherwise `v` is **viable**.
 A variable that is not viable is forbidden in the whole subtree of the state, not only for its children.
 A variable outside the unsatisfied checks has a repair of zero, so it is not viable as soon as `1 + Y > W - s`.
-Such a state restricts its subtree to the viable variables of its unsatisfied checks.
+So a state with `1 + Y > W - s` restricts its subtree to the viable variables of its unsatisfied checks.
 A state is pruned if an unsatisfied check has no viable variable, and otherwise it branches on the check with the fewest.
 Forbidding variables for a subtree can raise the weights of its states, since their checks have fewer variables, and on the [[276, 98, 14]] code it removes more than half of the states.
 
@@ -322,7 +322,7 @@ The greedy algorithm for matroids finds one by taking, again and again, the ligh
 But each of its steps would be an exact search for a light word of the span, whose cost grows quickly with the weight of that word.
 So a search takes its candidates from row reductions instead.
 It adds its checks to each other while that makes them lighter.
-Then, in rounds, it row-reduces the given checks with pivots in random orders of the columns, and keeps, by the greedy algorithm for matroids, the lightest independent rows among its checks and the rows of the reduction.
+Then, in rounds, it row-reduces the given checks with pivots in random orders of the columns, and keeps, by the greedy algorithm for matroids, the lightest independent rows among its current checks and the rows of the reduction.
 So the total weight of the checks never rises.
 `get_sparser_rows` in `_connected_cluster/sparse_checks.py` gives the steps, and the fields `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` limit the rounds.
 Checks with the same span give the same answers and bounds, so the random orders change only the speed of the queries and which errors they return.
@@ -336,7 +336,8 @@ On longer codes of higher rate, a round rarely makes a light word one of its row
 On the [[944, 478, 20]] pair-partition code, whose checks weigh 16, it lowers the mean weight from 177 only to about 63.
 
 An exact second stage, which qLDPC does not implement, could lower it further by the greedy algorithm for matroids.
-Each of its steps would be a connected-cluster search for a lightest word of the span outside the span of the words taken so far: a witness, with those words as its excluded rows ([Section 3.1](#31-the-problem)), and with sparse checks from the rounds whose kernel is the span.
+Each of its steps would be a connected-cluster search for a lightest word of the span outside the span of the words taken so far.
+That search would be a witness search ([Section 3.1](#31-the-problem)) whose excluded rows are those words, and whose checks are the sparse checks from the rounds, whose kernel is the span.
 For Pauli errors, the span is the set of the Paulis that commute with every sparse check, since the state is pure.
 For X or Z parts, it is the set of the vectors that satisfy the sparse checks of the other part.
 But the words outside the stabilizer group of the code, such as the logical operators among the generators of `|0⟩`, weigh at least its distance, and so are costly to find.

@@ -132,7 +132,8 @@ Distances across packages
 ``get_distance()`` computes an exact distance, and ``get_distance_bound`` computes a randomized upper bound.
 CSS codes also have separate X and Z distances.
 The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
-The bare distance of a subsystem code is the minimum weight of a nontrivial logical operator that commutes with every gauge operator, and for a binary code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find it.
+The bare distance of a subsystem code is the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
+For a binary code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find it.
 Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_, and nonbinary codes use exhaustive enumeration.
 Binary codes with sparse parity checks can instead use ``method="connected_cluster"``, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_.
 All exact methods can take exponential time.
@@ -249,7 +250,7 @@ Other limitations:
 What qLDPC computes exactly, bounds, and trusts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Exact: ``get_distance_exact``, which ``get_distance`` calls unless it is given ``bound=``, with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
+* Exact: ``get_distance_exact`` with ``cutoff <= 1`` (the default is 1), or whenever its result exceeds the cutoff, and so ``get_distance`` without ``bound=``; logical-operator counts; circuit fault distances from ``get_fault_distance``; and bounded-propagation certificates up to their ``max_weight``, if one is given.
 * Upper bounds: ``get_distance_bound`` with every backend.
 * Estimates: code-capacity and circuit-level logical error rates are sampled.
   A code-capacity estimate treats unsampled heavy errors as failures, so it can be high by up to the amount that its ``truncation_error_bound`` method reports.
