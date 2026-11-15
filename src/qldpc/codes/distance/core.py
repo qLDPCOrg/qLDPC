@@ -41,14 +41,16 @@ DistanceMethod = Literal[
 - ``"brouwer_zimmermann"``, the default of every search, and its alias ``"information_sets"``: the
   Brouwer-Zimmermann algorithm, which enumerates words of increasing weight in several information
   sets, and stops once a lower bound that the sets prove meets the lightest word found.
-- ``"connected_cluster"``: a search of the words whose supports the parity checks of a code connect,
-  which can be fast only for codes with sparse checks.  On quantum LDPC codes it is often much
-  faster than ``"brouwer_zimmermann"``, but sparse checks do not ensure that: it can be much slower
-  on some quantum LDPC codes, and on classical LDPC codes whose checks are only moderately sparse.
-  Functions that take generators rather than checks reject it.  For a subsystem code,
-  :func:`get_distance_css` and :func:`get_distance_pauli` derive its stabilizers from its gauge
-  generators, and search sparser generators of them.  A caller who knows sparser ones can pass them
-  to :func:`get_distance_from_checks`.
+- ``"connected_cluster"``: the connected-cluster algorithm of Dumer, Kovalev, and Pryadko
+  (`arXiv:1611.07164 <https://arxiv.org/abs/1611.07164>`_), with the branch and bound of Okada and
+  Kasai (`arXiv:2607.14091 <https://arxiv.org/abs/2607.14091>`_).  It searches the words whose
+  supports the parity checks of a code connect, which can be fast only for codes with sparse checks.
+  On quantum LDPC codes it is often much faster than ``"brouwer_zimmermann"``, but sparse checks do
+  not ensure that: it can be much slower on some quantum LDPC codes, and on classical LDPC codes
+  whose checks are only moderately sparse.  Functions that take generators rather than checks
+  reject it.  For a subsystem code, :func:`get_distance_css` and :func:`get_distance_pauli` derive
+  its stabilizers from its gauge generators, and search sparser generators of them.  A caller who
+  knows sparser ones can pass them to :func:`get_distance_from_checks`.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.  It is also the
   fastest method for classical codes of low dimension whose distance is a large fraction of their
   length.  On such codes, the time of a ``"brouwer_zimmermann"`` search and the memory of its setup

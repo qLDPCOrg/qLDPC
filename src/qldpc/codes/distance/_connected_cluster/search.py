@@ -5,10 +5,9 @@
 The search finds a nonzero vector ``x`` that satisfies sparse parity checks ``H`` and is outside the
 row space of ``G``, by growing a support only through unsatisfied checks, and pruning with bounds on
 the number of variables that a support still needs.  The vectors are binary, or the symplectic
-vectors of Pauli operators, whose weights count qubits.  It follows Algorithm 2 in Section V of
-Okada and Kasai, https://arxiv.org/abs/2607.14091, which searches CSS codes.  The idea is older:
-searches of the Tanner graphs of classical LDPC codes, and the irreducible-cluster technique of
-Dumer, Kovalev, and Pryadko for classical and quantum LDPC codes, use it too (see the references
+vectors of Pauli operators, whose weights count qubits.  It is the connected-cluster algorithm of
+Dumer, Kovalev, and Pryadko, https://arxiv.org/abs/1611.07164, with the branch and bound of
+Algorithm 2 in Section V of Okada and Kasai, https://arxiv.org/abs/2607.14091 (see the references
 of ``connected_cluster.md``).  The same search, started from a nonzero syndrome rather than from
 a root, finds a light vector with that syndrome, such as a light Pauli error with a given syndrome
 on a stabilizer state.

@@ -7,15 +7,20 @@ The code can be classical, CSS, or a qubit stabilizer code that is not CSS, and 
 It is the method `"connected_cluster"` of the `get_distance_exact` methods of `ClassicalCode`, `QuditCode`, and `CSSCode`.
 Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) is the default.
 The same search also finds light vectors with a given syndrome, such as Pauli errors, which `CosetLeaderSearch` and the certifier of bounded fault propagation can use.
-It follows Algorithm 2 in Section V of Okada and Kasai (see the [references](#references)), which searches CSS codes by excluding the row space of their stabilizers.
-The idea is older: Richter, Rosnes and Ytrehus, and Khatami et al. search the Tanner graphs of classical LDPC codes for small stopping sets and low-weight codewords.
-Dumer, Kovalev, and Pryadko use the sparsity of the checks in the same way, with irreducible clusters, to verify the distances of classical and quantum LDPC codes, and the program `dist-m4ri` implements a connected-cluster search for exact distances.
-The method is named after what it searches, as `"brute_force"` is, rather than after one of these works.
+The search is the connected-cluster algorithm of Dumer, Kovalev, and Pryadko, and later works cite their 2017 paper for it (see the [references](#references)).
+Its earliest known form is the linked-cluster technique of Kovalev, Dumer, and Pryadko (2013), for the distances of quantum LDPC codes.
+Dumer, Kovalev, and Pryadko (2014) then grew each cluster through the checks that it leaves unsatisfied, as qLDPC does.
+qLDPC follows the branch and bound of Okada and Kasai (Algorithm 2 in Section V) and of Lee et al. (Appendix B).
+They branch on the unsatisfied check with the fewest choices, forbid the variables of earlier siblings, prune by lower bounds, and search from one root per orbit of cyclic shifts.
+G. Lee (Appendix C.4) takes the roots from general groups of automorphisms of the Tanner graph, and [Section 3.5](#35-symmetries) says which automorphisms qLDPC uses.
+Related searches of classical LDPC codes look for small stopping sets and low-weight codewords: those of Richter, of Rosnes and Ytrehus, and of Khatami et al.
+The name follows `dist-m4ri`, the program of Pryadko and Zeng, which calls the search the "connected-cluster (CC) algorithm" of Dumer, Kovalev, and Pryadko.
+Webster, Jacob, and Higgott (Section 4.3.2) note that it is "also referred to as the irreducible cluster or linked cluster algorithm".
 This guide explains the search, maps it to the code, and states what a change to it must preserve.
 It is organized as follows:
 
 - [Section 2](#2-what-the-cost-of-the-search-depends-on) says what the cost of the search depends on.
-- [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from the paper.
+- [Section 3](#3-the-algorithm) explains the algorithm, and where qLDPC differs from Okada and Kasai.
   [Section 3.7](#37-qubit-codes-that-are-not-css) extends the algorithm to qubit codes that are not CSS, and [Section 3.8](#38-vectors-with-a-given-syndrome) to vectors with a given syndrome.
   [Section 3.9](#39-sparser-stabilizers-of-subsystem-codes) says how the search of a subsystem code gets sparser checks.
 - [Section 4](#4-guide-to-the-source-code) maps the algorithm to the source code.
@@ -79,7 +84,7 @@ The others are the words of the coset `v + C`, each with a 1 appended.
 
 ### 3.2 Light words are connected
 
-**Lemma** (after Lemma 2 of [Okada and Kasai](#references)).
+**Lemma.**
 Every witness `x` of minimum weight has a support that is connected in the Tanner graph of `H`.
 No restriction of `x` to a proper nonempty subset of its support, which agrees with `x` there and is zero elsewhere, is in `ker(H)`.
 
@@ -93,7 +98,13 @@ Then `y` and `x + y`, the restriction of `x` to the rest of its support, are in 
 They cannot both be in `rowspan(G)`, since their sum is `x`.
 One of them would be a lighter witness, which is a contradiction. ∎
 
-The paper states the lemma for one witness.
+The lemma rests on results of Dumer, Kovalev, and Pryadko (see the [references](#references)), though none of their papers states it in one place for `ker(H)` outside `rowspan(G)`.
+Theorem 1 of their 2013 paper states its first part for the minimum-weight words of a linear code.
+The second part of the lemma says that `x` is irreducible: it is not the sum of two nonzero words of `ker(H)` with disjoint supports.
+Their 2015 paper defines irreducible Pauli operators, and its Lemma 4 writes every undetectable operator as a product of irreducible ones with disjoint supports.
+That paper also builds every irreducible operator outside the stabilizer group by a search through unsatisfied stabilizer generators.
+Lemma 3 of their 2017 paper, which cites the 2015 paper, states that a minimum-weight word of a linear code is irreducible.
+Lemma 2 of Okada and Kasai states both parts for one witness in `ker(H)` outside `rowspan(G)`, with the proof above.
 The proof holds for every witness of minimum weight, which matters for the symmetries of [Section 3.5](#35-symmetries).
 
 ### 3.3 The depth-first search
@@ -130,8 +141,8 @@ Every unsatisfied check needs a variable of its available set, since a witness t
 So the number of further variables is at least the value of any feasible solution of the dual of this hitting-set problem.
 That solution gives each unsatisfied check `c` a weight `y_c ≥ 0`, so that the weights of the unsatisfied checks that contain any available variable total at most one.
 
-- The paper's bound `b1` takes `y_c = 1/Δ`, where `Δ` is the largest number of checks of a variable.
-- The paper's bound `b2` takes `y_c` in `{0, 1}`, for unsatisfied checks whose available sets are pairwise disjoint.
+- The bound `b1` of Okada and Kasai takes `y_c = 1/Δ`, where `Δ` is the largest number of checks of a variable.
+- Their bound `b2` takes `y_c` in `{0, 1}`, for unsatisfied checks whose available sets are pairwise disjoint.
 - qLDPC defines the **overlap** of an available variable as the number of unsatisfied checks that contain it.
   It sets `y_c` to the inverse of the largest overlap `m_c` of the available variables of `c`.
   An available variable with overlap `k` is available to each of its `k` unsatisfied checks, whose `m_c` are at least `k`, so their weights total at most one.
@@ -454,10 +465,15 @@ Changes to the search can use other bounds and orders, while keeping these requi
 
 ## References
 
-- K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes", Section V, [arXiv:2607.14091](https://arxiv.org/abs/2607.14091): the connected-cluster search for the pair-partition codes, with the implementation in [kasaikenta/pair-partition-cpm-css-codes](https://github.com/kasaikenta/pair-partition-cpm-css-codes).
-- J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes", [arXiv:2609.30069](https://arxiv.org/abs/2609.30069): the pair-partition codes, with the instances of [ultra-high-rate-qec/design-principles-data](https://github.com/ultra-high-rate-qec/design-principles-data).
+- I. Dumer, A. A. Kovalev, and L. P. Pryadko, "Distance verification for classical and quantum LDPC codes", IEEE Transactions on Information Theory 63, 4675 (2017), [arXiv:1611.07164](https://arxiv.org/abs/1611.07164): the irreducible-cluster technique, and Lemma 3.
+- A. A. Kovalev, I. Dumer, and L. P. Pryadko, "Linked-cluster technique for finding the distance of a quantum LDPC code", Information Theory and Applications Workshop, 2013, pp. 1–6, [arXiv:1302.1845](https://arxiv.org/abs/1302.1845): the linked-cluster technique, and Theorem 1.
+- I. Dumer, A. A. Kovalev, and L. P. Pryadko, "Numerical techniques for finding the distances of quantum codes", IEEE International Symposium on Information Theory, 2014, pp. 1086–1090, [arXiv:1405.0348](https://arxiv.org/abs/1405.0348): the technique driven by unsatisfied checks.
+- I. Dumer, A. A. Kovalev, and L. P. Pryadko, "Thresholds for correcting errors, erasures, and faulty syndrome measurements in degenerate quantum codes", Physical Review Letters 115, 050502 (2015), [arXiv:1412.6172](https://arxiv.org/abs/1412.6172): irreducible Pauli operators.
+- K. Okada and K. Kasai, "Pair-partition constructions for CPM-based quantum LDPC codes", Section V, [arXiv:2607.14091](https://arxiv.org/abs/2607.14091): the branch and bound, and Lemma 2, with the implementation in [kasaikenta/pair-partition-cpm-css-codes](https://github.com/kasaikenta/pair-partition-cpm-css-codes).
+- J. Y. Lee, K. Okada, N. Maskara, K. Kasai, and H. Zhou, "Design principles for ultra-high-rate quantum codes", [arXiv:2609.30069](https://arxiv.org/abs/2609.30069): the pair-partition codes, with the instances of [ultra-high-rate-qec/design-principles-data](https://github.com/ultra-high-rate-qec/design-principles-data), and the branch and bound in Appendix B.
+- G. Lee, "Bicycle race: small two-block codes on the Pareto frontier", Appendix C.4, [arXiv:2610.13880](https://arxiv.org/abs/2610.13880): roots from the automorphisms of the Tanner graph.
 - G. Richter, "Finding small stopping sets in the Tanner graphs of LDPC codes", 4th International Symposium on Turbo Codes and Related Topics and 6th International ITG-Conference on Source and Channel Coding, 2006, pp. 1–5.
 - E. Rosnes and Ø. Ytrehus, "An efficient algorithm to find all small-size stopping sets of low-density parity-check matrices", IEEE Transactions on Information Theory 55, 4167 (2009).
 - S. M. Khatami, L. Danjean, D. V. Nguyen, and B. Vasić, "An efficient exhaustive low-weight codeword search for structured LDPC codes", Information Theory and Applications Workshop, 2013, pp. 401–410.
-- I. Dumer, A. A. Kovalev, and L. P. Pryadko, "Distance verification for classical and quantum LDPC codes", IEEE Transactions on Information Theory 63, 4675 (2017), [arXiv:1611.07164](https://arxiv.org/abs/1611.07164): the irreducible-cluster technique.
-- [QEC-pages/dist-m4ri](https://github.com/QEC-pages/dist-m4ri): a program whose connected-cluster method computes exact distances of classical codes and of quantum CSS codes.
+- [QEC-pages/dist-m4ri](https://github.com/QEC-pages/dist-m4ri), by L. P. Pryadko and W. Zeng: a program whose connected-cluster (CC) method computes exact distances of classical codes, of quantum CSS codes, and of detector error models.
+- M. Webster, A. Jacob, and O. Higgott, "Distance-finding algorithms for quantum codes and circuits", Section 4.3.2, [arXiv:2603.22532](https://arxiv.org/abs/2603.22532): other names of the algorithm.
