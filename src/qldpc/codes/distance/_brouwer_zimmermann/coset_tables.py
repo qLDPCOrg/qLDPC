@@ -55,9 +55,9 @@ class CosetSearchTables(NamedTuple):
             share a cached search share them.
         x_mask: Selects the bits of a packed embedded word that count as its X part, with one
             machine word for each machine word of the embedded words.  Only searches of Pauli
-            errors by CSS weight use the X part, and their layers scan with it, but every search
-            reads the mask when it weighs the word of a syndrome, and a search of whole words also
-            reads it when it weighs the offsets of layer zero.
+            errors by CSS weight use the X part, and their layers scan with it.  But every search
+            reads the mask when it weighs the word of a syndrome and the offsets of layer zero, or
+            their tails.
     """
 
     inverse: npt.NDArray[np.uint64]
@@ -227,16 +227,18 @@ def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[in
 
     The stopping step is the first step whose bound in the table exceeds the maximum weight: the
     step at which ``stop_num_completed`` sets complete layer ``stop_layer``.  A query stops there,
-    unless it finds a light enough word sooner.  The bounds of the steps do not decrease in their
-    order.  Column zero of each row of bounds holds the bound before the first step of the row,
-    which is zero in row zero.  So the bound of the step before step ``(w, j)`` is entry
-    ``[w, j - 1]``, and for a nonnegative maximum weight, step ``(w, j)`` is the stopping step
-    exactly if its bound exceeds the maximum weight and entry ``[w, j - 1]`` does not.  The step
-    cached in the table (see ``_get_planning``) is reused if it passes this check.  Otherwise,
-    ``certificates.find_stopping_step`` finds the stopping step by binary search, and it is cached
-    in its place.  A negative maximum weight fails the check, and the binary search returns the
-    first step.  If no bound exceeds the maximum weight, which happens only when the maximum weight
-    reaches the largest native integer, the binary search returns the last step.
+    unless it finds a light enough word sooner.
+
+    The bounds of the steps do not decrease in their order.  Column zero of each row of bounds holds
+    the bound before the first step of the row, which is zero in row zero.  So the bound of the step
+    before step ``(w, j)`` is entry ``[w, j - 1]``.  For a nonnegative maximum weight, step
+    ``(w, j)`` is therefore the stopping step exactly if its bound exceeds the maximum weight and
+    entry ``[w, j - 1]`` does not.  The step cached in the table (see ``_get_planning``) is reused
+    if it passes this check.  Otherwise, ``certificates.find_stopping_step`` finds the stopping step
+    by binary search, and it is cached in its place.  A negative maximum weight fails the check, and
+    the binary search returns the first step.  If no bound exceeds the maximum weight, which happens
+    only when the maximum weight reaches the largest native integer, the binary search returns the
+    last step.
 
     Oracles that share a cached search share its planning buffer.  Compiled calls hold the global
     interpreter lock, since numba compiles them without ``nogil``, so calls interleave only when

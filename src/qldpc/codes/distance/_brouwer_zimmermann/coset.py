@@ -85,13 +85,12 @@ class BrouwerZimmermannCosetSearch:
         self._routes = routes
         self._max_css_single_pairs = max_css_single_pairs
         self.css_weight = css_weight
-        # The compiled search weighs embedded words by their CSS weight only in a search of Pauli
-        # errors by CSS weight, and otherwise by their Hamming weight, which is twice the physical
-        # weight of an error, and the weight of an X or Z part (see ``_search_coset``).  The scale
-        # chooses which of these weights a scan computes.  The weight factor of the coset instances
-        # is separate: it is two for every search of Pauli errors, including those by CSS weight,
-        # whose scale is zero, since an error weighs at least half the Hamming weight of its
-        # embedded word (see ``_get_pauli_search``).
+        # The scale chooses the weight that the compiled search computes (see ``_search_coset``):
+        # zero for the CSS weight of a Pauli error, two for its physical weight, which is half the
+        # Hamming weight of its embedded word, and one for the Hamming weight of an X or Z part.
+        # The weight factor of the coset instances is separate.  It is two for every search of Pauli
+        # errors, including those by CSS weight, since an error weighs at least half the Hamming
+        # weight of its embedded word (see ``_get_pauli_search``).
         self.scale = 0 if css_weight and symplectic else 1 if css_weight else 2
         self._num_qubits = num_qubits
         self._symplectic = symplectic
@@ -305,11 +304,10 @@ class _CosetTuning(NamedTuple):
     ``disjoint_random_column_orders`` configures the disjoint information sets of the search.  Only
     a search of Pauli errors by CSS weight reads ``max_css_single_pairs``, for its lookups.  The
     fields from ``coset_route_minimum_work`` to ``overlapping_attempts_per_set`` configure the
-    families with which the search answers costly queries, and ``coset_route_minimum_work`` also
-    chooses its routes by tails, whose queries weigh words by their tails and skip completions by
-    tables, if it weighs Hamming weights (see ``coset_routes``).  The last two fields configure
-    those tables, which the search of Pauli errors by CSS weight does not have.  The search builds
-    the families, tails, and tables after the cache stores it.
+    families with which the search answers costly queries (see ``coset_routes``).  In a search that
+    weighs Hamming weights, ``coset_route_minimum_work`` also chooses the routes by tails, and the
+    last two fields configure their completion tables.  The search of Pauli errors by CSS weight has
+    no such tables.  The search builds the families, tails, and tables after the cache stores it.
     """
 
     disjoint_random_column_orders: int
@@ -542,23 +540,19 @@ def _search_coset(
     """Search the coset of a syndrome for a word of weight at most ``max_weight``.
 
     ``packed_syndrome`` is the syndrome split into 64-bit machine words, with machine word ``j``
-    holding bits ``64 j`` and up.  The search runs on embedded words.  In the Pauli search, the
-    words are Pauli errors, and the embedded word of an error is its packed Pauli when errors are
-    weighed by CSS weight, and its packed Pauli followed by ``x xor z`` when they are weighed by
-    physical weight, so that its Hamming weight is twice the physical weight (see
-    ``symplectic_to_hamming``).  In a classical search, the words are X or Z parts, each is its own
-    embedded word, and its weight is its Hamming weight.  The weight of an embedded word is that of
-    its word: its CSS weight if ``scale`` is zero, with its X part selected by ``x_mask``, and
-    otherwise its Hamming weight divided by ``scale``, which is two for the physical weight and one
-    for X or Z parts.  The tables are those of ``CosetSearchTables``.  Row ``j`` of ``inverse`` is
-    the embedded word of a word whose syndrome has only bit ``j`` set.  ``generators`` and
-    ``pivots`` are the information sets of a family of the embedded generators of the code, with
-    pivots padded with -1.  ``planning`` is the planning buffer of the search with this family,
-    whose cached stopping steps a query may update.  ``tails`` is None, or, on a route by tails
-    (see ``coset_routes``), the fields of the ``CosetTails`` of the family, and then ``scale`` is
-    one or two, since the search weighs words by their Hamming weight.  Numba compiles the search
-    separately for None and for tails, and leaves out the branches that the type of ``tails`` rules
-    out, so choosing between them costs nothing for each word.
+    holding bits ``64 j`` and up.  The arguments from ``inverse`` to ``x_mask`` are the fields of
+    the ``CosetSearchTables`` of a family of information sets of the code, which describes the
+    embedded words on which the search runs.  A query may update the cached stopping steps of
+    ``planning``.  The weight of an embedded word is that of its word.  If ``scale`` is zero, that
+    is the CSS weight of a Pauli error, with its X part selected by ``x_mask``.  Otherwise it is the
+    Hamming weight of the embedded word divided by ``scale``: two for the physical weight of a Pauli
+    error, and one for an X or Z part.
+
+    ``tails`` is None, or, on a route by tails (see ``coset_routes``), the fields of the
+    ``CosetTails`` of the family.  With tails, ``scale`` is one or two, since the search weighs
+    Hamming weights.  Numba compiles the search separately for None and for tails, and leaves out
+    the branches that the type of ``tails`` rules out, so choosing between them costs nothing for
+    each word.
 
     The embedded words of the coset form a coset of the embedded code.  The search starts from the
     sum of the rows of ``inverse`` for the set bits of the syndrome, a word with that syndrome.  The
@@ -642,13 +636,13 @@ def _search_from_syndrome_word(
     A search by tails (see ``_search_coset``) weighs a word by its rows below the rank of its set
     and its tail.  It keeps the set, the layer, and the support of the lightest word, and writes
     that word into ``best`` before it returns.  In each layer of two or more rows of a set with
-    tables, it skips the completions of a prefix whose bound reaches the skip bound: the least bound
-    that proves a word of the coset heavier than ``max_weight``, one more than the greatest Hamming
-    weight at most ``scale * max_weight`` that a word of the coset can have (see
-    ``affine_search.scan_coset_layer_by_tails_with_tables``).  So it finds the same first word of
-    weight at most ``max_weight``, if any.  If it finds none and skipped any word, it bounds the
-    coset by the least weight beyond ``max_weight`` that a word of the coset can have, which bounds
-    the skipped words, the words that it weighed, and the words beyond the stopping step.
+    tables, it skips the completions of a prefix whose bound reaches the skip bound of
+    ``scale * max_weight`` (see ``_get_skip_bound`` and
+    ``affine_search.scan_coset_layer_by_tails_with_tables``).  No skipped word lies within
+    ``max_weight``, so the search finds the same first word of weight at most ``max_weight``, if
+    any.  If it finds none and skipped any word, it bounds the coset by the least weight beyond
+    ``max_weight`` that a word of the coset can have.  That bounds the skipped words, the words that
+    it weighed, and the words beyond the stopping step.
 
     Returns:
         A lower bound on the weight of every word in the coset: zero if the search finds a word of
@@ -862,14 +856,15 @@ def _search_coset_for_min_weight(
     A search by tails visits the same words in the same order, but weighs a word by its rows below
     the rank of its set and its tail, as ``_search_from_syndrome_word`` does.  In each layer of two
     or more rows of a set with tables, it skips the completions of a prefix whose bound reaches the
-    best weight of the scan, which starts at its incumbent: the scan takes the skip bound of
-    ``max_weight``, which is at least the incumbent, as its skip bound (see
-    ``affine_search.scan_coset_layer_by_tails_with_tables``).  Until the search finds a word within
-    ``max_weight``, the incumbent is that skip bound, at which a query by tails skips too.  Then it
-    is the Hamming weight of the best word, or one less where every word of the coset has its
-    parity, so the search skips no word lighter than the best word.  So the search gives the weight
-    of a search of whole words.  For a coset without a word within ``max_weight``, it weighs and
-    skips the words that ``_search_from_syndrome_word`` weighs and skips at ``max_weight``.
+    best weight of the scan, which starts at the incumbent.  The scan also takes the skip bound of
+    ``max_weight`` as its skip bound, but that is at least the incumbent, so the best weight decides
+    (see ``affine_search.scan_coset_layer_by_tails_with_tables``).  Until the search finds a word
+    within ``max_weight``, the incumbent is that skip bound, at which a query by tails skips too.
+    Then it is the Hamming weight of the best word, or one less where every word of the coset has
+    its parity, so the search skips no word lighter than the best word.  So the search gives the
+    weight that a search of whole words gives.  For a coset without a word within ``max_weight``, it
+    weighs and skips the words that ``_search_from_syndrome_word`` weighs and skips at
+    ``max_weight``.
 
     Returns:
         The best weight when the search stops, or ``max_weight + 1`` if it found no word within
