@@ -46,18 +46,12 @@ from . import affine_instance, coset, coset_tables
 
 
 def _classical_syndrome(checks: npt.NDArray[np.uint8], words: npt.NDArray[np.int_]) -> Any:
-    """The packed syndrome of a binary word for binary checks, or of each row of an array of words.
-
-    Bit ``j`` of a syndrome is the parity of the word with row ``j`` of ``checks``.
-    """
+    """The packed syndrome of a binary word, or of each row of an array, for binary checks."""
     return (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
 
 
 def _classical_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
-    """The least Hamming weight of the words with each packed syndrome for binary checks.
-
-    The minima come from all ``2**n`` words of ``n`` bits.
-    """
+    """The least Hamming weight of the words with each packed syndrome for binary checks."""
     num_columns = checks.shape[1]
     words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
     minima = np.full(1 << len(checks), num_columns + 1)
@@ -66,30 +60,13 @@ def _classical_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
 
 
 def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_parity() -> None:
-    """Searches of Pauli errors by CSS weight stop at the bounds of each class, rounded to parity.
-
-    The state is the graph state of a triangle on qubits 2, 5, and 6, with qubit 1 joined to qubit 2
-    and qubits 0, 3, and 4 isolated, after S on each qubit of even degree.  Its stabilizers have
-    even weight as binary words ``(x|z)``, and it is not CSS, so the oracle searches its Pauli
-    errors.  The errors of a syndrome class share the parity of ``|x| + |z|``, which the test reads
-    from every error.  Every query agrees with exhaustive minima.  A search that took the parity of
-    the CSS weight instead would not: for syndrome 57, whose class has minimum two, the word of the
-    syndrome has Hamming weight four but CSS weight three, and the bounds of odd classes stop the
-    search at maximum weight two before it finds an error of weight two.
-
-    Answers alone cannot show whether these searches round, since rounding mainly moves where an odd
-    class stops (see Section 3.2 of ``brouwer_zimmermann.md``).  So the test also finds the stopping
-    step of each query as ``_search_coset`` does, and checks it against the first step whose bound
-    in ``AffineInstance.get_weight_bounds`` for the parity of the class exceeds the maximum weight.
-    ``certificates_test.py`` and ``affine_instance_test.py`` check those bounds against their
-    definition and against brute force.  Some odd classes stop sooner than they would without
-    parity.
-    """
+    """Searches by CSS weight stop at bounds of each class, rounded to the parity of |x| + |z|."""
     generators = ("Y______", "_XZ____", "_ZX__ZZ", "___Y___", "____Y__", "__Z__YZ", "__Z__ZY")
     matrix = get_stabilizer_matrix(generators)
     assert_exact_answers(CosetLeaderSearch(matrix, css_weight=True), matrix, True)
 
-    # Read the parity of each syndrome class from every error, and check that the class shares it.
+    # Read the parity of |x| + |z| in each syndrome class from every error, and check that the
+    # class shares it.
     num_qubits = len(matrix)
     checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
     errors = (np.arange(1 << 2 * num_qubits)[:, None] >> np.arange(2 * num_qubits)) & 1
@@ -98,8 +75,9 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     class_parities[syndromes] = parities
     assert np.array_equal(class_parities[syndromes], parities)
 
-    # Find the stopping step of each query as ``_search_coset`` does.  Steps ``(layer,
-    # num_completed)`` compare as tuples in the order of the search.
+    # Answers alone cannot show rounding, which mainly moves where an odd class stops, so find the
+    # stopping step of each query as ``_search_coset`` does.  Steps compare as tuples in the order
+    # of the search.
     instance = affine_instance.get_coset_instance(matrix, random_column_orders=0, weight_factor=2)
     inverse = _cosets.get_unit_syndrome_words(checks)
     tables = coset_tables.get_search_tables(instance, inverse, num_qubits)
@@ -129,12 +107,7 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
 def test_cached_searches_answer_only_for_their_stabilizer_group(
     pytestconfig: pytest.Config,
 ) -> None:
-    """Oracles built in turn for |000+++>, another generating set of it, and |+++000> are exact.
-
-    The searches of a CSS state are cached by stabilizer group, so the second oracle reuses those of
-    the first.  |+++000> has the same numbers of qubits and of pure-X stabilizers as |000+++>, but a
-    different stabilizer group, so its oracle must not reuse them.
-    """
+    """Oracles built in turn for |000+++>, another generating set of it, and |+++000> are exact."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
@@ -151,26 +124,7 @@ def test_cached_searches_answer_only_for_their_stabilizer_group(
 
 
 def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An oracle builds its searches with the tuning in force, keyed by the fields that they read.
-
-    The searches are cached, keyed by the fields of the tuning that their setup reads.  The test
-    wraps ``basis_families.get_disjoint_family``, which every new search calls, to record the column
-    orders that reach it.  The states are |000+++>, whose two classical searches are cached by
-    stabilizer group, and a two-qubit graph state with phases, which is not CSS, so its search of
-    Pauli errors is cached by stabilizers.  The caches are cleared first, since earlier tests may
-    have filled them.
-
-    Under each number of column orders, the first oracle builds searches of its own with those
-    orders, a second oracle shares them, and both answer exactly.  Then an oracle built after a
-    change of one field of the tuning builds new searches exactly if its searches read that field:
-
-    - only a search of Pauli errors by CSS weight reads ``max_css_single_pairs``;
-    - every other search reads ``coset_completion_block_bits``, since that search alone has no
-      completion tables;
-    - every search reads the threshold of its routes, ``coset_route_minimum_work``; and
-    - no search reads ``overlapping_minimum_work``, which gates the families of distance searches
-      and counts.
-    """
+    """An oracle builds its searches with the tuning in force when it is built."""
     orders: list[int] = []
     get_disjoint_family = basis_families.get_disjoint_family
 
@@ -203,6 +157,7 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             ({"coset_route_minimum_work": 0}, True),
             ({"overlapping_minimum_work": 0}, False),
         ]
+        # Only the fields that a search reads key its cache.
         for change, reads in changes:
             orders.clear()
             with use_tuning(**change):
@@ -213,15 +168,7 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
 def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Costly queries build their families and tables with the tuning of the oracle that answers.
-
-    With the threshold of the gate at zero, the first query that searches builds the other families
-    of the search, and the routes by tails build completion tables (see ``coset_routes``).  The test
-    records the most sets and the attempts per set that reach
-    ``basis_families.get_overlapping_family``, and the width of the blocks and the limit of bytes
-    that reach ``completion_bounds.get_table_bytes_within``.  They are those of the tuning in force
-    when the oracle was built, not when it answers.
-    """
+    """Costly queries build their families and tables with the tuning of the oracle that answers."""
     calls: list[tuple[int, int]] = []
     table_calls: set[tuple[int, int]] = set()
     get_overlapping_family = basis_families.get_overlapping_family
@@ -255,14 +202,7 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
 
 
 def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
-    """An oracle answers as a fresh oracle under the threshold of its gate, whatever is cached.
-
-    Oracles are built for a graph state, whose search of Pauli errors is cached by stabilizers, and
-    for a CSS state whose pure-X stabilizers span a random code, whose two classical searches are
-    cached by stabilizer group.  They are built under the threshold zero, then the largest value,
-    then zero again.  Some answers differ between the thresholds, so an oracle that shared the
-    search of another threshold would answer differently.
-    """
+    """An oracle answers as a fresh oracle with its gate threshold would, whatever is cached."""
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
     css_state = np.block(
         [
@@ -290,16 +230,7 @@ def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
 
 
 def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
-    """Oracles built in turn answer exactly for their own stabilizers and weight.
-
-    The product states with stabilizers ``Y__``, ``_Z_``, ``__X`` and ``X__``, ``_Y_``, ``__Z`` are
-    not CSS, so their oracles search Pauli errors by either weight, and both have three qubits.  The
-    generators ``Y__``, ``YZ_``, ``__X`` of the first state give other syndromes to the same errors.
-    In the first state, ``Z0 X1`` has the syndrome ``0b011`` and CSS weight one, but no error with
-    that syndrome has physical weight below two.  Oracles are built for every state and weight under
-    three tunings of the setup of their searches, and queried only once all are built, so that each
-    answers after every search is cached.
-    """
+    """Oracles built in turn answer exactly for their own stabilizers and weight."""
     states = [
         get_stabilizer_matrix(generators)
         for generators in (("Y__", "_Z_", "__X"), ("Y__", "YZ_", "__X"), ("X__", "_Y_", "__Z"))
@@ -321,16 +252,9 @@ def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> 
 
 
 def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune: Tune) -> None:
-    """Oracles answer for the stabilizers that they were built from, when an array changes later.
-
-    Oracles of a graph state are built from an array, which is then overwritten with another graph
-    state, from which further oracles are built from the same array.  Oracles of the first state
-    built again from a copy of it, and the oracles built before the change, still answer for the
-    first state.  With the threshold of the gate at zero, the searches build their other families
-    at their first queries, after the change (see ``coset_routes``).  The first state has a larger
-    disjoint family by CSS weight, and its search by CSS weight reads its generators from the
-    stabilizers themselves.
-    """
+    """Oracles answer for the stabilizers that they were built from, when an array changes later."""
+    # At the threshold zero, the searches build their other families at their first queries, after
+    # the array changes.
     tune(coset_route_minimum_work=0)
     first, second = ROUTED_CSS_WEIGHT_STATE, ROUTED_PHYSICAL_STATES[1]
     coset._get_pauli_search.cache_clear()
@@ -366,10 +290,9 @@ _SKIPPING_CODE = np.array(
 )
 
 # A longer code with cosets of minimum weight six.  At maximum weight four and the threshold zero,
-# its searches of them for minimum weights skip some completions by tables whose bound reaches the
-# skip bound of that weight, but not the weight of the lightest word that the searches weigh.  The
-# searches by tails of some of its cosets, such as those of syndromes 1126, 4578, and 6129, stop
-# early within steps.
+# its searches of these cosets for minimum weights skip completions whose bound reaches the skip
+# bound but not the weight of the lightest word weighed.  Its searches by tails of some other
+# cosets, such as those of syndromes 1126, 4578, and 6129, stop early within steps.
 _HEAVY_COSETS_CODE = get_binary_matrix(
     [
         "11100011110000110001",
@@ -384,15 +307,12 @@ _HEAVY_COSETS_CODE = get_binary_matrix(
 
 
 def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]) -> None:
-    """Check the classical search of the cosets of a code against the least weight of their words.
+    """Check single queries and batches of a code's classical coset search against brute force.
 
-    Single queries and batches, at maximum weights from below zero to past the number of columns,
-    agree with the least weight of the words of each syndrome.  From maximum weight two, they also
-    agree with each other.  A coset without a word of weight at most the maximum weight gets a lower
-    bound of at least the least weight above the maximum weight that a word of the coset can have.
-    That weight has the parity of the coset's least weight if every row of ``generators`` has even
-    weight.  Below maximum weight two, a single query of a coset without a word of weight at most
-    one gets exactly that weight for maximum weight one, which it finds without a search.
+    A coset without a word within the maximum weight must get a bound of at least the least weight
+    above the maximum weight that a word of the coset can have.  Below maximum weight two, a single
+    query must give a coset without a word of weight at most one exactly the least weight above one
+    that a word of the coset can have, and from two on, single queries and batches must agree.
     """
     num_columns = generators.shape[1]
     checks = get_kernel(generators)
@@ -426,8 +346,8 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
                 assert bound.lower_bound == get_least_bound(syndrome, 1)
             bounds[syndrome] = bound
 
-        # Find each syndrome whose minimum exceeds the maximum weight with batches, each of which
-        # starts after the last syndrome found.
+        # With batches that each start after the last syndrome found, find each syndrome whose
+        # minimum exceeds the maximum weight.
         found, start = [], 0
         while True:
             index, batch_bound = search.find_first_not_within_max_weight(
@@ -450,33 +370,12 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
 
 
 def test_cosets_of_a_rank_deficient_code_match_brute_force() -> None:
-    """The coset searches of a rank-deficient code match the minima of all words.
-
-    The code has disjoint information sets of ranks five and four, so its searches skip the second
-    set while it adds nothing to the bounds of their stopping steps.  Syndrome 19 has a word of
-    weight two that the first set reaches only above layer one.  At maximum weight two, the stopping
-    step is the one at which the second set completes layer one, which overcomes its deficiency of
-    one, so the search visits that set.  It finds the word in layer zero of that set, its offset.
-    Single queries and batches agree with the least weight of the words of each syndrome (see
-    ``_assert_classical_cosets_match_brute_force``).  Below two, a single query of a coset without a
-    word of weight at most one returns a bound of two without searching.
-    """
+    """The coset searches of a rank-deficient code match the minima of all words."""
     _assert_classical_cosets_match_brute_force(RANK_DEFICIENT_CODE)
 
 
 def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
-    """Coset searches of an even code give each coset with no light word a bound of its parity.
-
-    The code is ``RANK_DEFICIENT_CODE`` with a last column that holds the parity of each row, so
-    every word of the code has even weight, and the weights of the words of each coset share a
-    parity.  A coset without words of weight at most ``m`` then has no word of weight ``m + 1`` if
-    that integer has the other parity, so its lower bound is at least the least integer above ``m``
-    of its parity (see ``_assert_classical_cosets_match_brute_force``).  The bounds of the searches,
-    which round up to the parity of each coset, reach it.  So does the bound three of an odd coset
-    of least weight three in a single query below maximum weight two, which does not search.  Bounds
-    without parity would fall short of both.  The cosets have both parities, and least weights up to
-    four.
-    """
+    """Searches of an even code give each coset with no light enough word a bound of its parity."""
     parities = (RANK_DEFICIENT_CODE.sum(axis=1, keepdims=True) % 2).astype(np.uint8)
     _assert_classical_cosets_match_brute_force(np.hstack([RANK_DEFICIENT_CODE, parities]))
 
@@ -487,30 +386,13 @@ def test_cosets_of_an_even_code_have_bounds_of_their_parity() -> None:
 def test_cosets_match_brute_force_with_other_families(
     code: npt.NDArray[np.uint8], tune: Tune
 ) -> None:
-    """Searches of X or Z parts answer exactly when costly queries take other families.
-
-    With the threshold of the gate at zero, queries that the disjoint family would answer with more
-    work take another family (see ``coset_routes``).  The even code takes a disjoint family with
-    two information sets, for cosets of both parities.  The random code takes a disjoint family with
-    a larger partial set, and a family of overlapping information sets.  Single queries and
-    batches, at maximum weights from below zero to past the number of columns, and so just below
-    and at the least weight of each coset, agree with the least weight of the words of each coset
-    (see ``_assert_classical_cosets_match_brute_force``).  At the threshold zero, the queries also
-    run the searches by tails.
-    """
+    """Searches of X or Z parts stay exact when costly queries take other families."""
     tune(coset_route_minimum_work=0)
     _assert_classical_cosets_match_brute_force(code)
 
 
 def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, tune: Tune) -> None:
-    """The answers of a search depend only on its code, the syndrome, and the maximum weight.
-
-    With the threshold of the gate at zero, fresh searches of the cosets of a random code answer
-    every query in increasing, decreasing, and random order of the maximum weight.  Each order
-    reaches the threshold at a different query, but the overlapping family of the code, which
-    depends on the weight at which it is built, and so the answers, are the same.  With the largest
-    threshold, some answers differ, so the other families answer some of the queries.
-    """
+    """The answers of a search depend only on its code, the syndrome, and the maximum weight."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
 
@@ -537,19 +419,7 @@ def test_answers_do_not_depend_on_earlier_queries(pytestconfig: pytest.Config, t
 
 
 def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pytest.Config) -> None:
-    """A search skips exactly the sets that add nothing to the bound of its stopping step.
-
-    A set of rank ``r`` in a code of dimension ``k`` adds to the bound of a step only once it has
-    completed layer ``k - r`` (see ``certificates.get_step_lower_bounds``).  A search that stops at
-    step ``(w, j)`` completes layer ``w`` on the first ``j`` sets and layer ``w - 1`` on the others,
-    so it visits a set only if that layer is at least ``k - r``.  The sets are the disjoint
-    information sets of random codes, whose last one is often rank deficient, and a set of rank zero
-    with every row of the code.  Every answer is exact.  A search whose answer is no weighs every
-    word of the layers of the sets that it visits, and the test checks that number exactly, to guard
-    the documented rule for skipping sets.  So a change that prunes the coset scan further must
-    update the test.  The work of the plan of the steps of the search, from layer zero and without
-    the sets that it skips (see ``certificates.plan_steps``), predicts this number.
-    """
+    """A search skips exactly the sets that add nothing to the bound of its stopping step."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(12):
         num_columns = int(rng.integers(2, 9))
@@ -605,6 +475,8 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             assert (lower_bound <= max_weight) == (minima[syndrome] <= max_weight)
             if lower_bound > max_weight:
                 assert lower_bound <= minima[syndrome]
+                # A search whose answer is no weighs every word of the layers of the sets that it
+                # visits, and checking that number exactly guards the rule for skipping sets.
                 last_layers = [
                     stop_layer if index < stop_num_completed else stop_layer - 1
                     for index in range(num_sets)
@@ -635,26 +507,11 @@ def _assert_searches_by_tails_match_searches_of_words(
 ) -> int:
     """Check searches by tails against searches of whole words, without or with completion tables.
 
-    The family holds a set of the embedded generators reduced on each block of consecutive columns,
-    whose sizes cycle through ``block_sizes``, and a set of rank zero with every generator.  The
-    blocks are disjoint, so the certificate of the ranks of the sets bounds the words of each coset.
-    Every column counts as the X part.  If ``minima`` is given, the search of whole words decides as
-    the minimum of each coset in it, and its lower bound is at most that minimum.
-
-    Without ``block_bits``, for each syndrome and maximum weight, the two searches from the word of
-    the syndrome give the same lower bound, word, and number of words weighed.  For each maximum
-    weight, the two batch loops find the same syndromes, in turn, with the same bounds and words.
-
-    With ``block_bits``, every set of at least two rows has completion tables on blocks of that many
-    columns.  The searches by tails then decide as the searches of whole words, and give the same
-    word to a coset with a word within the maximum weight.  To another coset, they give the same
-    lower bound if they skipped no word.  Otherwise, they give the least weight beyond the maximum
-    weight that a word of the coset can have, and a word of at least that weight.  This least weight
-    is one more than the maximum weight, or two more if the generators are even and the words of the
-    coset have the parity of the maximum weight.  They weigh the words that the search of whole
-    words weighs, except those that they skip, which ``_count_skipped_supports`` counts.  The batch
-    loops with tables find the same syndromes, with the bounds and words of single queries with
-    tables.
+    The family reduces the embedded generators on consecutive blocks, whose sizes cycle through
+    ``block_sizes``, and adds a set of rank zero.  Without ``block_bits``, both searches give the
+    same bounds, words, and counts.  With tables on blocks of ``block_bits`` columns, they differ
+    only as Section 3.9 of ``brouwer_zimmermann.md`` ("Coset searches") allows.  If ``minima`` is
+    given, the searches also decide as these least weights of the cosets.
 
     Returns:
         The number of supports that the searches by tails skipped.
@@ -755,8 +612,9 @@ def _assert_searches_by_tails_match_searches_of_words(
                     least_beyond += 1
                 assert answer_by_tails[0] == (least_beyond if skipped else answer[0])
                 assert int(np.bitwise_count(words[1]).sum()) >= scale * answer_by_tails[0]
-                # The skip bound is one more than the greatest Hamming weight at most
-                # ``scale * max_weight`` that a word of the coset can have.
+                # The skip bound ``h(ω)`` of Section 3.9 of ``brouwer_zimmermann.md``: one more than
+                # the greatest Hamming weight at most ``scale * max_weight`` that a word of the
+                # coset can have.
                 skip_bound = scale * max_weight + 1
                 if even and (skip_bound - coset_parity) % 2 == 0:
                     skip_bound -= 1
@@ -768,7 +626,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                     >= num_rows - np.sum(set_pivots >= 0)
                 )
 
-        # Find each syndrome without a light enough word with both batch loops, in turn.
+        # With both batch loops, find in turn each syndrome without a light enough word.
         start = 0
         while True:
             words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
@@ -802,13 +660,9 @@ def _count_skipped_supports(
 ) -> int:
     """Count the supports that tables skip in the layers from two to ``last_layer`` of a set.
 
-    ``rows`` are the rows of the set, ``pivots`` their pivot columns, padded with -1 beyond the
-    rank, and ``word`` the word of a syndrome, which the rows of its pivot ones reduce to the
-    offset.  A support of a layer is skipped if the pivot ones of the rows of its prefix below the
-    rank, the fewest pivot ones of a pair of rows from its row ``s`` on, and the least weight of the
-    tail of such a completion on each block of columns add up to at least ``skip_bound``.  The tails
-    hold the columns other than the pivots, and the blocks cover them up to the last on which a row
-    has a one.  A set whose tails have no ones has no tables, and skips nothing.
+    ``word`` is the word of a syndrome.  The bound of a support follows Section 3.9 of
+    ``brouwer_zimmermann.md`` ("Coset searches"), on blocks that cover the tails up to their last
+    column with a one.
     """
     rank = int(np.sum(pivots >= 0))
     offset = (word + rows[[row for row in range(rank) if word[pivots[row]]]].sum(axis=0)) % 2
@@ -839,33 +693,7 @@ def _count_skipped_supports(
 def test_searches_by_tails_answer_as_searches_of_whole_words(
     block_bits: int | None, pytestconfig: pytest.Config
 ) -> None:
-    """Coset searches by tails decide as searches of whole words, and match them without tables.
-
-    The searches by tails weigh a word by its rows below the rank of its set and its tail, which
-    holds every column but the pivot columns of the set.  Without completion tables, they visit the
-    same words, and keep the same lightest word, as the searches of whole words (see
-    ``_assert_searches_by_tails_match_searches_of_words``).  With tables on blocks of four columns,
-    they skip words beyond the maximum weight, which changes only the answers to cosets without a
-    word within it.
-
-    The family of each code, except the graph state with tables, reduces its generators on blocks of
-    as many columns as they have rows, alternating with blocks of one column fewer, whose sets are
-    rank deficient.  So the tails of the sets differ in their numbers of columns.  The codes are:
-
-    - Small random codes, each with a column of zeros, which a coset can still have ones on.  With
-      tables, each is also made even by a column of the parities of its rows, so that the searches
-      round their bounds to the parity of each coset.
-    - With tables, a rank-deficient code made even in the same way.
-    - A wide code that begins with an information set, whose tails fit in one machine word, while
-      the tails of its rank-deficient sets take two.
-    - The words of the Pauli errors of a graph state that is not CSS, weighed by their physical
-      weight.  With tables, its family has sets of ranks two and one.
-
-    The searches of every syndrome of the codes other than the wide code, at every maximum weight up
-    to past their length, agree with the minima of the cosets.  Only a sample of the syndromes of
-    the wide code is searched.  With tables, the searches of the even rank-deficient code, the wide
-    code, and the graph state skip words, but those of the small random codes need not.
-    """
+    """Coset searches by tails decide as searches of whole words, and match them without tables."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The arguments of each check, and whether its searches with tables must skip words.
     searches: list[tuple[tuple[Any, ...], bool]] = []
@@ -952,13 +780,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
 def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Single queries and batches of routes by tails weigh words by the tails of their record.
-
-    At the threshold zero, every route of the classical search of the repetition code of length
-    seven is by tails.  A record whose tails are all zero makes every offset weigh nothing, so the
-    queries at maximum weight two find a light enough word in every coset, even in the cosets whose
-    words weigh at least three, which a search of whole words would reject.
-    """
+    """Single queries and batches of routes by tails weigh words by the tails of their record."""
     get_coset_tails = coset_tables.get_coset_tails
 
     def get_zero_tails(*args: Any, **kwargs: Any) -> coset_tables.CosetTails:
@@ -987,15 +809,7 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
 def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Single queries and batches of routes by tails skip completions by the tables of their record.
-
-    At the threshold zero, every route of the classical search of a random code is by tails.  A
-    record whose tables give every completion the bound 255 makes each query skip every completion
-    in its layers of two or more rows.  At maximum weight three, some coset then gets no word within
-    that weight, although it has one.  The searches skipped words, so single queries and batches
-    bound such cosets by four.  The code is not even, so four is the least weight beyond the maximum
-    weight that a word of such a coset can have.
-    """
+    """Queries of routes by tails skip completions by the tables of their record."""
     get_coset_tails = coset_tables.get_coset_tails
 
     def get_skipping_tails(*args: Any, **kwargs: Any) -> coset_tables.CosetTails:
@@ -1026,12 +840,7 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
 def _coset_minima(
     generators: npt.NDArray[np.uint8], checks: npt.NDArray[np.uint8], syndromes: Sequence[int]
 ) -> npt.NDArray[np.int_]:
-    """The least weight of the words of the coset of each syndrome, from every word of the coset.
-
-    A word with the syndrome sums words with unit syndromes, from
-    ``_cosets.get_unit_syndrome_words``, so the helper checks the syndromes of these words.  The
-    coset adds to such a word every word of the code of ``generators``.
-    """
+    """The least weight of the words of the coset of each syndrome, from every word of the coset."""
     code = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators % 2
     bits = (np.array(syndromes)[:, None] >> np.arange(len(checks))) & 1
     words = bits @ _cosets.get_unit_syndrome_words(checks) % 2
@@ -1048,11 +857,10 @@ def _assert_min_weights_match_brute_force(
 ) -> None:
     """Check the minimum weights that a search finds for cosets against their least weights.
 
-    One batch holds the syndromes, in random order, and ``minima`` holds the least weight of the
-    coset of each.  At each maximum weight from zero to one past the largest least weight, the
-    floors of the batch are zero, then random up to the maximum weight, and then that weight.  A
-    coset whose least weight is at most its floor gets a weight from its least weight to its floor.
-    Any other coset gets its least weight, or one more than the maximum weight if that is smaller.
+    One batch holds the syndromes, in random order.  At each maximum weight, the floors of the batch
+    are zero, then random, then the maximum weight.  A coset whose least weight is at most its floor
+    may get any weight from its least weight to its floor.  Any other coset gets its least weight,
+    or one more than the maximum weight if that is smaller.
     """
     order = rng.permutation(len(syndromes))
     packed_syndromes = split_syndromes_into_words(
@@ -1080,19 +888,7 @@ def _assert_min_weights_match_brute_force(
 def test_min_weights_of_cosets_match_brute_force(
     tuning: dict[str, int], pytestconfig: pytest.Config, tune: Tune
 ) -> None:
-    """Searches for the minimum weights of cosets agree with the least weights of their words.
-
-    The codes are the rank-deficient code, a code whose searches skip words by tables, and a random
-    code, each also made even by a column of the parities of its rows.  The searches of the even
-    codes round to the parity of each coset, and their incumbents are one below the Hamming weight
-    of their best words.  The cosets have both parities.  Three cosets of a longer code are
-    searched too.  Their searches by tails stop early within steps.  The searches take the disjoint
-    family of each code, and at the threshold zero other families by tails, with completion tables
-    and without them (see ``_assert_min_weights_match_brute_force``).  The least weights come from
-    every word of each coset.  The Pauli errors of a graph state that is not CSS are searched by
-    CSS weight too, with the disjoint family and at the threshold zero, and their least weights come
-    from every Pauli.  These searches never weigh words by tails, so they have no completion tables.
-    """
+    """Searches for the minimum weights of cosets agree with the least weights of their words."""
     tune(**tuning)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
@@ -1125,17 +921,7 @@ def test_min_weights_of_cosets_match_brute_force(
 def test_min_weight_searches_above_max_weight_examine_as_queries(
     tuning: dict[str, int], tune: Tune
 ) -> None:
-    """A search for the minimum weight of a coset without a word within a weight works as a query.
-
-    Until it finds a word within ``max_weight``, the search keeps the skip bound of ``max_weight``
-    as its incumbent, at which a query at ``max_weight`` skips completions too.  It stops at the
-    stopping step of that query, so it weighs and skips the same words.  A code and its even version
-    are searched at every syndrome, a longer code at three syndromes of minimum weight six, and the
-    Pauli errors of a graph state by physical weight at every syndrome.  They are searched by whole
-    words, and at the threshold zero by tails, with tables, which skip words of each of the three
-    codes but need not skip any of the graph state.  The minimum weights come from every word of
-    each coset.
-    """
+    """A search for a minimum weight above ``max_weight`` weighs and skips as a query does."""
     tune(**tuning)
     tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     cases = []
@@ -1197,11 +983,7 @@ def test_min_weight_searches_above_max_weight_examine_as_queries(
 
 
 def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
-    """A table of products of X and Z errors keeps the first product of each syndrome.
-
-    Three entries of X errors and two of Z errors, each counting the identity, make six pairs, which
-    fit a limit of six but not of five.
-    """
+    """A table of products of X and Z errors keeps the first product of each syndrome."""
     x_singles = {0: 0, 0b01: 0b0001, 0b11: 0b0010}
     z_singles = {0: 0, 0b10: 0b0100}
     table = coset._tabulate_css_singles(x_singles, z_singles, 6)

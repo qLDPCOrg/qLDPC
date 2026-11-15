@@ -28,17 +28,13 @@ _DEFICIENT_ROUTES_CODE = np.hstack(
     [np.eye(5, dtype=np.uint8), np.array([[1, 1], [1, 0], [0, 1], [1, 1], [1, 0]], dtype=np.uint8)]
 )
 
-# A code of two rows, whose only layer of two rows is its last, so its sets need tables only at
-# maximum weights whose queries reach it.
+# A code of two rows, so that its only layer of two rows is the last, and its sets need tables only
+# at the maximum weights whose queries reach that layer.
 _TWO_ROWS_CODE = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
 
 
 class _TailsBuild(NamedTuple):
-    """A call of ``coset_tables.get_coset_tails`` that builds the record of the tails of a family.
-
-    It holds the coset instance of the family, the sets of the family that need completion tables,
-    the record of the family that the call was given, and the record that it returned.
-    """
+    """A call of ``coset_tables.get_coset_tails``: the record that it was given, and its result."""
 
     instance: affine_instance.AffineInstance
     sets: list[int]
@@ -51,11 +47,8 @@ def _build_routes(
 ) -> coset_routes.CosetRoutes:
     """The routes of the cosets of a code, from its greedy packing in natural column order.
 
-    Their tables hold the words with unit syndromes for the checks of the code, and every column
-    counts as the X part.  So the planning buffers of an even code have a table of the bounds of the
-    steps for each parity of its cosets, and those of other codes one table (see
-    ``coset_tables.get_search_tables``).  The routes include routes by tails if ``by_tails`` is
-    True, with completion tables under the default tuning.
+    Every column counts as the X part.  If ``by_tails``, the routes include routes by tails, with
+    the completion tables of the default tuning.
     """
     return coset_routes.CosetRoutes(
         code,
@@ -96,12 +89,12 @@ def _spy_on_tails(monkeypatch: pytest.MonkeyPatch) -> list[_TailsBuild]:
 
 
 def _get_ranks(tables: coset_tables.CosetSearchTables) -> npt.NDArray[np.int64]:
-    """The ranks of the sets of a family: their numbers of pivots, which are padded with -1."""
+    """The ranks of the sets of a family: their numbers of pivots that are not padding."""
     return np.count_nonzero(tables.pivots >= 0, axis=1)
 
 
 def _get_works(tables: coset_tables.CosetSearchTables, max_weight: int) -> list[int]:
-    """The work of the plan of the steps of each table, without the sets that a query skips."""
+    """For each table, the work of its planned steps, without the sets that a query skips."""
     dimension = len(tables.planning[0]) - 2
     binomials = certificates.get_capped_binomials(dimension)
     ranks = _get_ranks(tables)
@@ -124,16 +117,7 @@ def _get_examinations(tables: coset_tables.CosetSearchTables, max_weight: int) -
 def test_the_gate_takes_other_families_from_its_threshold(
     code: npt.NDArray[np.uint8], max_weight: int
 ) -> None:
-    """Queries take another family only once their predicted examinations reach the threshold.
-
-    The predicted examinations of a query are the largest work of the disjoint family at its maximum
-    weight over the tables of the search, one for each parity of the cosets of the even code, plus
-    one for the word of a syndrome.  The work of a table leaves out the sets that a query skips,
-    such as the partial set of the overlapping code at maximum weight two.  At the maximum weight of
-    each case, a query does less work with another family.  It takes that family under a threshold
-    at its predicted examinations, but not under a threshold just above them.  Every lighter query,
-    which does less work, keeps the disjoint family.
-    """
+    """Queries take another family only once their predicted examinations reach the threshold."""
     disjoint_tables = _build_routes(code, 0).disjoint_tables
     assert len(disjoint_tables.planning) == (2 if code is EVEN_ROUTES_CODE else 1)
     examinations = _get_examinations(disjoint_tables, max_weight)
@@ -150,24 +134,15 @@ def test_the_gate_takes_other_families_from_its_threshold(
     "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
 )
 def test_routes_take_the_family_of_least_work(code: npt.NDArray[np.uint8]) -> None:
-    """With the threshold at zero, each query takes the family of least work, the earliest on ties.
-
-    With the threshold at zero, the routes build the other families at maximum weight two, so the
-    test builds them there too, with ``_get_candidates``.  The work of a family sums the work of its
-    tables.  At each maximum weight, the route is the family of least work among the disjoint family
-    and the others, and the first of the disjoint, the maximum disjoint, and the overlapping family
-    among those of equal work.  The tables of a route show its family by their generators and
-    pivots.  ``_get_candidates`` returns the maximum disjoint family before the overlapping one, so
-    the coverages of the families never decrease.  The two-families code builds both other families,
-    and queries take each of them, and the disjoint family, at some maximum weights.  The even code
-    has a table for each parity of its cosets.
-    """
+    """At the threshold zero, each query takes the family of least work, the earliest on ties."""
+    # At the threshold zero, the routes build the other families at maximum weight two.
     routes = _build_routes(code, 0)
     families = [(_get_disjoint_instance(code), routes.disjoint_tables), *routes._get_candidates(2)]
     coverages = [instance.certificate.max_coverage for instance, _ in families]
     assert coverages == sorted(coverages)
     taken = set()
     for max_weight in range(-1, code.shape[1] + 2):
+        # On ties, the route is the first of the disjoint, maximum disjoint, and overlapping ones.
         works = [sum(_get_works(tables, max_weight)) for _, tables in families]
         index = works.index(min(works))
         tables, _ = routes.get_route(max_weight)
@@ -184,19 +159,7 @@ def test_routes_take_the_family_of_least_work(code: npt.NDArray[np.uint8]) -> No
 def test_routes_by_tails_reach_the_threshold_with_their_own_family(
     code: npt.NDArray[np.uint8], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A route is by tails exactly if its predicted examinations reach the threshold.
-
-    The predicted examinations of a route are one more than the largest work of a table of its
-    family.  Under thresholds at and just above the predicted examinations of each route at the
-    threshold zero, the route of each maximum weight gives the record of the tails of its family
-    exactly when they reach the threshold.  The routes build the record from the coset instance of
-    the family, with ``coset_tables.get_coset_tails``, whose calls the test records.  They build it
-    once for each family, and pass it to later builds for the family, which add completion tables.
-    Once the routes of every maximum weight are chosen, every route by tails of a family gives the
-    latest record of the family, so that no route keeps the tables of an earlier one.  Routes built
-    with ``by_tails`` False give no records.  The two-families code has routes by tails on both of
-    its other families, so each family must get its own record.
-    """
+    """A route is by tails exactly if its predicted examinations reach the threshold."""
     examinations = {
         _get_examinations(_build_routes(code, 0).get_route(max_weight)[0], max_weight)
         for max_weight in range(-1, code.shape[1] + 2)
@@ -217,7 +180,7 @@ def test_routes_by_tails_reach_the_threshold_with_their_own_family(
             assert plain_routes.get_route(max_weight)[1] is None
             kinds.add(by_tails)
 
-        # Each build gets the latest record of its family, which every route by tails gives.
+        # Each build gets the latest record of its family, and every route by tails gives it.
         latest: dict[int, coset_tables.CosetTails] = {}
         for build in builds:
             assert build.given is latest.get(id(build.instance))
@@ -241,17 +204,7 @@ def test_routes_by_tails_reach_the_threshold_with_their_own_family(
 def test_routes_by_tails_ask_for_the_tables_of_the_sets_that_queries_scan_with_two_rows(
     code: npt.NDArray[np.uint8], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A route by tails asks for tables of the sets that queries scan in layers of two or more rows.
-
-    A query stops at the first step whose bound in its table exceeds its maximum weight, found here
-    by walking the steps in order, or at the last step.  Each set has then completed its last layer,
-    and the query skips the sets whose rank deficiency exceeds that layer.  At the threshold zero,
-    every route of a query that searches is by tails, and asks ``coset_tables.get_coset_tails`` for
-    the tables of the sets that a query of some parity scans in a layer of at least two rows.  The
-    even code has a table for each parity.  Some queries of the deficient code skip its partial set
-    of rank deficiency three after it has completed layer two.  The sets of the code of two rows
-    need tables only at the maximum weights whose queries scan its last layer.
-    """
+    """Routes by tails ask for tables of the sets that queries scan beyond layer one."""
     builds = _spy_on_tails(monkeypatch)
     num_rows = len(code)
     routes = _build_routes(code, 0, by_tails=True)
@@ -272,16 +225,7 @@ def test_routes_by_tails_ask_for_the_tables_of_the_sets_that_queries_scan_with_t
 
 
 def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Threads that choose routes at once take turns, so each record holds the tables of its routes.
-
-    At the threshold zero, every route of the even code is by tails, and the routes of maximum
-    weights -1 to 8 share two families, whose records gain the tables of each route.  A thread for
-    each maximum weight chooses its route, and the threads start at once and switch often.  The test
-    wraps ``coset_tables.get_coset_tails`` to sleep before it builds, so that builds that ran at
-    once would overlap, and to keep the record that each build of a family returns.  No two builds
-    overlap, each build of a family is given the record that the previous build of the family
-    returned, and every route gives the latest record of its family.
-    """
+    """Threads that choose routes take turns, so each record holds the tables of its routes."""
     max_weights = range(-1, 9)
     counter_lock = threading.Lock()
     building = 0
@@ -310,6 +254,7 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
             building -= 1
         return built
 
+    # Builds sleep, so that unguarded concurrent builds would overlap.
     monkeypatch.setattr(coset_tables, "get_coset_tails", build_slowly)
     routes = _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True)
     barrier = threading.Barrier(len(max_weights))
@@ -321,7 +266,7 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
         return routes.get_route(max_weight)
 
     switch_interval = sys.getswitchinterval()
-    sys.setswitchinterval(1e-6)  # switch threads often, so that an unguarded race is likely
+    sys.setswitchinterval(1e-6)  # Switch threads often, so that an unguarded race is likely.
     try:
         with concurrent.futures.ThreadPoolExecutor(len(max_weights)) as executor:
             list(executor.map(get_route, max_weights))
@@ -340,11 +285,7 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_routes_pickle() -> None:
-    """Routes pickle, since they hold no lock of their own, and the copy gives the same routes.
-
-    At the threshold zero, the routes of the even code at maximum weights four and five are by
-    tails.  The route of four is chosen before the routes are pickled, and that of five after.
-    """
+    """Routes pickle, and the copy gives the same routes."""
     routes = _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True)
     assert routes.get_route(4)[1] is not None
     copy = pickle.loads(pickle.dumps(routes))  # noqa: S301 - trusted in-memory round trip

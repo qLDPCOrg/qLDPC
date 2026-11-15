@@ -18,16 +18,7 @@ from . import affine_instance
 
 
 def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config) -> None:
-    """Every word of a coset that a step leaves unvisited weighs at least the bound of that step.
-
-    The codes are random, so some of their disjoint information sets are rank deficient, and the
-    words of each coset are enumerated through every set (see ``_get_unvisited_minima``).  The
-    instances hold the disjoint information sets, or random information sets, which may overlap, and
-    whose certificate divides by their coverage.  A word weighs at least its Hamming weight divided
-    by the weight factor, which is one or two.  About half of the codes get a last column with the
-    parity of each row, which makes them even, and the bounds of the cosets of even codes are
-    rounded to the parity of each coset.
-    """
+    """Every word of a coset that a step leaves unvisited weighs at least the bound of that step."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for _ in range(40):
         num_rows = int(rng.integers(1, 6))
@@ -64,16 +55,7 @@ def test_coset_bounds_hold_for_every_unvisited_word(pytestconfig: pytest.Config)
 
 
 def test_coset_bounds_round_up_to_the_parity_of_each_coset() -> None:
-    """The bounds of the cosets of an even code round up to the parity of each coset, not to even.
-
-    The code is spanned by ``110000``, ``001100``, and ``000011``, so the words of the code itself
-    have even weight, and those of the coset of ``100000`` odd weight.  The bound of each step
-    equals the least weight of the words of the coset that it leaves unvisited.  Once the first set
-    of pivots ``0, 2, 4`` has completed layer one and the other set layer zero, the bound without
-    parity would be three.  The least weight of the unvisited words is four in the code and three
-    in the coset of ``100000``.  A bound rounded to the even divisor of the code would be four for
-    both.  The entry before the first step is not the bound of a step, and is left out.
-    """
+    """The bounds of the cosets of an even code round up to the parity of each coset."""
     generators = np.kron(np.eye(3), np.ones((1, 2))).astype(np.uint8)
     instance = affine_instance.get_coset_instance(
         generators, random_column_orders=0, weight_factor=1
@@ -81,6 +63,9 @@ def test_coset_bounds_round_up_to_the_parity_of_each_coset() -> None:
     for parity, offset in enumerate(([0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0])):
         bounds = instance.get_weight_bounds(parity)
         minima = _get_unvisited_minima(instance, generators, np.array(offset, dtype=np.uint8))
+        # Once the first set has completed layer one, step (1, 1), the coset of ``100000`` has
+        # unvisited words of weight three, where rounding to the even divisor of the code would give
+        # four.  The check leaves out entry (0, 0), before the first step.
         assert minima[1, 1] == 4 - parity
         assert all(bounds[step] == minimum for step, minimum in minima.items() if step != (0, 0))
 
@@ -162,10 +147,9 @@ def _get_unvisited_minima(
 ) -> dict[tuple[int, int], int]:
     """The least Hamming weight of the words of a coset that each step leaves unvisited.
 
-    Each set reduces ``offset`` on its pivots to its own offset, and a word of the coset is in layer
-    ``w`` of the set if it adds ``w`` of the set's rows to that offset.  After step ``(w, j)``, a
-    word is unvisited if each of the first ``j`` sets has it in a layer above ``w``, and each other
-    set in a layer above ``w - 1``.  Steps that leave no word unvisited are omitted.
+    After step ``(w, j)``, a word is unvisited if the first ``j`` sets have it in layers above
+    ``w``, and the other sets in layers above ``w - 1``.  Steps that leave no word unvisited are
+    omitted.
     """
     num_rows, num_columns = generators.shape
     layers: dict[bytes, list[int]] = {}
