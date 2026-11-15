@@ -379,7 +379,7 @@ The greedy algorithm for matroids finds such a basis by taking, again and again,
 But each of its steps would be an exact search for a light word of the span, whose cost grows quickly with the weight of that word.
 So the coset search instead takes candidates from row reductions of its checks, with the columns in random orders.
 It keeps a lightest basis among these candidates and its current checks, so the total weight of its checks never rises.
-`get_sparser_rows` in `_connected_cluster/sparse_checks.py` states the procedure.
+`get_sparser_rows` in `_connected_cluster/sparse_checks.py` implements these rounds.
 The fields `max_sparsifying_rounds` and `sparsifying_rounds_without_improvement` of `SearchTuning` limit the rounds of `get_sparser_rows`.
 Each round costs one row reduction, so these fields trade the time to build the coset search against the speed of its queries.
 Checks with the same span give the same answers and bounds, so the random orders change only the speed of the queries and which errors the queries return.

@@ -167,11 +167,13 @@ Section 4.4 of `brouwer_zimmermann.md` explains the heuristics of the Brouwer-Zi
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the fixed seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them.
 - Document each field and constant in its own `#:` comment directly above it, so that Sphinx renders it.
-  The comment first says what the value controls, and in what unit.
-  It then says how a smaller or larger value changes a search, including the effects of the smallest and largest values.
-  It then gives, in a sentence, the class of the default and the rule of that class, as the "Retuning" section of the module docstring defines them, or, for a field in no class, why its default was chosen.
-  A field's comment ends with a pointer to the section of `brouwer_zimmermann.md` or `connected_cluster.md` that explains its heuristic.
-  Keep each comment readable without knowing the method that uses the value, and within about 120 words.
+  A field's comment says three things, and no more.
+  First, it says what the field controls, in what unit, and what special values, such as zero and `MAX_VALUE`, do.
+  Second, it states the heuristic behind the default in a sentence: the class of the default and the rule of that class, as the "Retuning" section of the module docstring defines them, or, for a field in no class, why the default was chosen.
+  Third, it points to the section of `brouwer_zimmermann.md` or `connected_cluster.md` that explains this heuristic.
+  A longer comment needs a reason, such as an interaction with another field that a reader could not guess.
+  A constant's comment says what the constant controls and why its value was chosen.
+  Keep each comment readable without knowing the method that uses the value.
   State each fact in one place: point to the guide for the reasoning behind a heuristic, and to a formula that the code computes, such as a cost model, rather than restating them.
   The "Retuning" section of the module docstring holds what several values share: the classes of defaults, and the rule for changing a default.
   Do not put a colon on the first line of a comment, since Sphinx then reads the text before it as a type.
