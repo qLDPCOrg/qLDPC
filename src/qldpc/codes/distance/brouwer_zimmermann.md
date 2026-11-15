@@ -176,7 +176,7 @@ This can save most of the last layer, which often dominates the cost.
 Grassl notes this improvement in footnote 2 of his chapter, on page 295 of *Discovering Mathematics with Magma*, and Magma uses it.
 Equation (5) of Lisoněk and Trummer gives the same certificate for these disjoint blocks.
 
-The cost of this loop is measured in **candidate/set evaluations**.
+The cost of this loop is counted in **candidate/set evaluations**.
 One candidate/set evaluation is the examination of one selection of rows in one basis.
 Searching the `m` search bases through coefficient weight `t` therefore costs `m` times the number of selections of at most `t` rows, which is `m * sum_{w=1}^{t} binom(r, w)`.
 Stopping after the first `j` bases of layer `t` costs `m * sum_{w=1}^{t-1} binom(r, w) + j * binom(r, t)`.
@@ -341,7 +341,7 @@ The coverage-divided certificate is four, and so is Zimmermann's certificate in 
 qLDPC solves the linear program with `scipy.optimize.linprog`.
 Its bound is the ceiling of the dual value of the solver's `y`, computed in exact rational arithmetic, so that rounding in the solver can only weaken the bound.
 For disjoint blocks, the linear program separates by block and gives the certificate of [Section 2.5](#25-the-stopping-certificate), so only overlapping families use it.
-Because each linear program takes milliseconds, only searches whose estimated work reaches the threshold `lp_minimum_work` of [Section 4.4](#44-heuristics-and-cost-models) use it.
+Only searches whose estimated work reaches the threshold `lp_minimum_work` use it, since a linear program costs far more than examining a word ([Section 4.4](#44-heuristics-and-cost-models)).
 To decide how many bases of a layer to search, a search solves a linear program only when the coverage-divided certificate falls short of `U` and a feasible point of the linear program shows that its optimum could reach `U`.
 It also solves one at the end of each layer, to update its lower certificate.
 
@@ -475,7 +475,7 @@ Rounding can make the actual ratio larger or smaller than this approximation.
 For example, deleting 65 pivot columns from a 129-column basis reduces the word count from three to one, a factor of three rather than about two.
 For the X sector of a CSS stabilizer code, `r = N_stored - rank(H_z)`.
 In a balanced code with `rank(H_z)` near `N_stored/2`, the large-width approximation therefore suggests about a factor of two for full blocks.
-These are counts of packed words, not measured speedups: label XORs, comparisons with `U`, and loop overhead do not shrink.
+These are counts of packed words, not speedups: label XORs, comparisons with `U`, and loop overhead do not shrink.
 
 Weights are compared with `U` before labels are examined.
 A candidate whose weight is at least `U` cannot lower `U`, so its label is not examined, and labels are examined only for lighter candidates.
@@ -561,8 +561,8 @@ With more orbits, the exchanges are a heuristic.
 
 #### When a search uses an automorphism family
 
-Finding automorphisms can take milliseconds, as long as many whole searches take.
-Before a search finds a light witness, its work estimate of [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) is too pessimistic to tell such easy searches apart.
+Finding automorphisms, verifying them, and building their family can cost more than a whole easy search.
+Before a search finds a light witness, its work estimate of [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) is too pessimistic to tell easy searches apart.
 A search therefore starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases), and asks for automorphisms at most once, at one of two points:
 
 - A search that would try matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)) asks first, since a switch would discard any partitioned family.
@@ -639,7 +639,7 @@ The counts cover only enumeration; building and packing the search bases costs e
 ### 3.9 Skipping completions by completion tables
 
 The layers that a search scans last dominate its cost, and most of their words weigh far more than `U`.
-For example, certifying distance eighteen for the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) with an automorphism family scans layer eight of a basis with `r = 150` rows, about `5 × 10^12` supports.
+For example, certifying distance eighteen for the X sector of the [[288, 12, 18]] code of [arXiv:2308.07915](https://arxiv.org/abs/2308.07915) with an automorphism family scans layer eight of a basis with `r = 150` rows, which has `binom(150, 8)`, about `5 × 10^12`, supports.
 A search can skip whole groups of these supports if a cheap lower bound proves that none of their words is lighter than `U`.
 qLDPC reads such bounds from completion tables, which it can build for each search basis whose block is an information set.
 Every layer of a search of an automorphism family scans one such basis ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
@@ -682,7 +682,8 @@ The bound uses the rows in the order in which the search sums them, since the pa
 For each block and each `s`, a table stores the distance from every value of `p` on the block to the nearest sum of a pair from row `s` on.
 The tables for `s` start from those for `s + 1`.
 The new pairs of row `s` lower the distance at their sums to zero, and a breadth-first search from those sums lowers the distances around them.
-With blocks of `β` columns, the tables take `(r - 1) Σ_b 2^|J_b|` bytes, and building them costs about `2^β β^2` steps for each block, plus writing each table.
+With blocks of `β` columns, the tables take `(r - 1) Σ_b 2^|J_b|` bytes.
+Building them costs about `2^β β^2` steps for each block, for its breadth-first searches, plus a step for each pair of rows on each block, and writing each table.
 A bound then costs one table entry per block.
 The search looks up the bound each time it tries a new row `s` as the first of the last pair, and if it skips the completions, it skips the rest of the prefix's subtree.
 A bound for a larger `s` is stronger, so a support is skipped exactly if the bound of its own `s` reaches `U - w`.
@@ -738,15 +739,9 @@ Every word that the query skipped or weighed, and every word beyond its stopping
 A query that skipped nothing returns the bound of a scan without tables: the lesser of the weight of its lightest word and the bound of its stopping step, which is never below `R`.
 
 A query could instead skip only the completions that cannot be lighter than the lightest word so far, as a distance search does, which would keep the words and bounds of the scan without tables.
-That rule was measured on the residual-weight estimates of state-preparation circuits of 37, 81, and 95 qubits, which are not in the repository, with tables of blocks of eight columns.
-It examined 1.1 to 2.2 times as many words as skipping at `h(ω)`.
-Skipping at `h(ω)` made the same decisions, and every `R` that it reported equaled the bound of a scan without tables.
-In those estimates, a lower bound of `ω + 1`, not rounded up to the parity of the coset, lowered the bounds of 162 queries without a word within `ω`.
-The estimates then made 1.6% to 3.5% more queries.
-These estimates were made before the searches of [Section 3.10](#310-minimum-weights-of-cosets) existed.
-An estimate then raised the maximum weight of its next query of a syndrome to the lower bound of the last, so a bound below `R` added a query that could not find a word.
-A search for the minimum weight of a coset skips at `h(ω)` too until it finds a word within `ω` ([Section 3.10](#310-minimum-weights-of-cosets)).
-It then skips, when each scan starts, at the Hamming weight of its lightest word, less one where every word of the coset has its parity.
+Skipping at `h(ω)` skips all of those completions and more, since until a query finds a word within `ω`, its lightest word has a Hamming weight of at least `h(ω)`.
+So it weighs no more words, and when its coset has no word within `ω`, it can return a heavier word and a smaller lower bound than a scan without tables, as the paragraph above says.
+A search for the minimum weight of a coset skips at `h(ω)` too until it finds a word within `ω`, and then at a limit that falls as it finds lighter words ([Section 3.10](#310-minimum-weights-of-cosets)).
 
 #### When a search uses the tables
 
@@ -755,21 +750,25 @@ Only a basis whose block is an information set can have tables.
 The scan of a basis of deficient rank counts the pivot ones of each word by its rank, as coset searches do (see "Coset searches" above).
 A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), which use the tables as described below.
 
-Tables of a basis with `r = 150` rows and 138 tail columns, in blocks of sixteen columns, take 75 MiB, and about a twentieth of a second to build on the machine described below.
-That is worthwhile for a layer of `10^10` supports, but not for an easy search.
-So a distance search chooses tables for each search basis of a layer, just before its scan, as follows:
+Tables cost memory, a build, and lookups, and they save only the supports that they skip.
+So they pay on large layers where they skip many supports, but not on small layers or in easy searches.
+The share of supports that they skip depends on the code, the scanned set, and the order of its rows, so tables can pay on a layer of one code and not on a layer of the same size of another.
+Skipping does not reduce the number of layers that a search must complete, and the number of prefixes still grows like that of supports for a fixed ratio `w/r`.
 
-1. It considers tables only for a layer of at least `completion_bound_minimum_layer_work` supports ([Section 4.4](#44-heuristics-and-cost-models)).
+A distance search therefore chooses tables for each search basis of a layer, just before its scan, as follows:
+
+1. It considers tables only for a layer of at least `completion_bound_minimum_layer_work` supports, so that the estimate of the next step costs little next to the layer ([Section 4.4](#44-heuristics-and-cost-models)).
 2. It estimates the share of supports that the tables would skip, from the bounds of at most `completion_bound_samples` random supports computed directly from the rows, and takes a conservative lower bound on that share.
 3. It predicts the cost of the layer from this share, the number of lookups, and the cost of building tables that it does not have yet.
-   Each lookup costs a few plain support evaluations for each block of the tables, and more for larger tables, which miss the processor's caches more often.
+   The cost model charges each lookup a few plain support evaluations for each block of the tables, and more for larger tables, which miss the processor's caches more often.
+   Its coefficients are fields of `SearchTuning` in [_tuning.py](_tuning.py).
 4. It uses tables if the predicted cost is at most `completion_bound_max_cost_percent` percent of the cost without them.
 
 By default, tables use blocks of sixteen columns, which the field `completion_bound_block_bits` sets, and a layer whose tables would exceed `completion_bound_max_table_bytes` gets none.
 A search keeps the last tables that it chose for later layers of their basis.
 It drops them before another basis chooses tables, and when its family changes, as when it switches to an automorphism family, so it holds the tables of one basis at a time.
-A layer that scans several bases with tables therefore builds them again in each layer.
-But building tables costs a few percent of the first layer that uses them, and much less of the larger layers after it.
+A layer that scans several bases with tables, as in a search without a usable automorphism family, therefore builds them again in each layer.
+The prediction for each of these bases counts the cost of building its tables again, so a basis gets them again only where the model predicts that they still pay.
 A search frees its tables when it finishes.
 The search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
 
@@ -780,37 +779,6 @@ Its steps scan the sets of a layer in turn, so when the tables of all sets do no
 
 A coset search uses tables only on its routes by tails, and neither samples supports nor predicts costs.
 [Section 4.4](#44-heuristics-and-cost-models) says when a route goes by tails, and which tables it builds.
-
-Measurements on one Apple M3 Max processor, single-threaded, illustrate these trade-offs.
-The cost ratio of a layer is its time with tables, including their construction, divided by its time without them, with `completion_bound_max_table_bytes` set to zero.
-The coefficients of the cost model are fields of `SearchTuning` in [_tuning.py](_tuning.py), whose module docstring says on what layers they were fitted and how to refit them.
-
-- For the X sector of the [[288, 12, 18]] code above, with `U = 18` and the scanned set and row order that qLDPC chooses, layer six had a cost ratio of 0.22 under the default tuning.
-  Its tables skipped 87% of its supports.
-- Tables were forced, by `completion_bound_minimum_layer_work` set to zero and `completion_bound_max_cost_percent` set to `MAX_VALUE`, on four layers of `2 × 10^7` to `5 × 10^7` supports, of that code and of two pair-partition codes.
-  Three of the four were slower, with cost ratios up to 1.6, and the cost model predicted ratios above one for all four.
-
-Estimating the share of skipped supports takes milliseconds.
-So a search considers tables only for layers of at least `completion_bound_minimum_layer_work` supports, which bounds the cost of sampling.
-The cost model then declines tables on layers such as those four.
-The share of skipped supports depends on the code, the scanned set, and the order of its rows, and other codes may gain less, or nothing when a search declines the tables.
-Skipping does not reduce the number of layers that a search must complete, and the number of prefixes still grows like that of supports for a fixed ratio `w/r`.
-
-Layers that scan several search bases arise in searches of codes without a usable automorphism family, such as random codes, or quantum Tanner codes when no automorphisms are known.
-Such layers were measured with `U` fixed at the best weight of the search:
-
-- Layer six of the X sector of a random CSS code of 140 qubits, with three bases.
-- Layer five of both sectors of `QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)`, with fifteen.
-- Layer five of the X sector of a [[325, 25, 12]] lifted-product code of the width data set of [_tuning.py](_tuning.py), with eleven.
-
-They have `6 × 10^8` to `1.5 × 10^9` supports for each basis.
-Scanning their bases with tables, including building the tables, took 0.11 to 0.30 times as long as scanning them without tables, and the predicted costs of these layers were within 0.06 of the measured ratios.
-In layer six of the X sector of the [[288, 12, 18]] code without its automorphisms, with `1.4 × 10^10` supports for each basis, the tables of seven of nine bases paid.
-That layer took 0.81 times as long as without tables, for a predicted cost of 0.78, averaged over its bases.
-These ratios were measured against a scan without tables that weighed each support of a layer in all its bases at once, as searches then did.
-Searches now scan the bases one at a time.
-Without tables, scanning the bases one at a time took 0.89 to 1.12 times as long as the earlier scan on the layers measured, so the cost ratios of these layers may now differ by about that factor.
-Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search that considers them declines the tables.
 
 ### 3.10 Minimum weights of cosets
 
@@ -846,13 +814,6 @@ A word of the Z part within `w_x` ends that search, and gives the class the weig
 With the connected-cluster method too, `CosetLeaderSearch` searches each part once (see [the coset-leader search](README.md#the-coset-leader-search) of the package README).
 Certification still uses queries, which stop at the first word within their maximum weight.
 
-The searches for minimum weights were measured on the residual-weight estimates of the circuits of [Section 3.9](#39-skipping-completions-by-completion-tables), at `ω` of six and of eight, by either weight.
-With either method, they gave every syndrome the weight that the queries at increasing maximum weights gave.
-With the BZ method, they examined 0.09 to 0.89 times as many words as those queries, and the whole estimates took 0.71 to 0.98 times as long.
-The estimates drew 20,000 samples each, or 2,000 for the circuit of 95 qubits by physical weight.
-They were timed single-threaded on the machine of [Section 3.9](#39-skipping-completions-by-completion-tables), as medians of three rounds of fresh processes that alternated between the queries and the searches.
-In all but the costliest estimate, sampling and the other stages took most of the time.
-
 ## 4. Guide to the source code
 
 **Audience note:** This section is a highly technical summary for contributors who need to locate identifiers in the BZ implementation of qLDPC.
@@ -861,8 +822,8 @@ For a high-level explanation, see Sections [2](#2-the-brouwer-zimmermann-algorit
 This section is a guide to the source files in this directory.
 It connects the concepts of Sections [2](#2-the-brouwer-zimmermann-algorithm) and [3](#3-extensions-and-optimizations) to modules, identifiers, and behavior that spans files.
 The thresholds, limits, and coefficients of the heuristics are fields of `SearchTuning` in [_tuning.py](_tuning.py).
-Their comments give their meanings and defaults, and the class of each default or, for a field in no class, how its default was chosen.
-[Section 4.4](#44-heuristics-and-cost-models) says where each is used.
+Their comments give their meanings and defaults, and the Retuning section of the module docstring of `_tuning.py` says how the defaults are chosen and when to change them.
+[Section 4.4](#44-heuristics-and-cost-models) says where each heuristic of a BZ search uses its fields, and why.
 Sections 3.5, 3.8, and 3.9 of [connected_cluster.md](connected_cluster.md) describe the fields of the connected-cluster searches.
 
 ### 4.1 Module map and layering
@@ -1038,11 +999,16 @@ With an early-exit cutoff above one, a different search order can find a differe
 
 The Tuning section of [README.md](README.md) explains how searches read the thresholds of these heuristics.
 
+Most of these thresholds are gates on optional steps, such as building a family of search bases, solving linear programs, asking for automorphisms, or predicting the cost of completion tables.
+A step can save at most the work that it acts on, so it cannot pay while that work is below its own cost.
+A gate therefore lets its step run once the estimated work that the step acts on reaches the cost of the step, both in candidate/set evaluations, a cost that the gate needs to know only to an order of magnitude.
+The other fields are budgets of memory or setup effort, statistical conventions, and the coefficients of the cost model of completion tables, which are rough costs.
+The bullets below give the rule of each heuristic and its reason, and the Retuning section of the module docstring of [_tuning.py](_tuning.py) says how the rules set the defaults, and when to change them.
 - **`get_disjoint_family`** builds the disjoint family greedily in natural column order.
   It keeps at most `2**r - 1` blocks that are information sets of a basis of `r` rows: the layers of one such block already reach every nonzero combination of rows, so scanning a layer of more blocks would examine more candidates than enumerating every word.
   Only bases with more than `r (2**r - 1)` nonzero columns have room for more, and the limit keeps the memory of their packing from growing with the square of their length.
   If the natural order does not reach that limit, or `floor(N / r)` blocks if that is smaller, it tries `disjoint_random_column_orders` fixed-seed random column orders and keeps the family with the lexicographically largest tuple of ranks.
-  Fixed seeds keep results reproducible, and the bounded retries keep setup cheap.
+  Fixed seeds keep results reproducible, and each order costs another packing of the basis, so `disjoint_random_column_orders` is a budget of setup effort.
   It also infers the divisor `2` when every basis row has even weight, and combines it with any divisor supplied by the caller.
 - **`prune_family`** is exact, not heuristic.
   A search basis whose block has rank deficiency `d = r - r_i` has a term `b_i(t)` that is zero for `t < d`.
@@ -1053,18 +1019,23 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   It returns a basis family with no sets if no block is an information set, if the existing work is below `minimum_work`, if the blocks already use every nonzero column, if the family is at `max_sets`, or if even the optimistic coverage `ceil(m*r/N)` cannot reduce the estimate.
   Otherwise it builds search bases by row reducing on column orders that put the least-used columns first, breaking ties with a generator that `build_overlapping_family_policy` seeds afresh for every call, and keeps the cheapest family built.
   It makes `overlapping_attempts_per_set` attempts for each set that it may add, and a repeated pivot set is discarded but still consumes an attempt.
+  Each attempt row reduces the basis, so the gate `overlapping_minimum_work` breaks even with the cost of the attempts.
+  `max_information_sets` and `overlapping_attempts_per_set` are budgets of setup effort: more sets can avoid costly layers, but take more attempts.
 - **`get_partitioned_family`** builds families of information sets in which no column appears more than `b` times, for `b` from two up to `ceil(m*r/N)`, where `m` is `max_information_sets`.
   That is the least coverage at which `m` full sets could fit, by counting their pivots, and coverage one is the disjoint packing of the earlier stages.
   It uses the matroid partitioning of Section 5.1 of Lisoněk and Trummer (see [References](#references)), in `_information_sets/matroid_partition.py`, so each family has the most information sets, up to `max_information_sets`, that its coverage allows.
   A search uses the family with the least estimated work if it does less work than the family of the earlier stages.
-  The cost of partitioning is roughly proportional to the sum of `b^2*r^2*N` over the coverages `b` that it tries.
+  The cost of partitioning is roughly proportional to the sum of `b^2*r^2*N` over the coverages `b` that it tries, which grows with the cube of `max_information_sets`.
   A search tries partitioning only if its estimated work is at least `partition_work_ratio` times that sum, and the optimistic coverage `ceil(m*r/N)` does not rule out an improvement.
+  The ratio stands for the cost of one unit of that sum in candidate/set evaluations, so this gate breaks even with the cost of partitioning.
   A distance search with automorphisms also skips it if the work estimate of its automorphism family is at most the least work that the optimistic coverage allows, and switches to that family instead ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).
-- **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, since smaller searches cost less than their linear programs.
+- **`get_search_certificate`** adds the certificate from linear programming ([Section 3.1](#31-overlapping-search-bases)) to searches of overlapping families whose estimated work reaches `lp_minimum_work`.
+  This gate breaks even with the cost of the linear programs of a search, each of which costs far more than examining a word.
   The work estimates that choose families use only the coverage-divided certificate.
 - **`get_automorphism_family`** row reduces in natural column order, then exchanges pivots between orbits in the compiled `_balance_orbit_shares`, as [Section 3.7](#37-images-of-an-information-set-under-automorphisms) explains.
   A search asks for automorphisms before matroid partitioning, if it would partition, or else before the first layer whose scan would cost at least `automorphism_minimum_layer_work`, and switches to the automorphism family if `estimate_automorphism_family_work` is less than the `Certificate.work` of its family from its next layer.
   After declining, it considers the switch again before a later such layer once `U` has dropped.
+  The gate `automorphism_minimum_layer_work` breaks even with the cost of finding automorphisms, verifying them, and building their family, and [Section 3.7](#37-images-of-an-information-set-under-automorphisms) says why a search waits for a costly layer rather than deciding during setup.
 - **`CosetRoutes`** chooses the family with which a coset search answers each maximum weight `ω`.
   The work of a table of a search at `ω` is the work of `plan_steps` from layer zero, without the search bases that a query skips.
   Besides the word of its syndrome, a query at `ω` with no light enough word examines or skips as many words as the work of the table of its parity.
@@ -1078,21 +1049,32 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   The second is an overlapping family of `get_overlapping_family`, aimed at the Hamming weight `η ω_T + 1` for the weight factor `η` of [Section 4.1](#41-module-map-and-layering), and the routes keep it only if the stage finds one that does less work than the family that it starts from.
   The route of `ω` is the family with the least work at `ω`, summed over its tables, and among families of equal work, the disjoint family, then the maximum disjoint one.
   A search for minimum weights up to `ω` ([Section 3.10](#310-minimum-weights-of-cosets)) takes the route of `ω`, or of the number of qubits if that is smaller, since no coset has a larger minimum weight.
-  Building the families takes milliseconds, which the queries that reach the default threshold repay.
+  Building the families costs a matroid partitioning and the row reductions of an overlapping family, once for the search, which only queries that examine many words repay.
+  The threshold sets three decisions: whether a query keeps the disjoint family, the weight `ω_T` at which the overlapping family aims, and which routes go by tails.
+  No break-even rule covers the aim, so the default of the threshold is chosen by hand, as the Retuning section of the module docstring of [_tuning.py](_tuning.py) says.
   In a search that weighs Hamming weights, the route of `ω` is a route by tails if the predicted examinations with its own family at `ω`, rather than with the disjoint family, reach the threshold too.
   Its queries then weigh words by their tails ([Section 4.1](#41-module-map-and-layering)), and skip completions by tables on blocks of `coset_completion_block_bits` columns ([Section 3.9](#39-skipping-completions-by-completion-tables)).
+  Weighing by tails adds a fixed cost to each query, for the tail of its offset in each search basis and the rebuild of its lightest word from the full rows, and the tables cost memory and a build.
+  Only queries that examine many words even with the family of their route repay these costs.
   The gate of routes by tails replaces the minimum layer work and the cost model of `select_completion_tables`.
   So a route asks for the tables of the search bases that its queries scan in layers of two or more rows, whatever the work of those layers.
   `get_coset_tails` gives a search basis tables only if they fit in `completion_bound_max_table_bytes`, which zero disables.
-  The module docstring of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) adds an example of disjoint information sets that a greedy packing misses, and the measurement of a prototype that keeps the weighing by tails to costly queries.
-- **`select_completion_tables`** decides whether an information set in a layer of a distance search, or a step of a count, uses completion tables, as [Section 3.9](#39-skipping-completions-by-completion-tables) explains.
+  The module docstring of [_brouwer_zimmermann/coset_routes.py](_brouwer_zimmermann/coset_routes.py) gives an example of disjoint information sets that a greedy packing misses.
+- **`select_completion_tables`** decides whether an information set in a layer of a distance search, or a step of a count, uses completion tables, by the steps of [Section 3.9](#39-skipping-completions-by-completion-tables).
   A count passes its target weight plus one in place of `U`.
   It considers the layers that `considers_tables` allows: layers of two to `r` rows with at least `completion_bound_minimum_layer_work` supports, under a tuning whose `completion_bound_max_cost_percent` and `completion_bound_max_table_bytes` are not zero.
-  It uses tables if `predict_completion_cost` predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them, and keeps tables within `completion_bound_max_table_bytes`.
+  That gate breaks even with the cost of predicting the cost of tables, which bounds sampled supports directly from the rows.
+  The prediction samples at most `completion_bound_samples` random supports, as many as the budget of setup effort `completion_bound_sampling_work` allows, and takes the lower end of a confidence interval of `completion_bound_confidence_z` standard errors for the share that tables would skip.
+  With fewer than `completion_bound_min_samples` samples, it takes that share to be zero.
+  These statistical conventions keep sampling error from choosing tables that cost more than they save.
+  A search uses tables if `predict_completion_cost` predicts that they cost at most `completion_bound_max_cost_percent` percent of the cost without them.
+  The two costs are estimates in one unit, so this limit breaks even at 100 percent.
+  The coefficients of the cost model are rough costs, in scans of one support of a distance search.
+  Counting weighs full rows and labels, so its scans cost more for each support, and the model then predicts conservatively.
+  Tables stay within `completion_bound_max_table_bytes`, a budget of memory.
+  Their blocks, of `completion_bound_block_bits` columns in distance searches and counts and `coset_completion_block_bits` in coset searches, take the widest width allowed, since a wider block never gives a weaker bound where its tables fit.
   Random supports only estimate the value of tables.
   A search skips supports only when `w` plus their computed bound reaches `U`, and a count only when it exceeds the target weight.
-  The cost model was fitted to the scan of a distance search.
-  Counting weighs full rows and labels, so its scans cost more for each support, and the model then predicts conservatively.
 - **`Certificate.work` and `estimate_automorphism_family_work`** are cost models, which Sections [3.6](#36-work-estimates-and-exhaustive-enumeration) and [3.7](#37-images-of-an-information-set-under-automorphisms) explain.
   They are not runtime guarantees.
   Both are the work of plans of `plan_steps`, which finds where searches stop with `find_stopping_step` ([Section 4.1](#41-module-map-and-layering)).
