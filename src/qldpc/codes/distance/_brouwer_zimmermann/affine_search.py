@@ -102,7 +102,7 @@ def scan_set(
     # This scan neither weighs X parts nor records words or supports.  Its skip bound is the best
     # weight at the start, which the best weight never exceeds, so it skips exactly the completions
     # whose bound shows that they cannot lower the best weight.  The scan of an information set
-    # counts a pivot one for each row, which saves comparing each weighed row with the rank.
+    # counts one pivot for each row, without comparing the row with the set's rank.
     if ranks[0] == generators.shape[1]:
         return _scan(
             generators,
