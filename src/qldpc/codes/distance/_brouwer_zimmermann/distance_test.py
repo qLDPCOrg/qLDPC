@@ -40,9 +40,10 @@ TABLES_DISABLED = dataclasses.replace(
 
 
 def test_brouwer_zimmermann_search_state() -> None:
-    """A search state handles partial-rank information sets.
+    """A search state handles partial-rank sets, quotient labels, cutoffs, and lower-bound updates.
 
-    The search state handles quotient labels, cutoffs, and lower-bound updates.
+    An interrupted layer, or one that stops at the cutoff, leaves the certificate unchanged, and
+    each completed layer advances it.
     """
     # The input is one rank-zero information set with two basis rows.  The two basis rows have
     # Hamming weights 2 and 1, both outside the excluded subcode.
@@ -63,7 +64,7 @@ def test_brouwer_zimmermann_search_state() -> None:
 
     # An interrupted coefficient-weight layer leaves the lower-bound certificate unchanged.
     with (
-        mock.patch.object(affine_search, "scan_information_set", side_effect=KeyboardInterrupt),
+        mock.patch.object(affine_search, "scan_set", side_effect=KeyboardInterrupt),
         pytest.raises(KeyboardInterrupt),
     ):
         search.advance()
@@ -113,9 +114,7 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
             get_automorphism_family=get_automorphism_family,
         )
         # Skip the scan of the layer itself, which no search could finish.
-        with mock.patch.object(
-            affine_search, "scan_information_set", return_value=(dimension, -1, 0, 0, 0)
-        ):
+        with mock.patch.object(affine_search, "scan_set", return_value=(dimension, -1, 0, 0, 0)):
             search.advance()
         assert get_automorphism_family.call_count == expected_calls
 
@@ -469,7 +468,7 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
     supports that it skips.
     """
     num_candidates = 0
-    original_scan = affine_search.scan_information_set
+    original_scan = affine_search.scan_set
 
     def counting_scan(*args: Any) -> tuple[int, int, int, int, int]:
         nonlocal num_candidates
@@ -488,7 +487,7 @@ def get_candidate_count(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
 
     # Row weights count every packed word with np.bitwise_count.
     monkeypatch.setattr(np, "bitwise_count", counting_bitwise_count)
-    monkeypatch.setattr(affine_search, "scan_information_set", counting_scan)
+    monkeypatch.setattr(affine_search, "scan_set", counting_scan)
     return lambda: num_candidates
 
 
@@ -571,10 +570,8 @@ def completion_tables(
 ) -> Iterator[CompletionRecord]:
     """Run a test with the default choice of completion tables, or with tables in every layer.
 
-    The tables of every layer have eight-column blocks.
-
-    Record the tables that searches choose and the bounds that their scans look up, and check that a
-    forced search used tables.
+    Forced tables have eight-column blocks.  Record the tables that searches choose and the bounds
+    that their scans look up, and check that a forced search used tables.
     """
     record = CompletionRecord(request.param == "forced", [])
     if record.forced:
@@ -588,7 +585,7 @@ def completion_tables(
             completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
         )
     select = completion_bounds.select_completion_tables
-    scan = affine_search.scan_information_set
+    scan = affine_search.scan_set
 
     def recording_select(*args: Any, **kwargs: Any) -> completion_bounds.CompletionTables | None:
         tables = select(*args, **kwargs)
@@ -602,7 +599,7 @@ def completion_tables(
         return result
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", recording_select)
-    monkeypatch.setattr(affine_search, "scan_information_set", counting_scan)
+    monkeypatch.setattr(affine_search, "scan_set", counting_scan)
     yield record
     if record.forced:
         assert record.lookups
@@ -1077,12 +1074,11 @@ def test_completion_tables_keep_distances_exact(
     Every layer uses tables, and every search below skips supports.  The tuning keeps the searches
     of this [[36, 4, 4]] bivariate bicycle code from building an overlapping family, which would
     hold a word of weight four and end them before any layer.  Before layer two, they switch from
-    the disjoint family to an automorphism family, the rows of whose scanned set weigh at least six
+    the disjoint family to an automorphism family.  The rows of its scanned set weigh at least six
     in each sector, so a scan must find a word of weight four, with or without an upper bound above
-    it.  In the X
-    sector of a [[72, 4, 8]] code, with its coordinates relabelled at random and its automorphisms
-    relabelled alike, the search must scan to layer four.  A general Pauli problem checks that
-    searched words weigh twice their number of nontrivial qubits.
+    it.  In the X sector of a [[72, 4, 8]] code, with its coordinates relabelled at random and its
+    automorphisms relabelled alike, the search must scan to layer four.  A general Pauli problem
+    checks that searched words weigh twice their number of nontrivial qubits.
     """
 
     def assert_skips(distance: int) -> int:
@@ -1224,8 +1220,8 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
     tables of the set before it.
     """
     select = completion_bounds.select_completion_tables
-    scan_set = bz._BrouwerZimmermannSearch._scan_information_set
-    scan = affine_search.scan_information_set
+    scan_set = bz._BrouwerZimmermannSearch._scan_set
+    scan = affine_search.scan_set
     num_choices, scanned_index, returned_to_first_set = 0, 0, False
     later_scans = {"with tables": 0, "without tables": 0}
     returns_with_tables = 0
@@ -1254,8 +1250,8 @@ def test_layers_of_several_sets_scan_each_set_with_its_tables(
         return scan(*args)
 
     monkeypatch.setattr(completion_bounds, "select_completion_tables", mixing_select)
-    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "_scan_information_set", recording_scan_set)
-    monkeypatch.setattr(affine_search, "scan_information_set", checking_scan)
+    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "_scan_set", recording_scan_set)
+    monkeypatch.setattr(affine_search, "scan_set", checking_scan)
     generators = get_random_full_rank_matrix(np.random.default_rng(4), 10, 36)
     distance = bz.get_distance_brouwer_zimmermann_many(
         [(generators, _no_labels(generators))], cutoff=0
@@ -1300,15 +1296,13 @@ def test_a_layer_of_several_sets_stops_once_its_sets_certify_the_best_weight(cut
         next_weight=2,
     )
     scanned: list[int] = []
-    scan_set = bz._BrouwerZimmermannSearch._scan_information_set
+    scan_set = bz._BrouwerZimmermannSearch._scan_set
 
     def recording_scan_set(search: bz._BrouwerZimmermannSearch, index: int, weight: int) -> bool:
         scanned.append(index)
         return scan_set(search, index, weight)
 
-    with mock.patch.object(
-        bz._BrouwerZimmermannSearch, "_scan_information_set", recording_scan_set
-    ):
+    with mock.patch.object(bz._BrouwerZimmermannSearch, "_scan_set", recording_scan_set):
         assert search.advance() == 5
     assert search.finished and search.lower_bound == (4 if cutoff else 5)
     assert scanned == [0]

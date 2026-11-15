@@ -724,7 +724,7 @@ A search for the minimum weight of a coset skips at `h(ω)` too until it finds a
 
 #### When a search uses the tables
 
-A distance search scans each search basis of a layer by itself, with `scan_information_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), with or without tables.
+A distance search scans each search basis of a layer by itself, with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), with or without tables.
 Only a basis whose block is an information set can have tables; the scan of a basis of deficient rank counts the pivot ones of each word by its rank, as coset searches do (see "Coset searches" above).
 A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), which use the tables as described below.
 Tables of a basis with `r = 150` rows and 138 tail columns, in blocks of sixteen columns, take 75 MiB, and about a twentieth of a second to build on the machine described below.
@@ -836,7 +836,7 @@ For Pauli strings, except those that `get_distance_pauli` searches as a CSS code
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
 Distance searches and counts use [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py) to choose and build the tables of [Section 3.9](#39-skipping-completions-by-completion-tables), and coset searches use it to choose and build the tables of their routes by tails.
 The distance search and `CosetLeaderSearch` scan their layers with the compiled entry points of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which run one body, `_scan`, with constant flags.
-`scan_information_set` scans one set of a distance search, whose block is an information set or of deficient rank, with or without completion tables, and `scan_coset_layer` and `scan_coset_layer_by_css_weight` scan one layer of one set of a coset and keep its lightest word.
+`scan_set` scans one set of a distance search, whose block is an information set or of deficient rank, with or without completion tables, and `scan_coset_layer` and `scan_coset_layer_by_css_weight` scan one layer of one set of a coset and keep its lightest word.
 `scan_coset_layer_by_tails` scans one layer of one set of a coset by the tails of its words, without the pivot columns of the set ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and keeps the support of its lightest word.
 `scan_coset_layer_by_tails_with_tables` does the same for a layer of two or more rows, and skips the completions of a prefix by tables if their bound reaches the lesser of a skip bound and the best weight so far ([Section 3.9](#39-skipping-completions-by-completion-tables)).
 So a query skips at its skip bound, since its scans return before their best weight falls below it, and a search for minimum weights of [Section 3.10](#310-minimum-weights-of-cosets) skips at the best weight, which never exceeds its skip bound.
@@ -960,12 +960,12 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
 | Labels `M` | `labels`, which has no columns for a classical problem |
 | Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
-| Support, prefix XORs | `support` and `prefixes` in `_scan_information_set` and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
+| Support, prefix XORs | `support` and `prefixes` in `_scan_set` and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion; `label_widths` counts the valid words |
 | Chunk | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
 | Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
-| Completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), chosen for each information set of a layer by `select_completion_tables` from the completion fields of the search's `SearchTuning`, and kept, with the index of their set, in `completion_tables` and `completion_tables_set` of a search; the scan is `scan_information_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which returns the numbers of supports that it weighs and skips and of bounds that it looks up. A coset search keeps the tables of the search bases of the family of each route by tails in `CosetTails`. Its scan with tables is `scan_coset_layer_by_tails_with_tables`. |
+| Completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), chosen for each information set of a layer by `select_completion_tables` from the completion fields of the search's `SearchTuning`, and kept, with the index of their set, in `completion_tables` and `completion_tables_set` of a search; the scan is `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which returns the numbers of supports that it weighs and skips and of bounds that it looks up. A coset search keeps the tables of the search bases of the family of each route by tails in `CosetTails`. Its scan with tables is `scan_coset_layer_by_tails_with_tables`. |
 
 For the rank-deficient remainder of [Section 2.4](#24-search-bases-and-rank-deficient-blocks), the implementation records only the independent pivot columns, in the first `rank` entries of the set's row of `BasisFamily.pivots`, and pads the rest with -1.
 The remaining columns of that remainder stay in the generator matrix.
@@ -1040,7 +1040,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
 - **Cutoff.**
   The docstring of `get_distance_from_generators` in [core.py](core.py) states the contracts of `cutoff` and of an early exit, which the other distance functions share.
   They all default to `cutoff=1`, which gives the exact distance for a valid nontrivial binary problem, because a distance is at least one.
-  A `cutoff` of zero or less never triggers an early exit for such a problem, and `_scan_cutoff` clamps negative values to `-1`, which `_scan_information_set` passes to the compiled scan.
+  A `cutoff` of zero or less never triggers an early exit for such a problem, and `_scan_cutoff` clamps negative values to `-1`, which `_scan_set` passes to the compiled scan.
   [Section 4.2](#42-flow-and-exit-points) lists where the `cutoff` is checked.
 - **Weight limit.**
   The same docstring states the contract of `max_weight`, and what inputs without nontrivial words give.

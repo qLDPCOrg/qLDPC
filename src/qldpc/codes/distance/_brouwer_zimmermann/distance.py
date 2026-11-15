@@ -2,19 +2,16 @@
 
 """Exact BZ searches with disjoint, overlapping, or automorphism families of information sets.
 
-The disjoint/rank-deficient certificates follow `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_;
-the symplectic reduction follows the `quantum-code adaptation <https://arxiv.org/abs/2408.10743>`_.
-The overlapping-set certificate and implementation invariants are derived in
-``brouwer_zimmermann.md`` in ``src/qldpc/codes/distance/``.
+The certificates of disjoint and rank-deficient information sets follow
+`Algorithm 994 <https://arxiv.org/abs/1603.06757>`_, and the symplectic reduction follows an
+`adaptation of the algorithm to quantum codes <https://arxiv.org/abs/2408.10743>`_.
+``brouwer_zimmermann.md`` in ``src/qldpc/codes/distance/`` derives the certificate of overlapping
+sets and the invariants of this implementation.
 
-Information-set families and their certificates are built in ``_information_sets/``, which
-fixed-weight logical counting shares.  Its ``basis_families.py`` builds the families, and
-``certificates.py`` their certificates.  Its ``automorphism_families.py`` builds families of the
-images of one information set under automorphisms, and ``completion_bounds.py`` the tables that let
-a scan skip hopeless supports.  Beside this module, ``affine_search.py`` holds the compiled scans of
-layers, and ``affine_instance.py`` packs the sets of a search with their certificate.  The coset
-searches share both.  This module owns witness discovery, early exits, and the resumable scans of
-layers in chunks.
+This module prepares each search, finds its witnesses, takes its early exits, and scans its layers
+in resumable chunks.  The families and their certificates come from ``_information_sets/``, and
+the compiled scans from ``affine_search.py``.  The package's ``README.md`` says where everything
+else lives.
 """
 
 from __future__ import annotations
@@ -76,11 +73,12 @@ def get_distance_brouwer_zimmermann_many(
             not in ``problems``, or ``max_weight + 1`` under a weight limit.  The searches stop
             once they certify that every word is at least this heavy.
         get_disjoint_basis_families: If given, holds a function for each problem that returns a
-            disjoint basis family of it: sets with pairwise disjoint pivot blocks that span the
-            problem's basis, with quotient labels of the problem, certified with this
-            ``weight_divisor``.  The result of ``basis_families.get_disjoint_family`` is one, and a
-            caller that keeps such families saves that first stage.  Each function is called only if
-            its search needs it.
+            disjoint basis family of it, such as the result of
+            ``basis_families.get_disjoint_family``.  Such a family holds sets with pairwise disjoint
+            pivot blocks that span the problem's basis, with the quotient labels of the problem,
+            and is certified with this ``weight_divisor``.  A caller that keeps these families
+            saves the searches that first stage.  Each function is called only if its search needs
+            it.
         get_automorphisms: If given, returns an array of generators of a group of column
             permutations, or None.  Row ``i`` of the array maps column ``j`` to column ``row[j]``.
             Each generator must map the searched space and the excluded subspace of every problem
@@ -164,32 +162,30 @@ class _BrouwerZimmermannSearch:
     images of that set under automorphisms of the problem, which complete each layer when the set
     does (see ``automorphism_families``).
 
-    ``lower_bound`` bounds the weights of the eligible words lighter than ``best``: the search
-    certifies that no eligible word weighs less than ``min(lower_bound, best)``, and it has finished
-    once ``lower_bound`` reaches ``best``.  An eligible word lighter than ``best`` cannot have been
-    examined or skipped, so the bounds of every family that the search has scanned hold for it.
-    ``lower_bound`` alone can exceed the weight of heavier words, such as the words of supports that
-    the search skipped, so a bound on the distance is ``min(lower_bound, best)``.
+    The search certifies that no eligible word weighs less than ``min(lower_bound, best)``, and it
+    has finished once ``lower_bound`` reaches ``best``.  ``lower_bound`` bounds only the eligible
+    words lighter than ``best``.  The search can neither have examined nor skipped such a word, so
+    the bounds of every family that it has scanned hold for it.  Heavier words, such as those of
+    supports that the search skipped, can weigh less than ``lower_bound``.
 
     ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
     The search calls it at most once, the first time that it considers switching to that family,
-    and then sets it to None.  If the search would partition, setup calls it first, and has the
-    search consider the switch at the end of setup.  Otherwise the search first considers the
-    switch before the first layer whose scan would cost at least
-    ``tuning.automorphism_minimum_layer_work`` candidate/set evaluations.  Either way, setup's cache
-    builds the family at most once, and the search switches to it if it predicts less work (see
-    ``_switch_to_automorphism_family``).  A search that declines keeps the family in
-    ``automorphism_family``, and its best weight then in ``declined_best``.  It considers the switch
-    again before a later such layer once its best weight has dropped below ``declined_best`` (see
-    ``_considers_automorphism_family``).
+    and then sets it to None.  If the search would partition, setup calls it first, and the search
+    considers the switch at the end of setup.  Otherwise the search first considers the switch
+    before the first layer whose scan would cost at least ``tuning.automorphism_minimum_layer_work``
+    candidate/set evaluations.  Either way, setup's cache builds the family at most once.  The
+    search switches to the family if it predicts less work (see ``_switch_to_automorphism_family``).
+    A search that declines keeps the family in ``automorphism_family``, and its best weight at that
+    time in ``declined_best``.  It considers the switch again before a later costly layer once its
+    best weight has dropped below ``declined_best`` (see ``_considers_automorphism_family``).
 
     A layer scans its sets one at a time, in the order of the family, with
-    ``affine_search.scan_information_set``.  A set whose block is an information set may skip the
-    supports whose last two rows cannot complete a word lighter than the best weight, with tables
-    that the completion fields of ``tuning`` choose for it (see ``completion_bounds``).
-    ``completion_tables`` keeps the most recently chosen tables, of the set
-    ``completion_tables_set``, for reuse in later layers of that set, until the search chooses
-    tables for another set, the basis changes, or the search finishes.
+    ``affine_search.scan_set``.  The scan of a set whose block is an information set may use
+    completion tables, which the completion fields of ``tuning`` choose for it (see
+    ``completion_bounds``).  The tables let the scan skip supports whose words cannot be lighter
+    than the best weight.  ``completion_tables`` keeps the most recently chosen tables, of the set
+    ``completion_tables_set``, for reuse in later layers of that set.  The search keeps them until
+    it chooses tables for another set, the basis changes, or the search finishes.
     """
 
     instance: affine_instance.AffineInstance
@@ -231,19 +227,19 @@ class _BrouwerZimmermannSearch:
     def advance(self) -> int:
         """Search the next coefficient layer, and return the best shared upper bound.
 
-        The search scans at most the fewest leading sets whose completion of the layer certifies the
-        best weight at the start of the layer, or every set if no fewer do (see
-        ``Certificate.get_num_sets_to_certify``).  It scans them one at a time, and stops after
-        fewer once the sets that it has scanned certify a lighter best weight that the layer found.
-        A search that uses an automorphism family scans its one set, which completes the layer for
-        the whole family.
+        The search scans the sets of the layer one at a time, in the order of the family.  It scans
+        at most the fewest leading sets whose completion of the layer certifies the best weight at
+        the start of the layer, or every set if no fewer do (see
+        ``Certificate.get_num_sets_to_certify``).  If the layer finds a lighter word, the search
+        stops once the sets that it has scanned certify the new best weight.  A search that uses an
+        automorphism family scans its one set, which completes the layer for the whole family.
         """
         if self.finished:
             return self.best
 
-        # Scan only the first sets of this layer if their completion of it certifies the best
-        # weight: an unvisited eligible word lighter than that would contradict the certificate, and
-        # lighter witnesses found during the scan only lower the best weight further.
+        # Scan only as many leading sets as certify the best weight.  An unvisited eligible word
+        # lighter than that weight would contradict the certificate, and the witnesses that the scan
+        # finds only lower the best weight further.
         weight = self.next_weight
         instance = self.instance
         certificate = instance.certificate
@@ -254,9 +250,9 @@ class _BrouwerZimmermannSearch:
             num_completed = certificate.get_num_sets_to_certify(weight, self.best)
             num_scanned = num_completed
 
-        # Before a costly layer, consider scanning one set and certifying with its images.  Like
-        # the work estimates of certificates, this estimate saturates at their cap, so that the
-        # largest threshold of a tuning forbids the switch.
+        # Before a costly layer, consider scanning one set and certifying with its images.  This
+        # estimate saturates at the cap of the work estimates of certificates, as they do, so that
+        # the largest threshold of a tuning forbids the switch.
         layer_work = min(num_scanned * math.comb(self.dimension, weight), certificates.WORK_CAP)
         if (
             self._considers_automorphism_family
@@ -269,11 +265,11 @@ class _BrouwerZimmermannSearch:
         # layer, so the scan stops after the first set whose step certifies the best weight
         # (Sections 2.5 and 3.9 of ``brouwer_zimmermann.md``).  ``certifies`` solves a linear
         # program only if the program could certify that weight.  Each set steps through the
-        # supports of the layer on its own, which made layers of many sets of short rows up to about
-        # 1.4 times slower than weighing each support in every set at once; the simpler scan is
-        # worth that.
+        # supports of the layer on its own, which keeps the scan simple.  On layers of many sets of
+        # short rows, this measured up to about 1.4 times slower than weighing each support in every
+        # set at once.
         for index in range(num_scanned):
-            if not self._scan_information_set(index, weight):
+            if not self._scan_set(index, weight):
                 return self.best
             if index + 1 < num_scanned and certificate.certifies(weight, index + 1, self.best):
                 num_completed = index + 1
@@ -292,13 +288,13 @@ class _BrouwerZimmermannSearch:
 
     @property
     def _scan_cutoff(self) -> int:
-        """The cutoff that the compiled scans take.
+        """The cutoff that the compiled scans take: ``cutoff``, clamped below at -1.
 
-        Any negative Python cutoff disables early exit, so it is passed as -1, within int64 range.
+        Every negative cutoff disables early exits alike, and -1 is within int64 range.
         """
         return max(-1, self.cutoff)
 
-    def _scan_information_set(self, index: int, weight: int) -> bool:
+    def _scan_set(self, index: int, weight: int) -> bool:
         """Scan a layer of the set ``index``, with the completion tables that it chooses, if any.
 
         The block of the set need not be an information set.  Returns False if the scan stopped at
@@ -313,7 +309,7 @@ class _BrouwerZimmermannSearch:
         # Scan in chunks, returning early once the upper bound reaches the cutoff.
         depth = 0
         while depth >= 0:
-            self.best, depth, _, _, _ = affine_search.scan_information_set(
+            self.best, depth, _, _, _ = affine_search.scan_set(
                 instance.generators[selected],
                 instance.labels[selected],
                 instance.ranks[selected],
@@ -366,12 +362,12 @@ class _BrouwerZimmermannSearch:
     def _considers_automorphism_family(self) -> bool:
         """Whether the search would consider switching to an automorphism family before a layer.
 
-        It would until it switches, or finds that the problem has no such family.  After it declines
-        the switch, it would only once its best weight has dropped.  At the same best weight, the
-        switch compares the same work of the automorphism family with the work left in the current
-        family, which only falls as the search completes layers, so it would decline again.  This
-        property is False right after any consideration, which ends the recursion of ``advance``
-        after it considers the switch.
+        It would until it has switched or has found that the problem has no such family.  After it
+        declines the switch, it would again only once its best weight has dropped.  At the same best
+        weight it would decline again: the work of the automorphism family is the same, and the
+        work left in the current family only falls as the search completes layers.  This property
+        is False right after every consideration, which ends the recursion of ``advance`` after it
+        considers the switch.
         """
         if self.get_automorphism_family is not None:
             return True
@@ -382,11 +378,11 @@ class _BrouwerZimmermannSearch:
 
         The first call gets the automorphism family, which the search keeps while it declines the
         switch.  The certificate of the automorphism family counts every layer of the scanned set,
-        so the search scans that set again from layer two.  The switch abandons the layers that the
-        current family has completed, so it compares the work of the automorphism family with the
-        work left in the current family, from its next layer.  The search keeps its lower bound.  An
-        eligible word lighter than the best weight is unvisited by both families, so the bounds of
-        both hold for it.
+        so after a switch the search scans that set again from layer two.  The switch abandons the
+        layers that the current family has completed.  So it compares the work of the automorphism
+        family with the work left in the current family, from its next layer.  The search keeps its
+        lower bound: an eligible word lighter than the best weight is unvisited by both families, so
+        the bounds of both hold for it.
         """
         if self.get_automorphism_family is not None:
             weight_divisor = self.instance.certificate.weight_divisor
@@ -427,13 +423,15 @@ def _prepare_brouwer_zimmermann_search(
 ) -> int | _BrouwerZimmermannSearch:
     """Prepare one BZ search, or return its result if setup already settles it.
 
-    The basis family stages of ``basis_families`` run in order, with distance-specific witness,
-    cutoff, and certificate exits between them.  ``tuning`` sets the thresholds of the stages.
-    ``get_disjoint_basis_family``, if given, returns the result of the first stage.
-    ``get_automorphisms``, if given, lets the search switch to an automorphism family before a
-    costly layer (see ``_BrouwerZimmermannSearch``).  If the search would partition, setup builds
-    that family first, skips matroid partitioning if that family predicts no more work than any
-    partitioned family could, and has the search consider switching to it at once.
+    The basis family stages of ``basis_families`` run in order.  Between them, setup returns early
+    if the rows of the family bring the best weight to the cutoff, or if its certificate already
+    proves the best weight.
+    ``tuning`` sets the thresholds of the stages.  ``get_disjoint_basis_family``, if given, returns
+    the result of the first stage.  ``get_automorphisms``, if given, lets the search switch to an
+    automorphism family before a costly layer (see ``_BrouwerZimmermannSearch``).  If the search
+    would partition, setup builds that family first.  It skips matroid partitioning if that family
+    predicts no more work than any partitioned family could, and has the search consider switching
+    to it at once.
     """
     dimension = len(basis)
     best = min(
@@ -447,7 +445,8 @@ def _prepare_brouwer_zimmermann_search(
     if best <= cutoff:
         return best
 
-    # The disjoint basis family's certificate also uses any inferred even ambient parity.
+    # The certificate of the disjoint basis family also uses any even parity of the words that the
+    # family infers.
     basis_family = (
         basis_families.get_disjoint_family(
             basis,
@@ -463,7 +462,8 @@ def _prepare_brouwer_zimmermann_search(
         return best
 
     basis_family = basis_families.prune_family(basis_family, upper_bound=best)
-    # Each basis family of an independent basis has a set, whose systematic rows complete layer one.
+    # A family of an independent basis has at least one set, and the systematic rows of its sets,
+    # which the upper bound above weighed, complete layer one.
     completed_weight = 1
     lower_bound = basis_family.certificate.lower_bound(completed_weight)
     if lower_bound >= best:
@@ -481,10 +481,10 @@ def _prepare_brouwer_zimmermann_search(
         )
     )
 
-    # Replace the basis family only when overlapping sets, built heuristically and then, for costly
-    # searches, by matroid partitioning, predict less certification work.  Partitioning is skipped
-    # if an automorphism family does no more work than any partitioned family could, since the
-    # search then switches to that family at once.
+    # Two stages may replace the basis family by overlapping sets: a heuristic, and then, for costly
+    # searches, matroid partitioning.  Each replaces it only if its sets predict less certification
+    # work.  Partitioning is skipped if an automorphism family does no more work than any
+    # partitioned family could, since the search then switches to that family at once.
     for get_replacement in (
         lambda family, best: basis_families.get_overlapping_family(
             basis,
@@ -540,8 +540,8 @@ def _prepare_brouwer_zimmermann_search(
         get_automorphism_family=get_automorphism_family,
     )
 
-    # A search whose setup found automorphisms, to decide whether to partition, has paid for them,
-    # so it first considers switching to their family at once rather than before a costly layer.
+    # If setup found automorphisms to decide whether to partition, it has already paid for them.  So
+    # the search considers switching to their family at once, rather than before a costly layer.
     # The rows of that family can lower the best weight, and its certificate can finish the search.
     if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
         search._switch_to_automorphism_family()
@@ -603,7 +603,7 @@ def _get_lightest_eligible_row_weight(
 ) -> int:
     """Return the weight of the lightest eligible row of a nested-code basis."""
     packed_basis = pack_bits(basis[get_eligible_rows(labels)])
-    # get row weights, summing in uint64 to avoid overflow in wide rows
+    # Sum the weights of the packed words of each row in uint64, so that wide rows cannot overflow.
     return int(np.bitwise_count(packed_basis).sum(axis=-1, dtype=np.uint64).min())
 
 

@@ -5,24 +5,16 @@
 The distance search (``distance.py``) and the coset searches of the coset-leader search
 (``coset.py``) run the same Brouwer-Zimmermann (BZ) search over the words of an affine space (see
 ``brouwer_zimmermann.md``).  The layers of this search add rows of an information set to an offset.
-An :class:`AffineInstance` holds what a search builds for its problem before it scans, rather than
-for each layer or query: the packed rows and quotient labels of the sets that it scans, their pivot
-columns and ranks, the certificate that bounds the Hamming weight of the words that it has not yet
-visited, and the factor that converts these bounds into bounds on the weights that the search
-compares.  A distance search builds another instance when it switches to an automorphism family.
-Each family with which a coset search of ``CosetLeaderSearch`` answers queries has a coset instance
-(see ``coset_routes.py``).  The offsets and stopping step of a coset search depend on the query, so
-the instance holds neither.
+An :class:`AffineInstance` holds what a search builds for its problem once, before it scans, rather
+than for each layer or query: its packed sets and their certificate.  The offsets and stopping step
+of a coset search depend on the query, so the instance holds neither.
 
-A distance instance packs the rows of each set with its pivot columns deleted, since a scan of a
-space restores their weight arithmetically.  Its certificate is the one that the distance search
-selects, with the proven divisor of eligible weights.  A coset instance packs the full rows of the
-sets of a family of information sets of its code, disjoint or overlapping, which a coset search
-weighs whole or, in a search that weighs Hamming weights, on its routes by tails, by tails derived
-from them (see ``coset_tables.CosetTails``).  Its certificate takes the maximum coverage of the
-family, and no divisor, since the words of a coset need not share the divisibility of the code.  If
-every word of the code has even Hamming weight, the Hamming weights of the words of each coset all
-have one parity instead, and the bounds of a coset may be rounded up to its parity.
+A distance search builds an instance with ``get_distance_instance``, and builds another when it
+switches to an automorphism family.  A coset search of ``CosetLeaderSearch`` has an instance from
+``get_coset_instance`` or ``get_coset_family_instance`` for each family with which it answers
+queries (see ``coset_routes.py``).  It weighs the full rows of these instances whole or, on the
+routes by tails of a search that weighs Hamming weights, by tails derived from them (see
+``coset_tables.CosetTails``).
 """
 
 from __future__ import annotations
@@ -52,8 +44,8 @@ class AffineInstance:
             axes, and no words for a problem without labels.
         widths: The number of words of ``generators`` that each scanned set uses.
         label_widths: The number of words of ``labels`` that each scanned set uses.  Every set
-            uses all of them, and the array holds a number for each set because each compiled scan
-            takes the one-element slice of the arrays of the set that it scans.
+            uses all of them.  The array holds a number for each set because each compiled scan
+            takes one-element slices of the arrays, for the set that it scans.
         pivots: The pivot columns of each scanned set, padded with -1, with shape ``(num_sets,
             dimension)``.  They are columns of the full rows, and are bit positions of the rows of
             ``generators`` only in a coset instance.
@@ -137,20 +129,24 @@ def get_coset_instance(
 ) -> AffineInstance:
     """Pack the disjoint information sets of independent generators for the coset search.
 
-    The rows keep every column.  The certificate takes no weight divisor, since the words of a coset
-    need not share the divisibility of the code, even if the family infers one.  Its coverage is
-    one, since the sets are disjoint.  ``random_column_orders`` is passed to
-    ``basis_families.get_disjoint_family``.  ``weight_factor`` is the weight factor of the instance.
-    It is two for a search of Pauli errors, since an error weighs at least half the Hamming weight
-    of the binary word that represents it in the search (see ``_get_pauli_search`` in ``coset.py``).
-    It is one for a search of X or Z parts.  Without generators, each coset is a single word, which
-    the search visits on layer zero of one empty set.
+    The rows keep every column.  The certificate takes no weight divisor, even if the family infers
+    one, since the words of a coset need not share the divisibility of the code.  Its coverage is
+    one, since the sets are disjoint.  Without generators, each coset is a single word, which the
+    search visits on layer zero of one empty set.
 
     If every generator has even Hamming weight, so does every word ``v`` of the code, and every word
     ``u + v`` of a coset has the parity of ``|u|``, since ``|u + v| = |u| + |v| - 2 |u ∩ v|``.  The
     bounds of each coset may then be rounded up to its parity (see ``get_weight_bounds``).  The
     coset search decides whether to, since only it knows whether some coset is odd (see
     ``coset_tables.get_search_tables``).
+
+    Args:
+        generators: Independent generators of the code, one in each row.
+        random_column_orders: Passed to ``basis_families.get_disjoint_family``.
+        weight_factor: The weight factor of the instance.  It is two for a search of Pauli errors,
+            since an error weighs at least half the Hamming weight of the binary word that
+            represents it in the search (see ``_get_pauli_search`` in ``coset.py``).  It is one for
+            a search of X or Z parts.
     """
     num_generators, num_columns = generators.shape
     if not num_generators:
@@ -177,8 +173,8 @@ def get_coset_family_instance(
     The family may hold disjoint sets, as in ``get_coset_instance``, or overlapping ones, such as
     those of ``basis_families.get_overlapping_family``.  The certificate takes the ranks and the
     maximum coverage of the family, and no weight divisor.  Its coverage bound holds for the words
-    of every coset as it does for the words of the code: a word of a coset adds a unique sum of the
-    rows of each set to the offset of the set, which is zero on the pivots of the set, so a word in
+    of every coset as it does for the words of the code.  A word of a coset adds a unique sum of the
+    rows of each set to the offset of the set, which is zero on the pivots of the set.  So a word in
     layer ``w`` or above of a set has at least as many ones on its pivots as a word of the code
     does.  ``weight_factor`` is the weight factor of the instance (see ``get_coset_instance``).
     """
