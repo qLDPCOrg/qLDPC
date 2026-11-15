@@ -505,7 +505,7 @@ The sum starts at `w = 1`, so it includes the systematic rows.
 A coset search of [Section 4.1](#41-module-map-and-layering) estimates the work of a query at a maximum weight `ω` in the same way.
 It sums from layer zero, which holds the offset, to the first step whose bound exceeds `ω`, and leaves out the search bases that the query skips.
 If no word of the coset weighs at most `ω`, the query examines or skips exactly that many words besides the word of its syndrome, and otherwise at most that many.
-It skips only words that completion tables prove to weigh more than `ω` ([Section 3.9](#39-skipping-completions-by-completion-tables)).
+Besides whole search bases, it skips only the words that completion tables prove to weigh more than `ω` ([Section 3.9](#39-skipping-completions-by-completion-tables)).
 Actual runtime also depends on basis construction, the width of packed words, and early improvements of the witness, so `W` is not a runtime guarantee.
 
 Exhaustive enumeration, which `method="brute_force"` runs and BZ searches never do, examines every eligible word.
@@ -743,7 +743,8 @@ It examined 1.1 to 2.2 times as many words as skipping at `h(ω)`.
 Skipping at `h(ω)` made the same decisions, and every `R` that it reported equaled the bound of a scan without tables.
 In those estimates, a lower bound of `ω + 1`, not rounded up to the parity of the coset, lowered the bounds of 162 queries without a word within `ω`.
 The estimates then made 1.6% to 3.5% more queries.
-These estimates were made before the searches of [Section 3.10](#310-minimum-weights-of-cosets) existed, when an estimate raised the maximum weight of its next query of a syndrome to the lower bound of the last, so a bound below `R` added a query that could not find a word.
+These estimates were made before the searches of [Section 3.10](#310-minimum-weights-of-cosets) existed.
+An estimate then raised the maximum weight of its next query of a syndrome to the lower bound of the last, so a bound below `R` added a query that could not find a word.
 A search for the minimum weight of a coset skips at `h(ω)` too until it finds a word within `ω` ([Section 3.10](#310-minimum-weights-of-cosets)).
 It then skips, when each scan starts, at the Hamming weight of its lightest word, less one where every word of the coset has its parity.
 
@@ -772,8 +773,8 @@ But building tables costs a few percent of the first layer that uses them, and m
 A search frees its tables when it finishes.
 The search of each sector of a joint search keeps its own tables until then, so a joint search can hold twice `completion_bound_max_table_bytes`.
 
-A count chooses tables in the same way, with `_StepTables` of [_counting/scan.py](_counting/scan.py), for each of its steps of two or more rows of an information set.
 A step of a count scans one layer of one set.
+A count chooses tables in the same way, with `_StepTables` of [_counting/scan.py](_counting/scan.py), for each of its steps of two or more rows of an information set.
 A count keeps the tables of the sets that it has used, within `completion_bound_max_table_bytes` in all between steps, and also holds the tables that it is building.
 Its steps scan the sets of a layer in turn, so when the tables of all sets do not fit, it rebuilds them in each layer, which the prediction counts.
 
@@ -808,7 +809,7 @@ In layer six of the X sector of the [[288, 12, 18]] code without its automorphis
 That layer took 0.81 times as long as without tables, for a predicted cost of 0.78, averaged over its bases.
 These ratios were measured against a scan without tables that weighed each support of a layer in all its bases at once, as searches then did.
 Searches now scan the bases one at a time.
-Without tables, that took 0.89 to 1.12 times as long as the earlier scan on the layers measured, so the cost ratios of these layers may now differ by about that factor.
+Without tables, scanning the bases one at a time took 0.89 to 1.12 times as long as the earlier scan on the layers measured, so the cost ratios of these layers may now differ by about that factor.
 Smaller layers, such as layer four of that lifted-product code, with `3.8 × 10^7` supports for each basis, were slower with tables, and a search that considers them declines the tables.
 
 ### 3.10 Minimum weights of cosets
@@ -842,8 +843,7 @@ A search of Pauli errors by CSS weight weighs words by that weight, and its scan
 For the CSS weight on a CSS state, the weight of a class of errors is the larger of the minimum weights of its X and Z parts.
 So `CosetLeaderSearch` searches the X part, and then, if its weight `w_x` is at most `ω`, the Z part with `w_x` as a floor.
 A word of the Z part within `w_x` ends that search, and gives the class the weight `w_x`.
-With the connected-cluster method too, `CosetLeaderSearch` searches each part once.
-Its connected-cluster searches find a minimum weight by trying increasing weight limits ([connected_cluster.md](connected_cluster.md)), and start the search of the Z part at the limit `w_x`.
+With the connected-cluster method too, `CosetLeaderSearch` searches each part once (see [the coset-leader search](README.md#the-coset-leader-search) of the package README).
 Certification still uses queries, which stop at the first word within their maximum weight.
 
 The searches for minimum weights were measured on the residual-weight estimates of the circuits of [Section 3.9](#39-skipping-completions-by-completion-tables), at `ω` of six and of eight, by either weight.
@@ -873,7 +873,6 @@ The rest of this section describes how the searches use those modules.
 The distance functions of [core.py](core.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py), which [connected_cluster.md](connected_cluster.md) describes.
 For the BZ search, they build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector that they search, and pass the resulting problems to `get_distance_brouwer_zimmermann_many`.
 `get_distance_css` passes both sectors of a CSS code at once.
-The functions pass the automorphisms that their caller gives to the search as a function, which calls any function that the caller gives at most once.
 "Automorphisms" in [Section 4.5](#45-behavior-spanning-files) says which automorphisms the code classes give, and how the functions lift them for Pauli strings.
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the automorphism families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), using the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
 
@@ -929,8 +928,8 @@ A query takes the table of the parity of the word of its syndrome.
 Each table has one more row that caches a stopping step.
 For a nonnegative maximum weight, `get_stopping_step` reuses the cached step of a table exactly while it stays the stopping step of that weight, and replaces it otherwise.
 
-`find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds the stopping steps of the coset searches, and of the distance searches whose certificates solve no linear programs, by a binary search of steps whose bounds never decrease.
-`plan_steps` also adds up the work of the steps up to the stopping step ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
+`find_stopping_step` of [_information_sets/certificates.py](_information_sets/certificates.py) finds the stopping steps of the coset searches by a binary search of steps whose bounds never decrease.
+`plan_steps`, which finds stopping steps with `find_stopping_step`, also adds up the work of the steps up to the stopping step ([Section 3.6](#36-work-estimates-and-exhaustive-enumeration)).
 The distance search finds the stopping step of each layer with `Certificate.plan`, through `Certificate.get_num_sets_to_certify`.
 `Certificate.plan` calls `find_stopping_step` when its certificate solves no linear programs.
 A certificate with linear programs instead checks the steps of the layer but the last in order with `certifies`, which solves each program only when the coverage bound falls short.
@@ -1137,7 +1136,7 @@ The Tuning section of [README.md](README.md) explains how searches read the thre
   A joint search shares the best bound between the searches of its sectors ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
   Each sector keeps its own `lower_bound` and the `certificate` of its `instance`, including its coverage and divisor.
 - **Automorphisms.**
-  The distance functions pass the automorphisms that their caller gives to their BZ searches, as a function.
+  The distance functions pass the automorphisms that their caller gives to their BZ searches, as a function, which calls any function that the caller gives at most once.
   `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` give a function that returns the code's `_found_qudit_automorphisms`, and that of `QuditCode` gives it to `get_distance_pauli`.
   That property uses bliss from `src/qldpc/external/_bliss.py`, or else the code's `_get_qudit_automorphisms` method.
   Each search calls the function only before a costly layer, or before matroid partitioning if it would partition, and the code caches its result, so bliss runs at most once for the code.
@@ -1172,7 +1171,8 @@ Changes to the BZ algorithm can use different representations, certificates, and
   The certificate of an automorphism family holds instead for every eligible word whose images under the automorphisms are all unexamined, so it requires automorphisms that map `V` and `S` onto themselves ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which searches verify before they use them.
 - **Skip only supports that a bound proves cannot lower `U`.**
   A search may skip supports only if a lower bound on the weight of every one of their words reaches `U` ([Section 3.9](#39-skipping-completions-by-completion-tables)).
-  The completion bounds of qLDPC rely on four properties: a minimum over every remaining pair of rows, disjoint blocks of columns, exactly `w` pivot ones, which hold only for a block that is an information set, and the order in which the scan sums the rows.
+  The completion bounds of qLDPC rely on four properties: a minimum over every remaining pair of rows; disjoint blocks of columns; exactly `w` pivot ones; and the order in which the scan sums the rows.
+  The third holds only for a block that is an information set.
   So the tables of a search basis must be built from its own rows, in its own order, also when a layer scans several search bases.
   A coset scan bounds the pivot ones instead by the rows of the prefix below the rank and the last two rows of the search basis, and its tails keep every column but the pivots, since an offset can have ones on columns where no row has one.
 - **Skip in a coset query only words beyond its maximum weight.**
