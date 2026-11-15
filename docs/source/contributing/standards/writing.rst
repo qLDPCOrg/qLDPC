@@ -60,6 +60,11 @@ Where documentation belongs
 * Keep each page focused on one topic or task, and small enough to read whole.
   When a page grows past that, split it by topic or task.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
+* In a package with a guide, such as ``codes/distance/``, state each correctness argument, such as why a bound holds or why a skip is sound, once, in the guide.
+  A docstring in the package states what its object computes, requires, and guarantees, and points to the section of the guide that gives the argument.
+* Put measurements that justify a design or tuning choice, such as timings, ratios, and counts, and the machines and workloads that produced them, in the pull request description, not in guides, docstrings, or comments.
+  Guides, docstrings, and comments explain such a choice by what it trades off, qualitatively or asymptotically.
+  Results that are the subject of a document, as in an example notebook, are not such measurements.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
 * After changing a notebook example, refresh its saved outputs by executing the entire canonical notebook in an offline, editable installation.

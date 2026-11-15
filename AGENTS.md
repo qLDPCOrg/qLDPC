@@ -54,6 +54,7 @@ A request to finish a change, as in "finish this PR", asks for steps 2 to 4.
 Run checks individually, never through `checks/all_.py`.
 Run tests over the whole repository only as part of the extended checks.
 Leave notebook runs and the GAP integration tests to CI.
+When you brief a subagent, quote the requester's statement of the goal of the work word for word, so that the subagent can check its work against it.
 
 ## Handing off a change
 

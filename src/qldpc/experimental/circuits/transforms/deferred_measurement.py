@@ -588,10 +588,10 @@ def _append_parity_gadget(
 # targets returned by stim.target_* functions, so that _get_circuit can then append instructions.
 # The fix leaves the constructors of stim.CircuitInstruction and stim.GateTarget slow, however, so
 # _GateTarget and _CircuitInstruction should stay: even with the fix, running the passes on stim's
-# own instructions and targets takes 5 to 11 times as long.
+# own instructions and targets takes several times as long.
 #
 # Once qLDPC requires stim 1.17, build output circuits by appending rather than by parsing text, as
-# follows.  Do not do so before then: with stim 1.16, appending is about 30 times slower.
+# follows.  Do not do so before then: with stim 1.16, appending is far slower.
 #
 # 1. Make _GateTarget.to_stim return a plain, uninverted qubit as its index, an int, rather than as
 #    stim.GateTarget(index), whose constructor stays slow.

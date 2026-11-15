@@ -209,7 +209,5 @@ Every skipped fault satisfies the bound, so skipping them would change neither t
 The search does not use this rule, because the time that it saves does not justify the added complexity.
 A trial implementation, in an earlier version of the search that worked with primitive faults rather than classes, applied the rule to each partial choice of primitive faults that contained a light primitive fault.
 It looked for such a Pauli error in the first two layers of the oracle's search of Pauli errors, at each light primitive fault added to a partial choice, and reused the answer for each heavy part.
-On color-code state preparations, certifications up to fault weight four took about as long as without the rule.
-In benchmarks that treated every listed fault as satisfying the bound, so that the search listed every fault, the rule made the search 1.1 to 1.2 times faster at fault weight five, and 1.7 times faster at fault weight six.
+It saved almost no time in certifications up to fault weight four, but its saving grew with the fault weight, so the rule may pay off for searches at larger fault weights.
 Two variants were slower: deciding exactly whether `μ(S G)` is small enough, and also applying the rule when adding the last primitive fault of a fault.
-The speed-up grows with the fault weight, so the rule may pay off for searches at larger fault weights.
