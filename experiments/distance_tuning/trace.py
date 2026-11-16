@@ -47,8 +47,6 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from qldpc.codes.distance import CSSLogicalCounter, _tuning, core, logical_counts
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
 from qldpc.codes.distance._connected_cluster import search as support_search
@@ -100,6 +98,14 @@ PARTITION_COVERAGES: list[int] | None = None
 
 # The kinds of workloads that the script can trace.
 TRACED_KINDS = ("distance", "hadamard", "count", "ccdistance", "mcount")
+
+# The stage that an overlapping family event records for each check of the library.
+OVERLAPPING_STAGES = {
+    basis_families._OverlappingCheck.NO_OPEN_SETS: "no open sets",
+    basis_families._OverlappingCheck.BELOW_MINIMUM_WORK: "below minimum work",
+    basis_families._OverlappingCheck.CANNOT_DO_LESS_WORK: "cannot do less work",
+    basis_families._OverlappingCheck.NONE: "built",
+}
 
 
 class SetupDone(Exception):
@@ -416,34 +422,20 @@ def get_overlapping_gate(
 ) -> dict[str, Any]:
     """The check that ends an attempt of ``basis_families.get_overlapping_family``, and its work.
 
-    The checks follow the source of ``get_overlapping_family``.  It keeps a family with no full
-    sets, with as many as the limit, or whose full sets pack every column; then one whose estimated
-    work is below ``minimum_work`` of the policy; and then one that no family of at most the limit
-    could beat.  Past these checks, it builds sets.
+    The stage is that of the check of ``basis_families._check_overlapping_family`` that keeps the
+    given family, or ``built`` if none does and the library builds sets.  The estimated work is that
+    of the given family, or None if it has no open sets.
     """
-    max_sets, minimum_work, _, binomials, _ = policy
-    dimension = basis.shape[0]
-    num_columns = int(np.count_nonzero(basis.sum(axis=0)))
-    ranks = basis_family.ranks
-    num_full = int(np.count_nonzero(ranks == dimension))
-    gate: dict[str, Any] = {"rows": dimension, "minimum_work": int(minimum_work)}
-    if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
-        return gate | {"stage": "no open sets", "estimated_work": None}
-    divisor = basis_family.weight_divisor
-    work = int(
-        basis_families.estimate_certificate_work(
-            dimension, ranks, divisor, basis_family.max_coverage, upper_bound, binomials
-        )
+    check, work, _ = basis_families._check_overlapping_family(
+        basis, basis_family, upper_bound, policy
     )
-    gate["estimated_work"] = work
-    if work < minimum_work:
-        return gate | {"stage": "below minimum work"}
-    optimistic_work = basis_families._estimate_optimistic_work(
-        dimension, num_columns, divisor, upper_bound, max_sets, binomials
-    )
-    if optimistic_work >= work:
-        return gate | {"stage": "cannot do less work"}
-    return gate | {"stage": "built"}
+    no_open_sets = check == basis_families._OverlappingCheck.NO_OPEN_SETS
+    return {
+        "rows": basis.shape[0],
+        "minimum_work": int(policy.minimum_work),
+        "estimated_work": None if no_open_sets else int(work),
+        "stage": OVERLAPPING_STAGES[check],
+    }
 
 
 def wrap_linear_program(function: Callable[..., Any]) -> Callable[..., Any]:

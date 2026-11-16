@@ -14,6 +14,7 @@ of the families of the coset searches.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import math
 from collections.abc import Callable
 from typing import NamedTuple, TypeVar
@@ -183,33 +184,23 @@ def get_overlapping_family(
     that follow their row operations, and is certified with its maximum coverage.  It has no sets if
     the construction does not run or finds no family that does less work (Section 4.4).
     """
-    max_sets, minimum_work, attempts_per_set, binomials, rng = policy
+    max_sets, _, attempts_per_set, binomials, rng = policy
     dimension = basis.shape[0]
+    weight_divisor = basis_family.weight_divisor
+
+    # Keep the family if a check rules a replacement out.
+    check, best_work, optimistic_work = _check_overlapping_family(
+        basis, basis_family, upper_bound, policy
+    )
+    if check != _OverlappingCheck.NONE:
+        return _get_no_replacement(basis_family, basis, labels)
+
+    # Find the nonzero columns, which the sets of the replacement can use, and the full sets of the
+    # family, which the replacement starts from.
     columns = np.flatnonzero(basis.sum(axis=0))
     num_columns = len(columns)
-    ranks = basis_family.ranks
-    full_indices = np.flatnonzero(ranks == dimension)
+    full_indices = np.flatnonzero(basis_family.ranks == dimension)
     num_full = len(full_indices)
-
-    # Replace only a family with full sets, which the replacement starts from.  Keep a family whose
-    # full sets use every nonzero column, or that already has the most full sets allowed.
-    if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
-        return _get_no_replacement(basis_family, basis, labels)
-
-    # Skip basis family construction when the existing search is already cheap.
-    weight_divisor = basis_family.weight_divisor
-    best_work = estimate_certificate_work(
-        dimension, ranks, weight_divisor, basis_family.max_coverage, upper_bound, binomials
-    )
-    if best_work < minimum_work:
-        return _get_no_replacement(basis_family, basis, labels)
-
-    # Skip basis family construction if no family of at most max_sets full sets could do less work.
-    optimistic_work = _estimate_optimistic_work(
-        dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
-    )
-    if optimistic_work >= best_work:
-        return _get_no_replacement(basis_family, basis, labels)
 
     # Track the coverage of each column and the distinct sets found so far, in arrays that grow on
     # demand, since the limit may be large.
@@ -539,6 +530,59 @@ def _get_disjoint_sets_for_columns(
         active_columns = active_columns[~np.isin(active_columns, pivots)]
 
     return information_sets
+
+
+class _OverlappingCheck(enum.Enum):
+    """The check of ``_check_overlapping_family`` that rules a replacement out, or ``NONE``."""
+
+    NONE = 0
+    NO_OPEN_SETS = 1
+    BELOW_MINIMUM_WORK = 2
+    CANNOT_DO_LESS_WORK = 3
+
+
+@compiled_on_request
+def _check_overlapping_family(
+    basis: npt.NDArray[np.uint8],
+    basis_family: BasisFamily,
+    upper_bound: int,
+    policy: OverlappingFamilyPolicy,
+) -> tuple[_OverlappingCheck, int, int]:
+    """Find the first check that rules out a replacement in ``get_overlapping_family``, if any.
+
+    The arguments are those of ``get_overlapping_family``.
+
+    Returns:
+        The check; the estimated work of ``basis_family`` to certify ``upper_bound``; and the least
+        work that any family of at most ``policy.max_sets`` full sets could do.  A work is -1 if an
+        earlier check rules a replacement out.
+    """
+    max_sets, minimum_work, _, binomials, _ = policy
+    dimension = basis.shape[0]
+    num_columns = len(np.flatnonzero(basis.sum(axis=0)))
+    ranks = basis_family.ranks
+    num_full = len(np.flatnonzero(ranks == dimension))
+
+    # Replace only a family with full sets, which the replacement starts from.  Keep a family whose
+    # full sets use every nonzero column, or that already has the most full sets allowed.
+    if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
+        return _OverlappingCheck.NO_OPEN_SETS, -1, -1
+
+    # Skip basis family construction when the existing search is already cheap.
+    weight_divisor = basis_family.weight_divisor
+    work = estimate_certificate_work(
+        dimension, ranks, weight_divisor, basis_family.max_coverage, upper_bound, binomials
+    )
+    if work < minimum_work:
+        return _OverlappingCheck.BELOW_MINIMUM_WORK, work, -1
+
+    # Skip basis family construction if no family of at most max_sets full sets could do less work.
+    optimistic_work = _estimate_optimistic_work(
+        dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
+    )
+    if optimistic_work >= work:
+        return _OverlappingCheck.CANNOT_DO_LESS_WORK, work, optimistic_work
+    return _OverlappingCheck.NONE, work, optimistic_work
 
 
 class _PartitionPlan(NamedTuple):
