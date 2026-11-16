@@ -36,8 +36,8 @@ Use judgment to point out when a change would be easier to review as a sequence 
 
 ## Decisions and recommendations
 
+Before adding or recommending process, such as a rule, a review step, or an experiment, follow the rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
 Make every recommendation, and present every decision, as [decisions and recommendations](docs/source/contributing/decisions.rst) describes.
-A request for "the standard format" refers to the format that it defines.
 
 ## Working on a change
 
@@ -57,7 +57,7 @@ Leave notebook runs and the GAP integration tests to CI.
 ## Handing off a change
 
 Hand a change to the maintainer to push only once it has passed its review and all repository changes for it, including new files, are committed.
-When handing off a change, give the following for each of its pull requests:
+When handing off a change, give the following for each of its pull requests in your message, not only in a file:
 
 1. Its review status, as [reviews](#reviews) describes.
    Then list each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, and each open decision, as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
@@ -72,6 +72,7 @@ When handing off a change, give the following for each of its pull requests:
 4. The description, in a `markdown` code block, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
    If the description contains code blocks, use a longer fence for it, such as four backticks.
 
+A request for a pull request's information, even "in the standard format", asks for the list above.
 If the change has more than one pull request, say whether they depend on each other and in which order they should merge.
 
 ## Protected files

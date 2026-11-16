@@ -32,6 +32,13 @@ Prose style
   * **Unclear without prior context:** ``Run a simulation and check the estimate.``
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
+* Fix unclear text by cutting or restructuring it before adding words.
+* When a text mentions an object, quantity, or concept more than once by a long description, give it a short name or a symbol, such as one that the code or the literature uses.
+  Then use that name, rather than repeating a long description or chaining noun phrases.
+
+  * **Repeated noun phrases:** ``If the rank of the checks equals the rank of their X parts plus the rank of their Z parts, ...``
+  * **Named once:** ``Let H_X and H_Z be the X and Z parts of the checks H.  If rank(H) = rank(H_X) + rank(H_Z), ...``
+
 * Use the serial (Oxford) comma before the conjunction in a list of three or more items, as in ``X, Y, and Z``.
 * Docstrings use the section format of the Google convention, such as ``Args:`` and ``Returns:``.
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
@@ -52,6 +59,11 @@ Where documentation belongs
 * Keep each page focused on one topic or task, and small enough to read whole.
   When a page grows past that, split it by topic or task.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
+* In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
+  Docstrings and comments in the package point to a guide's section rather than repeat its argument, and may state in a clause what that section proves.
+* Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
+  Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
+  Measurements that only check a choice made on other grounds, such as a heuristic, go in the pull request description when review needs them; a heuristic may still state the rough costs that it assumes.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
 * After changing a notebook example, refresh its saved outputs by executing the entire canonical notebook in an offline, editable installation.
