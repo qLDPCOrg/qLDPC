@@ -5,13 +5,15 @@
 Run with ``python -m experiments.code_annealing.figures.plot_error_rates``.  The figure
 ``error_rates.pdf`` has a column for each code type: the logical error rate per logical qubit of
 every code in the top row, and its discard rate per logical qubit in the bottom row, as functions
-of the physical error rate.  Each qubit suffers a depolarizing error with probability equal to the
-physical error rate, and each CSS sector is decoded by a lookup table of the errors that the code
-distance guarantees to correct, which flags the other syndromes as discarded.
+of the physical error rate ``p``.
 
-The simulations are the slow part, and are cached (see ``common.py``).  Use ``--max-qubits`` and
-``--code-types`` to select codes, and ``--num-samples`` for a quick run.  The figure goes to
-``figures/`` of the results directory.
+Each qubit has a depolarizing error with probability ``p``.  For a code of distance ``d``, each CSS
+sector is decoded by a lookup table of the errors of weight up to ``(d - 1) // 2``, which discards
+all other syndromes.  The logical error rate is the failure rate among the shots that the decoder
+keeps.
+
+The simulations take most of the time, and are cached in ``cache/`` of the results directory (see
+``common.py``).  The figure goes to ``figures/`` of the same directory.
 """
 
 from __future__ import annotations

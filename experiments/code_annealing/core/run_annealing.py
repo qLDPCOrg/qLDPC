@@ -2,54 +2,41 @@
 
 """Search binary CSS or SWEL codes by annealing, scoring each proposal exactly.
 
-Run with ``python -m experiments.code_annealing.core.run_annealing N K [options]`` to search codes
-with N physical and K logical qubits, or with ``--help`` for the options.  Exact enumeration is
-exponential, so use small ``--epochs`` and ``--steps-per-epoch`` for smoke tests, and ``--dry-run``,
-which writes nothing.
+Run ``python -m experiments.code_annealing.core.run_annealing N K [options]`` to search codes with N
+physical and K logical qubits.  Exact scoring is exponential in the code size, so try small
+``--epochs`` and ``--steps-per-epoch`` first, with ``--dry-run`` to write nothing.
 
-Every search but a dry run compiles the Python set-up of its exact counts before its pilot, or
-before its next epoch when it resumes.  This changes no result, and pays off over a long search.  It
-would slow down the counts of the ``--init-samples`` codes slightly, so they come first.
-``--skip-compile`` skips it for a short search.
+Starting code.  A new search starts from a random code, or from the lowest-energy code of
+``--init-samples`` random codes, which makes its first epochs less erratic.  ``--refine PATH``
+starts from a saved code instead (see Resuming).  A pilot then scores one epoch's worth of
+proposals to fit the first temperature.
 
-Starting code.  A new search starts from the first random code that it draws, or from the
-lowest-energy code of ``--init-samples`` random codes, which are scored exactly.  The energy of a
-random code varies a lot, and so does the first temperature, which a pilot fits to one epoch's worth
-of proposals from the starting code, so the lowest-energy code of many makes the first epochs less
-erratic.
+Files.  A run writes to ``results/logs/``, or to the ``logs/`` of ``--results-dir``:
 
-Files.  A run saves its chain checkpoint, such as ``css_n20_k04_s003.json`` for the code type css,
-20 qubits, 4 logical qubits, and seed 3, after every completed epoch, and records of its
-lowest-energy (``.lowest-energy.json``) and greatest-distance (``.greatest-distance.json``) codes as
-soon as either improves, so they keep discoveries of an unfinished epoch.  They go to
-``results/logs/``, or to the logs of ``--results-dir``.  ``--tag`` adds a suffix to the names, and
-``--output`` names the chain explicitly, relative to the current directory, like ``--resume`` and
-``--refine``.  A new search refuses to overwrite an existing file.  While a run is active it holds a
-lock on a ``.lock`` file beside its checkpoint, so that a second process cannot run the same chain.
-Redirect the progress that it prints to a ``.log`` file of the same name, as the jobs of
-``write_jobs.py`` do.  Standard output gets one JSON line of scores per epoch, which a seeded run
-repeats exactly.  Standard error gets the wall-clock times (UTC) at which the epochs of the run
-start or resume and at which each epoch finishes, and the counting method of each epoch with
-``--method auto``.
+- its chain checkpoint, such as ``css_n20_k04_s003.json`` (code type, n, k, seed), after the pilot
+  and after every epoch;
+- records of its lowest-energy and greatest-distance codes (``.lowest-energy.json`` and
+  ``.greatest-distance.json``) as soon as either improves, so that an interruption loses none;
+- a ``.lock`` file, which it holds while it runs.
 
-Resuming and refining.  ``--resume CHECKPOINT`` restores the saved policy, codes, scores, random
-generator, temperature, and epoch count exactly, so an interrupted and resumed run reproduces an
-uninterrupted one.  It rejects new code or policy options, and writes to the files of its
-checkpoint, so it takes no ``--tag`` or ``--output``.  An interruption loses only the unfinished
-epoch, never a record, and a replayed epoch never replaces a better record with a worse one.  The
-first checkpoint is saved after the pilot, so a run interrupted before then, while it scores its
-``--init-samples`` codes or its pilot, has no checkpoint and starts over.  ``--stop-after-epochs N``
-stops after N more complete epochs.  Exact restart needs the same numerical runtime, operating
-system, and architecture, and the same version of this code.  Otherwise, or to try new settings,
-``--refine PATH`` starts a new chain from the lowest-energy code of a chain checkpoint or from the
-code of a record, either of which may come from another runtime or schema version.
+``--tag`` adds a suffix to these names, and ``--output`` sets the path of the checkpoint, beside
+which the other files go.  A new search never overwrites existing files.  Standard output gets one
+JSON line of scores per epoch, which a run with the same options repeats exactly.  Standard error
+gets timestamps, and the method of each epoch with ``--method auto``.
 
-Scoring.  Every proposal is scored by its distance and its numbers of minimum-weight X-only and
-Z-only logical operators.  ``--method`` is ``auto`` (the default), or one of the exact methods of
-``CSSLogicalCounter.count_logical_ops``: ``brouwer_zimmermann``, ``macwilliams``, or
-``brute_force``.  Before the pilot and at the start of each epoch, ``auto`` races
-Brouwer--Zimmermann against MacWilliams and keeps the faster, or uses Brouwer--Zimmermann alone for
-codes of large check rank (see ``annealing.py``).
+Resuming.  ``--resume CHECKPOINT`` continues a chain from its last completed epoch, and reproduces
+the uninterrupted run.  It checks that the Python, NumPy, SciPy, and Numba versions, the operating
+system, and the architecture match the checkpoint.  The qLDPC and experiment code must match too,
+which it does not check.  It takes no code, policy, ``--tag``, or ``--output`` options.  A run
+interrupted before its first checkpoint must start over.  ``--refine PATH`` starts a new chain,
+with new options, from the lowest-energy code of a checkpoint or from the code of a record, written
+by any runtime.
+
+Scoring.  ``--method`` is ``auto`` or an exact method of ``CSSLogicalCounter.count_logical_ops``.
+All give the same scores.  The default, ``auto``, chooses between Brouwer--Zimmermann and
+MacWilliams at every epoch (see ``_select_method`` in ``annealing.py``).  Every run but a dry run
+compiles the set-up of its counts, which pays off only in a long search.  ``--skip-compile`` skips
+it.
 """
 
 from __future__ import annotations
@@ -118,7 +105,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     if output is not None and new_files:
         _check_output_is_free(parser, output)
 
-    # Only a chain checkpoint can be resumed, so that a lock file is never left beside another file.
+    # Check that --resume names a chain checkpoint before locking it, so that no lock file is
+    # created beside a record.
     if args.resume is not None:
         if not args.resume.is_file():
             parser.error(f"{args.resume} is not a file")
@@ -393,7 +381,7 @@ def _run_search(
     dry_run: bool,
     stop_after_epochs: int | None,
 ) -> None:
-    """Run the remaining epochs, saving the chain and its two records as they improve."""
+    """Run the remaining epochs, saving the chain after each, and its records as they improve."""
 
     def save_and_report_epoch(state: SearchState) -> None:
         if not dry_run:
@@ -425,7 +413,8 @@ def _run_search(
         f"epochs started at {_get_time()}, after {state.completed_epochs} completed epochs",
         file=sys.stderr,
     )
-    # Save the initial chain and its pilot optima, so that even an interrupted first epoch is kept.
+    # Save the initial chain and its pilot optima, so that a run interrupted in its first epoch can
+    # resume.
     if not dry_run:
         if not output.exists():
             save_checkpoint(state, output)

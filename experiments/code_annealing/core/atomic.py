@@ -57,7 +57,7 @@ def hold_lock(path: Path) -> Iterator[None]:
 def write_text_atomic(destination: str | Path, text: str) -> None:
     """Replace a file with text, atomically, after the text is flushed to disk.
 
-    Temporary files are removed on every exit, so a failure leaves the previous file untouched.
+    A failure leaves the previous file untouched, and no temporary file.
 
     On a network file system, such as NFS, a client can send a rename again after the first attempt
     succeeded, and the second attempt then fails because the temporary file is gone.  So after such

@@ -4,18 +4,20 @@
 
 Run with ``python -m experiments.code_annealing.analysis.scrape_qecdb``, which needs network access.
 
-For every annealed code ``[[n, k, d]]`` of the two code files, this finds the best known
-neighbors in the database: the smallest ``n`` with at least the same ``k`` and ``d``, the largest
-``k`` with at most the same ``n`` and at least the same ``d``, and the largest ``d`` with at most
-the same ``n`` and at least the same ``k``.  CSS codes are compared with the CSS codes of the
-database, and SWEL codes with its self-dual CSS codes.  The script prints, and saves to the data
-file ``data/scrape_qecdb_YYYY-MM-DD.txt`` of the results directory, one line per annealed code,
-``(n, k, d) n_best k_best d_best id_n id_k id_d``, in one block per code file, with ``None`` for a
-neighbor that the database does not have.  Each ID is the ID at qecdb.org, as in
-``https://qecdb.org/codes/ID``, of a code that has the parameter of its neighbor: the first code
-that the database lists, since several codes may share the best value.  The distance of an
-annealed code is the one that its code file claims, and that of a database code is the one that
-the database lists.
+For each annealed code ``[[n, k, d]]`` of the two code files, this finds three best known neighbors
+in the database:
+
+- ``n_best``, the smallest ``n`` of a code with at least ``k`` and ``d``;
+- ``k_best``, the largest ``k`` of a code with at most ``n`` and at least ``d``;
+- ``d_best``, the largest ``d`` of a code with at most ``n`` and at least ``k``.
+
+CSS codes are compared with the database's CSS codes, and SWEL codes with its self-dual CSS codes.
+Each annealed code has the distance that its code file claims, and each database code the
+parameters that the database lists.  The script prints, and saves to
+``data/scrape_qecdb_YYYY-MM-DD.txt`` of the results directory, one line
+``(n, k, d) n_best k_best d_best id_n id_k id_d`` per annealed code, in one block per code file,
+with ``None`` for a missing neighbor.  Each ID is that of the first code at qecdb.org with the
+neighbor's value, as in ``https://qecdb.org/codes/ID``.
 
 The database grows, and may come to list the annealed codes themselves, so a data file records the
 database on the date of its scrape (in UTC), which its name carries.  ``latex_tables.py`` reads the

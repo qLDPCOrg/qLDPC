@@ -3,15 +3,14 @@
 """Sample random codes, and save their exact distances and numbers of minimum-weight operators.
 
 Run with
-``python -m experiments.code_annealing.baseline.run_random N K [MIN_DISTANCE] --num-seeds 100``.
-This is the baseline for annealing: single random codes of the same sizes as annealed codes, with
-at least the minimum distance, a general CSS code for ``--code-type css`` and a SWEL code for
-``--code-type swel``.  These are not the starting codes of the campaign, whose searches start
-from the lowest-energy code of many random codes, and whose CSS searches start from self-dual codes.
-Each seed gives one code, and one line ``seed distance count`` of a file in the logs of the results
-directory named like ``random_css_n30_k04_d5_s0-99.txt``, where ``count`` is the number of
-minimum-weight X-only plus Z-only logical operators.  The seeds run from ``--first-seed`` for
-``--num-seeds`` seeds, and ``plot_random_histogram.py`` reads the files.
+``python -m experiments.code_annealing.baseline.run_random N K [MIN_DISTANCE] [--num-seeds S]``.
+This is the baseline for annealing: random codes of the same sizes as annealed codes, with at least
+the minimum distance, a general CSS code for ``--code-type css`` and a SWEL code for
+``--code-type swel``.  Unlike the campaign's starting codes (see ``write_jobs.py``), each is a
+single random code.  Each seed gives one code, and one line ``seed distance count`` of a file in the
+logs of the results directory named like ``random_css_n30_k04_d5_s0-99.txt``, where ``count`` is the
+number of minimum-weight X-only plus Z-only logical operators.  The seeds run from ``--first-seed``
+for ``--num-seeds`` seeds, and ``plot_random_histogram.py`` reads the files.
 """
 
 from __future__ import annotations

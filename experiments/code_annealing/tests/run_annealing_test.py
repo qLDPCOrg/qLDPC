@@ -98,7 +98,7 @@ def test_a_dry_run_writes_nothing(tmp_path: Path) -> None:
 
 
 def _get_args(seed: int = 7) -> list[str]:
-    """A search of the Steane code size with two epochs of eight proposals, which reject some."""
+    """A search of the Steane code size with two epochs of eight proposals, some rejected."""
     return ["7", "1", "--epochs", "2", "--steps-per-epoch", "8", "--seed", str(seed)]
 
 

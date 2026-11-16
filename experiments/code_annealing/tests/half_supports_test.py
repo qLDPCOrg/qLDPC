@@ -72,8 +72,9 @@ def test_reduced_generators_have_the_least_weights_of_any_generators_of_the_same
     # trying all sets of nonzero words, are the oracle.  In the first space, adding one row to
     # another never lowers its weight, so a reduction by sums of pairs of rows stops at a total
     # weight of 8, but the sum of all three rows has weight 2, and the least total weight is 7.  In
-    # the second space, an elimination that tests the word itself at the first one of each kept row,
-    # rather than what remains of it, keeps a third row that is the sum of the first two.
+    # the second space, an independence check that reads the bit of the word itself at the pivot of
+    # each kept row, rather than that of its remainder, would keep a third row equal to the sum of
+    # the first two.
     rng = np.random.default_rng(0)
     matrices = [
         galois.GF2([[1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 0, 1], [0, 0, 0, 0, 1, 1, 1]]),

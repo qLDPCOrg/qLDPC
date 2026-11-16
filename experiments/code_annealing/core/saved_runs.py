@@ -2,12 +2,9 @@
 
 """Saved runs: finding their files, and checking the codes in them against exact scores.
 
-A run saves a chain checkpoint (``kind="chain"``), which holds its lowest-energy and
-greatest-distance codes, and one record for each of those codes as soon as it improves
-(``lowest-energy`` and ``greatest-distance``), which survives an interrupted epoch.
-``load_saved_codes`` recomputes the exact score of every code, so it never trusts a saved score.
-``load_progress`` reads the saved scores without rechecking them, which is fast enough for a report
-of progress.
+``load_saved_codes`` loads the optima of chain checkpoints and the codes of records (see
+``checkpoints.py``), and recomputes every score instead of trusting the saved one.
+``load_progress`` reads saved scores without rechecking them, for a quick report of progress.
 """
 
 from __future__ import annotations
@@ -90,7 +87,7 @@ class SavedCode:
 
 @dataclass(frozen=True)
 class RunProgress:
-    """How far a chain has run, read from its checkpoint without rechecking any code."""
+    """How far a chain has run, from its checkpoint."""
 
     code_type: CodeType
     num_qubits: int
@@ -98,7 +95,7 @@ class RunProgress:
     completed_epochs: int
     epochs: int
     greatest_distance: Score
-    """The saved score of the greatest-distance code so far, which this module does not recheck."""
+    """The saved score of the greatest-distance code so far."""
 
     @property
     def finished(self) -> bool:
@@ -126,7 +123,7 @@ def load_saved_codes(paths: Iterable[Path]) -> list[SavedCode]:
     """Load the codes of saved chains and records, recomputing every score exactly.
 
     The runtime of a run need not match the current one: loading verifies scores, not that a seeded
-    restart would reproduce the chain.  No failure is skipped silently.
+    restart would reproduce the chain.
 
     Returns:
         The lowest-energy and greatest-distance codes of every chain checkpoint, and the code of

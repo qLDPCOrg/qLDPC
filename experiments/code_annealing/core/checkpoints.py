@@ -5,7 +5,7 @@
 A chain checkpoint (``kind="chain"``) holds everything needed for an exact restart.  A
 ``lowest-energy`` or ``greatest-distance`` record preserves one code, as soon as it is found, and
 cannot restart a chain.  All of them carry the current ``SCHEMA_VERSION`` and store every code
-as hexadecimal strings, so codes of more than 64 qubits never pass through imprecise JSON numbers.
+as hexadecimal strings, which every JSON reader decodes exactly.
 """
 
 from __future__ import annotations
@@ -37,9 +37,9 @@ from .annealing import (
 )
 from .atomic import write_atomic
 
-# Bump the version when a change would make a resumed chain differ from an uninterrupted one, in
-# the proposals, the energy, the temperature fit, or the scores, so that checkpoints of the earlier
-# behavior are refused.
+# Bump the version when the file format changes, or when a change to the proposals, energy,
+# temperature fit, or scores would change how a checkpoint continues.  ``load_code`` reads the codes
+# of every version, so ``encode_code`` must not change.
 SCHEMA_VERSION = 1
 
 # The kinds of record that a chain preserves beside its checkpoint, each in a file of its own.
@@ -338,7 +338,9 @@ def _decode_history(records: list[dict[str, Any]]) -> list[EpochStatistics]:
 
 
 def _get_runtime_versions() -> dict[str, str]:
-    """The library and platform versions that a resumed chain must match.
+    """The Python, NumPy, Numba, and SciPy versions, operating system, and architecture.
+
+    A resumed chain must match them.  The qLDPC and experiment code are not checked.
 
     A restored random state alone cannot reproduce a chain whose samplers or temperature solver
     changed.

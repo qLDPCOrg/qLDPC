@@ -2,36 +2,24 @@
 
 """Count the half and majority supports of the minimum-weight logical operators of codes.
 
-These counts estimate the logical error rates of the annealed codes at low physical error rates (see
-``figures/plot_error_estimates.py``).  The simulations decode each sector by a lookup table of the
-errors of weight up to ``(d - 1) // 2`` and discard all other syndromes, so the decoder completes a
-minimum-weight logical operator when ``d // 2 + 1`` qubits of its support err.  Call the subsets of
-``(d + 1) // 2`` qubits of a support its half supports, and those of ``d // 2 + 1`` qubits its
-majority supports.  For odd ``d``, they are the same.  For even ``d``, they count different events,
-so both are counted: errors on all qubits of a half support are discarded.  Errors on a majority
-support are logical errors, which the estimates of logical error rates use.
+For a code of distance ``d``, the half supports are the distinct sets of ``(d + 1) // 2`` qubits
+that lie in the support of a minimum-weight X-only or Z-only logical operator, and the majority
+supports are those of ``d // 2 + 1`` qubits.  They coincide for odd ``d``.
+``figures/plot_error_estimates.py`` estimates logical error rates from the numbers of operators and
+of majority supports, and explains why.
 
-Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  For
-every code of the two text files of annealed codes, the script prints one line, and saves the same
-text to ``data/half_supports.txt`` of the results directory (with ``--max-qubits``, which selects
-only some of the codes, it only prints)::
-
-    [n, k, d] mx/mz hx/hz
-
-where ``d`` is the distance, and ``mx`` and ``mz`` are the numbers of minimum-weight X-only and
-Z-only logical operators, which are the numbers of their distinct supports.  The numbers ``hx`` and
-``hz`` are those of the half supports, the distinct subsets of ``(d + 1) // 2`` qubits that lie in
-the supports of the X-only and Z-only operators, respectively.  For even ``d``, the numbers ``gx``
-and ``gz`` of majority supports, of ``d // 2 + 1`` qubits, follow in parentheses.
-Everything is recomputed exactly, and a code whose distance or number of minimum-weight logical
-operators differs from the claims of its code file is an error.  The text has one block for each
-code file: a line with the file name, a line for each code, and a blank line.  For example::
+Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  The
+script recounts every code of the two code files exactly, and fails if a count differs from its
+header.  It prints a line for each code, in a block for each code file, and saves the text to
+``data/half_supports.txt`` of the results directory unless ``--max-qubits`` skips codes::
 
     annealed_codes.txt
     [7, 1, 3] 7/7 21/21
     [20, 4, 4] 5/5 30/30 (20/20)
 
-``read_half_supports`` reads the text back for the figure scripts.
+Each line gives ``[n, k, d]``, the numbers ``mx/mz`` of minimum-weight X-only and Z-only logical
+operators, the numbers ``hx/hz`` of half supports, and, for even ``d``, the numbers ``(gx/gz)`` of
+majority supports.  ``read_half_supports`` reads the file back.
 """
 
 from __future__ import annotations

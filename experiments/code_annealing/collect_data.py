@@ -1,25 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Turn the logs of a campaign into data: the best codes, and tables computed from them.
+"""Collect the best codes of a campaign's logs, and the data computed from them.
 
-Run with ``python -m experiments.code_annealing.collect_data [--scrape] [--test]``.  The script
-runs the scripts of ``analysis/``, in order, on the same results directory:
+Run with ``python -m experiments.code_annealing.collect_data [--scrape] [--test]``.  The script runs
+these scripts of ``analysis/`` on the results directory, in order:
 
-1. ``collect_annealed_codes`` saves the best code of each size that the logs hold, with the codes
-   that earlier collections found, to ``data/annealed_codes.txt`` (CSS) and
-   ``data/annealed_codes_swel.txt`` (SWEL).  Every code is recounted exactly.
-2. ``half_supports`` counts the half and majority supports of those codes (subsets of the supports
-   of their minimum-weight logical operators), and saves the counts to ``data/half_supports.txt``.
-3. With ``--scrape``, ``scrape_qecdb`` asks qecdb.org about the best known codes next to each code,
-   which needs network access, and saves the answers to ``data/scrape_qecdb_YYYY-MM-DD.txt``, named
-   by the date of the scrape.
-4. ``latex_tables`` writes the LaTeX tables of the codes, with a comparison with qecdb.org from the
-   newest scrape, to ``data/table_css.tex`` and ``data/table_swel.tex``, and the listings of the
-   codes to ``data/listing_css.txt`` and ``data/listing_swel.txt``.  This step is skipped if there
-   is no scrape, or if the newest one cannot be read or the codes changed since it.
+1. ``collect_annealed_codes`` keeps the best code of each size, from the logs and from earlier
+   collections, and recounts each exactly.
+2. ``half_supports`` counts the half and majority supports of those codes.
+3. With ``--scrape``, ``scrape_qecdb`` saves a dated comparison with qecdb.org, which needs network
+   access.
+4. ``latex_tables`` writes the LaTeX tables and listings of the codes, compared with the newest
+   scrape.  It is skipped if there is no scrape, or if the newest one is unreadable or does not
+   match the current codes.
 
-Pass ``--test`` to collect the data of the smoke-test campaign of ``write_jobs.py --test``.  Every
-step can be run alone, with more options, as ``python -m experiments.code_annealing.analysis.NAME``.
+The files go to ``data/`` of the results directory, and ``README.md`` lists them.  Each step also
+runs alone, with more options, as ``python -m experiments.code_annealing.analysis.NAME``.
 """
 
 from __future__ import annotations

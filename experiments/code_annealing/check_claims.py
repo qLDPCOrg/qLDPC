@@ -10,11 +10,11 @@ prints what it observes:
    recounted exactly.
 2. How many codes of each code type meet or exceed the stabilizer and the CSS Gilbert-Varshamov
    bounds (the columns delta_QGV and delta_CSS of the paper's table).
-3. How many codes of each code type no code that qecdb.org listed on the date of the snapshot
-   matches or betters in all of ``n``, ``k``, and ``d``, by the parameters that the database
-   listed, which are a trusted input rather than recomputed.
+3. How many codes of each code type no code at qecdb.org dominates: none that the database listed
+   on the date of the snapshot is at least as good in all of ``n``, ``k``, and ``d``.  The
+   database's parameters are a trusted input, not recomputed.
 4. The order of the group of logical Clifford gates, modulo logical Pauli gates, that the
-   SWAP-transversal automorphisms of the [[20, 6, 4]] SWEL code generate; the paper reports 2304.
+   SWAP-transversal automorphisms of the [[20, 6, 4]] SWEL code generate.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     order = _get_group_order(
         [_get_symplectic_matrix(get_logical_tableau(code, gate)) for gate in _read_gates()]
     )
-    print(f"   {order} gates modulo logical Pauli gates (the paper reports 2304)")
+    print(f"   {order} gates modulo logical Pauli gates")
 
 
 ####################################################################################################

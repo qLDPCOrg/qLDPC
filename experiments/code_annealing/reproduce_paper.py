@@ -1,25 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check the codes that the paper reports, and rebuild its table and figures from them.
+"""Check the paper's codes, and rebuild its table and figures from them.
 
-Run with ``python -m experiments.code_annealing.reproduce_paper [--skip-figures]``.  The paper's
-best codes and its snapshot of qecdb.org are kept in ``paper_data/``, which no script writes.  The
-script copies them to the ``paper/data/`` subdirectory of the results directory, and runs three
-scripts on that subdirectory, in order:
+Run with ``python -m experiments.code_annealing.reproduce_paper [options]``.  The script copies the
+files of ``paper_data/`` to ``paper/data/`` of the results directory, and runs three steps on the
+copies:
 
-1. ``analysis/half_supports`` recounts every code exactly, which checks the distance and the number
-   of minimum-weight logical operators that the paper reports, and counts the half supports that
-   the figure of error estimates needs.
-2. ``analysis/latex_tables`` writes the table of the codes, compared with the paper's snapshot of
-   qecdb.org even if the directory holds a newer scrape, to ``paper/data/table_css.tex`` and
-   ``paper/data/table_swel.tex``, which a LaTeX document includes with ``\\input``, and the
-   listings of the codes of the paper's appendix to ``paper/data/listing_css.txt`` and
-   ``paper/data/listing_swel.txt``.
-3. ``make_figures`` simulates the codes, and saves the paper's figures to ``paper/figures/``,
-   together with ``error_rates.pdf``, which shows both code types in one figure.
+1. ``analysis/half_supports`` recounts every code exactly, and counts the supports that the figure
+   of error estimates uses.
+2. ``analysis/latex_tables`` writes the table and the listings of the paper's appendix, compared
+   with the paper's snapshot of qecdb.org.
+3. ``make_figures`` simulates the codes, and saves the figures to ``paper/figures/``.
 
-The simulations take most of the time.  Pass ``--skip-figures`` for the first two steps alone, or a
-small ``--num-samples`` and ``--max-qubits`` for a quick look at the figures.
+The figures take most of the time, and ``--skip-figures`` skips them.  ``REPRODUCTION.md`` maps each
+table and figure of the paper to its output files.
 """
 
 from __future__ import annotations
@@ -37,9 +31,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = make_parser(__doc__)
     parser.add_argument("--skip-figures", action="store_true", help="do not simulate the codes")
     parser.add_argument(
-        "--max-qubits", type=int, help="plot only the codes with at most this many qubits"
+        "--max-qubits", type=int, help="skip codes with more qubits, for a quick look"
     )
-    parser.add_argument("--num-samples", type=int, help="errors to sample for each code")
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        help="errors to sample for each code (default: that of make_figures); a small number gives"
+        " a quick look",
+    )
     add_results_dir_argument(parser)
     args = parser.parse_args(argv)
 

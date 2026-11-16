@@ -4,7 +4,8 @@
 
 A search moves between codes of the same size by proposals: each proposal conjugates the current
 code by a random gate on a few qubits, which keeps its numbers of physical and logical qubits.  A
-search starts from a random initial code, drawn by conjugating a trivial code by a random Clifford.
+new search can start from a random initial code, drawn by conjugating a trivial code by a random
+CSS-preserving Clifford.
 
 A SWEL code is a self-dual CSS code that has a basis of logical operators with equal X and Z parts
 (self-dual with equivalent logicals), so that a transversal Hadamard gate acts as a logical Hadamard
@@ -42,20 +43,19 @@ def random_initial_codes(
     seed: int = 0,
     self_dual: bool = False,
 ) -> Iterator[CSSLogicalCounter]:
-    """An endless stream of random initial codes, which are not checked for their distance.
+    """An endless stream of random initial codes, determined by the seed.
 
-    Each code is the trivial code of the given size conjugated by a random Clifford: a uniformly
-    random invertible matrix for a general CSS code, or a random walk of SWEL gates for a self-dual
-    code, of 30 gates per qubit, which makes no claim of uniform sampling from the orthogonal group.
-    The stream is determined by the seed.
+    Each code is a trivial code of the given size conjugated by a random CSS-preserving Clifford:
+    a uniformly random invertible matrix for a general CSS code, or, for a self-dual code, a walk
+    of 30 SWEL gates per qubit, which is not known to sample the orthogonal group uniformly.
+    Distances are not checked.
 
     Args:
         num_qubits: Physical block length.
         num_logicals: Positive number of encoded qubits, at most num_qubits.
         seed: NumPy initialization seed.  The stream of codes differs from the search's generator,
             which uses the same integer.
-        self_dual: Draw self-dual (SWEL) codes, by scrambling a code of trivial logical qubits and
-            Bell pairs with SWEL gates, instead of general CSS codes.
+        self_dual: Draw self-dual (SWEL) codes instead of general CSS codes.
 
     Raises:
         ValueError: If the code size is invalid, or a self-dual code cannot have it.

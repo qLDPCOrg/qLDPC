@@ -3,13 +3,11 @@
 """Report how many annealing runs of each code size have finished.
 
 Run with ``python -m experiments.code_annealing.progress_report [--test]``.  The script prints a
-table with a row for each code size that the logs hold, which shows for each code type the runs
-that have finished all their epochs out of all runs that have started, and the best code of any of
-them so far: the greatest distance with its number of minimum-weight logical operators.  A search
-appears once it has saved a checkpoint, so searches that have not started, or that failed before
-their first checkpoint, are missing: look for the reason in the ``.log`` files of the logs.  The
-script reads the chain checkpoints only, so it is fast and does not recheck any code.  Pass
-``--test`` to report on the smoke-test campaign of ``write_jobs.py --test``.
+table with a row for each code size in the logs.  For each code type, it shows the finished runs out
+of the runs with a checkpoint, and the best code that any of them has found: its distance and its
+number of minimum-weight logical operators.  The script reads only the chain checkpoints, so it is
+fast and rechecks no code.  A run appears once it has saved its first checkpoint: look for a missing
+run's error in its ``.log`` file in the logs.
 """
 
 from __future__ import annotations
@@ -50,7 +48,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         lines.append(f"{num_qubits:>2} {num_logicals:>3} | " + " | ".join(cells))
     print("\n".join(line.rstrip() for line in lines))
     print(
-        "finished = finished runs / runs started; (d, count) = distance and minimum-weight logicals"
+        "finished = finished runs / runs with a checkpoint; (d, count) = distance and minimum-weight logicals"
     )
 
 

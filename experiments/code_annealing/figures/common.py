@@ -347,13 +347,14 @@ def add_code_arguments(parser: argparse.ArgumentParser) -> None:
         help="code types to plot (default: all)",
     )
     parser.add_argument(
-        "--max-qubits", type=int, help="skip codes with more qubits, for a quick run"
+        "--max-qubits", type=int, help="skip codes with more qubits, for a quick look"
     )
     parser.add_argument(
         "--num-samples",
         type=int,
         default=DEFAULT_NUM_SAMPLES,
-        help="total errors to sample for each code (default: %(default)s)",
+        help="errors to sample for each code (default: %(default)s); a small number gives a quick"
+        " look",
     )
     parser.add_argument(
         "--max-error-rate",

@@ -2,12 +2,8 @@
 
 """Command-line options that the scripts of the experiment share.
 
-Every script that reads or writes a results directory accepts ``--results-dir`` to use another
-directory instead of ``results/``.  The scripts ``write_jobs``, ``collect_data``,
-``progress_report``, and ``make_figures`` also accept ``--test``, which makes them use the ``test/``
-subdirectory of the results directory, so that a trial never mixes with the real results.  With
-``--test``, ``write_jobs`` also writes searches at smoke-test scale, and ``make_figures`` samples
-fewer errors.
+``--results-dir`` moves the results directory, and ``--test`` selects its ``test/`` subdirectory,
+which holds the smoke-test campaign of ``write_jobs --test``.
 """
 
 from __future__ import annotations
@@ -43,7 +39,7 @@ def add_results_dir_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def add_test_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the option that selects the ``test/`` subdirectory, for the campaign of ``--test``."""
+    """Add the option that selects the ``test/`` subdirectory of the results directory."""
     parser.add_argument(
         "--test",
         action="store_true",

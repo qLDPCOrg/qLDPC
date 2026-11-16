@@ -2,10 +2,9 @@
 
 """Plot the figures of the experiment from the data of ``collect_data.py``.
 
-Run with ``python -m experiments.code_annealing.make_figures``, and the options ``--max-qubits N``,
-``--num-samples N``, ``--workers N``, and ``--test`` as needed.  It runs the plotting scripts of
-``figures/``, in order, on the same results directory, and saves their PDF files to ``figures/`` of
-that directory:
+Run with ``python -m experiments.code_annealing.make_figures [options]``.  It runs the plotting
+scripts of ``figures/``, in order, on the same results directory, and saves their PDF files to
+``figures/`` of that directory:
 
 1. ``plot_error_rates`` saves ``error_rates.pdf``: the logical error rates and discard rates of the
    annealed codes of both code types.
@@ -17,11 +16,8 @@ that directory:
    random codes that ``baseline/run_random.py`` saved to the logs: how many minimum-weight logical
    operators random codes have.
 
-The simulations of the first three scripts take most of the running time, and are cached in
-``cache/``.  With ``--workers N``, the codes are first simulated in N parallel processes, and the
-plotting scripts then read their simulations from the cache.  Pass a small ``--max-qubits`` and
-``--num-samples`` for a quick look.  ``--test`` plots the data of the smoke-test campaign of
-``write_jobs.py --test``, with 1000 samples for each code.  Each plotting script can be run alone,
+The simulations of steps 1 to 3 take most of the time, and are cached in ``cache/`` for later steps
+and runs.  ``--workers N`` runs them in N processes first.  Each plotting script also runs alone,
 with more options, as ``python -m experiments.code_annealing.figures.NAME``.
 """
 
@@ -52,12 +48,14 @@ _TEST_NUM_SAMPLES = 1000
 def main(argv: Sequence[str] | None = None) -> None:
     """Save every figure of the experiment."""
     parser = make_parser(__doc__)
-    parser.add_argument("--max-qubits", type=int, help="skip codes with more qubits")
+    parser.add_argument(
+        "--max-qubits", type=int, help="skip codes with more qubits, for a quick look"
+    )
     parser.add_argument(
         "--num-samples",
         type=int,
         help=f"errors to sample for each code (default: {DEFAULT_NUM_SAMPLES}, or"
-        f" {_TEST_NUM_SAMPLES} with --test)",
+        f" {_TEST_NUM_SAMPLES} with --test); a small number gives a quick look",
     )
     parser.add_argument(
         "--workers",

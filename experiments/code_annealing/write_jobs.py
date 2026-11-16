@@ -1,38 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Write the annealing jobs of a campaign to ``results/logs/jobs.txt``, one shell command per line.
+"""Write the jobs of an annealing campaign to ``logs/jobs.txt`` of the results directory.
 
-Run with ``python -m experiments.code_annealing.write_jobs``, then run the jobs with GNU parallel.
-Each job changes into the root of the repository, so the jobs file can run from any directory; the
-command below is written from the root::
+Run with ``python -m experiments.code_annealing.write_jobs [options]``, then run the jobs with GNU
+parallel, one search per core.  Each job changes into the root of the repository, so the file runs
+from any directory.  From the root::
 
     parallel -j 16 < experiments/code_annealing/results/logs/jobs.txt
 
-Give ``parallel`` the option ``--joblog FILE`` to record the exit status of every job.  Each job
-runs one chain with one core, and writes its checkpoint, its two code records, and a log to the logs
-of the results directory (see ``run_annealing.py``).  An interrupted run loses at most one epoch, or
-all of its work if it had not yet saved its first checkpoint, which follows its pilot.  After an
-interruption, run ``write_jobs`` again with the same options.  Its new ``jobs.txt`` resumes the
-unfinished runs and skips the finished ones, in the same order, so rerunning it after any
-interruption completes the campaign.  A resumed run continues exactly as an uninterrupted one would,
-in the same numerical environment (see ``run_annealing.py``), so a campaign can run in sessions of
-any length.  The jobs are ordered by seed, every code size of seed 0 first, then of seed 1, and so
-on, so that a campaign that is stopped early has about as many finished runs for every code size.
-Pass ``--tag`` to start another campaign beside the files of earlier runs.  Progress is shown by
-``progress_report.py``, and the codes that the runs found are collected by
-``analysis/collect_annealed_codes.py``.
+The full campaign, ``CAMPAIGN``, takes very long.  ``--qubits``, ``--code-types``, and
+``--max-seeds`` select part of it.  ``--test`` writes a small smoke-test campaign to the ``test/``
+subdirectory instead.  After an interruption, or to extend a campaign, run ``write_jobs`` again.
+The new file resumes unfinished searches and skips finished ones.  ``README.md`` describes the
+workflow of a campaign, and ``core/run_annealing.py`` what a job saves.
 
-Pass ``--test`` to write a smoke-test campaign instead: the 20- and 22-qubit rows, 2 seeds, 2 epochs
-of 100 proposals, starting from the lowest-energy code of 10 random codes, with the files in the
-``test/`` subdirectory of the results directory.  Give the same flag to the other high-level
-scripts to follow that campaign.
-
-The campaign, ``CAMPAIGN`` in this script, lists each code size with the epochs of its CSS and SWEL
-searches and its final target acceptance of uphill proposals.  Every code size runs both code types,
-CSS and SWEL, with the seeds of ``CampaignRow.num_seeds``.  A CSS search starts from a self-dual
-code.  Every search starts from the lowest-energy code of ``INIT_SAMPLES`` random codes, drawn with
-its own seed.  Running all of it takes a very long time: choose jobs with ``--qubits``,
-``--max-seeds``, and ``--code-types``.
+Every search starts from the lowest-energy code of ``--init-samples`` random codes, which are
+self-dual for both code types.
 """
 
 from __future__ import annotations

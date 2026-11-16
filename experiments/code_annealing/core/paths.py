@@ -12,9 +12,6 @@ Every file that a script writes goes to a subdirectory of ``results/``, which Gi
   if requested.
 - ``figures/`` holds the PDF files of the plotting scripts.
 - ``cache/`` holds simulations that the plotting scripts reuse.
-
-``cli.py`` has the options that move the results directory, and that select its ``test/``
-subdirectory for runs at smoke-test scale.
 """
 
 from __future__ import annotations

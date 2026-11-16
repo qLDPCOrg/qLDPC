@@ -2,24 +2,18 @@
 
 """Exact CSS/SWEL code annealing: the chain, its energy, and how proposals are scored.
 
-A Markov chain of codes minimizes the energy E of arXiv:2607.19574, the normalized log of the rate
-of undetected logical errors, over local Clifford conjugations of a binary CSS stabilizer code.
-Every proposal is scored exactly by its distance and its number of minimum-weight X-only and Z-only
-logical operators, so there are no approximate or cached scores.
+A Markov chain of codes minimizes the energy E of arXiv:2607.19574 (see ``energy``) over local
+Clifford conjugations of a binary CSS stabilizer code.  Each proposal is scored exactly by its
+distance d and its multiplicity m, the number of minimum-weight X-only and Z-only logical operators.
 
-Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code to fit
-the first temperature, without moving the chain.  Independently of the chain, the search records the
-lowest-energy code and the greatest-distance code (ties broken by the lowest multiplicity) among
-the initial code and the proposals of the chain and its pilot, accepted or not, but not the
-proposals that only time the counting methods.
+Each epoch has one temperature, fit to the energy jumps of the previous epoch's proposals, accepted
+or not.  Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code
+to fit the first temperature, without moving the chain.  The search keeps two optima among the
+initial code and the proposals of the chain and its pilot: the lowest-energy code, and the
+greatest-distance code (the lowest m among ties).
 
-Scoring takes most of a step.  The exact methods give identical scores, so the method changes only
-the running time.  The MacWilliams method walks every word of the check spaces once; the other
-methods count at a guess of the distance, and verify it.  With the ``auto`` method, the search races
-Brouwer--Zimmermann against MacWilliams before the pilot and at the start of each epoch, and keeps
-the faster, or uses Brouwer--Zimmermann alone above a check rank of ``_RACE_MAX_RANK``.  The choice
-depends on timing, and no result depends on it.  See ``_score_proposal``, ``_score_by_guessing``,
-and ``_select_method`` for the details.
+The counting method changes only the running time.  ``_select_method`` describes how ``auto``
+chooses one, on proposals that never become optima.
 """
 
 from __future__ import annotations
@@ -45,9 +39,8 @@ from qldpc.codes.distance import (
 
 from .proposals import CODE_TYPES, CodeType, propose
 
-# Exact counting methods of the library, and ``auto``, which times Brouwer--Zimmermann and
-# MacWilliams on a few proposals before the pilot and at the start of each epoch, and keeps the
-# faster.
+# Exact counting methods of the library, and ``auto``, which picks one at every epoch (see
+# ``_select_method``).
 SearchMethod = Literal["auto", "brouwer_zimmermann", "macwilliams", "brute_force"]
 METHODS = get_args(SearchMethod)
 
@@ -101,10 +94,10 @@ class SearchConfig:
         epochs: Number of epochs of the chain.  An epoch has one temperature.
         steps_per_epoch: Number of proposals in an epoch, and in the pilot before the first one.
         uphill_acceptance_start: Target mean acceptance probability of the uphill proposals (those
-            that raise the energy) in the first epoch.  The temperature is fit to the proposals of
-            the previous epoch (or of the pilot) and bounded by ``LOG_TEMPERATURE_BOUNDS``, so the
-            acceptance of an epoch only approaches its target; ``EpochStatistics`` records what
-            it was.
+            that raise the energy) in the first epoch.  The acceptance only approaches its target,
+            since the temperature is fit to the previous epoch, smoothed (see
+            ``temperature_memory``), and bounded by ``LOG_TEMPERATURE_BOUNDS``.
+            ``EpochStatistics`` records the actual rate.
         uphill_acceptance_stop: The same target in the last epoch.  The targets in between decrease
             geometrically, which cools the chain.  A search of one epoch uses only the start target.
         temperature_memory: The weight ``m`` of the previous log-temperature: the log-temperature
@@ -200,7 +193,7 @@ class Score:
 
     @property
     def multiplicity(self) -> int:
-        """The number of minimum-weight X-only plus Z-only logical operators."""
+        """The multiplicity m: the number of minimum-weight X-only plus Z-only logical operators."""
         return self.count_x + self.count_z
 
     @classmethod
@@ -225,16 +218,13 @@ class ScoredCode:
 
 @dataclass
 class SearchState:
-    """The state of a chain, with separate energy and distance optima.
+    """The state of a chain.
 
-    ``current`` is the code of the chain.  ``lowest_energy`` minimizes the energy, and
-    ``greatest_distance`` maximizes distance and then minimizes energy at that distance; neither is
-    restricted to accepted proposals.  ``rng`` draws the proposals and decides their acceptance.
-    ``log_temperature`` is the log-temperature of the last epoch (or, before the first epoch, the
-    fit to the pilot), and ``energy_jumps`` holds the energy jumps of the proposals of the last
-    epoch (or of the pilot).  The next epoch smooths the log-temperature toward the fit to those
-    jumps (see ``SearchConfig.temperature_memory``).  The chain takes over the counters of its
-    codes, and may change their cached state.  Checkpoints are taken at completed epoch boundaries.
+    ``current`` is the code of the chain, and ``lowest_energy`` and ``greatest_distance`` are its
+    optima (see the module docstring).  ``rng`` draws the proposals and decides their acceptance.
+    ``log_temperature`` is that of the last epoch (before the first, the pilot's fit), and
+    ``energy_jumps`` are the jumps of that epoch's proposals, to which the next epoch fits its
+    temperature.  The chain takes over the counters of its codes and may change their cached state.
     """
 
     config: SearchConfig
@@ -264,11 +254,7 @@ class SearchState:
 
 
 def start_search(initial: CSSLogicalCounter, config: SearchConfig, *, seed: int = 0) -> SearchState:
-    """Create a chain at an initial code, and run its pilot.
-
-    The pilot scores one epoch's worth of neighbors of the initial code, each proposed from that
-    code, and fits the first temperature to their energy jumps.  It never moves the chain, but its
-    proposals can set the optimum records.
+    """Create a chain at an initial code, and run its pilot (see the module docstring).
 
     Args:
         initial: Code counter, with at least one logical qubit, which the chain takes over.
@@ -312,9 +298,6 @@ def run_epochs(
 ) -> SearchState:
     """Continue a chain, optionally stopping at a reproducible completed-epoch boundary.
 
-    Every proposal is scored exactly, whether or not it is accepted, and its energy jump enters the
-    temperature fit of the next epoch.
-
     Args:
         state: The chain, which is updated in place and returned.
         stop_after_epochs: Number of further epochs to run, or None to run the remaining epochs of
@@ -357,8 +340,7 @@ def _run_epoch(
     ) * _fit_log_temperature(state.energy_jumps, target_rate)
     temperature = math.exp(state.log_temperature)
 
-    # Propose from the current code.  Every proposal, accepted or not, can set an optimum record,
-    # and its actual jump (not just accepted ones) feeds the next temperature fit.
+    # Propose from the current code.
     current_energy = energy(state.current.score, config)
     accepted = uphill = accepted_uphill = 0
     for step in range(config.steps_per_epoch):
@@ -376,7 +358,7 @@ def _run_epoch(
             accepted += 1
             accepted_uphill += jump > 0
 
-        # Both records are consistent before either persistence callback sees the state.
+        # Both optima are updated before either callback sees the state.
         improved_energy, improved_distance = _update_optima(state, proposal)
         if improved_energy and on_lowest_energy is not None:
             on_lowest_energy(state)
@@ -418,7 +400,7 @@ def _score_by_guessing(
 ) -> Score:
     """Score a proposal exactly, first trying to count at the distance that is likely.
 
-    Most proposals keep the distance of their neighbors, and counting at a known weight skips the
+    Most proposals have the distance of recent proposals, and counting at a known weight skips the
     distance search.  A proposal is one gate away from the current code, so its distance lies within
     a small range of the current one.  Each failed guess says whether the distance is lower or
     higher, so the next guess is the adjacent weight on that side, which takes at most one guess per
@@ -508,11 +490,11 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
     """The method that scores the proposals of the next epoch.
 
     A configured method is used as it is.  For ``auto``, Brouwer--Zimmermann and MacWilliams score
-    the same proposals of the current code, and the faster one wins.  The MacWilliams method costs
-    the same for every proposal of a chain, because a local gate keeps the check ranks, while the
-    cost of Brouwer--Zimmermann changes with the distance, so the race is repeated at every epoch.
-    The proposals come from their own random generator, so that the race never moves the chain, and
-    each method scores its own copy of every proposal.
+    the same proposals of the current code, and the search switches to the faster method only by a
+    clear margin (see the ``_RACE_*`` constants).  The MacWilliams method costs the same for every
+    proposal of a chain, because a local gate keeps the check ranks, while the cost of
+    Brouwer--Zimmermann changes with the distance, so the race is repeated at every epoch.  The race
+    draws its proposals from its own random generator, so it never moves the chain.
     """
     config = state.config
     if config.method != "auto":
@@ -523,9 +505,9 @@ def _select_method(state: SearchState) -> LogicalCountMethod:
         return "brouwer_zimmermann"
     methods: tuple[LogicalCountMethod, ...] = ("brouwer_zimmermann", "macwilliams")
 
-    # Both methods score children of a copy that Brouwer--Zimmermann has prepared, as they would be
-    # during an epoch that uses it, so the chain itself is left as it is.  Each method scores with
-    # its own copy of the chain state, whose recent distances its scores update.
+    # Both methods score children of a copy that Brouwer--Zimmermann has prepared, as in an epoch
+    # that uses it.  Each method gets its own copy of every proposal and of the chain state, whose
+    # recent distances its scores update.
     prepared = CSSLogicalCounter.from_code(counter.code)
     _count_logical_ops(prepared, state.current.score.distance, method="brouwer_zimmermann")
     trial_states = {
@@ -617,7 +599,7 @@ def _accept_move(jump: float, temperature: float, uniform: float) -> bool:
 def score_code(
     counter: CSSLogicalCounter, config: SearchConfig, method: LogicalCountMethod | None = None
 ) -> Score:
-    """Exact distance and numbers of minimum-weight X-only and Z-only logical operators.
+    """The exact ``Score`` of a code.
 
     A Brouwer--Zimmermann count leaves state in its counter that the codes deformed from it inherit
     (see ``_start_epoch``), which helps only if Brouwer--Zimmermann also scores the chain.  The
@@ -645,11 +627,10 @@ def energy(score: Score, config: SearchConfig) -> float:
     """The energy E of arXiv:2607.19574: the normalized log of the undetected logical error rate.
 
     An error is undetected and changes the logical state when it is a nontrivial logical operator,
-    which at leading order happens with probability m * p**d, where m is the number of
-    minimum-weight X-only and Z-only logical operators, d is the distance, and p is the physical
-    error rate.  Return the log of this probability over log(1 / p), which is
-    log(m) / log(1 / p) - d.  A distance greater by D lowers the energy unless it comes with at
-    least p**-D times as many minimum-weight logical operators.
+    which at leading order happens with probability m * p**d, where m is the multiplicity, d is the
+    distance, and p is the physical error rate.  Return the log of this probability over
+    log(1 / p), which is log(m) / log(1 / p) - d.  A distance greater by D lowers the energy unless
+    it comes with at least p**-D times the multiplicity.
     """
     count = _get_multiplicity(score)
     return math.log(count) / -math.log(config.physical_error_rate) - score.distance
@@ -660,10 +641,8 @@ def get_lowest_energy_code(
 ) -> ScoredCode:
     """The code of the lowest energy among codes that are scored exactly, the first if tied.
 
-    Starting a chain from the lowest-energy code of many independent random codes puts it in a good
-    region, much like a first epoch at infinite temperature, which accepts every proposal, but with
-    uncorrelated codes.  The codes are consumed one at a time, so they can be an endless stream cut
-    short by ``itertools.islice``.
+    The codes are consumed one at a time, so they can be an endless stream cut short by
+    ``itertools.islice``.
 
     Raises:
         ValueError: If there are no codes, or if a code is not one that the search accepts (see
@@ -684,7 +663,7 @@ def get_lowest_energy_code(
 def distance_rank(distance: int, count: int) -> tuple[int, int]:
     """The rank of a code among the codes of its size, which is greater for a better code.
 
-    A greater distance ranks higher, and then fewer minimum-weight logical operators.
+    A greater distance ranks higher, and then a lower multiplicity ``count``.
     """
     return distance, -count
 
