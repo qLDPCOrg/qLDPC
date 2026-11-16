@@ -46,7 +46,10 @@ Make every recommendation, and present every decision, as [decisions and recomme
    Skip it if the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
    If the review does not pass, stop and report.
 3. Run the extended checks only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
-   Handle their failures as the validation commands describe.
+   After fixing a failure that the change causes, verify the fix with the drafting checks, and rerun the failed checks and every extended check that the fix could affect.
+   Report any other failure, such as one that also occurs on the main branch, as an open decision.
+   Report a failure whose fix needs a decision in the same way.
+   If a review ran, report as an open decision whether to review each fix, unless the fix is local and evidently correct.
 4. Hand the change off as [handing off a change](#handing-off-a-change) describes.
 
 A request to finish a change, as in "finish this PR", asks for steps 2 to 4.

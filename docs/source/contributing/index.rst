@@ -119,13 +119,7 @@ The third tier is the extended checks.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it largely repeats the test run of ``coverage_.py``.
   When targeted tests do not settle a question, such as whether a module's own tests fully cover it, or pass and run fast as plain Python, run ``coverage_.py`` on that module and its test file.
   For example, ``python checks/coverage_.py src/qldpc/codes/common.py src/qldpc/codes/common_test.py`` checks the coverage of one module and its test file.
-* **Extended:** the checks that CI runs on every pull request, other than the notebook runs.
-  The extended checks are needed only when the maintainer asks for them by name, or has said that they will be away while a change is completed.
-  Run the anytime checks, ``coverage_.py`` over the whole repository, the compiled runs, and ``build_docs.py``.
-  After fixing a failure that the change causes, verify the fix with the drafting checks, and rerun the failed checks and every extended check that the fix could affect.
-  Report any other failure, such as one that also occurs on the main branch, as an open decision.
-  Report a failure whose fix needs a decision in the same way.
-  If a review ran, report as an open decision whether to review each fix, unless the fix is :ref:`local <review-rounds>` and evidently correct.
+* **Extended:** the checks that CI runs on every pull request, other than the notebook runs: the anytime checks, ``coverage_.py`` over the whole repository, the compiled runs, and ``build_docs.py``.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 
