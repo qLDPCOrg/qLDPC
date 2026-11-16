@@ -454,8 +454,8 @@ def _split_memory_limit(
     """Split a memory limit between the closing map of pairs and the table of syndromes.
 
     Return whether to build the closing map of the pairs of ``num_classes`` classes, and how many
-    syndromes of ``num_syndrome_words`` words the rest of the limit has room for, at most 2**31,
-    which ``_table_should_grow`` takes as ``max_syndromes``.
+    syndromes of ``num_syndrome_words`` words the rest of the limit has room for, at most 2**31.
+    ``_table_should_grow`` takes this number as ``max_syndromes``.
     """
     # The closing map of pairs takes ``_BYTES_PER_PAIR`` bytes per pair.  It is built only if it
     # fits and has at most 2**31 pairs, so that its hash map has at most 2**32 slots, as slot

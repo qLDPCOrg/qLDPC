@@ -77,8 +77,8 @@ def test_listing_matches_brute_force(
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
-    # Record the size of each closing map that is built, to check that some listings use a closing
-    # map of pairs.
+    # Record whether each closing map that is built is of single classes or of pairs (its ``size``),
+    # to check that some listings use a closing map of pairs.
     sizes: set[int] = set()
     get_closing_map = _fault_search._get_closing_map
 
@@ -312,7 +312,8 @@ def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.Monke
 def test_memory_limit_is_split_within_the_caps() -> None:
     """The memory limit goes to the map of pairs first, and then to the table of syndromes.
 
-    Each holds at most 2**31 entries, however large the limit.
+    The map of pairs holds at most 2**31 pairs, and the table of syndromes gets room for at most
+    2**31, however large the limit.
     """
     split = _fault_search._split_memory_limit
     # With 2**16 classes there are 2**31 - 2**15 pairs, which the map may hold.  With one more
