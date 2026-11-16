@@ -1,12 +1,11 @@
 # Working on qLDPC
 
-Before proposing, implementing, or reviewing changes, read the [project purpose and goals](README.md#-goals), and use them to guide scope, design, validation, and explanation.
-Apply the goals to the requested work rather than using them to justify unrelated changes.
-A change need not advance every goal or include a tutorial.
+Read the [project goals](README.md#-goals) before proposing, implementing, or reviewing a change, and let them guide its scope, design, validation, and explanation.
+Apply them to the requested work, not to justify unrelated changes; a change need not advance every goal or include a tutorial.
 
-The [contributing guide](docs/source/contributing/index.rst) explains how to set up, validate, and review a change, and the [standards](docs/source/contributing/standards/index.rst) state the rules that a change must satisfy.
-For the data model and how the packages relate, start with the [library map](docs/source/library_map.rst).
-For exact signatures and per-object literature, use the source docstrings or the generated [API reference](https://qldpc.readthedocs.io/autoapi/index.html).
+The [contributing guide](docs/source/contributing/index.rst) explains how to set up, validate, and review a change.
+Before editing, read the [standards](docs/source/contributing/standards/index.rst) that its [kinds-of-change table](docs/source/contributing/index.rst#kinds-of-change) lists for the change.
+For how the packages relate, start with the [library map](docs/source/library_map.rst); for exact signatures and per-object literature, use the docstrings or the [API reference](https://qldpc.readthedocs.io/autoapi/index.html).
 
 ## What to trust when documents disagree
 
@@ -18,64 +17,51 @@ For what the code does, use this order:
 4. Historical discussion, issues, or review notes.
 
 For how code should be written, the [standards](docs/source/contributing/standards/index.rst) take precedence over existing code.
-Re-derive behavior from the current branch before documenting or changing it.
-
-## Before editing
-
-Read the standards that the [kinds-of-change table](docs/source/contributing/index.rst#kinds-of-change) lists for the change.
-Read the [orientation](docs/source/contributing/index.rst#orientation) before reorganizing code.
+Re-derive behavior from the current branch before documenting or changing it, and check whether the code already does what a request asks.
 
 ## Reviews
 
-Coordinate each **full review** or **quick review** as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
-As a reviewer, follow the coordinator's instructions, and end your report without a review status.
-Otherwise, end every report on a change with its review status, as in "review: not run", "quick review: passed after 1 round; open decisions: none", "full review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "full review: not passed after 4 rounds; open decisions: none".
-Count the pre-existing problems that the review fixed, as in the examples.
-Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
+Run each **full review** or **quick review** as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
+As a reviewer, follow the coordinator's instructions, and give no review status.
+Otherwise, end every report on a change with its review status, as in "review: not run", "quick review: passed after 1 round; pre-existing problems fixed: 0; open decisions: none", or "full review: not passed after 4 rounds; pre-existing problems fixed: 1; open decisions: 2".
+Point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
 
 ## Decisions and recommendations
 
-Before adding or recommending process, such as a rule, a review step, or an experiment, follow the rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
-Make every recommendation, and present every decision, as [decisions and recommendations](docs/source/contributing/decisions.rst) describes.
+Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
 
 ## Working on a change
 
-1. While writing a change, run the anytime and as-needed checks of the [validation commands](docs/source/contributing/index.rst#validation-commands).
-2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for.
-   Skip it if the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
+1. While writing a change, run the drafting checks of the [validation commands](docs/source/contributing/index.rst#validation-commands).
+2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for, unless the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
    If the review does not pass, stop and report.
 3. Run the [extended checks](docs/source/contributing/index.rst#validation-commands) only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
-   After fixing a failure that the change causes, verify the fix with the [drafting checks](docs/source/contributing/index.rst#validation-commands), and rerun the failed checks and every extended check that the fix could affect.
+   Fix each failure that the change causes, then return to step 2.
    Report any other failure, such as one that also occurs on the main branch, as an open decision.
-   Report a failure whose fix needs a decision in the same way.
-   If a review ran, report as an open decision whether to review each fix, unless the fix is local and evidently correct.
 4. Hand the change off as [handing off a change](#handing-off-a-change) describes.
 
 A request to finish a change, as in "finish this PR", asks for steps 2 to 4.
-Run checks individually, never through `checks/all_.py`.
-Run tests over the whole repository only as part of the extended checks.
+Run checks individually, never through `checks/all_.py`, and run tests over the whole repository only in the extended checks.
 Leave notebook runs and the GAP integration tests to CI.
 
 ## Handing off a change
 
-Hand a change to the maintainer to push only once it has passed its review and all repository changes for it, including new files, are committed.
-When handing off a change, give the following for each of its pull requests in your message, not only in a file:
+Hand a change to the maintainer to push only once it has passed its review and everything for it, including new files, is committed.
+For each of its pull requests, give in your message, not only in a file:
 
-1. Its review status, as [reviews](#reviews) describes.
-   Then list each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, and each open decision, as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
-2. One shell block that pushes the branch and then opens GitHub's page for a new pull request, as in:
+1. its review status, as [reviews](#reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, and each open decision;
+2. one shell block that pushes the branch and then opens GitHub's page for a new pull request, as in:
 
    ```bash
    cd <worktree> && git push -u origin <branch> && \
      open "https://github.com/qLDPCOrg/qLDPC/compare/main...<branch>?expand=1"
    ```
 
-3. The title, alone in a code block.
-4. The description, in a `markdown` code block, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
-   If the description contains code blocks, use a longer fence for it, such as four backticks.
+3. the title, alone in a code block;
+4. the description, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst), in a `markdown` code block whose fence is longer than any fence inside it.
 
-A request for a pull request's information, even "in the standard format", asks for the list above.
-If the change has more than one pull request, say whether they depend on each other and in which order they should merge.
+A request for a pull request's information, even "in the standard format", asks for this list.
+If there are several pull requests, say whether they depend on each other and in which order they should merge.
 
 ## Protected files
 
@@ -86,17 +72,7 @@ These files state the rules for working on qLDPC, or enforce them:
 - every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
 - the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
-They change only through a patch that a maintainer approves, including changes that a maintainer asks for.
-The exception is a change that the maintainer explicitly says to apply directly.
-
-1. Write the changes to protected files as a `.patch` file outside the repository, such as in a session directory, and give the maintainer a link to it.
-   Say whether a review has seen the patch as it stands, and name any part that none has.
-2. If the maintainer asks for revisions, write a new patch, which may replace the old one, and link it again.
-3. Once the maintainer approves a patch, apply exactly that patch with `git apply`, and commit it.
-   If it no longer applies, regenerate it and ask for approval again, rather than editing protected files by hand.
-
-Updates that a change elsewhere forces on protected files, such as a renamed path that they cite, also go through a patch, which you may present together with that change.
-Changes to other files follow the usual workflow.
-
-When you notice a pattern worth codifying, such as a repeated request or a recurring review finding, describe it and the rule you would propose.
-Write a patch for it only once the maintainer wants the rule.
+Unless the maintainer says to apply a change to them directly, change them only through a patch that the maintainer approves.
+This holds even when the maintainer asked for the change, or when a change elsewhere forces it, such as renaming a path that they cite.
+Write the patch outside the repository, link it, and say which parts of it no review has seen.
+Once the maintainer approves it, apply exactly that patch with `git apply`, and commit it; if it no longer applies, regenerate it and ask again.
