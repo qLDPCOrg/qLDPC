@@ -440,19 +440,30 @@ def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_partition_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The costliest seconds of matroid partitioning, per unit of ``partition_work_ratio``."""
+    """The costliest seconds of matroid partitioning, per unit of ``partition_work_ratio``.
+
+    It divides the seconds of each run by ``tried_unit``, the sum of ``b**2 * r**2 * N`` over the
+    coverages ``b`` that the run tried, since partitioning skips a coverage at which no family could
+    replace the best so far (Section 4.4 of ``brouwer_zimmermann.md``).  The seconds leave out
+    building a competing family of automorphism images, which ``get_automorphism_seconds`` counts.
+    """
     runs = [
         (trace["workload"], event)
         for trace in traces.values()
         for event in trace["events"]
-        if event["event"] == "family" and event["kind"] == "partitioned" and event["partitioned"]
+        if event["event"] == "family" and event["kind"] == "partitioned" and event["coverages"]
     ]
+
+    def get_seconds_per_unit(event: dict[str, Any]) -> float:
+        seconds = event["seconds"] - event.get("competing_seconds", 0.0)
+        return float(seconds / event["tried_unit"])
+
     description = "costliest of " + ", ".join(
-        f"{workload} (coverages up to {event['max_coverage']}): "
-        f"{event['seconds'] / event['unit'] * 1e9:.2f} ns"
+        f"{workload} (coverages {', '.join(map(str, event['coverages']))}): "
+        f"{get_seconds_per_unit(event) * 1e9:.2f} ns"
         for workload, event in runs
     )
-    return Constant(max(event["seconds"] / event["unit"] for _, event in runs), description)
+    return Constant(max(get_seconds_per_unit(event) for _, event in runs), description)
 
 
 def get_prediction_seconds(traces: dict[str, dict[str, Any]]) -> Constant:

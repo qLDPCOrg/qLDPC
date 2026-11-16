@@ -678,10 +678,17 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Its gate, `overlapping_minimum_work` on the estimated work of the given family, breaks even with the cost of the attempts.
   `CosetRoutes` passes a minimum work of zero, since `coset_route_minimum_work` gates its families instead.
 - **`get_partitioned_family`** finds the most information sets, up to `m = max_information_sets`, in which no column appears more than `b` times, by the matroid partitioning of Section 5.1 of Lisoněk and Trummer ([References](#references)) in `_information_sets/matroid_partition.py`.
-  It tries each coverage `b` from two up to `ceil(m*r/N)`, the least at which `m` sets could fit by counting their pivots.
+  It may try each coverage `b` from two up to `ceil(m*r/N)`, the least at which `m` sets could fit by counting their pivots.
   A search takes the family of least work, if it does less work than the family of the earlier stages.
-  Partitioning costs roughly the sum of `b^2*r^2*N` over these `b`, times a factor that varies between families of codes; the sum grows with the cube of `m`.
-  So a search tries it only if some family of at most `m` sets could do less work, and the search's estimated work is at least `partition_work_ratio` times that sum, a ratio that stands for the cost of one unit of the sum in evaluations.
+  Partitioning at `b` finds at most `m_b = min(m, floor(b*N/r))` sets, since at most `floor(b*N/r)` fit within coverage `b` by counting their pivots.
+  A family of `j` information sets puts some column in at least `ceil(j*r/N)` of them, so at each step its coverage-divided certificate is at most that of `j` sets of that coverage.
+  The work up to a step depends only on the step and the number of sets, so the family does at least the work of those `j` sets.
+  `_estimate_optimistic_work` returns `W(k)`, the least such work over `j` from one to `k`.
+  Partitioning skips each `b` at which `W(m_b)` is at least the work of the best family so far, at first the family of the earlier stages.
+  No family that it finds at such a `b` could replace that family, so the search takes the same family as if partitioning tried every `b`.
+  Trying every `b` from two up to `ceil(m*r/N)` costs roughly the sum of `b^2*r^2*N` over them, times a factor that varies between families of codes; the sum grows with the cube of `m`.
+  So a search tries partitioning only if some family of at most `m` sets could do less work, and the search's estimated work is at least `partition_work_ratio` times that sum, a ratio that stands for the cost of one unit of the sum in evaluations.
+  The gate charges that whole sum, though partitioning may skip some `b`.
   With `B = partition_max_coverage`, a limit for experiments, `m` is capped at `floor(B*N/r)`, the most sets that fit within coverage `B` by counting their pivots, so it tries no coverage above `B`.
   At `B = 1`, partitioning instead builds the maximum disjoint family of `get_maximum_disjoint_family` (see `CosetRoutes` below), pruned by `prune_family`.
   `m` does not limit that family, and the sum is `r^2*N`.

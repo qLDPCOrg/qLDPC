@@ -384,8 +384,9 @@ def get_partitioned_family(
     if get_competing_work is not None and get_competing_work() <= optimistic_work:
         return best
 
-    # Build a family for each coverage, and keep the one that does the least work.  A disjoint
-    # family can end with a partial set, which ``prune_family`` drops if it cannot help.
+    # Build a family for each coverage that could improve on the best so far, and keep the one that
+    # does the least work.  A disjoint family can end with a partial set, which ``prune_family``
+    # drops if it cannot help.
     for coverage in coverages:
         if coverage == 1:
             maximum_disjoint = _get_family_of_sets(
@@ -393,6 +394,14 @@ def get_partitioned_family(
             )
             family = prune_family(maximum_disjoint, upper_bound)
         else:
+            # Skip a coverage at which no family could do less work than the best so far, which
+            # leaves the result unchanged (Section 4.4).
+            most_sets = min(max_sets, coverage * num_columns // dimension)
+            coverage_optimistic_work = _estimate_optimistic_work(
+                dimension, num_columns, weight_divisor, upper_bound, most_sets, binomials
+            )
+            if coverage_optimistic_work >= best_work:
+                continue
             column_sets = matroid_partition.get_information_sets_with_coverage(
                 basis, coverage, max_sets
             )
@@ -563,11 +572,11 @@ def _get_disjoint_sets_for_columns(
 def _get_partition_coverage_and_unit(
     max_sets: int, dimension: int, num_columns: int
 ) -> tuple[int, int]:
-    """The largest coverage that matroid partitioning tries, and the unit of its gate (Section 4.4).
+    """The largest coverage that matroid partitioning may try, and the unit of its gate.
 
     For a basis of ``dimension`` rows and ``num_columns`` nonzero columns, the largest coverage is
     ``_get_least_coverage(max_sets, dimension, num_columns)``, computed here in Python integers,
-    since ``max_sets`` up to ``MAX_VALUE`` would overflow that compiled helper.
+    since ``max_sets`` up to ``MAX_VALUE`` would overflow that compiled helper (Section 4.4).
     """
     max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
     if max_coverage < 2:
@@ -673,7 +682,7 @@ def _estimate_optimistic_work(
     The family is of a basis of ``dimension`` rows and ``num_columns`` nonzero columns, and
     ``binomials`` are ``get_capped_binomials(dimension)``.  No family of ``m`` full sets has a
     maximum coverage below ``_get_least_coverage(m, dimension, num_columns)``, which the bound
-    assumes for each ``m``.
+    assumes for each ``m`` (Section 4.4).
     """
     optimistic_work = WORK_CAP
     for num_sets in range(1, max_sets + 1):
