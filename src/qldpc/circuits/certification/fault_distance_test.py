@@ -10,10 +10,13 @@ import pytest
 import stim
 
 from qldpc import circuits, codes
+from qldpc.circuits.certification import fault_distance
 from qldpc.codes.distance import DistanceMethod
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "brute_force", "connected_cluster"])
+@pytest.mark.parametrize(
+    "method", ["auto", "brouwer_zimmermann", "brute_force", "connected_cluster"]
+)
 @pytest.mark.parametrize("measurement, expected_distance", [(-7, 3), (-4, 4)])
 def test_fault_distance(measurement: int, expected_distance: int, method: DistanceMethod) -> None:
     """Undetected faults flip whole blocks of three or four qubits; only one block is logical."""
@@ -30,6 +33,21 @@ def test_fault_distance(measurement: int, expected_distance: int, method: Distan
     """)
     circuit.append("OBSERVABLE_INCLUDE", [stim.target_rec(measurement)], 0)
     assert circuits.get_fault_distance(circuit, method=method) == expected_distance
+
+
+def test_fault_distance_takes_auto_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a method, the fault distance searches with "auto", the default."""
+    methods = []
+    get_distance_from_checks = fault_distance.get_distance_from_checks
+
+    def record(*args: Any, **kwargs: Any) -> Any:
+        methods.append(kwargs["method"])
+        return get_distance_from_checks(*args, **kwargs)
+
+    monkeypatch.setattr(fault_distance, "get_distance_from_checks", record)
+    circuit = stim.Circuit("R 0\nX_ERROR(0.01) 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
+    assert circuits.get_fault_distance(circuit) == 1
+    assert methods == ["auto"]
 
 
 def test_fault_distance_without_logical_faults() -> None:

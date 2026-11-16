@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import itertools
+import math
 import unittest.mock
 from collections.abc import Iterator
 from typing import Any
@@ -21,7 +22,7 @@ from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from .. import _tuning
-from ..conftest import get_span
+from ..conftest import get_golay_checks, get_span
 from ..core import get_distance_css, get_distance_pauli
 from . import search as cs
 
@@ -55,13 +56,8 @@ def get_sectors(code: codes.CSSCode) -> list[Problem]:
 
 
 def get_golay_problem() -> Problem:
-    """A sector of the CSS code of the cyclic [23, 12, 7] Golay code, which contains its dual.
-
-    Its checks and excluded rows are both a basis of the dual, so cyclic shifts are automorphisms.
-    """
-    generator = np.zeros(23, dtype=np.uint8)
-    generator[[0, 1, 5, 6, 7, 9, 11]] = 1
-    checks = get_kernel(np.array([np.roll(generator, shift) for shift in range(12)]))
+    """A sector of the CSS code of the cyclic [23, 12, 7] Golay code (see ``get_golay_checks``)."""
+    checks = get_golay_checks()
     return checks, checks
 
 
@@ -765,6 +761,68 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     components = PROBLEMS["components"]
     assert cs.get_distance_connected_cluster([components], cutoff=0) == 2
     assert cs.get_distance_connected_cluster([components], cutoff=3) == 3
+
+
+def test_stepped_searches_report_their_progress_and_take_caps() -> None:
+    """Stepped searches report their states and the growth of their states, and stop at a cap."""
+    sector = get_golay_problem()
+    assert get_brute_force_distance(sector) == 7
+    search = cs.ConnectedClusterSearch([sector], cutoff=0)
+    (sector_search,) = search.searches
+    assert search.next_limit == (0, 1)
+    assert search.num_states == 0 and search.get_growth(0) is None
+    assert search.predict_states(0, 1) == sector_search._predict_states(1)
+
+    # Each limit without a witness raises the lower bound past it, and records its states.  The
+    # growth is the one ratio of states per unit of weight, and then the geometric mean of the last
+    # two; the first limit visits no states, so it gives no ratio.
+    states = []
+    for max_weight in range(1, 5):
+        assert search.next_limit == (0, max_weight)
+        num_states = search.num_states
+        search.advance()
+        states.append(search.num_states - num_states)
+        assert search.next_limit == (0, max_weight + 1) and not search.finished
+        if max_weight == 3:
+            assert search.get_growth(0) == pytest.approx(states[2] / states[1])
+    assert states[0] == 0 and all(states[1:])
+    growth = search.get_growth(0)
+    assert growth is not None and growth == pytest.approx(np.sqrt(states[3] / states[1]))
+    assert search.predict_states(0, 7) == pytest.approx(states[3] * growth**3)
+    assert search.predict_states(0, 10**4) == math.inf
+
+    # A weaker cap changes nothing, and a cap at the next lower bound ends the search there.
+    search.update_upper_bound(30)
+    search.update_upper_bound(6)
+    search.update_upper_bound(8)
+    assert not search.finished
+    search.advance()
+    assert search.finished and search.result == 6
+
+    # A cap within the cutoff ends the search at once.
+    search = cs.ConnectedClusterSearch([sector], cutoff=5)
+    search.update_upper_bound(5)
+    assert search.finished and search.result == 5 and search.num_states == 0
+
+
+def test_the_growth_of_states_skips_a_change_of_roots() -> None:
+    """The growth compares only limits from the same number of roots, which automorphisms reduce.
+
+    The search asks for the cyclic shifts before limit 4, which then searches from fewer roots.
+    """
+    shifts = np.roll(np.arange(23), 1)[None]
+    tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, automorphism_minimum_states=100)
+    search = cs.ConnectedClusterSearch(
+        [get_golay_problem()], cutoff=0, get_automorphisms=lambda: shifts, tuning=tuning
+    )
+    states, growths = [], []
+    for _ in range(5):
+        num_states = search.num_states
+        search.advance()
+        states.append(search.num_states - num_states)
+        growths.append(search.get_growth(0))
+    assert growths[2] == growths[3] == pytest.approx(states[2] / states[1])
+    assert growths[4] == pytest.approx(np.sqrt(states[2] / states[1] * states[4] / states[3]))
 
 
 def test_a_problem_without_logical_operators_has_no_distance() -> None:

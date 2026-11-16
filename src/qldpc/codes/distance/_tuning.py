@@ -6,7 +6,8 @@
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
 routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.4, 3.5, 3.8, and
-3.9 of ``connected_cluster.md`` explain how searches use the fields.
+3.9 of ``connected_cluster.md`` explain how searches use the fields, and the section "Choosing a
+method" of ``README.md`` how ``method="auto"`` uses its fields.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -37,7 +38,7 @@ its fields within a ``with`` block::
 
     code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     with _tuning.use_tuning(max_information_sets=8, lp_minimum_work=0):
-        distance = code.get_distance_exact()
+        distance = code.get_distance_exact(method="brouwer_zimmermann")
 
 A search reads the active tuning once, when it starts.  The active tuning is a context variable (see
 the ``contextvars`` module).  So copies of the context, as in asyncio tasks and
@@ -84,8 +85,9 @@ Each default is in one of these classes, or was chosen by hand:
 - A limit for experiments restricts what searches may build, and its default, ``MAX_VALUE``,
   restricts nothing.
 
-The sizes of caches, ``coset_route_minimum_work``, and ``macwilliams_shared_walk_rank`` were chosen
-by hand, and the comments of the two fields say why.
+The sizes of caches, ``auto_brute_force_max_words``, ``auto_free_work``,
+``connected_cluster_state_evaluations``, ``coset_route_minimum_work``, and
+``macwilliams_shared_walk_rank`` were chosen by hand, and the comments of the five fields say why.
 
 Change a default only when its heuristic changes, or when a check shows that its assumption, such as
 the cost of a step, is off by more than a factor of about 3; only a maintainer changes a budget or a
@@ -93,7 +95,7 @@ value chosen by hand.  Never change a default to gain a factor of two on particu
 scripts of ``experiments/distance_tuning`` check the tuning and set no value: ``constants.py``
 checks the orders of magnitude that the heuristics assume, ``trace.py`` shows which decisions a
 search makes, and ``sweep.py`` catches gross regressions or bugs.  The README of that directory says
-how to run them.
+how to run them.  They do not check the fields of the automatic choice of a method.
 """
 
 from __future__ import annotations
@@ -221,6 +223,37 @@ class SearchTuning:
     #: the cost of finding automorphisms, verifying them, and building their family for a large
     #: code, several million evaluations (Sections 3.7 and 4.4 of ``brouwer_zimmermann.md``).
     automorphism_minimum_layer_work: int = 5_000_000
+
+    # Fields of the automatic choice of a method.
+
+    #: ``method="auto"`` enumerates every word, as ``"brute_force"`` does, if the enumeration
+    #: examines at most this many packed 64-bit integers, ``2**dim * ceil(width / 64)`` for words of
+    #: ``width`` bits in a space of dimension ``dim``.  Raising it enumerates larger spaces.
+    #: Defaults to ``2**30``, chosen by hand: an enumeration of about a second, whose cost, unlike
+    #: that of the other methods, is known before it runs.
+    auto_brute_force_max_words: int = 2**30
+
+    #: The work, in candidate/set evaluations, that a search by cost of ``method="auto"``, as of a
+    #: quantum code or a circuit, may reach with its spent work plus the predicted work of its next
+    #: weight limit.  Beyond it, the search probes with a Brouwer-Zimmermann search, and then
+    #: considers switching to one.  Connected-cluster work counts each state as
+    #: ``connected_cluster_state_evaluations``.  Defaults to ``10**8``, chosen by hand: a fraction
+    #: of a second, below which fixed costs that the estimates leave out, such as setup, dominate
+    #: the costs that a switch would compare (section "Choosing a method" of ``README.md``).
+    auto_free_work: int = 100_000_000
+
+    #: The work, in candidate/set evaluations, of the Brouwer-Zimmermann probe of
+    #: ``method="auto"``, whose bound caps the connected-cluster search.  The probe skips the
+    #: costlier stages of setup, and stops before a layer that would take it over this work.
+    #: Defaults to ``10**8``, a budget of the effort of the choice: a fraction of a second (section
+    #: "Choosing a method" of ``README.md``).
+    auto_probe_work: int = 100_000_000
+
+    #: The cost of a state of a connected-cluster search in candidate/set evaluations, which lets
+    #: ``method="auto"`` compare the work of the two searches (section "Choosing a method" of
+    #: ``README.md``).  Raising it switches to a Brouwer-Zimmermann search sooner.  Defaults to 500,
+    #: chosen by hand: the cost of a state, hundreds of evaluations.
+    connected_cluster_state_evaluations: int = 500
 
     # Fields of connected-cluster searches.
 

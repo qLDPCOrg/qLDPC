@@ -23,7 +23,7 @@ from sympy.abc import x, y
 
 from qldpc import codes
 from qldpc._binary import get_kernel
-from qldpc.objects import Pauli
+from qldpc.objects import PAULIS_XZ, Pauli
 
 from . import _tuning, core
 from . import logical_counts as lc
@@ -176,7 +176,9 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
         with _tuning.use_tuning(**changes):
             # New codes and counters, since codes and counters remember their distances.
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
-            distances = (fresh.get_distance_exact(Pauli.X), fresh.get_distance_exact(Pauli.Z))
+            distances = tuple(
+                fresh.get_distance_exact(pauli, method="brouwer_zimmermann") for pauli in PAULIS_XZ
+            )
             counts = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(
                 count_pauli=True
             )
@@ -222,7 +224,8 @@ def test_limits_on_partitioned_coverage_change_routes_but_not_results(
             partition_max_coverage=limit,
         ):
             # A new code, since codes remember their distances.
-            distance = codes.CSSCode(css_code.matrix_x, css_code.matrix_z).get_distance_exact()
+            fresh = codes.CSSCode(css_code.matrix_x, css_code.matrix_z)
+            distance = fresh.get_distance_exact(method="brouwer_zimmermann")
             counts = lc.CSSLogicalCounter(css_code.matrix_x, css_code.matrix_z).count_logical_ops(5)
         results.append((distance, counts))
         max_coverages.append(
@@ -312,9 +315,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     Tuning keeps results, so recording the arguments of each reader is what shows that a value
     arrives.  The tuning takes every route, with values that differ from the defaults.  Fields that
     this test does not follow are read in one of two ways.  Some are read within one function from
-    the tuning that it receives, and their tests in ``_information_sets/completion_bounds_test.py``
-    and ``_information_sets/basis_families_test.py`` change them there.  Others are read once by
-    ``CosetLeaderSearch``, which passes their values down to its coset searches:
+    the tuning that it receives, and their tests in ``_information_sets/completion_bounds_test.py``,
+    ``_information_sets/basis_families_test.py``, and ``_auto_test.py`` change them there.  Others
+    are read once by ``CosetLeaderSearch``, which passes their values down to its coset searches:
     ``max_css_single_pairs`` and ``max_sparsifying_rounds``.  Tests in ``coset_leaders_test.py``,
     ``_brouwer_zimmermann/coset_test.py``, and ``_connected_cluster/coset_test.py`` change or record
     these, and the fields that the oracle passes down to the routes of its BZ searches.  The
@@ -352,6 +355,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "restrict_viable_symbols",
     )
     record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
+    record(core, "is_cheap_to_enumerate", "tuning", prefix="auto ")
+    record(core, "search_by_cost", "tuning", prefix="auto ")
     original_prepare = bz._prepare_sector_search
 
     def prepare(*args: Any, **kwargs: Any) -> Any:
@@ -379,8 +384,12 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         restrict_viable_symbols=False,
         max_distance_sparsifying_rounds=4,
         sparsifying_rounds_without_improvement=2,
+        auto_brute_force_max_words=0,
     ) as tuning:
-        codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(Pauli.X)
+        codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(
+            Pauli.X, method="brouwer_zimmermann"
+        )
+        codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(Pauli.Z, method="auto")
         codes.CSSCode(code.matrix_x, code.matrix_z).get_distance_exact(method="connected_cluster")
         counter = lc.CSSLogicalCounter(code.matrix_x, code.matrix_z)
         counter.count_logical_ops()
@@ -403,6 +412,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "restrict_viable_symbols": {False},
         "max_rounds": {4},
         "rounds_without_improvement": {2},
+        "auto tuning": {tuning},
     }
     assert {key: set(values) for key, values in seen.items()} == expected
 

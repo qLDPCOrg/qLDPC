@@ -770,9 +770,24 @@ def test_exact_code_distance_method_api() -> None:
         ("get_distance_pauli", lambda: qudit_code.get_distance(method="brute_force")),
         ("get_distance_css", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
     ):
-        with unittest.mock.patch(f"qldpc.codes.common.{kernel}", return_value=3) as mock_kernel:
+        with unittest.mock.patch.object(common, kernel, wraps=getattr(common, kernel)) as search:
             assert get_distance() == 3
-        assert mock_kernel.call_args.kwargs["method"] == "brute_force"
+        assert search.call_args.kwargs["method"] == "brute_force"
+
+    # Without a method, get_distance and get_distance_exact forward "auto", the default.
+    for kernel, get_distance in (
+        ("get_distance_from_generators", classical_code.get_distance),
+        ("get_distance_from_generators", classical_code.get_distance_exact),
+        ("get_distance_pauli", qudit_code.get_distance),
+        ("get_distance_pauli", qudit_code.get_distance_exact),
+        ("get_distance_css", functools.partial(css_code.get_distance, Pauli.X)),
+        ("get_distance_css", functools.partial(css_code.get_distance_exact, Pauli.X)),
+    ):
+        for code in (classical_code, qudit_code, css_code):
+            code.forget_distance()
+        with unittest.mock.patch.object(common, kernel, wraps=getattr(common, kernel)) as search:
+            assert get_distance() == 3
+        assert search.call_args.kwargs["method"] == "auto"
 
     redundant_code = codes.ClassicalCode([[1, 1, 1]]).set_generator(
         [[1, 1, 0], [0, 1, 1], [1, 0, 1]]
@@ -786,17 +801,17 @@ def test_exact_code_distance_method_api() -> None:
     # The "information_sets" alias selects the joint Brouwer-Zimmermann search of a CSS code.
     hgp_code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
     css_code = codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z)
-    with unittest.mock.patch(
-        "qldpc.codes.common.get_distance_css", return_value=3
-    ) as mock_joint_distance:
+    with unittest.mock.patch.object(
+        common, "get_distance_css", wraps=common.get_distance_css
+    ) as joint_search:
         assert css_code.get_distance_exact(method="information_sets") == 3
-    mock_joint_distance.assert_called_once()
+    joint_search.assert_called_once()
     arguments = (
         inspect.signature(get_distance_css)
-        .bind(*mock_joint_distance.call_args.args, **mock_joint_distance.call_args.kwargs)
+        .bind(*joint_search.call_args.args, **joint_search.call_args.kwargs)
         .arguments
     )
-    assert arguments["pauli"] is None
+    assert arguments["pauli"] is None and arguments["method"] == "brouwer_zimmermann"
 
 
 def test_connected_cluster_method_is_only_for_binary_codes() -> None:
@@ -1080,7 +1095,7 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> No
     for matrix in (bb_code.matrix, bb_code.conjugated(range(36, 72)).matrix):
         code = codes.QuditCode(np.hstack([matrix[:, shuffle], matrix[:, len(bb_code) + shuffle]]))
         assert code._found_qudit_automorphisms is not None
-        assert code.get_distance_exact() == 6
+        assert code.get_distance_exact(method="brouwer_zimmermann") == 6
 
 
 @pytest.mark.parametrize("field", [2, 3])

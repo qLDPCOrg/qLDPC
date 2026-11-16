@@ -31,7 +31,7 @@ from .conftest import (
     split_syndromes_into_words,
 )
 from .core import DistanceMethod
-from .coset_leaders import CosetLeaderSearch
+from .coset_leaders import CosetLeaderSearch, _get_coset_search_method
 from .min_weight_bounds import MinWeightBound
 
 
@@ -474,6 +474,11 @@ def test_methods_take_the_names_of_distance_methods() -> None:
     for method in get_args(DistanceMethod):
         if method != "brute_force":
             assert_exact_answers(CosetLeaderSearch(matrix, method=method), matrix, False)
+
+    # "auto" takes the Brouwer-Zimmermann method, which, unlike the connected-cluster method, weighs
+    # errors by CSS weight on this state, which is not CSS.
+    assert _get_coset_search_method("auto") == "brouwer_zimmermann"
+    assert_exact_answers(CosetLeaderSearch(matrix, css_weight=True, method="auto"), matrix, True)
 
 
 def test_properties_are_read_only() -> None:

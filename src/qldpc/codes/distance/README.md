@@ -28,6 +28,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - **Basis family** (`BasisFamily`): the information sets that one Brouwer-Zimmermann search or count uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither visited nor skipped, which tells the search when it can stop; with completion tables, it bounds only the words lighter than the best weight `U` of the search (Section 3.9 of `brouwer_zimmermann.md`).
 - **Connected-cluster search** (`SupportSearch`): the depth-first search that `method="connected_cluster"` selects, which grows supports through the unsatisfied rows of a check matrix `H` to find light binary or symplectic words outside the row space of an excluded matrix `G`, or light vectors with a given syndrome.
+  `"auto"` runs it for the distances of quantum codes and the fault distances of circuits (see "Choosing a method").
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer, a layer holding the combinations of a given number of rows.
   Counts have their own scan, in `_counting/scan.py`, and the Brouwer-Zimmermann distance and coset searches (see "The coset-leader search") use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
   Every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.
@@ -36,6 +37,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 
 - `core.py` and `logical_counts.py` are the public interfaces of the distances and the counts.
 - `coset_leaders.py` is the public interface of the coset-leader search, and `min_weight_bounds.py` defines `MinWeightBound`, which its coset searches build too.
+- `_auto.py` holds the parts of the automatic choice of a method, `method="auto"`, that compare the costs of the methods (see "Choosing a method").
 - `_brouwer_zimmermann/` holds the Brouwer-Zimmermann searches, which scan information sets, and `_connected_cluster/` the connected-cluster searches, which grow connected supports.
   Each holds the distance search of its method, and the coset searches with which the coset-leader search answers queries by that method.
   `_brute_force.py` holds exhaustive enumeration.
@@ -52,6 +54,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | To change… | Look in (this directory) |
 | --- | --- |
 | A distance method, or the validation of method names | `core.py`, whose validation `coset_leaders.py` also uses; the early checks of `src/qldpc/circuits/certification/fault_propagation.py` and `src/qldpc/circuits/certification/fault_distance.py`; where `logical_counts.py` and `get_distance_exact` in `src/qldpc/codes/common.py` dispatch on the method name, and where `get_distance` validates it; and the `brute_force` flag that `logical_counts.py` passes to `_counting/scan.py` |
+| The automatic choice of a method (`method="auto"`): which searches take which method, and when a connected-cluster search switches to the BZ method | `core.py`, where the distance functions dispatch on the method; `_auto.py`, which estimates and compares the costs; and `_get_coset_search_method` of `coset_leaders.py`, where coset searches take BZ |
 | The counter, its deformed counters, or `compile_search_setup` | `logical_counts.py` |
 | The coset-leader search, which `src/qldpc/circuits/certification/` and `src/qldpc/experimental/circuits/benchmarking/residual_weights.py` use, and how its queries split into coset searches | `coset_leaders.py` |
 | The Brouwer-Zimmermann (BZ) distance search | `_brouwer_zimmermann/distance.py` |
@@ -86,11 +89,12 @@ From the top:
 
 1. `logical_counts.py`, which takes `NoDistance` from `core.py`, and `coset_leaders.py`, which takes `DistanceMethod` from it.
 2. `core.py`.
-3. The methods `_brouwer_zimmermann/`, `_connected_cluster/`, `_counting/`, and `_brute_force.py`.
-4. `_information_sets/`, `_cosets.py`, and `min_weight_bounds.py`, which the methods build on.
+3. `_auto.py`, the automatic choice of a method.
+4. The methods `_brouwer_zimmermann/`, `_connected_cluster/`, `_counting/`, and `_brute_force.py`.
+5. `_information_sets/`, `_cosets.py`, and `min_weight_bounds.py`, which the methods build on.
    The connected-cluster search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`.
-5. `_tuning.py`.
-6. `_binary.py`.
+6. `_tuning.py`.
+7. `_binary.py`.
 
 A top-level module or subpackage imports only from lower levels, and a module also from its own subpackage.
 `_layering_test.py` checks this.
@@ -102,6 +106,76 @@ In `_connected_cluster/`, `coset` builds on `search` and `sparse_checks`, and in
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
+
+## Choosing a method
+
+`method="auto"` is the default of the distance functions, of `get_distance` and `get_distance_exact` of the code classes, and of `get_fault_distance`.
+It chooses a method for each search, in `_search_css`, `_search_checks`, and `_search_generators` of `core.py`.
+A code class that searches other codes, as `HGPCode` searches its seed codes, passes the method down, so each of those searches chooses too.
+The coset searches of `CosetLeaderSearch` take the BZ method for `"auto"` (`_get_coset_search_method` of `coset_leaders.py`).
+The rule aims to avoid a method that is very slow on a search, not to find the fastest one, and it decides from the shapes of the sectors and from the progress of the searches, without fitted thresholds.
+
+1. Brute force runs if `is_cheap_to_enumerate` finds that it examines at most `auto_brute_force_max_words` packed 64-bit integers.
+   Unlike that of the other methods, its cost is known before it runs.
+2. Otherwise, a search of binary words that excludes no nonzero word, as for a classical code, takes the BZ method, and so does every search of a function that takes generators, since it has no checks.
+   A connected-cluster search can be much slower than BZ on classical codes whose checks are only moderately sparse.
+3. Every other search, as of a quantum code or of the faults of a circuit, runs `search_by_cost` in `_auto.py`.
+   It advances a connected-cluster search one weight limit at a time, through `ConnectedClusterSearch`, and counts work in BZ candidate/set evaluations, a state being `connected_cluster_state_evaluations` of them.
+   The expected work of a limit is the work that the search has spent plus the predicted work of that limit.
+   - In its free phase, the search runs on until the expected work of its next limit exceeds `auto_free_work`.
+     Below that, fixed costs that the estimates leave out, such as setup, dominate the costs that a switch would compare.
+     `SupportSearch._predict_states` predicts `MAX_VALUE - 1` states for a first limit that `cutoff` raises, so such a limit ends the free phase at once.
+   - `_probe` then runs a BZ search by whole layers within `auto_probe_work`.
+     It skips the costlier stages of setup: overlapping and partitioned families, and so the certificates from linear programs that only those take.
+     If the probe finishes, its result is the answer.
+     Otherwise, its shared upper bound `U`, the weight of a nontrivial word that it has found or the caller's upper bound if that is less, caps the connected-cluster search, which then stops once its lower bounds reach `U`.
+     The search of a sector can hold a lighter witness from its setup, which joins `U` only after the probe advances that search.
+   - Before each limit whose expected work exceeds `auto_free_work`, starting with the limit that ended the free phase, `_should_switch` may switch to a BZ search with the full tuning and the upper bound `U`.
+     The level of a limit is the weight that it certifies, one weight divisor above it.
+     The search switches only while its work grows faster per unit of weight than BZ's would at the level of its next limit.
+     It then switches if its spent and projected work exceeds the estimated work of BZ, to certify that level or to reach `U`.
+     A search has a growth only after two limits without a witness, so it cannot switch before then.
+     So a search with a cutoff, whose first limit is the cutoff, runs through it and one more limit before it can switch.
+     With a cutoff within about two weight divisors of the distance, it may never switch.
+
+The choice keeps every result exact, and `cutoff` and `upper_bound` mean what they mean for each method.
+Since `U` is the weight of a nontrivial word or the caller's upper bound, a search with `U` as its upper bound returns the smaller of the distance and the caller's upper bound, as a search without it does.
+When the connected-cluster search switches, a BZ search of the same sectors, in the same order, replaces it, and takes nothing from it but `U`.
+For Pauli strings, that BZ search searches their images under `symplectic_to_hamming` (Section 2.7 of `brouwer_zimmermann.md`) and halves the weight that it finds.
+The tuning of the probe changes only its family of information sets and their certificate, which no result depends on.
+Which method runs can still change which word an early exit at `cutoff` finds.
+
+The estimates are crude.
+The connected-cluster search predicts the states of a limit by `SupportSearch._predict_states` until two successive limits without a witness have visited states from the same number of roots.
+It then extrapolates the states of its last limit without a witness by the growth of its states per unit of weight (`ConnectedClusterSearch.get_growth`).
+`_BrouwerZimmermannCosts` estimates the work of BZ from the rank `r` and width `n` of each basis alone: a family that covers the columns evenly certifies about `(t + 1) n / r` after layer `t`, which scans `C(r, t)` supports of each set.
+It counts one set per layer, as with an automorphism family, which underestimates a family of several sets.
+It also leaves out completion tables, which can skip most supports of a costly layer, so it can overestimate the work of a hard BZ search.
+To reach `U`, the projection counts half of the limit at weight `U`, as for a search that must find a witness of weight `U` itself.
+A search with `U` as its upper bound stops before that limit, so this overestimates the connected-cluster work.
+These two overestimates push the choice in opposite directions, so a refinement that removes one should remove the other.
+
+### Refining the choice
+
+The known ways for the rule to lose are these:
+
+- A classical code whose checks are sparse enough for a connected-cluster search to be much faster takes BZ.
+- A quantum code on which BZ is much faster pays for the connected-cluster search up to the switch, the probe, and the setup of a BZ search that starts again, since the switch discards the probe.
+- A quantum code on which the connected-cluster search would win switches to BZ if the estimates make BZ look cheaper than it is, as when a basis has columns that its information sets cannot cover evenly.
+- A search with a cutoff near the distance may never switch (see above).
+  It then pays for the whole connected-cluster search unless its probe finishes.
+
+A better rule could use:
+
+- the work of each layer that a BZ search plans (`get_layer_work`), which counts the sets of its family, in place of the closed form;
+- the work that the completion tables of a BZ search are predicted to skip;
+- a projection to `U` that stops before the limit at `U`;
+- a race that interleaves the two searches;
+- more features of the sectors, such as the weights of their checks.
+
+It could also resume the probe rather than start a new BZ search.
+To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
+A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.
 
 ## The coset-leader search
 

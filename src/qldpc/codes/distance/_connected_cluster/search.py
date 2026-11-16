@@ -12,6 +12,7 @@ requirements.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Callable, Sequence
 
@@ -99,7 +100,8 @@ class ConnectedClusterSearch:
 
     The arguments are those of ``get_distance_connected_cluster``, which advances the search until
     it finishes.  Each advance searches the sector with the lowest lower bound on its witnesses
-    through its next weight limit (Section 3.6 of ``connected_cluster.md``).
+    through its next weight limit (Section 3.6 of ``connected_cluster.md``).  The searches of the
+    sectors that have witnesses are numbered in the order of those sectors.
 
     Raises:
         ValueError: If there are neither sectors nor an upper bound, or if a sector is not valid
@@ -149,6 +151,11 @@ class ConnectedClusterSearch:
         )
         self._num_limits = 0
 
+        # The weight limit, states, and number of roots of each limit without a witness, per search.
+        self._limits_without_witness: list[list[tuple[int, int, int]]] = [
+            [] for _ in self._searches
+        ]
+
     @property
     def finished(self) -> bool:
         """Whether no sector has witnesses, or the best weight is at most the cutoff or each bound.
@@ -167,6 +174,72 @@ class ConnectedClusterSearch:
         """Once finished, the result that ``get_distance_connected_cluster`` returns."""
         bounds = (self._best_weight, *self._no_distance_bounds)
         return min(bound for bound in bounds if bound is not None)
+
+    @property
+    def searches(self) -> tuple[SupportSearch, ...]:
+        """The search of each sector that has witnesses."""
+        return tuple(self._searches)
+
+    @property
+    def num_states(self) -> int:
+        """The states that the searches have visited, over all their weight limits."""
+        return sum(search.num_states for search in self._searches)
+
+    @property
+    def next_limit(self) -> tuple[int, int]:
+        """The search that the next advance runs, and the weight limit through which it searches."""
+        index = self._lower_bounds.index(min(self._lower_bounds))
+        return index, self.get_next_limit(index)
+
+    def get_next_limit(self, index: int) -> int:
+        """The next weight limit of a search: its lower bound, or the cutoff if that is higher.
+
+        A cutoff raises the limit to the largest multiple of the search's divisor within the cutoff.
+        """
+        divisor = self._searches[index].weight_divisor
+        return max(self._lower_bounds[index], self._cutoff - self._cutoff % divisor)
+
+    def get_growth(self, index: int) -> float | None:
+        """The factor by which the states of a search grow per unit of its weight limit.
+
+        Each ratio compares the states of two successive limits that found no witness, both nonzero
+        and from the same number of roots, per unit of weight between the limits.  The factor is the
+        geometric mean of the last two ratios, which evens out the alternation of weight limits of
+        odd and even parity, or the last ratio if there is one, or None if there is none.
+        """
+        limits = self._limits_without_witness[index]
+        ratios = [
+            (states / previous_states) ** (1 / (weight - previous_weight))
+            for (previous_weight, previous_states, previous_roots), (weight, states, roots) in (
+                itertools.pairwise(limits)
+            )
+            if previous_states and states and roots == previous_roots
+        ]
+        if not ratios:
+            return None
+        return math.sqrt(ratios[-1] * ratios[-2]) if len(ratios) > 1 else ratios[-1]
+
+    def predict_states(self, index: int, max_weight: int) -> float:
+        """The states that a search is expected to visit at one later weight limit.
+
+        The states of its last limit without a witness grow by ``get_growth`` for each unit of
+        weight, and a prediction too large for a float is infinite.  Without a growth factor, the
+        prediction is that of the search itself for its next limit (Section 3.5 of
+        ``connected_cluster.md``).
+        """
+        growth = self.get_growth(index)
+        if growth is None:
+            return self._searches[index]._predict_states(max_weight)
+        last_weight, last_states, _ = self._limits_without_witness[index][-1]
+        try:
+            return last_states * growth ** (max_weight - last_weight)
+        except OverflowError:
+            return math.inf
+
+    def update_upper_bound(self, upper_bound: int) -> None:
+        """Lower the best weight to the weight of a witness, or to a cap, found elsewhere."""
+        if self._best_weight is None or upper_bound < self._best_weight:
+            self._best_weight = upper_bound
 
     def advance(self) -> None:
         """Search the sector with the lowest lower bound through its next limit, unless finished.
@@ -187,17 +260,20 @@ class ConnectedClusterSearch:
             )
 
         # Search the sector with the lowest lower bound through its next limit, which the cutoff
-        # can raise.
-        index = self._lower_bounds.index(min(self._lower_bounds))
+        # can raise (see ``get_next_limit``).
+        index, max_weight = self.next_limit
         search = self._searches[index]
         divisor = search.weight_divisor
-        max_weight = max(self._lower_bounds[index], self._cutoff - self._cutoff % divisor)
+        num_states = search.num_states
         witness = search.find_witness(max_weight)
         self._num_limits += 1
 
-        # A limit without a witness raises the lower bound past it, and a witness may lower the best
-        # weight.
+        # A limit without a witness raises the lower bound past it, and records its states for
+        # get_growth.  A witness may lower the best weight.
         if witness is None:
+            self._limits_without_witness[index].append(
+                (max_weight, search.num_states - num_states, len(search._roots))
+            )
             self._lower_bounds[index] = (max_weight // divisor + 1) * divisor
         elif self._best_weight is None or len(witness) < self._best_weight:
             self._best_weight = len(witness)

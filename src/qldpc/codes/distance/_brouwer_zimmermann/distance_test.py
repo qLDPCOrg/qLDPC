@@ -29,6 +29,7 @@ from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from ..conftest import (
     MISSED_SET_CODE,
     CostlyStages,
+    get_costly_basis,
     get_random_css_code,
     get_random_full_rank_matrix,
     get_sector,
@@ -180,7 +181,7 @@ def test_brouwer_zimmermann_setup_exits(
     if overlap:
         tune(overlapping_minimum_work=0)
     distance = qldpc.codes.distance.get_distance_from_generators(
-        logicals, stabilizers, cutoff=cutoff
+        logicals, stabilizers, cutoff=cutoff, method="brouwer_zimmermann"
     )
     assert expected <= distance <= max(cutoff, expected)
 
@@ -200,7 +201,9 @@ def test_searches_never_enumerate_every_word() -> None:
     with mock.patch.object(
         _brute_force, "_get_distance_brute_force", wraps=_brute_force._get_distance_brute_force
     ) as enumerate_words:
-        distance = qldpc.codes.distance.get_distance_from_generators(logicals, stabilizers)
+        distance = qldpc.codes.distance.get_distance_from_generators(
+            logicals, stabilizers, method="brouwer_zimmermann"
+        )
     assert distance == expected
     enumerate_words.assert_not_called()
 
@@ -371,20 +374,25 @@ def test_brouwer_zimmermann_subsystem_code() -> None:
     See https://arxiv.org/abs/quant-ph/0506023.
     """
     code = qldpc.codes.QuditCode(qldpc.codes.BaconShorCode(3).matrix, is_subsystem_code=True)
-    assert code.get_distance_exact() == 3
+    assert code.get_distance_exact(method="brouwer_zimmermann") == 3
 
 
 @pytest.mark.parametrize("length", [64, 65, 257])
 def test_brouwer_zimmermann_packed_widths(length: int) -> None:
     """Information-set weights are exact across uint64 words and for weights above 255."""
     generators = np.ones((1, length), dtype=np.uint8)
-    assert qldpc.codes.distance.get_distance_from_generators(generators, cutoff=0) == length
+    assert (
+        qldpc.codes.distance.get_distance_from_generators(
+            generators, cutoff=0, method="brouwer_zimmermann"
+        )
+        == length
+    )
 
 
 def test_dependent_logical_rows_give_the_distance_of_their_span() -> None:
     """Repeated logical rows are reduced to a basis of the quotient before any search."""
     distance = qldpc.codes.distance.get_distance_from_generators(
-        [[1, 1, 1], [1, 1, 1]], [], cutoff=0
+        [[1, 1, 1], [1, 1, 1]], [], cutoff=0, method="brouwer_zimmermann"
     )
     assert distance == 3
 
@@ -397,9 +405,9 @@ def test_brouwer_zimmermann_reduces_enumeration_work(
     generators = np.asarray(qldpc.codes.HammingCode(5).generator, dtype=np.uint8)
     if extended:
         generators = np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
-    assert qldpc.codes.distance.get_distance_from_generators(generators, cutoff=0) == (
-        4 if extended else 3
-    )
+    assert qldpc.codes.distance.get_distance_from_generators(
+        generators, cutoff=0, method="brouwer_zimmermann"
+    ) == (4 if extended else 3)
     assert 0 < 1000 * get_candidate_count() < 2 ** len(generators)
 
 
@@ -411,13 +419,14 @@ def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
 
 
 def test_brouwer_zimmermann_overlap_mb(get_candidate_count: Callable[[], int]) -> None:
-    """The default X-sector search of this 64-qubit MB code stays within a broad work budget."""
+    """The BZ X-sector search of this 64-qubit MB code stays within a broad work budget."""
     code = qldpc.codes.MBCode(
         {x: 4, y: 4, z: 2},
         1 + x + y + x * y * z,
         1 + x * y + x**2 * y**3 * z + x**3 * y**2,
     )
-    assert code.forget_distance().get_distance_exact("X", cutoff=0) == 8
+    distance = code.forget_distance().get_distance_exact("X", cutoff=0, method="brouwer_zimmermann")
+    assert distance == 8
     assert 0 < get_candidate_count() < 1_000_000
 
 
@@ -455,7 +464,9 @@ def test_brouwer_zimmermann_overlap_improves_quotient_witness(tune: Tune) -> Non
         basis_families, "get_overlapping_family", side_effect=select
     ) as select_mock:
         assert (
-            qldpc.codes.distance.get_distance_from_generators(logicals, stabilizers, cutoff=0)
+            qldpc.codes.distance.get_distance_from_generators(
+                logicals, stabilizers, cutoff=0, method="brouwer_zimmermann"
+            )
             == expected
             == 5
         )
@@ -508,7 +519,10 @@ def test_a_search_scans_every_set_that_its_certificate_counts() -> None:
         qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
         == 5
     )
-    assert qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0) == 5
+    distance = qldpc.codes.distance.get_distance_from_generators(
+        basis, cutoff=0, method="brouwer_zimmermann"
+    )
+    assert distance == 5
 
 
 def test_a_search_through_the_costly_stages_finds_the_distance(
@@ -521,12 +535,15 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
         partition_work_ratio=0,
         max_information_sets=16,
     )
-    basis = _get_costly_basis()
+    basis = get_costly_basis()
     assert (
         qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0, method="brute_force")
         == 6
     )
-    assert qldpc.codes.distance.get_distance_from_generators(basis, cutoff=0) == 6
+    distance = qldpc.codes.distance.get_distance_from_generators(
+        basis, cutoff=0, method="brouwer_zimmermann"
+    )
+    assert distance == 6
     assert any(
         len(family.ranks) and family.max_coverage > 1
         for family in costly_stages.partitioned_families
@@ -548,7 +565,9 @@ def test_a_coverage_limit_of_one_partitions_into_disjoint_sets(
         partition_max_coverage=1,
         partition_work_ratio=0,
     )
-    distance = qldpc.codes.distance.get_distance_from_generators(MISSED_SET_CODE, cutoff=0)
+    distance = qldpc.codes.distance.get_distance_from_generators(
+        MISSED_SET_CODE, cutoff=0, method="brouwer_zimmermann"
+    )
     assert (
         distance
         == qldpc.codes.distance.get_distance_from_generators(MISSED_SET_CODE, method="brute_force")
@@ -773,6 +792,64 @@ def test_stepped_searches_use_the_tuning_that_they_are_given(
     with use_tuning(information_set_batch_exponent=6):
         bz.get_distance_brouwer_zimmermann(sectors, cutoff=0, tuning=tuning)
     assert tunings == [tuning, tuning]
+
+
+def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Searches report the work of the layer that ``advance`` scans next, and none at the end.
+
+    The work counts the supports of the sets that the next unfinished search plans to scan, which
+    bound those that it scans.  A layer of an automorphism family scans its one set.  The surface
+    code scans several sets per layer, the random code skips the search of a finished sector, and
+    the gross code switches to automorphism families.
+    """
+    asked: list[bz._SectorSearch] = []
+    scanned: list[tuple[bz._SectorSearch, int]] = []
+    get_layer_work = bz._SectorSearch.get_layer_work
+    scan_set = bz._SectorSearch._scan_set
+
+    def recording_get_layer_work(search: bz._SectorSearch) -> int:
+        asked.append(search)
+        return get_layer_work(search)
+
+    def recording_scan_set(search: bz._SectorSearch, index: int, weight: int) -> bool:
+        scanned.append((search, math.comb(search.dimension, weight)))
+        return scan_set(search, index, weight)
+
+    monkeypatch.setattr(bz._SectorSearch, "get_layer_work", recording_get_layer_work)
+    monkeypatch.setattr(bz._SectorSearch, "_scan_set", recording_scan_set)
+    layers: list[tuple[int, int, int, bool]] = []
+    for code, minimum_layer_work, distance in (
+        (qldpc.codes.SurfaceCode(9), MAX_VALUE, 9),
+        (get_random_css_code(np.random.default_rng(4), 60, 20, 25), MAX_VALUE, 4),
+        (qldpc.codes.GrossCode(), 0, None),
+    ):
+        sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
+        with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
+            search = bz.BrouwerZimmermannSearch(
+                sectors, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+            )
+            while not search.finished:
+                asked.clear()
+                scanned.clear()
+                work = search.get_next_layer_work()
+                (sector_search,) = asked
+                uses_family = sector_search.uses_automorphism_family
+                search.advance()
+                assert scanned and all(scanner is sector_search for scanner, _ in scanned)
+                layers.append(
+                    (work, sum(supports for _, supports in scanned), len(scanned), uses_family)
+                )
+                # Stop the gross code at its first family layer, which keeps the test fast.
+                if uses_family:
+                    break
+        if distance is not None:
+            assert search.best == distance and search.get_next_layer_work() == 0
+    assert all(supports <= work for work, supports, _, _ in layers)
+    assert any(supports == work and num_sets > 1 for work, supports, num_sets, _ in layers)
+    family_layers = [(work, supports) for work, supports, _, uses_family in layers if uses_family]
+    assert family_layers and all(work == supports for work, supports in family_layers)
 
 
 def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
@@ -1007,7 +1084,10 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
     ):
         assert (
             qldpc.codes.distance.get_distance_from_generators(
-                _get_costly_basis(), cutoff=0, automorphisms=np.arange(21)[None]
+                get_costly_basis(),
+                cutoff=0,
+                automorphisms=np.arange(21)[None],
+                method="brouwer_zimmermann",
             )
             == 6
         )
@@ -1062,21 +1142,6 @@ def test_searches_reject_wrong_automorphisms() -> None:
             cutoff=0,
             get_automorphisms=lambda: transposition[None],
         )
-
-
-def _get_costly_basis() -> npt.NDArray[np.uint8]:
-    """A basis of a [21, 8, 6] code whose search reaches matroid partitioning at lowered gates."""
-    rows = [
-        "100000010110010010011",
-        "010000010100101111100",
-        "001000000111011111100",
-        "000100010101000101010",
-        "000010010110000011000",
-        "000001010011000111011",
-        "000000110001110101011",
-        "000000001110001010110",
-    ]
-    return np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
 
 
 def _no_labels(basis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

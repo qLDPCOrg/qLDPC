@@ -76,7 +76,8 @@ class CosetLeaderSearch:
             its physical weight.
         method: ``"brouwer_zimmermann"`` (the default), with alias ``"information_sets"``, searches
             the cosets of binary codes by information sets (see the `Brouwer-Zimmermann guide
-            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_).
+            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_),
+            and so does ``"auto"``.
             ``"connected_cluster"`` makes generators of the stabilizer group sparser, and grows
             errors from the syndrome through them, so it can be fast only if those generators are
             sparse (see the `connected-cluster guide
@@ -464,7 +465,11 @@ class CosetLeaderSearch:
 def _get_coset_search_method(
     method: DistanceMethod,
 ) -> Literal["brouwer_zimmermann", "connected_cluster"]:
-    """Validate a distance method that has coset searches, and return its canonical name."""
+    """Validate a distance method that has coset searches, and return the method that they use.
+
+    ``"auto"`` chooses the Brouwer-Zimmermann method, whose coset searches often prove higher
+    lower bounds on the weights of coset leaders.
+    """
     try:
         canonical = _validate_distance_method(method)
     except ValueError:
@@ -477,7 +482,7 @@ def _get_coset_search_method(
             "The 'brute_force' distance method has no coset-leader search: use"
             " 'brouwer_zimmermann' or 'connected_cluster'."
         )
-    return canonical
+    return "brouwer_zimmermann" if canonical == "auto" else canonical
 
 
 def _as_state_stabilizers(stabilizers: npt.ArrayLike) -> npt.NDArray[np.uint8]:

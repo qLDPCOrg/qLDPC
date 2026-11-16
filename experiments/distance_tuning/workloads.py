@@ -25,11 +25,11 @@ A code name is one of:
 
 A workload name is a kind, then a code name, then the arguments of the kind, separated by ``/``:
 
-- ``distance/<code>/<sector>``: ``get_distance_exact`` of a quantum code, for the sector ``X``,
-  ``Z``, or ``both``, or of a classical code, whose sector must be ``-``;
+- ``distance/<code>/<sector>``: ``get_distance_exact`` by the BZ method of a quantum code, for the
+  sector ``X``, ``Z``, or ``both``, or of a classical code, whose sector must be ``-``;
 - ``ccdistance/<code>/<sector>``: the same, by the connected-cluster method;
-- ``hadamard/<code>``: ``get_distance_exact`` of the code that Hadamards on the second half of the
-  qubits of a CSS code make, which is not CSS;
+- ``hadamard/<code>``: ``get_distance_exact`` by the BZ method of the code that Hadamards on the
+  second half of the qubits of a CSS code make, which is not CSS;
 - ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method;
 - ``ccount/<code>/<weight>``: the same count, in a process whose warm-up first calls
   ``compile_search_setup`` (see ``trial.py``);
@@ -52,9 +52,9 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
 - ``certify/<code>/<weighing>/<max_weight>``: ``certify_bounded_fault_propagation`` of the encoding
   circuit of ``|0...0>`` of a CSS code under ``DepolarizingNoiseModel(1e-3)``, by ``css`` or
   ``physical`` weight, whose result is the fault weight of the smallest violation, if any;
-- ``faultdist/<code>/<basis>``: ``get_fault_distance`` of one round of a memory experiment of a
-  CSS code in the basis ``X`` or ``Z``, with noise only on its QEC cycle, as in the notebook of
-  fault-tolerance certificates.
+- ``faultdist/<code>/<basis>``: ``get_fault_distance`` by the BZ method of one round of a memory
+  experiment of a CSS code in the basis ``X`` or ``Z``, with noise only on its QEC cycle, as in the
+  notebook of fault-tolerance certificates.
 
 Each workload returns a short string of its result, which every tuning must reproduce.
 """
@@ -269,10 +269,13 @@ def run_distance(
 
 
 def run_hadamard_distance(code_name: str) -> str:
-    """The exact distance of a CSS code after Hadamards on the second half of its qubits."""
+    """The distance, by the BZ method, of a CSS code after Hadamards.
+
+    The Hadamards act on the second half of its qubits.
+    """
     code = get_hadamard_code(code_name)
     code.forget_distance()
-    return str(code.get_distance_exact())
+    return str(code.get_distance_exact(method="brouwer_zimmermann"))
 
 
 @functools.cache
@@ -426,10 +429,11 @@ def get_noisy_encoding_circuit(code_name: str) -> stim.Circuit:
 
 
 def run_fault_distance(code_name: str, basis: str) -> str:
-    """The fault distance of one round of a memory experiment with a noisy QEC cycle."""
+    """The fault distance, by the BZ method, of one memory round with a noisy QEC cycle."""
     if basis not in ("X", "Z"):
         raise ValueError(f"Unknown basis {basis!r}; choose 'X' or 'Z'")
-    return str(circuits.get_fault_distance(get_noisy_memory_circuit(code_name, basis)))
+    circuit = get_noisy_memory_circuit(code_name, basis)
+    return str(circuits.get_fault_distance(circuit, method="brouwer_zimmermann"))
 
 
 @functools.cache
