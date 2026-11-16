@@ -25,7 +25,7 @@ __all__ = [
 
 _deprecations.install_deprecated_methods()
 
-# Subpackages that are imported on first access, to keep "import qldpc" fast.  The subpackages that
+# Subpackages that are imported on first access, to keep "import qldpc" fast.  The modules that
 # "import qldpc" loads must not import them at import time, which import_test.py checks.
 _LAZY_SUBPACKAGES = ("circuits", "experimental")
 
