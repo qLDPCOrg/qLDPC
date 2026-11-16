@@ -51,8 +51,7 @@ class BrouwerZimmermannProblem:
 
     Attributes:
         sectors: Nested-code bases and their quotient labels, as
-            ``get_distance_brouwer_zimmermann`` takes them, one for each sector of the
-            connected-cluster search of ``search_by_cost``, in the same order.
+            ``get_distance_brouwer_zimmermann`` takes them, one for each sector.
         weight_scale: The factor that converts the weights of the searched words into those of
             their BZ words: two for Pauli strings, whose BZ words are their images under
             ``symplectic_to_hamming``, and one otherwise.

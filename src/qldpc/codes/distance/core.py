@@ -43,9 +43,9 @@ DistanceMethod = Literal[
   search, which aims to avoid a method that is very slow on the search, rather than to find the
   fastest.  It takes ``"brute_force"`` if that is cheap.  Otherwise, a search of binary words that
   excludes no nonzero word, as for a classical code, takes ``"brouwer_zimmermann"``.  Any other
-  search, as for a quantum code or a circuit, runs ``"connected_cluster"``, which a short
-  ``"brouwer_zimmermann"`` probe may finish or cap, and switches to ``"brouwer_zimmermann"`` if
-  the latter is predicted to cost less (`Choosing a method
+  search, as for a quantum code or a circuit, runs ``"connected_cluster"``, and switches to
+  ``"brouwer_zimmermann"`` if that is predicted to cost less.  A short ``"brouwer_zimmermann"``
+  probe may give the result first, or cap the connected-cluster search (`Choosing a method
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`_
   in the guide to the distance package).  Functions that take generators choose between
   ``"brute_force"`` and ``"brouwer_zimmermann"``, and coset searches, such as those of
