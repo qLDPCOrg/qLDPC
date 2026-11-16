@@ -1,6 +1,7 @@
 Decisions and recommendations
 =============================
 
+Maintainers and agents follow this page; other contributors need not read it.
 Contributors, whether people or agents, often recommend a choice to the person who decides it, usually a maintainer.
 They also recommend choices to each other, as when a reviewer recommends one of several fixes to a review's coordinator.
 This page states rules for adding process, the principles that every recommendation follows in any form, and a standard format for presenting a complex or risky decision to the person who decides it.

@@ -17,7 +17,7 @@ For what the code does, use this order:
 3. The library map and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
-For how code should be written, the standards take precedence over existing code.
+For how code should be written, the [standards](docs/source/contributing/standards/index.rst) take precedence over existing code.
 Re-derive behavior from the current branch before documenting or changing it.
 
 ## Before editing
@@ -31,7 +31,6 @@ Coordinate each **full review** or **quick review** as [reviewing changes](docs/
 As a reviewer, follow the coordinator's instructions, and end your report without a review status.
 Otherwise, end every report on a change with its review status, as in "review: not run", "quick review: passed after 1 round; open decisions: none", "full review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "full review: not passed after 4 rounds; open decisions: none".
 Count the pre-existing problems that the review fixed, as in the examples.
-When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
 
 ## Decisions and recommendations
@@ -45,8 +44,11 @@ Make every recommendation, and present every decision, as [decisions and recomme
 2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for.
    Skip it if the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
    If the review does not pass, stop and report.
-3. Run the extended checks only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
-   Handle their failures as the validation commands describe.
+3. Run the [extended checks](docs/source/contributing/index.rst#validation-commands) only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
+   After fixing a failure that the change causes, verify the fix with the [drafting checks](docs/source/contributing/index.rst#validation-commands), and rerun the failed checks and every extended check that the fix could affect.
+   Report any other failure, such as one that also occurs on the main branch, as an open decision.
+   Report a failure whose fix needs a decision in the same way.
+   If a review ran, report as an open decision whether to review each fix, unless the fix is local and evidently correct.
 4. Hand the change off as [handing off a change](#handing-off-a-change) describes.
 
 A request to finish a change, as in "finish this PR", asks for steps 2 to 4.

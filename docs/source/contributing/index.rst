@@ -1,17 +1,19 @@
 Contributing
 ============
 
-Let the `project goals <https://github.com/qLDPCOrg/qLDPC#-goals>`_ guide each change's scope, design, validation, and explanation.
+Contributing in brief
+---------------------
+
+1. Read the `project goals <https://github.com/qLDPCOrg/qLDPC#-goals>`_, and let them guide your change's scope, design, validation, and explanation.
+2. Install qLDPC as the :ref:`development installation <development-installation>` describes.
+3. Find your kind of change in the :ref:`kinds-of-change table <kinds-of-change>`, and read the standards that it lists before editing.
+4. While you work, run the drafting checks of the :ref:`validation commands <validation-commands>`.
+5. Open a pull request, with a description that follows the :doc:`pull request standard <standards/pull_requests>`.
+6. Maintainers review each pull request against the :doc:`standards <standards/index>`, often with AI agents, as :doc:`reviewing changes <reviewing>` describes.
+   You need not run that review yourself.
+
 The README states how `qLDPC uses AI assistants <https://github.com/qLDPCOrg/qLDPC#ai-usage>`_.
 AI agents follow `AGENTS.md <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_, which states what they may do without a maintainer's request.
-
-Contributor documentation comes in two kinds:
-
-* :doc:`Standards <standards/index>` state the rules that a change must satisfy, one topic per standard.
-* Guides, such as this page, explain how qLDPC works and how to make a change, and link to the standards rather than restating them.
-
-Read the standards that apply to a change before editing, and check the change against them in a :doc:`review <reviewing>`.
-Make recommendations, and present decisions, as :doc:`decisions and recommendations <decisions>` describes.
 
 .. _kinds-of-change:
 
@@ -40,8 +42,6 @@ Some kinds of change have further requirements:
      - Writing standard: :ref:`where documentation belongs <writing-documentation>` and :ref:`example notebooks <writing-notebooks>`
    * - Public name, argument, mode, or default
      - :doc:`Deprecation standard <standards/deprecations>`
-   * - Pull request description
-     - :doc:`Pull request standard <standards/pull_requests>`
 
 Orientation
 -----------
@@ -87,8 +87,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/mypy_.py``
      - mypy with the repository's typing settings, over source and tests
    * - ``python checks/coverage_.py``
-     - Per-module tests and coverage, as in CI: each module under ``src/`` needs its own test file, which must pass and alone cover 100% of the module's statements.
-       It runs compiled functions as plain Python.
+     - Per-module tests and coverage, as in CI: the coverage gate that the :doc:`testing standard <standards/testing>` describes
    * - ``python -m pytest src/qldpc --compiled-module-tests``
      - Compiled run, as in CI: the test files of the modules that define compiled functions, with the always-compiled functions compiled
    * - ``python -m pytest src/qldpc/codes/distance --compile-search-setup``
@@ -110,13 +109,8 @@ The third tier is the extended checks.
   Run ``pytest_.py`` only on selected paths, since over the whole repository it largely repeats the test run of ``coverage_.py``.
   When targeted tests do not settle a question, such as whether a module's own tests fully cover it, or pass and run fast as plain Python, run ``coverage_.py`` on that module and its test file.
   For example, ``python checks/coverage_.py src/qldpc/codes/common.py src/qldpc/codes/common_test.py`` checks the coverage of one module and its test file.
-* **Extended:** the checks that CI runs on every pull request, other than the notebook runs.
-  The extended checks are needed only when the maintainer asks for them by name, or has said that they will be away while a change is completed.
-  Run the anytime checks, ``coverage_.py`` over the whole repository, the compiled runs, and ``build_docs.py``.
-  After fixing a failure that the change causes, verify the fix with the drafting checks, and rerun the failed checks and every extended check that the fix could affect.
-  Report any other failure, such as one that also occurs on the main branch, as an open decision.
-  Report a failure whose fix needs a decision in the same way.
-  If a review ran, report as an open decision whether to review each fix, unless the fix is :ref:`local <review-rounds>` and evidently correct.
+* **Extended:** the anytime checks, ``coverage_.py`` over the whole repository, the compiled runs, and ``build_docs.py``.
+  These are the checks that CI runs on every pull request, other than the notebook runs.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check.
 

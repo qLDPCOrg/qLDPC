@@ -11,7 +11,7 @@ The :ref:`kinds-of-change table <kinds-of-change>` lists which standards apply t
 * :doc:`Implementation standard <implementation>`: code constructions, algebra and code state, circuits, and external systems.
 * :doc:`Decoder standard <decoders>`: decoders that ship with qLDPC, and shared decoder plumbing.
 * :doc:`Deprecation standard <deprecations>`: deprecations and future changes to released public APIs.
-* :doc:`Pull request standard <pull_requests>`: pull request summaries.
+* :doc:`Pull request standard <pull_requests>`: pull request descriptions.
 
 .. toctree::
    :hidden:
