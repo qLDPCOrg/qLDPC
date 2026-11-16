@@ -77,13 +77,28 @@ def test_listing_matches_brute_force(
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
+    # Record the size of each closing map that is built, to check that some listings use a closing
+    # map of pairs.
+    sizes: set[int] = set()
+    get_closing_map = _fault_search._get_closing_map
+
+    def record_closing_map(
+        hashes: npt.NDArray[np.uint64], size: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
+        sizes.add(size)
+        return get_closing_map(hashes, size)
+
+    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
     # In the second, the classes with flags 1, 2, 4, and 8 have the same sum of flags, 15, as the
     # pair of classes with flags 3 and 12, but 3 = 1 + 2, so these six classes are not a class
     # codeword.  In the third, with two start members, 0 and 1, the class with flags 1 has members 0
     # and 3, and the class with flags 2 is a start class.  So the fault {1, 2, 3} takes member 3,
-    # which is not a start member, before member 1, which is, and must not be skipped.
+    # which is not a start member, before member 1, which is, and must not be skipped.  In the
+    # fourth, the classes with flags 1 and 2 have two closing pairs, with flags 4 and 7 and with
+    # flags 5 and 6, so the order of the pairs that one lookup finds decides the order of the
+    # faults.
     flag_sets = [
         [1, 2, 1, 2, 3, 3],
         [1, 2, 4, 8, 3, 12, 16, 31],
@@ -103,7 +118,7 @@ def test_listing_matches_brute_force(
         syndromes = [1 << (13 * jj) for jj in range(num_primitives)]
         errors = [0b1111111 << (7 * jj) for jj in range(num_primitives)]
         # Without memory, there is no closing map of pairs.  The memory limit must not change the
-        # order in which faults are listed.
+        # order in which faults are listed, since the first violation in that order is the result.
         orders: dict[tuple[int, int], list[int]] = {}
         for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 2, 1)):
             args = (flags, syndromes, errors, 70, False, num_starts, memory_limit)
@@ -122,6 +137,7 @@ def test_listing_matches_brute_force(
                         _fault_search.FaultLister(*args), fault_weight, {violation[1]}
                     )
                     assert result == violation
+    assert 2 in sizes
 
 
 @pytest.mark.parametrize("size", [1, 2])
@@ -294,17 +310,23 @@ def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.Monke
 
 
 def test_memory_limit_is_split_within_the_caps() -> None:
-    """The map of pairs takes its share of the memory limit first, and each table obeys its cap."""
+    """The memory limit goes to the map of pairs first, and then to the table of syndromes.
+
+    Each holds at most 2**31 entries, however large the limit.
+    """
     split = _fault_search._split_memory_limit
-    # With 2**16 classes there are 2**31 - 2**15 pairs, which the map may hold, and with one more
-    # class there are more than 2**31, which it may not, however large the limit.  The table of
-    # syndromes holds at most 2**31 syndromes.
+    # With 2**16 classes there are 2**31 - 2**15 pairs, which the map may hold.  With one more
+    # class there are more than 2**31, which it may not.
     assert split(2**16, 1, 2**50) == (True, 2**31)
     assert split(2**16 + 1, 1, 2**50) == (False, 2**31)
-    # Three classes have three pairs.  A syndrome of two words takes 8 bytes per word and 24 more.
+    # Three classes have three pairs.  A syndrome of two words takes 40 bytes: 8 for its hash, 16
+    # for its words, and 16 for its two slots.  The table gets what the map leaves, or the whole
+    # limit if the map misses by a byte.
     pair_bytes = 3 * _fault_search._BYTES_PER_PAIR
-    assert split(3, 2, pair_bytes + 5 * 40) == (True, 5)
-    assert split(3, 2, pair_bytes - 1) == (False, (pair_bytes - 1) // 40)
+    syndrome_bytes = 40
+    assert split(3, 2, pair_bytes) == (True, 0)
+    assert split(3, 2, pair_bytes + 5 * syndrome_bytes) == (True, 5)
+    assert split(3, 2, pair_bytes - 1) == (False, (pair_bytes - 1) // syndrome_bytes)
 
 
 def test_key_slots_find_the_first_entry_of_each_key(pytestconfig: pytest.Config) -> None:

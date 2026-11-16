@@ -286,8 +286,11 @@ class FaultLister:
         self._num_starts = num_starts
         self._closing_classes = _get_closing_map(self._class_rows[:, 0], 1)
 
+        # Split the memory limit, and start with an empty table of syndromes.
         self._closing_pairs_fit, self._max_syndromes = _split_memory_limit(
-            len(member_lists), self._num_syndrome_words, memory_limit
+            num_classes=len(member_lists),
+            num_syndrome_words=self._num_syndrome_words,
+            memory_limit=memory_limit,
         )
         self._syndrome_rows, self._syndrome_slots = _get_empty_syndrome_table(
             self._num_syndrome_words
@@ -450,13 +453,15 @@ def _split_memory_limit(
 ) -> tuple[bool, int]:
     """Split a memory limit between the closing map of pairs and the table of syndromes.
 
-    Returns whether the closing map of the pairs of ``num_classes`` classes fits, and the most
-    syndromes of ``num_syndrome_words`` words that the table may hold.
+    Return whether to build the closing map of the pairs of ``num_classes`` classes, and how many
+    syndromes of ``num_syndrome_words`` words the rest of the limit has room for, at most 2**31,
+    which ``_table_should_grow`` takes as ``max_syndromes``.
     """
-    # The closing map of pairs takes ``_BYTES_PER_PAIR`` bytes per pair, and is built only if it
+    # The closing map of pairs takes ``_BYTES_PER_PAIR`` bytes per pair.  It is built only if it
     # fits and has at most 2**31 pairs, so that its hash map has at most 2**32 slots, as slot
     # numbers of 32 bits allow (see ``_find_syndrome_slot``).  Each syndrome in the table takes a
-    # row of its hash and its words, and two slots.
+    # row of its hash and its words, and two slots, so the table has room for at most 2**31
+    # syndromes for the same reason.
     num_pairs = num_classes * (num_classes - 1) // 2
     pair_bytes = num_pairs * _BYTES_PER_PAIR
     pairs_fit = pair_bytes <= memory_limit and num_pairs <= 2**31
