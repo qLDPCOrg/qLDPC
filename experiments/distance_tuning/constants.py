@@ -4,11 +4,13 @@
 
 Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` gates an optional step,
 and assumes the cost of the step to an order of magnitude (see the Retuning section of
-``_tuning.py``).  The script measures the cost of each such step on quick searches, and then the
-coefficients of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each
-tuning of ``COST_MODEL_ARMS``, which together can take hours.  It prints both beside their defaults;
-the README of this directory explains the columns, and the functions of this script say how it
-measures each cost.  The script sets no value.
+``_tuning.py``).  The script first measures the cost of each such step on quick searches.  It prints
+a table of these costs, in seconds and in the unit of the field that gates each step (``in units``),
+to compare with the default of that field.  A second table gives, by field, each cost rounded as
+``round_to_grid`` does (``derived``) beside the default.  The script then measures the coefficients
+of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each tuning of
+``COST_MODEL_ARMS``, which together can take hours, and prints each, under ``measured``, beside its
+default.  The functions of this script say how it measures each cost.  The script sets no value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a

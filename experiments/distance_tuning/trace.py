@@ -11,10 +11,11 @@ prediction of the cost of completion tables, comparison of a predicted cost with
 ``completion_bound_max_cost_percent``, and layer, and the first test of each number of rows and
 weight for tables.  For a connected-cluster search, it records each weight limit, and for a count by
 the MacWilliams method, each walk and test.  The wrapper of each event says what it records.  Each
-layer and weight limit names its problem, such as a sector of a CSS code (see ``wrap_problems``).
-The script prints the events, and with ``--output`` saves them as JSON with the tuning and a
-fingerprint of the qLDPC source.  With ``--setup-only``, it ends the workload before the first layer
-of a BZ distance search, after its setup; workloads of other kinds run in full.
+layer and weight limit numbers its problem, such as a sector of a CSS code, in a ``problem`` field
+(see ``wrap_problems``).  The script prints the events, and with ``--output`` saves them as JSON
+with the tuning and a fingerprint of the qLDPC source.  With ``--setup-only``, it ends the workload
+before the first layer of a BZ distance search, after its setup; workloads of other kinds run in
+full.
 
 With ``--compare``, the script instead says whether two saved traces of one workload, such as traces
 under two tunings or of two checkouts, make the same decisions, and prints the first that differs,
