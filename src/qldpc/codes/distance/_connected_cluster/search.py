@@ -81,58 +81,126 @@ def get_distance_connected_cluster(
             (see ``SupportSearch``), or if a generator fails its verification.
         RuntimeError: If the searches take more weight limits than a correct search can.
     """
-    if not problems and upper_bound is None:
-        raise ValueError("Require at least one problem or an upper bound")
+    searches = ConnectedClusterSearches(
+        problems,
+        cutoff=cutoff,
+        upper_bound=upper_bound,
+        symplectic=symplectic,
+        get_automorphisms=get_automorphisms,
+        tuning=tuning,
+    )
+    while not searches.finished:
+        searches.advance()
+    return searches.result
 
-    # A problem without witnesses only bounds the result, and a known bound within the cutoff ends
-    # the search before it starts.
-    tuning = get_tuning() if tuning is None else tuning
-    automorphism_minimum_states = tuning.automorphism_minimum_states
-    restrict_viable_symbols = tuning.restrict_viable_symbols
-    best_weight = upper_bound
-    no_distance_bounds = []
-    searches: list[SupportSearch] = []
-    for checks, excluded in problems:
-        search = SupportSearch(
-            checks,
-            excluded,
-            symplectic=symplectic,
-            get_automorphisms=get_automorphisms,
-            automorphism_minimum_states=automorphism_minimum_states,
-            restrict_viable_symbols=restrict_viable_symbols,
-        )
-        if search.has_witnesses:
-            searches.append(search)
-        else:
-            no_distance_bounds.append(search.num_variables + 1)
-    if not searches or (best_weight is not None and best_weight <= cutoff):
-        return min([bound for bound in (best_weight, *no_distance_bounds) if bound is not None])
 
-    # Search the problem with the lowest lower bound on its witnesses until the best witness is as
-    # light.  A correct search takes at most n // d limits for a problem of n variables and divisor
-    # d (Section 3.6 of connected_cluster.md), so a broken one fails rather than loops.
-    lower_bounds = [search.weight_divisor for search in searches]
-    max_num_limits = sum(search.num_variables // search.weight_divisor for search in searches)
-    num_limits = 0
-    while best_weight is None or best_weight > min(lower_bounds):
-        if num_limits == max_num_limits:
-            raise RuntimeError(
-                f"The connected-cluster search needed more than {max_num_limits} weight limits,"
-                " which only a bug can cause"
+class ConnectedClusterSearches:
+    """The connected-cluster searches of several problems, which advance one weight limit at a time.
+
+    The arguments are those of ``get_distance_connected_cluster``, which advances the searches until
+    they finish.  Each advance searches the problem with the lowest lower bound on its witnesses
+    through its next weight limit (Section 3.6 of ``connected_cluster.md``).
+
+    Raises:
+        ValueError: If there are neither problems nor an upper bound, or if a problem is not valid
+            (see ``SupportSearch``).
+    """
+
+    def __init__(
+        self,
+        problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+        *,
+        cutoff: int,
+        upper_bound: int | None = None,
+        symplectic: bool = False,
+        get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+        tuning: SearchTuning | None = None,
+    ) -> None:
+        if not problems and upper_bound is None:
+            raise ValueError("Require at least one problem or an upper bound")
+
+        # Keep a search of each problem with witnesses; a problem without witnesses only bounds the
+        # result.
+        tuning = get_tuning() if tuning is None else tuning
+        self._cutoff = cutoff
+        self._best_weight = upper_bound
+        self._no_distance_bounds: list[int] = []
+        self._searches: list[SupportSearch] = []
+        for checks, excluded in problems:
+            search = SupportSearch(
+                checks,
+                excluded,
+                symplectic=symplectic,
+                get_automorphisms=get_automorphisms,
+                automorphism_minimum_states=tuning.automorphism_minimum_states,
+                restrict_viable_symbols=tuning.restrict_viable_symbols,
             )
-        num_limits += 1
-        index = lower_bounds.index(min(lower_bounds))
-        search = searches[index]
+            if search.has_witnesses:
+                self._searches.append(search)
+            else:
+                self._no_distance_bounds.append(search.num_variables + 1)
+
+        # Start each lower bound at its divisor.  A correct search takes at most n // d limits for a
+        # problem of n variables and divisor d (Section 3.6 of connected_cluster.md), so a broken
+        # one fails rather than loops.
+        self._lower_bounds = [search.weight_divisor for search in self._searches]
+        self._max_num_limits = sum(
+            search.num_variables // search.weight_divisor for search in self._searches
+        )
+        self._num_limits = 0
+
+    @property
+    def finished(self) -> bool:
+        """Whether no problem has witnesses, or the best weight is at most the cutoff or each bound.
+
+        The best weight is that of the lightest witness found, or ``upper_bound`` if that is less,
+        and the bounds are the lower bounds of the problems on the weights of their witnesses.
+        """
+        if not self._searches:
+            return True
+        return self._best_weight is not None and self._best_weight <= max(
+            self._cutoff, min(self._lower_bounds)
+        )
+
+    @property
+    def result(self) -> int:
+        """Once finished, the result that ``get_distance_connected_cluster`` returns."""
+        bounds = (self._best_weight, *self._no_distance_bounds)
+        return min(bound for bound in bounds if bound is not None)
+
+    def advance(self) -> None:
+        """Search the problem with the lowest lower bound through its next limit, unless finished.
+
+        If this raises, as at a keyboard interrupt, the searches can be left inconsistent, so build
+        new ones to search again.
+
+        Raises:
+            ValueError: If a generator of automorphisms fails its verification.
+            RuntimeError: If the searches take more weight limits than a correct search can.
+        """
+        if self.finished:
+            return
+        if self._num_limits == self._max_num_limits:
+            raise RuntimeError(
+                f"The connected-cluster search needed more than {self._max_num_limits} weight"
+                " limits, which only a bug can cause"
+            )
+
+        # Search the problem with the lowest lower bound through its next limit, which the cutoff
+        # can raise.
+        index = self._lower_bounds.index(min(self._lower_bounds))
+        search = self._searches[index]
         divisor = search.weight_divisor
-        max_weight = max(lower_bounds[index], cutoff - cutoff % divisor)
+        max_weight = max(self._lower_bounds[index], self._cutoff - self._cutoff % divisor)
         witness = search.find_witness(max_weight)
+        self._num_limits += 1
+
+        # A limit without a witness raises the lower bound past it, and a witness may lower the best
+        # weight.
         if witness is None:
-            lower_bounds[index] = (max_weight // divisor + 1) * divisor
-            continue
-        best_weight = len(witness) if best_weight is None else min(best_weight, len(witness))
-        if best_weight <= cutoff:
-            break
-    return min([best_weight, *no_distance_bounds])
+            self._lower_bounds[index] = (max_weight // divisor + 1) * divisor
+        elif self._best_weight is None or len(witness) < self._best_weight:
+            self._best_weight = len(witness)
 
 
 class SupportSearch:

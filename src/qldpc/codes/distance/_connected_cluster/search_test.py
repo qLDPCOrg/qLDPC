@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import itertools
 import unittest.mock
@@ -513,6 +514,14 @@ def test_connected_cluster_distance_searches_read_the_restriction_of_their_tunin
         get_distance_pauli(codes.FiveQubitCode().matrix, method="connected_cluster")
     assert set(settings) == {(False, expected), (True, expected)}
 
+    # Searches built with a tuning use it, whatever the active tuning, and the function that builds
+    # them passes its tuning on.
+    settings.clear()
+    tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, **changes)
+    with _tuning.use_tuning(restrict_viable_symbols=not expected):
+        cs.get_distance_connected_cluster(get_sectors(steane), cutoff=0, tuning=tuning)
+    assert set(settings) == {(False, expected)}
+
 
 def test_wrong_automorphisms_are_rejected() -> None:
     """A permutation that does not map the kernel of the checks to itself raises an error."""
@@ -538,6 +547,57 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cs.SupportSearch, "find_witness", record_limit)
     assert cs.get_distance_connected_cluster(sectors, cutoff=0) == 3
     assert max(limits) == 3
+
+
+def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each advance searches the problem with the lowest lower bound until the searches finish."""
+    searches_made: list[cs.SupportSearch] = []
+    limits: list[tuple[int, int]] = []
+    init, find_witness = cs.SupportSearch.__init__, cs.SupportSearch.find_witness
+
+    def recording_init(search: cs.SupportSearch, *args: Any, **kwargs: Any) -> None:
+        init(search, *args, **kwargs)
+        searches_made.append(search)
+
+    def recording_find_witness(
+        search: cs.SupportSearch, max_weight: int
+    ) -> npt.NDArray[np.int64] | None:
+        limits.append((searches_made.index(search), max_weight))
+        return find_witness(search, max_weight)
+
+    monkeypatch.setattr(cs.SupportSearch, "__init__", recording_init)
+    monkeypatch.setattr(cs.SupportSearch, "find_witness", recording_find_witness)
+    # The problems have the divisors 2 and 1, so advancing the problem with the lowest lower bound
+    # gives a different order from round-robin.
+    problems = [PROBLEMS["toric-X"], PROBLEMS["steane-X"]]
+    searches = cs.ConnectedClusterSearches(problems, cutoff=0)
+    lower_bounds = [search.weight_divisor for search in searches_made]
+    assert lower_bounds == [2, 1]
+    while not searches.finished:
+        num_limits = len(limits)
+        searches.advance()
+        assert len(limits) == num_limits + 1
+        index, max_weight = limits[-1]
+        assert max_weight == lower_bounds[index] == min(lower_bounds)
+        lower_bounds[index] += searches_made[index].weight_divisor
+    assert searches.result == 3 and [max_weight for _, max_weight in limits] == [1, 2, 2, 3]
+
+    # Once finished, the searches do nothing.
+    num_limits = len(limits)
+    searches.advance()
+    assert len(limits) == num_limits
+
+    # Problems without witnesses, and a known bound within the cutoff, leave nothing to search.
+    trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
+    for searches in (
+        cs.ConnectedClusterSearches([trivial], cutoff=0),
+        cs.ConnectedClusterSearches(problems, cutoff=3, upper_bound=3),
+    ):
+        assert searches.finished and searches.result == 3
+        searches.advance()
+    assert len(limits) == num_limits
 
 
 def test_the_logical_test_reads_every_block() -> None:
