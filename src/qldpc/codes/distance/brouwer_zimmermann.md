@@ -345,7 +345,7 @@ With more orbits, the exchanges are a heuristic.
 Finding automorphisms, verifying them, and building their family can cost more than a whole easy search, and before a light witness turns up, the estimate of [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) cannot tell whether a search is easy.
 So a search starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases), and asks for automorphisms at most once:
 
-- before matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)), if partitioning passes its gate and some partitioned family could do less work, since switching would discard the partitioned family; it then skips partitioning if the automorphism family would do no more work than any partitioned family could, and considers switching at the end of setup;
+- before matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)), since switching would discard the partitioned family, if partitioning may try some coverage, the search's estimated work passes the gate `partition_work_ratio`, and some partitioned family could do less work than the search's current family; it then skips partitioning if the automorphism family would do no more work than any partitioned family could, and considers switching at the end of setup;
 - otherwise, before the first layer that would cost at least `automorphism_minimum_layer_work` evaluations.
 
 It switches if the work estimate of the automorphism family is less than the work that its current family has left from its next layer, and then scans the new set from layer two.
@@ -697,10 +697,10 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   At coverage one, partitioning, like a packing, keeps a rank-deficient block only below `2^r - 1` information sets, so such a family holds at most `min(ceil(N/r), 2^r - 1)` sets, counting that block.
   It does no less work than as many information sets of coverage one, whose certificate is at least as large at each step, since the work up to a step depends only on the step and the number of sets.
   Let `f = min(floor(N/r), 2^r - 1)`, the most information sets that fit, up to the limit of a packing.
-  The **disjoint rank bound** is `f` information sets and, if `f < 2^r - 1` and `N > f*r`, a rank-deficient block of rank `N - f*r`.
+  The **disjoint rank bound** is `f` information sets and, if `f < 2^r - 1` and `N > f*r`, a rank-deficient block of rank `N - f*r`; by counting pivots, it bounds the ranks of every maximum disjoint family lexicographically.
   Partitioning skips coverage one if the family `F` of the earlier stages is disjoint and has the ranks of this bound, pruned for `U` as `prune_family` prunes a family.
   Every maximum disjoint family then has `f` information sets and, by counting pivots, a block of rank at most `N - f*r`, but at least that of any block of `F` (see `CosetRoutes`).
-  Pruning drops a block of lower rank if it drops one of rank `N - f*r`, since the lower rank gives a larger deficiency `d`, and so a later layer by which the information sets must certify `U`.
+  Pruning drops a block of lower rank if it drops one of rank `N - f*r`, since the lower rank gives a larger deficiency `d`, and information sets that certify `U` by one layer also certify it by every later one.
   Once pruned, a maximum disjoint family therefore has the ranks of `F`, does the same work, and cannot replace `F`.
 - **`get_search_certificate`** adds the linear programs of [Section 3.1](#31-overlapping-search-bases) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, a gate that breaks even with their cost, since each costs far more than examining a word; the work estimates that choose families use only the coverage-divided certificate.
   The rational dual weights `y` have denominators of at most `lp_dual_max_denominator`, a convention: every positive limit is sound by weak duality, a smaller one can round away part of the bound, and a larger one lengthens the exact arithmetic.

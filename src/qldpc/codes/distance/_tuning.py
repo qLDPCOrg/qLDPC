@@ -194,7 +194,8 @@ class SearchTuning:
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches
     #: and counts.  At least 1.  At 1, partitioning builds the maximum disjoint family, which
-    #: ``max_information_sets`` does not limit, rather than families of coverage two or more.
+    #: ``max_information_sets`` does not limit, rather than families of coverage two or more,
+    #: unless the family that it would replace is disjoint and has the pruned disjoint rank bound.
     #: Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
     #: ``brouwer_zimmermann.md``).
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
@@ -212,12 +213,13 @@ class SearchTuning:
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
     #: A distance search that does not ask for automorphisms before matroid partitioning considers
-    #: switching to its family of automorphism images before the first coefficient layer whose
-    #: work, in candidate/set evaluations, reaches this value; zero considers the switch before the
-    #: first layer.  Values above every work estimate, such as ``MAX_VALUE``, turn automorphisms off
-    #: in every BZ distance search.  Defaults to ``5 * 10**6``, a derived value: the cost of finding
-    #: automorphisms, verifying them, and building their family for a large code, several million
-    #: evaluations (Sections 3.7 and 4.4 of ``brouwer_zimmermann.md``).
+    #: switching to its family of automorphism images before the first coefficient layer whose work,
+    #: in candidate/set evaluations, reaches this value; zero considers the switch before the first
+    #: layer.  After declining a switch, any search reconsiders before a later such layer once its
+    #: upper bound has dropped.  Values above every work estimate, such as ``MAX_VALUE``, turn
+    #: automorphisms off in every BZ distance search.  Defaults to ``5 * 10**6``, a derived value:
+    #: the cost of finding automorphisms, verifying them, and building their family for a large
+    #: code, several million evaluations (Sections 3.7 and 4.4 of ``brouwer_zimmermann.md``).
     automorphism_minimum_layer_work: int = 5_000_000
 
     # Fields of connected-cluster searches.

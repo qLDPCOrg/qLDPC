@@ -297,8 +297,8 @@ def get_source_fingerprint(repository: pathlib.Path = REPOSITORY) -> dict[str, s
     """
     commit = git(repository, "rev-parse", "HEAD").strip()
     digest = hashlib.sha256(git(repository, "diff", "HEAD", "--", "src").encode())
-    # Untracked files add to the hash only if there are any, which keeps the fingerprints of
-    # checkouts without them.
+    # Untracked files add to the hash only if there are any, so that a checkout without them keeps
+    # the hash of its diff alone, which earlier results recorded.
     untracked = git(repository, "ls-files", "--others", "--exclude-standard", "-z", "--", "src")
     for path in filter(None, untracked.split("\0")):
         if (repository / path).is_file():
@@ -308,9 +308,14 @@ def get_source_fingerprint(repository: pathlib.Path = REPOSITORY) -> dict[str, s
 
 def git(repository: pathlib.Path, *args: str) -> str:
     """The output of a git command in a repository."""
-    return subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=True, cwd=repository
-    ).stdout
+    try:
+        return subprocess.run(
+            ["git", *args], capture_output=True, text=True, check=True, cwd=repository
+        ).stdout
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(
+            f"git {' '.join(args)} failed in {repository}: {error.stderr.strip()}"
+        ) from error
 
 
 def read_trials(path: pathlib.Path) -> list[dict[str, Any]]:

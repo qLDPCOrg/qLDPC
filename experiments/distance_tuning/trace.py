@@ -101,7 +101,7 @@ TRACED_KINDS = ("distance", "hadamard", "count", "ccdistance", "mcount")
 
 # The stage that an overlapping family event records for each check of the library.
 OVERLAPPING_STAGES = {
-    basis_families._OverlappingCheck.NO_OPEN_SETS: "no open sets",
+    basis_families._OverlappingCheck.NOTHING_TO_EXTEND: "no open sets",
     basis_families._OverlappingCheck.BELOW_MINIMUM_WORK: "below minimum work",
     basis_families._OverlappingCheck.CANNOT_DO_LESS_WORK: "cannot do less work",
     basis_families._OverlappingCheck.NONE: "built",
@@ -390,8 +390,8 @@ def get_partition_gate(
     is over disjoint families.  It skips coverage one if the given family is disjoint and has the
     pruned disjoint rank bound (Section 4.4 of ``brouwer_zimmermann.md``).  The record also says
     whether these quantities let partitioning run (``partitioned``), even if it then tried no
-    coverage or found no family; ``wrap_family`` clears it when a competing family rules
-    partitioning out.
+    coverage or found no family; ``wrap_family`` clears ``partitioned`` when a competing family
+    rules partitioning out.
     """
     plan = basis_families._get_partition_plan(basis, tuning)
     work = basis_family.certificate.work(upper_bound)
@@ -424,18 +424,18 @@ def get_overlapping_gate(
 ) -> dict[str, Any]:
     """The check that ends a call of ``basis_families.get_overlapping_family``, and its work.
 
-    The stage is that of the check of ``basis_families._check_overlapping_family`` that keeps the
-    given family, or ``built`` if none does and the library builds sets.  The estimated work is that
-    of the given family, or None if the first check keeps it.
+    The record's ``stage`` names the check of ``basis_families._check_overlapping_family`` that
+    keeps the given family, or is ``built`` if none does, in which case the library builds sets.
+    Its ``estimated_work`` is the work of the given family, or None if the first check keeps it.
     """
     check, work, _ = basis_families._check_overlapping_family(
         basis, basis_family, upper_bound, policy
     )
-    no_open_sets = check == basis_families._OverlappingCheck.NO_OPEN_SETS
+    nothing_to_extend = check == basis_families._OverlappingCheck.NOTHING_TO_EXTEND
     return {
         "rows": basis.shape[0],
         "minimum_work": int(policy.minimum_work),
-        "estimated_work": None if no_open_sets else int(work),
+        "estimated_work": None if nothing_to_extend else int(work),
         "stage": OVERLAPPING_STAGES[check],
     }
 

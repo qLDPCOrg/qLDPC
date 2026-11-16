@@ -323,12 +323,13 @@ def get_partitioned_family(
     matroid partitioning finds the most information sets, up to ``tuning.max_information_sets``,
     within that coverage.  If ``tuning.partition_max_coverage`` is one, it finds instead the maximum
     disjoint family of ``get_maximum_disjoint_family`` (Section 4.4), and prunes it as stage two
-    does.  ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
-    ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
-    to which the caller would switch instead, discarding this stage's family (Section 3.7).  It is
-    called only if partitioning passes its gate and some family of this stage could do less work
-    than ``basis_family`` (Section 4.4).  Partitioning then runs only if the competing work exceeds
-    the least that a family of this stage could do.
+    does, unless ``basis_family`` is disjoint and has the pruned disjoint rank bound.  ``basis``,
+    ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.  ``get_competing_work``,
+    if given, returns the work of a family, such as an automorphism family, to which the caller
+    would switch instead, discarding this stage's family (Section 3.7).  It is called only if
+    partitioning passes its gate and some family of this stage could do less work than
+    ``basis_family`` (Section 4.4).  Partitioning then runs only if the competing work exceeds the
+    least that a family of this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
@@ -540,13 +541,13 @@ def _get_disjoint_sets_for_columns(
 class _OverlappingCheck(enum.Enum):
     """The first check of ``_check_overlapping_family`` that rules a replacement out, or ``NONE``.
 
-    The checks find no open sets (no full sets, at least as many as the limit, or full sets that use
-    every nonzero column), an estimated work below the minimum, or that no family could do less
-    work.
+    The checks find nothing to extend (no full sets to start from, no open set below the limit, or
+    full sets that already use every nonzero column), an estimated work below the minimum, or that
+    no family could do less work.
     """
 
     NONE = 0
-    NO_OPEN_SETS = 1
+    NOTHING_TO_EXTEND = 1
     BELOW_MINIMUM_WORK = 2
     CANNOT_DO_LESS_WORK = 3
 
@@ -576,7 +577,7 @@ def _check_overlapping_family(
     # Replace only a family with full sets, which the replacement starts from.  Keep a family whose
     # full sets use every nonzero column, or that already has the most full sets allowed.
     if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
-        return _OverlappingCheck.NO_OPEN_SETS, -1, -1
+        return _OverlappingCheck.NOTHING_TO_EXTEND, -1, -1
 
     # Rule a replacement out when the existing search is already cheap.
     weight_divisor = basis_family.weight_divisor
@@ -703,7 +704,8 @@ def _has_pruned_disjoint_rank_bound(
     remainder = num_columns - num_full * dimension if num_full < full_set_limit else 0
     ranks = np.array([dimension] * num_full + ([remainder] if remainder else []), dtype=np.int64)
 
-    # Prune these ranks as prune_family does.
+    # Prune these ranks as prune_family does, and compare them with those of the family, if it is
+    # disjoint.
     weight_divisor = basis_family.weight_divisor
     retained = get_retained_set_mask(dimension, ranks, weight_divisor, 1, upper_bound)
     return (
