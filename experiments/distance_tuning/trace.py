@@ -426,7 +426,8 @@ def get_overlapping_gate(
 
     The record's ``stage`` names the check of ``basis_families._check_overlapping_family`` that
     keeps the given family, or is ``built`` if none does, in which case the library builds sets.
-    Its ``estimated_work`` is the work of the given family, or None if the first check keeps it.
+    Its ``estimated_work`` is the work of the given family, or None if the stage is
+    ``no open sets``.
     """
     check, work, _ = basis_families._check_overlapping_family(
         basis, basis_family, upper_bound, policy

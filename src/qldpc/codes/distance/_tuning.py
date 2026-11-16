@@ -194,9 +194,9 @@ class SearchTuning:
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches
     #: and counts.  At least 1.  At 1, partitioning builds the maximum disjoint family, which
-    #: ``max_information_sets`` does not limit, rather than families of coverage two or more,
-    #: unless the family that it would replace is disjoint and has the pruned disjoint rank bound.
-    #: Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
+    #: ``max_information_sets`` does not limit, instead of families of coverage two or more.  It
+    #: skips even that family if the family that it would replace is disjoint and has the pruned
+    #: disjoint rank bound.  Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
     #: ``brouwer_zimmermann.md``).
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 

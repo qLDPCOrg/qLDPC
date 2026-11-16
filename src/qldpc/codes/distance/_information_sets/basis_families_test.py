@@ -224,8 +224,8 @@ def test_the_checks_of_stage_three_say_which_keeps_a_family() -> None:
             assert optimistic_work == -1
             continue
 
-        # The optimistic work is the bound of _estimate_optimistic_work for families of at most the
-        # limit of full sets on the nonzero columns.
+        # The optimistic work is that of _estimate_optimistic_work over the nonzero columns and the
+        # limit of sets, and reaches the work exactly when no family could do less.
         num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
         assert optimistic_work == basis_families._estimate_optimistic_work(
             len(basis),
@@ -295,8 +295,8 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     assert sorted(coverages) == [2, 3]
 
     # A competing family rules partitioning out exactly if it does no more work than any
-    # partitioned family could.  Partitioning asks for its work only if it passes its gate and some
-    # partitioned family could do less work.
+    # partitioned family could.  Partitioning asks for its work only if it may try some coverage and
+    # passes its gate, and some partitioned family could do less work.
     tuning = dataclasses.replace(
         DEFAULT_TUNING,
         partition_work_ratio=0,
@@ -570,7 +570,7 @@ def test_a_coverage_limit_of_one_partitions_into_a_maximum_disjoint_family() -> 
 
 
 def test_a_coverage_limit_of_one_skips_coverage_one_at_the_pruned_disjoint_rank_bound() -> None:
-    """A coverage limit of one skips coverage one at the pruned disjoint rank bound.
+    """At a coverage limit of one, partitioning is skipped at the pruned disjoint rank bound.
 
     A given family that is disjoint and has the pruned bound has the ranks of every pruned maximum
     disjoint family, so the skip leaves the result unchanged (Section 4.4 of
@@ -595,8 +595,8 @@ def test_a_coverage_limit_of_one_skips_coverage_one_at_the_pruned_disjoint_rank_
     tuning = SearchTuning(partition_max_coverage=1, partition_work_ratio=0)
     get_sets = basis_families._get_maximum_disjoint_sets
     cases = [
-        # The pruned packing has two information sets and a partial set of rank two on the other
-        # two nonzero columns.  The bound does not count the zero column.
+        # The pruned packing has two information sets and a partial set of rank two on the other two
+        # nonzero columns.  The bound does not count the zero column.
         (with_zero, basis_families.prune_family(get_packing(with_zero), 5), 5, True),
         # The pruned packing has the limit of 7 information sets.
         (three_rows, basis_families.prune_family(get_packing(three_rows), 11), 11, True),

@@ -323,13 +323,14 @@ def get_partitioned_family(
     matroid partitioning finds the most information sets, up to ``tuning.max_information_sets``,
     within that coverage.  If ``tuning.partition_max_coverage`` is one, it finds instead the maximum
     disjoint family of ``get_maximum_disjoint_family`` (Section 4.4), and prunes it as stage two
-    does, unless ``basis_family`` is disjoint and has the pruned disjoint rank bound.  ``basis``,
-    ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.  ``get_competing_work``,
-    if given, returns the work of a family, such as an automorphism family, to which the caller
-    would switch instead, discarding this stage's family (Section 3.7).  It is called only if
-    partitioning passes its gate and some family of this stage could do less work than
-    ``basis_family`` (Section 4.4).  Partitioning then runs only if the competing work exceeds the
-    least that a family of this stage could do.
+    does.  It skips that family if ``basis_family`` is disjoint and has the pruned disjoint rank
+    bound, since that family could not replace it.  ``basis``, ``labels``, and ``basis_family`` are
+    as in ``get_overlapping_family``.  ``get_competing_work``, if given, returns the work of a
+    family, such as an automorphism family, to which the caller would switch instead, discarding
+    this stage's family (Section 3.7).  It is called only if partitioning may try some coverage and
+    passes its gate, and some family of this stage could do less work than ``basis_family``
+    (Section 4.4).  Partitioning then runs only if the competing work exceeds the least that a
+    family of this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
@@ -541,9 +542,9 @@ def _get_disjoint_sets_for_columns(
 class _OverlappingCheck(enum.Enum):
     """The first check of ``_check_overlapping_family`` that rules a replacement out, or ``NONE``.
 
-    The checks find nothing to extend (no full sets to start from, no open set below the limit, or
-    full sets that already use every nonzero column), an estimated work below the minimum, or that
-    no family could do less work.
+    The checks find nothing to extend (no full sets to start from, already the most full sets
+    allowed, or full sets that already use every nonzero column), an estimated work below the
+    minimum, or that no family could do less work.
     """
 
     NONE = 0
