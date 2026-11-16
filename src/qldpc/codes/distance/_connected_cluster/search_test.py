@@ -430,7 +430,11 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     # repair at least Y - 1 = 1/2 (Section 3.4 of connected_cluster.md).  Variable 2, only in check
     # 0, repairs 1/3.  Each check has two available variables, so the search without the restriction
     # branches on check 0, the first, whose variables are 1 and 2.  So only that search visits
-    # {0, 2}, and the searches otherwise visit the same states.
+    # {0, 2}, which leaves checks 1, 2, and 3 unsatisfied with weight 1/2 each, and Y = 3/2 > W - 2
+    # prunes it.  Both searches enter {0, 1}, whose children b1 skips.  Each later root enters one
+    # state in both searches, since the variables of lower rank are blocked.  {1} leaves checks 0,
+    # 2, and 3 unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each
+    # leave a check with no available variable.
     checks = np.array(
         [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
     )
@@ -440,7 +444,7 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
         search = get_search(checks, excluded, restrict_viable_symbols=restrict_viable_symbols)
         assert search.find_witness(3) is None
         num_states[restrict_viable_symbols] = search.num_states
-    assert num_states[False] > num_states[True]
+    assert num_states[False] == num_states[True] + 1
 
 
 def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() -> None:
@@ -452,8 +456,10 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
     # repairs checks 0 and 3 (Section 3.4 of connected_cluster.md).  Each check then has one allowed
     # variable, so the search branches on check 0, the first, and enters {2}.  Its child {1, 2}
     # leaves check 2 unsatisfied with no room left, so b1 skips it.  Without the restriction, check
-    # 1 is the first with the fewest variables, one, and b1 skips {1}, which leaves three checks
-    # unsatisfied with room for one more variable, which flips at most two checks.
+    # 1 is the first check with the fewest available variables, one, so the search branches only to
+    # {1}.  That state leaves three checks unsatisfied, and the one more variable that the limit
+    # allows flips at most two, so b1 skips it.  The counts rely on ties going to the first check,
+    # so a change of the tie-break needs a new instance.
     checks = np.array([[1, 0, 1, 0], [0, 1, 0, 0], [1, 1, 0, 1], [0, 0, 1, 0]], dtype=np.uint8)
     search = get_search(checks, np.zeros((0, 4), dtype=np.uint8))
     packed = cs.pack_bits(np.array([[1, 1, 0, 1]], dtype=np.uint8))[0]
@@ -492,8 +498,8 @@ def test_connected_cluster_distance_searches_read_the_restriction_of_their_tunin
         settings.append((arguments["symplectic"], arguments["restrict_viable_symbols"]))
         initialize(*args, **kwargs)
 
-    # get_distance_css searches through core._search_css, and get_distance_pauli, whose searches
-    # are symplectic, through core._search_checks.
+    # get_distance_css searches through core._search_css, and get_distance_pauli, whose searches are
+    # symplectic, through core._search_checks.
     monkeypatch.setattr(cs.SupportSearch, "__init__", record)
     steane = codes.SteaneCode()
     with _tuning.use_tuning(**changes):

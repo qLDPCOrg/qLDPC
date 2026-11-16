@@ -378,8 +378,8 @@ class SearchTuning:
     def __post_init__(self) -> None:
         """Validate the fields, and store them as Python bools, integers, and floats.
 
-        Compiled code specializes on the types of its arguments, so storing every bool and integer
-        as a Python bool or integer keeps a tuning from compiling code again.
+        Compiled code specializes on the types of its arguments, so storing every integer as a
+        Python integer keeps a tuning from compiling code again.
 
         Raises:
             TypeError: If a bool field is not a Python or NumPy bool, or a number field is a bool or

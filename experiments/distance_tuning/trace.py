@@ -88,8 +88,8 @@ CURRENT_ASK: dict[str, Any] = {}
 # The index of the problem of each search, by the id of the search (see wrap_problems).
 PROBLEM_INDICES: dict[int, int | None] = {}
 
-# The index of the problem whose search is prepared next, within a call that wrap_problems wraps,
-# or None outside such calls.
+# The index of the problem whose search is prepared next, within a call that wrap_problems wraps, or
+# None outside such calls.
 NEXT_PROBLEM_INDEX: int | None = None
 
 # The kinds of workloads that the script can trace.
@@ -213,14 +213,11 @@ def wrap_problems(function: Callable[..., Any]) -> Callable[..., Any]:
     """Number the problems of each call of the wrapped distance search from zero.
 
     The wrapped function, ``get_distance_brouwer_zimmermann_many`` or
-    ``get_distance_connected_cluster``, prepares a search of each of its problems, in order, and
-    ``wrap_prepare`` and ``wrap_support_search`` record the index of the problem of each search.  A
-    call that searches both sectors of a CSS code has problem 0 for the X sector, of the X-type
-    logical operators, and problem 1 for the Z sector.  ``get_distance_css`` makes such a call
-    without a Pauli type, and so does the distance search of a count that is not self-dual.
-    ``CSSCode.get_distance_exact`` without a Pauli type makes one only if it knows neither sector's
-    distance and the code does not promise that they are equal.  Any other call has only problem 0,
-    which is the Z sector in a call that searches only that sector.
+    ``get_distance_connected_cluster``, prepares a search of each of its problems in the order in
+    which it receives them, and ``wrap_prepare`` and ``wrap_support_search`` record the index of the
+    problem of each search.  So a call with one problem has only problem 0.  ``core._search_css``
+    puts the X sector, of the X-type logical operators, before the Z sector, and so does the
+    distance search of a count.
     """
 
     @functools.wraps(function)
