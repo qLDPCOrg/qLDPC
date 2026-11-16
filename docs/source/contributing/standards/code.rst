@@ -10,7 +10,6 @@ Public API and private code
 * A name is public if it is broadly useful to researchers and engineers, and private if it is plumbing that makes qLDPC work.
   Where a name is used, such as in other modules or in notebooks, does not decide this.
 * Plain names defined in public modules (no underscore anywhere in the import path) are public API.
-  Keep them working, and retire a released public name through a tested shim rather than breaking its import (see :doc:`deprecations`).
 * ``src/qldpc/__init__.py`` exports subpackages, and each subpackage's ``__all__`` lists the public names that it re-exports.
   Re-export only what typical users reach for, leave specialized public tools at their module path, give each public object one canonical public path, and put utilities that several packages share in a neutral top-level module such as ``qldpc.math``.
   Preserve public import paths when moving implementation code.
@@ -41,12 +40,8 @@ Code style and organization
 * Give each feature that users or other packages use one home.
   The home is a module or subpackage that is named for the feature and holds its entry points, such as ``qldpc.codes.distance`` for exact distances of binary codes.
   Code elsewhere that offers the feature, such as a method of a code class, calls into its home rather than reimplementing it.
-* In each package that has a ``_layering_test.py``, such as ``qldpc.circuits``, ``qldpc.codes.distance``, and ``qldpc.decoders``, the top-level modules and subpackages import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
-  ``_LAYERS`` in the package's ``_layering_test.py`` lists the layers.
-  Add each new top-level module or subpackage to a layer there; changes inside a subpackage need no edits to ``_LAYERS``.
-  Imports in functions and under ``TYPE_CHECKING`` count; tests and ``conftest.py`` files may import from any layer.
-  To keep an import that breaks the layers, end its line (for an import that spans several lines, its first line) with ``# layering-exception: <reason>``; the check fails if such a comment is no longer needed.
-  To layer another package, add a ``_layering_test.py`` to its directory that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
+* In each package that has a ``_layering_test.py``, such as ``qldpc.circuits``, ``qldpc.codes.distance``, and ``qldpc.decoders``, the top-level modules and subpackages import each other in layers, as ``check_import_layering`` in ``src/qldpc/conftest.py`` describes and enforces.
+  Add each new top-level module or subpackage to a layer in the package's ``_LAYERS``, and layer another package by adding a ``_layering_test.py`` that calls ``check_import_layering``.
 * Do not weaken a failure with ``noqa``, ``type: ignore``, or coverage exclusions unless the exceptional condition is real and documented.
 
 .. _simplicity-and-clarity:
