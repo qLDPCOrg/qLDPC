@@ -21,8 +21,6 @@ from typing import TYPE_CHECKING, Any
 import galois
 import numpy as np
 import numpy.typing as npt
-import scipy.sparse
-import scipy.sparse.csgraph
 import sympy
 import sympy.combinatorics
 import sympy.core
@@ -708,6 +706,8 @@ def _get_primitive_central_idempotents(ring: GroupRing) -> tuple[RingMember, ...
 
     The PCIs do not depend on the random choices, but their order does.
     """
+    import scipy.sparse.csgraph  # imported on first use, to keep "import qldpc" fast
+
     assert ring.is_semisimple
 
     # This function computes with integer arrays of permutations, so that its largest arrays have

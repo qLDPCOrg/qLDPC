@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, overload
 
 import numpy as np
 import numpy.typing as npt
-import scipy.special
 
 from qldpc import _deprecations, math
 
@@ -326,6 +325,8 @@ class ErrorRateFunc:
 
             ``sum_(j=k+1)^(n) (n choose j) p**j (1-p)**(n-j) = I_p(k + 1, n - k)``.
         """
+        import scipy.special  # imported on first use, to keep "import qldpc" fast
+
         if self.max_error_weight >= self.num_error_locations:
             # no error is heavier than the number of error locations, so nothing is truncated.  The
             # closed form cannot be relied on to say so, because its second parameter is zero here:

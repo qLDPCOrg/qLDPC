@@ -12,7 +12,6 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
-import scipy.special
 import stim
 
 DenseIntegerArray = galois.FieldArray | npt.NDArray[np.int_]
@@ -29,6 +28,8 @@ DenseIntegerArrayType = TypeVar("DenseIntegerArrayType", galois.FieldArray, npt.
 @functools.cache
 def log_choose(n: int, k: int) -> float:
     """Natural logarithm of ``(n choose k) = n! / ( k! * (n-k)! )``."""
+    import scipy.special  # imported on first use, to keep "import qldpc" fast
+
     return (
         scipy.special.gammaln(n + 1)
         - scipy.special.gammaln(k + 1)

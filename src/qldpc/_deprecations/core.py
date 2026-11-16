@@ -21,7 +21,7 @@ is served as an attribute of its package, as in ``from package import submodule`
 Registry targets are lazy "module:attribute" strings, and this module imports no qLDPC subpackage
 at import time, so that every module can import it without an import cycle.  Deprecated methods are
 defined at the bottom of this module, and attached to their classes by install_deprecated_methods,
-which qldpc/__init__.py calls once all subpackages are imported.
+which qldpc/__init__.py calls once the subpackages that define those classes are imported.
 Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
 raising defunct(...).
 
