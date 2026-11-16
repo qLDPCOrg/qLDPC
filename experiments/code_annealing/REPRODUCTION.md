@@ -7,7 +7,7 @@ The figures come from random simulations, and match within their statistical err
 
 ## Map
 
-Each command runs as `python -m experiments.code_annealing.` followed by the command below (see [README.md](README.md#setup)), and `PAPER` stands for `experiments/code_annealing/results/paper`.
+Each command runs as `python -m experiments.code_annealing.` followed by the command below, and `PAPER` stands for `experiments/code_annealing/results/paper`.
 
 | Paper artifact | Command | Output, under `PAPER` |
 | --- | --- | --- |

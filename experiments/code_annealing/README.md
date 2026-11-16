@@ -20,7 +20,7 @@ cd qLDPC
 python -m pip install . matplotlib
 ```
 
-Every script runs as `python -m experiments.code_annealing.NAME`, and is named by its `NAME` below.
+Every script runs from the root as `python -m experiments.code_annealing.NAME`, where `NAME` is its path in dots without `.py`, such as `write_jobs` or `baseline.run_random`.
 Outputs go under `experiments/code_annealing/results/`, written `results/` below.
 [ENVIRONMENT.md](ENVIRONMENT.md) covers the requirements, development and tests, threads and caches, and running on a server.
 
@@ -41,7 +41,8 @@ python -m experiments.code_annealing.reproduce_paper
 ```
 
 This copies `paper_data/` to `results/paper/data/`, recounts every code, and writes the table (`table_css.tex` and `table_swel.tex`) and the listings of the paper's appendix there.
-It then simulates the codes, and saves the paper's figures to `results/paper/figures/`, and also `error_rates.pdf`, which is not in the paper and shows both code types in one figure.
+It then simulates the codes, and saves the paper's figures to `results/paper/figures/`.
+It also saves `error_rates.pdf` there, which shows both code types in one figure and is not in the paper.
 The table takes about five minutes.
 The figures take many hours, because they sample 10^7 errors for each code.
 
@@ -90,13 +91,12 @@ python -m experiments.code_annealing.make_figures
 
 - Without [GNU parallel](https://www.gnu.org/software/parallel/), `bash experiments/code_annealing/results/logs/jobs.txt` runs the jobs one at a time.
 - `make_figures` takes the options of [the paper's figures](#rebuild-the-papers-table-and-figures).
-- `collect_data` writes the LaTeX tables only from a scrape of qecdb.org.
-  `--scrape` takes a new scrape, which needs network access and sends three requests per code.
-  Without it, `collect_data` uses the newest scrape in its `data/` directory if that scrape can be read and covers the same codes.
-  Otherwise it skips the tables, as `collect_data --test` does.
+- `collect_data` writes the LaTeX tables and listings only with a scrape of qecdb.org.
+  `--scrape` takes a new one, which needs network access and sends three requests per code.
+  Without it, `collect_data` uses the newest scrape in `results/data/`, and skips the tables and listings if there is none, or if it is unreadable or covers other codes.
   qecdb.org changes, so a new comparison can differ from the paper's.
 - To resume after an interruption, run `write_jobs` again with the same options, and then the jobs.
-  To add code sizes or seeds, change only `--qubits`, `--code-types`, or `--max-seeds`.
+  To extend the campaign, add values to `--qubits`, `--code-types`, or `--max-seeds`, and keep every other option the same.
   Finished searches are skipped, and unfinished ones resume exactly.
 - The jobs run seed by seed, so a campaign stopped early has about as many searches of every size.
 - Run all the jobs of a results directory on one machine.
@@ -152,8 +152,8 @@ Keep a results directory private to you, because `jobs.txt` holds shell commands
 
 ### Optional scripts
 
-- `baseline/run_random.py` samples random codes of one size as a baseline, and `make_figures` plots a histogram for every size that was sampled.
-- `analysis/print_annealed_codes.py` lists every code that the searches saved, not only the best ones, with their exact counts, and can write them to `data/saved_codes.csv`.
+- `baseline.run_random` samples random codes of one size as a baseline, and `make_figures` plots a histogram for every size that was sampled.
+- `analysis.print_annealed_codes` lists every code that the searches saved, not only the best ones, with their exact counts, and can write them to `data/saved_codes.csv`.
 
 ### Layout
 

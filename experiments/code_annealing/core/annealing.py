@@ -12,8 +12,8 @@ from the initial code to fit the first temperature, without moving the chain.  T
 optima among the initial code and the proposals of the chain and its pilot: the lowest-energy code,
 and the greatest-distance code (the lowest m among ties).
 
-The counting method changes only the running time.  With ``auto``, a race on separate proposals,
-which never become optima, chooses it for each epoch (see ``_select_method``).
+The counting method changes only the running time.  With ``auto``, ``_select_method`` chooses it at
+each epoch, usually by a race on separate proposals that never become optima.
 """
 
 from __future__ import annotations

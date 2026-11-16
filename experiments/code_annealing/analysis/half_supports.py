@@ -5,8 +5,9 @@
 For a code of distance ``d``, the half supports are the distinct sets of ``(d + 1) // 2`` qubits
 that lie in the support of a minimum-weight X-only or Z-only logical operator, and the majority
 supports are those of ``d // 2 + 1`` qubits.  They coincide for odd ``d``.  For even ``d``, the
-decoder discards an error on a whole half support.  ``figures/plot_error_estimates.py`` estimates
-logical error rates from the numbers of operators and of majority supports, and explains why.
+lookup decoder of the simulations discards an error on a whole half support.
+``figures/plot_error_estimates.py`` estimates logical error rates from the numbers of operators and
+of majority supports, and explains why.
 
 Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  The
 script recounts each selected code exactly, and fails if its distance or count differs from what its
@@ -44,7 +45,7 @@ _CODE_LINE = re.compile(
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Print the line of every code, and write the same text to a file unless codes are skipped."""
+    """Print the line of every code, and save the lines unless ``--max-qubits`` is given."""
     parser = make_parser(__doc__)
     parser.add_argument("--max-qubits", type=int, help="skip the codes with more qubits")
     add_results_dir_argument(parser)
@@ -63,7 +64,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         write_atomic(output, print_lines)
     else:
         print_lines(None)
-        print(f"Wrote nothing to {output}, because --max-qubits skips codes", file=sys.stderr)
+        print(f"Wrote nothing to {output}, because --max-qubits is given", file=sys.stderr)
 
 
 def _get_lines(paths: Iterable[Path], max_qubits: int | None) -> Iterator[str]:

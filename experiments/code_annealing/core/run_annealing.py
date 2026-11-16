@@ -26,11 +26,11 @@ gets timestamps, and the method of each epoch with ``--method auto``.
 
 Resuming.  ``--resume CHECKPOINT`` continues a chain from its last completed epoch, and reproduces
 the uninterrupted run.  It checks the checkpoint's schema version, and that the Python, NumPy,
-SciPy, and Numba versions, the operating system, and the architecture match.  Other changes to qLDPC
-or to this code can also break the match, which it does not detect.  It takes no code, policy,
-``--tag``, or ``--output`` options.  A run interrupted before its first checkpoint must start over.
-``--refine PATH`` starts a new chain, with new options, from the lowest-energy code of a checkpoint
-or from the code of a record, written by any runtime.
+SciPy, and Numba versions, the operating system, and the architecture match those that wrote it.  It
+does not detect changes to qLDPC or to the experiment's code, which can also break the reproduction.
+It takes no code, policy, ``--tag``, or ``--output`` options.  A run interrupted before its first
+checkpoint must start over.  ``--refine PATH`` starts a new chain, with new options, from the
+lowest-energy code of a checkpoint or from the code of a record, written by any runtime.
 
 Scoring.  ``--method`` is ``auto`` or an exact method of ``CSSLogicalCounter.count_logical_ops``.
 All give the same scores.  The default, ``auto``, chooses between Brouwer--Zimmermann and

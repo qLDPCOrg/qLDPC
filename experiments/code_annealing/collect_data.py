@@ -15,8 +15,8 @@ these scripts of ``analysis/`` on the results directory, in order:
    match the current codes.
 
 The files go to ``data/`` of the results directory, and the section "What the scripts write" of
-``README.md`` lists them.  Each step also
-runs alone, with more options, as ``python -m experiments.code_annealing.analysis.NAME``.
+``README.md`` lists them.  Each step also runs alone, with more options, as
+``python -m experiments.code_annealing.analysis.NAME``.
 """
 
 from __future__ import annotations
