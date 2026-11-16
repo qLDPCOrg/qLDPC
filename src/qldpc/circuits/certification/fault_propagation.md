@@ -216,4 +216,5 @@ A trial implementation, in an earlier version of the search that worked with pri
 It looked for such a Pauli error in the first two layers of the oracle's search of Pauli errors, at each light primitive fault added to a partial choice, and reused the answer for each heavy part.
 It did not look when adding the last primitive fault of a fault, since only one fault then completes the choice.
 The number of faults that complete a choice grows with the fault weight.
-At small fault weights, looking for such a Pauli error cost about as much time as it saved, so the rule may pay off in searches that reach large fault weights.
+Up to fault weight four, looking for such a Pauli error cost about as much time as it saved.
+At fault weights five and six, in searches that listed every fault, it made them up to about twice as fast, so the rule may pay off in searches that reach larger fault weights.
