@@ -226,7 +226,7 @@ class FaultLister:
     sorted by the hash of their summed flags, and a hash map from each hash to its first entry in
     the table.  The closing map of pairs, for fault weight four or more, is built only if it fits
     within the memory limit and has at most 2**31 pairs.  The table of syndromes of listed faults
-    (see ``find_first``) grows within the rest of the memory limit.
+    (see ``find_first``) grows within the rest of the memory limit, up to 2**31 syndromes.
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -447,7 +447,7 @@ class FaultLister:
     def _closing_pairs(
         self,
     ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]] | None:
-        """The closing map of the pairs of classes, if it fits within the memory limit."""
+        """The closing map of the pairs of classes, or None if it is too large to build."""
         if not self._closing_pairs_fit:
             return None
         return _get_closing_map(self._class_rows[:, 0], 2)

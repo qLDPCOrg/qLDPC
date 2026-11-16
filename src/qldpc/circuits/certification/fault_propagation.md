@@ -129,7 +129,7 @@ The search skips the oracle for a fault `F` in two cases, each of which cannot h
    The search lists faults by increasing fault weight, so `|G| ≤ |F|`.
    If `G` violates the bound, the search stops there.
    Otherwise `μ(S F) = μ(S G) ≤ |G| ≤ |F|`, so `F` satisfies the bound.
-   The search remembers the syndromes of the faults that it lists in a table, which grows within a user-specified memory limit.
+   The search remembers the syndromes of the faults that it lists in a table, which grows within a user-specified memory limit and holds at most `2^31` syndromes.
    A full table takes no more syndromes, so the search may check some syndromes more than once.
 
 ### Listing each irreducible accepted fault once
@@ -168,13 +168,14 @@ The search looks up the closing class in a hash map from a 64-bit linear hash of
 Different flags can share a hash, so the search compares the flags of every class that it finds with the sum of the prefix flags.
 Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing `c_{m-1}` and `c_m` together, as a **closing pair**.
 Choosing them together removes about one factor of the number of classes from the search time, at the cost of a table whose size is quadratic in the number of classes.
-If it fits within the memory limit, the search keeps a table of all pairs of classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its pairs; this table has first claim on the memory limit.
+If it fits within the memory limit and has at most `2^31` pairs, the search keeps a table of all pairs of classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its pairs; this table has first claim on the memory limit.
 For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up the pairs `c_{m-1} < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-2}`, and keeps those that come after `c_{m-2}` and whose flags sum to exactly that sum.
 Of these, it keeps only the pairs whose first class `c_{m-1}` keeps the prefix `c_1, ..., c_{m-1}` independent.
 That `c_1, ..., c_{m-2}` are independent is not enough, since the flags of `c_{m-1}` could be the sum of some of theirs, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
 With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class found by a lookup of single classes.
 The classes have distinct flags, so a lookup finds at most one closing class, or at most one closing pair for each first class `c_{m-1}`, and so at most as many class codewords as there are classes.
-The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same class codewords in the same order as a loop over `c_{m-1}`, and the faults are listed in the same order whether or not the table fits within the memory limit.
+Without the table, the search loops over `c_{m-1}` and looks up the closing class of each prefix instead.
+The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same class codewords in the same order as this loop, and the faults are listed in the same order either way.
 
 Many primitive faults can share their flags, which is why the search works with classes.
 Its tests of independence, its lookups of closing classes, and its table of pairs work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
