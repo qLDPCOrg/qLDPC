@@ -133,7 +133,7 @@ Distances across packages
 The distance of a subsystem code is dressed: its logical operators may be multiplied by gauge operators.
 For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare distance: the minimum weight of a nontrivial logical operator that commutes with every gauge operator.
 Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ or, for sparse parity checks, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_, and nonbinary codes use exhaustive enumeration.
-By default, ``method="auto"`` chooses a method for each search: exhaustive enumeration if it is cheap, the Brouwer-Zimmermann search for a classical code, and for the checks of a quantum code or a circuit a connected-cluster search that may switch to the Brouwer-Zimmermann search (see :data:`~qldpc.codes.distance.DistanceMethod`).
+By default, ``method="auto"`` chooses a method for each search: exhaustive enumeration if it is cheap, the Brouwer-Zimmermann search for a classical code, and, for the checks of a quantum code or a circuit, a connected-cluster search that may switch to the Brouwer-Zimmermann search (see :data:`~qldpc.codes.distance.DistanceMethod`).
 All exact methods can take exponential time.
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
@@ -228,15 +228,15 @@ Support and limitations
 
 The following table summarizes support by field; the subsystem column applies to subsystem codes over any field.
 
-===============  =========================================  ==============================  ===================================  ========================================
-Capability       :math:`GF(2)`                              Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
-===============  =========================================  ==============================  ===================================  ========================================
-Codes            Yes                                        Yes                             Yes                                  Yes, inferred from non-commuting checks
-Exact distance   Brouwer-Zimmermann, or connected cluster   Exhaustive enumeration          Exhaustive enumeration               Yes
-Distance bounds  Decoder, GAP, or ``sqetch``                Decoder or GAP                  Decoder or GAP                       CSS codes only
-Decoders         All built-in decoders                      GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
-Circuits         Yes                                        No                              No                                   No memory experiments
-===============  =========================================  ==============================  ===================================  ========================================
+===============  =====================================================  ==============================  ===================================  ========================================
+Capability       :math:`GF(2)`                                          Prime field :math:`GF(p)`       Extension field :math:`GF(p^m)`      Subsystem codes
+===============  =====================================================  ==============================  ===================================  ========================================
+Codes            Yes                                                    Yes                             Yes                                  Yes, inferred from non-commuting checks
+Exact distance   Brouwer-Zimmermann, connected cluster, or enumeration  Exhaustive enumeration          Exhaustive enumeration               Yes
+Distance bounds  Decoder, GAP, or ``sqetch``                            Decoder or GAP                  Decoder or GAP                       CSS codes only
+Decoders         All built-in decoders                                  GUF (default), ILP, and lookup  GUF (default) and lookup             Yes, in code-capacity estimates
+Circuits         Yes                                                    No                              No                                   No memory experiments
+===============  =====================================================  ==============================  ===================================  ========================================
 
 Other limitations:
 

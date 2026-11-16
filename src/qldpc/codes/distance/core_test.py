@@ -185,7 +185,8 @@ def test_auto_takes_the_method_of_its_rule(monkeypatch: pytest.MonkeyPatch) -> N
     """By default, a search enumerates if that is cheap, and otherwise takes the method of its kind.
 
     Words that only generators give, and binary words that exclude nothing nonzero, take the BZ
-    method, and other words a search by cost.
+    method, and other words a search by cost, including Pauli strings that exclude nothing and CSS
+    sectors of which only some exclude nothing.
     """
     taken: list[str] = []
     for name in ("get_nested_distance_brute_force", "get_distance_brouwer_zimmermann"):
@@ -195,39 +196,58 @@ def test_auto_takes_the_method_of_its_rule(monkeypatch: pytest.MonkeyPatch) -> N
     hamming_code = qldpc.codes.HammingCode(3)
     steane_code = qldpc.codes.SteaneCode()
     five_qubit_code = qldpc.codes.FiveQubitCode()
-    searches: list[tuple[Callable[[], Any], str]] = [
+    # The X checks of the last two searches are empty.  So their X sector excludes nothing, and
+    # every Z-type string satisfies the checks, so the Z sector has words of weight 1.
+    searches: list[tuple[Callable[[], Any], str, int]] = [
         (
             lambda: core.get_distance_from_checks(hamming_code.matrix),
             "get_distance_brouwer_zimmermann",
+            3,
         ),
         (
             lambda: core.get_distance_from_generators(hamming_code.generator),
             "get_distance_brouwer_zimmermann",
+            3,
         ),
         (
             lambda: core.get_distance_from_generators(
                 steane_code.get_logical_ops(Pauli.X), steane_code.get_stabilizer_ops(Pauli.X)
             ),
             "get_distance_brouwer_zimmermann",
+            3,
         ),
         (
             lambda: core.get_distance_from_checks(steane_code.matrix_z, steane_code.matrix_x),
             "by cost",
+            3,
         ),
-        (lambda: core.get_distance_css(steane_code.matrix_x, steane_code.matrix_z), "by cost"),
-        (lambda: core.get_distance_pauli(five_qubit_code.matrix), "by cost"),
+        (lambda: core.get_distance_css(steane_code.matrix_x, steane_code.matrix_z), "by cost", 3),
+        (lambda: core.get_distance_pauli(five_qubit_code.matrix), "by cost", 3),
+        (
+            lambda: core.get_distance_from_checks(
+                five_qubit_code.matrix, np.zeros((0, 10), int), symplectic=True
+            ),
+            "by cost",
+            3,
+        ),
         (
             lambda: core.get_distance_css(np.zeros((0, 7), int), hamming_code.matrix, "X"),
             "get_distance_brouwer_zimmermann",
+            3,
+        ),
+        (
+            lambda: core.get_distance_css(np.zeros((0, 7), int), hamming_code.matrix),
+            "by cost",
+            1,
         ),
     ]
-    for search, method in searches:
+    for search, method, distance in searches:
         taken.clear()
-        assert search() == 3
+        assert search() == distance
         assert taken[:1] == ["get_nested_distance_brute_force"]
         taken.clear()
         with use_tuning(auto_brute_force_max_words=0):
-            assert search() == 3
+            assert search() == distance
         assert taken[:1] == [method]
 
 
@@ -427,6 +447,16 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
             core.get_distance_css(
                 code.matrix_x, code.matrix_z, method=css_method, automorphisms=transposition[None]
             )
+
+    # A search of Pauli strings by cost asks once too, from the connected-cluster search of its free
+    # phase.  Hadamards on the second block of the code keep the automorphisms above.
+    pauli_checks = code.conjugated(range(7, 14)).matrix
+    get_automorphisms = mock.Mock(return_value=code._get_qudit_automorphisms())
+    distance = core.get_distance_pauli(pauli_checks, method="auto", automorphisms=get_automorphisms)
+    assert distance == 3
+    get_automorphisms.assert_called_once()
+    with pytest.raises(ValueError, match="not an automorphism"):
+        core.get_distance_pauli(pauli_checks, method="auto", automorphisms=transposition[None])
 
     for automorphisms in ([[1, 0]], [[0, 0, 1]], [[[1, 2, 0]]]):
         with pytest.raises(ValueError, match="permutations of range"):

@@ -799,10 +799,10 @@ def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
 ) -> None:
     """Searches report the work of the layer that ``advance`` scans next, and none at the end.
 
-    The work counts the supports of the sets that the next unfinished search plans to scan, which
-    bound those that it scans.  A layer of an automorphism family scans its one set.  The surface
-    code scans several sets per layer, the random code skips the search of a finished sector, and
-    the gross code switches to automorphism families.
+    The work counts the supports of the sets that the next unfinished search plans to scan, an
+    upper bound on the supports that it scans.  A layer of an automorphism family scans its one
+    set.  The surface code scans several sets per layer, the random code skips the search of a
+    finished sector, and the gross code switches to automorphism families.
     """
     asked: list[bz._SectorSearch] = []
     scanned: list[tuple[bz._SectorSearch, int]] = []

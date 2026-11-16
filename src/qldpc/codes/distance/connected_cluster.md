@@ -4,7 +4,9 @@
 
 The connected-cluster search computes the exact distance of a binary code from the Tanner graph of its parity checks.
 The code can be classical, CSS, or a qubit code that is not CSS, and a quantum code can be a subsystem code.
-The search is `method="connected_cluster"` of `get_distance_exact` on the code classes, and the default `method="auto"` runs it for the distances of quantum codes and the fault distances of circuits, unless enumerating is cheap, switching to Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) when that is predicted to cost less (section "Choosing a method" of [README.md](README.md)).
+The search is `method="connected_cluster"` of `get_distance_exact` on the code classes.
+The default, `method="auto"`, runs it for the distances of quantum codes and the fault distances of circuits, unless enumerating every word is cheap.
+`"auto"` switches to Brouwer-Zimmermann (BZ, see [brouwer_zimmermann.md](brouwer_zimmermann.md)) when BZ is predicted to cost less (section "Choosing a method" of [README.md](README.md)).
 It also finds light vectors with a given syndrome for `CosetLeaderSearch`, which `certify_bounded_fault_propagation` uses.
 The search is the connected-cluster algorithm of Dumer, Kovalev, and Pryadko, and later works cite their 2017 paper for it (see the [references](#references)).
 Its earliest known application to quantum codes is the linked-cluster technique of Kovalev, Dumer, and Pryadko (2013), for the distances of quantum LDPC codes.

@@ -438,8 +438,8 @@ def _check_coset_search_method(method: DistanceMethod) -> None:
     """
     if method == "brute_force":
         raise ValueError(
-            "The 'brute_force' distance method has no search of residual weights: use"
-            " 'brouwer_zimmermann' or 'connected_cluster'."
+            "The 'brute_force' distance method has no search of residual weights: use 'auto',"
+            " 'brouwer_zimmermann', or 'connected_cluster'."
         )
     if method not in typing.get_args(DistanceMethod):
         raise ValueError(
