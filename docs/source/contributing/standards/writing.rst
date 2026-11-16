@@ -33,8 +33,6 @@ Prose style
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
 * Fix unclear text by cutting or restructuring it before adding words.
-  In a change whose purpose is to reword prose, the changed files' prose does not grow in total word count, apart from text that the person who requested the change asks for.
-  In such a change, if a file's prose grows, say why in the pull request summary.
 * When a text mentions an object, quantity, or concept more than once by a long description, give it a short name or a symbol, such as one that the code or the literature uses.
   Then use that name, rather than repeating a long description or chaining noun phrases.
 
