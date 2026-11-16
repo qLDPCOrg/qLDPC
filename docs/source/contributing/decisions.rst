@@ -20,6 +20,9 @@ Process can grow to serve itself, as when each fix to a benchmark protocol adds 
   Give that sentence in the recommendation or the report on the work.
 * When a fix would add process to guard against a problem that other process caused or left open, the fix is a decision for the person who requested the work, even if they delegated other decisions.
   Offer removing or simplifying that other process as one of the decision's options.
+* A rule for working on qLDPC earns its place only if, without it, contributors would do something that a maintainer would have to correct.
+  Prefer a principle with an example to a procedure, and sharpening or cutting a rule to adding one.
+* In a review of a change to the rules for working on qLDPC, a gap that a good-faith reader would resolve correctly is not worth a new clause.
 
 Principles for recommendations
 ------------------------------
