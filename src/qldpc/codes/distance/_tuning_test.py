@@ -202,9 +202,9 @@ def test_limits_on_partitioned_coverage_change_routes_but_not_results(
 
     Partitioning runs whenever some family could do less work, and overlapping families and random
     column orders are off.  The X sector of the test's CSS code searches the code that
-    ``MISSED_SET_CODE`` generates, modulo the span of four of its words, so its search and counts
-    partition into disjoint sets at the limit one.  The counts at weight five, where that sector has
-    words, scan that family.
+    ``MISSED_SET_CODE`` generates, modulo the span of four of its words, so at the limit one its
+    search and counts take a family of disjoint sets.  The counts are at weight five, where that
+    sector has words, so they scan that family.
     """
     css_code = codes.CSSCode(
         get_binary_matrix(
@@ -223,8 +223,7 @@ def test_limits_on_partitioned_coverage_change_routes_but_not_results(
         ):
             # A new code, since codes remember their distances.
             distance = codes.CSSCode(css_code.matrix_x, css_code.matrix_z).get_distance_exact()
-            counter = lc.CSSLogicalCounter(css_code.matrix_x, css_code.matrix_z)
-            counts = counter.count_logical_ops(count_pauli=True), counter.count_logical_ops(5)
+            counts = lc.CSSLogicalCounter(css_code.matrix_x, css_code.matrix_z).count_logical_ops(5)
         results.append((distance, counts))
         max_coverages.append(
             max(

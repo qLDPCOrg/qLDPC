@@ -413,11 +413,13 @@ def test_built_disjoint_families_do_at_least_the_disjoint_bound(
 ) -> None:
     """Built disjoint families do at least the work of ``_estimate_optimistic_disjoint_work``.
 
-    The test checks maximum disjoint families and greedy packings, pruned or not.  Its fixed bases
-    are cases that a bound would miss if it took only ``floor(N / r)`` or only ``ceil(N / r)`` sets,
-    ignored the weight divisor, or took at most ``r`` sets: the columns e1, e2, e3, e4, e1, e2, e3
-    at the upper bound three, e1, e1, e1, e1, e2 at the upper bound six, and four copies of e1, e2,
-    e3, whose rows are even, at the upper bounds five and six.
+    The test checks maximum disjoint families and greedy packings, pruned or not, on fixed and
+    random bases.
+
+    The columns ``e1 e2 e3 e4 e1 e2 e3`` expose a bound over only ``floor(N / r)`` sets at the upper
+    bound three, and ``e1 e1 e1 e1 e2`` one over only ``ceil(N / r)`` sets at six.  Four copies of
+    ``e1 e2 e3``, whose rows are even, expose one that takes at most ``r`` sets at five, or ignores
+    the weight divisor at six.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     bases = [

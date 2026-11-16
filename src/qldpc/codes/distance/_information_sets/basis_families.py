@@ -346,9 +346,9 @@ def get_partitioned_family(
     best = _get_no_replacement(basis_family, basis, labels)
 
     # Choose the coverages to try and the unit of the gate.  Above a limit of one, capping the sets
-    # at the most that fit within the limit, by counting their pivots, caps the coverages.  Coverage
-    # one is left to the disjoint packing of stage one, so that searches at the default limit build
-    # no maximum disjoint family.
+    # at the most that fit within the limit, by counting their pivots, caps the coverages.  Those
+    # limits leave coverage one to the disjoint packing of stage one, so that searches at the
+    # default limit build no maximum disjoint family.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     coverage_limit = tuning.partition_max_coverage
@@ -695,10 +695,10 @@ def _estimate_optimistic_disjoint_work(
 ) -> int:
     """Return a lower bound on the estimated work of a disjoint family that partitioning can build.
 
-    Such a family, like a packing, holds at most ``2**dimension - 1`` sets.  The arguments are as
-    for ``_estimate_optimistic_work``.  The bound is the least work of 1 to ``k`` full sets of
-    coverage one, where ``k``, the most sets that such a family can hold, counts a partial set
-    (Section 4.4).
+    Such a family, like a packing, holds at most ``k`` sets, counting a partial set, where
+    ``k = min(ceil(num_columns / dimension), 2**dimension - 1)``.  The arguments are as for
+    ``_estimate_optimistic_work``.  The bound is the least work of 1 to ``k`` full sets of coverage
+    one (Section 4.4).
     """
     max_sets = min((num_columns + dimension - 1) // dimension, _get_full_set_limit(dimension))
     return min(
