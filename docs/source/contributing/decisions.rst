@@ -22,8 +22,7 @@ Process can grow to serve itself, as when each fix to a benchmark protocol adds 
   Offer removing or simplifying that other process as one of the decision's options.
 * A rule for working on qLDPC earns its place only if, without it, contributors would do something that a maintainer would have to correct.
   Prefer a principle with an example to a procedure, and sharpening or cutting a rule to adding one.
-* A change to these rules says in its description how it changes their total length, and which rule, if any, it replaces.
-* In a review of such a change, a gap that a good-faith reader would resolve correctly is not worth a new clause.
+* In a review of a change to the rules for working on qLDPC, a gap that a good-faith reader would resolve correctly is not worth a new clause.
 
 Principles for recommendations
 ------------------------------

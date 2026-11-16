@@ -6,6 +6,7 @@ This standard covers pull request summaries.
 Use a PR summary as a guide to review, not a second set of documentation or an execution log.
 Write a summary for a reader who has read no other pull request: link merged pull requests by number, and explain any context that another pull request provides rather than referring to it, as in "the next pull request".
 Give numbers, such as test counts, timings, or speedups, only when review needs them, as for a change made for speed, and do not take measurements only for a summary.
+The summary of a change to the rules for working on qLDPC says how it changes their total length, and which rule, if any, it replaces.
 Normally use the following structure:
 
 * **Motivation or Background:** explain why the change is needed and provide context necessary to review it.
