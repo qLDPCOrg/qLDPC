@@ -29,17 +29,30 @@ from ._binary import get_css_stabilizers
 from ._tuning import use_tuning
 from .conftest import get_random_full_rank_matrix, get_span
 
+# "auto" enumerates the small codes of the tests that take every method, unless its tuning makes
+# enumeration costly (test_auto_without_enumeration_gives_the_same_distances).
+METHODS: list[core.DistanceMethod] = [
+    "auto",
+    "brouwer_zimmermann",
+    "connected_cluster",
+    "brute_force",
+]
+
 
 def test_brouwer_zimmermann_information_set_search() -> None:
     """Information-set search excludes stabilizers, finds logical products, and honors cutoffs."""
     # The stabilizer of weight one is lighter than every logical operator, and with one support per
     # batch, some batches hold only that stabilizer.
     with use_tuning(information_set_batch_exponent=0):
-        distance = core.get_distance_from_generators([[1, 1, 1, 1]], [[1, 0, 0, 0]], cutoff=0)
+        distance = core.get_distance_from_generators(
+            [[1, 1, 1, 1]], [[1, 0, 0, 0]], cutoff=0, method="brouwer_zimmermann"
+        )
     assert distance == 3
 
     # The lightest logical operator is the product of both logical generators.
-    distance = core.get_distance_from_generators([[1, 1, 1, 0], [1, 1, 0, 1]], [], cutoff=0)
+    distance = core.get_distance_from_generators(
+        [[1, 1, 1, 0], [1, 1, 0, 1]], [], cutoff=0, method="brouwer_zimmermann"
+    )
     assert distance == 2
 
     # Every row of every information set weighs at least three, so the codeword of weight two needs
@@ -51,16 +64,26 @@ def test_brouwer_zimmermann_information_set_search() -> None:
         [0, 1, 1, 0, 0, 0, 1, 1, 1, 0],
         [0, 1, 0, 0, 1, 0, 0, 1, 1, 1],
     ]
-    assert core.get_distance_from_generators(generators, cutoff=0) == 2
+    assert core.get_distance_from_generators(generators, cutoff=0, method="brouwer_zimmermann") == 2
 
     # Both reduced generators weigh three, and their sum of weight two reaches the cutoff.
-    assert core.get_distance_from_generators([[1, 0, 1, 1], [0, 1, 1, 1]], cutoff=2) == 2
+    assert (
+        core.get_distance_from_generators(
+            [[1, 0, 1, 1], [0, 1, 1, 1]], cutoff=2, method="brouwer_zimmermann"
+        )
+        == 2
+    )
 
     # Row reduction exposes a Hamming-weight-one generator before any search runs.
-    assert core.get_distance_from_generators([[1, 1, 0], [0, 1, 1], [1, 1, 1]], cutoff=1) == 1
+    assert (
+        core.get_distance_from_generators(
+            [[1, 1, 0], [0, 1, 1], [1, 1, 1]], cutoff=1, method="brouwer_zimmermann"
+        )
+        == 1
+    )
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
+@pytest.mark.parametrize("method", METHODS)
 def test_css_distances(method: core.DistanceMethod) -> None:
     """CSS distances of sectors, of codes, of subsystem codes, and of codes that encode nothing."""
     checks_x = [[1, 1, 1, 1, 1, 1, 1], [1, 0, 1, 1, 1, 0, 0]]
@@ -91,7 +114,7 @@ def test_css_distances(method: core.DistanceMethod) -> None:
     assert core.get_distance_css(np.zeros((0, 0)), [], method=method) is core.NO_DISTANCE
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
+@pytest.mark.parametrize("method", METHODS)
 def test_distances_from_checks(method: core.DistanceMethod) -> None:
     """Checks give classical, CSS, and stabilizer distances, and excluded rows must satisfy them."""
     hamming_code = qldpc.codes.HammingCode(3)
@@ -122,7 +145,7 @@ def test_distances_from_checks(method: core.DistanceMethod) -> None:
     assert core.get_distance_from_checks([], [[1, 1, 0]], method=method) == 1
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
+@pytest.mark.parametrize("method", METHODS)
 def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod) -> None:
     """Pauli checks give the distances of stabilizer codes, and dressed ones of subsystem codes."""
     five_qubit_code = qldpc.codes.FiveQubitCode()
@@ -149,6 +172,106 @@ def test_distances_of_stabilizer_and_subsystem_codes(method: core.DistanceMethod
     assert core.get_distance_from_checks(gauge, no_stabilizers, symplectic=True, method=method) == 3
 
 
+def test_auto_without_enumeration_gives_the_same_distances() -> None:
+    """With enumeration never cheap, "auto" searches otherwise, and finds the same distances."""
+    with use_tuning(auto_brute_force_max_words=0):
+        test_css_distances("auto")
+        test_distances_from_checks("auto")
+        test_distances_of_stabilizer_and_subsystem_codes("auto")
+        test_bare_and_dressed_distances("auto")
+
+
+def test_auto_takes_the_method_of_its_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """By default, a search enumerates if that is cheap, and otherwise takes the method of its kind.
+
+    Words that only generators give, and binary words that exclude nothing nonzero, take the BZ
+    method, and other words a search by cost.
+    """
+    taken: list[str] = []
+    for name in ("get_nested_distance_brute_force", "get_distance_brouwer_zimmermann"):
+        monkeypatch.setattr(core, name, _record_call(taken, name, getattr(core, name)))
+    monkeypatch.setattr(core, "search_by_cost", _record_call(taken, "by cost", core.search_by_cost))
+
+    hamming_code = qldpc.codes.HammingCode(3)
+    steane_code = qldpc.codes.SteaneCode()
+    five_qubit_code = qldpc.codes.FiveQubitCode()
+    searches: list[tuple[Callable[[], Any], str]] = [
+        (
+            lambda: core.get_distance_from_checks(hamming_code.matrix),
+            "get_distance_brouwer_zimmermann",
+        ),
+        (
+            lambda: core.get_distance_from_generators(hamming_code.generator),
+            "get_distance_brouwer_zimmermann",
+        ),
+        (
+            lambda: core.get_distance_from_generators(
+                steane_code.get_logical_ops(Pauli.X), steane_code.get_stabilizer_ops(Pauli.X)
+            ),
+            "get_distance_brouwer_zimmermann",
+        ),
+        (
+            lambda: core.get_distance_from_checks(steane_code.matrix_z, steane_code.matrix_x),
+            "by cost",
+        ),
+        (lambda: core.get_distance_css(steane_code.matrix_x, steane_code.matrix_z), "by cost"),
+        (lambda: core.get_distance_pauli(five_qubit_code.matrix), "by cost"),
+        (
+            lambda: core.get_distance_css(np.zeros((0, 7), int), hamming_code.matrix, "X"),
+            "get_distance_brouwer_zimmermann",
+        ),
+    ]
+    for search, method in searches:
+        taken.clear()
+        assert search() == 3
+        assert taken[:1] == ["get_nested_distance_brute_force"]
+        taken.clear()
+        with use_tuning(auto_brute_force_max_words=0):
+            assert search() == 3
+        assert taken[:1] == [method]
+
+
+def test_auto_enumerates_up_to_its_budget_of_packed_integers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A search enumerates if all of its spaces fit the budget, and not with one integer less.
+
+    The two sectors of the Steane code have dimension 4 each, the Hamming code has dimension 4, and
+    the Pauli strings that commute with the five-qubit code have dimension 6, all within one 64-bit
+    integer per word.  The two words of the repetition code of length 65 take two integers each.
+    """
+    taken: list[str] = []
+    brute_force = core.get_nested_distance_brute_force
+    monkeypatch.setattr(
+        core, "get_nested_distance_brute_force", _record_call(taken, "", brute_force)
+    )
+    steane_code = qldpc.codes.SteaneCode()
+    hamming_code = qldpc.codes.HammingCode(3)
+    five_qubit_code = qldpc.codes.FiveQubitCode()
+    searches: list[tuple[Callable[[], Any], int, int]] = [
+        (lambda: core.get_distance_css(steane_code.matrix_x, steane_code.matrix_z), 2 * 2**4, 3),
+        (lambda: core.get_distance_from_generators(hamming_code.generator), 2**4, 3),
+        (lambda: core.get_distance_pauli(five_qubit_code.matrix), 2**6, 3),
+        (lambda: core.get_distance_from_generators(np.ones((1, 65), int)), 2 * 2, 65),
+    ]
+    for search, num_integers, distance in searches:
+        for max_words, enumerates in ((num_integers, True), (num_integers - 1, False)):
+            taken.clear()
+            with use_tuning(auto_brute_force_max_words=max_words):
+                assert search() == distance
+            assert bool(taken) is enumerates
+
+
+def _record_call(taken: list[str], name: str, function: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a function to record its name in ``taken`` whenever it is called."""
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        taken.append(name)
+        return function(*args, **kwargs)
+
+    return recording
+
+
 def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -173,7 +296,7 @@ def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
     assert searched == [([7, 7], False)]
 
 
-@pytest.mark.parametrize("method", ["brouwer_zimmermann", "connected_cluster", "brute_force"])
+@pytest.mark.parametrize("method", METHODS)
 def test_bare_and_dressed_distances(method: core.DistanceMethod) -> None:
     """The recipes of get_distance_from_checks give the bare and dressed distances of a code."""
     # The only stabilizer of this subsystem code is Z on its last qubit, and X on one of its first
@@ -291,8 +414,18 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
         )
 
 
-def test_connected_cluster_searches_sparse_stabilizers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A connected-cluster search of a subsystem code searches sparse checks of its stabilizers."""
+@pytest.mark.parametrize(
+    ("method", "searcher"),
+    [("connected_cluster", "get_distance_connected_cluster"), ("auto", "search_by_cost")],
+)
+def test_connected_cluster_searches_sparse_stabilizers(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, method: core.DistanceMethod, searcher: str
+) -> None:
+    """A connected-cluster search of a subsystem code searches sparse checks of its stabilizers.
+
+    So does a search by cost, which "auto" runs when enumeration is not cheap.
+    """
+    tune(auto_brute_force_max_words=0)
     # With X and Z on a bulk qubit of the [[16, 1, 4]] surface code as gauge generators, the two
     # checks of each type on that qubit merge into one stabilizer of weight 6, the dressed distance
     # drops to 3, and the row-reduced stabilizers have rows of weight 8.  The other checks are
@@ -314,13 +447,13 @@ def test_connected_cluster_searches_sparse_stabilizers(monkeypatch: pytest.Monke
 
     searched: list[npt.NDArray[np.uint8]] = []
 
-    def record(sectors: Any, **kwargs: Any) -> Any:
+    def record(sectors: Any, *args: Any, **kwargs: Any) -> Any:
         searched.extend(np.asarray(checks) for checks, _ in sectors)
-        return get_distance_connected_cluster(sectors, **kwargs)
+        return search(sectors, *args, **kwargs)
 
-    get_distance_connected_cluster = core.get_distance_connected_cluster
-    monkeypatch.setattr(core, "get_distance_connected_cluster", record)
-    distance = core.get_distance_css(gauge_x, gauge_z, method="connected_cluster")
+    search = getattr(core, searcher)
+    monkeypatch.setattr(core, searcher, record)
+    distance = core.get_distance_css(gauge_x, gauge_z, method=method)
     assert distance == core.get_distance_css(gauge_x, gauge_z, method="brute_force") == 3
     for checks, stabilizers in zip(
         searched, (get_stabilizers(checks_z), get_stabilizers(checks_x)), strict=True
@@ -328,10 +461,10 @@ def test_connected_cluster_searches_sparse_stabilizers(monkeypatch: pytest.Monke
         assert checks.sum(axis=1).max() <= 6
         assert set(map(tuple, stabilizers[:-1])) <= set(map(tuple, checks))
         assert np.array_equal(get_independent_rows(checks), get_independent_rows(stabilizers))
-    assert core.get_distance_css(gauge_x, gauge_z, Pauli.Z, method="connected_cluster") == 3
+    assert core.get_distance_css(gauge_x, gauge_z, Pauli.Z, method=method) == 3
 
     searched.clear()
-    assert core.get_distance_css(checks_x, checks_z, method="connected_cluster") == 4
+    assert core.get_distance_css(checks_x, checks_z, method=method) == 4
     assert [checks.tolist() for checks in searched] == [checks_z.tolist(), checks_x.tolist()]
 
     # Hadamards on half of the qubits make a Pauli form that is not CSS.
@@ -345,7 +478,7 @@ def test_connected_cluster_searches_sparse_stabilizers(monkeypatch: pytest.Monke
         return rows
 
     gauge = apply_hadamards(scipy.linalg.block_diag(gauge_x, gauge_z))
-    assert core.get_distance_pauli(gauge, method="connected_cluster") == 3
+    assert core.get_distance_pauli(gauge, method=method) == 3
     (checks,) = searched
     assert (checks[:, : len(code)] | checks[:, len(code) :]).sum(axis=1).max() <= 6
     stabilizers = scipy.linalg.block_diag(get_stabilizers(checks_x), get_stabilizers(checks_z))
@@ -411,15 +544,16 @@ def test_special_inputs_of_generators() -> None:
         (qldpc.codes.classical.RingCode(8), 8),
     ],
 )
+@pytest.mark.parametrize("method", ["auto", "brouwer_zimmermann"])
 def test_distances_of_known_classical_codes(
-    code: qldpc.codes.ClassicalCode, expected_distance: int
+    code: qldpc.codes.ClassicalCode, expected_distance: int, method: core.DistanceMethod
 ) -> None:
     """Classical distances match known values for Hamming, repetition, and ring codes."""
-    assert core.get_distance_from_generators(code.generator) == expected_distance
-    assert core.get_distance_from_checks(code.matrix) == expected_distance
+    assert core.get_distance_from_generators(code.generator, method=method) == expected_distance
+    assert core.get_distance_from_checks(code.matrix, method=method) == expected_distance
 
     code._distance = None
-    assert code.get_distance_exact() == expected_distance
+    assert code.get_distance_exact(method=method) == expected_distance
 
 
 @pytest.mark.parametrize(
@@ -433,26 +567,31 @@ def test_distances_of_known_classical_codes(
         (qldpc.codes.quantum.ToricCode(4), 4),
     ],
 )
-def test_distances_of_known_css_codes(code: qldpc.codes.CSSCode, expected_distance: int) -> None:
+@pytest.mark.parametrize("method", ["auto", "brouwer_zimmermann"])
+def test_distances_of_known_css_codes(
+    code: qldpc.codes.CSSCode, expected_distance: int, method: core.DistanceMethod
+) -> None:
     """Quantum distances match known values for C4, C6, Steane, and small surface/toric codes."""
     distance_x = core.get_distance_from_generators(
         code.get_logical_ops(qldpc.objects.Pauli.X),
         code.get_stabilizer_ops(qldpc.objects.Pauli.X),
+        method=method,
     )
     distance_z = core.get_distance_from_generators(
         code.get_logical_ops(qldpc.objects.Pauli.Z),
         code.get_stabilizer_ops(qldpc.objects.Pauli.Z),
+        method=method,
     )
     distance_all = core.get_distance_from_generators(
-        code.get_logical_ops(), code.get_stabilizer_ops(), symplectic=True
+        code.get_logical_ops(), code.get_stabilizer_ops(), symplectic=True, method=method
     )
-    distance_css = core.get_distance_css(code.matrix_x, code.matrix_z)
+    distance_css = core.get_distance_css(code.matrix_x, code.matrix_z, method=method)
     assert distance_x == distance_z == distance_all == distance_css == expected_distance
 
     # CSSCode.forget_distance also clears the cached distances of the X and Z sectors, which the
     # method would otherwise reuse.
     code.forget_distance()
-    assert code.get_distance_exact() == expected_distance
+    assert code.get_distance_exact(method=method) == expected_distance
 
 
 @pytest.mark.parametrize(
@@ -461,19 +600,18 @@ def test_distances_of_known_css_codes(code: qldpc.codes.CSSCode, expected_distan
         (qldpc.codes.quantum.FiveQubitCode(), 3),
     ],
 )
+@pytest.mark.parametrize("method", ["auto", "brouwer_zimmermann"])
 def test_distances_of_known_noncss_codes(
-    code: qldpc.codes.QuditCode, expected_distance: int
+    code: qldpc.codes.QuditCode, expected_distance: int, method: core.DistanceMethod
 ) -> None:
     """Quantum distances match known values for small non-CSS codes."""
     distance = core.get_distance_from_generators(
-        code.get_logical_ops(),
-        code.get_stabilizer_ops(),
-        symplectic=True,
+        code.get_logical_ops(), code.get_stabilizer_ops(), symplectic=True, method=method
     )
-    assert distance == core.get_distance_pauli(code.matrix) == expected_distance
+    assert distance == core.get_distance_pauli(code.matrix, method=method) == expected_distance
 
     code._distance = None
-    assert code.get_distance_exact() == expected_distance
+    assert code.get_distance_exact(method=method) == expected_distance
 
 
 def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
@@ -497,25 +635,28 @@ def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
         expected = search(method="brute_force")
         for automorphisms in (translations, None):
             get_automorphisms = mock.Mock(return_value=automorphisms)
-            assert search(automorphisms=get_automorphisms) == expected == 3
+            distance = search(automorphisms=get_automorphisms, method="brouwer_zimmermann")
+            assert distance == expected == 3
             get_automorphisms.assert_called_once()
         with pytest.raises(ValueError, match="not an automorphism"):
-            search(automorphisms=transposition[None])
+            search(automorphisms=transposition[None], method="brouwer_zimmermann")
 
 
 def test_brouwer_zimmermann_random_cross_checks() -> None:
     """Information-set search agrees with exhaustive enumeration on random nested codes."""
+    BZ: core.DistanceMethod = "brouwer_zimmermann"
     rng = np.random.default_rng(118)
     for length in range(5, 10):
         basis = get_random_full_rank_matrix(rng, min(5, length - 1), length)
         expected = core.get_distance_from_generators(basis, cutoff=0, method="brute_force")
-        assert core.get_distance_from_generators(basis, cutoff=0) == expected
+        assert core.get_distance_from_generators(basis, cutoff=0, method=BZ) == expected
 
         stabilizers, logical_ops = basis[:2], basis[2:]
         expected = core.get_distance_from_generators(
             logical_ops, stabilizers, cutoff=0, method="brute_force"
         )
-        assert core.get_distance_from_generators(logical_ops, stabilizers, cutoff=0) == expected
+        distance = core.get_distance_from_generators(logical_ops, stabilizers, cutoff=0, method=BZ)
+        assert distance == expected
 
     for num_qubits in range(3, 7):
         basis = get_random_full_rank_matrix(rng, min(6, 2 * num_qubits - 1), 2 * num_qubits)
@@ -523,10 +664,10 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
         expected = core.get_distance_from_generators(
             logical_ops, stabilizers, symplectic=True, cutoff=0, method="brute_force"
         )
-        assert (
-            core.get_distance_from_generators(logical_ops, stabilizers, symplectic=True, cutoff=0)
-            == expected
+        distance = core.get_distance_from_generators(
+            logical_ops, stabilizers, symplectic=True, cutoff=0, method=BZ
         )
+        assert distance == expected
 
 
 def test_max_weight() -> None:
@@ -562,9 +703,13 @@ def test_max_weight() -> None:
 
 def test_max_weight_caps_cutoff() -> None:
     """A large cutoff cannot make the search give up on a word within the limit."""
-    # Both rows weigh more than the limit, but their sum weighs 3.
+    # Both rows weigh more than the limit, but their sum weighs 3, which the BZ search finds after
+    # the rows.  The test pins BZ, since "auto" would enumerate so small a code.
     basis = [[1, 0, 1, 1, 1, 1], [0, 1, 1, 1, 1, 0]]
-    assert core.get_distance_from_generators(basis, cutoff=6, max_weight=3) == 3
+    distance = core.get_distance_from_generators(
+        basis, cutoff=6, max_weight=3, method="brouwer_zimmermann"
+    )
+    assert distance == 3
 
 
 def test_max_weight_conventions_and_validation() -> None:
@@ -599,7 +744,7 @@ def test_max_weight_conventions_and_validation() -> None:
 
 def test_distance_method_validation() -> None:
     """Exact-method selectors are restricted to documented values, and resolve aliases."""
-    for method in ["brouwer_zimmermann", "brute_force", "connected_cluster"]:
+    for method in ["auto", "brouwer_zimmermann", "brute_force", "connected_cluster"]:
         assert core._validate_distance_method(method) == method  # type: ignore[arg-type]
     assert core._validate_distance_method("information_sets") == "brouwer_zimmermann"
     with pytest.raises(ValueError, match="Unknown distance method"):

@@ -392,8 +392,9 @@ def estimate_residual_weight_histogram(
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
         method: The exact search of residual weights where the tables do not apply:
             ``"brouwer_zimmermann"``, its alias ``"information_sets"``, or ``"connected_cluster"``
-            (see :class:`~qldpc.codes.distance.CosetLeaderSearch`).  With the same ``seed``, the
-            methods give the same histogram.  Default: ``"brouwer_zimmermann"``.
+            (see :class:`~qldpc.codes.distance.CosetLeaderSearch`); ``"auto"`` takes
+            ``"brouwer_zimmermann"`` here.  With the same ``seed``, the methods give the same
+            histogram.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
         A ``ResidualWeightHistogram``.

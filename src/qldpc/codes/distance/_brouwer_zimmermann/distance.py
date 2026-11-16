@@ -175,6 +175,16 @@ class BrouwerZimmermannSearch:
         """Whether the best upper bound is at most the cutoff, or every sector's search finished."""
         return self.best <= self._cutoff or all(search.finished for search in self._searches)
 
+    def get_next_layer_work(self) -> int:
+        """The candidate/set evaluations of the layer that ``advance`` scans next, or zero if none.
+
+        This plans the layer as ``advance`` does, but leaves out a switch to an automorphism family,
+        after which the layer scans one set.
+        """
+        if self.finished:
+            return 0
+        return self._searches[self._get_next_index()].get_layer_work()
+
     def advance(self) -> None:
         """Advance the next unfinished sector's search by one layer, round-robin, unless finished.
 
@@ -188,12 +198,18 @@ class BrouwerZimmermannSearch:
         """
         if self.finished:
             return
-        while self._searches[self._next].finished:
-            self._next = (self._next + 1) % len(self._searches)
+        self._next = self._get_next_index()
         search = self._searches[self._next]
         self._next = (self._next + 1) % len(self._searches)
         self.best = min(self.best, search.advance())
         self._share_best()
+
+    def _get_next_index(self) -> int:
+        """The index of the next unfinished search in round-robin order, while one is unfinished."""
+        index = self._next
+        while self._searches[index].finished:
+            index = (index + 1) % len(self._searches)
+        return index
 
     def _share_best(self) -> None:
         """Give each sector's search the best upper bound; one that finishes frees its tables."""
@@ -253,6 +269,11 @@ class _SectorSearch:
             or self.next_weight > self.dimension
         )
 
+    def get_layer_work(self) -> int:
+        """The candidate/set evaluations of the sets that ``advance`` plans to scan next."""
+        num_scanned, _ = self._plan_layer()
+        return num_scanned * math.comb(self.dimension, self.next_weight)
+
     def update_upper_bound(self, upper_bound: int) -> None:
         """Import a witness found by another search, and free the tables of a finished search."""
         self.best = min(self.best, upper_bound)
@@ -271,19 +292,14 @@ class _SectorSearch:
 
         # Plan to scan the sets up to the first whose step certifies the best weight.
         weight = self.next_weight
-        instance = self.instance
-        certificate = instance.certificate
+        certificate = self.instance.certificate
         num_sets = len(certificate.ranks)
-        if self.uses_automorphism_family:
-            num_scanned, num_completed = 1, num_sets
-        else:
-            num_completed = certificate.get_num_sets_to_certify(weight, self.best)
-            num_scanned = num_completed
+        num_scanned, num_completed = self._plan_layer()
 
         # Before a costly layer, consider switching to an automorphism family (Section 3.7).  The
         # layer work saturates at ``WORK_CAP``, as work estimates do, so that a threshold above it
         # forbids the switch.
-        layer_work = min(num_scanned * math.comb(self.dimension, weight), certificates.WORK_CAP)
+        layer_work = min(self.get_layer_work(), certificates.WORK_CAP)
         if (
             self._considers_automorphism_family
             and layer_work >= self.tuning.automorphism_minimum_layer_work
@@ -308,6 +324,20 @@ class _SectorSearch:
         if num_completed == num_sets:
             self.next_weight += 1
         return self.best
+
+    def _plan_layer(self) -> tuple[int, int]:
+        """The sets that the next layer scans, and those that it completes, as ``advance`` plans.
+
+        The layer scans the sets up to the first whose step certifies the best weight, or the one
+        set of an automorphism family, which completes the layer for every image.
+        """
+        num_sets = len(self.instance.certificate.ranks)
+        if self.uses_automorphism_family:
+            return 1, num_sets
+        num_completed = self.instance.certificate.get_num_sets_to_certify(
+            self.next_weight, self.best
+        )
+        return num_completed, num_completed
 
     @property
     def _scan_cutoff(self) -> int:

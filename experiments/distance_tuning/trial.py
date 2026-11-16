@@ -156,7 +156,7 @@ def warm_up(kind: str) -> None:
             elif kind == "hadamard":
                 hadamard_code = workloads.get_hadamard_code("surface:5")
                 hadamard_code.forget_distance()
-                hadamard_code.get_distance_exact()
+                hadamard_code.get_distance_exact(method="brouwer_zimmermann")
             elif kind == "count":
                 for code, weight in (
                     (codes.SurfaceCode(5), 5),

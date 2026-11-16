@@ -178,6 +178,33 @@ def get_random_css_code(
     return codes.CSSCode(checks_x.astype(int), checks_z.astype(int))
 
 
+def get_costly_basis() -> npt.NDArray[np.uint8]:
+    """A basis of a [21, 8, 6] code whose search reaches matroid partitioning at lowered gates."""
+    return get_binary_matrix(
+        [
+            "100000010110010010011",
+            "010000010100101111100",
+            "001000000111011111100",
+            "000100010101000101010",
+            "000010010110000011000",
+            "000001010011000111011",
+            "000000110001110101011",
+            "000000001110001010110",
+        ]
+    )
+
+
+def get_golay_checks() -> npt.NDArray[np.uint8]:
+    """A basis of the dual of the cyclic [23, 12, 7] Golay code, which contains its dual.
+
+    As checks and as excluded rows, it gives a sector of the [[23, 1, 7]] CSS code of the Golay
+    code, which cyclic shifts preserve.
+    """
+    generator = np.zeros(23, dtype=np.uint8)
+    generator[[0, 1, 5, 6, 7, 9, 11]] = 1
+    return get_kernel(np.array([np.roll(generator, shift) for shift in range(12)]))
+
+
 def get_sector(
     code: codes.CSSCode, pauli: PauliXZ
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:

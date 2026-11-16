@@ -18,7 +18,7 @@ from qldpc.codes.distance import DistanceMethod, NoDistance, get_distance_from_c
 
 
 def get_fault_distance(
-    circuit: stim.Circuit, *, method: DistanceMethod = "brouwer_zimmermann"
+    circuit: stim.Circuit, *, method: DistanceMethod = "auto"
 ) -> int | Literal[NoDistance.NAN]:
     r"""Compute the exact fault distance of a noisy circuit.
 
@@ -44,10 +44,11 @@ def get_fault_distance(
 
     Args:
         circuit: A noisy Stim circuit annotated with detectors and logical observables.
-        method: The exact-distance method: ``"brouwer_zimmermann"`` (the default, with alias
-            ``"information_sets"``), ``"brute_force"``, or ``"connected_cluster"``, which searches
-            the sparse detector matrix :math:`D` for undetected faults that are connected through
-            its detectors (see :data:`~qldpc.codes.distance.DistanceMethod`).
+        method: The exact-distance method: ``"auto"`` (the default), which chooses among the
+            others, ``"brouwer_zimmermann"`` (with alias ``"information_sets"``),
+            ``"brute_force"``, or ``"connected_cluster"``, which searches the sparse detector matrix
+            :math:`D` for undetected faults that are connected through its detectors (see
+            :data:`~qldpc.codes.distance.DistanceMethod`).
 
     Returns:
         The minimum number of DEM error mechanisms causing an undetected observable flip, or
@@ -59,8 +60,8 @@ def get_fault_distance(
     # Check the method before the costly analysis of the circuit.
     if method not in get_args(DistanceMethod):
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets'), 'brute_force', or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
+            " alias 'information_sets'), 'brute_force', or 'connected_cluster'."
         )
     dem_arrays = decoders.DetectorErrorModelArrays(circuit)
     detectors = dem_arrays.detector_flip_matrix.toarray().astype(np.uint8)

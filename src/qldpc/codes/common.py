@@ -503,7 +503,7 @@ class ClassicalCode(AbstractCode):
         bound: int | bool | None = None,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         decoder: decoders.ErrorDecoderInput = None,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: DistanceMethod = "auto",
         **bound_kwargs: Any,
     ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum Hamming weight of nontrivial code words.
@@ -546,7 +546,7 @@ class ClassicalCode(AbstractCode):
         *,
         vector: Sequence[int] | npt.NDArray[np.int_] | None = None,
         cutoff: int = 1,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: DistanceMethod = "auto",
     ) -> int | Literal[NoDistance.NAN]:
         """Compute the exact minimum Hamming weight of nontrivial code words.
 
@@ -1966,7 +1966,7 @@ class QuditCode(AbstractCode):
         self,
         *,
         bound: int | bool | None = None,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: DistanceMethod = "auto",
         **bound_kwargs: Any,
     ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
@@ -2007,7 +2007,7 @@ class QuditCode(AbstractCode):
         self,
         *,
         cutoff: int = 1,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: DistanceMethod = "auto",
     ) -> int | Literal[NoDistance.NAN]:
         """Compute the exact minimum weight of nontrivial logical operators.
 
@@ -3594,7 +3594,7 @@ class CSSCode(QuditCode):
         *,
         bound: int | bool | None = None,
         decoder: decoders.DeferredErrorDecoderInput = None,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: DistanceMethod = "auto",
         **bound_kwargs: Any,
     ) -> int | Literal[NoDistance.NAN]:
         """Compute (or upper bound) the minimum weight of nontrivial logical operators.
@@ -3643,7 +3643,7 @@ class CSSCode(QuditCode):
         pauli: PauliXZLike | None = None,
         *,
         cutoff: int = 1,
-        method: DistanceMethod = "brouwer_zimmermann",
+        method: DistanceMethod = "auto",
     ) -> int | Literal[NoDistance.NAN]:
         """Compute the exact minimum weight of nontrivial logical operators.
 
@@ -3690,7 +3690,7 @@ class CSSCode(QuditCode):
         # Brute force searches the two sectors separately, so it may as well remember both.
         if (
             pauli is None
-            and method in ("brouwer_zimmermann", "connected_cluster")
+            and method in ("auto", "brouwer_zimmermann", "connected_cluster")
             and self.field is galois.GF2
             and type(self)._get_distance_exact is CSSCode._get_distance_exact
         ):

@@ -18,8 +18,14 @@ Start from a symptom
      - What to try first, then measure
    * - A distance search of a classical code of low dimension, whose distance is a large fraction of its length, is slow
      - Pass ``method="brute_force"`` to enumerate every word instead.
-   * - A distance search of a quantum LDPC code is slow
-     - Pass ``method="connected_cluster"``, which is often much faster on such codes, though not on all of them (`Section 2 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#2-what-the-cost-of-the-search-depends-on>`__ of the connected-cluster guide).
+   * - A distance search of a quantum LDPC code by ``method="brouwer_zimmermann"`` is slow
+     - Pass ``method="auto"``, the default, or ``method="connected_cluster"``, which is often much faster on such codes, though not on all of them (`Section 2 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#2-what-the-cost-of-the-search-depends-on>`__ of the connected-cluster guide).
+   * - A distance search by ``method="auto"``, the default, is slow
+     - Time the search with ``method="brouwer_zimmermann"`` and with ``method="connected_cluster"``, and pass the faster method.
+       With a large ``cutoff``, ``"auto"`` cannot switch to the Brouwer-Zimmermann method before it has searched past the cutoff, and with one near the distance it may never switch, so pass ``method="brouwer_zimmermann"``.
+       To make ``"auto"`` stay longer with a connected-cluster search, lower :attr:`~SearchTuning.connected_cluster_state_evaluations`, and to make it switch to the Brouwer-Zimmermann method sooner, raise that field.
+       Raise :attr:`~SearchTuning.auto_free_work` or :attr:`~SearchTuning.auto_probe_work` to choose later, with better estimates, or lower them to choose sooner (`Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`__ in the guide to the distance package).
+       Lower :attr:`~SearchTuning.auto_brute_force_max_words` if ``"auto"`` enumerates every word for too long.
    * - A hard distance search spends its time in its last, costliest layers
      - Raise :attr:`~SearchTuning.completion_bound_max_cost_percent` or lower :attr:`~SearchTuning.completion_bound_minimum_layer_work` to use completion tables in more layers.
        For a basis too large for its tables, raise :attr:`~SearchTuning.completion_bound_max_table_bytes` or lower :attr:`~SearchTuning.completion_bound_block_bits`.
@@ -42,6 +48,7 @@ Start from a symptom
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
+       ``method="auto"``, the default, runs one for the distances of quantum codes and the fault distances of circuits; pass ``method="brouwer_zimmermann"`` for prompt interrupts.
    * - A cheap connected-cluster search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
        Searches ask for them before a first limit that ``cutoff`` sets, unless the field is ``MAX_VALUE``.
@@ -67,6 +74,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.enumeration_batch_exponent`
      -
      - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration>`__
+   * - Choosing a method, which ``method="auto"`` does for each distance search
+     - :attr:`SearchTuning.auto_brute_force_max_words`, :attr:`SearchTuning.auto_free_work`, :attr:`SearchTuning.auto_probe_work`, :attr:`SearchTuning.connected_cluster_state_evaluations`
+     -
+     - `Choosing a method <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`__ in the guide to the distance package
    * - Estimating the work of searches of information sets, which chooses between their routes
      -
      - :data:`BINOMIAL_CACHE_SIZE`

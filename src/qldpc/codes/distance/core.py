@@ -16,6 +16,7 @@ import numpy.typing as npt
 from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ, PauliXZLike
 
+from ._auto import BrouwerZimmermannProblem, is_cheap_to_enumerate, search_by_cost
 from ._binary import (
     as_binary_matrix,
     as_binary_matrix_pair,
@@ -34,11 +35,23 @@ from ._connected_cluster.sparse_checks import get_row_weights, get_sparser_rows
 from ._tuning import SearchTuning, get_tuning
 
 DistanceMethod = Literal[
-    "brouwer_zimmermann", "information_sets", "connected_cluster", "brute_force"
+    "auto", "brouwer_zimmermann", "information_sets", "connected_cluster", "brute_force"
 ]
 """The methods of exact distance searches.
 
-- ``"brouwer_zimmermann"`` (the default) and its alias ``"information_sets"``: the
+- ``"auto"`` (the default of distance searches): a choice of the methods below, made for each
+  search, which aims to avoid a method that is very slow on the search, rather than to find the
+  fastest.  It takes ``"brute_force"`` if that is cheap.  Otherwise, a search of binary words that
+  excludes no nonzero word, as for a classical code, takes ``"brouwer_zimmermann"``.  Any other
+  search, as for a quantum code or a circuit, runs ``"connected_cluster"``, and switches to
+  ``"brouwer_zimmermann"`` if the latter is predicted to cost less (`Choosing a method
+  <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`_
+  in the guide to the distance package).  Functions that take generators choose between
+  ``"brute_force"`` and ``"brouwer_zimmermann"``, and coset searches, such as those of
+  :class:`~qldpc.codes.distance.CosetLeaderSearch`, take ``"brouwer_zimmermann"``.  The result is
+  exact either way, but which method runs, and so which word an early exit at a ``cutoff`` finds,
+  can depend on the tuning and on the version of qLDPC.
+- ``"brouwer_zimmermann"`` and its alias ``"information_sets"``: the
   `Brouwer-Zimmermann algorithm
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
   which enumerates words of increasing weight in several information sets, and stops once a lower
@@ -98,10 +111,11 @@ NO_DISTANCE = NoDistance.NAN
 It behaves as a float ``nan``.  Test for it with ``distance is NO_DISTANCE``.
 """
 
-_CanonicalDistanceMethod = Literal["brouwer_zimmermann", "connected_cluster", "brute_force"]
+_CanonicalDistanceMethod = Literal["auto", "brouwer_zimmermann", "connected_cluster", "brute_force"]
 
 # The canonical name of every accepted method name, including aliases.
 _DISTANCE_METHODS: dict[str, _CanonicalDistanceMethod] = {
+    "auto": "auto",
     "brouwer_zimmermann": "brouwer_zimmermann",
     "information_sets": "brouwer_zimmermann",
     "connected_cluster": "connected_cluster",
@@ -119,7 +133,7 @@ def get_distance_from_generators(
     *,
     symplectic: bool = False,
     cutoff: int = 1,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: DistanceMethod = "auto",
     max_weight: SupportsIndex | None = None,
     automorphisms: npt.ArrayLike | Callable[[], npt.ArrayLike | None] | None = None,
 ) -> int | Literal[NoDistance.NAN]:
@@ -146,9 +160,10 @@ def get_distance_from_generators(
             number of qubits on which it acts nontrivially.
         cutoff: Exit early once a nontrivial word of weight at most ``cutoff`` is found (see
             "Returns").
-        method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``, or
-            ``"brute_force"`` (see :data:`DistanceMethod`).  ``"connected_cluster"`` needs parity
-            checks: use :func:`get_distance_from_checks`.
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
+            ``"information_sets"``, or ``"brute_force"`` (see :data:`DistanceMethod`).  Here
+            ``"auto"`` chooses between ``"brute_force"`` and ``"brouwer_zimmermann"``.
+            ``"connected_cluster"`` needs parity checks: use :func:`get_distance_from_checks`.
         max_weight: If given, a nonnegative integer limit on the weights to search (see "Returns").
             The search stops once it proves that every nontrivial word is heavier than the limit,
             which can be much faster than finding a large distance exactly.  The limit caps
@@ -203,7 +218,7 @@ def get_distance_from_checks(
     *,
     symplectic: bool = False,
     cutoff: int = 1,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: DistanceMethod = "auto",
     max_weight: SupportsIndex | None = None,
     automorphisms: npt.ArrayLike | Callable[[], npt.ArrayLike | None] | None = None,
 ) -> int | Literal[NoDistance.NAN]:
@@ -247,8 +262,9 @@ def get_distance_from_checks(
             :func:`get_distance_from_generators`).
         cutoff: Exit early once a nontrivial word of weight at most ``cutoff`` is found (see
             :func:`get_distance_from_generators`).
-        method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_cluster"``, or ``"brute_force"`` (see :data:`DistanceMethod`).
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
+            ``"information_sets"``, ``"connected_cluster"``, or ``"brute_force"`` (see
+            :data:`DistanceMethod`).
         max_weight: If given, a nonnegative integer limit on the weights to search (see
             :func:`get_distance_from_generators`).
         automorphisms: Permutations of the bits, or of the qubits if ``symplectic`` is True, that
@@ -308,7 +324,7 @@ def get_distance_css(
     pauli: PauliXZLike | None = None,
     *,
     cutoff: int = 1,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: DistanceMethod = "auto",
     max_weight: SupportsIndex | None = None,
     automorphisms: npt.ArrayLike | Callable[[], npt.ArrayLike | None] | None = None,
 ) -> int | Literal[NoDistance.NAN]:
@@ -336,9 +352,9 @@ def get_distance_css(
             Brouwer-Zimmermann and connected-cluster methods find faster than two calls would.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
-        method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_cluster"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
-            covers subsystem codes).
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
+            ``"information_sets"``, ``"connected_cluster"``, or ``"brute_force"`` (see
+            :data:`DistanceMethod`, which also covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search (see
             :func:`get_distance_from_generators`).
         automorphisms: Permutations of the qubits that map the row space of ``checks_x``, and that
@@ -379,7 +395,7 @@ def get_distance_pauli(
     checks: npt.ArrayLike,
     *,
     cutoff: int = 1,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: DistanceMethod = "auto",
     max_weight: SupportsIndex | None = None,
     automorphisms: npt.ArrayLike | Callable[[], npt.ArrayLike | None] | None = None,
 ) -> int | Literal[NoDistance.NAN]:
@@ -404,9 +420,9 @@ def get_distance_pauli(
         checks: A binary matrix whose rows represent Pauli strings, which may be redundant.
         cutoff: Exit early once a nontrivial logical operator of weight at most ``cutoff`` is found
             (see :func:`get_distance_from_generators`).
-        method: ``"brouwer_zimmermann"`` (the default), its alias ``"information_sets"``,
-            ``"connected_cluster"``, or ``"brute_force"`` (see :data:`DistanceMethod`, which also
-            covers subsystem codes).
+        method: ``"auto"`` (the default), ``"brouwer_zimmermann"``, its alias
+            ``"information_sets"``, ``"connected_cluster"``, or ``"brute_force"`` (see
+            :data:`DistanceMethod`, which also covers subsystem codes).
         max_weight: If given, a nonnegative integer limit on the weights to search (see
             :func:`get_distance_from_generators`).
         automorphisms: Permutations of the qubits that map the row space of ``checks`` onto itself,
@@ -456,7 +472,7 @@ def get_distance_pauli(
     # generators that commute with every gauge generator are stabilizers, which join the checks
     # (Section 3.9 of connected_cluster.md).
     kept_stabilizers = None
-    if method == "connected_cluster" and stabilizers is not gauge:
+    if method in ("auto", "connected_cluster") and stabilizers is not gauge:
         overlaps = multiply_binary(gauge, swap_pauli_halves(gauge).T)
         kept_stabilizers = gauge[~np.any(overlaps, axis=1)]
 
@@ -504,9 +520,29 @@ def _search_css(
     if num_logical_x == 0:
         return NO_DISTANCE
 
+    # "auto" enumerates the sectors if that is cheap, searches them by the Brouwer-Zimmermann method
+    # if none excludes a nonzero word, as for a classical code, and otherwise searches them by cost:
+    # as the connected-cluster method does, until it may switch to the Brouwer-Zimmermann method.
+    tuning = get_tuning()
+    brouwer_zimmermann_problem = None
+    if method == "auto":
+        dimensions = [checks.shape[1] - len(get_independent_rows(checks)) for checks, _ in sectors]
+        if is_cheap_to_enumerate(dimensions, gauge_x.shape[1], tuning):
+            method = "brute_force"
+        elif not any(np.any(excluded) for _, excluded in sectors):
+            method = "brouwer_zimmermann"
+        else:
+            brouwer_zimmermann_problem = _get_brouwer_zimmermann_problem(
+                [
+                    get_nested_code_basis(get_kernel(checks), excluded)
+                    for checks, excluded in sectors
+                ],
+                symplectic=False,
+                get_automorphisms=get_automorphisms,
+            )
+
     # Search the requested sectors at once, except by brute force, which searches each in turn.
-    if method == "connected_cluster":
-        tuning = get_tuning()
+    if method in ("auto", "connected_cluster"):
         if stabilizers_x is not gauge_x:
             # get_css_stabilizers returns gauge_x and gauge_z themselves unless the code is a
             # subsystem code, whose derived basis can be dense, so search sparser checks with the
@@ -525,6 +561,16 @@ def _search_css(
                 )
                 for sector_pauli, (checks, excluded) in zip(paulis, sectors, strict=True)
             ]
+        if brouwer_zimmermann_problem is not None:
+            return search_by_cost(
+                sectors,
+                brouwer_zimmermann_problem,
+                symplectic=False,
+                cutoff=cutoff,
+                upper_bound=upper_bound,
+                get_automorphisms=get_automorphisms,
+                tuning=tuning,
+            )
         return get_distance_connected_cluster(
             sectors,
             cutoff=cutoff,
@@ -550,7 +596,7 @@ def _search_css(
         cutoff=cutoff,
         upper_bound=upper_bound,
         get_automorphisms=get_automorphisms,
-        tuning=get_tuning(),
+        tuning=tuning,
     )
 
 
@@ -572,6 +618,18 @@ def _search_checks(
     ``kept_stabilizers`` is given, the checks are the derived stabilizers of a subsystem code, which
     a connected-cluster search replaces with those of ``_get_sparser_stabilizers``.
     """
+    # "auto" searches Pauli strings, and binary words that exclude a nonzero word, by brute force or
+    # by cost; other searches, as of a classical code, take the route of generators below.
+    if method == "auto" and (symplectic or np.any(excluded)):
+        return _search_checks_by_cost(
+            checks,
+            excluded,
+            symplectic=symplectic,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            get_automorphisms=get_automorphisms,
+            kept_stabilizers=kept_stabilizers,
+        )
     if method != "connected_cluster":
         kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
         return _search_generators(
@@ -599,6 +657,54 @@ def _search_checks(
         cutoff=cutoff,
         upper_bound=upper_bound,
         symplectic=symplectic,
+        get_automorphisms=get_automorphisms,
+        tuning=tuning,
+    )
+
+
+def _search_checks_by_cost(
+    checks: npt.NDArray[np.uint8],
+    excluded: npt.NDArray[np.uint8],
+    *,
+    symplectic: bool,
+    cutoff: int,
+    upper_bound: int | None,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+    kept_stabilizers: npt.NDArray[np.uint8] | None,
+) -> int | Literal[NoDistance.NAN]:
+    """Search the words that satisfy the checks by brute force if that is cheap, or by cost.
+
+    The arguments are those of ``_search_checks``.  ``search_by_cost`` runs a connected-cluster
+    search, which may switch to a Brouwer-Zimmermann search.
+    """
+    tuning = get_tuning()
+    kernel = get_kernel(swap_pauli_halves(checks) if symplectic else checks)
+    nested = _get_nested_basis(kernel, excluded)
+    if nested is None:
+        return NO_DISTANCE
+    basis, labels = nested
+    if is_cheap_to_enumerate([len(basis)], basis.shape[1], tuning):
+        return _search_generators(
+            kernel,
+            excluded,
+            symplectic=symplectic,
+            cutoff=cutoff,
+            upper_bound=upper_bound,
+            method="brute_force",
+            get_automorphisms=None,
+        )
+    if kept_stabilizers is not None:
+        checks = _get_sparser_stabilizers(
+            checks, kept_stabilizers, symplectic=symplectic, tuning=tuning
+        )
+    return search_by_cost(
+        [(checks, excluded)],
+        _get_brouwer_zimmermann_problem(
+            [(basis, labels)], symplectic=symplectic, get_automorphisms=get_automorphisms
+        ),
+        symplectic=symplectic,
+        cutoff=cutoff,
+        upper_bound=upper_bound,
         get_automorphisms=get_automorphisms,
         tuning=tuning,
     )
@@ -642,26 +748,23 @@ def _search_generators(
     symplectic: bool,
     cutoff: int,
     upper_bound: int | None,
-    method: Literal["brouwer_zimmermann", "brute_force"],
+    method: Literal["auto", "brouwer_zimmermann", "brute_force"],
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
 ) -> int | Literal[NoDistance.NAN]:
     """Search the words that the generators and excluded rows span, outside the excluded row space.
 
     ``upper_bound`` and ``get_automorphisms`` are as for ``_search_css``, and the other arguments
-    are those of ``get_distance_from_generators``, validated.
+    are those of ``get_distance_from_generators``, validated.  Here ``"auto"`` chooses brute force
+    if that is cheap, and the Brouwer-Zimmermann method otherwise.
     """
     tuning = get_tuning()
-    if len(excluded):
-        # An adapted basis and its quotient labels (Section 3.4 of brouwer_zimmermann.md).
-        basis, labels = get_nested_code_basis(generators, excluded)
-        if labels.shape[1] == 0:
-            return NO_DISTANCE
-    else:
-        basis = get_independent_rows(generators)
-        if not len(basis):
-            return NO_DISTANCE
-        # Labels with no columns exclude nothing.
-        labels = np.empty((len(basis), 0), dtype=np.uint8)
+    nested = _get_nested_basis(generators, excluded)
+    if nested is None:
+        return NO_DISTANCE
+    basis, labels = nested
+    if method == "auto":
+        cheap = is_cheap_to_enumerate([len(basis)], basis.shape[1], tuning)
+        method = "brute_force" if cheap else "brouwer_zimmermann"
 
     if method == "brute_force":
         distance = get_nested_distance_brute_force(
@@ -673,26 +776,63 @@ def _search_generators(
         )
         return _apply_upper_bound(distance, upper_bound)
 
-    # A Pauli string weighs half the Hamming weight of its image under symplectic_to_hamming
-    # (Section 2.7 of brouwer_zimmermann.md).
-    divisor = 1
-    if symplectic:
-        num_qubits = basis.shape[1] // 2
-        basis = symplectic_to_hamming(basis)
-        divisor = 2
-        if get_automorphisms is not None:
-            get_automorphisms = functools.partial(
-                _get_lifted_automorphisms, get_automorphisms, num_qubits
-            )
+    problem = _get_brouwer_zimmermann_problem(
+        [(basis, labels)], symplectic=symplectic, get_automorphisms=get_automorphisms
+    )
+    scale = problem.weight_scale
     distance = get_distance_brouwer_zimmermann(
-        [(basis, labels)],
-        cutoff=cutoff * divisor,
-        weight_divisor=divisor,
-        upper_bound=None if upper_bound is None else upper_bound * divisor,
-        get_automorphisms=get_automorphisms,
+        problem.sectors,
+        cutoff=cutoff * scale,
+        weight_divisor=problem.weight_divisor,
+        upper_bound=None if upper_bound is None else upper_bound * scale,
+        get_automorphisms=problem.get_automorphisms,
         tuning=tuning,
     )
-    return distance // divisor
+    return distance // scale
+
+
+def _get_nested_basis(
+    generators: npt.NDArray[np.uint8], excluded: npt.NDArray[np.uint8]
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None:
+    """A basis of the words that the rows span, and its quotient labels, or None if all are trivial.
+
+    The trivial words are those in the row space of the excluded rows.  With excluded rows, the
+    basis is adapted to them (Section 3.4 of ``brouwer_zimmermann.md``).  Without, the labels have
+    no columns, which exclude nothing.
+    """
+    if len(excluded):
+        basis, labels = get_nested_code_basis(generators, excluded)
+        return None if labels.shape[1] == 0 else (basis, labels)
+    basis = get_independent_rows(generators)
+    if not len(basis):
+        return None
+    return basis, np.empty((len(basis), 0), dtype=np.uint8)
+
+
+def _get_brouwer_zimmermann_problem(
+    sectors: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
+    *,
+    symplectic: bool,
+    get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
+) -> BrouwerZimmermannProblem:
+    """The nested bases and labels of sectors, as a Brouwer-Zimmermann search takes them.
+
+    A Pauli string weighs half the Hamming weight of its image under ``symplectic_to_hamming``
+    (Section 2.7 of ``brouwer_zimmermann.md``), whose coordinates the automorphisms are lifted to.
+    """
+    if not symplectic:
+        return BrouwerZimmermannProblem(sectors, get_automorphisms=get_automorphisms)
+    num_qubits = sectors[0][0].shape[1] // 2
+    if get_automorphisms is not None:
+        get_automorphisms = functools.partial(
+            _get_lifted_automorphisms, get_automorphisms, num_qubits
+        )
+    return BrouwerZimmermannProblem(
+        [(symplectic_to_hamming(basis), labels) for basis, labels in sectors],
+        weight_scale=2,
+        weight_divisor=2,
+        get_automorphisms=get_automorphisms,
+    )
 
 
 def _as_matrix_and_excluded(
@@ -797,15 +937,15 @@ def _validate_distance_method(
     """Validate the name of a distance method, and return the canonical name of the method."""
     if not isinstance(method, str) or method not in _DISTANCE_METHODS:
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets'), 'brute_force', or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
+            " alias 'information_sets'), 'brute_force', or 'connected_cluster'."
         )
     return _DISTANCE_METHODS[method]
 
 
 def _reject_connected_cluster(
     method: _CanonicalDistanceMethod,
-) -> Literal["brouwer_zimmermann", "brute_force"]:
+) -> Literal["auto", "brouwer_zimmermann", "brute_force"]:
     """Return the method, unless it is ``"connected_cluster"``, which needs parity checks."""
     if method == "connected_cluster":
         raise ValueError(

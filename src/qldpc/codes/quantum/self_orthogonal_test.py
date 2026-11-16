@@ -51,7 +51,8 @@ def test_reed_muller_css_brute_force_agreement() -> None:
     for (order, size), dist in [((0, 2), 2), ((1, 4), 4)]:
         code = codes.QuantumReedMullerCode(order, size)
         assert code.get_distance() == dist
-        assert codes.CSSCode(code.matrix_x, code.matrix_z).get_distance() == dist
+        plain = codes.CSSCode(code.matrix_x, code.matrix_z)
+        assert plain.get_distance(method="brute_force") == dist
 
 
 def test_iceberg_code_requires_an_even_length() -> None:

@@ -103,8 +103,9 @@ def certify_bounded_fault_propagation(
             result.  Default: ``2**30`` (1 GiB).
         method: The exact search of residual weights: ``"brouwer_zimmermann"``, its alias
             ``"information_sets"``, or ``"connected_cluster"`` (see
-            :class:`~qldpc.codes.distance.CosetLeaderSearch`).  The methods certify the same
-            circuits, and find the same smallest violating fault, but the ``output_pauli`` and
+            :class:`~qldpc.codes.distance.CosetLeaderSearch`); ``"auto"`` takes
+            ``"brouwer_zimmermann"`` here.  The methods certify the same circuits, and find the
+            same smallest violating fault, but the ``output_pauli`` and
             ``residual_weight_lower_bound`` of a counterexample can differ (see
             ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, the
             ``output_pauli`` and ``residual_weight_lower_bound`` can also change between versions
