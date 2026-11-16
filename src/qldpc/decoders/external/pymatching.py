@@ -4,7 +4,8 @@
 
 qLDPC imports this integration module while initializing its public decoder API.  Eagerly importing
 PyMatching would noticeably slow ``import qldpc``, so ``Matching``, qLDPC's subclass of
-``pymatching.Matching``, is created on first use, at the end of the "PyMatching decoders" section.
+``pymatching.Matching``, is created on first use by the code at the end of this module's "PyMatching
+decoders" section.
 """
 
 from __future__ import annotations
