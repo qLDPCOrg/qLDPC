@@ -33,8 +33,8 @@ Prose style
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
 * Fix unclear text by cutting or restructuring it before adding words.
-  In a change made to reword prose, no file gains words of prose, apart from text moved into it from another file.
-* When a text mentions an object, quantity, or concept more than once, give it a short name or a symbol, such as one that the code or the literature uses.
+  In a change made to reword prose, no file's prose grows in word count, apart from text moved into it from another file and text that the person who requested the change asks for.
+* When a text mentions an object, quantity, or concept more than once by a long description, give it a short name or a symbol, such as one that the code or the literature uses.
   Then use that name, rather than repeating a long description or chaining noun phrases.
 
   * **Repeated noun phrases:** ``If the rank of the checks equals the rank of their X parts plus the rank of their Z parts, ...``
@@ -60,12 +60,15 @@ Where documentation belongs
 * Keep each page focused on one topic or task, and small enough to read whole.
   When a page grows past that, split it by topic or task.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
-* In a package with a guide, such as ``codes/distance/``, only the guide gives correctness arguments, such as why a bound holds.
-  Docstrings and comments in the package point to the guide's section rather than repeat its argument.
-* Keep measurements that justify a design or tuning choice, such as timings, ratios, and counts, out of guides, docstrings, and comments, along with the machines, workloads, and pull requests that produced them.
-  Give them in the pull request description, as the :doc:`pull request standard <pull_requests>` describes.
-  Guides, docstrings, and comments explain such a choice by what it trades off, qualitatively or asymptotically.
-  Results that are the subject of a document, as in an example notebook, are not such measurements.
+* In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
+  Docstrings and comments in the package point to a guide's section rather than repeat its argument.
+* Keep measurements that justify a design or tuning choice out of comments, docstrings, and documentation, including guides, READMEs, and experiment documents.
+  Such measurements include timings, ratios, and counts.
+  Also leave out the machines, workloads, and pull requests that produced them.
+  When review needs the measurements, give them in the pull request summary, as the :doc:`pull request standard <pull_requests>` describes.
+  Comments, docstrings, and documentation explain such a choice by what it trades off, qualitatively or asymptotically.
+  They may state the cost that a heuristic assumes for a step, as a round order of magnitude.
+  Results that are a document's subject but not evidence for a choice, such as those of an example notebook, are not such measurements.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
 * After changing a notebook example, refresh its saved outputs by executing the entire canonical notebook in an offline, editable installation.

@@ -37,9 +37,10 @@ A reviewer is a person or agent who did not write the change and who examines it
 An agent coordinator runs each reviewer as a separate subagent with its own context.
 If it cannot, it says so in its report rather than reviewing the change itself.
 
-The coordinator gives each reviewer:
+The coordinator gives each reviewer a brief that contains:
 
 * the purpose of the change and its scope;
+* the goal of the work, quoted as :ref:`decisions and recommendations <decisions-goal>` describes;
 * the reviewer's angles and the standards that define them;
 * the decisions made so far, so that reviewers do not reopen them;
 * the findings of earlier rounds and how each was handled, so that reviewers can check the fixes;
@@ -87,13 +88,19 @@ A review covers each of these angles that the change can affect:
 * **Testing standard:** the :doc:`testing standard <standards/testing>`.
 * **Writing standard:** the :doc:`writing standard <standards/writing>`, applied to every changed comment, docstring, document, and notebook.
 * **Cold reading:** whether the changed comments, docstrings, documents, and notebook prose make sense to a reader who sees no code.
-  For each changed Python file, the coordinator gives this reviewer the file's docstrings and comments in order, without code examples, each under the name of the module, class, or function that contains it, and marks the changed ones.
-  For changed notebooks and documents, the coordinator gives their prose without code cells or code blocks.
-  The coordinator first gives this reviewer these texts, the instructions above, and this angle's instructions.
-  The coordinator gives the rest of the brief, which may quote code, including the requester's goal, separately, as in a second file or message, and only after the reviewer has recorded this angle's findings.
+  For each changed Python file, the coordinator gives this reviewer each changed docstring and comment, without code examples, under the name of the module, class, function, or attribute that it belongs to.
+  Each comes with context: the docstrings of its module and of each containing class or function, and, for a comment, the earlier comments in the same function.
+  For changed notebooks and documents, the coordinator gives the prose of each changed section, without code cells or code blocks.
+  In each of these texts, the coordinator marks the changed lines.
+  Inline literals, such as ``max_weight``, stay in the prose.
+  If a term, definite reference, or pronoun may rest on prose that these texts leave out, the reviewer may ask for all the prose of its file.
+  The coordinator first gives this reviewer these texts, the instructions above, this angle's instructions, and the writing standard.
+  Only after the reviewer has recorded this angle's findings does the coordinator give the rest of the brief, such as in a second file or message.
+  The rest of the brief includes the goal of the work and may quote code.
   The reviewer records this angle's findings before reading any code, and does not withdraw them after reading it.
   The reviewer checks that each sentence reads clearly the first time, and checks definite references and pronouns against the writing standard.
-  For prose in the rules for working on qLDPC, the significance instructions above apply; for other prose, a finding of this angle is significant only if the prose could mislead a reader about what the code does or guarantees.
+  Prose that refers to a code block, cell, or output that this reviewer does not see is not, by that alone, a finding of this angle.
+  For prose in the rules for working on qLDPC, the instructions above for marking a finding significant apply; for other prose, a finding of this angle is significant only if the prose could mislead a reader about what the code does or guarantees.
 * **Deprecations:** the :doc:`deprecation standard <standards/deprecations>`, for a change to a public name, argument, mode, or default.
 
 An angle applies only to changes in its area, even when a request asks for all angles.
@@ -135,10 +142,11 @@ The coordinator runs each round as follows:
    No round reviews the final round's fixes.
    So in the final round, such as one with no significant finding or at the round limit, make only local, evidently correct fixes.
    Report any other fix as a suggestion.
+   In a final-round fix to prose, restore wording that a reviewer saw, where possible, and otherwise have a reader who has not seen the code check the new wording as the Cold reading angle does.
    If the coordinator is not permitted to revise the change, as for another contributor's pull request, report every fix as a suggestion, and end the review after one round.
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
-   A fix that :ref:`the rule on the goal of the work <decisions-goal>` says to escalate is a decision.
+   A fix is also a decision if :ref:`the rules on the goal of the work <decisions-goal>` say to escalate it.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
    Present each decision to that person as :doc:`decisions and recommendations <decisions>` describes.
 4. Fix a minor pre-existing problem in the change, such as a misleading message, a missing check, or an untested edge case, if its fix is local, evidently correct, and needs no decision.

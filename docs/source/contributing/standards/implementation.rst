@@ -24,7 +24,7 @@ Code constructions
   For codes built from lifts of a group algebra, ``_get_abelian_block_translations`` returns these translations if the group is abelian and its generators lift to permutation matrices, and None otherwise.
   Prove that each generator maps the row space of the parity check matrix onto itself, and test that it does.
   For a CSS code, a generator does so if it maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.
-  Give the proof in the guide of the package that defines the code, if any, and otherwise in the override's docstring.
+  Give the proof in the override's docstring, unless the :ref:`writing standard <writing-documentation>` puts it in a guide.
 
 .. _implementation-algebra:
 

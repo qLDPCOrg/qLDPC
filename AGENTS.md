@@ -36,10 +36,11 @@ Use judgment to point out when a change would be easier to review as a sequence 
 
 ## Decisions and recommendations
 
-Before adding process or apparatus, such as a rule, a review step, or an experiment, check it against [the goal of the work](docs/source/contributing/decisions.rst#the-goal-of-the-work).
+Before adding or recommending process or apparatus, such as a rule, a review step, or an experiment, check it against [the goal of the work](docs/source/contributing/decisions.rst#the-goal-of-the-work).
+When you brief a reviewer or a subagent, quote word for word each statement of that goal by the person who requested the work, including later restatements and corrections, as the linked section describes.
 Make every recommendation, and present every decision, as [decisions and recommendations](docs/source/contributing/decisions.rst) describes.
-When you brief a subagent, quote word for word the original requester's statement of the goal of the work, or their request if they stated no goal, so that the subagent can check its work against it.
-A request for "the standard format" refers to the format that it defines.
+A request for "the standard format" of a decision refers to the format that the decisions and recommendations page defines.
+A request for a pull request's information, even "in the standard format", asks for what [handing off a change](#handing-off-a-change) lists.
 
 ## Working on a change
 
@@ -59,7 +60,7 @@ Leave notebook runs and the GAP integration tests to CI.
 ## Handing off a change
 
 Hand a change to the maintainer to push only once it has passed its review and all repository changes for it, including new files, are committed.
-When handing off a change, give the following for each of its pull requests:
+When handing off a change, give the following for each of its pull requests in your message, not only in a file:
 
 1. Its review status, as [reviews](#reviews) describes.
    Then list each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, and each open decision, as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
