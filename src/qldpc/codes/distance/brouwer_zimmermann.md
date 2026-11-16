@@ -600,7 +600,7 @@ The search of Pauli errors by CSS weight has no routes by tails, since the CSS w
 ### 4.2 Flow and exit points
 
 A public entry point validates inputs and chooses a method.
-For BZ, `get_distance_brouwer_zimmermann_many` prepares each problem, and advances the searches that remain, in round-robin order for a joint CSS search ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
+For BZ, `get_distance_brouwer_zimmermann_many` builds a `BrouwerZimmermannSearches`, which prepares each problem, and whose `advance` method advances the searches that remain one layer at a time, in round-robin order for a joint CSS search ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 Preparation returns a result, or a `_BrouwerZimmermannSearch` whose `advance` method searches one layer `t`, or only its first `j` search bases if step `(t, j)` certifies `U` ([Section 2.5](#25-the-stopping-certificate)).
 A result of preparation can include a witness from another sector or the bound of a weight limit ([Section 4.5](#45-behavior-spanning-files)), so it need not be the distance of its sector.
 
@@ -626,7 +626,7 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | --- | --- |
 | `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
-| `get_distance_brouwer_zimmermann_many` | Returns the shared best bound when it is at most `cutoff` after an advance, or when no search can advance |
+| `BrouwerZimmermannSearches.finished` | Marks the searches finished once the shared best bound is at most `cutoff`, or every search has finished; `get_distance_brouwer_zimmermann_many` then returns that bound |
 
 The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, and `test_rows_of_an_automorphism_family_can_reach_the_cutoff` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
 
@@ -746,6 +746,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Once the search bases that `advance` scans have completed a layer, it may raise `lower_bound` ([Section 2.5](#25-the-stopping-certificate)), but it increments `next_weight` only once every search basis has.
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
   If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch, and a later call restarts the layer from its first support.
+  `BrouwerZimmermannSearches.advance` still takes the witnesses that such a scan found into the shared bound, and its next call advances the same search again.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

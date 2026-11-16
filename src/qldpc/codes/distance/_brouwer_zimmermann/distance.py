@@ -103,13 +103,14 @@ class BrouwerZimmermannSearches:
     """The BZ searches of several problems, which advance one layer at a time, round-robin.
 
     The arguments are those of ``get_distance_brouwer_zimmermann_many``, which advances the searches
-    until they finish.  The searches share their best upper bound, but not their certificates
-    (Section 3.3).
+    until they finish.
 
     Attributes:
-        best: The weight of the lightest witness that any search has found, or the upper bound if
-            that is smaller.  Once the searches finish, it is the result of
-            ``get_distance_brouwer_zimmermann_many``.
+        best: The shared upper bound: the least of ``upper_bound``, the weights of the lightest
+            eligible rows, the results of setup, and the weights of the witnesses that the searches
+            have found as they advanced.  A search can hold a lighter witness from its setup, which
+            lowers ``best`` once that search advances.  Once the searches finish, ``best`` is the
+            result of ``get_distance_brouwer_zimmermann_many``.
 
     Raises:
         ValueError: As ``get_distance_brouwer_zimmermann_many`` says, when the searches are built.
@@ -132,7 +133,7 @@ class BrouwerZimmermannSearches:
         self._cutoff = cutoff
         self._searches: list[_BrouwerZimmermannSearch] = []
         self._next = 0
-        self._finished = False
+        self._finished = True
         if not problems:
             if upper_bound is None:
                 raise ValueError("Require at least one problem or an upper bound")
@@ -168,32 +169,47 @@ class BrouwerZimmermannSearches:
             else:
                 self._searches.append(prepared)
         self.best = best
+        self._share_best()
 
     @property
     def finished(self) -> bool:
-        """Whether every search has finished, or the best upper bound is at most the cutoff."""
+        """Whether the best upper bound is at most the cutoff, or every search has finished."""
         return self._finished
 
     def advance(self) -> None:
-        """Advance the next unfinished search, in round-robin order, by one layer.
+        """Advance the next unfinished search, in round-robin order, by one layer, unless finished.
 
-        Each search that this visits first takes the best upper bound, which shares witnesses
-        between problems.  If every search has finished, this marks the searches finished instead.
+        Every search then takes the best upper bound, which shares witnesses between problems.  If
+        the search raises, as at a keyboard interrupt, its witnesses still lower the best upper
+        bound, and a later call advances it again, from the start of its layer.
 
         Raises:
             ValueError: If a generator from ``get_automorphisms`` is not an automorphism of the
                 problem of the search that uses it.
         """
-        for _ in range(len(self._searches)):
-            search = self._searches[self._next]
-            self._next = (self._next + 1) % len(self._searches)
-            search.update_upper_bound(self.best)
-            if search.finished:
-                continue
-            self.best = min(self.best, search.advance())
-            self._finished = self.best <= self._cutoff
+        if self._finished:
             return
-        self._finished = True
+        while self._searches[self._next].finished:
+            self._next = (self._next + 1) % len(self._searches)
+        search = self._searches[self._next]
+        try:
+            search.advance()
+        finally:
+            # A search lowers its best weight as it scans, so a raising layer keeps its witnesses.
+            self.best = min(self.best, search.best)
+            self._share_best()
+        self._next = (self._next + 1) % len(self._searches)
+
+    def _share_best(self) -> None:
+        """Give every search the best upper bound, and note whether the searches have finished.
+
+        A search that this finishes frees its completion tables.
+        """
+        for search in self._searches:
+            search.update_upper_bound(self.best)
+        self._finished = self.best <= self._cutoff or all(
+            search.finished for search in self._searches
+        )
 
 
 ####################################################################################################

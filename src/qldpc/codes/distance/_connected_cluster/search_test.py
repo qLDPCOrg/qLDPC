@@ -540,6 +540,54 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     assert max(limits) == 3
 
 
+def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each advance searches one limit of the problem with the lowest lower bound, until the end."""
+    searches_made: list[cs.SupportSearch] = []
+    limits: list[tuple[int, int]] = []
+    init, find_witness = cs.SupportSearch.__init__, cs.SupportSearch.find_witness
+
+    def recording_init(search: cs.SupportSearch, *args: Any, **kwargs: Any) -> None:
+        init(search, *args, **kwargs)
+        searches_made.append(search)
+
+    def recording_find_witness(
+        search: cs.SupportSearch, max_weight: int
+    ) -> npt.NDArray[np.int64] | None:
+        limits.append((searches_made.index(search), max_weight))
+        return find_witness(search, max_weight)
+
+    monkeypatch.setattr(cs.SupportSearch, "__init__", recording_init)
+    monkeypatch.setattr(cs.SupportSearch, "find_witness", recording_find_witness)
+    sectors = get_sectors(codes.TetrahedralCode())
+    searches = cs.ConnectedClusterSearches(sectors, cutoff=0)
+    lower_bounds = [search.weight_divisor for search in searches_made]
+    while not searches.finished:
+        num_limits = len(limits)
+        searches.advance()
+        assert len(limits) == num_limits + 1
+        index, max_weight = limits[-1]
+        assert max_weight == lower_bounds[index] == min(lower_bounds)
+        lower_bounds[index] += searches_made[index].weight_divisor
+    assert searches.result == 3 and limits[-1][1] == 3
+
+    # Once finished, the searches do nothing.
+    num_limits = len(limits)
+    searches.advance()
+    assert len(limits) == num_limits
+
+    # Problems without witnesses, and a known bound within the cutoff, leave nothing to search.
+    trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
+    for searches in (
+        cs.ConnectedClusterSearches([trivial], cutoff=0),
+        cs.ConnectedClusterSearches(sectors, cutoff=3, upper_bound=3),
+    ):
+        assert searches.finished and searches.result == 3
+        searches.advance()
+    assert len(limits) == num_limits
+
+
 def test_the_logical_test_reads_every_block() -> None:
     """The logical test finds a witness that fails only tests past the first block of 64."""
     problem = PROBLEMS["steane-X"]

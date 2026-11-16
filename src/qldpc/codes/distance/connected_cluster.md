@@ -166,7 +166,7 @@ For example, each block row of the checks of a pair-partition code sums to the a
 `infer_weight_divisor` of `_information_sets/basis_families.py` finds `d` from a basis of `ker(H)`, as BZ does.
 
 **Exact distance.**
-For each problem, such as a sector of a CSS code, `get_distance_connected_cluster` keeps a lower bound `L` on the weights of its witnesses, starting at its divisor, and searches the problem with the lowest `L` at the weight limit `W = L`.
+For each problem, such as a sector of a CSS code, `ConnectedClusterSearches`, which `get_distance_connected_cluster` advances until it finishes, keeps a lower bound `L` on the weights of its witnesses, starting at its divisor, and each advance searches the problem with the lowest `L` at the weight limit `W = L`.
 A witness found then is a lightest one over all problems; otherwise every witness of the problem weighs more than `W`, and its `L` rises to the next multiple of its divisor.
 The search ends once the lightest witness found weighs at most every `L`, and so needs no initial upper bound.
 The problems share the lightest witness found, as the sectors of a CSS code do in BZ, and an upper bound that the caller passes, such as a known distance of another sector, acts as a witness of that weight.
@@ -286,7 +286,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py` |
 | Problems of Section 3.7, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
-| Distance of several problems | `get_distance_connected_cluster` |
+| Distance of several problems | `get_distance_connected_cluster`, which advances `ConnectedClusterSearches` one weight limit at a time |
 | Distance of a vector `v` from a classical code with generator matrix `G_C` | `ClassicalCode.get_distance_exact(vector=v)` in `src/qldpc/codes/common.py`, which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |

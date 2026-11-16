@@ -90,15 +90,15 @@ def get_distance_connected_cluster(
         tuning=tuning,
     )
     while not searches.finished:
-        searches.step()
+        searches.advance()
     return searches.result
 
 
 class ConnectedClusterSearches:
-    """The connected-cluster searches of several problems, which step one weight limit at a time.
+    """The connected-cluster searches of several problems, which advance one weight limit at a time.
 
-    The arguments are those of ``get_distance_connected_cluster``, which steps the searches until
-    they finish.  Each step searches the problem with the lowest lower bound on its witnesses
+    The arguments are those of ``get_distance_connected_cluster``, which advances the searches until
+    they finish.  Each advance searches the problem with the lowest lower bound on its witnesses
     through its next weight limit (Section 3.6 of ``connected_cluster.md``).
 
     Raises:
@@ -118,8 +118,7 @@ class ConnectedClusterSearches:
         if not problems and upper_bound is None:
             raise ValueError("Require at least one problem or an upper bound")
 
-        # A problem without witnesses only bounds the result, and a known bound within the cutoff
-        # ends the search before it starts.
+        # A problem without witnesses only bounds the result.
         tuning = get_tuning() if tuning is None else tuning
         self._cutoff = cutoff
         self._best_weight = upper_bound
@@ -138,10 +137,10 @@ class ConnectedClusterSearches:
                 self._searches.append(search)
             else:
                 self._no_distance_bounds.append(search.num_variables + 1)
-        self._stopped = not self._searches or (upper_bound is not None and upper_bound <= cutoff)
 
-        # A correct search takes at most n // d limits for a problem of n variables and divisor d
-        # (Section 3.6 of connected_cluster.md), so a broken one fails rather than loops.
+        # Start each lower bound at its divisor.  A correct search takes at most n // d limits for a
+        # problem of n variables and divisor d (Section 3.6 of connected_cluster.md), so a broken
+        # one fails rather than loops.
         self._lower_bounds = [search.weight_divisor for search in self._searches]
         self._max_num_limits = sum(
             search.num_variables // search.weight_divisor for search in self._searches
@@ -150,10 +149,16 @@ class ConnectedClusterSearches:
 
     @property
     def finished(self) -> bool:
-        """Whether the best witness is as light as every problem's lower bound, or within cutoff."""
-        if self._stopped:
+        """Whether no problem has witnesses, or the best weight is at most the cutoff or each bound.
+
+        The best weight is that of the lightest witness found, or ``upper_bound`` if that is less,
+        and the bounds are the lower bounds of the problems on the weights of their witnesses.
+        """
+        if not self._searches:
             return True
-        return self._best_weight is not None and self._best_weight <= min(self._lower_bounds)
+        return self._best_weight is not None and self._best_weight <= max(
+            self._cutoff, min(self._lower_bounds)
+        )
 
     @property
     def result(self) -> int:
@@ -161,33 +166,36 @@ class ConnectedClusterSearches:
         bounds = (self._best_weight, *self._no_distance_bounds)
         return min(bound for bound in bounds if bound is not None)
 
-    def step(self) -> None:
-        """Search the problem with the lowest lower bound through its next weight limit.
+    def advance(self) -> None:
+        """Search the problem with the lowest lower bound through its next limit, unless finished.
 
         Raises:
             ValueError: If a generator of automorphisms fails its verification.
             RuntimeError: If the searches take more weight limits than a correct search can.
         """
+        if self.finished:
+            return
         if self._num_limits == self._max_num_limits:
             raise RuntimeError(
                 f"The connected-cluster search needed more than {self._max_num_limits} weight"
                 " limits, which only a bug can cause"
             )
-        self._num_limits += 1
+
+        # Search the problem with the lowest lower bound through its next limit, which the cutoff
+        # can raise.
         index = self._lower_bounds.index(min(self._lower_bounds))
         search = self._searches[index]
         divisor = search.weight_divisor
         max_weight = max(self._lower_bounds[index], self._cutoff - self._cutoff % divisor)
         witness = search.find_witness(max_weight)
+        self._num_limits += 1
+
+        # A limit without a witness raises the lower bound past it, and a witness may lower the best
+        # weight.
         if witness is None:
             self._lower_bounds[index] = (max_weight // divisor + 1) * divisor
-            return
-        best_weight = len(witness)
-        if self._best_weight is not None:
-            best_weight = min(self._best_weight, best_weight)
-        self._best_weight = best_weight
-        if best_weight <= self._cutoff:
-            self._stopped = True
+        elif self._best_weight is None or len(witness) < self._best_weight:
+            self._best_weight = len(witness)
 
 
 class SupportSearch:
