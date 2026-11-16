@@ -423,18 +423,24 @@ def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
 
 
 def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
-    """Without the restriction, a search visits a state that the restriction rules out."""
+    """Without restrict_viable_symbols, a search visits exactly one more state.
+
+    The bound Y of Section 3.4 of connected_cluster.md still prunes that state.
+    """
     # Variable 0 is in all four checks, whose only nonzero word, {1, 2, 3, 4}, has weight 4.  At
     # limit W = 3, the state S = {0} leaves every check unsatisfied, with weights 1/3, 1/2, 1/3, and
     # 1/3.  Their total Y = 3/2 exceeds W - |S| - 1 = 1, so the state allows only the variables that
     # repair at least Y - 1 = 1/2 (Section 3.4 of connected_cluster.md).  Variable 2, only in check
-    # 0, repairs 1/3.  Each check has two available variables, so the search without the restriction
-    # branches on check 0, the first, whose variables are 1 and 2.  So only that search visits
-    # {0, 2}, which leaves checks 1, 2, and 3 unsatisfied with weight 1/2 each, and Y = 3/2 > W - 2
-    # prunes it.  Both searches enter {0, 1}, whose children b1 skips.  Each later root enters one
-    # state in both searches, since the variables of lower rank are blocked.  {1} leaves checks 0,
-    # 2, and 3 unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each
-    # leave a check with no available variable.
+    # 0, repairs 1/3.  Check 0 then allows only variable 1, the fewest, so the search with the
+    # restriction branches only to {0, 1}.  Without the restriction, each check has two available
+    # variables, so the search branches on check 0, the first, whose available variables are 1 and
+    # 2.  So only the search without the restriction visits {0, 2}.  That state leaves checks 1, 2,
+    # and 3 unsatisfied with weight 1/2 each, and Y = 3/2 > W - 2 prunes it.  Both searches visit
+    # {0, 1}, whose children the bound b1 of Section 3.4 skips.  From each later root, both visit
+    # only the root, since the variables of lower rank are blocked.  {1} leaves checks 0, 2, and 3
+    # unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a
+    # check with no available variable.  If the search without the restriction stopped pruning by Y,
+    # it would also visit a child of {1}, and the equality would fail.
     checks = np.array(
         [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
     )
