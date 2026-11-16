@@ -118,6 +118,9 @@ A completion `T` of a descendant `S ∪ A` gives the completion `A ∪ T` of `S`
 A variable outside the unsatisfied checks has a repair of zero, so if `1 + Y > W - s`, the subtree uses only viable variables of unsatisfied checks.
 The search prunes the state if `Y > W - s` or an unsatisfied check has no viable variable, and otherwise branches on the check with the fewest.
 Forbidding variables can lower the `m_c` in the subtree, which raises the weights there, and so prunes more.
+Setting `restrict_viable_symbols` of `SearchTuning` in `_tuning.py` to `False` turns this forbidding off.
+The search then prunes a state if `Y > W - s` or an unsatisfied check has no available variable, and otherwise branches on the unsatisfied check with the fewest available variables.
+It stays exact, since the completeness argument of [Section 3.3](#33-the-depth-first-search) holds with fewer forbidden variables.
 
 Before it enters a child, the search applies the cheaper `b1`: it skips the child if the unsatisfied checks of the child outnumber `Δ(W - s - 1)`.
 
@@ -145,6 +148,7 @@ That field of `SearchTuning` in `_tuning.py` defaults to a round number of state
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
 The search predicts rather than counts because it can ask only between limits, each a single compiled call, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
 A first limit that a `cutoff` sets above the weight divisor ([Section 3.6](#36-from-a-search-to-the-distance)) has no prediction, so the search asks before it.
+A first limit at the divisor, the cheapest ([Section 2](#2-what-the-cost-of-the-search-depends-on)), is treated as visiting no states, so the search asks before it only if `automorphism_minimum_states` is zero.
 Setting `automorphism_minimum_states` to `MAX_VALUE` turns asking off.
 
 With symmetries, the search from the first root does most of the work: it forbids nothing, and every witness that meets the first orbit has an image that holds this root.
@@ -294,7 +298,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
-| Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches` |
+| Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
@@ -312,6 +316,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
   A bound must be a lower bound on the number of variables that such a witness adds, all of which are available ([Section 3.3](#33-the-depth-first-search)).
   A bound that is too strong can still give the right distance, so the tests need cases where the bound is tight at the distance, such as the tests of known distances.
 - **Forbid a variable for a subtree only if no completion of the state within the weight limit holds it**, and make it available again when the search leaves the state.
+- **Give the same exact distances, and the same answers and lower bounds of coset queries, with `restrict_viable_symbols` on and off** ([Section 3.4](#34-pruning)), so the tests compare both settings with enumeration.
 - **Give each variable at most one value**: block the other values of the variable of a symbol while the symbol is in the support, unblock them when the search leaves its branch, and let a sibling forbid only its own symbol.
   Without the blocking, distances would not change, but a witness could hold two symbols on one variable and overstate its weight, so the tests check witnesses at every weight limit.
 - **Forbid each earlier sibling's symbol, and every value of the variables of lower rank than the root.**

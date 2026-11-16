@@ -515,13 +515,10 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
-            method: Binary exact-distance method, including vector distances, unused when bounding
-                the distance.
-                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates code words; ``"connected_cluster"`` searches supports
-                that are connected in the Tanner graph of the parity checks (see
-                help(ClassicalCode.get_distance_exact)).  Nonbinary calculations use exhaustive
-                enumeration, and reject ``"connected_cluster"``.
+            method: The exact-distance method for a binary code (see
+                :data:`~qldpc.codes.distance.DistanceMethod`), also used for vector distances, but
+                not when bounding the distance.  Nonbinary calculations use exhaustive enumeration,
+                and reject ``"connected_cluster"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -563,13 +560,9 @@ class ClassicalCode(AbstractCode):
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
                 an upper bound on distance, and no result is remembered.
-            method: Binary exact-distance method, including vector distances.
-                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates code words.  ``"connected_cluster"`` searches supports
-                that are connected in the Tanner graph of the parity checks, which can be fast only
-                for sparse parity checks, and is not always fast for them.  Its guide,
-                ``connected_cluster.md`` in ``src/qldpc/codes/distance/`` of the qLDPC repository,
-                explains it.  Nonbinary calculations use exhaustive enumeration, and reject
+            method: The exact-distance method for a binary code (see
+                :data:`~qldpc.codes.distance.DistanceMethod`), also used for vector distances.
+                Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_cluster"``.
 
         Returns:
@@ -1986,12 +1979,10 @@ class QuditCode(AbstractCode):
             bound: If False, 0, or None (the default), compute the exact code distance.  Otherwise,
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
-            method: Binary exact-distance method, unused when bounding the distance.
-                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates every nontrivial logical operator;
-                ``"connected_cluster"`` searches supports that are connected in the Tanner graph of
-                the stabilizers (see help(QuditCode.get_distance_exact)).  Nonbinary calculations
-                use exhaustive enumeration, and reject ``"connected_cluster"``.
+            method: The exact-distance method for a binary code (see
+                :data:`~qldpc.codes.distance.DistanceMethod`), unused when bounding the distance.
+                Nonbinary calculations use exhaustive enumeration, and reject
+                ``"connected_cluster"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -2031,13 +2022,9 @@ class QuditCode(AbstractCode):
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
                 an upper bound on distance, and no result is remembered.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
-                alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
-                operator.  ``"connected_cluster"`` searches supports that are connected in the
-                Tanner graph of the stabilizers, which can be fast only for sparse stabilizers, and
-                is not always fast for them.  Its guide, ``connected_cluster.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.  Nonbinary
-                calculations use exhaustive enumeration, and reject ``"connected_cluster"``.
+            method: The exact-distance method for a binary code (see
+                :data:`~qldpc.codes.distance.DistanceMethod`).  Nonbinary calculations use
+                exhaustive enumeration, and reject ``"connected_cluster"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
@@ -3625,12 +3612,10 @@ class CSSCode(QuditCode):
                 compute an upper bound on code distance by minimizing over int(bound) independent
                 randomized upper bounds; see help(get_distance_bound).
             decoder: Decoder input used to bound distance; see help(get_distance_bound).
-            method: Binary exact-distance method, unused when bounding the distance.
-                ``"brouwer_zimmermann"`` is the default, with alias ``"information_sets"``;
-                ``"brute_force"`` enumerates every nontrivial logical operator;
-                ``"connected_cluster"`` searches supports that are connected in the Tanner graph of
-                the stabilizers (see help(CSSCode.get_distance_exact)).  Nonbinary calculations
-                use exhaustive enumeration, and reject ``"connected_cluster"``.
+            method: The exact-distance method for a binary code (see
+                :data:`~qldpc.codes.distance.DistanceMethod`, and :meth:`get_distance_exact` for
+                closed forms), unused when bounding the distance.  Nonbinary calculations use
+                exhaustive enumeration, and reject ``"connected_cluster"``.
             **bound_kwargs: Keyword arguments to pass to get_distance_bound.
 
         Returns:
@@ -3676,15 +3661,11 @@ class CSSCode(QuditCode):
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
                 With a cutoff greater than 1, a result at or below the cutoff may therefore be only
                 an upper bound on distance, and no result is remembered.
-            method: Binary exact-distance method.  ``"brouwer_zimmermann"`` is the default, with
-                alias ``"information_sets"``; ``"brute_force"`` enumerates every nontrivial logical
-                operator.  ``"connected_cluster"`` searches supports that are connected in the
-                Tanner graph of the stabilizers, which can be fast only for sparse stabilizers, and
-                is not always fast for them.  Its guide, ``connected_cluster.md`` in
-                ``src/qldpc/codes/distance/`` of the qLDPC repository, explains it.
-                Closed forms that search classical codes, such as those of hypergraph product
-                codes, search them with the same method.  Nonbinary calculations use exhaustive
-                enumeration, and reject ``"connected_cluster"``.
+            method: The exact-distance method for a binary code (see
+                :data:`~qldpc.codes.distance.DistanceMethod`).  Closed forms that search classical
+                codes, such as those of hypergraph product codes, search them with the same method.
+                Nonbinary calculations use exhaustive enumeration, and reject
+                ``"connected_cluster"``.
 
         Returns:
             An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.

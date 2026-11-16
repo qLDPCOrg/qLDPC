@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import inspect
 import itertools
 import unittest.mock
 from collections.abc import Iterator
@@ -20,12 +21,13 @@ from qldpc.objects import PAULIS_XZ, Pauli
 
 from .. import _tuning
 from ..conftest import get_span
+from ..core import get_distance_css, get_distance_pauli
 from . import search as cs
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
-# The [[276, 98, 14]] pair-partition code of arXiv:2607.14091: normalized exponents, whose first
-# row and column are zero, of the instance qc_276_98_14 of the data of its authors.
+# The [[276, 98, 14]] pair-partition code qc_276_98_14 of arXiv:2607.14091, with its exponents
+# normalized so that their first row and column are zero.
 EXPONENTS_X_276 = [
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 10, 16, 12, 20, 9, 6, 11, 2, 5, 21, 22],
@@ -41,10 +43,7 @@ EXPONENTS_Z_276 = [
 
 
 def get_sectors(code: codes.CSSCode) -> list[Problem]:
-    """The X and Z sectors of a code: its stabilizers of the opposite type, and its gauge matrix.
-
-    This builds the sectors independently of ``get_distance_css``, as an oracle.
-    """
+    """The X and Z sectors of a code, built independently of ``get_distance_css``."""
     return [
         (
             np.asarray(code.get_stabilizer_ops(Pauli.Z if pauli is Pauli.X else Pauli.X), np.uint8),
@@ -55,10 +54,9 @@ def get_sectors(code: codes.CSSCode) -> list[Problem]:
 
 
 def get_golay_problem() -> Problem:
-    """The CSS sector of the [23, 12, 7] Golay code, with its dual as the excluded rows.
+    """A sector of the CSS code of the cyclic [23, 12, 7] Golay code, which contains its dual.
 
-    The Golay code is a cyclic code that contains its dual, and its checks are a basis of its dual,
-    so cyclic shifts map its kernel and its excluded rows onto themselves.
+    Its checks and excluded rows are both a basis of the dual, so cyclic shifts are automorphisms.
     """
     generator = np.zeros(23, dtype=np.uint8)
     generator[[0, 1, 5, 6, 7, 9, 11]] = 1
@@ -86,20 +84,17 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
 
 
 def get_search(*problem: npt.ArrayLike, **options: Any) -> cs.SupportSearch:
-    """A search of a problem, which asks for any automorphisms before its first weight limit.
+    """A search that asks for any automorphisms before its first weight limit, by default.
 
-    A test can pass another ``automorphism_minimum_states``, and the other options of the search.
+    ``restrict_viable_symbols`` defaults to its value in the default tuning.
     """
     options.setdefault("automorphism_minimum_states", 0)
+    options.setdefault("restrict_viable_symbols", _tuning.DEFAULT_TUNING.restrict_viable_symbols)
     return cs.SupportSearch(*problem, **options)
 
 
 def get_symplectic_witness_supports(problem: Problem) -> list[int]:
-    """The supports of the Pauli operators that commute with the checks, outside the excluded.
-
-    A word is an integer whose bits ``j`` and ``n + j`` are its X and Z parts on qubit ``j``, and a
-    support is an integer whose bit ``j`` is set if the word acts on qubit ``j``.
-    """
+    """The supports of the witnesses of a symplectic problem, with bit ``j`` for qubit ``j``."""
     checks, excluded = problem
     num_qubits = checks.shape[1] // 2
     words = get_span(get_kernel(np.roll(checks, num_qubits, axis=1))) - get_span(excluded)
@@ -117,10 +112,7 @@ def get_symplectic_vector(symbols: npt.NDArray[np.int64], num_qubits: int) -> np
 
 
 def is_symplectic_witness(problem: Problem, symbols: npt.NDArray[np.int64]) -> bool:
-    """Whether sorted symbols on distinct qubits give a Pauli operator that is a witness.
-
-    A witness commutes with every check, and is outside the row space of the excluded rows.
-    """
+    """Whether sorted symbols on distinct qubits give a Pauli operator that is a witness."""
     checks, excluded = problem
     num_qubits = checks.shape[1] // 2
     vector = get_symplectic_vector(symbols, num_qubits)
@@ -133,9 +125,9 @@ def is_symplectic_witness(problem: Problem, symbols: npt.NDArray[np.int64]) -> b
     )
 
 
-# Sectors of small codes.  The Steane code has words of odd weight, and the toric code several
-# lightest logical operators.  The Z sector of the rotated surface code has stabilizers lighter than
-# its distance, and the Reed-Muller code has only words of even weight.
+# Sectors of small codes: the Steane code has words of odd weight, the toric code several lightest
+# logical operators, the Z sector of the surface code has checks lighter than its distance, and the
+# Reed-Muller code only words of even weight.
 PROBLEMS: dict[str, Problem] = {
     "steane-X": get_sectors(codes.SteaneCode())[0],
     "toric-X": get_sectors(codes.ToricCode(4, rotated=True))[0],
@@ -143,23 +135,22 @@ PROBLEMS: dict[str, Problem] = {
     "reed-muller-X": get_sectors(codes.QuantumReedMullerCode(1, 4))[0],
 }
 
-# Words of weight 3 on the first three variables, and of weight 2 on the last two.  The distance is
-# the weight of the second, whose least variable is greater than that of the first.
+# The checks have the words {0, 1, 2} and {3, 4}, and their sum, so the lightest word, {3, 4}, has
+# the greater least variable.
 PROBLEMS["components"] = (
     np.array([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]], dtype=np.uint8),
     np.zeros((0, 5), dtype=np.uint8),
 )
 
-# Variables 0 and 1 are in all 43 checks, and each other variable in one, so the distance is 2.  The
-# scale lcm(1, ..., 43) of the weights of checks exceeds 2**63, so the search caps it at 2**40 and
-# rounds the weights down.
+# Variables 0 and 1 are in all 43 checks, and every other variable in one, so the distance is 2, and
+# the scale lcm(1, ..., 43) of the weights of checks exceeds 2**63, which the search caps.
 PROBLEMS["capped-scale"] = (
     np.hstack([np.ones((43, 2), dtype=np.uint8), np.eye(43, dtype=np.uint8)]),
     np.zeros((0, 45), dtype=np.uint8),
 )
 
-# Nested states of a search of these checks restrict their subtrees, and could allow more variables
-# in total than there are variables, so the search makes more room for them than it starts with.
+# Nested states restrict their subtrees, and could allow more variables in total than there are
+# variables, so the search makes more room for them than it starts with.
 PROBLEMS["many-allowances"] = (
     np.array(
         [
@@ -174,9 +165,8 @@ PROBLEMS["many-allowances"] = (
 )
 
 
-# Searches of these checks need the variables that a state allows to be recorded, and released, with
-# the state: the first has states that restrict their subtrees to no variable, and the second has
-# nested restrictions.
+# In searches of "empty-restriction", states restrict their subtrees to no variable, and in those of
+# "nested-restrictions", the restrictions of states nest.
 PROBLEMS["empty-restriction"] = (
     np.array(
         [
@@ -208,8 +198,7 @@ PROBLEMS["nested-restrictions"] = (
     np.zeros((0, 9), dtype=np.uint8),
 )
 
-# The problems that the tests of the distance, and of the searches from each root, compare with an
-# enumeration.  The others serve the tests that use them.
+# The problems that tests compare with an enumeration of their words.
 SEARCHED_PROBLEMS = [name for name in PROBLEMS if name not in ("steane-X", "toric-X")]
 
 
@@ -248,16 +237,17 @@ QUBIT_PROBLEMS = {
 }
 
 
+@pytest.mark.parametrize("restrict_viable_symbols", [True, False])
 @pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
-def test_the_distance_matches_enumeration(name: str) -> None:
+def test_the_distance_matches_enumeration(name: str, restrict_viable_symbols: bool) -> None:
     """The distance search, and a search through each weight limit, agree with an enumeration."""
     problem = PROBLEMS[name]
     distance = get_brute_force_distance(problem)
-    assert cs.get_distance_connected_cluster([problem], cutoff=0) == distance
-
-    # A search finds a witness exactly if its weight limit reaches the distance.
+    tuning = _tuning.SearchTuning(restrict_viable_symbols=restrict_viable_symbols)
+    assert cs.get_distance_connected_cluster([problem], cutoff=0, tuning=tuning) == distance
     for max_weight in range(1, distance + 1):
-        witness = get_search(*problem).find_witness(max_weight)
+        search = get_search(*problem, restrict_viable_symbols=restrict_viable_symbols)
+        witness = search.find_witness(max_weight)
         if max_weight < distance:
             assert witness is None
         else:
@@ -268,11 +258,9 @@ def test_the_distance_matches_enumeration(name: str) -> None:
 
 @pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
 def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str) -> None:
-    """The search from a variable alone, through the distance, finds the witnesses that it roots.
+    """A root finds a witness at the distance exactly if it is the least variable of a lightest one.
 
-    Every lightest witness has a support that is connected, and the search from its least variable
-    finds it (Section 3.3 of ``connected_cluster.md``).  So the search from a variable finds a
-    witness exactly if some lightest witness has that least variable.
+    Section 3.3 of ``connected_cluster.md`` proves this completeness.
     """
     problem = PROBLEMS[name]
     checks, excluded = problem
@@ -290,20 +278,12 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str) -> None
 
 
 def test_each_support_is_visited_once_above_its_least_variable() -> None:
-    """With every word excluded, a search visits the supports that grow from each root once.
-
-    Take the checks {0, 1, 2} and {1, 2, 3}, whose words are {0, 1, 3}, {0, 2, 3}, and {1, 2}.  With
-    a weight limit of 4, a search from variable 0 branches on variable 1 or 2.  After {0, 1} it
-    branches on variable 2, which leaves a check without available variables, or on variable 3,
-    which reaches a word.  After {0, 2} it can only branch on variable 3, since the branch on 1
-    blocks variable 1 for its sibling.  That gives 6 states.  From variable 1, the checks force
-    variable 2, which reaches a word, so there are 2 states.  Variables 2 and 3 are each left with a
-    check that only variables below them can satisfy, which gives 1 state each.
-
-    With a weight limit of 2, a support with a check left unsatisfied needs one more variable, as
-    every variable is in at most two checks, so the supports {0, 1} and {0, 2} are not visited.
-    That leaves the states {0}, {1}, {1, 2}, {2}, and {3}.
-    """
+    """With every word excluded, a search visits the supports that grow from each root once."""
+    # The checks {0, 1, 2} and {1, 2, 3} have the words {0, 1, 3}, {0, 2, 3}, and {1, 2}.  At limit
+    # 4, root 0 visits {0}, {0, 1}, {0, 1, 2}, {0, 1, 3}, {0, 2}, and {0, 2, 3}, since its branch on
+    # 1 forbids 1 for its sibling {0, 2}.  Root 1 visits {1} and {1, 2}, and roots 2 and 3 visit
+    # only themselves.  At limit 2, {0, 1} and {0, 2} leave a check unsatisfied, so they would need
+    # a third variable.
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     num_states = {}
     for max_weight in (2, 4):
@@ -314,14 +294,10 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
 
 
 def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
-    """A cyclic code has a symmetry that leaves one root, and so fewer states.
-
-    The Golay code is a cyclic code that contains its dual, so cyclic shifts of its qubits map its
-    kernel and its excluded rows onto themselves.  The quantum Golay code has distance 7 (see
-    https://errorcorrectionzoo.org/c/qubit_golay).
-    """
+    """Cyclic shifts of the Golay code leave one root and fewer states, and keep the distance."""
     problem = get_golay_problem()
     distance = get_brute_force_distance(problem)
+    # The quantum Golay code has distance 7 (https://errorcorrectionzoo.org/c/qubit_golay).
     assert distance == 7
     shift = (np.arange(23) + 1) % 23
     plain = get_search(*problem)
@@ -335,19 +311,14 @@ def test_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
 
 
 def test_each_root_excludes_the_orbits_before_its_own() -> None:
-    """The search from the root of an orbit uses no variable of an earlier orbit.
-
-    The [[72, 12, 6]] bivariate bicycle code has two orbits of qubits under the translations of its
-    group, one for each block of 36 qubits.  Its qubits are shuffled here, so that the orbits
-    interleave.  Every lightest witness is the image of one whose least orbit is that of its root,
-    so the search from each root can exclude the earlier orbits entirely.
-    """
+    """The search from the root of an orbit uses no variable of an earlier orbit."""
     code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     order = np.random.default_rng(0).permutation(len(code))
     automorphisms = np.argsort(order)[code._get_qudit_automorphisms()[:, order]]
     problem = (get_sectors(code)[0][0][:, order], get_sectors(code)[0][1][:, order])
 
-    # Orbit 0 is the block of the first shuffled qubit, and orbit 1 the other block.
+    # The orbits under translations are the two blocks of 36 qubits, which the shuffle interleaves.
+    # Orbit 0 is the block of the first shuffled qubit.
     orbits = ((order >= 36) != (order[0] >= 36)).astype(int)
     roots = np.unique(orbits, return_index=True)[1]
     assert roots[1] < len(code) // 2
@@ -362,13 +333,9 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
 
 
 def test_each_root_ranks_lowest_in_its_orbit() -> None:
-    """The ranks keep the order of the variables within each orbit, so each root ranks lowest.
-
-    The checks join the variables of two cycles, of 60 and 30 variables, which interleave.  Each
-    cycle is a word, so the distance is 30, and the shift along both cycles is an automorphism with
-    the cycles as its orbits.  The word of the second cycle needs every variable of its orbit, so
-    the search from its root finds it only if no variable of that orbit ranks below the root.
-    """
+    """No variable of an orbit ranks below its root, as a word that needs them all shows."""
+    # The checks join consecutive variables of two interleaved cycles, of 60 and 30 variables.  Each
+    # cycle is a word, and an orbit of the shift along both cycles.
     labels = np.random.default_rng(5).permutation([0] * 59 + [1] * 30)
     cycles = [np.flatnonzero(np.append(0, labels) == label) for label in (0, 1)]
     checks = np.zeros((90, 90), dtype=np.uint8)
@@ -386,13 +353,7 @@ def test_each_root_ranks_lowest_in_its_orbit() -> None:
 
 @pytest.mark.parametrize("minimum_states", [0, 30, _tuning.MAX_VALUE])
 def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> None:
-    """A search asks for automorphisms at most once, and by the time it reaches the threshold.
-
-    A search may ask sooner, if it expects to reach the threshold, which is a heuristic that this
-    test leaves open.  The checks of ``test_each_support_is_visited_once_above_its_least_variable``
-    have words of weights 2 and 3, so their weight divisor is 1, and no limit here is raised.  The
-    searches of weight limits 1, 2, 3, and 4 visit 0, 5, 9, and 10 states.
-    """
+    """A search asks for automorphisms at most once, and no later than ``minimum_states`` states."""
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     found = []
     search = get_search(
@@ -410,11 +371,7 @@ def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> N
 
 
 def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
-    """A search without an estimate of its states asks for automorphisms only before a raised limit.
-
-    The first limit of a symplectic search of the five-qubit code, a weight of one, visits no
-    states, which makes a growth of zero the estimate for the next limit, and not a missing one.
-    """
+    """After a first limit without states, the search predicts no states for the next limit."""
     found = []
     search = get_search(
         *QUBIT_PROBLEMS["five-qubit"],
@@ -431,12 +388,8 @@ def test_a_limit_without_states_does_not_ask_for_automorphisms() -> None:
 def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A cutoff above the weight divisor sets the first limit, rounded down to a multiple of it.
-
-    Such a first limit skips the cheap limits below it, so it has no estimate of its states, and
-    the search asks for automorphisms before it.  Every word of the Reed-Muller code has even
-    weight, and its distance is 4.
-    """
+    """A search asks for automorphisms before a first limit that a cutoff above the divisor sets."""
+    # The words of this Reed-Muller code have even weights, and its distance is 4.
     problem = PROBLEMS["reed-muller-X"]
     limits = []
     find_witness = cs.SupportSearch.find_witness
@@ -459,20 +412,106 @@ def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
 
 
 def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
-    """The pair-partition code [[276, 98, 14]] has no logical operator of weight 8 or less.
-
-    The distance of this code is 14 (https://arxiv.org/abs/2607.14091).  There are more than 10**14
-    supports of 8 qubits, and the bounds on the qubits that a support needs rule out all but a few
-    thousand of them.  The code translates its blocks of qubits cyclically, which leaves 12 roots.
-
-    The limit of 5000 states guards the variables that a state forbids for its subtree: the search
-    visits about 4300 states with them, and about 9300 without them.  A change of heuristic that
-    moves the count across the limit needs a new limit, with its reasons.
-    """
+    """Pruning rules out witnesses of weight up to 8 in a [[276, 98, 14]] code in few states."""
     code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
     search = get_search(*get_sectors(code)[0], get_automorphisms=code._get_qudit_automorphisms)
     assert search.find_witness(8) is None
+
+    # The bound on the states fails if states stop forbidding variables for their subtrees (Section
+    # 3.4 of connected_cluster.md).  A heuristic that moves the count across it needs a new bound.
     assert search.num_states < 5000
+
+
+def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
+    """Without restrict_viable_symbols, a search visits exactly one more state.
+
+    The bound Y of Section 3.4 of connected_cluster.md still prunes that state.
+    """
+    # Variable 0 is in all four checks, whose only nonzero word, {1, 2, 3, 4}, has weight 4.  At
+    # limit W = 3, the state S = {0} leaves every check unsatisfied, with weights 1/3, 1/2, 1/3, and
+    # 1/3.  Their total Y = 3/2 exceeds W - |S| - 1 = 1, so the state allows only the variables that
+    # repair at least Y - 1 = 1/2 (Section 3.4 of connected_cluster.md).  Variable 2, only in check
+    # 0, repairs 1/3.  Check 0 then allows only variable 1, the fewest, so the search with the
+    # restriction branches only to {0, 1}.  Without the restriction, each check has two available
+    # variables, so the search branches on check 0, the first, whose available variables are 1 and
+    # 2.  So only the search without the restriction visits {0, 2}.  That state leaves checks 1, 2,
+    # and 3 unsatisfied with weight 1/2 each, and Y = 3/2 > W - 2 prunes it.  Both searches visit
+    # {0, 1}, whose children the bound b1 of Section 3.4 skips.  From each later root, both visit
+    # only the root, since the variables of lower rank are blocked.  {1} leaves checks 0, 2, and 3
+    # unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a
+    # check with no available variable.  If the search without the restriction stopped pruning by Y,
+    # it would also visit a child of {1}, and the equality would fail.
+    checks = np.array(
+        [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
+    )
+    excluded = np.zeros((0, 5), dtype=np.uint8)
+    num_states = {}
+    for restrict_viable_symbols in (True, False):
+        search = get_search(checks, excluded, restrict_viable_symbols=restrict_viable_symbols)
+        assert search.find_witness(3) is None
+        num_states[restrict_viable_symbols] = search.num_states
+    assert num_states[False] == num_states[True] + 1
+
+
+def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() -> None:
+    """Switching the restriction off also turns it off at the starting state of a syndrome query."""
+    # The query of syndrome 1101 at limit W = 2 starts with checks 0, 1, and 3 unsatisfied.
+    # Variable 2, in checks 0 and 3, has overlap 2, and variables 0 and 1 have overlap 1, so the
+    # checks weigh 1/2, 1, and 1/2, and Y = 2.  Since 1 + Y > W, the restriction allows only the
+    # variables that repair at least Y - 1 = 1: variable 1, of check 1, and variable 2, which
+    # repairs checks 0 and 3 (Section 3.4 of connected_cluster.md).  Each check then has one allowed
+    # variable, so the search branches on check 0, the first, and enters {2}.  Its child {1, 2}
+    # leaves check 2 unsatisfied with no room left, so b1 skips it.  Without the restriction, check
+    # 1 is the first check with the fewest available variables, one, so the search branches only to
+    # {1}.  That state leaves three checks unsatisfied, and the one more variable that the limit
+    # allows flips at most two, so b1 skips it.  The counts rely on ties going to the first check,
+    # so a change of the tie-break needs a new instance.
+    checks = np.array([[1, 0, 1, 0], [0, 1, 0, 0], [1, 1, 0, 1], [0, 0, 1, 0]], dtype=np.uint8)
+    search = get_search(checks, np.zeros((0, 4), dtype=np.uint8))
+    packed = cs.pack_bits(np.array([[1, 1, 0, 1]], dtype=np.uint8))[0]
+    num_states = {}
+    for restrict_viable_symbols in (True, False):
+        support, num_states[restrict_viable_symbols] = cs._search_supports(
+            search._check_starts,
+            search._check_symbols,
+            search._symbol_masks,
+            search._test_columns,
+            np.array([-1], dtype=np.int64),
+            search._ranks,
+            search._inverse_overlaps,
+            2,
+            packed,
+            True,
+            restrict_viable_symbols,
+        )
+        assert not len(support)
+    assert num_states == {True: 1, False: 0}
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"), [({}, True), ({"restrict_viable_symbols": False}, False)]
+)
+def test_connected_cluster_distance_searches_read_the_restriction_of_their_tuning(
+    monkeypatch: pytest.MonkeyPatch, changes: dict[str, bool], expected: bool
+) -> None:
+    """Distance searches pass ``restrict_viable_symbols`` of their tuning to ``SupportSearch``."""
+    settings: list[tuple[bool, bool]] = []
+    initialize = cs.SupportSearch.__init__
+    signature = inspect.signature(initialize)
+
+    def record(*args: Any, **kwargs: Any) -> None:
+        arguments = signature.bind(*args, **kwargs).arguments
+        settings.append((arguments["symplectic"], arguments["restrict_viable_symbols"]))
+        initialize(*args, **kwargs)
+
+    # get_distance_css searches through core._search_css, and get_distance_pauli, whose searches are
+    # symplectic, through core._search_checks.
+    monkeypatch.setattr(cs.SupportSearch, "__init__", record)
+    steane = codes.SteaneCode()
+    with _tuning.use_tuning(**changes):
+        get_distance_css(steane.matrix_x, steane.matrix_z, method="connected_cluster")
+        get_distance_pauli(codes.FiveQubitCode().matrix, method="connected_cluster")
+    assert set(settings) == {(False, expected), (True, expected)}
 
 
 def test_wrong_automorphisms_are_rejected() -> None:
@@ -485,11 +524,7 @@ def test_wrong_automorphisms_are_rejected() -> None:
 
 
 def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The tetrahedral code has X-distance 7 and Z-distance 3: the Z sector bounds the X search.
-
-    The search of the X sector stops once the Z sector has a witness of weight 3, rather than going
-    on to weight 7.
-    """
+    """A witness of weight 3 in one sector stops the search of the other, of distance 7, at 3."""
     sectors = get_sectors(codes.TetrahedralCode())
     assert [get_brute_force_distance(sector) for sector in sectors] == [7, 3]
 
@@ -506,10 +541,7 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_logical_test_reads_every_block() -> None:
-    """A witness may fail only tests past the first 64, in a later block of each packed column.
-
-    Prepending a block of zeros to the tests of the Steane code moves every test it has there.
-    """
+    """The logical test finds a witness that fails only tests past the first block of 64."""
     problem = PROBLEMS["steane-X"]
     search = get_search(*problem)
     zeros = np.zeros((search.num_variables, 1), dtype=np.uint64)
@@ -519,9 +551,9 @@ def test_the_logical_test_reads_every_block() -> None:
 
 
 def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> Iterator[Problem]:
-    """Small codes with a random single-qubit Clifford on each qubit, and their qubits permuted.
+    """Small codes with permuted qubits and a random single-qubit Clifford on each qubit.
 
-    A Clifford permutes X, Z, and Y on its qubit, so the checks have all three.
+    The Cliffords make the checks act as X, Z, and Y.
     """
     cliffords = [
         np.array(clifford) for clifford in itertools.permutations([[1, 0], [0, 1], [1, 1]], 2)
@@ -539,21 +571,14 @@ def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> It
         yield get_qubit_problem(codes.QuditCode(matrix, is_subsystem_code=code.is_subsystem_code))
 
 
-def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) -> None:
-    """Qubit problems agree with an enumeration at every weight limit, and from every root.
-
-    A witness gives each qubit of its support one of X, Z, and Y, so its weight is its number of
-    symbols.  The search of every weight limit, up to the number of qubits, returns such witnesses,
-    which fails if a qubit can take two values.
-
-    Every lightest witness has a support that is connected, and the search from its least qubit
-    finds it (Section 3.3 of ``connected_cluster.md``).  So the search from a qubit alone, through
-    the distance, finds a witness exactly if some lightest witness has that least qubit, which
-    fails if the search misses a value of a qubit.
-    """
-    # The five-qubit code with single-qubit Cliffords, for which a state needs the value Y of a
-    # qubit after an earlier sibling tried X there, and in another frame, for which a state needs
-    # the other values of the qubit of its last branch after the search leaves it.
+@pytest.mark.parametrize("restrict_viable_symbols", [True, False])
+def test_random_qubit_problems_match_enumeration(
+    pytestconfig: pytest.Config, restrict_viable_symbols: bool
+) -> None:
+    """Qubit problems agree with an enumeration at every weight limit, and from every root."""
+    # The five-qubit code in two frames: in the first, a state needs Y on a qubit after an earlier
+    # sibling of the state tried X there, and in the second, a state needs the other values of the
+    # qubit of a branch once the search has left that branch.
     mixed_five_qubit_codes = [
         [
             [1, 1, 1, 0, 0, 1, 1, 0, 1, 0],
@@ -574,14 +599,24 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
         *(get_qubit_problem(codes.QuditCode(matrix)) for matrix in mixed_five_qubit_codes),
         *get_random_qubit_problems(rng, 10),
     ]
+    tuning = _tuning.SearchTuning(restrict_viable_symbols=restrict_viable_symbols)
     for problem in problems:
         num_qubits = problem[0].shape[1] // 2
         supports = get_symplectic_witness_supports(problem)
         distance = min(support.bit_count() for support in supports)
         assert distance >= 2
-        assert cs.get_distance_connected_cluster([problem], cutoff=0, symplectic=True) == distance
+        assert (
+            cs.get_distance_connected_cluster([problem], cutoff=0, symplectic=True, tuning=tuning)
+            == distance
+        )
+
+        # Searching at every limit catches a witness with two values on a qubit, and searching from
+        # every root catches a value that the search misses.
         for max_weight in range(1, num_qubits + 1):
-            witness = get_search(*problem, symplectic=True).find_witness(max_weight)
+            search = get_search(
+                *problem, symplectic=True, restrict_viable_symbols=restrict_viable_symbols
+            )
+            witness = search.find_witness(max_weight)
             assert (witness is None) == (max_weight < distance)
             assert witness is None or (
                 len(witness) <= max_weight and is_symplectic_witness(problem, witness)
@@ -593,7 +628,9 @@ def test_random_qubit_problems_match_enumeration(pytestconfig: pytest.Config) ->
             if support.bit_count() == distance
         }
         for root in range(num_qubits):
-            search = get_search(*problem, symplectic=True)
+            search = get_search(
+                *problem, symplectic=True, restrict_viable_symbols=restrict_viable_symbols
+            )
             search._roots = np.array([root])
             witness = search.find_witness(distance)
             assert (witness is not None) == (root in least_qubits)
@@ -614,10 +651,7 @@ def test_qubit_automorphisms_reduce_the_roots_and_keep_the_distance() -> None:
 
 
 def test_the_scale_of_weights_leaves_room_for_every_weight_limit() -> None:
-    """Weights in units of the capped scale, times a weight limit as large as the width, fit.
-
-    A cap near ``2**63`` would overflow the products of a weight limit of 45 with the scale.
-    """
+    """The capped scale, times a weight limit as large as the width, fits in 64 bits."""
     problem = PROBLEMS["capped-scale"]
     witness = get_search(*problem).find_witness(45)
     assert witness is not None and is_witness(problem, witness)
@@ -658,7 +692,7 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_brute_force_distance(problem) == 4
     assert 4 <= cs.get_distance_connected_cluster([problem], cutoff=16) <= 16
 
-    # A known upper bound is a candidate for the distance, and the search can only lower it.
+    # A known upper bound caps the result.
     assert cs.get_distance_connected_cluster([problem], cutoff=0, upper_bound=3) == 3
     assert cs.get_distance_connected_cluster([], cutoff=0, upper_bound=5) == 5
 
@@ -667,22 +701,20 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cs.get_distance_connected_cluster([problem], cutoff=3, upper_bound=3) == 3
     assert not limits
 
-    # The first weight limit is the cutoff, a multiple of the weight divisor of 1, so a search can
-    # exit at a word that is not the lightest.
+    # The first weight limit is the cutoff, so a search can exit at a word that is not the lightest.
     components = PROBLEMS["components"]
     assert cs.get_distance_connected_cluster([components], cutoff=0) == 2
     assert cs.get_distance_connected_cluster([components], cutoff=3) == 3
 
 
 def test_a_problem_without_logical_operators_has_no_distance() -> None:
-    """Without a vector outside the excluded rows, the distance is one more than the width."""
+    """Without witnesses, a problem counts as one more than its number of variables."""
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
     assert not get_search(*trivial).has_witnesses
     assert cs.get_distance_connected_cluster([trivial], cutoff=0) == 3
     assert cs.get_distance_connected_cluster([PROBLEMS["toric-X"], trivial], cutoff=0) == 3
 
-    # The Pauli X on one qubit is excluded, and the identity and X are the operators that commute
-    # with it, so a symplectic problem on one qubit has no distance either.
+    # On one qubit, X is excluded, and only the identity and X commute with it.
     one_qubit = (np.array([[1, 0]], dtype=np.uint8), np.array([[1, 0]], dtype=np.uint8))
     assert not get_search(*one_qubit, symplectic=True).has_witnesses
     assert cs.get_distance_connected_cluster([one_qubit], cutoff=0, symplectic=True) == 2
@@ -714,34 +746,28 @@ def get_vector(
     return vector
 
 
-# Problems for syndrome queries.  The states of "nested-restrictions" restrict their subtrees.
-# "copied-and-zero-checks" has a zero check, and a check before its copy, so a query maps its
-# syndrome onto fewer checks, and some syndromes have no vector.  "five-qubit-state" has the
-# stabilizers of a pure state: those of the five-qubit code, and its logical X.  "zero-checks" has
-# only zero checks.  In "identity", the syndrome 11 needs every variable, so a query reaches the
-# limit of their number.
+# Problems for syndrome queries.
 SYNDROME_PROBLEMS = {
     "nested-restrictions": (PROBLEMS["nested-restrictions"][0], False),
+    # A zero check, and a check before its copy, so some syndromes have no vector.
     "copied-and-zero-checks": (
         np.vstack([np.zeros((1, 7)), PROBLEMS["steane-X"][0][2:], PROBLEMS["steane-X"][0]]),
         False,
     ),
+    # The stabilizers of a pure state: those of the five-qubit code, and its logical X.
     "five-qubit-state": (
         np.vstack([QUBIT_PROBLEMS["five-qubit"][0], [[1] * 5 + [0] * 5]]),
         True,
     ),
     "zero-checks": (np.zeros((2, 3)), False),
+    # The syndrome 11 needs every variable, so a query reaches the limit of their number.
     "identity": (np.eye(2), False),
 }
 
 
 @pytest.mark.parametrize("name", SYNDROME_PROBLEMS)
 def test_syndrome_queries_match_enumeration(name: str) -> None:
-    """A query finds a vector with a syndrome exactly if the limit reaches the least weight.
-
-    An enumeration of every vector gives the least weight of each syndrome, and a syndrome that no
-    vector has, of any weight, has no vector within any limit.
-    """
+    """A query finds a vector with a syndrome exactly if the limit reaches the least weight."""
     checks, symplectic = SYNDROME_PROBLEMS[name]
     checks = np.asarray(checks, dtype=np.uint8)
     width = checks.shape[1]
@@ -766,17 +792,12 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
                 vector = get_vector(symbols, width, symplectic)
                 assert tuple(products @ vector % 2) == syndrome
 
-    # Syndrome queries are not states of witness searches.
+    # Syndrome queries count no states.
     assert search.num_states == 0
 
 
 def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
-    """A search from a root of -1 that finds nothing leaves the searches from variables unchanged.
-
-    They must start from the empty syndrome, and without the restriction of the empty state of the
-    syndrome query, which these checks have for the syndrome 01001.  Only a root that is a variable
-    blocks the variables of lower rank than it.
-    """
+    """A failed syndrome query leaves no syndrome, restriction, or block to later roots."""
     checks = np.array(
         [
             [1, 1, 1, 1, 1, 1],
@@ -801,6 +822,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
             2,
             cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
             True,
+            True,
         )
         return sorted(support.tolist())
 
@@ -818,13 +840,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
 
 @pytest.mark.parametrize("name", ["nested-restrictions", "five-qubit-state"])
 def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
-    """A syndrome query that memoizes overlaps and repairs finds what one without it finds.
-
-    Each state uses the same overlaps and repairs either way, so the searches return the same
-    support and visit as many states.  They do so also after a search from root 0, which leaves its
-    own stamps in the memos.  A memo that kept stale values could still find correct vectors, with
-    different pruning, but would likely change the number of states.
-    """
+    """Memoizing changes neither the support that a query returns nor its number of states."""
     checks, symplectic = SYNDROME_PROBLEMS[name]
     search = get_search(checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic)
     for bits in itertools.product([0, 1], repeat=len(search._checks)):
@@ -844,9 +860,11 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
                     max_weight,
                     packed,
                     memoize,
+                    True,
                 )
                 for memoize in (False, True)
             ]
+            # Stale memos, such as those of a search from root 0, would likely change the count.
             assert results[0][0].tolist() == results[1][0].tolist()
             assert results[0][1] == results[1][1]
 
@@ -863,10 +881,7 @@ def test_invalid_syndrome_queries_are_rejected() -> None:
 
 
 def test_invalid_problems_are_rejected() -> None:
-    """Problems need binary matrices of equal widths, whose excluded rows are in the kernel.
-
-    A distance search also needs a problem or an upper bound.
-    """
+    """Invalid problems and weight limits, and distance searches of nothing, are rejected."""
     with pytest.raises(ValueError, match="equal widths"):
         get_search(np.zeros((1, 3), dtype=np.uint8), np.zeros((1, 4), dtype=np.uint8))
     with pytest.raises(ValueError, match="satisfy the checks"):

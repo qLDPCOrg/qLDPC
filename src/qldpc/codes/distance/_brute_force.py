@@ -28,10 +28,9 @@ def get_nested_distance_brute_force(
 ) -> int:
     """Find the minimum weight of an eligible word of a nested-code basis by exhaustive enumeration.
 
-    The rows of ``basis`` are independent, and ``labels`` are its quotient labels (see
-    ``get_nested_code_basis``).  The rows marked by ``get_eligible_rows`` are the logical rows of
-    ``_get_distance_brute_force``, and the others are its stabilizers.  The other arguments and the
-    result are those of ``_get_distance_brute_force``.
+    The basis and its labels are those of ``get_nested_code_basis``.  The rows that
+    ``get_eligible_rows`` marks are the logical operators of ``_get_distance_brute_force``, the
+    others are its stabilizers, and the other arguments and the result are as there.
     """
     eligible = get_eligible_rows(labels)
     return _get_distance_brute_force(
@@ -54,12 +53,11 @@ def _get_distance_brute_force(
     """Find the minimum weight of a nontrivial logical operator by exhaustive enumeration.
 
     The candidates are the sums of a nonempty combination of the rows of ``logical_ops`` and any
-    combination of the rows of ``stabilizers``.  The rows of both must together be linearly
-    independent.  Callers in this package construct such bases.
+    combination of the rows of ``stabilizers``.  The rows of both must together be independent.
 
     Args:
-        logical_ops: Binary rows that, together with the stabilizers, generate the logical space.
-        stabilizers: Binary rows that generate the excluded (stabilizer) space.
+        logical_ops: Binary rows of logical operators.
+        stabilizers: Binary rows of stabilizers.
         cutoff: Return early once the lightest operator seen has weight at most this cutoff.
         batch_exponent: Vectorize calculations over at most ``2**batch_exponent`` packed 64-bit
             integers.  That is fewer words if words are longer than 64 bits, and a single word if
@@ -71,8 +69,8 @@ def _get_distance_brute_force(
     Returns:
         The minimum weight of a nontrivial logical operator.  After an early exit, it is instead the
         weight of the lightest operator seen, which is at most ``cutoff``.  Without ``logical_ops``,
-        the result is one more than the largest possible weight: the number of qubits if symplectic,
-        and otherwise the number of columns.
+        the result is one more than the number of qubits if symplectic, and otherwise than the
+        number of columns.
     """
     num_bits = np.shape(logical_ops)[-1]
 
@@ -85,10 +83,8 @@ def _get_distance_brute_force(
     int_stabilizers = pack_bits(np.asarray(stabilizers, dtype=np.uint8))
     num_stabilizers = len(int_stabilizers)
 
-    # Choose how many generators to vectorize over, so that a batch holds at most
-    # ``2**batch_exponent`` packed integers, or a single word if one word alone needs more.  Each
-    # row packs into ``ints_per_row`` integers, so each doubling of ``ints_per_row`` removes one
-    # generator from the batch, down to none.
+    # Vectorize over as many generators as keep a batch within ``2**batch_exponent`` packed
+    # integers: each doubling of ``ints_per_row`` halves the words of a batch, down to one.
     ints_per_row = int_logical_ops.shape[-1]
     num_vectorized_ops = max(
         0,
@@ -98,10 +94,9 @@ def _get_distance_brute_force(
         ),
     )
 
-    # Build a block of every combination of the first ``num_vectorized_ops`` generators: the
-    # stabilizers first, and then, if there are fewer stabilizers, logical operators.  The rows of
-    # the block from ``2**num_stabilizers`` on are those that contain a logical operator.  The sweep
-    # below covers the remaining generators.
+    # Build a block of every combination of the first ``num_vectorized_ops`` generators, stabilizers
+    # before logical operators, so that its rows from ``2**num_stabilizers`` on hold a logical
+    # operator.  The sweep below covers the other generators.
     array = np.zeros((1, int_logical_ops.shape[-1]), dtype=np.uint64)
     for op in int_stabilizers[:num_vectorized_ops]:
         array = np.vstack([array, array ^ op])
@@ -118,16 +113,15 @@ def _get_distance_brute_force(
     # Store the block in Fortran order, which makes the sweep below much faster.
     arrayf = np.asarray(array, order="F", dtype=np.uint64)
 
-    # np.bitwise_count returns uint8, whose row sums would overflow at 256 or more columns.  The
-    # loop below therefore writes the weights into this uint64 buffer.
+    # np.bitwise_count returns uint8, whose row sums would overflow at 256 columns, so the sweep
+    # writes weights into this uint64 buffer.
     out = np.empty_like(arrayf)
 
-    # The lightest weight seen starts at one more than any operator can weigh.  The early exits
-    # below come only after operators are weighed, so they never return this starting value.
+    # Start the lightest weight seen at one more than any weight.  The early exits come only after
+    # operators are weighed, so they never return this value.
     min_weight = (num_bits // 2 if symplectic else num_bits) + 1
 
-    # Weigh the rows of the block that contain a logical operator, if any, with weights cast to
-    # uint64 as above.
+    # Weigh the rows of the block that hold a logical operator, if any, in uint64 as above.
     logical_block = arrayf[2**num_stabilizers :]
     if len(logical_block):
         weights = np.asarray(weight_func(logical_block), dtype=np.uint64)
@@ -135,13 +129,11 @@ def _get_distance_brute_force(
         if min_weight <= cutoff:
             return int(min_weight)
 
-    # Sweep the remaining generators on top of the block: for each nonzero combination of the
-    # remaining logical operators, every combination of the remaining stabilizers.  Each loop steps
-    # through a reflected Gray code, in which step ``i`` flips the operator whose index is the
-    # number of trailing zeros of ``i``.  So a single XOR into ``arrayf`` moves to the next
-    # combination, and the ``2**k - 1`` steps of a loop over ``k`` operators reach every combination
-    # of them other than the one that the loop starts from.  The sweep stops once the lightest
-    # weight seen is at most ``cutoff`` (see Returns).
+    # Sweep the other generators over the block: each nonzero combination of the other logical
+    # operators, with every combination of the other stabilizers.  Each loop steps through a
+    # reflected Gray code, whose step ``i`` flips the operator indexed by the trailing zeros of
+    # ``i``, so its ``2**k - 1`` steps over ``k`` operators reach each of the other combinations
+    # once.
     for li in range(1, 2 ** len(int_logical_ops)):
         arrayf ^= int_logical_ops[count_trailing_zeros(li)]
         weights = weight_func(arrayf, out=out)
@@ -166,11 +158,9 @@ def _get_distance_brute_force(
 def symplectic_weight(
     words: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
 ) -> npt.NDArray[np.uint64]:
-    """Count the qubits in the support of each riffled word (see ``riffle``).
+    """Count the qubits in the support of each riffled word, in which aligned bit pairs hold qubits.
 
-    Each qubit occupies one aligned bit pair ``(2m, 2m + 1)`` of a word, so a qubit is in the
-    support if either bit of its pair is set.  The result is uint64, and ``out`` doubles as scratch
-    space.
+    The result is uint64, and written into ``out`` if it is given.
     """
     out = np.right_shift(words, 1, out=out)
     out |= words
@@ -179,10 +169,9 @@ def symplectic_weight(
 
 
 def inplace_rowsum(arr: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
-    """Destructively compute ``arr.sum(-1)``, placing the result in the first column of ``arr``.
+    """Compute ``arr.sum(-1)`` into ``arr[..., 0]``, and return that view.
 
-    The returned sum is ``arr[..., 0]``, and the entries of ``arr[..., 1:]`` are left in
-    indeterminate states, which permits a faster sum.
+    The other entries of ``arr`` are left indeterminate, which permits a faster sum.
     """
     width = arr.shape[-1]
     while width > 1:

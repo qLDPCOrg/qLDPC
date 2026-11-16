@@ -105,21 +105,16 @@ def certify_bounded_fault_propagation(
         memory_limit: The approximate number of bytes that the search may use for its lookup tables,
             a positive integer.  A smaller limit can make the search slower, but never changes the
             result.  Default: ``2**30`` (1 GiB).
-        method: The exact search of the residual weights.  ``"brouwer_zimmermann"``, with alias
-            ``"information_sets"``, searches cosets of the stabilizer group by information sets.
-            ``"connected_cluster"`` grows errors from their syndromes through generators of the
-            stabilizer group.  It first replaces the generators with sparser ones that generate the
-            same group, and can be fast only if they are sparse (see the `connected-cluster guide
-            <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
-            Both certify the same circuits, and find the same smallest violating fault, but the
-            ``output_pauli`` of a counterexample may be another equivalent error, and with
-            ``"connected_cluster"`` its bound is ``fault_weight + 1`` (see
+        method: The exact search of residual weights: ``"brouwer_zimmermann"``, its alias
+            ``"information_sets"``, or ``"connected_cluster"`` (see
+            :class:`~qldpc.codes.distance.CosetLeaderSearch`).  The methods certify the same
+            circuits, and find the same smallest violating fault, but the ``output_pauli`` and
+            ``residual_weight_lower_bound`` of a counterexample can differ (see
             ``BoundedFaultPropagationCounterexample``).  With ``"brouwer_zimmermann"``, the
-            ``output_pauli`` and the bound of a counterexample can also change between versions of
-            qLDPC when its queries are costly.  Such queries can search other families of
-            information sets, and the costliest can skip errors that tables prove too heavy.  The
-            verdict and the smallest violating fault do not change.  ``"connected_cluster"`` weighs
-            errors by CSS weight only on CSS states.  Default: ``"brouwer_zimmermann"``.
+            ``output_pauli`` and ``residual_weight_lower_bound`` can also change between versions
+            of qLDPC when the searches that find them are costly.  Whether the circuit is
+            certified, and its smallest violating fault, never change.  Default:
+            ``"brouwer_zimmermann"``.
 
     Returns:
         A certificate of bounded fault propagation, which includes a counterexample if applicable.
