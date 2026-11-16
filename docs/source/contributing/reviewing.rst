@@ -49,7 +49,7 @@ The coordinator gives each reviewer:
     * documentation that leaves out a behavior or limitation without which a reader could get a wrong or materially misleading result without an error.
 
     Mark every other finding minor.
-    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is minor unless an agent that follows them in good faith would plausibly cause one of these problems without reporting it.
+    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is minor unless an agent that follows them in good faith would plausibly do something that a maintainer would have to correct, without reporting it.
   * Ask for documentation only where a standard calls for it; for a behavior that the writing standard says to state, name the reasonable expectation, its source, and the wrong result that it would give.
   * Report problems that existed before the change separately, as pre-existing problems; a problem that the change causes in unchanged code, such as a broken caller, is a finding about the change.
   * Check whether the change needs updates elsewhere, such as to callers, to documents that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
@@ -63,6 +63,7 @@ Angles
 A review covers each of these angles that the change can affect, and each angle covers only the changes in its area, even when a request asks for all angles:
 
 * **Correctness:** results, edge cases, error handling, and documented contracts, checked against independent oracles where possible; the :doc:`implementation <standards/implementation>` and :doc:`decoder <standards/decoders>` standards in their areas; and, for a refactor, unchanged behavior.
+  For a change to the rules for working on qLDPC, it also covers what a good-faith reader would do under them.
 * **Clarity:** names and commented paragraphs of code, as :ref:`simplicity and clarity <simplicity-and-clarity>` describes, and whether comments and docstrings match the code.
 * **Simplicity:** code only as complex as its uses require, as the same section describes.
 * **Code standard:** the rest of the :doc:`code standard <standards/code>`.
