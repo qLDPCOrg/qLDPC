@@ -40,17 +40,19 @@ def certify_bounded_fault_propagation(
     """Certify bounded fault propagation in a noisy Clifford state-preparation circuit.
 
     Fault-tolerant state preparation requires that a few faults cannot leave an error on the
-    prepared state that is too heavy for later error correction.  This function checks a sufficient
-    criterion, bounded fault propagation (Definition 3 in Section 4.2 of `arXiv:0904.2557
-    <https://arxiv.org/abs/0904.2557>`_), and returns a certificate of the result.
+    prepared state that is too heavy for later error correction.  This function decides exactly
+    whether a circuit meets a sufficient criterion, bounded fault propagation (Definition 3 in
+    Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_), and returns a certificate
+    of the result.  The `guide to the certifier
+    <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md>`_
+    explains how it searches, and why the search is exact.
 
     Faults are sets of error mechanisms, which are the error instructions of the detector error
     model (DEM) of the circuit after adding any flag detectors and one noiseless detector for each
     stabilizer of the prepared state.  The certificate stores this DEM as ``detector_error_model``,
-    and the circuit with those detectors as ``diagnostic_circuit``.  Stim merges physical errors
-    that flip the same detectors and observables into one error mechanism, which does not change the
-    result.  A fault is represented by a binary vector over the error mechanisms, its fault weight
-    is its number of error mechanisms, and a primitive fault is a fault of fault weight one.
+    and the circuit with those detectors as ``diagnostic_circuit``.  The fault weight of a fault is
+    its number of error mechanisms.  Stim merges physical errors that flip the same detectors and
+    observables into one error mechanism, which does not change the result.
 
     A fault leaves a Pauli error, its output error, on the output qubits that hold the prepared
     state.  The Pauli weight of a Pauli error is either its physical weight (the number of qubits
@@ -59,12 +61,6 @@ def certify_bounded_fault_propagation(
     and the residual weight of a fault is the smallest Pauli weight of a Pauli error equivalent to
     its output error.  Fault propagation is bounded if every fault that passes post-selection
     satisfies the bound that its residual weight is at most its fault weight.
-
-    Without post-selection, it suffices to check that each primitive fault alone has residual weight
-    at most one, because Pauli errors propagate linearly through a Clifford circuit and Pauli weight
-    is subadditive.  With post-selection, primitive faults that each fire a detector can pass
-    together, so this function also considers the irreducible accepted faults, which are the faults
-    that pass post-selection and contain no other nonempty fault that passes.
 
     The certificate covers only the faults of this model: operations without noise are perfect,
     error instructions with probability zero are not faults, and alternatives that exclude each
@@ -88,8 +84,7 @@ def certify_bounded_fault_propagation(
             them, False for none, or a collection of their indices (negative indices count back from
             the last detector).  A fault passes post-selection if none of the selected detectors
             fire, where a detector fires if an odd number of the fault's error mechanisms flip it.
-            Default: None, which post-selects on the added flag detectors, if any, but never on the
-            circuit's own detectors.
+            Default: None.
         max_weight: The largest fault weight to certify, a positive integer.  Default: None, for no
             limit.  It does not change the result without post-selection.  With post-selection, the
             search time can grow exponentially with the fault weight, so a limit bounds it.
@@ -191,8 +186,6 @@ class BoundedFaultPropagationCertificate:
     Equivalence, fault weight, Pauli weight, residual weight, and bounded fault propagation are as
     defined in ``certify_bounded_fault_propagation``.
 
-    Attributes are in dependency order: each refers only to the ones before it.
-
     Attributes:
         output_qubits: The output qubit indices.  The ``i``-th Pauli of every Pauli string in this
             certificate acts on qubit ``output_qubits[i]``.
@@ -233,8 +226,8 @@ class BoundedFaultPropagationCertificate:
         Each error mechanism of a counterexample is traced to one circuit error that produces it,
         given by its Pauli error, noise instruction, qubits, instruction index, and tick.
         Instruction indices start at 0 and index the instructions of the certified circuit, which
-        are also the first instructions of ``diagnostic_circuit``; inside a REPEAT block, an index
-        counts within the block and the printout names the iteration (from 0) and the block's own
+        are also the first instructions of ``diagnostic_circuit``.  Inside a REPEAT block, an index
+        counts within the block, and the printout names the iteration, from 0, and the block's own
         index.
         """
         limit = "any fault weight" if self.max_weight is None else f"fault weight {self.max_weight}"
@@ -270,19 +263,15 @@ class BoundedFaultPropagationCertificate:
 class BoundedFaultPropagationCounterexample:
     """A fault that passes post-selection and violates the bound.
 
-    Its residual weight exceeds its fault weight.  No fault that passes post-selection and has a
-    smaller fault weight violates the bound.  Equivalence, fault weight, Pauli weight, output error,
-    residual weight, and the bound are as defined in ``certify_bounded_fault_propagation``.  The
-    ``output_pauli`` and ``residual_weight_lower_bound`` of a counterexample can change between
-    versions of qLDPC, as the searches that find them change (see
-    ``certify_bounded_fault_propagation``).
-
-    Attributes are in dependency order: each refers only to the ones before it.
+    No fault that passes post-selection and has a smaller fault weight violates the bound.
+    Equivalence, fault weight, Pauli weight, output error, residual weight, and the bound are as
+    defined in ``certify_bounded_fault_propagation``.  The ``output_pauli`` and
+    ``residual_weight_lower_bound`` of a counterexample can change between versions of qLDPC, as the
+    searches that find them change (see ``certify_bounded_fault_propagation``).
 
     Attributes:
-        fault_indices: The indices, among the error instructions of the certificate's
-            ``detector_error_model``, of the primitive faults that make up the fault, in increasing
-            order.
+        fault_indices: The indices of the fault's error mechanisms among the error instructions of
+            the certificate's ``detector_error_model``, in increasing order.
         output_pauli: A Pauli error that is equivalent to the fault's output error, on the output
             qubits in the order of the certificate's ``output_qubits``.  It need not be the output
             error itself, and its Pauli weight need not be the residual weight.
@@ -372,9 +361,9 @@ def _get_primitive_fault_signatures(
         diagnostics.append("DETECTOR", [stim.target_rec(jj - len(stabilizers))])
     diagnostic_circuit = circuit + diagnostics
 
-    # Stim raises an error here for a nondeterministic detector or observable.  Stim needs the
-    # option for correlated error chains here.  It treats their components as independent error
-    # mechanisms, which only approximates their probabilities, but no probabilities are used here.
+    # Stim raises an error here for a nondeterministic detector or observable.  The option lets Stim
+    # convert correlated error chains into independent error mechanisms, with approximate
+    # probabilities, which are not used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
     # Parsing the DEM's text is much faster than reading the targets of its error instructions
@@ -463,9 +452,8 @@ def _check_coset_search_method(method: DistanceMethod) -> None:
 def _is_css_state(stabilizers: npt.NDArray[np.uint8]) -> bool:
     """Test whether a complete rank-n stabilizer space is CSS in the physical basis."""
     n = len(stabilizers)
-    # Let W be the stabilizer space, and W_X and W_Z the X and Z parts of its rows.  The pure-X and
-    # pure-Z elements of W have dimensions n-rank(W_Z) and n-rank(W_X) and meet only in 0, so they
-    # span W exactly when rank(W_X)+rank(W_Z)=n, whatever generators are used.
+    # The state is CSS exactly when the ranks of the X and Z parts of the rows sum to n (see
+    # "Checking one fault" in ``fault_propagation.md``).
     ranks = [
         get_rank_packed(pack_bits(sector)) for sector in (stabilizers[:, :n], stabilizers[:, n:])
     ]
