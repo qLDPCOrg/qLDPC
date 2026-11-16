@@ -478,8 +478,8 @@ def _get_coset_search_method(
         ) from None
     if canonical == "brute_force":
         raise ValueError(
-            "The 'brute_force' distance method has no coset-leader search: use"
-            " 'brouwer_zimmermann' or 'connected_cluster'."
+            "The 'brute_force' distance method has no coset-leader search: use 'auto',"
+            " 'brouwer_zimmermann', or 'connected_cluster'."
         )
     return "brouwer_zimmermann" if canonical == "auto" else canonical
 

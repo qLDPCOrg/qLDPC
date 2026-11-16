@@ -28,7 +28,7 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
 - ``distance/<code>/<sector>``: ``get_distance_exact``, by the BZ method, of a quantum code, for the
   sector ``X``, ``Z``, or ``both``, or of a classical code, whose sector must be ``-``;
 - ``ccdistance/<code>/<sector>``: the same, by the connected-cluster method;
-- ``hadamard/<code>``: ``get_distance_exact`` by the BZ method of the code that Hadamards on the
+- ``hadamard/<code>``: ``get_distance_exact``, by the BZ method, of the code that Hadamards on the
   second half of the qubits of a CSS code make, which is not CSS;
 - ``count/<code>/<weight>``: ``CSSLogicalCounter.count_logical_ops(weight)`` by the BZ method;
 - ``ccount/<code>/<weight>``: the same count, in a process whose warm-up first calls
@@ -52,7 +52,7 @@ A workload name is a kind, then a code name, then the arguments of the kind, sep
 - ``certify/<code>/<weighing>/<max_weight>``: ``certify_bounded_fault_propagation`` of the encoding
   circuit of ``|0...0>`` of a CSS code under ``DepolarizingNoiseModel(1e-3)``, by ``css`` or
   ``physical`` weight, whose result is the fault weight of the smallest violation, if any;
-- ``faultdist/<code>/<basis>``: ``get_fault_distance`` by the BZ method of one round of a memory
+- ``faultdist/<code>/<basis>``: ``get_fault_distance``, by the BZ method, of one round of a memory
   experiment of a CSS code in the basis ``X`` or ``Z``, with noise only on its QEC cycle, as in the
   notebook of fault-tolerance certificates.
 

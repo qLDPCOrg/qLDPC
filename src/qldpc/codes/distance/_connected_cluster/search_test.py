@@ -774,8 +774,8 @@ def test_stepped_searches_report_their_progress_and_take_caps() -> None:
     assert search.predict_states(0, 1) == sector_search._predict_states(1)
 
     # Each limit without a witness raises the lower bound past it, and records its states.  The
-    # growth is the one ratio of states per unit of weight, and then the geometric mean of the last
-    # two; the first limit visits no states, so it gives no ratio.
+    # growth is the ratio of states per unit of weight while there is only one, and then the
+    # geometric mean of the last two ratios; the first limit visits no states, so it gives no ratio.
     states = []
     for max_weight in range(1, 5):
         assert search.next_limit == (0, max_weight)

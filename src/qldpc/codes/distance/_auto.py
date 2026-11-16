@@ -52,15 +52,15 @@ class BrouwerZimmermannProblem:
     Attributes:
         sectors: Nested-code bases and their quotient labels, as
             ``get_distance_brouwer_zimmermann`` takes them, one for each sector of the
-            connected-cluster search, in the same order.
-        weight_scale: The factor that converts weights into the weights of BZ words: two for Pauli
-            strings, whose BZ words are their images under ``symplectic_to_hamming``, and one
-            otherwise.
+            connected-cluster search of ``search_by_cost``, in the same order.
+        weight_scale: The factor that converts the weights of the searched words into those of
+            their BZ words: two for Pauli strings, whose BZ words are their images under
+            ``symplectic_to_hamming``, and one otherwise.
         weight_divisor: A proven divisor of the weights of BZ words.  Certificates round up to its
             multiples (Section 3.2 of ``brouwer_zimmermann.md``).  It equals ``weight_scale`` for
             the problems that ``core.py`` builds.
-        get_automorphisms: The automorphisms of the BZ words, as
-            ``get_distance_brouwer_zimmermann`` takes them.
+        get_automorphisms: A function that returns automorphisms of the coordinates of the BZ
+            words, or None, as ``get_distance_brouwer_zimmermann`` takes it.
     """
 
     sectors: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]]
@@ -162,7 +162,7 @@ class _BrouwerZimmermannCosts:
         return work
 
     def get_growth(self, index: int, level: int) -> float:
-        """The factor by which the work of a sector grows per unit of weight near ``level``.
+        """The factor by which the work of sector ``index`` grows per unit of weight near ``level``.
 
         The layer ``t`` that certifies ``level`` is followed by layer ``t + 1``, which scans
         ``(r - t) / (t + 1)`` times as many supports, and raises the certified weight by about
@@ -176,7 +176,7 @@ class _BrouwerZimmermannCosts:
         return ((rank - num_layers) / (num_layers + 1)) ** (rank * self._scale / width)
 
     def _get_num_layers(self, rank: int, width: int, level: int) -> int:
-        """The number of layers, from layer 1, that certify ``level``.
+        """The number of layers, from layer 1, that a search scans to certify ``level``.
 
         They run up to the first whose certified weight reaches ``level``, or to ``rank`` if none
         does.
@@ -232,7 +232,8 @@ def _should_switch(
     The level of the next weight limit is the weight that the limit certifies, one weight divisor
     above it.  The search switches only while its growth exceeds BZ's at that level.  It then
     switches if its spent and projected work to certify that level, or to reach the probe's bound,
-    exceeds BZ's.  To reach the bound, the projection counts half of the weight limit at it.
+    exceeds BZ's.  To reach the bound, the projection also counts half of the states predicted for
+    the next limit's search at the weight limit ``probe_bound``.
     """
     index, max_weight = clusters.next_limit
     growth = clusters.get_growth(index)
@@ -242,8 +243,8 @@ def _should_switch(
     spent = clusters.num_states * state_cost
     if spent + _project_states(clusters, level) * state_cost > costs.get_work(level):
         return True
-    # A bound within the next limit leaves only the level to compare.  search_by_cost never asks
-    # then, since its capped search has finished.
+    # A bound within the next limit leaves only the level to compare.  search_by_cost never calls
+    # this function then, since its connected-cluster search, capped by the bound, has finished.
     if probe_bound <= max_weight:
         return False
     projected = _project_states(clusters, probe_bound)

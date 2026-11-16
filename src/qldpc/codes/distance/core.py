@@ -43,8 +43,9 @@ DistanceMethod = Literal[
   search, which aims to avoid a method that is very slow on the search, rather than to find the
   fastest.  It takes ``"brute_force"`` if that is cheap.  Otherwise, a search of binary words that
   excludes no nonzero word, as for a classical code, takes ``"brouwer_zimmermann"``.  Any other
-  search, as for a quantum code or a circuit, runs ``"connected_cluster"``, and switches to
-  ``"brouwer_zimmermann"`` if the latter is predicted to cost less (`Choosing a method
+  search, as for a quantum code or a circuit, runs ``"connected_cluster"``, which a short
+  ``"brouwer_zimmermann"`` probe may finish or cap, and switches to ``"brouwer_zimmermann"`` if
+  the latter is predicted to cost less (`Choosing a method
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`_
   in the guide to the distance package).  Functions that take generators choose between
   ``"brute_force"`` and ``"brouwer_zimmermann"``, and coset searches, such as those of
@@ -806,11 +807,11 @@ def _search_generators(
 def _get_nested_basis(
     generators: npt.NDArray[np.uint8], excluded: npt.NDArray[np.uint8]
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None:
-    """A basis of the span of the rows of both matrices and its labels, or None if all are trivial.
+    """A basis of the span of both matrices' rows and its labels, or None if every word is trivial.
 
     The trivial words are those in the row space of the excluded rows.  With excluded rows, the
-    basis is adapted to them (Section 3.4 of ``brouwer_zimmermann.md``).  Without, the labels have
-    no columns, which exclude nothing.
+    basis is adapted to them (Section 3.4 of ``brouwer_zimmermann.md``).  Without excluded rows,
+    the labels have no columns, which exclude nothing.
     """
     if len(excluded):
         basis, labels = get_nested_code_basis(generators, excluded)

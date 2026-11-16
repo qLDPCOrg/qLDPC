@@ -151,7 +151,7 @@ It then extrapolates the states of its last limit without a witness by the growt
 `_BrouwerZimmermannCosts` estimates the work of BZ from the rank `r` and width `n` of each basis alone: a family that covers the columns evenly certifies about `(t + 1) n / r` after layer `t`, which scans `C(r, t)` supports of each set.
 It counts one set per layer, as with an automorphism family, which underestimates a family of several sets.
 It also leaves out completion tables, which can skip most supports of a costly layer, so it can overestimate the work of a hard BZ search.
-To reach `U`, the projection counts half of the limit at weight `U`, as for a search that must find a witness of weight `U` itself.
+To reach `U`, the projection counts half of the states predicted for the limit at weight `U` of the search of the next limit, as for a search that must find a witness of weight `U` itself.
 A search with `U` as its upper bound stops before that limit, so this overestimates the connected-cluster work.
 These two overestimates push the choice in opposite directions, so a refinement that removes one should remove the other.
 

@@ -63,7 +63,10 @@ def test_brute_force_is_cheap_up_to_its_budget_of_packed_integers() -> None:
 
 
 def test_brouwer_zimmermann_costs_follow_the_closed_form() -> None:
-    """The work certifies ``ceil((t + 1) n / r)`` after layer ``t``, rounded up to the divisor."""
+    """A basis of rank ``r`` and width ``n`` certifies ``ceil((t + 1) n / r)`` after layer ``t``.
+
+    The weight is rounded up to the divisor, and work adds over sectors.
+    """
     # One basis of rank 4 and width 8 certifies 2 (t + 1) after layer t.
     costs = _auto._BrouwerZimmermannCosts(get_shapes(4, 8))
     assert [costs.get_work(level) for level in (4, 5, 6, 8, 9)] == [4, 10, 10, 14, 15]
@@ -265,11 +268,12 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
         assert core.get_distance_pauli(bacon_shor_code.matrix, method="auto") == 3
     assert [finished for finished, _ in routes.probes] == [True] * 11 and routes.switch_bounds == []
 
-    # The lightest nontrivial row of the probe's basis weighs 14 as a BZ word, or 7 as a Pauli
-    # string, more than the distance 4.  The setup of the probe's search finds a witness of the
-    # distance, which joins the probe's bound only once that search advances.  So a probe that
-    # advances no layer has the bound 7, a cutoff below 7 must not return 7, and a cutoff of 7,
-    # doubled for the BZ words, returns 7 before the setup.
+    # The lightest nontrivial row of the basis of the probe of hgp_checks weighs 14 as a BZ word, or
+    # 7 as a Pauli string, more than the distance 4.  The setup of the probe's search finds a
+    # witness of the distance, which joins the probe's bound only once that search advances.  So a
+    # probe that advances no layer has the bound 14 in the weights of BZ words, or 7 in those of
+    # Pauli strings, a cutoff below 7 must not return 7, and a cutoff of 7, doubled for the BZ
+    # words, returns 7 before the setup.
     with use_tuning(**NO_PROBE):
         core.get_distance_pauli(hgp_checks, method="auto")
     assert routes.probes[-1] == (False, 14)
@@ -279,6 +283,14 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
         assert 4 <= core.get_distance_pauli(hgp_checks, method="auto", cutoff=6) <= 6
         assert core.get_distance_pauli(hgp_checks, method="auto", cutoff=7) == 7
     assert routes.probes == [(True, 8), (True, 8), (True, 14)]
+
+    # A CSS search passes its cutoff on too: with the cutoff 7, a search of the Golay code probes
+    # before its first weight limit, and the setup of the probe finds a word of weight 7.
+    routes.probes.clear()
+    routes.limits.clear()
+    with use_tuning(**NO_PROBE):
+        assert core.get_distance_css(golay.matrix_x, golay.matrix_z, method="auto", cutoff=7) == 7
+    assert routes.probes == [(True, 7)] and routes.limits == []
 
 
 def test_an_unfinished_probe_caps_the_search_by_its_bound(routes: Routes) -> None:
@@ -514,7 +526,7 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
     assert not _auto._should_switch(clusters, fast, 20, 10**6)
 
 
-def test_a_switch_compares_the_work_of_every_problem_in_steps_of_its_divisor() -> None:
+def test_a_switch_compares_the_work_of_every_search_in_steps_of_its_divisor() -> None:
     """The projection adds every search's limits, each from its next one in steps of its divisor.
 
     Both sectors of the toric code of size 6 have the divisor 2, so the level of a limit is two
