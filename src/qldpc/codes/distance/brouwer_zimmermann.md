@@ -748,7 +748,8 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
   If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch.
   After an exception, a later call restarts the layer from its first support; after a stop at the cutoff, the search has finished.
-  If the `advance` method of `BrouwerZimmermannSearches`, which steps the searches of several problems, raises, its searches can be left inconsistent, so build new ones to search again.
+  `BrouwerZimmermannSearches` steps the searches of several problems.
+  If its `advance` raises, those searches can be left inconsistent, so build a new `BrouwerZimmermannSearches` to search again.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

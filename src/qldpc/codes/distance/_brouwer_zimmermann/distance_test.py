@@ -712,8 +712,8 @@ def test_searches_that_setup_settles_are_finished_at_once(
 ) -> None:
     """Searches are finished when built if setup settles them, or with no problems.
 
-    Setup settles the Hamming code itself.  In the random code, it settles one sector, whose witness
-    finishes the search of the other.
+    Setup settles the Hamming problem directly.  In the random code, it settles one sector, whose
+    witness finishes the search of the other.
     """
     searches = bz.BrouwerZimmermannSearches([], cutoff=0, upper_bound=3)
     assert searches.finished and searches.best == 3
@@ -755,7 +755,10 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
 def test_stepped_searches_use_the_tuning_that_they_are_given(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Searches built with a tuning prepare every problem with it, whatever the active tuning."""
+    """Searches built with a tuning prepare every problem with it, whatever the active tuning.
+
+    The function that builds the searches passes its tuning on, so calling it checks both.
+    """
     tunings: list[Any] = []
     prepare = bz._prepare_brouwer_zimmermann_search
 
@@ -764,10 +767,11 @@ def test_stepped_searches_use_the_tuning_that_they_are_given(
         return prepare(*args, **kwargs)
 
     monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
-    code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
     tuning = dataclasses.replace(DEFAULT_TUNING, information_set_batch_exponent=5)
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
-    bz.BrouwerZimmermannSearches(problems, cutoff=0, tuning=tuning)
+    with use_tuning(information_set_batch_exponent=6):
+        bz.get_distance_brouwer_zimmermann_many(problems, cutoff=0, tuning=tuning)
     assert tunings == [tuning, tuning]
 
 

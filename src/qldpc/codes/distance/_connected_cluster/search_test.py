@@ -514,10 +514,12 @@ def test_connected_cluster_distance_searches_read_the_restriction_of_their_tunin
         get_distance_pauli(codes.FiveQubitCode().matrix, method="connected_cluster")
     assert set(settings) == {(False, expected), (True, expected)}
 
-    # Searches built with a tuning use it, whatever the active tuning.
+    # Searches built with a tuning use it, whatever the active tuning, and the function that builds
+    # them passes its tuning on.
     settings.clear()
     tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, **changes)
-    cs.ConnectedClusterSearches(get_sectors(steane), cutoff=0, tuning=tuning)
+    with _tuning.use_tuning(restrict_viable_symbols=not expected):
+        cs.get_distance_connected_cluster(get_sectors(steane), cutoff=0, tuning=tuning)
     assert set(settings) == {(False, expected)}
 
 
@@ -567,7 +569,8 @@ def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
 
     monkeypatch.setattr(cs.SupportSearch, "__init__", recording_init)
     monkeypatch.setattr(cs.SupportSearch, "find_witness", recording_find_witness)
-    # The problems have the divisors 2 and 1, so the lowest lower bound differs from round-robin.
+    # The problems have the divisors 2 and 1, so advancing the problem with the lowest lower bound
+    # gives a different order from round-robin.
     problems = [PROBLEMS["toric-X"], PROBLEMS["steane-X"]]
     searches = cs.ConnectedClusterSearches(problems, cutoff=0)
     lower_bounds = [search.weight_divisor for search in searches_made]
