@@ -549,10 +549,10 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     assert max(limits) == 3
 
 
-def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
+def test_stepped_searches_advance_the_sector_with_the_lowest_lower_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Each advance searches the problem with the lowest lower bound until the searches finish."""
+    """Each advance searches the sector with the lowest lower bound until the search finishes."""
     searches_made: list[cs.SupportSearch] = []
     limits: list[tuple[int, int]] = []
     init, find_witness = cs.SupportSearch.__init__, cs.SupportSearch.find_witness
@@ -569,34 +569,34 @@ def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
 
     monkeypatch.setattr(cs.SupportSearch, "__init__", recording_init)
     monkeypatch.setattr(cs.SupportSearch, "find_witness", recording_find_witness)
-    # The problems have the divisors 2 and 1, so advancing the problem with the lowest lower bound
+    # The sectors have the divisors 2 and 1, so advancing the sector with the lowest lower bound
     # gives a different order from round-robin.
-    problems = [PROBLEMS["toric-X"], PROBLEMS["steane-X"]]
-    searches = cs.ConnectedClusterSearches(problems, cutoff=0)
-    lower_bounds = [search.weight_divisor for search in searches_made]
+    sectors = [PROBLEMS["toric-X"], PROBLEMS["steane-X"]]
+    search = cs.ConnectedClusterSearch(sectors, cutoff=0)
+    lower_bounds = [made.weight_divisor for made in searches_made]
     assert lower_bounds == [2, 1]
-    while not searches.finished:
+    while not search.finished:
         num_limits = len(limits)
-        searches.advance()
+        search.advance()
         assert len(limits) == num_limits + 1
         index, max_weight = limits[-1]
         assert max_weight == lower_bounds[index] == min(lower_bounds)
         lower_bounds[index] += searches_made[index].weight_divisor
-    assert searches.result == 3 and [max_weight for _, max_weight in limits] == [1, 2, 2, 3]
+    assert search.result == 3 and [max_weight for _, max_weight in limits] == [1, 2, 2, 3]
 
-    # Once finished, the searches do nothing.
+    # Once finished, the search does nothing.
     num_limits = len(limits)
-    searches.advance()
+    search.advance()
     assert len(limits) == num_limits
 
-    # Problems without witnesses, and a known bound within the cutoff, leave nothing to search.
+    # Sectors without witnesses, and a known bound within the cutoff, leave nothing to search.
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
-    for searches in (
-        cs.ConnectedClusterSearches([trivial], cutoff=0),
-        cs.ConnectedClusterSearches(problems, cutoff=3, upper_bound=3),
+    for search in (
+        cs.ConnectedClusterSearch([trivial], cutoff=0),
+        cs.ConnectedClusterSearch(sectors, cutoff=3, upper_bound=3),
     ):
-        assert searches.finished and searches.result == 3
-        searches.advance()
+        assert search.finished and search.result == 3
+        search.advance()
     assert len(limits) == num_limits
 
 
@@ -952,7 +952,7 @@ def test_invalid_problems_are_rejected() -> None:
         get_search(np.zeros((0, 3), dtype=np.uint8), np.array([[1, 0.5, 0]]))
     with pytest.raises(ValueError, match="at least one"):
         get_search(*PROBLEMS["steane-X"]).find_witness(0)
-    with pytest.raises(ValueError, match="at least one problem or an upper bound"):
+    with pytest.raises(ValueError, match="at least one sector or an upper bound"):
         cs.get_distance_connected_cluster([], cutoff=0)
     with pytest.raises(ValueError, match="even number of columns"):
         get_search(

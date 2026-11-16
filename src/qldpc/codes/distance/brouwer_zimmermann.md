@@ -541,7 +541,7 @@ The thresholds, limits, and coefficients of the heuristics are fields of `Search
 [README.md](README.md) maps the modules of this directory and the levels in which they import each other; this section says how the searches use them.
 
 The distance functions of [core.py](core.py) run the BZ search of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), the exhaustive enumeration of [_brute_force.py](_brute_force.py), or the connected-cluster search of [_connected_cluster/search.py](_connected_cluster/search.py).
-For BZ, they build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the problems, both sectors of a CSS code at once in `get_distance_css`, to `get_distance_brouwer_zimmermann_many`.
+For BZ, they build an adapted basis ([Section 3.4](#34-quotient-labels-for-the-stabilizer-test)) for each sector, and pass the sectors, both of a CSS code at once in `get_distance_css`, to `get_distance_brouwer_zimmermann`.
 [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py) verifies automorphisms and builds the families of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), with the certificates of [_information_sets/certificates.py](_information_sets/certificates.py).
 
 [logical_counts.py](logical_counts.py) builds its families with the stages of [_information_sets/basis_families.py](_information_sets/basis_families.py) that distance searches use ([Section 4.4](#44-heuristics-and-cost-models)), in `_select_basis_family` and `count_words` of [_counting/scan.py](_counting/scan.py), under the stricter stopping rule of [Section 5](#5-correctness-requirements).
@@ -600,9 +600,9 @@ The search of Pauli errors by CSS weight has no routes by tails, since the CSS w
 ### 4.2 Flow and exit points
 
 A public entry point validates inputs and chooses a method.
-For BZ, `get_distance_brouwer_zimmermann_many` builds a `BrouwerZimmermannSearches`, which prepares each problem.
-Each call of its `advance` method advances one remaining search by one layer, in round-robin order for a joint CSS search ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
-Preparation returns a result, or a `_BrouwerZimmermannSearch` whose `advance` method searches one layer `t`, or only its first `j` search bases if step `(t, j)` certifies `U` ([Section 2.5](#25-the-stopping-certificate)).
+For BZ, `get_distance_brouwer_zimmermann` builds a `BrouwerZimmermannSearch`, which prepares a search of each sector.
+Each call of its `advance` method advances the search of one remaining sector by one layer, in round-robin order for a joint CSS search ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
+Preparation returns a result, or a `_SectorSearch` whose `advance` method searches one layer `t`, or only its first `j` search bases if step `(t, j)` certifies `U` ([Section 2.5](#25-the-stopping-certificate)).
 A result of preparation can include a witness from another sector or the bound of a weight limit ([Section 4.5](#45-behavior-spanning-files)), so it need not be the distance of its sector.
 
 | Input or method in [core.py](core.py) | Outcome |
@@ -621,13 +621,13 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | Rows of each replacement family, overlapping and then partitioned, if selected | Returns if `U ≤ cutoff` |
 | Certificate of each replacement family | Returns if `L(1) ≥ U` |
 | Switch at the end of setup | If setup asked for automorphisms before partitioning and found some, the search considers switching to their family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); returns if then `U ≤ cutoff` or `L(1) ≥ U` |
-| Ready search | Returns a `_BrouwerZimmermannSearch` that scans from layer two |
+| Ready search | Returns a `_SectorSearch` that scans from layer two |
 
 | Search location | Outcome |
 | --- | --- |
-| `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
-| `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
-| `BrouwerZimmermannSearches.finished` | Marks the searches finished once the shared `U ≤ cutoff`, or every search has finished; `get_distance_brouwer_zimmermann_many` then returns `U` |
+| `_SectorSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
+| `_SectorSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
+| `BrouwerZimmermannSearch.finished` | Marks the search finished once the shared `U ≤ cutoff`, or the search of every sector has finished; `get_distance_brouwer_zimmermann` then returns `U` |
 
 The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, and `test_searches_that_setup_settles_are_finished_at_once` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
 
@@ -651,7 +651,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Stored width `N_stored` | `basis.shape[1]` before pivot deletion, including any all-zero columns |
 | Labels `M` | `labels`, which has no columns for a classical problem |
 | Eligible rows | `get_eligible_rows` of [_binary.py](_binary.py): every row of a classical basis; rows with nonzero labels for a quantum problem |
-| Support, prefix XORs | `support` and `prefixes` in `_BrouwerZimmermannSearch._scan_set` and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
+| Support, prefix XORs | `support` and `prefixes` in `_SectorSearch._scan_set` and in the scans of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which step through a layer with `advance_support` of [_information_sets/support_stepping.py](_information_sets/support_stepping.py) |
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion |
 | Batch of a compiled scan | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
@@ -736,7 +736,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   The same docstring states the contract of `max_weight`.
   The functions pass `upper_bound=max_weight+1` to BZ, as though a witness of that weight were known, so that it stops once its certificate reaches that bound, and clamp the results of the other methods to `max_weight+1`.
   They also cap `cutoff` at `max_weight`, since a higher cutoff would end the search at once on the assumed witness.
-  Inside the searches, a problem without nontrivial words counts as `n+1`, which no word on `n` bits or qubits weighs, so that it never lowers the minimum over problems.
+  Inside the searches, a sector without nontrivial words counts as `n+1`, which no word on `n` bits or qubits weighs, so that it never lowers the minimum over sectors.
 - **Units.**
   Binary input (`symplectic=False`) is a classical problem, or a pure-X or pure-Z problem with one bit per qubit, and symplectic input (`symplectic=True`) has general Pauli rows.
   For symplectic input, BZ maps rows by `T` ([Section 2.7](#27-pauli-weight-as-hamming-weight)), doubles `cutoff` and the bound of a weight limit, passes `weight_divisor=2`, and halves the result, while `method="brute_force"` uses symplectic weights and the original `cutoff`.
@@ -748,7 +748,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
   If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch.
   A later call restarts the layer from its first support, unless the search has finished, as it has after a stop at the cutoff.
-  If `BrouwerZimmermannSearches.advance` raises, a witness that the interrupted scan found can stay out of the shared `U`, so build new searches to search again.
+  If `BrouwerZimmermannSearch.advance` raises, a witness that the interrupted scan found can stay out of the shared `U`, so build a new search to search again.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

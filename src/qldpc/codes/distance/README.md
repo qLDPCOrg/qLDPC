@@ -19,6 +19,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 ## Terms
 
 - **Sector:** the words of one type that a search examines, such as the logical operators of one type of a CSS code.
+  A search of a classical code, of a qubit code that is not CSS, or of a circuit examines one sector.
   A Brouwer-Zimmermann search takes a basis of them, labeled to tell nontrivial words, such as logical operators, from trivial ones, such as stabilizers.
   A connected-cluster search takes checks whose kernel holds them and a matrix whose row space holds the trivial ones.
 - **Information set:** in most of the source, a basis of a sector, row reduced on `rank` pivot columns: its first `rank` rows are the identity there and its other rows zero.
@@ -138,7 +139,7 @@ They are not arguments of public functions, whose arguments say what to compute 
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down as arguments, including to compiled code, so that one search never mixes two tunings.
   The distance functions of `core.py` read it for a distance search, `CSSLogicalCounter.count_logical_ops` for a count, and `CosetLeaderSearch` when it is built.
-  `BrouwerZimmermannSearches` and `ConnectedClusterSearches`, which `get_distance_brouwer_zimmermann_many` and `get_distance_connected_cluster` build, read it only if their callers pass none.
+  `BrouwerZimmermannSearch` and `ConnectedClusterSearch`, which `get_distance_brouwer_zimmermann` and `get_distance_connected_cluster` build, read it only if their callers pass none.
   A cache that outlives a search is keyed by the values that it depends on, as the fields of `_CosetTuning` in `_brouwer_zimmermann/coset.py` key the cached searches of `CosetLeaderSearch`.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
   Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.

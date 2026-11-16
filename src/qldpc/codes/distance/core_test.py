@@ -162,10 +162,10 @@ def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
 
     searched: list[tuple[list[int], bool]] = []
 
-    def record(problems: Any, **kwargs: Any) -> Any:
-        widths = [np.shape(sector_checks)[1] for sector_checks, _ in problems]
+    def record(sectors: Any, **kwargs: Any) -> Any:
+        widths = [np.shape(sector_checks)[1] for sector_checks, _ in sectors]
         searched.append((widths, kwargs.get("symplectic", False)))
-        return get_distance_connected_cluster(problems, **kwargs)
+        return get_distance_connected_cluster(sectors, **kwargs)
 
     get_distance_connected_cluster = core.get_distance_connected_cluster
     monkeypatch.setattr(core, "get_distance_connected_cluster", record)
@@ -314,9 +314,9 @@ def test_connected_cluster_searches_sparse_stabilizers(monkeypatch: pytest.Monke
 
     searched: list[npt.NDArray[np.uint8]] = []
 
-    def record(problems: Any, **kwargs: Any) -> Any:
-        searched.extend(np.asarray(checks) for checks, _ in problems)
-        return get_distance_connected_cluster(problems, **kwargs)
+    def record(sectors: Any, **kwargs: Any) -> Any:
+        searched.extend(np.asarray(checks) for checks, _ in sectors)
+        return get_distance_connected_cluster(sectors, **kwargs)
 
     get_distance_connected_cluster = core.get_distance_connected_cluster
     monkeypatch.setattr(core, "get_distance_connected_cluster", record)

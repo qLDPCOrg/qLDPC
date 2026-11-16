@@ -27,7 +27,7 @@ from ._binary import (
     swap_pauli_halves,
     symplectic_to_hamming,
 )
-from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
+from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann
 from ._brute_force import get_nested_distance_brute_force
 from ._connected_cluster.search import get_distance_connected_cluster
 from ._connected_cluster.sparse_checks import get_row_weights, get_sparser_rows
@@ -491,8 +491,8 @@ def _search_css(
     # Each sector takes the stabilizers of the other type as checks, and excludes the gauge
     # generators of its own type.
     stabilizers_x, stabilizers_z = get_css_stabilizers(gauge_x, gauge_z)
-    sectors = {Pauli.X: (stabilizers_z, gauge_x), Pauli.Z: (stabilizers_x, gauge_z)}
-    problems = [sectors[sector_pauli] for sector_pauli in paulis]
+    sector_of_type = {Pauli.X: (stabilizers_z, gauge_x), Pauli.Z: (stabilizers_x, gauge_z)}
+    sectors = [sector_of_type[sector_pauli] for sector_pauli in paulis]
 
     # Each type has one independent nontrivial logical operator for each logical qubit, so the X
     # type alone shows whether the code encodes any.
@@ -516,17 +516,17 @@ def _search_css(
                 Pauli.X: gauge_z[~np.any(overlaps, axis=0)],
                 Pauli.Z: gauge_x[~np.any(overlaps, axis=1)],
             }
-            problems = [
+            sectors = [
                 (
                     _get_sparser_stabilizers(
                         checks, kept_stabilizers[sector_pauli], symplectic=False, tuning=tuning
                     ),
                     excluded,
                 )
-                for sector_pauli, (checks, excluded) in zip(paulis, problems, strict=True)
+                for sector_pauli, (checks, excluded) in zip(paulis, sectors, strict=True)
             ]
         return get_distance_connected_cluster(
-            problems,
+            sectors,
             cutoff=cutoff,
             upper_bound=upper_bound,
             get_automorphisms=get_automorphisms,
@@ -543,10 +543,10 @@ def _search_css(
                 method=method,
                 get_automorphisms=None,
             )
-            for checks, excluded in problems
+            for checks, excluded in sectors
         )
-    return get_distance_brouwer_zimmermann_many(
-        [get_nested_code_basis(get_kernel(checks), excluded) for checks, excluded in problems],
+    return get_distance_brouwer_zimmermann(
+        [get_nested_code_basis(get_kernel(checks), excluded) for checks, excluded in sectors],
         cutoff=cutoff,
         upper_bound=upper_bound,
         get_automorphisms=get_automorphisms,
@@ -684,7 +684,7 @@ def _search_generators(
             get_automorphisms = functools.partial(
                 _get_lifted_automorphisms, get_automorphisms, num_qubits
             )
-    distance = get_distance_brouwer_zimmermann_many(
+    distance = get_distance_brouwer_zimmermann(
         [(basis, labels)],
         cutoff=cutoff * divisor,
         weight_divisor=divisor,

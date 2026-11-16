@@ -178,7 +178,7 @@ def get_random_css_code(
     return codes.CSSCode(checks_x.astype(int), checks_z.astype(int))
 
 
-def get_sector_problem(
+def get_sector(
     code: codes.CSSCode, pauli: PauliXZ
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """The adapted basis and quotient labels of one sector of a binary CSS code."""

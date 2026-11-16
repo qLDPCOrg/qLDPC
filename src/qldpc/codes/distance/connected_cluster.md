@@ -50,7 +50,7 @@ $$
 Coordinates are **variables**, and the rows of `H` are **checks**.
 The **support** of a vector is the set of its nonzero variables, and its **syndrome** is the set of its **unsatisfied** checks, those with an odd number of variables in the support.
 
-A CSS code with X-type checks `H_X` and Z-type checks `H_Z` has two **sectors**, which a search treats as separate problems: its X-type logical operators, of distance `d(H_Z, H_X)`, and its Z-type ones, of distance `d(H_X, H_Z)`.
+A CSS code with X-type checks `H_X` and Z-type checks `H_Z` has two **sectors**, each an instance of this problem: its X-type logical operators, of distance `d(H_Z, H_X)`, and its Z-type ones, of distance `d(H_X, H_Z)`.
 Its distance is the smaller of the two.
 For a CSS subsystem code with gauge generators `G_X` and `G_Z` and stabilizers `S_X` and `S_Z`, the sectors are `(S_Z, G_X)` and `(S_X, G_Z)`, and a witness is a dressed logical operator.
 For a classical code, `H` is its parity-check matrix and `G` is empty.
@@ -143,7 +143,7 @@ qLDPC takes the orbits of any group of automorphisms that it verifies.
 
 The generators of `Γ` are automorphisms that the caller of a distance function supplies on request, such as the `_found_qudit_automorphisms` of quantum codes; classical codes supply none.
 For a large code, finding the automorphisms, verifying them, and ordering their orbits can cost as much as visiting many states.
-So the search of each problem asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
+So the search of each sector asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
 That field of `SearchTuning` in `_tuning.py` defaults to a round number of states assumed to cost about as much to visit as asking.
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
 The search predicts rather than counts because it can ask only between limits, each a single compiled call, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
@@ -166,17 +166,17 @@ For example, each block row of the checks of a pair-partition code sums to the a
 `infer_weight_divisor` of `_information_sets/basis_families.py` finds `d` from a basis of `ker(H)`, as BZ does.
 
 **Exact distance.**
-For each problem, such as a sector of a CSS code, the search keeps a lower bound `L` on the weights of its witnesses, starting at its divisor, and searches the problem with the lowest `L` at the weight limit `W = L`.
-A witness found then is a lightest one over all problems; otherwise every witness of the problem weighs more than `W`, and its `L` rises to the next multiple of its divisor.
+For each sector, the search keeps a lower bound `L` on the weights of its witnesses, starting at its divisor, and searches the sector with the lowest `L` at the weight limit `W = L`.
+A witness found then is a lightest one over all sectors; otherwise every witness of the sector weighs more than `W`, and its `L` rises to the next multiple of its divisor.
 The search ends once the lightest witness found weighs at most every `L`, and so needs no initial upper bound.
-The problems share the lightest witness found, as the sectors of a CSS code do in BZ, and an upper bound that the caller passes, such as a known distance of another sector, acts as a witness of that weight.
-A `cutoff` above the `L` of a problem makes its first limit the largest multiple of its divisor at most `cutoff`, and a witness within that limit is returned at once, though it can be heavier than the distance.
+The sectors share the lightest witness found, as they do in BZ, and an upper bound that the caller passes, such as a known distance of another sector, acts as a witness of that weight.
+A `cutoff` above the `L` of a sector makes its first limit the largest multiple of its divisor at most `cutoff`, and a witness within that limit is returned at once, though it can be heavier than the distance.
 
 **Termination.**
 Each limit ends, since the search from a root is a finite tree of depth at most `W`.
-A problem without witnesses is not searched.
-The lightest witness of any other problem, with `n` variables and divisor `d`, weighs a multiple of `d` that is at most `n`, so the problem takes at most `n // d` limits.
-A search that needs more limits than the sum of these over its problems has a bug, and raises a `RuntimeError` rather than looping forever.
+A sector without witnesses is not searched.
+The lightest witness of any other sector, with `n` variables and divisor `d`, weighs a multiple of `d` that is at most `n`, so the sector takes at most `n // d` limits.
+A search that needs more limits than the sum of these over its sectors has a bug, and raises a `RuntimeError` rather than looping forever.
 
 **Interrupts.**
 Each weight limit runs in one compiled call, which a keyboard interrupt cannot stop.
@@ -286,7 +286,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Sectors of a CSS code | `_search_css` of `core.py`, which `get_distance_css` and `get_distance_pauli` call, and `get_css_stabilizers` of `_binary.py` |
 | Classical codes, and qubit codes that are not CSS | `get_distance_from_checks` and `get_distance_pauli` of `core.py` |
 | Problems of Section 3.7, values, and symbols | `symplectic` of `SupportSearch`, its `_get_symbol_columns`, and `_shift_other_values` |
-| Distance of several problems | `get_distance_connected_cluster`, which advances `ConnectedClusterSearches` one weight limit at a time |
+| Distance over several sectors | `get_distance_connected_cluster`, which advances `ConnectedClusterSearch` one weight limit at a time |
 | Distance of a vector `v` from a classical code with generator matrix `G_C` | `ClassicalCode.get_distance_exact(vector=v)` in `src/qldpc/codes/common.py`, which, by the connected-cluster method, searches `([H \| Hv], [G_C \| 0])` and subtracts one |
 | Search through a weight limit `W` | `SupportSearch.find_witness` |
 | Syndrome query | `SupportSearch.find_vector_with_syndrome`, which coset searches skip for `SupportSearch._find_vector_with_packed_syndrome`, and the sentinel root `-1` of `_search_supports` |
@@ -302,8 +302,8 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
-`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the problems of the search and pass it the active tuning, the last two after they derive the stabilizers of subsystem codes and make them sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
-`SupportSearch` validates every problem, and the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
+`get_distance_from_checks`, `get_distance_css`, and `get_distance_pauli` of `core.py` build the sectors of the search and pass it the active tuning, the last two after they derive the stabilizers of subsystem codes and make them sparser ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)).
+`SupportSearch` validates every sector, and the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes, `logical_counts.py`, and `get_distance_from_generators` reject `method="connected_cluster"`: counting needs every word of a weight rather than one witness, and generators are not checks.
 Hypergraph product codes get their closed-form distances by searching the classical seed codes with the given method.
 `_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
