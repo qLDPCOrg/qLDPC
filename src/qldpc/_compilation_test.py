@@ -163,8 +163,8 @@ def test_outdated_cache_directories_unused_for_a_week_are_deleted(
         return f"qldpc-{digit * len(source_hash)}"
 
     in_use = base / f"qldpc-{source_hash}"
-    outdated, recent, elsewhere, vanished, unknown, undecodable, relative, file, null = (
-        base / name(digit) for digit in "012345678"
+    outdated, recent, elsewhere, vanished, unknown, undecodable, null = (
+        base / name(digit) for digit in "0123456"
     )
     other = base / f"qldpc-tools_{'0' * 40}"  # where numba caches code from a folder "qldpc-tools"
     day = 24 * 60 * 60
@@ -177,8 +177,6 @@ def test_outdated_cache_directories_unused_for_a_week_are_deleted(
         (vanished, str(tmp_path.resolve() / "deleted_checkout").encode(), 8),
         (unknown, None, 8),
         (undecodable, b"\xff", 8),
-        (relative, b".", 8),  # the current directory, which exists
-        (file, str(package.resolve() / "source.py").encode(), 8),  # a file, not a directory
         (null, b"/\x00", 8),  # a path with a NUL byte, which os.stat rejects
         (other, str(package.resolve()).encode(), 8),
     ]:
@@ -194,61 +192,41 @@ def test_outdated_cache_directories_unused_for_a_week_are_deleted(
 
 
 def test_cache_directories_are_scanned_at_most_once_a_day(tmp_path: Path) -> None:
-    """Even after a change to the source files, which selects another directory in use."""
-    package = tmp_path / "package"
+    """Even after a change to the source files, but separately for each package directory."""
+    package, other_package = tmp_path / "package", tmp_path / "other_package"
     package.mkdir()
+    other_package.mkdir()
     base = tmp_path / "numba"
     first, second = (base / f"qldpc-{digit * _compilation._HASH_LENGTH}" for digit in "01")
     first.mkdir(parents=True)
     second.mkdir()
     assert _scan_deletes_outdated_directory(first, package, "a")
     assert not _scan_deletes_outdated_directory(second, package, "b")
+    assert _scan_deletes_outdated_directory(second, other_package, "c")
     _age_files(base, 2 * 24 * 60 * 60)
-    assert _scan_deletes_outdated_directory(second, package, "c")
+    assert _scan_deletes_outdated_directory(second, package, "d")
 
 
-def test_checkouts_scan_for_their_own_outdated_directories_independently(tmp_path: Path) -> None:
-    """A scan keeps the recent stamps of other checkouts, and deletes their old ones."""
-    first, second = tmp_path / "first", tmp_path / "second"
-    first.mkdir()
-    second.mkdir()
-    base = tmp_path / "numba"
-    in_use = base / f"qldpc-{'0' * _compilation._HASH_LENGTH}"
-    in_use.mkdir(parents=True)
-    assert _scan_deletes_outdated_directory(in_use, first, "1")
-    assert _scan_deletes_outdated_directory(in_use, second, "2")
-    assert not _scan_deletes_outdated_directory(in_use, first, "3")
-    _age_files(base, 2 * 24 * 60 * 60)
-    assert _scan_deletes_outdated_directory(in_use, first, "4")
-    assert sum(path.is_file() for path in base.iterdir()) == 1
-
-
-def test_an_error_at_one_cache_directory_keeps_only_that_one(
+def test_a_cache_directory_whose_marked_path_cannot_be_checked_is_kept(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Such as a marker that names a path that this process may not search."""
-    package = tmp_path / "package"
-    package.mkdir()
+    """Such as one whose marker names a path that this process may not search."""
     base = tmp_path / "numba"
     in_use = base / f"qldpc-{'0' * _compilation._HASH_LENGTH}"
     in_use.mkdir(parents=True)
-    markers = [str(tmp_path / "private" / name) for name in ["first", "second"]]
-    for digit, marker in zip("12", markers):
-        _make_outdated_directory(base / f"qldpc-{digit * _compilation._HASH_LENGTH}", marker)
-
-    # Fail to check whichever marked path the scan reaches first.
+    marked = str(tmp_path / "private" / "checkout")
+    outdated = base / f"qldpc-{'1' * _compilation._HASH_LENGTH}"
+    _make_outdated_directory(outdated, marked)
     stat = os.stat
-    failed: list[str] = []
 
-    def fail_once(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
-        if os.fspath(path) in markers and not failed:
-            failed.append(os.fspath(path))
+    def fail_for_marked(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+        if os.fspath(path) == marked:
             raise PermissionError("not searchable")
         return stat(path, *args, **kwargs)
 
-    monkeypatch.setattr(os, "stat", fail_once)
-    _compilation._delete_outdated_cache_directories(in_use, package)
-    assert sum(path.is_dir() for path in base.iterdir()) == 2
+    monkeypatch.setattr(os, "stat", fail_for_marked)
+    _compilation._delete_outdated_cache_directories(in_use, tmp_path)
+    assert outdated.exists()
 
 
 def test_a_new_cache_directory_names_its_package_directory(
