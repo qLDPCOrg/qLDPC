@@ -3,9 +3,8 @@
 """PyMatching decoder adapters and the MWPM decoder specification.
 
 qLDPC imports this integration module while initializing its public decoder API.  Importing
-PyMatching and ldpc eagerly adds roughly 0.18 seconds (about 25 percent) to ``import qldpc`` in
-fresh-process development benchmarks.  The error-decoder subclass is therefore created on first use
-by the file-internal helpers at the end of the decoder section.
+PyMatching and ldpc eagerly would noticeably slow ``import qldpc``, so the error-decoder subclass is
+created on first use by the file-internal helpers at the end of the decoder section.
 """
 
 from __future__ import annotations

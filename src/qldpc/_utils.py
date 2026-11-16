@@ -72,8 +72,8 @@ class _LoaderWithCleanup(importlib.abc.Loader):
             raise
 
 
-# networkx is loaded lazily, deferring its ~110 ms import until it is first used.  Call sites import
-# it as ``from qldpc._utils import networkx as nx``.
+# networkx is loaded lazily, deferring its slow import until it is first used.  Call sites import it
+# as ``from qldpc._utils import networkx as nx``.
 if TYPE_CHECKING:
     import networkx
 else:
