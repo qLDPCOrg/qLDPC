@@ -8,7 +8,7 @@ Such changes are most common in code constructions, code-core algebra or cached 
 qLDPC has two kinds of review:
 
 * A **full review** gives each angle that the change can affect its own reviewer, except as the :ref:`grouping rules <review-grouping>` allow.
-  It suits a high-risk change, a change to a public name, argument, mode, or default, and a change too large for one reviewer to read in full.
+  It suits a high-risk change, a change to a public name, argument, mode, or default, a change to what the rules for working on qLDPC require, and a change too large for one reviewer to read in full.
 * A :ref:`quick review <quick-review>` has at most two rounds, each with one reviewer.
   It suits every other change, such as one that rewords, moves, or cuts documentation without adding or correcting a claim, renames private names, or changes only tests.
 
