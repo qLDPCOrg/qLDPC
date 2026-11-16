@@ -168,7 +168,9 @@ The search looks up the closing class in a hash map from a 64-bit linear hash of
 Different flags can share a hash, so the search compares the flags of every class that it finds with the sum of the prefix flags.
 Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing `c_{m-1}` and `c_m` together, as a **closing pair**.
 Choosing them together removes about one factor of the number of classes from the search time, at the cost of a table whose size is quadratic in the number of classes.
-If it fits within the memory limit and has at most `2^31` pairs, the search keeps a table of all pairs of classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its pairs; this table has first claim on the memory limit.
+The search keeps a table of all pairs of classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its pairs.
+It keeps the table only if the table has at most `2^31` pairs and fits within the memory limit.
+The table has first claim on the memory limit.
 For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up the pairs `c_{m-1} < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-2}`, and keeps those that come after `c_{m-2}` and whose flags sum to exactly that sum.
 Of these, it keeps only the pairs whose first class `c_{m-1}` keeps the prefix `c_1, ..., c_{m-1}` independent.
 That `c_1, ..., c_{m-2}` are independent is not enough, since the flags of `c_{m-1}` could be the sum of some of theirs, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.

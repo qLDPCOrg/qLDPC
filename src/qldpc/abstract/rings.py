@@ -350,12 +350,12 @@ class GroupRing(Ring):
 
     @property
     def dim(self) -> int:
-        """Dimension of this ring over its base field, which is the order of the group."""
+        """Dimension of this ring over its base field, equal to the order of the group."""
         return self.group.order
 
     @property
     def lift_dim(self) -> int:
-        """Size of the matrices that lift ring members, which is the lift dimension of the group."""
+        """Size of the matrices that lift ring members, equal to the lift dimension of the group."""
         return self.group.lift_dim
 
     def get_transformer(
