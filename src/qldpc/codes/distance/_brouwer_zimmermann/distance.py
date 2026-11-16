@@ -54,8 +54,8 @@ def get_distance_brouwer_zimmermann(
 ) -> int:
     """Compute the minimum distance across nested-code sectors by a BZ search.
 
-    The searches advance round-robin, and share their best upper bound, the weight of the lightest
-    witness that any of them has found, but not their certificates (Section 3.3).
+    The searches of the sectors advance round-robin, and share their best upper bound, the weight of
+    the lightest witness that any of them has found, but not their certificates (Section 3.3).
 
     Args:
         sectors: Nested-code bases and their quotient labels (see ``get_nested_code_basis``).  The
@@ -100,7 +100,7 @@ def get_distance_brouwer_zimmermann(
 
 
 class BrouwerZimmermannSearch:
-    """A BZ search of sectors, which advances one sector by one layer at a time, round-robin.
+    """A BZ search of sectors, which advances their searches one layer at a time, round-robin.
 
     The arguments are those of ``get_distance_brouwer_zimmermann``, which advances the search until
     it finishes.
@@ -176,7 +176,7 @@ class BrouwerZimmermannSearch:
         return self.best <= self._cutoff or all(search.finished for search in self._searches)
 
     def advance(self) -> None:
-        """Advance the next unfinished sector, in round-robin order, by one layer, unless finished.
+        """Advance the next unfinished sector's search by one layer, round-robin, unless finished.
 
         The search of every sector then takes the best upper bound, which shares witnesses between
         sectors.  If this raises, as at a keyboard interrupt, the search can be left inconsistent,

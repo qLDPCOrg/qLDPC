@@ -1051,7 +1051,7 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
 
 @pytest.mark.usefixtures("switch_before_any_layer")
 def test_searches_reject_wrong_automorphisms() -> None:
-    """A permutation that does not preserve a problem fails loudly when a search would use it."""
+    """A permutation that does not preserve a sector fails loudly when a search would use it."""
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     transposition = np.arange(len(code))
     transposition[[0, 1]] = [1, 0]

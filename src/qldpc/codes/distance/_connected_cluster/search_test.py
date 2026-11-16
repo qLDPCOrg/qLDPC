@@ -573,7 +573,7 @@ def test_stepped_searches_advance_the_sector_with_the_lowest_lower_bound(
     # gives a different order from round-robin.
     sectors = [PROBLEMS["toric-X"], PROBLEMS["steane-X"]]
     search = cs.ConnectedClusterSearch(sectors, cutoff=0)
-    lower_bounds = [made.weight_divisor for made in searches_made]
+    lower_bounds = [sector_search.weight_divisor for sector_search in searches_made]
     assert lower_bounds == [2, 1]
     while not search.finished:
         num_limits = len(limits)

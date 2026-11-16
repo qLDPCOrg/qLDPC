@@ -18,7 +18,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 
 ## Terms
 
-- **Sector:** the words of one type that a search examines, such as the logical operators of one type of a CSS code.
+- **Sector:** a set of words that a search examines, such as the logical operators of one type of a CSS code.
   A search of a classical code, of a qubit code that is not CSS, or of a circuit examines one sector.
   A Brouwer-Zimmermann search takes a basis of them, labeled to tell nontrivial words, such as logical operators, from trivial ones, such as stabilizers.
   A connected-cluster search takes checks whose kernel holds them and a matrix whose row space holds the trivial ones.
