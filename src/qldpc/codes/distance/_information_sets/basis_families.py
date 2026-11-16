@@ -371,7 +371,8 @@ def get_partitioned_family(
         else:
             # Skip a coverage at which no family could do less work than the best so far, which
             # leaves the result unchanged (Section 4.4).
-            if plan.estimate_coverage_work(coverage, weight_divisor, upper_bound) >= best_work:
+            bound = plan.estimate_optimistic_coverage_work(coverage, weight_divisor, upper_bound)
+            if bound >= best_work:
                 continue
             column_sets = matroid_partition.get_information_sets_with_coverage(
                 basis, coverage, plan.max_sets
@@ -569,7 +570,9 @@ class _PartitionPlan(NamedTuple):
             self.dimension, self.num_columns, weight_divisor, upper_bound, self.max_sets, binomials
         )
 
-    def estimate_coverage_work(self, coverage: int, weight_divisor: int, upper_bound: int) -> int:
+    def estimate_optimistic_coverage_work(
+        self, coverage: int, weight_divisor: int, upper_bound: int
+    ) -> int:
         """A lower bound on the estimated work of a family that partitioning finds at a coverage.
 
         The coverage is two or more, and the bound is over the most sets that fit within it by
@@ -588,9 +591,10 @@ class _PartitionPlan(NamedTuple):
 
 def _get_partition_plan(basis: npt.NDArray[np.uint8], tuning: SearchTuning) -> _PartitionPlan:
     """The plan of ``get_partitioned_family`` for a basis under a tuning (Section 4.4)."""
-    # Above a limit of one on coverage, capping the sets at the most that fit within the limit, by
-    # counting their pivots, caps the coverages.  Those limits leave coverage one to the disjoint
-    # packing of stage one, so that searches at the default limit build no maximum disjoint family.
+    # Choose the coverages to try and the unit of the gate.  Above a limit of one on coverage,
+    # capping the sets at the most that fit within the limit, by counting their pivots, caps the
+    # coverages.  Those limits leave coverage one to the disjoint packing of stage one, so that
+    # searches at the default limit build no maximum disjoint family.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     max_sets = tuning.max_information_sets

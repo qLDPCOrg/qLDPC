@@ -377,9 +377,9 @@ def get_partition_gate(
     - the least work that any partitioned family could do, which a search with automorphisms
       compares with the work of their family;
     - for each coverage ``b`` from two that partitioning may try, in order, the least work that a
-      family that it finds at ``b`` could do (``coverage_optimistic_work``); partitioning skips
-      ``b`` if this is at least the work of the best family so far.
+      family found at ``b`` could do (``coverage_optimistic_work``).
 
+    Partitioning skips a coverage ``b`` if its bound is at least the work of the best family so far.
     At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
     is over disjoint families.  The record also says whether the search tried partitioning
     (``partitioned``), even if it found no family; ``wrap_family`` clears it when a competing family
@@ -390,7 +390,7 @@ def get_partition_gate(
     divisor = basis_family.weight_divisor
     optimistic_work = plan.estimate_optimistic_work(divisor, upper_bound)
     coverage_optimistic_work = [
-        int(plan.estimate_coverage_work(coverage, divisor, upper_bound))
+        int(plan.estimate_optimistic_coverage_work(coverage, divisor, upper_bound))
         for coverage in plan.coverages
         if coverage > 1
     ]
