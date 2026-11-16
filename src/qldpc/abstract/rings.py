@@ -348,12 +348,12 @@ class GroupRing(Ring):
 
     @property
     def dim(self) -> int:
-        """Dimension of this ring as a vector space over its base field: the order of the group."""
+        """Dimension of this ring over its base field, equal to the order of the group."""
         return self.group.order
 
     @property
     def lift_dim(self) -> int:
-        """Size of the matrices that lift ring members: the lift dimension of the group."""
+        """Size of the matrices that lift ring members, equal to the lift dimension of the group."""
         return self.group.lift_dim
 
     def get_transformer(
@@ -406,7 +406,7 @@ class GroupRing(Ring):
 
     @functools.cached_property
     def group_trace_matrix(self) -> galois.FieldArray:
-        """Construct the matrix for a trace over the group: ``r -> sum_{g in G} g r g^{-1}``.
+        """Matrix of the trace ``r -> sum_{g in G} g r g^{-1}`` over the group ``G``.
 
         The matrix is read-only.
         """

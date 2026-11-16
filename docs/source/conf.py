@@ -172,9 +172,7 @@ _EXTERNAL_DOCS = {
     "ldpc.BeliefFindDecoder": "https://software.roffe.eu/ldpc/ldpc/belief_find_decoder.html",
     "ldpc.BpOsdDecoder": "https://software.roffe.eu/ldpc/ldpc/bposd_decoder.html",
     "ldpc.bplsd_decoder.BpLsdDecoder": "https://software.roffe.eu/ldpc/ldpc/bplsd_decoder.html",
-    "qldpc._utils.networkx.DiGraph": (
-        "https://networkx.org/documentation/stable/reference/classes/digraph.html"
-    ),
+    "networkx.DiGraph": "https://networkx.org/documentation/stable/reference/classes/digraph.html",
     "numpy.dtype": "https://numpy.org/doc/stable/reference/generated/numpy.dtype.html",
     "numpy.ndarray": "https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html",
     "numpy.object_": "https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.object_",

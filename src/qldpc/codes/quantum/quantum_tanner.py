@@ -11,11 +11,11 @@ import os
 from collections.abc import Iterable, Sequence
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
 
 from qldpc import abstract
-from qldpc._utils import networkx as nx
 from qldpc.objects import (
     CayleyComplex,
 )

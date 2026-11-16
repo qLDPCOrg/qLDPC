@@ -9,12 +9,12 @@ from collections.abc import Sequence
 from typing import Any
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import sympy
 
 from qldpc import abstract
-from qldpc._utils import networkx as nx
 from qldpc.math import resolve_field
 
 from .common import ClassicalCode

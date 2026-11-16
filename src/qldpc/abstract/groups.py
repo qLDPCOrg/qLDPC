@@ -1038,7 +1038,7 @@ class QuaternionGroup(Group):
 
     @property
     def generators(self) -> list[GroupMember]:
-        """Generators of the quaternion group: [i, j]."""
+        """Generators [i, j] of the quaternion group."""
         members = self.generate()
         next(members)
         ii = next(members)

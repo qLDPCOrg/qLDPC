@@ -226,7 +226,7 @@ class FaultLister:
     sorted by the hash of their summed flags, and a hash map from each hash to its first entry in
     the table.  The closing map of pairs, for fault weight four or more, is built only if it fits
     within the memory limit and has at most 2**31 pairs.  The table of syndromes of listed faults
-    (see ``find_first``) grows within the rest of the memory limit.
+    (see ``find_first``) grows within the rest of the memory limit, up to 2**31 syndromes.
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -286,17 +286,12 @@ class FaultLister:
         self._num_starts = num_starts
         self._closing_classes = _get_closing_map(self._class_rows[:, 0], 1)
 
-        # Split the memory limit.  The closing map of pairs takes ``_BYTES_PER_PAIR`` bytes per
-        # pair, and is built only if it fits and has at most 2**31 pairs, so that its hash map has
-        # at most 2**32 slots, as slot numbers of 32 bits allow (see ``_find_syndrome_slot``).  Each
-        # syndrome in the table takes a row of its hash and its words, and two slots.
-        num_classes = len(member_lists)
-        num_pairs = num_classes * (num_classes - 1) // 2
-        pair_bytes = num_pairs * _BYTES_PER_PAIR
-        self._closing_pairs_fit = pair_bytes <= memory_limit and num_pairs <= 2**31
-        free_bytes = memory_limit - pair_bytes if self._closing_pairs_fit else memory_limit
-        bytes_per_syndrome = 8 * (self._num_syndrome_words + 3)
-        self._max_syndromes = min(free_bytes // bytes_per_syndrome, 2**31)
+        # Split the memory limit, and start with an empty table of syndromes.
+        self._closing_pairs_fit, self._max_syndromes = _split_memory_limit(
+            num_classes=len(member_lists),
+            num_syndrome_words=self._num_syndrome_words,
+            memory_limit=memory_limit,
+        )
         self._syndrome_rows, self._syndrome_slots = _get_empty_syndrome_table(
             self._num_syndrome_words
         )
@@ -447,10 +442,32 @@ class FaultLister:
     def _closing_pairs(
         self,
     ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]] | None:
-        """The closing map of the pairs of classes, if it fits within the memory limit."""
+        """The closing map of the pairs of classes, or None if it is too large to build."""
         if not self._closing_pairs_fit:
             return None
         return _get_closing_map(self._class_rows[:, 0], 2)
+
+
+def _split_memory_limit(
+    num_classes: int, num_syndrome_words: int, memory_limit: int
+) -> tuple[bool, int]:
+    """Split a memory limit between the closing map of pairs and the table of syndromes.
+
+    Return whether to build the closing map of the pairs of ``num_classes`` classes, and how many
+    syndromes of ``num_syndrome_words`` words the rest of the limit has room for, at most 2**31.
+    ``_table_should_grow`` takes this number as ``max_syndromes``.
+    """
+    # The closing map of pairs takes ``_BYTES_PER_PAIR`` bytes per pair.  It is built only if it
+    # fits and has at most 2**31 pairs, so that its hash map has at most 2**32 slots, as slot
+    # numbers of 32 bits allow (see ``_find_syndrome_slot``).  Each syndrome in the table takes a
+    # row of its hash and its words, and two slots, so the table has room for at most 2**31
+    # syndromes for the same reason.
+    num_pairs = num_classes * (num_classes - 1) // 2
+    pair_bytes = num_pairs * _BYTES_PER_PAIR
+    pairs_fit = pair_bytes <= memory_limit and num_pairs <= 2**31
+    free_bytes = memory_limit - pair_bytes if pairs_fit else memory_limit
+    bytes_per_syndrome = 8 * (num_syndrome_words + 3)
+    return pairs_fit, min(free_bytes // bytes_per_syndrome, 2**31)
 
 
 def _get_closing_map(

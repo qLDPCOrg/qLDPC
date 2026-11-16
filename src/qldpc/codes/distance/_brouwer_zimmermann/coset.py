@@ -194,7 +194,7 @@ class BrouwerZimmermannCosetSearch:
 
     @property
     def _num_word_bits(self) -> int:
-        """The number of bits of a word: ``2 n`` for Paulis, and ``n`` for X or Z parts."""
+        """The number of bits of a word, which is ``2 n`` for Paulis and ``n`` for X or Z parts."""
         return 2 * self._num_qubits if self._symplectic else self._num_qubits
 
     def _weight(self, word: int) -> int:

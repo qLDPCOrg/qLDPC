@@ -311,7 +311,7 @@ class _BrouwerZimmermannSearch:
 
     @property
     def _scan_cutoff(self) -> int:
-        """The cutoff that the compiled scans take: ``cutoff``, clamped below at -1.
+        """The cutoff that the compiled scans take, which is ``cutoff`` clamped below at -1.
 
         Every negative cutoff disables early exits alike, and -1 is within int64 range.
         """

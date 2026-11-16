@@ -9,13 +9,13 @@ import itertools
 from collections.abc import Iterator, Sequence
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import sympy
 from sympy.matrices.normalforms import hermite_normal_form
 
 from qldpc import abstract
-from qldpc._utils import networkx as nx
 from qldpc.math import resolve_field
 from qldpc.objects import (
     ChainComplex,
