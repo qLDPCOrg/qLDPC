@@ -222,8 +222,9 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
 
     # Partitioning may try each coverage from two up to the least at which the most sets allowed
     # could fit in the 10 nonzero columns, by counting their pivots: ceil(16 * 4 / 10) = 7, but
-    # ceil(2 * 4 / 10) = 1 for two sets.  Here it tries each, since some family of at most 16 sets
-    # could do less work than any family that it finds.
+    # ceil(2 * 4 / 10) = 1 for two sets.  Here it tries each, since even two sets, fewer than fit
+    # within any of these coverages, could do less work (14) than any family that it finds (16 or
+    # more).
     assert not len(get_family(max_information_sets=2).ranks) and not coverages
     family = get_family()
     assert sorted(coverages) == list(range(2, 8))
@@ -240,7 +241,12 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
 
     # A competing family rules partitioning out exactly if it does no more work than any
     # partitioned family could, and partitioning asks for its work only if it would otherwise run.
-    tuning = dataclasses.replace(DEFAULT_TUNING, partition_work_ratio=0, max_information_sets=16)
+    tuning = dataclasses.replace(
+        DEFAULT_TUNING,
+        partition_work_ratio=0,
+        max_information_sets=16,
+        partition_max_coverage=MAX_VALUE,
+    )
     optimistic_work = basis_families._estimate_optimistic_work(
         len(basis),
         int(np.count_nonzero(np.any(basis, axis=0))),
@@ -297,8 +303,8 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
     disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
     assert disjoint.ranks.tolist() == [20, 20, 5]
     # Five full sets of 20 rows could fit in the 45 nonzero columns from the coverage
-    # ceil(5 * 20 / 45) = 3, so partitioning tries the coverages two and three, or only coverage one
-    # at a limit of one.
+    # ceil(5 * 20 / 45) = 3, so partitioning may try the coverages two and three, or only coverage
+    # one at a limit of one.
     for coverage_limit, unit in ((MAX_VALUE, (2**2 + 3**2) * 20**2 * 45), (1, 20**2 * 45)):
         ratio = disjoint.certificate.work(19) // unit
 
@@ -366,6 +372,17 @@ def test_partitioning_skips_coverages_at_which_no_family_could_replace_the_best(
     assert [call.args[1] for call in spy.call_args_list] == [expected]
     np.testing.assert_array_equal(family.pivots, families[expected].pivots)
 
+    # Here the bound at coverage two is exact.  The columns e1, e2, e3, e4, e1 + e3, and e2 + e4
+    # hold three information sets that use each column exactly twice, floor(2 * 6 / 4) = 3, and the
+    # rows are even, so the bound rounds to the weight divisor two.  These sets do less work than
+    # the given set of the first four columns, so partitioning tries coverage two and takes them.
+    columns = [1, 2, 4, 8, 5, 10]
+    basis = ((np.array(columns) >> np.arange(4)[:, None]) & 1).astype(np.uint8)
+    labels = np.eye(4, dtype=np.uint8)
+    single = basis_families._get_family_of_sets(basis, labels, [[0, 1, 2, 3]], weight_divisor=2)
+    family = basis_families.get_partitioned_family(basis, labels, single, 4, tuning)
+    assert family.ranks.tolist() == [4, 4, 4] and family.max_coverage == 2
+
 
 def test_partitioned_families_do_at_least_the_work_of_their_coverage_bound(
     pytestconfig: pytest.Config,
@@ -373,18 +390,20 @@ def test_partitioned_families_do_at_least_the_work_of_their_coverage_bound(
     """Each family that partitioning finds does at least the work of the bound for its coverage.
 
     The bound at a coverage ``b`` is that of ``_estimate_optimistic_work`` over the most sets that
-    fit within ``b``, which partitioning skips ``b`` by (Section 4.4 of ``brouwer_zimmermann.md``).
+    fit within ``b``.  Partitioning skips ``b`` if the bound is at least the work of the best family
+    so far (Section 4.4 of ``brouwer_zimmermann.md``).
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     max_sets = 8
     for _ in range(8):
-        rows = int(rng.integers(2, 6))
-        basis = get_random_full_rank_matrix(rng, rows, int(rng.integers(rows, 4 * rows + 2)))
-        dimension = len(basis)
+        dimension = int(rng.integers(2, 6))
+        basis = get_random_full_rank_matrix(
+            rng, dimension, int(rng.integers(dimension, 4 * dimension + 2))
+        )
         num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
         weight_divisor = basis_families.infer_weight_divisor(basis)
         binomials = certificates.get_capped_binomials(dimension)
-        max_coverage = -(-max_sets * dimension // num_columns)
+        max_coverage = math.ceil(max_sets * dimension / num_columns)
         for coverage in range(2, max_coverage + 1):
             family = basis_families._get_family_of_sets(
                 basis,

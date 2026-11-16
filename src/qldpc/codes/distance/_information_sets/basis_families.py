@@ -572,11 +572,11 @@ def _get_disjoint_sets_for_columns(
 def _get_partition_coverage_and_unit(
     max_sets: int, dimension: int, num_columns: int
 ) -> tuple[int, int]:
-    """The largest coverage that matroid partitioning tries, and the unit of its gate (Section 4.4).
+    """The largest coverage that matroid partitioning may try, and the unit of its gate.
 
     For a basis of ``dimension`` rows and ``num_columns`` nonzero columns, the largest coverage is
     ``_get_least_coverage(max_sets, dimension, num_columns)``, computed here in Python integers,
-    since ``max_sets`` up to ``MAX_VALUE`` would overflow that compiled helper.
+    since ``max_sets`` up to ``MAX_VALUE`` would overflow that compiled helper (Section 4.4).
     """
     max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
     if max_coverage < 2:

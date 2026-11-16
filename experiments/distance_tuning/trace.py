@@ -297,9 +297,9 @@ def wrap_family(kind: str, function: Callable[..., Any]) -> Callable[..., Any]:
 
     Partitioning of a search with automorphisms may first build their family, to compare its work
     (see ``get_partition_gate``); the seconds of partitioning then include building that family.
-    Partitioning also records the coverages that it tries, and their part of its unit:
-    ``tried_unit`` sums ``b**2 * r**2 * N`` over those coverages ``b``, since partitioning skips a
-    coverage at which no family could replace the best so far.
+    For partitioning, the record also holds the coverages that partitioning tries (``coverages``),
+    and ``tried_unit``, the sum of ``b**2 * r**2 * N`` over them.  It can be less than ``unit``,
+    since partitioning skips a coverage at which no family could replace the best so far.
     """
 
     @functools.wraps(function)
@@ -351,7 +351,7 @@ def record_competing_work(get_competing_work: Callable[[], int], record: dict[st
 
 
 def wrap_partition(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the coverage of each matroid partitioning within a call of get_partitioned_family."""
+    """Record the coverage of each matroid partitioning in a call of ``get_partitioned_family``."""
 
     @functools.wraps(function)
     def wrapper(basis: Any, coverage: int, *args: Any, **kwargs: Any) -> Any:
