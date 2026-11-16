@@ -44,7 +44,7 @@ The coordinator gives each reviewer:
 
     * a wrong result, a broken contract, or an unhandled edge case that gives a wrong result or fails silently;
     * an interface or design problem;
-    * claimed behavior that no test verifies;
+    * claimed behavior that no test verifies, other than an implementation choice that the testing standard says not to pin;
     * documentation that states something false, or something that could mislead a reader about what the code does or guarantees;
     * documentation that leaves out a behavior or limitation without which a reader could get a wrong or materially misleading result without an error.
 
