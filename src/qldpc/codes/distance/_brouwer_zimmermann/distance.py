@@ -85,54 +85,115 @@ def get_distance_brouwer_zimmermann_many(
         ValueError: If there are neither problems nor an upper bound, or if a generator from
             ``get_automorphisms`` is not an automorphism of a problem whose search uses it.
     """
-    if not problems:
-        if upper_bound is None:
-            raise ValueError("Require at least one problem or an upper bound")
-        return upper_bound
+    searches = BrouwerZimmermannSearches(
+        problems,
+        cutoff=cutoff,
+        weight_divisor=weight_divisor,
+        upper_bound=upper_bound,
+        get_disjoint_basis_families=get_disjoint_basis_families,
+        get_automorphisms=get_automorphisms,
+        tuning=tuning,
+    )
+    while not searches.finished:
+        searches.advance()
+    return searches.best
 
-    tuning = get_tuning() if tuning is None else tuning
-    initial_upper_bounds = [
-        _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
-    ]
-    best = min(initial_upper_bounds)
-    if upper_bound is not None:
-        best = min(best, upper_bound)
-    searches: list[_BrouwerZimmermannSearch] = []
-    for index, ((basis, labels), initial_upper_bound) in enumerate(
-        zip(problems, initial_upper_bounds, strict=True)
-    ):
-        prepared = _prepare_brouwer_zimmermann_search(
-            basis,
-            labels,
-            cutoff=cutoff,
-            weight_divisor=weight_divisor,
-            upper_bound=best,
-            initial_upper_bound=initial_upper_bound,
-            get_disjoint_basis_family=None
-            if get_disjoint_basis_families is None
-            else get_disjoint_basis_families[index],
-            get_automorphisms=get_automorphisms,
-            tuning=tuning,
-        )
-        if isinstance(prepared, int):
-            best = min(best, prepared)
-        else:
-            searches.append(prepared)
 
-    # Advance every unfinished search in turn, until all have finished.
-    advanced = True
-    while advanced:
-        advanced = False
-        for search in searches:
-            # Share witnesses between sectors, but keep each lower certificate independent.
-            search.update_upper_bound(best)
+class BrouwerZimmermannSearches:
+    """The BZ searches of several problems, which advance one layer at a time, round-robin.
+
+    The arguments are those of ``get_distance_brouwer_zimmermann_many``, which advances the searches
+    until they finish.  The searches share their best upper bound, but not their certificates
+    (Section 3.3).
+
+    Attributes:
+        best: The weight of the lightest witness that any search has found, or the upper bound if
+            that is smaller.  Once the searches finish, it is the result of
+            ``get_distance_brouwer_zimmermann_many``.
+
+    Raises:
+        ValueError: As ``get_distance_brouwer_zimmermann_many`` says, when the searches are built.
+    """
+
+    best: int
+
+    def __init__(
+        self,
+        problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
+        *,
+        cutoff: int,
+        weight_divisor: int = 1,
+        upper_bound: int | None = None,
+        get_disjoint_basis_families: Sequence[Callable[[], basis_families.BasisFamily]]
+        | None = None,
+        get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
+        tuning: SearchTuning | None = None,
+    ) -> None:
+        self._cutoff = cutoff
+        self._searches: list[_BrouwerZimmermannSearch] = []
+        self._next = 0
+        self._finished = False
+        if not problems:
+            if upper_bound is None:
+                raise ValueError("Require at least one problem or an upper bound")
+            self.best = upper_bound
+            return
+
+        # Prepare a search of each problem, which setup may settle without searching.
+        tuning = get_tuning() if tuning is None else tuning
+        initial_upper_bounds = [
+            _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
+        ]
+        best = min(initial_upper_bounds)
+        if upper_bound is not None:
+            best = min(best, upper_bound)
+        for index, ((basis, labels), initial_upper_bound) in enumerate(
+            zip(problems, initial_upper_bounds, strict=True)
+        ):
+            prepared = _prepare_brouwer_zimmermann_search(
+                basis,
+                labels,
+                cutoff=cutoff,
+                weight_divisor=weight_divisor,
+                upper_bound=best,
+                initial_upper_bound=initial_upper_bound,
+                get_disjoint_basis_family=None
+                if get_disjoint_basis_families is None
+                else get_disjoint_basis_families[index],
+                get_automorphisms=get_automorphisms,
+                tuning=tuning,
+            )
+            if isinstance(prepared, int):
+                best = min(best, prepared)
+            else:
+                self._searches.append(prepared)
+        self.best = best
+
+    @property
+    def finished(self) -> bool:
+        """Whether every search has finished, or the best upper bound is at most the cutoff."""
+        return self._finished
+
+    def advance(self) -> None:
+        """Advance the next unfinished search, in round-robin order, by one layer.
+
+        Each search that this visits first takes the best upper bound, which shares witnesses
+        between problems.  If every search has finished, this marks the searches finished instead.
+
+        Raises:
+            ValueError: If a generator from ``get_automorphisms`` is not an automorphism of the
+                problem of the search that uses it.
+        """
+        for _ in range(len(self._searches)):
+            search = self._searches[self._next]
+            self._next = (self._next + 1) % len(self._searches)
+            search.update_upper_bound(self.best)
             if search.finished:
                 continue
-            best = min(best, search.advance())
-            advanced = True
-            if best <= cutoff:
-                return best
-    return best
+            self.best = min(self.best, search.advance())
+            self._finished = self.best <= self._cutoff
+            return
+        self._finished = True
 
 
 ####################################################################################################
