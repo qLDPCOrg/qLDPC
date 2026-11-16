@@ -47,8 +47,6 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from qldpc.codes.distance import CSSLogicalCounter, _tuning, core, logical_counts
 from qldpc.codes.distance._brouwer_zimmermann import affine_search, distance
 from qldpc.codes.distance._connected_cluster import search as support_search
@@ -100,6 +98,14 @@ PARTITION_COVERAGES: list[int] | None = None
 
 # The kinds of workloads that the script can trace.
 TRACED_KINDS = ("distance", "hadamard", "count", "ccdistance", "mcount")
+
+# The stage that an overlapping family event records for each check of the library.
+OVERLAPPING_STAGES = {
+    basis_families._OverlappingCheck.NOTHING_TO_EXTEND: "no open sets",
+    basis_families._OverlappingCheck.BELOW_MINIMUM_WORK: "below minimum work",
+    basis_families._OverlappingCheck.CANNOT_DO_LESS_WORK: "cannot do less work",
+    basis_families._OverlappingCheck.NONE: "built",
+}
 
 
 class SetupDone(Exception):
@@ -371,7 +377,7 @@ def get_partition_gate(
 
     - the estimated work of the family that partitioning would replace;
     - the largest coverage that partitioning may try, or 0 if it may try none;
-    - the unit that the search multiplies by ``partition_work_ratio``: the sum of
+    - the unit that the gate of partitioning multiplies by ``partition_work_ratio``: the sum of
       ``b**2 * r**2 * N`` over the coverages ``b`` that it may try, for ``r`` rows and ``N``
       nonzero columns;
     - the least work that any partitioned family could do, which a search with automorphisms
@@ -381,8 +387,10 @@ def get_partition_gate(
 
     Partitioning skips a coverage ``b`` if its bound is at least the work of the best family so far.
     At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
-    is over disjoint families.  The record also says whether the search tried partitioning
-    (``partitioned``), even if it found no family; ``wrap_family`` clears it when a competing family
+    is over disjoint families.  It skips coverage one if the given family is disjoint and has the
+    pruned disjoint rank bound (Section 4.4 of ``brouwer_zimmermann.md``).  The record also says
+    whether these quantities let partitioning run (``partitioned``), even if it then tried no
+    coverage or found no family; ``wrap_family`` clears ``partitioned`` when a competing family
     rules partitioning out.
     """
     plan = basis_families._get_partition_plan(basis, tuning)
@@ -414,36 +422,23 @@ def get_partition_gate(
 def get_overlapping_gate(
     basis: Any, _labels: Any, basis_family: Any, upper_bound: int, policy: Any
 ) -> dict[str, Any]:
-    """The check that ends an attempt of ``basis_families.get_overlapping_family``, and its work.
+    """The check that ends a call of ``basis_families.get_overlapping_family``, and its work.
 
-    The checks follow the source of ``get_overlapping_family``.  It keeps a family with no full
-    sets, with as many as the limit, or whose full sets pack every column; then one whose estimated
-    work is below ``minimum_work`` of the policy; and then one that no family of at most the limit
-    could beat.  Past these checks, it builds sets.
+    The record's ``stage`` names the check of ``basis_families._check_overlapping_family`` that
+    keeps the given family, or is ``built`` if none does, in which case the library builds sets.
+    Its ``estimated_work`` is the work of the given family, or None if the stage is
+    ``no open sets``.
     """
-    max_sets, minimum_work, _, binomials, _ = policy
-    dimension = basis.shape[0]
-    num_columns = int(np.count_nonzero(basis.sum(axis=0)))
-    ranks = basis_family.ranks
-    num_full = int(np.count_nonzero(ranks == dimension))
-    gate: dict[str, Any] = {"rows": dimension, "minimum_work": int(minimum_work)}
-    if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
-        return gate | {"stage": "no open sets", "estimated_work": None}
-    divisor = basis_family.weight_divisor
-    work = int(
-        basis_families.estimate_certificate_work(
-            dimension, ranks, divisor, basis_family.max_coverage, upper_bound, binomials
-        )
+    check, work, _ = basis_families._check_overlapping_family(
+        basis, basis_family, upper_bound, policy
     )
-    gate["estimated_work"] = work
-    if work < minimum_work:
-        return gate | {"stage": "below minimum work"}
-    optimistic_work = basis_families._estimate_optimistic_work(
-        dimension, num_columns, divisor, upper_bound, max_sets, binomials
-    )
-    if optimistic_work >= work:
-        return gate | {"stage": "cannot do less work"}
-    return gate | {"stage": "built"}
+    nothing_to_extend = check == basis_families._OverlappingCheck.NOTHING_TO_EXTEND
+    return {
+        "rows": basis.shape[0],
+        "minimum_work": int(policy.minimum_work),
+        "estimated_work": None if nothing_to_extend else int(work),
+        "stage": OVERLAPPING_STAGES[check],
+    }
 
 
 def wrap_linear_program(function: Callable[..., Any]) -> Callable[..., Any]:

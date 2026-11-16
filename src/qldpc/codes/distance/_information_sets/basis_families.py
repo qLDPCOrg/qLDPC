@@ -14,6 +14,7 @@ of the families of the coset searches.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import math
 from collections.abc import Callable
 from typing import NamedTuple, TypeVar
@@ -183,33 +184,23 @@ def get_overlapping_family(
     that follow their row operations, and is certified with its maximum coverage.  It has no sets if
     the construction does not run or finds no family that does less work (Section 4.4).
     """
-    max_sets, minimum_work, attempts_per_set, binomials, rng = policy
+    max_sets, _, attempts_per_set, binomials, rng = policy
     dimension = basis.shape[0]
+    weight_divisor = basis_family.weight_divisor
+
+    # Keep the family if a check rules a replacement out.
+    check, best_work, optimistic_work = _check_overlapping_family(
+        basis, basis_family, upper_bound, policy
+    )
+    if check != _OverlappingCheck.NONE:
+        return _get_no_replacement(basis_family, basis, labels)
+
+    # Find the nonzero columns, which the sets of the replacement can use, and the full sets of the
+    # family, which the replacement starts from.
     columns = np.flatnonzero(basis.sum(axis=0))
     num_columns = len(columns)
-    ranks = basis_family.ranks
-    full_indices = np.flatnonzero(ranks == dimension)
+    full_indices = np.flatnonzero(basis_family.ranks == dimension)
     num_full = len(full_indices)
-
-    # Replace only a family with full sets, which the replacement starts from.  Keep a family whose
-    # full sets use every nonzero column, or that already has the most full sets allowed.
-    if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
-        return _get_no_replacement(basis_family, basis, labels)
-
-    # Skip basis family construction when the existing search is already cheap.
-    weight_divisor = basis_family.weight_divisor
-    best_work = estimate_certificate_work(
-        dimension, ranks, weight_divisor, basis_family.max_coverage, upper_bound, binomials
-    )
-    if best_work < minimum_work:
-        return _get_no_replacement(basis_family, basis, labels)
-
-    # Skip basis family construction if no family of at most max_sets full sets could do less work.
-    optimistic_work = _estimate_optimistic_work(
-        dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
-    )
-    if optimistic_work >= best_work:
-        return _get_no_replacement(basis_family, basis, labels)
 
     # Track the coverage of each column and the distinct sets found so far, in arrays that grow on
     # demand, since the limit may be large.
@@ -332,11 +323,14 @@ def get_partitioned_family(
     matroid partitioning finds the most information sets, up to ``tuning.max_information_sets``,
     within that coverage.  If ``tuning.partition_max_coverage`` is one, it finds instead the maximum
     disjoint family of ``get_maximum_disjoint_family`` (Section 4.4), and prunes it as stage two
-    does.  ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
-    ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
-    to which the caller would switch instead, discarding this stage's family (Section 3.7).  It is
-    called only if partitioning would otherwise run, and partitioning then runs only if that work
-    exceeds the least that a family of this stage could do.
+    does.  It skips that family if ``basis_family`` is disjoint and has the pruned disjoint rank
+    bound, since that family could not replace it.  ``basis``, ``labels``, and ``basis_family`` are
+    as in ``get_overlapping_family``.  ``get_competing_work``, if given, returns the work of a
+    family, such as an automorphism family, to which the caller would switch instead, discarding
+    this stage's family (Section 3.7).  It is called only if partitioning may try some coverage and
+    passes its gate, and some family of this stage could do less work than ``basis_family``
+    (Section 4.4).  Partitioning then runs only if the competing work exceeds the least that a
+    family of this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
@@ -364,6 +358,10 @@ def get_partitioned_family(
     # drops if it cannot help.
     for coverage in plan.coverages:
         if coverage == 1:
+            # Skip coverage one if the given family is disjoint and has the pruned disjoint rank
+            # bound, which leaves the result unchanged (Section 4.4).
+            if _has_pruned_disjoint_rank_bound(basis_family, plan.num_columns, upper_bound):
+                continue
             maximum_disjoint = _get_family_of_sets(
                 basis, labels, _get_maximum_disjoint_sets(basis), weight_divisor
             )
@@ -541,8 +539,66 @@ def _get_disjoint_sets_for_columns(
     return information_sets
 
 
+class _OverlappingCheck(enum.Enum):
+    """The first check of ``_check_overlapping_family`` that rules a replacement out, or ``NONE``.
+
+    The checks find nothing to extend (no full sets to start from, already the most full sets
+    allowed, or full sets that already use every nonzero column), an estimated work below the
+    minimum, or that no family could do less work.
+    """
+
+    NONE = 0
+    NOTHING_TO_EXTEND = 1
+    BELOW_MINIMUM_WORK = 2
+    CANNOT_DO_LESS_WORK = 3
+
+
+@compiled_on_request
+def _check_overlapping_family(
+    basis: npt.NDArray[np.uint8],
+    basis_family: BasisFamily,
+    upper_bound: int,
+    policy: OverlappingFamilyPolicy,
+) -> tuple[_OverlappingCheck, int, int]:
+    """Find the first check that rules out a replacement in ``get_overlapping_family``, if any.
+
+    The arguments are those of ``get_overlapping_family``.
+
+    Returns:
+        The check, the estimated work of ``basis_family`` to certify ``upper_bound``, and the least
+        work that any family of at most ``policy.max_sets`` full sets could do.  A work is -1 if an
+        earlier check rules a replacement out.
+    """
+    max_sets, minimum_work, _, binomials, _ = policy
+    dimension = basis.shape[0]
+    num_columns = len(np.flatnonzero(basis.sum(axis=0)))
+    ranks = basis_family.ranks
+    num_full = len(np.flatnonzero(ranks == dimension))
+
+    # Replace only a family with full sets, which the replacement starts from.  Keep a family whose
+    # full sets use every nonzero column, or that already has the most full sets allowed.
+    if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
+        return _OverlappingCheck.NOTHING_TO_EXTEND, -1, -1
+
+    # Rule a replacement out when the existing search is already cheap.
+    weight_divisor = basis_family.weight_divisor
+    work = estimate_certificate_work(
+        dimension, ranks, weight_divisor, basis_family.max_coverage, upper_bound, binomials
+    )
+    if work < minimum_work:
+        return _OverlappingCheck.BELOW_MINIMUM_WORK, work, -1
+
+    # Rule a replacement out if no family of at most max_sets full sets could do less work.
+    optimistic_work = _estimate_optimistic_work(
+        dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
+    )
+    if optimistic_work >= work:
+        return _OverlappingCheck.CANNOT_DO_LESS_WORK, work, optimistic_work
+    return _OverlappingCheck.NONE, work, optimistic_work
+
+
 class _PartitionPlan(NamedTuple):
-    """The coverages that ``get_partitioned_family`` may try for a basis, and its gate's quantities.
+    """The coverages that ``get_partitioned_family`` may try for a basis, and the unit of its gate.
 
     Attributes:
         dimension: The rows ``r`` of the basis.
@@ -626,6 +682,35 @@ def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
     max_sets = min(num_columns // dimension + 1, _get_full_set_limit(dimension))
     return matroid_partition.get_information_sets_with_coverage(
         basis, 1, max_sets, keep_partial=True
+    )
+
+
+def _has_pruned_disjoint_rank_bound(
+    basis_family: BasisFamily, num_columns: int, upper_bound: int
+) -> bool:
+    """Whether a family is disjoint and has the disjoint rank bound, pruned for ``upper_bound``.
+
+    The disjoint rank bound is ``f = min(N // r, 2**r - 1)`` information sets, for ``r`` rows and
+    the ``N = num_columns`` nonzero columns of the basis, and below the limit of a packing a partial
+    set of rank ``N - f*r``, if that is positive.  It is pruned as ``prune_family`` prunes a family.
+    If the family is disjoint and has these ranks, so does every pruned maximum disjoint family
+    (Section 4.4).
+    """
+    # Bound the ranks of a maximum disjoint family: the most information sets that fit, up to the
+    # limit of a packing, and below that limit a partial set of rank N - f*r, the number of other
+    # columns, if positive.
+    dimension = basis_family.generators.shape[1]
+    full_set_limit = _get_full_set_limit(dimension)
+    num_full = min(num_columns // dimension, full_set_limit)
+    remainder = num_columns - num_full * dimension if num_full < full_set_limit else 0
+    ranks = np.array([dimension] * num_full + ([remainder] if remainder else []), dtype=np.int64)
+
+    # Prune these ranks as prune_family does, and compare them with those of the family, if it is
+    # disjoint.
+    weight_divisor = basis_family.weight_divisor
+    retained = get_retained_set_mask(dimension, ranks, weight_divisor, 1, upper_bound)
+    return (
+        basis_family.max_coverage == 1 and basis_family.ranks.tolist() == ranks[retained].tolist()
     )
 
 

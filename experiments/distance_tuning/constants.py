@@ -5,13 +5,13 @@
 Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` gates an optional step,
 and assumes the cost of the step to an order of magnitude (see the Retuning section of
 ``_tuning.py``).  The script first measures the cost of each such step on quick searches.  It prints
-a table of these costs, in seconds and in the unit of the field that gates each step (``in units``),
-to compare with the default of that field.  A second table gives, by field, each cost rounded as
-``round_to_grid`` does (``derived``) beside the default.  The script then measures the coefficients
-of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each tuning of
-``COST_MODEL_ARMS``, which together can take hours.  It prints each coefficient, under ``measured``,
-beside its default.  The functions of this script say how it measures each cost.  The script sets no
-value.
+a table of these costs beside the field that gates each step, in seconds and in the unit of that
+field (``in units``), to compare with the default of the field.  A second table gives, by field,
+each cost rounded as ``round_to_grid`` does (``derived``) beside the default.  The script then
+measures the coefficients of the cost model of completion tables on the searches of
+``COST_DATA_SET`` under each tuning of ``COST_MODEL_ARMS``, which together can take hours.  It
+prints each coefficient, under ``measured``, beside its default.  The functions of this script say
+how it measures each cost.  The script sets no value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
@@ -374,18 +374,8 @@ def report(directory: pathlib.Path) -> None:
         name: constant.seconds / units[unit_name].seconds
         for name, (constant, unit_name) in constants.items()
     }
-    print(f"{'constant':<32} {'seconds':>10} {'in units':>10}  measured as")
-    for name, unit in units.items():
-        print(f"{name:<32} {unit.seconds:>10.3g} {1:>10} {name}s  {unit.description}")
-    for name, (constant, unit_name) in constants.items():
-        print(
-            f"{name:<32} {constant.seconds:>10.3g} {counts[name]:>10.3g} {unit_name}s"
-            f"  {constant.description}"
-        )
 
-    # Round the costliest measurement of each step, in the unit of its field, as round_to_grid
-    # does, to print it beside the default.  The cost limit of completion tables is a limit at
-    # equality, 100.
+    # Print each constant beside the field that gates its step.
     gates = {
         "partition_work_ratio": "partitioning, per unit",
         "completion_bound_minimum_layer_work": "costliest prediction",
@@ -394,6 +384,19 @@ def report(directory: pathlib.Path) -> None:
         "automorphism_minimum_layer_work": "automorphisms of a BZ search",
         "automorphism_minimum_states": "asking for automorphisms",
     }
+    fields = {name: field for field, name in gates.items()}
+    print(f"{'constant':<32} {'field':<35} {'seconds':>10} {'in units':>10}  measured as")
+    for name, unit in units.items():
+        print(f"{name:<32} {'':<35} {unit.seconds:>10.3g} {1:>10} {name}s  {unit.description}")
+    for name, (constant, unit_name) in constants.items():
+        print(
+            f"{name:<32} {fields[name]:<35} {constant.seconds:>10.3g} {counts[name]:>10.3g}"
+            f" {unit_name}s  {constant.description}"
+        )
+
+    # Round the costliest measurement of each step, in the unit of its field, as round_to_grid does,
+    # to print it beside the default.  The cost limit of completion tables is a limit at equality,
+    # 100.
     values = {field: round_to_grid(counts[name]) for field, name in gates.items()}
     values["completion_bound_max_cost_percent"] = 100
     print(f"\n{'field':<38} {'derived':>8} {'default':>8}")
@@ -496,11 +499,13 @@ def get_overlapping_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The costliest seconds of finding the automorphisms of a BZ search and building their images.
 
-    Each trace holds one search.  A search that would partition first finds, verifies, and builds
-    the family of its automorphisms, to compare its work (``competing_seconds``), and then considers
-    the switch at the end of setup; another takes these steps at its first consideration.  So each
-    search counts both its competing seconds and its first consideration, and searches that consider
-    no switch do not count.
+    Each trace holds one search.  A search asks for automorphisms before partitioning if
+    partitioning may try some coverage and passes its gate, and some partitioned family could do
+    less work (Section 3.7 of ``brouwer_zimmermann.md``).  It then finds, verifies, and builds the
+    family of its automorphisms, to compare that family's work (``competing_seconds``), and
+    considers switching to it at the end of setup.  Another search takes these steps when it first
+    considers switching.  So each search counts both its competing seconds and its first
+    consideration, and searches that consider no switch do not count.
     """
     searches = []
     for trace in traces.values():

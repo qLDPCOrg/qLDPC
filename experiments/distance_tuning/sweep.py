@@ -290,17 +290,32 @@ def check_local_import() -> None:
 
 
 def get_source_fingerprint(repository: pathlib.Path = REPOSITORY) -> dict[str, str]:
-    """The commit of a checkout of qLDPC, and a hash of the uncommitted changes of its source."""
+    """The commit of a checkout of qLDPC, and a hash of the uncommitted changes of its source.
+
+    The hash covers the changes of tracked files under ``src``, and the untracked files there that
+    git does not ignore.
+    """
     commit = git(repository, "rev-parse", "HEAD").strip()
-    diff = git(repository, "diff", "HEAD", "--", "src")
-    return {"commit": commit, "diff": hashlib.sha256(diff.encode()).hexdigest()[:16]}
+    digest = hashlib.sha256(git(repository, "diff", "HEAD", "--", "src").encode())
+    # Untracked files add to the hash only if there are any, so that a checkout without them keeps
+    # the hash of its diff alone, which earlier results recorded.
+    untracked = git(repository, "ls-files", "--others", "--exclude-standard", "-z", "--", "src")
+    for path in filter(None, untracked.split("\0")):
+        if (repository / path).is_file():
+            digest.update(f"\0{path}\0".encode() + (repository / path).read_bytes())
+    return {"commit": commit, "diff": digest.hexdigest()[:16]}
 
 
 def git(repository: pathlib.Path, *args: str) -> str:
     """The output of a git command in a repository."""
-    return subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=True, cwd=repository
-    ).stdout
+    try:
+        return subprocess.run(
+            ["git", *args], capture_output=True, text=True, check=True, cwd=repository
+        ).stdout
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(
+            f"git {' '.join(args)} failed in {repository}: {error.stderr.strip()}"
+        ) from error
 
 
 def read_trials(path: pathlib.Path) -> list[dict[str, Any]]:
