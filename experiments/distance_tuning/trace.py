@@ -370,41 +370,42 @@ def get_partition_gate(
     These are, in candidate/set evaluations where they are work:
 
     - the estimated work of the family that partitioning would replace;
-    - the largest coverage that partitioning may try;
+    - the largest coverage that partitioning may try, or 0 if it may try none;
     - the unit that the search multiplies by ``partition_work_ratio``: the sum of
       ``b**2 * r**2 * N`` over the coverages ``b`` that it may try, for ``r`` rows and ``N``
       nonzero columns;
     - the least work that any partitioned family could do, which a search with automorphisms
-      compares with the work of their family.
+      compares with the work of their family;
+    - for each coverage ``b`` from two that partitioning may try, in order, the least work that a
+      family that it finds at ``b`` could do (``coverage_optimistic_work``); partitioning skips
+      ``b`` if this is at least the work of the best family so far.
 
-    The record also says whether the search tried partitioning (``partitioned``), even if it found
-    no family; ``wrap_family`` clears it when a competing family rules partitioning out.
+    At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
+    is over disjoint families.  The record also says whether the search tried partitioning
+    (``partitioned``), even if it found no family; ``wrap_family`` clears it when a competing family
+    rules partitioning out.
     """
-    dimension = len(basis)
-    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    max_coverage, unit = basis_families._get_partition_coverage_and_unit(
-        tuning.max_information_sets, dimension, num_columns
-    )
+    plan = basis_families._get_partition_plan(basis, tuning)
     work = basis_family.certificate.work(upper_bound)
-    optimistic_work = basis_families._estimate_optimistic_work(
-        dimension,
-        num_columns,
-        basis_family.weight_divisor,
-        upper_bound,
-        tuning.max_information_sets,
-        basis_families.get_capped_binomials(dimension),
-    )
+    divisor = basis_family.weight_divisor
+    optimistic_work = plan.estimate_optimistic_work(divisor, upper_bound)
+    coverage_optimistic_work = [
+        int(plan.estimate_coverage_work(coverage, divisor, upper_bound))
+        for coverage in plan.coverages
+        if coverage > 1
+    ]
     return {
-        "rows": dimension,
-        "columns": num_columns,
+        "rows": plan.dimension,
+        "columns": plan.num_columns,
         "estimated_work": int(work),
-        "max_coverage": max_coverage,
-        "unit": unit,
+        "max_coverage": max(plan.coverages, default=0),
+        "unit": plan.unit,
         "ratio": tuning.partition_work_ratio,
         "optimistic_work": int(optimistic_work),
+        "coverage_optimistic_work": coverage_optimistic_work,
         "partitioned": bool(
-            max_coverage >= 2
-            and work >= tuning.partition_work_ratio * unit
+            plan.coverages
+            and work >= tuning.partition_work_ratio * plan.unit
             and work > optimistic_work
         ),
     }

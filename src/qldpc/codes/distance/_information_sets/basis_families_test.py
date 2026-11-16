@@ -288,15 +288,16 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
 
 def test_partitioning_runs_once_work_reaches_its_unit() -> None:
     """Matroid partitioning runs only if the work of a search reaches a multiple of its unit."""
-    # The largest coverage and the unit agree with their definitions for largest coverages from zero
-    # to eight, on a basis of 4 rows and 10 nonzero columns.
+    # The coverages and the unit agree with their definitions for largest coverages from zero to
+    # eight, on a basis of 4 rows and 10 nonzero columns.
+    basis = np.hstack([np.eye(4), np.eye(4), np.eye(4)[:, :2], np.zeros((4, 1))]).astype(np.uint8)
     for max_sets in range(20):
-        max_coverage = math.ceil(max_sets * 4 / 10)
-        expected = sum(coverage**2 for coverage in range(2, max_coverage + 1)) * 4**2 * 10
-        assert basis_families._get_partition_coverage_and_unit(max_sets, 4, 10) == (
-            max_coverage,
-            expected,
+        plan = basis_families._get_partition_plan(
+            basis, SearchTuning(max_information_sets=max_sets, partition_max_coverage=MAX_VALUE)
         )
+        coverages = range(2, math.ceil(max_sets * 4 / 10) + 1)
+        expected = sum(coverage**2 for coverage in coverages) * 4**2 * 10
+        assert (plan.coverages, plan.unit) == (coverages, expected)
 
     basis = np.hstack([np.eye(20), np.eye(20), np.eye(20)[:, :5]]).astype(np.uint8)
     labels = np.eye(len(basis), dtype=np.uint8)
