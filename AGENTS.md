@@ -36,7 +36,7 @@ Use judgment to point out when a change would be easier to review as a sequence 
 
 ## Decisions and recommendations
 
-Before adding or recommending process or apparatus, such as a rule, a review step, or an experiment, check it against [the goal of the work](docs/source/contributing/decisions.rst#the-goal-of-the-work).
+Before adding or recommending process, such as a rule, a review step, or an experiment, follow the rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
 Make every recommendation, and present every decision, as [decisions and recommendations](docs/source/contributing/decisions.rst) describes.
 
 ## Working on a change

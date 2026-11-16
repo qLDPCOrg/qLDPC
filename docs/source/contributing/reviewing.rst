@@ -129,7 +129,7 @@ The coordinator runs each round as follows:
    If the coordinator is not permitted to revise the change, as for another contributor's pull request, report every fix as a suggestion, and end the review after one round.
 3. Leave decisions to the person the coordinator works for.
    Decisions include design changes, public API changes, changes to the standards or to this protocol, and disagreements with a reviewer.
-   A fix is also a decision if the rule on :ref:`adding process or apparatus <decisions-goal>` says to escalate it.
+   A fix is also a decision if the rules on :ref:`adding process <decisions-adding-process>` make it one for the person who requested the work.
    Record each open decision, continue with the other fixes, and list the open decisions in the report.
    Present each decision to that person as :doc:`decisions and recommendations <decisions>` describes.
 4. Fix a minor pre-existing problem in the change, such as a misleading message, a missing check, or an untested edge case, if its fix is local, evidently correct, and needs no decision.

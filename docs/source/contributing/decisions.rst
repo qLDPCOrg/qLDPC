@@ -3,21 +3,23 @@ Decisions and recommendations
 
 Contributors, whether people or agents, often recommend a choice to the person who decides it, usually a maintainer.
 They also recommend choices to each other, as when a reviewer recommends one of several fixes to a review's coordinator.
-This page states a rule for adding process or apparatus, the principles that every recommendation follows in any form, and a standard format for presenting a complex or risky decision to the person who decides it.
+This page states rules for adding process, the principles that every recommendation follows in any form, and a standard format for presenting a complex or risky decision to the person who decides it.
 A report of requested work that is already done, such as a handoff or a review's findings with their suggested fixes, is not a recommendation, unless it asks its recipient to choose among options or to take an additional step.
 
-.. _decisions-goal:
+.. _decisions-adding-process:
 
-The goal of the work
---------------------
+Adding process
+--------------
 
-Process and apparatus include rules, review steps, checks, experiments, measurement protocols, tests that enforce the standards, and scripts for experiments, benchmarks, or checks.
-They exclude library code, the tests of its behavior, and what a standard requires a change to add.
-They must serve the goal of the work that they are added to: what the work as a whole was requested for, not the purpose of the addition.
-Before adding or recommending process or apparatus that neither the request nor the rules for working on qLDPC call for, restate that goal in one sentence and check that the addition serves it.
-Give that sentence in the recommendation or the report on the work.
-When a fix would add process or apparatus to guard against a problem that other process or apparatus caused or left open, escalate the fix as a decision to the person who requested the work, even if they have delegated other decisions.
-Include removing or simplifying that other process or apparatus among the decision's options.
+Process here means what is added to how work is done, rather than to the library and the tests of its behavior.
+It includes rules, review steps, checks, experiments, measurement protocols, and the scripts and tests that serve them.
+It excludes what a standard already requires of a change.
+Process can grow to serve itself, as when each fix to a benchmark protocol adds a rule to cover a gap that the previous rule left.
+
+* Before adding or recommending process that neither the request nor the rules for working on qLDPC call for, say in one sentence what the work as a whole was requested for, and check that the addition serves that purpose, not only its own.
+  Give that sentence in the recommendation or the report on the work.
+* When a fix would add process to guard against a problem that other process caused or left open, the fix is a decision for the person who requested the work, even if they delegated other decisions.
+  Offer removing or simplifying that other process as one of the decision's options.
 
 Principles for recommendations
 ------------------------------
