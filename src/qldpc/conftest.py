@@ -34,9 +34,9 @@ def run_python(
 
     The child interpreter receives this interpreter's import path as its PYTHONPATH, so that it
     imports the same qLDPC sources rather than whatever qldpc its environment happens to resolve.
-    The child does not inherit ``QLDPC_DISABLE_COMPILATION``, so that it compiles qLDPC's functions
-    as a user's interpreter does.  ``env`` can still set that variable, and the child inherits
-    ``NUMBA_DISABLE_JIT``.
+    The child does not inherit ``QLDPC_DISABLE_COMPILATION`` or ``PYTHONOPTIMIZE``, so that it
+    compiles qLDPC's functions as a user's interpreter does and runs the assertions in ``code``.
+    ``env`` can still set these variables, and the child inherits ``NUMBA_DISABLE_JIT``.
 
     Args:
         code: The code to run, passed to the interpreter with -c.
@@ -53,6 +53,7 @@ def run_python(
     import_path = os.pathsep.join(path for path in sys.path if path)
     environment = {**os.environ, "PYTHONPATH": import_path}
     environment.pop(_compilation.DISABLE_COMPILATION_VARIABLE, None)
+    environment.pop("PYTHONOPTIMIZE", None)
     result = subprocess.run(
         [sys.executable, *options, "-c", code],
         capture_output=True,

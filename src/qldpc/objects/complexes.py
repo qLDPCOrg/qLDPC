@@ -13,8 +13,6 @@ from typing import TYPE_CHECKING
 import galois
 import numpy as np
 import numpy.typing as npt
-import scipy.sparse
-import scipy.sparse.csgraph
 
 from qldpc._utils import networkx as nx
 from qldpc.math import resolve_field
@@ -598,6 +596,8 @@ def _get_diagonal_orbits(
     Each pair ``(p_a, p_b)`` in ``perm_pairs`` maps ``(a, b)`` to ``(p_a[a], p_b[b])``.  Orbits are
     labeled 0, 1, ... in order of their smallest pair in row-major order.
     """
+    import scipy.sparse.csgraph  # imported on first use, to keep "import qldpc" fast
+
     pairs = np.arange(shape[0] * shape[1]).reshape(shape)
     sources = np.tile(pairs.ravel(), len(perm_pairs))
     targets = np.array(
