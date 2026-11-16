@@ -13,13 +13,18 @@ drifts of the load of the machine affect both arms alike.
 
 Each trial appends a JSON line to ``trials.jsonl`` in the results directory, and a comparison skips
 the trials that the file holds, so an interrupted comparison resumes where it stopped.  The script
-prints a summary and writes it to ``summary-<tag>.csv``: for each workload, the median time and peak
-memory of each arm, and the median ratio of the proposed arm's time to the current arm's over
-rounds, with its spread and, from six rounds on, a confidence interval (see
+prints a summary and writes it to ``summary-<tag>.csv`` in the results directory: for each workload,
+the median time and peak memory of each arm, and the median ratio of the proposed arm's time to the
+current arm's over rounds, with its spread and, from six rounds on, a confidence interval (see
 ``get_median_interval``).  The summary flags each workload whose arms disagree on a result.
 
-The README of this directory says when to time with ``--repeat``.  Run comparisons with limits on
-their time and memory.
+A trial's time is the median of its ``--repeat`` repetitions, and later repetitions reuse what codes
+and coset searches cache (see ``trial.py``).  Cached work that is the same in every arm, such as the
+generator matrix of a classical code given by checks, can dominate a trial of a small code, and
+drops out of the median with ``--repeat 3``.  Time with one repetition a change to what later
+repetitions skip: the setup of coset searches, or whether a search finds the automorphisms that
+codes remember, which ``automorphism_minimum_states`` and ``automorphism_minimum_layer_work``
+decide.  Run comparisons with limits on their time and memory.
 
 Examples, the first of which proposes a value of ``automorphism_minimum_states``, and the second of
 which compares the defaults of two checkouts:

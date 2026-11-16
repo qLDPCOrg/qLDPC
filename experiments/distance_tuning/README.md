@@ -10,22 +10,16 @@ These scripts check the tuning, and none of them sets or justifies a value:
 - [`sweep.py`](sweep.py) times the current tuning against a proposed one, or the defaults of two checkouts, in paired trials of [`trial.py`](trial.py), to catch gross regressions or bugs when the tuning or the search code changes.
 
 [`benchmark.py`](benchmark.py) compares the exact distance methods on known codes, and plays no part in tuning.
-Every script except `workloads.py` lists its options under `--help`.
-`constants.py` and `sweep.py` write their results to `results/`, which Git ignores, and `trace.py` writes a trace to the file that `--output` names.
-These outputs belong in the description of the pull request that they support, never in `_tuning.py` or the documentation.
+Every script except `workloads.py` describes its outputs and options under `--help`.
+The outputs of the checks belong in the description of the pull request that they support, never in `_tuning.py` or the documentation.
 
 ## Checking the orders of magnitude
 
-Run `constants.py` on a quiet machine, with limits on its time and memory:
+Run `constants.py` as its `--help` describes:
 
 ```bash
 python experiments/distance_tuning/constants.py
 ```
-
-The script first traces a few quick searches.
-It prints a table of the cost of each optional step that a derived value gates, in seconds and in the unit of the field that gates the step (`in units`), and then a table, by field, of that cost rounded as `round_to_grid` does (`derived`) beside the default.
-It then traces the searches of its cost data set, `COST_DATA_SET`, under each tuning of `COST_MODEL_ARMS`, which together can take hours, and prints each coefficient of the cost model of completion tables, under `measured`, beside its default.
-Compare each step's `in units` with the default of the field that gates it.
 
 `constants.py` does not check `macwilliams_shared_walk_rank`, which gates a test of whether the X and Z checks of a logical-operator counter span the same space.
 Trace `mcount` workloads of counters of rank 14 or more, such as `mcount/qrm:2:6/4`, with the test forced (`--tuning '{"macwilliams_shared_walk_rank": 0}'`).
@@ -45,12 +39,7 @@ python experiments/distance_tuning/trace.py --compare \
     experiments/distance_tuning/results/current.json experiments/distance_tuning/results/proposed.json
 ```
 
-A trace lists the events of the searches' stages, such as the families of information sets that a search builds and its decisions to use completion tables or automorphisms, with the seconds of most stages.
-`trace.py` says what each event records.
-Each `layer` event of a BZ distance search, and each `weight limit` event of a connected-cluster search, has a `problem` field: the index of its problem among those that one call of a distance function searches.
-`wrap_problems` in `trace.py` says how the problems of a call are numbered.
-`--compare`, which ignores `problem` fields, says whether two traces make the same decisions, and prints the first that differs, unless one trace ends before it.
-If the tunings differ only in thresholds and no decision differs, the searches take the same steps.
+`trace.py` says what a trace records, and what `--compare` compares.
 
 ## Catching regressions
 
@@ -62,19 +51,13 @@ python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6
     --proposed '{"automorphism_minimum_states": 100000}'
 ```
 
-With `--worktrees CURRENT PROPOSED` instead of `--proposed`, the script compares the defaults of two checkouts.
-Its summary gives, for each workload, the median time and peak memory of each arm (tuning or checkout), and the median ratio of the proposed arm's time to the current arm's over rounds, with its spread and, from six rounds on, a confidence interval.
-It flags arms that disagree on a result.
-A disagreement, or a ratio well above one where the traced decisions do not change, points to a bug or a regression; no ratio by itself justifies changing a default.
+`sweep.py` says what the summary of a comparison gives and flags, and when to time with `--repeat`.
+A flagged disagreement, or a proposed arm much slower than the current one where the traced decisions do not change, points to a bug or a regression.
 
 Before timing:
 
 - Time searches in new single-threaded processes, one at a time, as `sweep.py` and `constants.py` do, since completion tables save less when several searches run at once.
 - Do not edit `src/` while the scripts run, since each process imports it anew.
-- A trial of one repetition also times work that codes cache, such as the generator matrix of a classical code given by checks.
-  Such work is the same in every arm, can dominate a trial of a small code, and drops out of the median with `--repeat 3`.
-  Coset searches also reuse their setups, so time each setup budget with one repetition.
-- Codes also remember automorphisms once a search finds them, and whether a search finds them depends on the tuning, so time a change of `automorphism_minimum_states` or `automorphism_minimum_layer_work` with one repetition.
 
 ## Changing a default
 
