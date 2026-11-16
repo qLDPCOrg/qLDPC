@@ -1,0 +1,132 @@
+{
+ "families": {
+  "bb": {
+   "instances_n": [
+    72,
+    90,
+    108,
+    144,
+    288,
+    360,
+    756
+   ],
+   "n_hi": 756,
+   "n_lo": 72,
+   "source": "Bravyi, Cross, Gambetta, Maslov, Rall, Yoder, \"High-threshold and low-overhead fault-tolerant quantum memory\", Nature 627, 778-782 (2024); arXiv:2308.07915",
+   "table": "Table 3 (arXiv v2 PDF, p.7): 'Small examples of Bivariate Bicycle LDPC codes and their parameters'"
+  },
+  "css_walk": {
+   "instances_n": [
+    15,
+    16,
+    61,
+    62
+   ],
+   "n_hi": 61,
+   "n_lo": 16,
+   "source": "codetables.de (M. Grassl), tables of bounds on the minimum distance of additive (stabilizer) quantum codes, q=4 (qubit codes), k=2: http://www.codetables.de/QECC.php?q=4&n=N&k=2",
+   "table": "Per-n pages queried programmatically for all n=1..256 at k=2"
+  },
+  "gb": {
+   "instances_n": [
+    46,
+    48,
+    126,
+    180,
+    254,
+    900
+   ],
+   "n_hi": 900,
+   "n_lo": 46,
+   "source": "Panteleev & Kalachev, \"Degenerate Quantum LDPC Codes With Good Finite Length Performance\", Quantum 5, 585 (2021); arXiv:1904.02703",
+   "table": "Appendix B, subsection 'A. Generalized bicycle (GB) codes' (codes A1-A6), cross-referenced with Table 1 column 'N'"
+  },
+  "hgp": {
+   "instances_n": [
+    240,
+    336,
+    420,
+    450,
+    620,
+    744,
+    840,
+    882,
+    1568,
+    1800,
+    1922
+   ],
+   "n_hi": 1922,
+   "n_lo": 240,
+   "source": "Aydin, Delfosse, Tham, \"Cyclic Hypergraph Product Code\", arXiv:2511.09683 (Nov 2025)",
+   "table": "Table 3 (Appendix C, 'Code Table'): 'Table of corresponding C2 and CxR quantum codes for each classical cyclic code'"
+  },
+  "lp": {
+   "instances_n": [
+    544,
+    714,
+    1020,
+    1428
+   ],
+   "n_hi": 1428,
+   "n_lo": 544,
+   "source": "Xu, Bonilla Ataides, Pattison, Raveendran, Bluvstein, Wurtz, Vasic, Lukin, Jiang, Zhou, \"Constant-Overhead Fault-Tolerant Quantum Computation with Reconfigurable Atom Arrays\", Nature Physics (2024); arXiv:2308.08648",
+   "table": "Methods section (no numbered table): explicit base matrices B_l^d with l=16,21,30,42 and d=12,16,20,24, used to build 'the four LP codes used in this work'"
+  },
+  "pp": {
+   "instances_n": [
+    110,
+    170,
+    176,
+    190,
+    232,
+    248,
+    296,
+    360,
+    472,
+    488,
+    584,
+    776,
+    944,
+    1112,
+    1336,
+    1414,
+    1784,
+    2230,
+    2676,
+    3122
+   ],
+   "n_hi": 3122,
+   "n_lo": 110,
+   "source": "(1) Okada & Kasai, \"Pair-Partition Constructions for CPM-Based Quantum LDPC Codes\", arXiv:2607.14091 (Jul 2026); (2) Lee, Okada, Maskara, Kasai, Zhou, \"Design Principles for Ultra-High-Rate Quantum Codes\", arXiv:2609.30069 (Sep 2026); (3) GitHub repo ultra-high-rate-qec/design-principles-data, path codes/css/cpm_pp/instances (directory listing confirmed via GitHub API)",
+   "table": "Okada&Kasai Table I (36 certified CPM-based CSS codes + a 3-row 'Zero-design-rate contributed examples' sub-table); Lee et al. Table I (representative subset) and Table VIII (Appendix I, 'Complete Catalogue of CPM-PP Code Instances')"
+  },
+  "qt": {
+   "instances_n": [
+    144,
+    216,
+    288,
+    324,
+    396,
+    432,
+    576
+   ],
+   "n_hi": 576,
+   "n_lo": 144,
+   "source": "Leverrier, Rozendaal, Zemor, \"Small quantum Tanner codes from left-right Cayley complexes\", arXiv:2512.20532 (Dec 2025)",
+   "table": "Table 1(b): 'Parameters of quantum Tanner codes for [6,3,3] local codes and generator weight 9'"
+  },
+  "rstab": {
+   "instances_n": [
+    15,
+    16,
+    61,
+    62
+   ],
+   "n_hi": 61,
+   "n_lo": 16,
+   "source": "Same as css_walk: codetables.de (M. Grassl) qubit stabilizer code table, q=4, k=2",
+   "table": "Same per-n pages as css_walk"
+  }
+ },
+ "rule": "n_lo and n_hi are the smallest and largest n among the published instances of the family's source; for css_walk and rstab, the smallest n whose lower bound on d is >= 6 and the largest n <= 256 whose upper bound on d is <= 20 in Grassl's table of qubit stabilizer codes with k = 2 (codetables.de)."
+}
