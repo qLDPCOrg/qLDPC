@@ -18,12 +18,8 @@ Code constructions
 * Add a linked literature reference and document the field, subsystem, distance, and validation assumptions in the class docstring.
 * Add co-located tests with independent invariants: rank-derived dimension, CSS orthogonality, symplectic commutation, row-space identities, known small distances, or exact cross-family equivalence.
   Do not validate construction-supplied or cached parameters by reading those same values back.
-* If the construction of a binary quantum code comes with a group of qubit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` to return generators of that group.
-  Exact distance searches use them to search less when the optional ``pybliss`` package does not find such permutations.
-  ``MBCode._get_qudit_automorphisms`` is an example, which uses ``_get_block_translations`` for a group that translates every block of qudits at once.
-  For codes built from lifts of a group algebra, ``_get_abelian_block_translations`` returns these translations if the group is abelian and its generators lift to permutation matrices, and None otherwise.
-  Prove that each generator maps the row space of the parity check matrix onto itself, and test that it does.
-  For a CSS code, a generator does so if it maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.
+* If the construction of a binary quantum code comes with a group of qubit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` to return generators of that group, which exact distance searches use when the optional ``pybliss`` package finds none; ``MBCode._get_qudit_automorphisms`` is an example.
+  Prove that each generator maps the row space of the parity check matrix onto itself (for a CSS code, the row spaces of both ``matrix_x`` and ``matrix_z``), and test that it does.
   Give the proof in the docstring of the override or of a function that it calls, directly or through other functions, unless the :ref:`writing standard <writing-documentation>` puts the proof in a guide.
 
 .. _implementation-algebra:
