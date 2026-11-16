@@ -360,40 +360,44 @@ def test_searches_by_cost_use_lifted_automorphisms(routes: Routes) -> None:
 
     The shifts of the Golay code, and the translations of a bicycle code with Hadamards on its
     second block, which is not CSS, preserve the codes.  A transposition does not, and fails the
-    verification.  Only the BZ searches ask for automorphisms here.
+    verification.  The Golay code is searched by its two sectors and as Pauli strings.  Only the BZ
+    searches ask for automorphisms here.
     """
     checks = get_golay_checks()
     golay = qldpc.codes.CSSCode(checks.astype(int), checks.astype(int))
     shifts = np.roll(np.arange(23), 1)[None]
     bicycle_code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
     conjugated = bicycle_code.conjugated(range(7, 14))
-    transposition = np.arange(14)
-    transposition[[0, 1]] = [1, 0]
+    search_css = functools.partial(core.get_distance_css, golay.matrix_x, golay.matrix_z)
+    search_golay = functools.partial(
+        core.get_distance_from_checks, golay.matrix, golay.get_stabilizer_ops(), symplectic=True
+    )
+    search_bicycle = functools.partial(
+        core.get_distance_from_checks,
+        conjugated.matrix,
+        conjugated.get_stabilizer_ops(),
+        symplectic=True,
+    )
     asks = {"automorphism_minimum_states": MAX_VALUE, "automorphism_minimum_layer_work": 0}
-    for changes, code, automorphisms, distance in (
-        (NO_PROBE, golay, shifts, 7),
-        (UNLIMITED, conjugated, bicycle_code._get_qudit_automorphisms(), 3),
+    for changes, search, automorphisms, distance in (
+        (NO_PROBE, search_css, shifts, 7),
+        (NO_PROBE, search_golay, shifts, 7),
+        (UNLIMITED, search_bicycle, bicycle_code._get_qudit_automorphisms(), 3),
     ):
+        num_switches = len(routes.switch_bounds)
         get_automorphisms = mock.Mock(return_value=automorphisms)
         with use_tuning(**changes, **asks):
-            result = core.get_distance_from_checks(
-                code.matrix,
-                code.get_stabilizer_ops(),
-                symplectic=True,
-                method="auto",
-                automorphisms=get_automorphisms,
-            )
-        assert result == distance
+            assert search(method="auto", automorphisms=get_automorphisms) == distance
         get_automorphisms.assert_called_once()
-    assert routes.switch_bounds and routes.probes[-1][0]
-    with use_tuning(**UNLIMITED, **asks), pytest.raises(ValueError, match="not an automorphism"):
-        core.get_distance_from_checks(
-            conjugated.matrix,
-            conjugated.get_stabilizer_ops(),
-            symplectic=True,
-            method="auto",
-            automorphisms=transposition[None],
-        )
+        if changes is NO_PROBE:
+            assert len(routes.switch_bounds) == num_switches + 1
+        else:
+            assert routes.probes[-1][0]
+
+        transposition = np.arange(len(automorphisms[0]))
+        transposition[[0, 1]] = [1, 0]
+        with use_tuning(**changes, **asks), pytest.raises(ValueError, match="not an automorphism"):
+            search(method="auto", automorphisms=transposition[None])
 
 
 def test_the_probe_scans_whole_layers_within_its_work() -> None:

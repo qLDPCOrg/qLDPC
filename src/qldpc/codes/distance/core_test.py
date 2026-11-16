@@ -239,27 +239,38 @@ def test_auto_enumerates_up_to_its_budget_of_packed_integers(
     The two sectors of the Steane code have dimension 4 each, the Hamming code has dimension 4, and
     the Pauli strings that commute with the five-qubit code have dimension 6, all within one 64-bit
     integer per word.  The two words of the repetition code of length 65 take two integers each.
+    A word has a bit for each bit or qubit of a CSS or classical code, and two for each qubit of a
+    Pauli string.
     """
     taken: list[str] = []
     brute_force = core.get_nested_distance_brute_force
     monkeypatch.setattr(
         core, "get_nested_distance_brute_force", _record_call(taken, "", brute_force)
     )
+    widths: list[int] = []
+    is_cheap_to_enumerate = core.is_cheap_to_enumerate
+
+    def record_width(dimensions: list[int], width: int, tuning: Any) -> bool:
+        widths.append(width)
+        return is_cheap_to_enumerate(dimensions, width, tuning)
+
+    monkeypatch.setattr(core, "is_cheap_to_enumerate", record_width)
     steane_code = qldpc.codes.SteaneCode()
     hamming_code = qldpc.codes.HammingCode(3)
     five_qubit_code = qldpc.codes.FiveQubitCode()
-    searches: list[tuple[Callable[[], Any], int, int]] = [
-        (lambda: core.get_distance_css(steane_code.matrix_x, steane_code.matrix_z), 2 * 2**4, 3),
-        (lambda: core.get_distance_from_generators(hamming_code.generator), 2**4, 3),
-        (lambda: core.get_distance_pauli(five_qubit_code.matrix), 2**6, 3),
-        (lambda: core.get_distance_from_generators(np.ones((1, 65), int)), 2 * 2, 65),
+    searches: list[tuple[Callable[[], Any], int, int, int]] = [
+        (lambda: core.get_distance_css(steane_code.matrix_x, steane_code.matrix_z), 2 * 2**4, 7, 3),
+        (lambda: core.get_distance_from_generators(hamming_code.generator), 2**4, 7, 3),
+        (lambda: core.get_distance_pauli(five_qubit_code.matrix), 2**6, 10, 3),
+        (lambda: core.get_distance_from_generators(np.ones((1, 65), int)), 2 * 2, 65, 65),
     ]
-    for search, num_integers, distance in searches:
+    for search, num_integers, width, distance in searches:
         for max_words, enumerates in ((num_integers, True), (num_integers - 1, False)):
             taken.clear()
+            widths.clear()
             with use_tuning(auto_brute_force_max_words=max_words):
                 assert search() == distance
-            assert bool(taken) is enumerates
+            assert bool(taken) is enumerates and widths == [width]
 
 
 def _record_call(taken: list[str], name: str, function: Callable[..., Any]) -> Callable[..., Any]:
@@ -381,7 +392,10 @@ def test_distance_functions_check_their_input() -> None:
 
 
 def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
-    """Automorphisms must be permutations, and a function returning them is called at most once."""
+    """Automorphisms are checked, and a function returning them is called at most once.
+
+    They must be permutations, and they must preserve the code.
+    """
     # With automorphism_minimum_states=0, a connected-cluster search asks for automorphisms before
     # its first weight limit, so both sectors of the bicycle code below would ask.  The code words
     # of the checks below are 000 and 111, so the cyclic shift [1, 2, 0] is an automorphism.
@@ -396,14 +410,23 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
     assert distance == 3
     get_automorphisms.assert_called_once()
 
-    # The searches of both sectors of a CSS code share one call.
+    # The searches of both sectors of a CSS code share one call, also when "auto" searches by cost
+    # and its connected-cluster search asks.  A transposition is not an automorphism.
     code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
-    get_automorphisms = mock.Mock(return_value=code._get_qudit_automorphisms())
-    distance = core.get_distance_css(
-        code.matrix_x, code.matrix_z, method="connected_cluster", automorphisms=get_automorphisms
-    )
-    assert distance == 3
-    get_automorphisms.assert_called_once()
+    transposition = np.arange(14)
+    transposition[[0, 1]] = [1, 0]
+    tune(auto_brute_force_max_words=0)
+    for css_method in ("connected_cluster", "auto"):
+        get_automorphisms = mock.Mock(return_value=code._get_qudit_automorphisms())
+        distance = core.get_distance_css(
+            code.matrix_x, code.matrix_z, method=css_method, automorphisms=get_automorphisms
+        )
+        assert distance == 3
+        get_automorphisms.assert_called_once()
+        with pytest.raises(ValueError, match="not an automorphism"):
+            core.get_distance_css(
+                code.matrix_x, code.matrix_z, method=css_method, automorphisms=transposition[None]
+            )
 
     for automorphisms in ([[1, 0]], [[0, 0, 1]], [[[1, 2, 0]]]):
         with pytest.raises(ValueError, match="permutations of range"):

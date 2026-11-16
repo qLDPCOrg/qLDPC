@@ -443,8 +443,8 @@ def _check_coset_search_method(method: DistanceMethod) -> None:
         )
     if method not in typing.get_args(DistanceMethod):
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets') or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
+            " alias 'information_sets'), or 'connected_cluster'."
         )
 
 

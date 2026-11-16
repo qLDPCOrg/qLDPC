@@ -77,10 +77,9 @@ class CosetLeaderSearch:
         method: ``"brouwer_zimmermann"`` (the default), with alias ``"information_sets"``, searches
             the cosets of binary codes by information sets (see the `Brouwer-Zimmermann guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_),
-            and so does ``"auto"``.
-            ``"connected_cluster"`` makes generators of the stabilizer group sparser, and grows
-            errors from the syndrome through them, so it can be fast only if those generators are
-            sparse (see the `connected-cluster guide
+            and so does ``"auto"``.  ``"connected_cluster"`` makes generators of the stabilizer
+            group sparser, and grows errors from the syndrome through them, so it can be fast only
+            if those generators are sparse (see the `connected-cluster guide
             <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_).
             It weighs errors by CSS weight only on CSS states.  For a class without an error within
             a positive maximum weight, its lower bound is that maximum weight plus one, whereas the
@@ -474,8 +473,8 @@ def _get_coset_search_method(
         canonical = _validate_distance_method(method)
     except ValueError:
         raise ValueError(
-            f"Unknown distance method {method!r}; choose from 'brouwer_zimmermann' (or its alias"
-            " 'information_sets') or 'connected_cluster'."
+            f"Unknown distance method {method!r}; choose from 'auto', 'brouwer_zimmermann' (or its"
+            " alias 'information_sets'), or 'connected_cluster'."
         ) from None
     if canonical == "brute_force":
         raise ValueError(

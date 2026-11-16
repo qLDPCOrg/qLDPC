@@ -326,7 +326,7 @@ class _SectorSearch:
         return self.best
 
     def _plan_layer(self) -> tuple[int, int]:
-        """The sets that the next layer scans, and those that it completes, as ``advance`` plans.
+        """The numbers of sets that the next layer scans and completes, as ``advance`` plans.
 
         The layer scans the sets up to the first whose step certifies the best weight, or the one
         set of an automorphism family, which completes the layer for every image.

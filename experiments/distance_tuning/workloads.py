@@ -25,7 +25,7 @@ A code name is one of:
 
 A workload name is a kind, then a code name, then the arguments of the kind, separated by ``/``:
 
-- ``distance/<code>/<sector>``: ``get_distance_exact`` by the BZ method of a quantum code, for the
+- ``distance/<code>/<sector>``: ``get_distance_exact``, by the BZ method, of a quantum code, for the
   sector ``X``, ``Z``, or ``both``, or of a classical code, whose sector must be ``-``;
 - ``ccdistance/<code>/<sector>``: the same, by the connected-cluster method;
 - ``hadamard/<code>``: ``get_distance_exact`` by the BZ method of the code that Hadamards on the

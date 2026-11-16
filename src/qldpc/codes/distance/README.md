@@ -28,7 +28,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - **Basis family** (`BasisFamily`): the information sets that one Brouwer-Zimmermann search or count uses together, stacked into arrays.
 - **Certificate** (`Certificate`): a lower bound on the weight of the words that a Brouwer-Zimmermann search has neither visited nor skipped, which tells the search when it can stop; with completion tables, it bounds only the words lighter than the best weight `U` of the search (Section 3.9 of `brouwer_zimmermann.md`).
 - **Connected-cluster search** (`SupportSearch`): the depth-first search that `method="connected_cluster"` selects, which grows supports through the unsatisfied rows of a check matrix `H` to find light binary or symplectic words outside the row space of an excluded matrix `G`, or light vectors with a given syndrome.
-  `"auto"` runs it for the distances of quantum codes and the fault distances of circuits (see "Choosing a method").
+  `"auto"` runs it for the distances of quantum codes and the fault distances of circuits, unless enumerating is cheap (see "Choosing a method").
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer, a layer holding the combinations of a given number of rows.
   Counts have their own scan, in `_counting/scan.py`, and the Brouwer-Zimmermann distance and coset searches (see "The coset-leader search") use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
   Every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.

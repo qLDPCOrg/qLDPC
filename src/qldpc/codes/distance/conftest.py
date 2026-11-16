@@ -179,7 +179,7 @@ def get_random_css_code(
 
 
 def get_costly_basis() -> npt.NDArray[np.uint8]:
-    """A basis of a [21, 8, 6] code whose search reaches matroid partitioning at lowered gates."""
+    """A basis of a [21, 8, 6] code whose search reaches matroid partitioning at low thresholds."""
     return get_binary_matrix(
         [
             "100000010110010010011",
