@@ -282,7 +282,9 @@ def test_deprecated_distance_functions() -> None:
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
             search()
     with unittest.mock.patch.object(
-        codes.distance, "get_distance_from_generators", return_value=3
+        codes.distance,
+        "get_distance_from_generators",
+        wraps=codes.distance.get_distance_from_generators,
     ) as get_distance:
         for search in (
             lambda: get_distance_classical(generator),
