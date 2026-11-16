@@ -114,6 +114,7 @@ class CosetLeaderSearch:
             ConnectedClusterCosetSearch,
             max_rounds=tuning.max_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
+            restrict_viable_symbols=tuning.restrict_viable_symbols,
         )
         # Exactly one of the BZ searches and the connected-cluster searches is nonempty.
         self._brouwer_zimmermann_searches: tuple[BrouwerZimmermannCosetSearch, ...] = ()

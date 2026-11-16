@@ -47,7 +47,9 @@ python experiments/distance_tuning/trace.py --compare \
 
 A trace lists the events of the searches' stages, such as the families of information sets that a search builds and its decisions to use completion tables or automorphisms, with the seconds of most stages.
 `trace.py` says what each event records.
-`--compare` says whether two traces make the same decisions, and prints the first that differs, unless one trace ends before it.
+Each `layer` event of a BZ distance search, and each `weight limit` event of a connected-cluster search, has a `problem` field: the index of its problem among those that one call of a distance function searches.
+`wrap_problems` in `trace.py` says how the problems of a call are numbered.
+`--compare`, which ignores `problem` fields, says whether two traces make the same decisions, and prints the first that differs, unless one trace ends before it.
 If the tunings differ only in thresholds and no decision differs, the searches take the same steps.
 
 ## Catching regressions

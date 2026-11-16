@@ -73,9 +73,14 @@ def test_new_threads_start_with_the_default_tuning() -> None:
 
 
 def test_tunings_are_validated() -> None:
-    """Fields hold Python numbers, and a tuning rejects wrong types and out-of-range values."""
-    numpy_fields: dict[str, Any] = {"max_information_sets": np.int64(4)}
-    assert type(_tuning.SearchTuning(**numpy_fields).max_information_sets) is int
+    """Tunings store Python numbers and bools, and reject wrong types and out-of-range values."""
+    numpy_fields: dict[str, Any] = {
+        "max_information_sets": np.int64(4),
+        "restrict_viable_symbols": np.False_,
+    }
+    numpy_tuning = _tuning.SearchTuning(**numpy_fields)
+    assert type(numpy_tuning.max_information_sets) is int
+    assert numpy_tuning.restrict_viable_symbols is False
     assert _tuning.SearchTuning(lp_minimum_work=_tuning.MAX_VALUE).lp_minimum_work == 2**62
     # Float fields hold Python floats, from any real number.
     floats: dict[str, Any] = {"completion_bound_confidence_z": 3, "completion_bound_samples": 8}
@@ -84,6 +89,7 @@ def test_tunings_are_validated() -> None:
     invalid: list[tuple[type[Exception], str, dict[str, Any]]] = [
         (TypeError, "must be an integer", {"max_information_sets": True}),
         (TypeError, "must be an integer", {"lp_minimum_work": 1.5}),
+        (TypeError, "must be a bool", {"restrict_viable_symbols": 1}),
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
         (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),
         (ValueError, "between 1 and", {"scan_chunk_size": 0}),
@@ -287,7 +293,12 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
-    record(connected_cluster.SupportSearch, "__init__", "automorphism_minimum_states")
+    record(
+        connected_cluster.SupportSearch,
+        "__init__",
+        "automorphism_minimum_states",
+        "restrict_viable_symbols",
+    )
     record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
     original_prepare = bz._prepare_brouwer_zimmermann_search
 
@@ -313,6 +324,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         macwilliams_chunk_size=1000,
         macwilliams_shared_walk_rank=5,
         automorphism_minimum_states=7,
+        restrict_viable_symbols=False,
         max_distance_sparsifying_rounds=4,
         sparsifying_rounds_without_improvement=2,
     ) as tuning:
@@ -336,6 +348,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "chunk_size": {1000, 1001},
         "max_chunks": {3},
         "automorphism_minimum_states": {7},
+        "restrict_viable_symbols": {False},
         "max_rounds": {4},
         "rounds_without_improvement": {2},
     }
