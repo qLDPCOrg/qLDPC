@@ -61,16 +61,9 @@ Where documentation belongs
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
   Docstrings and comments in the package point to a guide's section rather than repeat its argument, and may state in a clause what that section proves.
-* Give a measurement, such as a timing, ratio, or count, in prose only when it is the reason for a choice.
-  Prose here includes comments, docstrings, guides, READMEs, and experiment documents.
-  A measurement is the reason when the code does one thing rather than another because the one measured faster or used less memory by an amount that :ref:`matters <decisions-material>` on a key use, and would do the other without that measurement.
-  Say what was compared, and give its size no more precisely than a factor or figure rounded to 1, 2, 3, or 5 times a power of ten, such as "about 10 times faster" or "about 0.2 seconds".
-  Leave out the machines and pull requests behind it.
-  If the factor or figure holds only for some inputs, name them in general terms, such as "for large circuits".
-  Measurements that check a choice made on other grounds, such as a heuristic, a policy, or a design argument, stay out of prose, which explains such a choice by what it trades off, qualitatively or asymptotically.
-  When review needs precise measurements, including checks, give them in the pull request summary, as the :doc:`pull request standard <pull_requests>` describes.
-  Prose may state the cost that a heuristic assumes for a step, known to an order of magnitude and rounded the same way.
-  This rule does not cover results that are a document's subject but not evidence for a choice, such as those of an example notebook.
+* Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
+  Then give a rounded factor or figure, such as "about 10 times faster", without machines or pull requests.
+  Measurements that only check a choice made on other grounds, such as a heuristic, go in the pull request description when review needs them; a heuristic may still state the rough costs that it assumes.
 * The notebooks under ``docs/source/examples/`` are links to the canonical files under ``examples/``.
   Edit the canonical notebook, not the documentation-tree link.
 * After changing a notebook example, refresh its saved outputs by executing the entire canonical notebook in an offline, editable installation.
