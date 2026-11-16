@@ -67,7 +67,10 @@ def _check_faults(
 def test_listing_matches_brute_force(
     collide: bool, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each irreducible accepted fault with a start member is listed once, and no other fault is."""
+    """Each irreducible accepted fault with a start member is listed once, and no other fault is.
+
+    Only listers with memory for the closing map of pairs build it.
+    """
     # With zero hashes, lookups find every entry of a table and must compare flags.  Small batches
     # make a listing pause and resume often.
     if collide:
@@ -77,8 +80,9 @@ def test_listing_matches_brute_force(
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
-    # Record the memory limit of each listing that builds a closing map of pairs of two or more
-    # classes, to check that only the listings with memory for one build one.
+    # Record the memory limit (from the loop below) of each lister that builds a nonempty closing
+    # map of pairs, to check that some listers with memory for the map build it, and that none
+    # without memory does.
     limits_with_pairs: set[int] = set()
     get_closing_map = _fault_search._get_closing_map
 

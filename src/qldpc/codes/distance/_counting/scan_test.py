@@ -47,7 +47,7 @@ def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max
 
 
 def test_a_swel_gate_keeps_a_self_dual_counter_self_dual_and_exact() -> None:
-    """A self-dual code stays self-dual under a SWEL-preserving gate, and its counts stay exact."""
+    """After a count, a SWEL-preserving gate keeps a self-dual counter self-dual and exact."""
     counter = lc.CSSLogicalCounter.from_code(codes.SteaneCode())
     assert_counts_match_enumeration(counter)
     deformed = counter.deformed_swel(0, 1, 2, 3)
