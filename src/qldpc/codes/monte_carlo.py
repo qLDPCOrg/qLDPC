@@ -166,7 +166,7 @@ class ErrorRateFunc:
 
     @property
     def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight: the failure rate among its kept samples.
+        """Mean infidelity at each error weight, which is the failure rate among its kept samples.
 
         This is the observed failure rate.  The posterior whose variance infidelity_variances
         reports sits above it, by 1/(2n + 2) at a weight with n kept samples and no observed

@@ -404,7 +404,7 @@ class ClassicalCode(AbstractCode):
 
     @property
     def generator(self) -> galois.FieldArray:
-        """Generator of this code: a matrix whose rows form a basis for all code words."""
+        """Generator of this code, a matrix whose rows form a basis for all code words."""
         if self._generator is None:
             self._generator = self.matrix.null_space()
         return _mark_read_only(self._generator)
