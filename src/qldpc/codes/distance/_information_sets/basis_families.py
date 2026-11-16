@@ -341,41 +341,16 @@ def get_partitioned_family(
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
     """
-    max_sets = tuning.max_information_sets
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
 
-    # Choose the coverages to try and the unit of the gate.  Above a limit of one, capping the sets
-    # at the most that fit within the limit, by counting their pivots, caps the coverages.  Those
-    # limits leave coverage one to the disjoint packing of stage one, so that searches at the
-    # default limit build no maximum disjoint family.
-    dimension = len(basis)
-    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    coverage_limit = tuning.partition_max_coverage
-    if coverage_limit == 1:
-        coverages, partition_unit = range(1, 2), dimension**2 * num_columns
-    else:
-        max_sets = min(max_sets, coverage_limit * num_columns // dimension)
-        max_coverage, partition_unit = _get_partition_coverage_and_unit(
-            max_sets, dimension, num_columns
-        )
-        coverages = range(2, max_coverage + 1)
-
     # Skip partitioning if it would try no coverage, if it would cost too much for this search, or
     # if no family could do less work.
-    if not coverages or best_work < tuning.partition_work_ratio * partition_unit:
+    plan = _get_partition_plan(basis, tuning)
+    if not plan.coverages or best_work < tuning.partition_work_ratio * plan.unit:
         return best
-    binomials = get_capped_binomials(dimension)
     weight_divisor = basis_family.weight_divisor
-    optimistic_work = (
-        _estimate_optimistic_disjoint_work(
-            dimension, num_columns, weight_divisor, upper_bound, binomials
-        )
-        if coverage_limit == 1
-        else _estimate_optimistic_work(
-            dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
-        )
-    )
+    optimistic_work = plan.estimate_optimistic_work(weight_divisor, upper_bound)
     if best_work <= optimistic_work:
         return best
 
@@ -387,7 +362,7 @@ def get_partitioned_family(
     # Build a family for each coverage that could improve on the best so far, and keep the one that
     # does the least work.  A disjoint family can end with a partial set, which ``prune_family``
     # drops if it cannot help.
-    for coverage in coverages:
+    for coverage in plan.coverages:
         if coverage == 1:
             maximum_disjoint = _get_family_of_sets(
                 basis, labels, _get_maximum_disjoint_sets(basis), weight_divisor
@@ -396,14 +371,11 @@ def get_partitioned_family(
         else:
             # Skip a coverage at which no family could do less work than the best so far, which
             # leaves the result unchanged (Section 4.4).
-            most_sets = min(max_sets, coverage * num_columns // dimension)
-            coverage_optimistic_work = _estimate_optimistic_work(
-                dimension, num_columns, weight_divisor, upper_bound, most_sets, binomials
-            )
-            if coverage_optimistic_work >= best_work:
+            bound = plan.estimate_optimistic_coverage_work(coverage, weight_divisor, upper_bound)
+            if bound >= best_work:
                 continue
             column_sets = matroid_partition.get_information_sets_with_coverage(
-                basis, coverage, max_sets
+                basis, coverage, plan.max_sets
             )
             family = _get_family_of_sets(basis, labels, column_sets, weight_divisor)
 
@@ -569,22 +541,79 @@ def _get_disjoint_sets_for_columns(
     return information_sets
 
 
-def _get_partition_coverage_and_unit(
-    max_sets: int, dimension: int, num_columns: int
-) -> tuple[int, int]:
-    """The largest coverage that matroid partitioning may try, and the unit of its gate.
+class _PartitionPlan(NamedTuple):
+    """The coverages that ``get_partitioned_family`` may try for a basis, and its gate's quantities.
 
-    For a basis of ``dimension`` rows and ``num_columns`` nonzero columns, the largest coverage is
-    ``_get_least_coverage(max_sets, dimension, num_columns)``, computed here in Python integers,
-    since ``max_sets`` up to ``MAX_VALUE`` would overflow that compiled helper (Section 4.4).
+    Attributes:
+        dimension: The rows ``r`` of the basis.
+        num_columns: The nonzero columns ``N`` of the basis.
+        coverages: The coverages that partitioning may try, which may be none.
+        max_sets: The most information sets of a family of coverage two or more.
+        unit: The sum of ``b**2 * r**2 * N`` over the coverages ``b``, which the gate multiplies
+            by ``partition_work_ratio`` (Section 4.4).
     """
-    max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
-    if max_coverage < 2:
-        return max_coverage, 0
 
-    # The sum of b**2 from 2 to B is B (B + 1) (2B + 1) / 6 - 1.
+    dimension: int
+    num_columns: int
+    coverages: range
+    max_sets: int
+    unit: int
+
+    def estimate_optimistic_work(self, weight_divisor: int, upper_bound: int) -> int:
+        """A lower bound on the estimated work of any family that partitioning can build."""
+        binomials = get_capped_binomials(self.dimension)
+        if 1 in self.coverages:
+            return _estimate_optimistic_disjoint_work(
+                self.dimension, self.num_columns, weight_divisor, upper_bound, binomials
+            )
+        return _estimate_optimistic_work(
+            self.dimension, self.num_columns, weight_divisor, upper_bound, self.max_sets, binomials
+        )
+
+    def estimate_optimistic_coverage_work(
+        self, coverage: int, weight_divisor: int, upper_bound: int
+    ) -> int:
+        """A lower bound on the estimated work of a family that partitioning finds at a coverage.
+
+        The coverage is two or more, and the bound is over the most sets that fit within it by
+        counting their pivots (Section 4.4).
+        """
+        most_sets = min(self.max_sets, coverage * self.num_columns // self.dimension)
+        return _estimate_optimistic_work(
+            self.dimension,
+            self.num_columns,
+            weight_divisor,
+            upper_bound,
+            most_sets,
+            get_capped_binomials(self.dimension),
+        )
+
+
+def _get_partition_plan(basis: npt.NDArray[np.uint8], tuning: SearchTuning) -> _PartitionPlan:
+    """The plan of ``get_partitioned_family`` for a basis under a tuning (Section 4.4)."""
+    # Choose the coverages to try and the unit of the gate.  Above a limit of one on coverage,
+    # capping the sets at the most that fit within the limit, by counting their pivots, caps the
+    # coverages.  Those limits leave coverage one to the disjoint packing of stage one, so that
+    # searches at the default limit build no maximum disjoint family.
+    dimension = len(basis)
+    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    max_sets = tuning.max_information_sets
+    coverage_limit = tuning.partition_max_coverage
+    if coverage_limit == 1:
+        unit = dimension**2 * num_columns
+        return _PartitionPlan(dimension, num_columns, range(1, 2), max_sets, unit)
+    max_sets = min(max_sets, coverage_limit * num_columns // dimension)
+
+    # The largest coverage is _get_least_coverage(max_sets, dimension, num_columns), computed here
+    # in Python integers, since max_sets up to MAX_VALUE would overflow that compiled helper.  The
+    # sum of b**2 from 2 to B is B (B + 1) (2B + 1) / 6 - 1.
+    max_coverage = (max_sets * dimension + num_columns - 1) // num_columns
+    coverages = range(2, max_coverage + 1)
+    if not coverages:
+        return _PartitionPlan(dimension, num_columns, coverages, max_sets, 0)
     sum_of_squares = max_coverage * (max_coverage + 1) * (2 * max_coverage + 1) // 6 - 1
-    return max_coverage, sum_of_squares * dimension**2 * num_columns
+    unit = sum_of_squares * dimension**2 * num_columns
+    return _PartitionPlan(dimension, num_columns, coverages, max_sets, unit)
 
 
 def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
