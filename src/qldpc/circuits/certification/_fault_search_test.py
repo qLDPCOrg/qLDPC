@@ -77,15 +77,16 @@ def test_listing_matches_brute_force(
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
-    # Record whether each closing map that is built is of single classes or of pairs (its ``size``),
-    # to check that some listings use a closing map of pairs.
-    sizes: set[int] = set()
+    # Record the memory limit of each listing that builds a closing map of pairs of two or more
+    # classes, to check that only the listings with memory for one build one.
+    limits_with_pairs: set[int] = set()
     get_closing_map = _fault_search._get_closing_map
 
     def record_closing_map(
         hashes: npt.NDArray[np.uint64], size: int
     ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
-        sizes.add(size)
+        if size == 2 and len(hashes) > 1:
+            limits_with_pairs.add(memory_limit)
         return get_closing_map(hashes, size)
 
     monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
@@ -117,8 +118,9 @@ def test_listing_matches_brute_force(
         # leave out no fault.
         syndromes = [1 << (13 * jj) for jj in range(num_primitives)]
         errors = [0b1111111 << (7 * jj) for jj in range(num_primitives)]
-        # Without memory, there is no closing map of pairs.  The memory limit must not change the
-        # order in which faults are listed, since the first violation in that order is the result.
+        # Without memory, the lister builds no closing map of pairs, except an empty one when there
+        # are fewer than two classes.  The memory limit must not change the order in which faults
+        # are listed, since the first violation in that order is the result.
         orders: dict[tuple[int, int], list[int]] = {}
         for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 2, 1)):
             args = (flags, syndromes, errors, 70, False, num_starts, memory_limit)
@@ -137,7 +139,7 @@ def test_listing_matches_brute_force(
                         _fault_search.FaultLister(*args), fault_weight, {violation[1]}
                     )
                     assert result == violation
-    assert 2 in sizes
+    assert limits_with_pairs == {2**20}
 
 
 @pytest.mark.parametrize("size", [1, 2])
