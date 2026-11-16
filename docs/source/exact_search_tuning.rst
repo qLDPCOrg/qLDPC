@@ -80,7 +80,7 @@ Routes and the names that control them
      -
      - `Section 3.1 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#31-overlapping-search-bases>`__
    * - Building families by matroid partitioning
-     - :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.partition_work_ratio`
+     - :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.partition_work_ratio`, :attr:`SearchTuning.partition_max_coverage`
      -
      - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
    * - Ending a search of overlapping sets sooner with a certificate from linear programming

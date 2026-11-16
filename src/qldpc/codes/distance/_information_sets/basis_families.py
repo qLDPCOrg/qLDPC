@@ -326,15 +326,17 @@ def get_partitioned_family(
     *,
     get_competing_work: Callable[[], int] | None = None,
 ) -> BasisFamily:
-    """Stage four: a basis family of information sets of bounded coverage, if it does less work.
+    """Stage four: a basis family of bounded coverage, if it does less work.
 
-    For each coverage that it tries, matroid partitioning finds the most information sets, up to
-    ``tuning.max_information_sets``, within that coverage (Section 4.4).  ``basis``, ``labels``, and
-    ``basis_family`` are as in ``get_overlapping_family``.  ``get_competing_work``, if given,
-    returns the work of a family, such as an automorphism family, to which the caller would switch
-    instead, discarding this stage's family (Section 3.7).  It is called only if partitioning would
-    otherwise run, and partitioning then runs only if that work exceeds the least that a family of
-    this stage could do.
+    For each coverage that it tries, from two and none above ``tuning.partition_max_coverage``,
+    matroid partitioning finds the most information sets, up to ``tuning.max_information_sets``,
+    within that coverage.  If ``tuning.partition_max_coverage`` is one, it finds instead the maximum
+    disjoint family of ``get_maximum_disjoint_family`` (Section 4.4), and prunes it as stage two
+    does.  ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
+    ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
+    to which the caller would switch instead, discarding this stage's family (Section 3.7).  It is
+    called only if partitioning would otherwise run, and partitioning then runs only if that work
+    exceeds the least that a family of this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
@@ -343,22 +345,36 @@ def get_partitioned_family(
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
 
-    # Skip partitioning if it would cost too much for this search, if it would try no coverage
-    # above one, which is the disjoint packing of stage one, or if no family could do less work.
+    # Choose the coverages to try and the unit of the gate.  Above a limit of one, capping the sets
+    # at the most that fit within the limit, by counting their pivots, caps the coverages.  Those
+    # limits leave coverage one to the disjoint packing of stage one, so that searches at the
+    # default limit build no maximum disjoint family.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-    max_coverage, partition_unit = _get_partition_coverage_and_unit(
-        max_sets, dimension, num_columns
-    )
-    if max_coverage < 2 or best_work < tuning.partition_work_ratio * partition_unit:
+    coverage_limit = tuning.partition_max_coverage
+    if coverage_limit == 1:
+        coverages, partition_unit = range(1, 2), dimension**2 * num_columns
+    else:
+        max_sets = min(max_sets, coverage_limit * num_columns // dimension)
+        max_coverage, partition_unit = _get_partition_coverage_and_unit(
+            max_sets, dimension, num_columns
+        )
+        coverages = range(2, max_coverage + 1)
+
+    # Skip partitioning if it would try no coverage, if it would cost too much for this search, or
+    # if no family could do less work.
+    if not coverages or best_work < tuning.partition_work_ratio * partition_unit:
         return best
-    optimistic_work = _estimate_optimistic_work(
-        dimension,
-        num_columns,
-        basis_family.weight_divisor,
-        upper_bound,
-        max_sets,
-        get_capped_binomials(dimension),
+    binomials = get_capped_binomials(dimension)
+    weight_divisor = basis_family.weight_divisor
+    optimistic_work = (
+        _estimate_optimistic_disjoint_work(
+            dimension, num_columns, weight_divisor, upper_bound, binomials
+        )
+        if coverage_limit == 1
+        else _estimate_optimistic_work(
+            dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
+        )
     )
     if best_work <= optimistic_work:
         return best
@@ -368,31 +384,19 @@ def get_partitioned_family(
     if get_competing_work is not None and get_competing_work() <= optimistic_work:
         return best
 
-    # Build a family for each coverage, and keep the one that does the least work.
-    for coverage in range(2, max_coverage + 1):
-        column_sets = matroid_partition.get_information_sets_with_coverage(
-            basis, coverage, max_sets
-        )
-
-        # Reduce the basis on each set, transforming its labels along with it.
-        num_sets = len(column_sets)
-        generators = np.empty((num_sets, dimension, basis.shape[1]), dtype=np.uint8)
-        set_labels = np.empty((num_sets, dimension, labels.shape[1]), dtype=np.uint8)
-        pivots = np.empty((num_sets, dimension), dtype=np.int64)
-        for index, columns in enumerate(column_sets):
-            reduced, reduced_labels, found = row_reduce_binary(
-                basis, labels, columns=np.array(columns, dtype=int)
+    # Build a family for each coverage, and keep the one that does the least work.  A disjoint
+    # family can end with a partial set, which ``prune_family`` drops if it cannot help.
+    for coverage in coverages:
+        if coverage == 1:
+            maximum_disjoint = _get_family_of_sets(
+                basis, labels, _get_maximum_disjoint_sets(basis), weight_divisor
             )
-            assert reduced_labels is not None and len(found) == dimension
-            generators[index], set_labels[index], pivots[index] = reduced, reduced_labels, found
-        family = BasisFamily(
-            generators,
-            set_labels,
-            pivots,
-            np.full(num_sets, dimension, dtype=np.int64),
-            basis_family.weight_divisor,
-            int(np.bincount(pivots.ravel()).max()),
-        )
+            family = prune_family(maximum_disjoint, upper_bound)
+        else:
+            column_sets = matroid_partition.get_information_sets_with_coverage(
+                basis, coverage, max_sets
+            )
+            family = _get_family_of_sets(basis, labels, column_sets, weight_divisor)
 
         work = family.certificate.work(upper_bound)
         if work < best_work:
@@ -425,31 +429,11 @@ def get_maximum_disjoint_family(
     if int(np.count_nonzero(basis_family.ranks == dimension)) >= full_set_limit:
         return _get_no_replacement(basis_family, basis, no_labels)
 
-    # A disjoint family has at most num_columns // dimension information sets and a partial set,
-    # but a family at the limit of a packing holds ``full_set_limit`` information sets and no
-    # partial set.
-    column_sets = matroid_partition.get_information_sets_with_coverage(
-        basis, 1, min(num_columns // dimension + 1, full_set_limit), keep_partial=True
-    )
-    ranks = np.array([len(columns) for columns in column_sets], dtype=np.int64)
-    if tuple(ranks.tolist()) <= tuple(basis_family.ranks.tolist()):
+    column_sets = _get_maximum_disjoint_sets(basis)
+    ranks = tuple(len(columns) for columns in column_sets)
+    if ranks <= tuple(basis_family.ranks.tolist()):
         return _get_no_replacement(basis_family, basis, no_labels)
-
-    # Reduce the basis on each set, whose columns are independent.
-    num_sets = len(column_sets)
-    generators = np.empty((num_sets, dimension, basis.shape[1]), dtype=np.uint8)
-    pivots = np.full((num_sets, dimension), -1, dtype=np.int64)
-    for index, columns in enumerate(column_sets):
-        reduced, _, found = row_reduce_binary(basis, None, columns=np.array(columns, dtype=int))
-        generators[index], pivots[index, : len(found)] = reduced, found
-    return BasisFamily(
-        generators,
-        np.empty((num_sets, dimension, 0), dtype=np.uint8),
-        pivots,
-        ranks,
-        basis_family.weight_divisor,
-        1,
-    )
+    return _get_family_of_sets(basis, no_labels, column_sets, basis_family.weight_divisor)
 
 
 def infer_weight_divisor(basis: npt.NDArray[np.uint8], weight_divisor: int = 1) -> int:
@@ -594,6 +578,53 @@ def _get_partition_coverage_and_unit(
     return max_coverage, sum_of_squares * dimension**2 * num_columns
 
 
+def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
+    """The column sets of the maximum disjoint family of ``get_maximum_disjoint_family``."""
+    # A disjoint family has at most num_columns // dimension information sets and a partial set, but
+    # a family at the limit of a packing holds as many information sets as a packing keeps, and no
+    # partial set.
+    dimension = len(basis)
+    num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+    max_sets = min(num_columns // dimension + 1, _get_full_set_limit(dimension))
+    return matroid_partition.get_information_sets_with_coverage(
+        basis, 1, max_sets, keep_partial=True
+    )
+
+
+def _get_family_of_sets(
+    basis: npt.NDArray[np.uint8],
+    labels: npt.NDArray[np.uint8],
+    column_sets: list[list[int]],
+    weight_divisor: int,
+) -> BasisFamily:
+    """The basis family of one or more sets of independent columns of a basis.
+
+    The basis's labels are reduced along with it, and the family is certified with the coverage of
+    its pivots.
+    """
+    # Reduce the basis on each set, transforming its labels along with it.
+    dimension = len(basis)
+    num_sets = len(column_sets)
+    generators = np.empty((num_sets, dimension, basis.shape[1]), dtype=np.uint8)
+    set_labels = np.empty((num_sets, dimension, labels.shape[1]), dtype=np.uint8)
+    pivots = np.full((num_sets, dimension), -1, dtype=np.int64)
+    for index, columns in enumerate(column_sets):
+        reduced, reduced_labels, found = row_reduce_binary(
+            basis, labels, columns=np.array(columns, dtype=int)
+        )
+        assert reduced_labels is not None and len(found) == len(columns)
+        generators[index], set_labels[index] = reduced, reduced_labels
+        pivots[index, : len(found)] = found
+    return BasisFamily(
+        generators,
+        set_labels,
+        pivots,
+        np.array([len(columns) for columns in column_sets], dtype=np.int64),
+        weight_divisor,
+        int(np.bincount(pivots[pivots >= 0]).max()),
+    )
+
+
 ####################################################################################################
 # certificate estimates of the stages
 
@@ -653,6 +684,34 @@ def _estimate_optimistic_work(
         )
         optimistic_work = min(optimistic_work, work)
     return optimistic_work
+
+
+def _estimate_optimistic_disjoint_work(
+    dimension: int,
+    num_columns: int,
+    weight_divisor: int,
+    upper_bound: int,
+    binomials: npt.NDArray[np.int64],
+) -> int:
+    """Return a lower bound on the estimated work of a disjoint family that partitioning can build.
+
+    Such a family, like a packing, holds at most ``k`` sets, counting a partial set, where
+    ``k = min(ceil(num_columns / dimension), 2**dimension - 1)``.  The arguments are as for
+    ``_estimate_optimistic_work``.  The bound is the least work of 1 to ``k`` full sets of coverage
+    one (Section 4.4).
+    """
+    max_sets = min((num_columns + dimension - 1) // dimension, _get_full_set_limit(dimension))
+    return min(
+        estimate_certificate_work(
+            dimension,
+            np.full(num_sets, dimension, dtype=np.int64),
+            weight_divisor,
+            1,
+            upper_bound,
+            binomials,
+        )
+        for num_sets in range(1, max_sets + 1)
+    )
 
 
 @always_compiled
