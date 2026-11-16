@@ -345,7 +345,7 @@ With more orbits, the exchanges are a heuristic.
 Finding automorphisms, verifying them, and building their family can cost more than a whole easy search, and before a light witness turns up, the estimate of [Section 3.6](#36-work-estimates-and-exhaustive-enumeration) cannot tell whether a search is easy.
 So a search starts with the families of Sections [2.4](#24-search-bases-and-rank-deficient-blocks) and [3.1](#31-overlapping-search-bases), and asks for automorphisms at most once:
 
-- before matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)), if it would partition, since switching would discard the partitioned family; it then skips partitioning if the automorphism family would do no more work than any partitioned family could, and considers switching at the end of setup;
+- before matroid partitioning ([Section 4.4](#44-heuristics-and-cost-models)), if partitioning passes its gate, since switching would discard the partitioned family; it then skips partitioning if the automorphism family would do no more work than any partitioned family could, and considers switching at the end of setup;
 - otherwise, before the first layer that would cost at least `automorphism_minimum_layer_work` evaluations.
 
 It switches if the work estimate of the automorphism family is less than the work that its current family has left from its next layer, and then scans the new set from layer two.
@@ -696,9 +696,12 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   The test of whether some family could do less work considers the disjoint families that partitioning can build.
   At coverage one, partitioning, like a packing, keeps a rank-deficient block only below `2^r - 1` information sets, so such a family holds at most `min(ceil(N/r), 2^r - 1)` sets, counting that block.
   It does no less work than as many information sets of coverage one, whose certificate is at least as large at each step, since the work up to a step depends only on the step and the number of sets.
-  Partitioning skips coverage one if the given family is disjoint and has `k = min(floor(N/r), 2^r - 1)` information sets, the most that fit, and below `2^r - 1` of them a rank-deficient block on the other `N - k*r` columns, if there are any and pruning keeps such a block.
-  Every maximum disjoint family then has `k` information sets, and a block of rank at most `N - k*r` that is as large as any that the given family has.
-  Pruning drops a block of lower rank if it drops one of rank `N - k*r`, so once pruned, the maximum disjoint family has the ranks of the given family, and does the same work.
+  Let `k = min(floor(N/r), 2^r - 1)`, the most information sets that fit, up to the limit of a packing.
+  Partitioning skips coverage one if the family of the earlier stages is disjoint, and its sets are `k` information sets and possibly a rank-deficient block.
+  That family must have the block, of rank `N - k*r`, if `k < 2^r - 1`, `N > k*r`, and pruning keeps a block of that rank, and must have no block otherwise.
+  Every maximum disjoint family then has `k` information sets and, by counting pivots, a block of rank at most `N - k*r`, but at least that of any block of that family (see `CosetRoutes`).
+  Pruning drops a block of lower rank if it drops one of rank `N - k*r`.
+  So once pruned, a maximum disjoint family has the ranks of the family of the earlier stages and does the same work, so it cannot replace that family.
 - **`get_search_certificate`** adds the linear programs of [Section 3.1](#31-overlapping-search-bases) to searches of overlapping families whose estimated work reaches `lp_minimum_work`, a gate that breaks even with their cost, since each costs far more than examining a word; the work estimates that choose families use only the coverage-divided certificate.
   The rational dual weights `y` have denominators of at most `lp_dual_max_denominator`, a convention: every positive limit is sound by weak duality, a smaller one can round away part of the bound, and a larger one lengthens the exact arithmetic.
 - **`get_automorphism_family`** row reduces in natural column order and balances the shares of the orbits in `_balance_orbit_shares` ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)).

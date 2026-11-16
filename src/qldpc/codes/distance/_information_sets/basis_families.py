@@ -326,8 +326,9 @@ def get_partitioned_family(
     does.  ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
     ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
     to which the caller would switch instead, discarding this stage's family (Section 3.7).  It is
-    called only once partitioning passes its gate (Section 4.4), and partitioning then runs only if
-    that work exceeds the least that a family of this stage could do.
+    called only if partitioning passes its gate and some family of this stage could do less work
+    (Section 4.4), and partitioning then runs only if that work exceeds the least that a family of
+    this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
@@ -355,9 +356,9 @@ def get_partitioned_family(
     # drops if it cannot help.
     for coverage in plan.coverages:
         if coverage == 1:
-            # Skip coverage one if the given family already has the ranks of every pruned maximum
-            # disjoint family, which leaves the result unchanged (Section 4.4).
-            if _has_pruned_maximum_disjoint_ranks(basis_family, plan.num_columns, upper_bound):
+            # Skip coverage one if the given family is disjoint and has the pruned rank bound of
+            # maximum disjoint families, which leaves the result unchanged (Section 4.4).
+            if _has_pruned_disjoint_rank_bound(basis_family, plan.num_columns, upper_bound):
                 continue
             maximum_disjoint = _get_family_of_sets(
                 basis, labels, _get_maximum_disjoint_sets(basis), weight_divisor
@@ -537,7 +538,11 @@ def _get_disjoint_sets_for_columns(
 
 
 class _OverlappingCheck(enum.Enum):
-    """The check of ``_check_overlapping_family`` that rules a replacement out, or ``NONE``."""
+    """The first check of ``_check_overlapping_family`` that rules a replacement out, or ``NONE``.
+
+    The checks find no open sets (no full sets, as many as the limit, or full sets that use every
+    nonzero column), an estimated work below the minimum, or that no family could do less work.
+    """
 
     NONE = 0
     NO_OPEN_SETS = 1
@@ -557,7 +562,7 @@ def _check_overlapping_family(
     The arguments are those of ``get_overlapping_family``.
 
     Returns:
-        The check; the estimated work of ``basis_family`` to certify ``upper_bound``; and the least
+        The check, the estimated work of ``basis_family`` to certify ``upper_bound``, and the least
         work that any family of at most ``policy.max_sets`` full sets could do.  A work is -1 if an
         earlier check rules a replacement out.
     """
@@ -572,7 +577,7 @@ def _check_overlapping_family(
     if num_full == 0 or num_full >= max_sets or num_full * dimension == num_columns:
         return _OverlappingCheck.NO_OPEN_SETS, -1, -1
 
-    # Skip basis family construction when the existing search is already cheap.
+    # Rule a replacement out when the existing search is already cheap.
     weight_divisor = basis_family.weight_divisor
     work = estimate_certificate_work(
         dimension, ranks, weight_divisor, basis_family.max_coverage, upper_bound, binomials
@@ -580,7 +585,7 @@ def _check_overlapping_family(
     if work < minimum_work:
         return _OverlappingCheck.BELOW_MINIMUM_WORK, work, -1
 
-    # Skip basis family construction if no family of at most max_sets full sets could do less work.
+    # Rule a replacement out if no family of at most max_sets full sets could do less work.
     optimistic_work = _estimate_optimistic_work(
         dimension, num_columns, weight_divisor, upper_bound, max_sets, binomials
     )
@@ -677,17 +682,18 @@ def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
     )
 
 
-def _has_pruned_maximum_disjoint_ranks(
+def _has_pruned_disjoint_rank_bound(
     basis_family: BasisFamily, num_columns: int, upper_bound: int
 ) -> bool:
-    """Whether a basis family is disjoint and has the ranks of every pruned maximum disjoint family.
+    """Whether a family is disjoint and has the pruned rank bound of maximum disjoint families.
 
-    ``num_columns`` counts the nonzero columns of the basis, and ``prune_family`` prunes for
-    ``upper_bound``.  If so, partitioning with coverage one finds a family that, once pruned, has
-    the ranks of ``basis_family`` (Section 4.4).
+    The bound is ``k = min(N // r, 2**r - 1)`` information sets, for ``r`` rows and the
+    ``N = num_columns`` nonzero columns of the basis, and below the limit of a packing a partial set
+    of rank ``N - k*r``, if that is positive.  ``prune_family`` prunes it for ``upper_bound``.  If
+    the family has these ranks, so does every pruned maximum disjoint family (Section 4.4).
     """
     # Bound the ranks of a maximum disjoint family: the most information sets that fit, up to the
-    # limit of a packing, and below that limit a rank-deficient set on the other columns, if any.
+    # limit of a packing, and below that limit a partial set on the other columns, if any.
     dimension = basis_family.generators.shape[1]
     full_set_limit = _get_full_set_limit(dimension)
     num_full = min(num_columns // dimension, full_set_limit)

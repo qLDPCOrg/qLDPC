@@ -394,9 +394,9 @@ def report(directory: pathlib.Path) -> None:
             f" {unit_name}s  {constant.description}"
         )
 
-    # Round the costliest measurement of each step, in the unit of its field, as round_to_grid
-    # does, to print it beside the default.  The cost limit of completion tables is a limit at
-    # equality, 100.
+    # Round the costliest measurement of each step, in the unit of its field, as round_to_grid does,
+    # to print it beside the default.  The cost limit of completion tables is a limit at equality,
+    # 100.
     values = {field: round_to_grid(counts[name]) for field, name in gates.items()}
     values["completion_bound_max_cost_percent"] = 100
     print(f"\n{'field':<38} {'derived':>8} {'default':>8}")

@@ -183,6 +183,43 @@ def test_overlapping_family_guards() -> None:
     assert not len(_get_overlapping_family(small, None, disjoint, 3, minimum_work=0).ranks)
 
 
+def test_the_checks_of_stage_three_say_which_keeps_a_family() -> None:
+    """Stage three says which check keeps a family without building sets, and the works compared."""
+    hamming = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
+    disjoint = basis_families.get_disjoint_family(hamming, None, random_column_orders=ORDERS)
+    complete = np.hstack([np.eye(4, dtype=np.uint8)] * 2)
+    packed = basis_families.get_disjoint_family(complete, None, random_column_orders=ORDERS)
+    check = basis_families._OverlappingCheck
+    cases: list[
+        tuple[npt.NDArray[np.uint8], basis_families.BasisFamily, int, dict[str, Any], Any]
+    ] = [
+        # A limit of zero sets leaves no open set, and so do full sets that use every column.
+        (hamming, disjoint, 3, {"max_information_sets": 0}, check.NO_OPEN_SETS),
+        (complete, packed, 3, {"overlapping_minimum_work": 0}, check.NO_OPEN_SETS),
+        # The Hamming code's information set and partial set certify the weight three cheaply.
+        (hamming, disjoint, 3, {}, check.BELOW_MINIMUM_WORK),
+        # One full set certifies a target of one after its first layer, which no family improves.
+        (hamming, disjoint, 1, {"overlapping_minimum_work": 0}, check.CANNOT_DO_LESS_WORK),
+        (hamming, disjoint, 3, {"overlapping_minimum_work": 0}, check.NONE),
+    ]
+    for basis, family, upper_bound, changes, expected in cases:
+        policy = basis_families.get_overlapping_family_policy(SearchTuning(**changes), len(basis))
+        found, work, optimistic_work = basis_families._check_overlapping_family(
+            basis, family, upper_bound, policy
+        )
+        assert found == expected
+        if found == check.NO_OPEN_SETS:
+            assert work == optimistic_work == -1
+            continue
+        assert work == family.certificate.work(upper_bound)
+        if found == check.BELOW_MINIMUM_WORK:
+            assert optimistic_work == -1
+        elif found == check.CANNOT_DO_LESS_WORK:
+            assert optimistic_work >= work
+        else:
+            assert 0 <= optimistic_work < work
+
+
 def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPatch) -> None:
     """Matroid partitioning replaces a disjoint family only in costly searches, if cheaper."""
     rows = ["10001011100", "01000001100", "00100000110", "00010011001"]
@@ -313,7 +350,7 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
         # partitioning run at the next ratio too.
         assert ratio >= 3
 
-        # Partitioning asks for the work of a competing family only once it passes its gate.
+        # Partitioning asks for the work of a competing family only if it passes its gate.
         for partition_work_ratio, runs in ((ratio, True), (ratio + 1, False)):
             get_competing_work = mock.Mock(return_value=0)
             tuning = SearchTuning(
@@ -501,47 +538,58 @@ def test_a_coverage_limit_of_one_partitions_into_a_maximum_disjoint_family() -> 
         np.testing.assert_array_equal(generators[:, pivots], np.eye(3))
     _assert_certificate_bounds_unvisited_words(basis, family)
 
-    # No disjoint family does less work than a single information set that uses every column.
+    # No disjoint family does less work than a single information set that uses every column, so
+    # partitioning stops at its gate, before it asks for the work of a competing family.
     identity = np.eye(3, dtype=np.uint8)
     single = basis_families.get_disjoint_family(identity, labels, random_column_orders=0)
-    with mock.patch.object(
-        matroid_partition,
-        "get_information_sets_with_coverage",
-        wraps=matroid_partition.get_information_sets_with_coverage,
-    ) as spy:
-        partitioned = basis_families.get_partitioned_family(identity, labels, single, 3, tuning)
+    get_competing_work = mock.Mock()
+    partitioned = basis_families.get_partitioned_family(
+        identity, labels, single, 3, tuning, get_competing_work=get_competing_work
+    )
     assert not len(partitioned.ranks)
-    spy.assert_not_called()
+    get_competing_work.assert_not_called()
 
 
-def test_a_coverage_limit_of_one_skips_families_of_maximum_disjoint_ranks() -> None:
-    """At a coverage limit of one, partitioning skips a given family of maximum disjoint ranks.
+def test_a_coverage_limit_of_one_skips_coverage_one_at_the_disjoint_rank_bound() -> None:
+    """At a coverage limit of one, partitioning skips coverage one at the disjoint rank bound.
 
-    Every maximum disjoint family has the ranks of such a family once pruned, so the result is that
-    of partitioning (Section 4.4 of ``brouwer_zimmermann.md``).
+    It skips coverage one if the given family is disjoint and has the pruned rank bound of maximum
+    disjoint families.  Every pruned maximum disjoint family then has the ranks of the given family,
+    so the result is that of partitioning (Section 4.4 of ``brouwer_zimmermann.md``).
     """
-    # Partitioning skips the packing of PARTIAL_BASIS, which, pruned for an upper bound of five,
-    # keeps two information sets and a rank-two set on the other two columns, and the packing of
-    # three_rows, which has the limit of 7 information sets.  The packing of one_extra has an
-    # information set and a set of rank one, and pruned for three, only the information set, which
-    # partitioning skips too.  Unpruned, that packing does more work, and partitioning replaces it.
+    # The pruned packing of PARTIAL_BASIS has two information sets and a partial set of rank two on
+    # the other two columns.  The pruned packing of three_rows has the limit of 7 information sets.
+    # The packing of one_extra has an information set and a partial set of rank one, which pruning
+    # for the bound three drops.  Partitioning skips coverage one for these three families.  The
+    # packing of EVEN_BASIS has the same ranks, but its rows are even, so pruning for the bound four
+    # drops its partial set, and partitioning replaces the unpruned packing.  The columns e1, e2,
+    # e1 + e2, e1 + e2 hold two disjoint information sets, which replace two sets that share e1.
     three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
     one_extra = np.hstack([np.eye(3), np.eye(3)[:, :1]]).astype(np.uint8)
-    labels = np.eye(3, dtype=np.uint8)
+    two_rows = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
+    overlapping = basis_families._get_family_of_sets(
+        two_rows, np.eye(2, dtype=np.uint8), [[0, 1], [0, 2]], weight_divisor=1
+    )
+    assert overlapping.max_coverage == 2
+
+    def get_packing(basis: npt.NDArray[np.uint8]) -> basis_families.BasisFamily:
+        labels = np.eye(len(basis), dtype=np.uint8)
+        return basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
+
     tuning = SearchTuning(partition_max_coverage=1, partition_work_ratio=0)
     get_sets = basis_families._get_maximum_disjoint_sets
-    for basis, upper_bound, pruned, skips in (
-        (PARTIAL_BASIS, 5, True, True),
-        (three_rows, 11, True, True),
-        (one_extra, 3, True, True),
-        (one_extra, 3, False, False),
-    ):
-        given = basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
-        if pruned:
-            given = basis_families.prune_family(given, upper_bound)
+    cases = [
+        (PARTIAL_BASIS, basis_families.prune_family(get_packing(PARTIAL_BASIS), 5), 5, True),
+        (three_rows, basis_families.prune_family(get_packing(three_rows), 11), 11, True),
+        (one_extra, basis_families.prune_family(get_packing(one_extra), 3), 3, True),
+        (EVEN_BASIS, get_packing(EVEN_BASIS), 4, False),
+        (two_rows, overlapping, 3, False),
+    ]
+    for basis, given, upper_bound, skips in cases:
+        labels = np.eye(len(basis), dtype=np.uint8)
 
         # Trying coverage one builds the pruned maximum disjoint family, which replaces the given
-        # family exactly where partitioning does not skip it.
+        # family exactly in the cases in which partitioning does not skip coverage one.
         maximum = basis_families._get_family_of_sets(
             basis, labels, get_sets(basis), given.weight_divisor
         )
@@ -557,7 +605,8 @@ def test_a_coverage_limit_of_one_skips_families_of_maximum_disjoint_ranks() -> N
             )
         get_competing_work.assert_called_once()
         assert spy.called == (not skips)
-        assert family.ranks.tolist() == (maximum.ranks.tolist() if replaces else [])
+        expected = maximum.pivots if replaces else np.empty((0, len(basis)))
+        np.testing.assert_array_equal(family.pivots, expected)
 
 
 def test_built_disjoint_families_do_at_least_the_disjoint_bound(

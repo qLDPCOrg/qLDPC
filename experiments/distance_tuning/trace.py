@@ -386,11 +386,12 @@ def get_partition_gate(
       family found at ``b`` could do (``coverage_optimistic_work``).
 
     Partitioning skips a coverage ``b`` if its bound is at least the work of the best family so far.
-    At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, which it skips if
-    the given family has the ranks of every pruned maximum disjoint family, and the least work is
-    over disjoint families.  The record also says whether these quantities let partitioning run
-    (``partitioned``), even if it then tried no coverage or found no family; ``wrap_family`` clears
-    it when a competing family rules partitioning out.
+    At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
+    is over disjoint families.  It skips coverage one if the given family is disjoint and has the
+    pruned rank bound of maximum disjoint families (Section 4.4 of ``brouwer_zimmermann.md``).  The
+    record also says whether these quantities let partitioning run (``partitioned``), even if it
+    then tried no coverage or found no family; ``wrap_family`` clears it when a competing family
+    rules partitioning out.
     """
     plan = basis_families._get_partition_plan(basis, tuning)
     work = basis_family.certificate.work(upper_bound)
@@ -421,11 +422,11 @@ def get_partition_gate(
 def get_overlapping_gate(
     basis: Any, _labels: Any, basis_family: Any, upper_bound: int, policy: Any
 ) -> dict[str, Any]:
-    """The check that ends an attempt of ``basis_families.get_overlapping_family``, and its work.
+    """The check that ends a call of ``basis_families.get_overlapping_family``, and its work.
 
     The stage is that of the check of ``basis_families._check_overlapping_family`` that keeps the
     given family, or ``built`` if none does and the library builds sets.  The estimated work is that
-    of the given family, or None if it has no open sets.
+    of the given family, or None if the first check keeps it.
     """
     check, work, _ = basis_families._check_overlapping_family(
         basis, basis_family, upper_bound, policy

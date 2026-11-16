@@ -301,7 +301,8 @@ def get_source_fingerprint(repository: pathlib.Path = REPOSITORY) -> dict[str, s
     # checkouts without them.
     untracked = git(repository, "ls-files", "--others", "--exclude-standard", "-z", "--", "src")
     for path in filter(None, untracked.split("\0")):
-        digest.update(f"\0{path}\0".encode() + (repository / path).read_bytes())
+        if (repository / path).is_file():
+            digest.update(f"\0{path}\0".encode() + (repository / path).read_bytes())
     return {"commit": commit, "diff": digest.hexdigest()[:16]}
 
 
