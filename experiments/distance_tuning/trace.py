@@ -58,6 +58,7 @@ from qldpc.codes.distance._information_sets import (
     basis_families,
     certificates,
     completion_bounds,
+    matroid_partition,
 )
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
@@ -92,6 +93,10 @@ PROBLEM_INDICES: dict[int, int | None] = {}
 # The index of the problem whose search is prepared next, within a call that wrap_problems wraps, or
 # None outside such calls.
 NEXT_PROBLEM_INDEX: int | None = None
+
+# The coverages that matroid partitioning tries within a call of get_partitioned_family, or None
+# outside such calls.
+PARTITION_COVERAGES: list[int] | None = None
 
 # The kinds of workloads that the script can trace.
 TRACED_KINDS = ("distance", "hadamard", "count", "ccdistance", "mcount")
@@ -185,6 +190,7 @@ def install_wrappers() -> None:
         for kind in ("disjoint", "overlapping", "partitioned")
     ]
     patches += [
+        (matroid_partition, "get_information_sets_with_coverage", wrap_partition),
         (basis_families.BasisFamily, "get_search_certificate", wrap_certificate),
         (search_class, "advance", wrap_advance),
         (search_class, "_switch_to_automorphism_family", wrap_switch),
@@ -291,24 +297,43 @@ def wrap_family(kind: str, function: Callable[..., Any]) -> Callable[..., Any]:
 
     Partitioning of a search with automorphisms may first build their family, to compare its work
     (see ``get_partition_gate``); the seconds of partitioning then include building that family.
+    Partitioning also records the coverages that it tries, and their part of its unit:
+    ``tried_unit`` sums ``b**2 * r**2 * N`` over those coverages ``b``, since partitioning skips a
+    coverage at which no family could replace the best so far.
     """
 
     @functools.wraps(function)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        global PARTITION_COVERAGES
         competing: dict[str, Any] = {}
         get_competing_work = kwargs.get("get_competing_work")
         if get_competing_work is not None:
             kwargs["get_competing_work"] = functools.partial(
                 record_competing_work, get_competing_work, competing
             )
+        if kind == "partitioned":
+            PARTITION_COVERAGES = []
         start = time.perf_counter()
-        family = function(*args, **kwargs)
+        try:
+            family = function(*args, **kwargs)
+        finally:
+            coverages, PARTITION_COVERAGES = PARTITION_COVERAGES, None
         seconds = time.perf_counter() - start
-        event = {"event": "family", "kind": kind, "sets": len(family.ranks), "seconds": seconds}
+        event: dict[str, Any] = {
+            "event": "family",
+            "kind": kind,
+            "sets": len(family.ranks),
+            "seconds": seconds,
+        }
         if kind == "partitioned" and len(args) == 5:
             event |= get_partition_gate(*args) | competing
             if competing and competing["competing_work"] <= event["optimistic_work"]:
                 event["partitioned"] = False
+            assert coverages is not None
+            event["coverages"] = coverages
+            event["tried_unit"] = (
+                sum(coverage**2 for coverage in coverages) * event["rows"] ** 2 * event["columns"]
+            )
         if kind == "overlapping" and len(args) == 5:
             event |= get_overlapping_gate(*args)
         EVENTS.append(event)
@@ -325,6 +350,18 @@ def record_competing_work(get_competing_work: Callable[[], int], record: dict[st
     return work
 
 
+def wrap_partition(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Record the coverage of each matroid partitioning within a call of get_partitioned_family."""
+
+    @functools.wraps(function)
+    def wrapper(basis: Any, coverage: int, *args: Any, **kwargs: Any) -> Any:
+        if PARTITION_COVERAGES is not None:
+            PARTITION_COVERAGES.append(coverage)
+        return function(basis, coverage, *args, **kwargs)
+
+    return wrapper
+
+
 def get_partition_gate(
     basis: Any, _labels: Any, basis_family: Any, upper_bound: int, tuning: Any
 ) -> dict[str, Any]:
@@ -333,10 +370,10 @@ def get_partition_gate(
     These are, in candidate/set evaluations where they are work:
 
     - the estimated work of the family that partitioning would replace;
-    - the largest coverage that partitioning tries;
+    - the largest coverage that partitioning may try;
     - the unit that the search multiplies by ``partition_work_ratio``: the sum of
-      ``b**2 * r**2 * N`` over the coverages ``b`` that it tries, for ``r`` rows and ``N`` nonzero
-      columns;
+      ``b**2 * r**2 * N`` over the coverages ``b`` that it may try, for ``r`` rows and ``N``
+      nonzero columns;
     - the least work that any partitioned family could do, which a search with automorphisms
       compares with the work of their family.
 

@@ -384,8 +384,9 @@ def get_partitioned_family(
     if get_competing_work is not None and get_competing_work() <= optimistic_work:
         return best
 
-    # Build a family for each coverage, and keep the one that does the least work.  A disjoint
-    # family can end with a partial set, which ``prune_family`` drops if it cannot help.
+    # Build a family for each coverage that could improve on the best so far, and keep the one that
+    # does the least work.  A disjoint family can end with a partial set, which ``prune_family``
+    # drops if it cannot help.
     for coverage in coverages:
         if coverage == 1:
             maximum_disjoint = _get_family_of_sets(
@@ -396,10 +397,10 @@ def get_partitioned_family(
             # Skip a coverage at which no family could do less work than the best so far, which
             # leaves the result unchanged (Section 4.4).
             most_sets = min(max_sets, coverage * num_columns // dimension)
-            least_work = _estimate_optimistic_work(
+            coverage_optimistic_work = _estimate_optimistic_work(
                 dimension, num_columns, weight_divisor, upper_bound, most_sets, binomials
             )
-            if least_work >= best_work:
+            if coverage_optimistic_work >= best_work:
                 continue
             column_sets = matroid_partition.get_information_sets_with_coverage(
                 basis, coverage, max_sets
@@ -681,7 +682,7 @@ def _estimate_optimistic_work(
     The family is of a basis of ``dimension`` rows and ``num_columns`` nonzero columns, and
     ``binomials`` are ``get_capped_binomials(dimension)``.  No family of ``m`` full sets has a
     maximum coverage below ``_get_least_coverage(m, dimension, num_columns)``, which the bound
-    assumes for each ``m``.
+    assumes for each ``m`` (Section 4.4).
     """
     optimistic_work = WORK_CAP
     for num_sets in range(1, max_sets + 1):

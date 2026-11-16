@@ -440,19 +440,24 @@ def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_partition_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The costliest seconds of matroid partitioning, per unit of ``partition_work_ratio``."""
+    """The costliest seconds of matroid partitioning, per unit of ``partition_work_ratio``.
+
+    Each run divides its seconds by the unit of the coverages that it tried, since partitioning
+    skips a coverage at which no family could replace the best so far (Section 4.4 of
+    ``brouwer_zimmermann.md``).
+    """
     runs = [
         (trace["workload"], event)
         for trace in traces.values()
         for event in trace["events"]
-        if event["event"] == "family" and event["kind"] == "partitioned" and event["partitioned"]
+        if event["event"] == "family" and event["kind"] == "partitioned" and event["coverages"]
     ]
     description = "costliest of " + ", ".join(
-        f"{workload} (coverages up to {event['max_coverage']}): "
-        f"{event['seconds'] / event['unit'] * 1e9:.2f} ns"
+        f"{workload} (coverages {', '.join(map(str, event['coverages']))}): "
+        f"{event['seconds'] / event['tried_unit'] * 1e9:.2f} ns"
         for workload, event in runs
     )
-    return Constant(max(event["seconds"] / event["unit"] for _, event in runs), description)
+    return Constant(max(event["seconds"] / event["tried_unit"] for _, event in runs), description)
 
 
 def get_prediction_seconds(traces: dict[str, dict[str, Any]]) -> Constant:

@@ -202,7 +202,12 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(matroid_partition, "get_information_sets_with_coverage", record_coverage)
 
     def get_family(**changes: int) -> basis_families.BasisFamily:
-        fields: dict[str, Any] = {"partition_work_ratio": 0, "max_information_sets": 16, **changes}
+        fields: dict[str, Any] = {
+            "partition_work_ratio": 0,
+            "max_information_sets": 16,
+            "partition_max_coverage": MAX_VALUE,
+            **changes,
+        }
         tuning = dataclasses.replace(DEFAULT_TUNING, **fields)
         coverages.clear()
         return basis_families.get_partitioned_family(basis, labels, disjoint, 5, tuning)
@@ -215,9 +220,10 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     assert not len(get_family(partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
 
-    # Partitioning tries each coverage from two up to the least at which the most sets allowed could
-    # fit in the 10 nonzero columns, by counting their pivots: ceil(16 * 4 / 10) = 7, but
-    # ceil(2 * 4 / 10) = 1 for two sets.
+    # Partitioning may try each coverage from two up to the least at which the most sets allowed
+    # could fit in the 10 nonzero columns, by counting their pivots: ceil(16 * 4 / 10) = 7, but
+    # ceil(2 * 4 / 10) = 1 for two sets.  Here it tries each, since some family of at most 16 sets
+    # could do less work than any family that it finds.
     assert not len(get_family(max_information_sets=2).ranks) and not coverages
     family = get_family()
     assert sorted(coverages) == list(range(2, 8))
@@ -341,20 +347,57 @@ def test_partitioning_skips_coverages_at_which_no_family_could_replace_the_best(
     }
     works = {coverage: family.certificate.work(4) for coverage, family in families.items()}
 
-    # Given the family of coverage two, partitioning takes the family of least work, of the first
-    # coverage that reaches it, if that is less than the given family's work.
+    # Trying every coverage, given the family of coverage two, takes the family of least work, of
+    # the first coverage that reaches it, if that is less than the given family's work.
     expected = min((work, coverage) for coverage, work in works.items() if work < works[2])[1]
+    assert expected == 3
 
-    # The given family does the least work of any family of at most three sets, the most that fit
-    # within coverage two, so partitioning skips that coverage.  No family of the coverages above
-    # three does less work than that of coverage three, which partitioning tries and takes.
-    tuning = SearchTuning(partition_work_ratio=0, max_information_sets=16)
+    # The given family does the least work that any family of at most three sets could, the most
+    # that fit within coverage two, so partitioning skips that coverage.  The family of coverage
+    # three, which partitioning tries and takes, does the least work that any family of at most 16
+    # sets could, so partitioning skips every coverage above three.
+    tuning = SearchTuning(
+        partition_work_ratio=0, max_information_sets=16, partition_max_coverage=MAX_VALUE
+    )
     with mock.patch.object(
         matroid_partition, "get_information_sets_with_coverage", wraps=partition
     ) as spy:
         family = basis_families.get_partitioned_family(basis, labels, families[2], 4, tuning)
-    assert [call.args[1] for call in spy.call_args_list] == [expected] == [3]
+    assert [call.args[1] for call in spy.call_args_list] == [expected]
     np.testing.assert_array_equal(family.pivots, families[expected].pivots)
+
+
+def test_partitioned_families_do_at_least_the_work_of_their_coverage_bound(
+    pytestconfig: pytest.Config,
+) -> None:
+    """Each family that partitioning finds does at least the work of the bound for its coverage.
+
+    The bound at a coverage ``b`` is that of ``_estimate_optimistic_work`` over the most sets that
+    fit within ``b``, which partitioning skips ``b`` by (Section 4.4 of ``brouwer_zimmermann.md``).
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    max_sets = 8
+    for _ in range(8):
+        rows = int(rng.integers(2, 6))
+        basis = get_random_full_rank_matrix(rng, rows, int(rng.integers(rows, 4 * rows + 2)))
+        dimension = len(basis)
+        num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+        weight_divisor = basis_families.infer_weight_divisor(basis)
+        binomials = certificates.get_capped_binomials(dimension)
+        max_coverage = -(-max_sets * dimension // num_columns)
+        for coverage in range(2, max_coverage + 1):
+            family = basis_families._get_family_of_sets(
+                basis,
+                np.empty((dimension, 0), dtype=np.uint8),
+                matroid_partition.get_information_sets_with_coverage(basis, coverage, max_sets),
+                weight_divisor,
+            )
+            most_sets = min(max_sets, coverage * num_columns // dimension)
+            for upper_bound in range(1, num_columns + 2):
+                bound = basis_families._estimate_optimistic_work(
+                    dimension, num_columns, weight_divisor, upper_bound, most_sets, binomials
+                )
+                assert bound <= family.certificate.work(upper_bound)
 
 
 def test_maximum_disjoint_families_replace_smaller_packings() -> None:
