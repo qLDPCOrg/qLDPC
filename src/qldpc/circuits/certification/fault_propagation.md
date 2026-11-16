@@ -107,6 +107,10 @@ Each of the two minima is the smallest Hamming weight in a coset of a classical 
 The coset of `x` is determined by the syndrome bits of the pure-Z stabilizers, and that of `z` by those of the pure-X stabilizers.
 `CosetLeaderSearch` computes these bits from the syndrome for `g_1, ..., g_n`.
 For the physical weight, or for a state that is not CSS, the X and Z parts do not separate in this way.
+Let `W_X` and `W_Z` be the binary matrices of the X and Z parts of `g_1, ..., g_n`.
+To choose the default Pauli weight, the certifier tests whether the prepared state is CSS by their ranks.
+Up to phases, the pure-X stabilizers form a space of dimension `n - rank(W_Z)`, the pure-Z stabilizers one of dimension `n - rank(W_X)`, and the two meet only in the identity, so together they generate a space of dimension `2n - rank(W_X) - rank(W_Z)`.
+This space is the whole stabilizer group, of dimension `n`, exactly when `rank(W_X) + rank(W_Z) = n`.
 
 By default, each search of the oracle is a Brouwer-Zimmermann search of the cosets of a binary code, which [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md) describes, with the improvements that it uses for cosets.
 When a high threshold makes a search costly, the oracle may search with another family of information sets that it expects to take less work.
@@ -169,6 +173,7 @@ For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up 
 Of these, it keeps only the pairs whose first class `c_{m-1}` keeps the prefix `c_1, ..., c_{m-1}` independent.
 That `c_1, ..., c_{m-2}` are independent is not enough, since the flags of `c_{m-1}` could be the sum of some of theirs, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
 With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class found by a lookup of single classes.
+The classes have distinct flags, so a lookup finds at most one closing class, or at most one closing pair for each first class `c_{m-1}`, and so at most as many class codewords as there are classes.
 The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same class codewords in the same order as a loop over `c_{m-1}`, and the faults are listed in the same order whether or not the table fits within the memory limit.
 
 Many primitive faults can share their flags, which is why the search works with classes.
