@@ -3,7 +3,8 @@
 """Tests for compiled functions, and for running their tests compiled or as plain Python.
 
 They cover the disk cache, the registry of compiled-on-request functions, the switch to plain
-Python, the options of the compiled runs, and the rules for compiled functions.
+Python, and the options of the compiled runs.  ``_compiled_code_rules_test.py`` checks the rules of
+the code standard for compiled functions.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ import os
 import pickle
 import time
 import types
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Literal
 
@@ -459,82 +459,6 @@ print(caller.add_to(1))
     assert results == [2, 11]
 
 
-def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
-    """Only ``always_compiled`` may ask numba for a disk cache, since it makes that cache safe."""
-    for path, tree in _get_source_trees():
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and _is_njit(node.func)):
-                continue
-            if any(keyword.arg == "cache" for keyword in node.keywords):
-                assert path.name == "_compilation.py", f"{path.name} caches without it"
-
-
-def test_always_compiled_functions_do_not_call_compiled_on_request_functions() -> None:
-    """An always-compiled function is compiled and cached by itself, in every mode."""
-    trees = list(_get_source_trees())
-    registered = _get_names_decorated_by(trees, "compiled_on_request")
-    assert registered
-    for path, tree in trees:
-        for function in _get_functions_decorated_by(tree, "always_compiled"):
-            used = {
-                node.id if isinstance(node, ast.Name) else node.attr
-                for statement in function.body
-                for node in ast.walk(statement)
-                if isinstance(node, ast.Name | ast.Attribute)
-            }
-            assert not used & registered, f"{path.name}: {function.name} calls {used & registered}"
-
-
-def test_compiled_on_request_functions_are_not_imported_by_name() -> None:
-    """A name imported by ``from`` keeps the plain function, since only its module is updated."""
-    trees = list(_get_source_trees())
-    registered = _get_names_decorated_by(trees, "compiled_on_request")
-    assert registered
-    for path, tree in trees:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                imported = {alias.name for alias in node.names} & registered
-                assert not imported, f"{path.name} imports {imported} by name"
-
-
-def test_compiled_on_request_functions_are_defined_in_the_distance_package() -> None:
-    """CI runs only the distance tests with compiled-on-request functions compiled."""
-    modules = run_python(_FIND_ON_REQUEST_MODULES).split()
-    assert modules
-    outside = [
-        name
-        for name in modules
-        if name != "qldpc.codes.distance" and not name.startswith("qldpc.codes.distance.")
-    ]
-    assert not outside, outside
-
-
-def test_always_compiled_functions_use_nothing_from_outside_qldpc() -> None:
-    """Only qLDPC's source is hashed, but numba checks its version and implements NumPy itself."""
-    for path, tree in _get_source_trees():
-        outside = _get_names_imported_from_outside_qldpc(tree)
-        for function in _get_functions_decorated_by(tree, "always_compiled"):
-            names = {
-                node.id
-                for statement in function.body
-                for node in ast.walk(statement)
-                if isinstance(node, ast.Name)
-            }
-            assert not names & outside, f"{path.name}: {function.name} uses {names & outside}"
-
-
-def test_names_imported_from_outside_qldpc_are_found() -> None:
-    tree = ast.parse(
-        "import numpy as np\n"
-        "import numba.types\n"
-        "import scipy.special\n"
-        "from other import first as renamed\n"
-        "from qldpc.math import second\n"
-        "from .. import third\n"
-    )
-    assert _get_names_imported_from_outside_qldpc(tree) == {"scipy", "renamed"}
-
-
 def test_compiled_module_tests_are_those_of_modules_with_compiled_functions(
     pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -635,11 +559,10 @@ def test_options_of_compiled_runs_are_refused_while_compilation_is_disabled(
     conftest.pytest_configure(pytestconfig)
 
 
-# The packages whose functions always-compiled code may use.
-_COMPILABLE_PACKAGES = {"qldpc", "numpy", "numba"}
-
-# Code that imports every module of qLDPC other than tests, which registers every compiled function.
-_IMPORT_EVERY_MODULE = """
+# A program that prints the modules that hold compiled functions of their own or register
+# compiled-on-request functions.  It first imports every module of qLDPC other than tests, which
+# defines or registers every compiled function.
+_FIND_COMPILED_MODULES = """
 import importlib, pkgutil, sys
 import numba
 import qldpc
@@ -648,21 +571,6 @@ from qldpc import _compilation
 for info in pkgutil.walk_packages(qldpc.__path__, "qldpc."):
     if not info.name.endswith(("_test", "conftest")):
         importlib.import_module(info.name)
-"""
-
-# A program that prints the modules that register compiled-on-request functions.
-_FIND_ON_REQUEST_MODULES = (
-    _IMPORT_EVERY_MODULE
-    + """
-print(*sorted({item.namespace["__name__"] for item in _compilation._ON_REQUEST_FUNCTIONS}))
-"""
-)
-
-# A program that prints the modules that hold compiled functions of their own or register
-# compiled-on-request functions.
-_FIND_COMPILED_MODULES = (
-    _IMPORT_EVERY_MODULE
-    + """
 modules = {item.namespace["__name__"] for item in _compilation._ON_REQUEST_FUNCTIONS}
 for name, module in list(sys.modules.items()):
     if module is None or not name.startswith("qldpc."):
@@ -673,7 +581,6 @@ for name, module in list(sys.modules.items()):
             modules.add(name)
 print(*sorted(modules))
 """
-)
 
 # A module whose functions ``bare`` and ``qualified`` are always compiled, and ``aliased`` is
 # compiled on request, beside two functions that are neither.  Each name says how its decorator is
@@ -729,45 +636,6 @@ def _add_one(value: int) -> int:
 
 def _get_top_right_entry(matrix: npt.NDArray[np.uint8]) -> int:
     return matrix[0, -1]
-
-
-def _get_source_trees() -> Iterator[tuple[Path, ast.Module]]:
-    """The syntax tree of every source file of the library that is not a test."""
-    for path in _compilation._get_source_paths(Path(qldpc.__file__).parent):
-        yield path, ast.parse(path.read_text(encoding="utf-8"))
-
-
-def _is_njit(function: ast.expr) -> bool:
-    """Whether an expression is a name or an attribute called ``njit`` or ``jit``."""
-    return getattr(function, "attr", getattr(function, "id", "")) in ("njit", "jit")
-
-
-def _get_functions_decorated_by(tree: ast.Module, name: str) -> list[ast.FunctionDef]:
-    """The functions of a module with the decorator ``name``: one of the two of ``_compilation``."""
-    return conftest.get_compiled_functions(tree)[name]
-
-
-def _get_names_decorated_by(trees: list[tuple[Path, ast.Module]], name: str) -> set[str]:
-    """The names of the functions in the given syntax trees that have the decorator ``name``."""
-    return {
-        function.name for _, tree in trees for function in _get_functions_decorated_by(tree, name)
-    }
-
-
-def _get_names_imported_from_outside_qldpc(tree: ast.Module) -> set[str]:
-    """The names that a module of qLDPC imports from packages other than qLDPC, NumPy, and numba."""
-    names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.level == 0:
-            if (node.module or "").split(".")[0] not in _COMPILABLE_PACKAGES:
-                names |= {alias.asname or alias.name for alias in node.names}
-        elif isinstance(node, ast.Import):
-            names |= {
-                alias.asname or alias.name.split(".")[0]
-                for alias in node.names
-                if alias.name.split(".")[0] not in _COMPILABLE_PACKAGES
-            }
-    return names
 
 
 def _scan_deletes_outdated_directory(directory: Path, package: Path, digit: str) -> bool:
