@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: qLDPC
+abstract: >-
+  qLDPC is a Python toolkit for constructing and analyzing finite-size quantum low-density
+  parity-check codes, as well as stabilizer and subsystem codes more broadly.  It provides shared
+  implementations and scientific conventions that researchers and their AI assistants can inspect,
+  combine, and extend.
+authors:
+  - family-names: Perlin
+    given-names: Michael A.
+    orcid: "https://orcid.org/0000-0002-9316-1596"
+date-released: "2023-09-07"
+repository-code: "https://github.com/qLDPCOrg/qLDPC"
+url: "https://qldpc.readthedocs.io"
+license: Apache-2.0
+keywords:
+  - quantum error correction
+  - quantum LDPC codes
+  - stabilizer codes
+  - coding theory
