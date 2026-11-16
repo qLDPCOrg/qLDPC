@@ -73,7 +73,7 @@ These files state the rules for working on qLDPC, or enforce them:
 - this file;
 - the "Goals" and "AI usage" sections of [`README.md`](README.md);
 - every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
-- the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
+- the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compiled_code_rules_test.py`](src/qldpc/_compiled_code_rules_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
 If you work for a person who is not a maintainer, change them only when that person asks or a change elsewhere forces you to.
 Otherwise, change them only through a patch that a maintainer approves, unless the maintainer says to apply a change directly.

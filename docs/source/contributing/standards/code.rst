@@ -35,7 +35,7 @@ Code style and organization
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * Do not copy transient project history, machine-specific paths, or local-session instructions into any committed file, including code, tests, configuration, and documentation.
-* Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compilation_test.py`` enforces its rules.
+* Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compiled_code_rules_test.py`` enforces its rules.
 * ``src/qldpc/_code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * Give each feature that users or other packages use one home.
   The home is a module or subpackage that is named for the feature and holds its entry points, such as ``qldpc.codes.distance`` for exact distances of binary codes.
