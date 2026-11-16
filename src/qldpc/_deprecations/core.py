@@ -384,7 +384,7 @@ def get_distance_classical(
     *,
     cutoff: int = 1,
     block_size: int | None = None,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: DistanceMethod = "auto",
     max_weight: SupportsIndex | None = None,
 ) -> int | Literal[NoDistance.NAN]:
     """Deprecated: the distance of a classical linear binary code, from its generator matrix.
@@ -411,7 +411,7 @@ def get_distance_quantum(
     cutoff: int = 1,
     block_size: int | None = None,
     homogeneous: bool = False,
-    method: DistanceMethod = "brouwer_zimmermann",
+    method: DistanceMethod = "auto",
     max_weight: SupportsIndex | None = None,
 ) -> int | Literal[NoDistance.NAN]:
     """Deprecated: the distance of a binary quantum code from its logical operators and stabilizers.
