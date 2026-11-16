@@ -270,7 +270,7 @@ def test_deprecated_distance_functions() -> None:
         ):
             assert search() == distance
 
-    # Both functions pass on their method.
+    # Both functions pass on their method, which defaults to "auto".
     get_distance_classical: Any = codes.get_distance_classical  # type: ignore[attr-defined]
     get_distance_quantum: Any = codes.get_distance_quantum  # type: ignore[attr-defined]
     for search in (
@@ -281,6 +281,16 @@ def test_deprecated_distance_functions() -> None:
     ):
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
             search()
+    with unittest.mock.patch.object(
+        codes.distance, "get_distance_from_generators", return_value=3
+    ) as get_distance:
+        for search in (
+            lambda: get_distance_classical(generator),
+            lambda: get_distance_quantum(generator[:1], generator[1:], homogeneous=True),
+        ):
+            with pytest.warns(DeprecationWarning):
+                assert search() == 3
+            assert get_distance.call_args.kwargs["method"] == "auto"
 
     # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
     # arguments.
