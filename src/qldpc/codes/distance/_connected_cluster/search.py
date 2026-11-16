@@ -102,7 +102,8 @@ class ConnectedClusterSearches:
     through its next weight limit (Section 3.6 of ``connected_cluster.md``).
 
     Raises:
-        ValueError: As ``get_distance_connected_cluster`` says, when the searches are built.
+        ValueError: If there are neither problems nor an upper bound, or if a problem is not valid
+            (see ``SupportSearch``).
     """
 
     def __init__(

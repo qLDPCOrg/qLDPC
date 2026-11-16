@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import itertools
 import unittest.mock
@@ -513,6 +514,12 @@ def test_connected_cluster_distance_searches_read_the_restriction_of_their_tunin
         get_distance_pauli(codes.FiveQubitCode().matrix, method="connected_cluster")
     assert set(settings) == {(False, expected), (True, expected)}
 
+    # Searches built with a tuning use it, whatever the active tuning.
+    settings.clear()
+    tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, **changes)
+    cs.ConnectedClusterSearches(get_sectors(steane), cutoff=0, tuning=tuning)
+    assert set(settings) == {(False, expected)}
+
 
 def test_wrong_automorphisms_are_rejected() -> None:
     """A permutation that does not map the kernel of the checks to itself raises an error."""
@@ -560,7 +567,7 @@ def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
 
     monkeypatch.setattr(cs.SupportSearch, "__init__", recording_init)
     monkeypatch.setattr(cs.SupportSearch, "find_witness", recording_find_witness)
-    # The problems have the divisors 2 and 1, so choosing the lowest lower bound differs from turns.
+    # The problems have the divisors 2 and 1, so the lowest lower bound differs from round-robin.
     problems = [PROBLEMS["toric-X"], PROBLEMS["steane-X"]]
     searches = cs.ConnectedClusterSearches(problems, cutoff=0)
     lower_bounds = [search.weight_divisor for search in searches_made]

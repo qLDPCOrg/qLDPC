@@ -629,7 +629,7 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `BrouwerZimmermannSearches.finished` | Marks the searches finished once the shared best bound is at most `cutoff`, or every search has finished; `get_distance_brouwer_zimmermann_many` then returns that bound |
 
-The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, and `test_rows_of_an_automorphism_family_can_reach_the_cutoff` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
+The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, and `test_searches_that_setup_settles_are_finished_at_once` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
 
 ### 4.3 Concept-to-code glossary
 
@@ -748,7 +748,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
   If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch.
   After an exception, a later call restarts the layer from its first support; after a stop at the cutoff, the search has finished.
-  `BrouwerZimmermannSearches`, which steps the searches of several problems, makes no such promise: after its `advance` raises, build new searches to search again.
+  If the `advance` method of `BrouwerZimmermannSearches`, which steps the searches of several problems, raises, its searches can be left inconsistent, so build new ones to search again.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

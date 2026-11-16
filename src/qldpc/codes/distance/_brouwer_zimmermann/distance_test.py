@@ -642,19 +642,29 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
         )
 
 
-def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Each advance scans one layer of the next unfinished search, in turn, until all finish."""
-    prepared: list[bz._BrouwerZimmermannSearch] = []
+@pytest.fixture
+def prepared(monkeypatch: pytest.MonkeyPatch) -> list[bz._BrouwerZimmermannSearch]:
+    """The searches that setup prepares, rather than settles, in the order of their problems."""
+    searches: list[bz._BrouwerZimmermannSearch] = []
     prepare = bz._prepare_brouwer_zimmermann_search
 
     def recording_prepare(*args: Any, **kwargs: Any) -> Any:
         result = prepare(*args, **kwargs)
         if isinstance(result, bz._BrouwerZimmermannSearch):
-            prepared.append(result)
+            searches.append(result)
         return result
 
+    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
+    return searches
+
+
+def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
+    monkeypatch: pytest.MonkeyPatch, prepared: list[bz._BrouwerZimmermannSearch]
+) -> None:
+    """Each advance scans one layer of the next unfinished search, in turn, until all finish.
+
+    Once built, the shared bound is at most the weight of the lightest eligible row.
+    """
     # Record the index of each search that advances, and which searches had finished by then.
     visits: list[tuple[int, list[bool]]] = []
     advance = bz._BrouwerZimmermannSearch.advance
@@ -663,15 +673,16 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
         visits.append((prepared.index(search), [other.finished for other in prepared]))
         return advance(search)
 
-    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
     monkeypatch.setattr(bz._BrouwerZimmermannSearch, "advance", recording_advance)
-    # In this code, of distance 4 by the connected-cluster method, one sector's search finishes
+    # This code has distance 4, as the connected-cluster method finds.  One sector's search finishes
     # while the other's goes on, so the turns skip it.
     code = get_random_css_code(np.random.default_rng(4), 60, 20, 25)
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
     searches = bz.BrouwerZimmermannSearches(problems, cutoff=0)
     num_searches = len(prepared)
     assert num_searches == 2 and not searches.finished
+    lightest_rows = [basis[np.any(labels, axis=1)].sum(axis=1).min() for basis, labels in problems]
+    assert searches.best <= min(lightest_rows)
     bests = [searches.best]
     while not searches.finished:
         num_visits = len(visits)
@@ -696,27 +707,20 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
     assert len(visits) == num_visits
 
 
-def test_searches_that_setup_settles_are_finished_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Searches are finished when built if setup settles them, directly or by a shared witness.
+def test_searches_that_setup_settles_are_finished_at_once(
+    prepared: list[bz._BrouwerZimmermannSearch],
+) -> None:
+    """Searches are finished when built if setup settles them, or with no problems.
 
-    In the random code, setup settles one sector, whose witness finishes the search of the other.
+    Setup settles the Hamming code itself.  In the random code, it settles one sector, whose witness
+    finishes the search of the other.
     """
-    prepared: list[bz._BrouwerZimmermannSearch] = []
-    prepare = bz._prepare_brouwer_zimmermann_search
-
-    def recording_prepare(*args: Any, **kwargs: Any) -> Any:
-        result = prepare(*args, **kwargs)
-        if isinstance(result, bz._BrouwerZimmermannSearch):
-            prepared.append(result)
-        return result
-
-    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
     searches = bz.BrouwerZimmermannSearches([], cutoff=0, upper_bound=3)
     assert searches.finished and searches.best == 3
     hamming_code = qldpc.codes.HammingCode(3)
     problem = (np.asarray(hamming_code.generator, dtype=np.uint8), np.zeros((4, 0), np.uint8))
     searches = bz.BrouwerZimmermannSearches([problem], cutoff=7)
-    assert searches.finished and searches.best == 3
+    assert searches.finished and searches.best == 3 and not prepared
 
     code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
@@ -746,6 +750,25 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
     assert bz.get_distance_brouwer_zimmermann_many(
         problems, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
     ) == code.get_distance(method="brute_force")
+
+
+def test_stepped_searches_use_the_tuning_that_they_are_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Searches built with a tuning prepare every problem with it, whatever the active tuning."""
+    tunings: list[Any] = []
+    prepare = bz._prepare_brouwer_zimmermann_search
+
+    def recording_prepare(*args: Any, **kwargs: Any) -> Any:
+        tunings.append(kwargs["tuning"])
+        return prepare(*args, **kwargs)
+
+    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
+    code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    tuning = dataclasses.replace(DEFAULT_TUNING, information_set_batch_exponent=5)
+    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
+    bz.BrouwerZimmermannSearches(problems, cutoff=0, tuning=tuning)
+    assert tunings == [tuning, tuning]
 
 
 def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
