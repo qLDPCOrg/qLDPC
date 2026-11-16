@@ -20,8 +20,6 @@ Contributor documentation comes in two kinds:
 * :doc:`Standards <standards/index>` state the rules that a change must satisfy, one topic per standard.
 * Guides, such as this page, explain how qLDPC works and how to make a change, and link to the standards rather than restating them.
 
-Make recommendations, and present decisions, as :doc:`decisions and recommendations <decisions>` describes.
-
 .. _kinds-of-change:
 
 Kinds of change

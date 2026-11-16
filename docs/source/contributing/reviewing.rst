@@ -1,6 +1,7 @@
 Reviewing changes
 =================
 
+Maintainers and agents review changes as this page describes; other contributors need not read it.
 In a review, one or more independent reviewers examine a change from several angles, and the change is revised in response.
 Review and revision repeat in :ref:`rounds <review-rounds>`.
 qLDPC has two kinds of review:
