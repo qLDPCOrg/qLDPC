@@ -70,7 +70,7 @@ optional-dependencies.dev = [
   platform_machine=='x86_64')\
   """,
   "qldpc[decoders,docs,gap]",
-  "stim>=1.17.dev1793242987",     # stim.Circuit.append is about 1,000 times faster than in 1.16
+  "stim>=1.17.dev1793242987",     # stim.Circuit.append is much faster than in 1.16
 ]
 optional-dependencies.docs = [
   "ipython>=8",          # for nbsphinx's IPython.sphinxext.ipython_console_highlighting extension
