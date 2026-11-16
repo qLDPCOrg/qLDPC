@@ -49,7 +49,7 @@ The coordinator gives each reviewer:
     * documentation that leaves out a behavior or limitation without which a reader could get a wrong or materially misleading result without an error.
 
     Mark every other finding minor.
-    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is significant exactly when a contributor who follows them in good faith would plausibly miss it and do something that a maintainer would have to correct.
+    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is significant exactly when a contributor who follows them in good faith would plausibly do something that a maintainer would have to correct.
   * Ask for documentation only where a standard calls for it; for a behavior that the writing standard says to state, name the reasonable expectation, its source, and the wrong result that it would give.
   * Report problems that existed before the change separately, as pre-existing problems; a problem that the change causes in unchanged code, such as a broken caller, is a finding about the change.
   * Check whether the change needs updates elsewhere, such as to callers, to documents that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
@@ -98,7 +98,6 @@ After each round, the coordinator:
 
 * fixes clear findings about the change, and verifies each fix with the drafting checks;
 * fixes a minor pre-existing problem in the change, such as a misleading message or an untested edge case, if the fix is local, evidently correct, and needs no decision;
-* reports each such fix under its own heading;
 * leaves decisions to the person it works for, presents each as :doc:`decisions and recommendations <decisions>` describes, and continues with the other fixes;
 * if a significant problem needs a decision, or, from the third round on, needs a non-local fix outside the reviewed revisions, reports it and asks how to proceed before another round, such as by splitting the change.
 
