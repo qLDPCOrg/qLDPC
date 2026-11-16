@@ -287,7 +287,7 @@ class FaultLister:
         self._closing_classes = _get_closing_map(self._class_rows[:, 0], 1)
 
         # Split the memory limit, and start with an empty table of syndromes.
-        self._closing_pairs_fit, self._max_syndromes = _split_memory_limit(
+        self._build_closing_pairs, self._max_syndromes = _split_memory_limit(
             num_classes=len(member_lists),
             num_syndrome_words=self._num_syndrome_words,
             memory_limit=memory_limit,
@@ -443,7 +443,7 @@ class FaultLister:
         self,
     ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]] | None:
         """The closing map of the pairs of classes, or None if it is too large to build."""
-        if not self._closing_pairs_fit:
+        if not self._build_closing_pairs:
             return None
         return _get_closing_map(self._class_rows[:, 0], 2)
 
@@ -464,10 +464,10 @@ def _split_memory_limit(
     # syndromes for the same reason.
     num_pairs = num_classes * (num_classes - 1) // 2
     pair_bytes = num_pairs * _BYTES_PER_PAIR
-    pairs_fit = pair_bytes <= memory_limit and num_pairs <= 2**31
-    free_bytes = memory_limit - pair_bytes if pairs_fit else memory_limit
+    build_pairs = pair_bytes <= memory_limit and num_pairs <= 2**31
+    free_bytes = memory_limit - pair_bytes if build_pairs else memory_limit
     bytes_per_syndrome = 8 * (num_syndrome_words + 3)
-    return pairs_fit, min(free_bytes // bytes_per_syndrome, 2**31)
+    return build_pairs, min(free_bytes // bytes_per_syndrome, 2**31)
 
 
 def _get_closing_map(
