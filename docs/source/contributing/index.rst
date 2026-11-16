@@ -13,7 +13,7 @@ Contributing in brief
    You need not run that review yourself.
 
 The README states how `qLDPC uses AI assistants <https://github.com/qLDPCOrg/qLDPC#ai-usage>`_.
-AI agents follow `AGENTS.md <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_, which states what they may do without a maintainer's request.
+AI agents, including contributors' own, follow `AGENTS.md <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_.
 
 .. _kinds-of-change:
 

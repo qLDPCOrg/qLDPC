@@ -34,8 +34,9 @@ Recommend, present decisions, and weigh new process as [decisions and recommenda
 
 1. While writing a change, run the drafting checks of the [validation commands](docs/source/contributing/index.rst#validation-commands).
 2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for, unless the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
+   If you work for a person who is not a maintainer, run one only if they ask, since maintainers review each pull request.
    If the review does not pass, stop and report.
-3. Run the [extended checks](docs/source/contributing/index.rst#validation-commands) only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
+3. Run the [extended checks](docs/source/contributing/index.rst#validation-commands) only if the person you work for asks for them by name, or has said that they will be away while the change is completed.
    Fix each failure that the change causes, then return to step 2.
    Report any other failure, such as one that also occurs on the main branch, as an open decision.
 4. Hand the change off as [handing off a change](#handing-off-a-change) describes.
@@ -46,7 +47,7 @@ Leave notebook runs and the GAP integration tests to CI.
 
 ## Handing off a change
 
-Hand a change to the maintainer to push only once it has passed its review and everything for it, including new files, is committed.
+Only once a change has passed any review that step 2 calls for and is fully committed, including new files, hand it to the person you work for, who pushes it.
 For each of its pull requests, give in your message, not only in a file:
 
 1. its review status, as [reviews](#reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, and each open decision;
@@ -56,6 +57,8 @@ For each of its pull requests, give in your message, not only in a file:
    cd <worktree> && git push -u origin <branch> && \
      open "https://github.com/qLDPCOrg/qLDPC/compare/main...<branch>?expand=1"
    ```
+
+   Without write access, the block pushes to a fork and opens `compare/main...<fork owner>:<branch>`.
 
 3. the title, alone in a code block;
 4. the description, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst), in a `markdown` code block whose fence is longer than any fence inside it.
@@ -72,7 +75,8 @@ These files state the rules for working on qLDPC, or enforce them:
 - every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
 - the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
-Unless the maintainer says to apply a change to them directly, change them only through a patch that the maintainer approves.
-This holds even when the maintainer asked for the change, or when a change elsewhere forces it, such as renaming a path that they cite.
+If you work for a person who is not a maintainer, change them only when that person asks or a change elsewhere forces you to.
+Otherwise, change them only through a patch that a maintainer approves, unless the maintainer says to apply a change directly.
+The patch is needed even when the maintainer asked for the change, or when a change elsewhere forces it, such as renaming a cited path.
 Write the patch outside the repository, link it, and say which parts of it no review has seen.
 Once the maintainer approves it, apply exactly that patch with `git apply`, and commit it; if it no longer applies, regenerate it and ask again.
