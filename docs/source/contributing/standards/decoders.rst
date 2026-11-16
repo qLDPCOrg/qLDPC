@@ -45,8 +45,7 @@ Exports, documentation, and tests
 
 * Export the backend class at its qualified ``custom`` or ``external`` package path.
 * If you add a public specification helper, export it from ``qldpc.decoders`` and add it to ``__all__``.
-* Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder reference </decoders/reference>`: AutoAPI hides generated helpers because it cannot inspect their signatures statically.
-  ``src/qldpc/decoders/construction/specs_test.py`` checks the signature, written documentation, and reference entry of every generated helper that ``qldpc.decoders`` exports.
+* Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder reference </decoders/reference>`, since AutoAPI cannot list generated helpers; ``src/qldpc/decoders/construction/specs_test.py`` checks it.
 * Add :ref:`backend notes <backend-notes>` to the decoder reference only for what a docstring cannot carry, such as installation outside PyPI or behavior across workflows.
 * Add co-located ``*_test.py`` tests that independently check ``H @ inferred_error == syndrome``, observable predictions against DEM targets, unsupported inputs, erasure width, and batch shapes as applicable.
 * Test pickling if the decoder is used by Sinter.
