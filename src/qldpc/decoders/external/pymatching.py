@@ -2,9 +2,9 @@
 
 """PyMatching decoder adapters and the MWPM decoder specification.
 
-qLDPC imports this integration module while initializing its public decoder API.  Importing
-PyMatching and ldpc eagerly would noticeably slow ``import qldpc``, so the error-decoder subclass is
-created on first use by the file-internal helpers at the end of the decoder section.
+qLDPC imports this integration module while initializing its public decoder API.  Eagerly importing
+PyMatching would noticeably slow ``import qldpc``, so ``Matching``, qLDPC's subclass of
+``pymatching.Matching``, is created on first use by ``_get_matching_type``.
 """
 
 from __future__ import annotations

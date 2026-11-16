@@ -377,10 +377,10 @@ def _get_primitive_fault_signatures(
     # which only approximates their probabilities, and no probabilities are used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
-    # Read the error instructions from the DEM's text, which is much faster than reading their
-    # targets through stim's Python objects.  An instruction such as "error[tag](0.1) D0 L1"
-    # escapes "]" in its tag, so its targets follow the first ")" after the tag, if any.  Stim also
-    # escapes line feeds in tags, but not other line breaks, so split lines only at line feeds.
+    # Parsing the DEM's text is much faster than reading the targets of its error instructions
+    # through stim's Python objects.  Stim escapes "]" in tags, so the targets of an instruction
+    # such as "error[tag](0.1) D0 L1" follow the first ")" after its tag, if any.  Stim also escapes
+    # line feeds in tags, but not other line breaks, so split lines only at line feeds.
     flag_bit = {detector: jj for jj, detector in enumerate(selected)}
     first_stabilizer_detector = circuit.num_detectors
     flags: list[int] = []

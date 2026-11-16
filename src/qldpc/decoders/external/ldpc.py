@@ -2,10 +2,9 @@
 
 """Decoder specifications for decoders provided by the ldpc package.
 
-qLDPC imports this integration module while initializing its public decoder API.  Importing ``ldpc``
-and PyMatching eagerly here would noticeably slow ``import qldpc``, so the protocol-compatible
-subclasses are created on first use in the private lazy-backend section at the bottom of this
-module.
+qLDPC imports this integration module while initializing its public decoder API.  Eagerly importing
+``ldpc``, which imports PyMatching, would noticeably slow ``import qldpc``, so qLDPC's subclasses of
+``ldpc`` decoders are created on first use, in the private section at the bottom of this module.
 """
 
 from __future__ import annotations
