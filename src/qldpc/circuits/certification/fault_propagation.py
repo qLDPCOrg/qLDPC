@@ -263,7 +263,7 @@ class BoundedFaultPropagationCounterexample:
     Equivalence, fault weight, Pauli weight, output error, residual weight, and the bound are as
     defined in ``certify_bounded_fault_propagation``.  With the method ``"brouwer_zimmermann"``, the
     ``output_pauli`` and ``residual_weight_lower_bound`` of a counterexample can change between
-    versions of qLDPC, as the searches that find them change (see
+    versions of qLDPC, as the searches that find them change (see ``method`` in
     ``certify_bounded_fault_propagation``).
 
     Attributes:

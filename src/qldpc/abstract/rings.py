@@ -408,7 +408,7 @@ class GroupRing(Ring):
 
     @functools.cached_property
     def group_trace_matrix(self) -> galois.FieldArray:
-        """Construct the matrix for the trace ``r -> sum_{g in G} g r g^{-1}`` over the group.
+        """Matrix of the trace ``r -> sum_{g in G} g r g^{-1}`` over the group ``G``.
 
         The matrix is read-only.
         """
