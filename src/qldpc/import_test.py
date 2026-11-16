@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check that the qLDPC package imports cleanly."""
+"""Check that qLDPC imports cleanly in the fresh interpreters that run_python starts."""
 
 import pytest
 
@@ -8,13 +8,14 @@ from qldpc.conftest import run_python
 
 
 def test_import_in_fresh_interpreter() -> None:
-    """In a fresh interpreter, qLDPC imports cleanly and does not import modules that it defers.
+    """In a fresh interpreter, qLDPC imports cleanly and loads deferred modules only on use.
 
     The package imports most subpackages when it is first imported, so importing any qLDPC module
     runs this same import sequence.  It defers its subpackages circuits and experimental to first
     access, and the scipy modules special and sparse.csgraph to the functions that use them.  If a
-    dependency starts importing one of these scipy modules itself, drop it from ``deferred`` and
-    import it at module level again, since deferring it then saves nothing.  Each decoder
+    dependency starts importing one of these scipy modules itself, deferring that module saves
+    nothing, so drop it from ``deferred`` and import it at the top of the modules that use it.  Each
+    decoder
     integration, including those in the deferred subpackages, imports its optional backend only when
     a decoder is built.
     """
@@ -28,7 +29,7 @@ assert not loaded, loaded
 assert {"circuits", "experimental"} <= set(dir(qldpc))
 assert not hasattr(qldpc, "not_a_subpackage")
 assert qldpc.circuits is sys.modules["qldpc.circuits"]
-assert getattr(qldpc, "experimental") is sys.modules["qldpc.experimental"]
+assert qldpc.experimental is sys.modules["qldpc.experimental"]
 from qldpc import *
 assert circuits is sys.modules["qldpc.circuits"]
 assert experimental is sys.modules["qldpc.experimental"]
@@ -39,7 +40,7 @@ assert not loaded, loaded
 
 
 def test_run_python_runs_assertions(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The interpreters that run_python starts run assertions even if PYTHONOPTIMIZE is set."""
+    """The interpreters that ``run_python`` starts run assertions even if PYTHONOPTIMIZE is set."""
     monkeypatch.setenv("PYTHONOPTIMIZE", "1")
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="AssertionError"):
         run_python("assert False")
