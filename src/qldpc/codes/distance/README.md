@@ -144,7 +144,8 @@ They are not arguments of public functions, whose arguments say what to compute 
 - Each field and constant has its own `#:` comment directly above it, for Sphinx to render, with no colon on its first line, since Sphinx reads text before such a colon as a type.
   A field's comment says what the field controls, with its unit and special values, and the class and rule of its default, as the "Retuning" section of the module docstring defines them, or why a field in no class has its default; where a guide section or a cost model explains its heuristic, the comment points there.
   A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
-  Comments, docstrings, and guides in this package follow the [writing standard's rule on measurements](../../../../docs/source/contributing/standards/writing.rst#where-documentation-belongs).
+  Comments, docstrings, and guides in this package give no measurements; those belong in pull request descriptions.
+  The comment of a derived value, a gate on an optional step, may state the cost of the step that its heuristic assumes, as a round order of magnitude.
 - Change a default only as the "Retuning" section allows.
 - [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) renders these comments after hand-written tables that lead from symptoms and routes to the values; update the tables, and for a constant the list of constants, when you add, rename, or remove a value.
   `_tuning_test.py` checks that the table of routes names every field and every constant except `MAX_VALUE`, that the page lists every constant, and that each value has its own comment.
