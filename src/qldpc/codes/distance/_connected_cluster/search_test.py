@@ -825,6 +825,28 @@ def test_the_growth_of_states_skips_a_change_of_roots() -> None:
     assert growths[4] == pytest.approx(np.sqrt(states[2] / states[1] * states[4] / states[3]))
 
 
+def test_stepped_searches_add_the_states_of_their_sectors_and_grow_per_unit_of_weight() -> None:
+    """The states add over sectors, and the growth is per unit of weight, not per weight limit.
+
+    Both sectors of the toric code of size 6 have only words of even weight, so the limits of each
+    rise in steps of two, and the growth is the square root of the ratio of their states.
+    """
+    search = cs.ConnectedClusterSearch(get_sectors(codes.ToricCode(6)), cutoff=0)
+    assert [sector_search.weight_divisor for sector_search in search.searches] == [2, 2]
+    records = []
+    for _ in range(4):
+        index, max_weight = search.next_limit
+        num_states = search.searches[index].num_states
+        search.advance()
+        records.append((index, max_weight, search.searches[index].num_states - num_states))
+    assert [record[:2] for record in records] == [(0, 2), (1, 2), (0, 4), (1, 4)]
+    assert all(states for *_, states in records) and not search.finished
+    assert search.num_states == sum(states for *_, states in records)
+    growth = (records[2][2] / records[0][2]) ** (1 / 2)
+    assert search.get_growth(0) == pytest.approx(growth)
+    assert search.predict_states(0, 8) == pytest.approx(records[2][2] * growth**4)
+
+
 def test_a_problem_without_logical_operators_has_no_distance() -> None:
     """Without witnesses, a sector counts as one more than its number of variables."""
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))

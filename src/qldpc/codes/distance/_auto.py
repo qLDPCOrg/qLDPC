@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The automatic choice of an exact distance search, which ``method="auto"`` makes.
+"""The parts of ``method="auto"`` that compare the costs of exact distance searches.
 
-``method="auto"`` enumerates every word if that is cheap.  Otherwise, it searches binary words that
-exclude no nonzero word, as of a classical code, by the Brouwer-Zimmermann (BZ) method, and other
-words, as of a quantum code or of the faults of a circuit, with ``search_by_cost``, which runs a
-connected-cluster search and switches to a BZ search once that is predicted to cost less.  The
-section "Choosing a method" of ``README.md`` in ``src/qldpc/codes/distance/`` explains the rule,
-why it keeps results exact, and its estimates.
+``core.py`` chooses a method for each search.  It enumerates every word if ``is_cheap_to_enumerate``
+says that this is cheap.  Otherwise, it takes the Brouwer-Zimmermann (BZ) method for a search given
+by generators, or for one that excludes no nonzero word, as for a classical code.  Other searches,
+as of a quantum code or of the faults of a circuit, run ``search_by_cost``: a connected-cluster
+search that switches to a BZ search once that is predicted to cost less.  The section "Choosing a
+method" of ``README.md`` in ``src/qldpc/codes/distance/`` explains the rule, why it keeps results
+exact, and its estimates.
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ class BrouwerZimmermannProblem:
 
 def search_by_cost(
     cluster_sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
-    brouwer_zimmermann: BrouwerZimmermannProblem,
+    brouwer_zimmermann_problem: BrouwerZimmermannProblem,
     *,
     symplectic: bool,
     cutoff: int,
@@ -80,13 +81,13 @@ def search_by_cost(
 ) -> int:
     """The minimum distance across sectors, by a connected-cluster search that may switch to BZ.
 
-    The sectors and other arguments, and the result, are those of
-    ``get_distance_connected_cluster``.  ``brouwer_zimmermann`` holds the same sectors, in the same
-    order, for a BZ search.  Each caller builds it as its own route builds a BZ search, so it is an
-    argument rather than derived here.  Every sector must have a witness: ``ConnectedClusterSearch``
-    keeps only the sectors that do, and its searches must be numbered as the sectors of
-    ``brouwer_zimmermann``.  It runs a connected-cluster search, probes with a BZ search, and may
-    switch to one, as the section "Choosing a method" of ``README.md`` describes.
+    The function runs a connected-cluster search, probes with a BZ search, and may switch to one, as
+    the section "Choosing a method" of ``README.md`` describes.  The sectors and other arguments,
+    and the result, are those of ``get_distance_connected_cluster``.  ``brouwer_zimmermann_problem``
+    holds the same sectors, in the same order, for a BZ search.  Each caller builds it as its own
+    route builds a BZ search, so it is an argument rather than derived here.  Every sector must have
+    a witness: ``ConnectedClusterSearch`` keeps only the sectors that do, and its searches must be
+    numbered as the sectors of ``brouwer_zimmermann_problem``.
     """
     clusters = ConnectedClusterSearch(
         cluster_sectors,
@@ -96,10 +97,10 @@ def search_by_cost(
         get_automorphisms=get_automorphisms,
         tuning=tuning,
     )
-    assert len(clusters.searches) == len(brouwer_zimmermann.sectors)
-    costs = _BrouwerZimmermannCosts(brouwer_zimmermann)
+    assert len(clusters.searches) == len(brouwer_zimmermann_problem.sectors)
+    costs = _BrouwerZimmermannCosts(brouwer_zimmermann_problem)
     state_cost = tuning.connected_cluster_state_evaluations
-    scale = brouwer_zimmermann.weight_scale
+    scale = brouwer_zimmermann_problem.weight_scale
     probe_bound: int | None = None
     while not clusters.finished:
         # Decide only once the expected work of the next limit exceeds the free work.
@@ -109,7 +110,7 @@ def search_by_cost(
             # Probe once, and let the probe's bound end the connected-cluster search once every
             # sector's lower bound reaches it.
             if probe_bound is None:
-                probe = _probe(brouwer_zimmermann, cutoff, upper_bound, tuning)
+                probe = _probe(brouwer_zimmermann_problem, cutoff, upper_bound, tuning)
                 if probe.finished:
                     return probe.best // scale
                 probe_bound = probe.best // scale
@@ -121,11 +122,11 @@ def search_by_cost(
             if _should_switch(clusters, costs, probe_bound, state_cost):
                 return (
                     get_distance_brouwer_zimmermann(
-                        brouwer_zimmermann.sectors,
+                        brouwer_zimmermann_problem.sectors,
                         cutoff=cutoff * scale,
-                        weight_divisor=brouwer_zimmermann.weight_divisor,
+                        weight_divisor=brouwer_zimmermann_problem.weight_divisor,
                         upper_bound=probe_bound * scale,
-                        get_automorphisms=brouwer_zimmermann.get_automorphisms,
+                        get_automorphisms=brouwer_zimmermann_problem.get_automorphisms,
                         tuning=tuning,
                     )
                     // scale
@@ -139,15 +140,15 @@ class _BrouwerZimmermannCosts:
 
     A family of information sets of a basis of rank ``r`` and width ``n`` that covers the columns
     evenly certifies the weight ``ceil((t + 1) n / r)`` after layer ``t``, rounded up to the weight
-    divisor (Section 2.5 of ``brouwer_zimmermann.md``), and scans ``C(r, w)`` supports in layer
-    ``w``.  The estimates count one set per layer, as with an automorphism family, and leave out
+    divisor (Section 2.5 of ``brouwer_zimmermann.md``), and scans ``C(r, t)`` supports in layer
+    ``t``.  The estimates count one set per layer, as with an automorphism family, and leave out
     completion tables.
     """
 
-    def __init__(self, brouwer_zimmermann: BrouwerZimmermannProblem) -> None:
-        self._shapes = [basis.shape for basis, _ in brouwer_zimmermann.sectors]
-        self._scale = brouwer_zimmermann.weight_scale
-        self._divisor = brouwer_zimmermann.weight_divisor
+    def __init__(self, problem: BrouwerZimmermannProblem) -> None:
+        self._shapes = [basis.shape for basis, _ in problem.sectors]
+        self._scale = problem.weight_scale
+        self._divisor = problem.weight_divisor
 
     def get_work(self, level: int) -> int:
         """The evaluations, over every sector, that certify that no witness weighs below ``level``.
@@ -156,8 +157,8 @@ class _BrouwerZimmermannCosts:
         """
         work = 0
         for rank, width in self._shapes:
-            layers = self._get_layers(rank, width, level)
-            work += sum(math.comb(rank, weight) for weight in range(1, layers + 1))
+            num_layers = self._get_num_layers(rank, width, level)
+            work += sum(math.comb(rank, weight) for weight in range(1, num_layers + 1))
         return work
 
     def get_growth(self, index: int, level: int) -> float:
@@ -169,13 +170,17 @@ class _BrouwerZimmermannCosts:
         factor is zero if no layer certifies ``level``.
         """
         rank, width = self._shapes[index]
-        layers = self._get_layers(rank, width, level)
-        if layers >= rank:
+        num_layers = self._get_num_layers(rank, width, level)
+        if num_layers >= rank:
             return 0.0
-        return ((rank - layers) / (layers + 1)) ** (rank * self._scale / width)
+        return ((rank - num_layers) / (num_layers + 1)) ** (rank * self._scale / width)
 
-    def _get_layers(self, rank: int, width: int, level: int) -> int:
-        """The first layer whose certified weight reaches ``level``, or ``rank`` if none does."""
+    def _get_num_layers(self, rank: int, width: int, level: int) -> int:
+        """The number of layers, from layer 1, that certify ``level``.
+
+        They run up to the first whose certified weight reaches ``level``, or to ``rank`` if none
+        does.
+        """
         target = level * self._scale
         for layer in range(1, rank):
             bound = -(-(layer + 1) * width // rank)
@@ -185,7 +190,7 @@ class _BrouwerZimmermannCosts:
 
 
 def _probe(
-    brouwer_zimmermann: BrouwerZimmermannProblem,
+    problem: BrouwerZimmermannProblem,
     cutoff: int,
     upper_bound: int | None,
     tuning: SearchTuning,
@@ -195,13 +200,13 @@ def _probe(
     The probe skips the costlier stages of setup: families of overlapping and partitioned
     information sets, and so the certificates from linear programs, which only those take.
     """
-    scale = brouwer_zimmermann.weight_scale
+    scale = problem.weight_scale
     search = BrouwerZimmermannSearch(
-        brouwer_zimmermann.sectors,
+        problem.sectors,
         cutoff=cutoff * scale,
-        weight_divisor=brouwer_zimmermann.weight_divisor,
+        weight_divisor=problem.weight_divisor,
         upper_bound=None if upper_bound is None else upper_bound * scale,
-        get_automorphisms=brouwer_zimmermann.get_automorphisms,
+        get_automorphisms=problem.get_automorphisms,
         tuning=dataclasses.replace(
             tuning, overlapping_minimum_work=MAX_VALUE, partition_work_ratio=MAX_VALUE
         ),

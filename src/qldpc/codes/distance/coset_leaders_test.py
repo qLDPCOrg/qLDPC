@@ -475,8 +475,8 @@ def test_methods_take_the_names_of_distance_methods() -> None:
         if method != "brute_force":
             assert_exact_answers(CosetLeaderSearch(matrix, method=method), matrix, False)
 
-    # "auto" takes the Brouwer-Zimmermann method, which, unlike the connected-cluster method, weighs
-    # errors by CSS weight on this state, which is not CSS.
+    # This state is not CSS, so only the Brouwer-Zimmermann method weighs its errors by CSS weight,
+    # and "auto" takes that method.
     assert _get_coset_search_method("auto") == "brouwer_zimmermann"
     assert_exact_answers(CosetLeaderSearch(matrix, css_weight=True, method="auto"), matrix, True)
 

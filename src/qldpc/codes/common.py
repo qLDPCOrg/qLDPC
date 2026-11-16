@@ -3690,7 +3690,7 @@ class CSSCode(QuditCode):
         # Brute force searches the two sectors separately, so it may as well remember both.
         if (
             pauli is None
-            and method in ("auto", "brouwer_zimmermann", "connected_cluster")
+            and method != "brute_force"
             and self.field is galois.GF2
             and type(self)._get_distance_exact is CSSCode._get_distance_exact
         ):

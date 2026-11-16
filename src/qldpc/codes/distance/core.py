@@ -48,9 +48,9 @@ DistanceMethod = Literal[
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#choosing-a-method>`_
   in the guide to the distance package).  Functions that take generators choose between
   ``"brute_force"`` and ``"brouwer_zimmermann"``, and coset searches, such as those of
-  :class:`~qldpc.codes.distance.CosetLeaderSearch`, take ``"brouwer_zimmermann"``.  The result is
-  exact either way, but which method runs, and so which word an early exit at a ``cutoff`` finds,
-  can depend on the tuning and on the version of qLDPC.
+  :class:`~qldpc.codes.distance.CosetLeaderSearch`, take ``"brouwer_zimmermann"``.  Every method
+  gives the same result unless the search exits early.  Which method runs, and so which weight an
+  early exit at a ``cutoff`` returns, can depend on the tuning and on the version of qLDPC.
 - ``"brouwer_zimmermann"`` and its alias ``"information_sets"``: the
   `Brouwer-Zimmermann algorithm
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
@@ -505,8 +505,10 @@ def _search_css(
     ``_get_automorphism_getter``.
     """
     # Each sector takes the stabilizers of the other type as checks, and excludes the gauge
-    # generators of its own type.
+    # generators of its own type.  get_css_stabilizers returns gauge_x and gauge_z themselves unless
+    # the code is a subsystem code.
     stabilizers_x, stabilizers_z = get_css_stabilizers(gauge_x, gauge_z)
+    subsystem = stabilizers_x is not gauge_x
     sector_of_type = {Pauli.X: (stabilizers_z, gauge_x), Pauli.Z: (stabilizers_x, gauge_z)}
     sectors = [sector_of_type[sector_pauli] for sector_pauli in paulis]
 
@@ -520,11 +522,10 @@ def _search_css(
     if num_logical_x == 0:
         return NO_DISTANCE
 
-    # "auto" enumerates the sectors if that is cheap, searches them by the Brouwer-Zimmermann method
-    # if none excludes a nonzero word, as for a classical code, and otherwise searches them by cost:
-    # as the connected-cluster method does, until it may switch to the Brouwer-Zimmermann method.
+    # "auto" enumerates the sectors if that is cheap, and searches them by the Brouwer-Zimmermann
+    # method if none excludes a nonzero word, as for a classical code.  Otherwise, it searches them
+    # by cost, with a connected-cluster search that may switch to the Brouwer-Zimmermann method.
     tuning = get_tuning()
-    brouwer_zimmermann_problem = None
     if method == "auto":
         dimensions = [checks.shape[1] - len(get_independent_rows(checks)) for checks, _ in sectors]
         if is_cheap_to_enumerate(dimensions, gauge_x.shape[1], tuning):
@@ -532,47 +533,27 @@ def _search_css(
         elif not any(np.any(excluded) for _, excluded in sectors):
             method = "brouwer_zimmermann"
         else:
-            brouwer_zimmermann_problem = _get_brouwer_zimmermann_problem(
-                [
-                    get_nested_code_basis(get_kernel(checks), excluded)
-                    for checks, excluded in sectors
-                ],
-                symplectic=False,
-                get_automorphisms=get_automorphisms,
-            )
-
-    # Search the requested sectors at once, except by brute force, which searches each in turn.
-    if method in ("auto", "connected_cluster"):
-        if stabilizers_x is not gauge_x:
-            # get_css_stabilizers returns gauge_x and gauge_z themselves unless the code is a
-            # subsystem code, whose derived basis can be dense, so search sparser checks with the
-            # same span (Section 3.9 of connected_cluster.md).
-            overlaps = multiply_binary(gauge_x, gauge_z.T)
-            kept_stabilizers = {
-                Pauli.X: gauge_z[~np.any(overlaps, axis=0)],
-                Pauli.Z: gauge_x[~np.any(overlaps, axis=1)],
-            }
-            sectors = [
-                (
-                    _get_sparser_stabilizers(
-                        checks, kept_stabilizers[sector_pauli], symplectic=False, tuning=tuning
-                    ),
-                    excluded,
-                )
-                for sector_pauli, (checks, excluded) in zip(paulis, sectors, strict=True)
-            ]
-        if brouwer_zimmermann_problem is not None:
             return search_by_cost(
-                sectors,
-                brouwer_zimmermann_problem,
+                _get_cluster_sectors(gauge_x, gauge_z, paulis, sectors, subsystem, tuning),
+                _get_brouwer_zimmermann_problem(
+                    [
+                        get_nested_code_basis(get_kernel(checks), excluded)
+                        for checks, excluded in sectors
+                    ],
+                    symplectic=False,
+                    get_automorphisms=get_automorphisms,
+                ),
                 symplectic=False,
                 cutoff=cutoff,
                 upper_bound=upper_bound,
                 get_automorphisms=get_automorphisms,
                 tuning=tuning,
             )
+
+    # Search the requested sectors at once, except by brute force, which searches each in turn.
+    if method == "connected_cluster":
         return get_distance_connected_cluster(
-            sectors,
+            _get_cluster_sectors(gauge_x, gauge_z, paulis, sectors, subsystem, tuning),
             cutoff=cutoff,
             upper_bound=upper_bound,
             get_automorphisms=get_automorphisms,
@@ -600,6 +581,37 @@ def _search_css(
     )
 
 
+def _get_cluster_sectors(
+    gauge_x: npt.NDArray[np.uint8],
+    gauge_z: npt.NDArray[np.uint8],
+    paulis: list[PauliXZ],
+    sectors: list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
+    subsystem: bool,
+    tuning: SearchTuning,
+) -> list[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]]:
+    """The sectors of ``_search_css``, with the checks that a connected-cluster search takes.
+
+    The derived stabilizers of a subsystem code can be dense, so its sectors take sparser checks
+    with the same span (Section 3.9 of ``connected_cluster.md``).  Other sectors are unchanged.
+    """
+    if not subsystem:
+        return sectors
+    overlaps = multiply_binary(gauge_x, gauge_z.T)
+    kept_stabilizers = {
+        Pauli.X: gauge_z[~np.any(overlaps, axis=0)],
+        Pauli.Z: gauge_x[~np.any(overlaps, axis=1)],
+    }
+    return [
+        (
+            _get_sparser_stabilizers(
+                checks, kept_stabilizers[sector_pauli], symplectic=False, tuning=tuning
+            ),
+            excluded,
+        )
+        for sector_pauli, (checks, excluded) in zip(paulis, sectors, strict=True)
+    ]
+
+
 def _search_checks(
     checks: npt.NDArray[np.uint8],
     excluded: npt.NDArray[np.uint8],
@@ -618,8 +630,9 @@ def _search_checks(
     ``kept_stabilizers`` is given, the checks are the derived stabilizers of a subsystem code, which
     a connected-cluster search replaces with those of ``_get_sparser_stabilizers``.
     """
-    # "auto" searches Pauli strings, and binary words that exclude a nonzero word, by brute force or
-    # by cost; other searches, as of a classical code, take the route of generators below.
+    # "auto" searches Pauli strings, and binary words if the search excludes a nonzero word, by
+    # brute force or by cost.  Other searches, as of a classical code, go on to _search_generators
+    # below, which enumerates if that is cheap and takes the Brouwer-Zimmermann method otherwise.
     if method == "auto" and (symplectic or np.any(excluded)):
         return _search_checks_by_cost(
             checks,
@@ -684,15 +697,14 @@ def _search_checks_by_cost(
         return NO_DISTANCE
     basis, labels = nested
     if is_cheap_to_enumerate([len(basis)], basis.shape[1], tuning):
-        return _search_generators(
-            kernel,
-            excluded,
-            symplectic=symplectic,
+        distance = get_nested_distance_brute_force(
+            basis,
+            labels,
             cutoff=cutoff,
-            upper_bound=upper_bound,
-            method="brute_force",
-            get_automorphisms=None,
+            batch_exponent=tuning.enumeration_batch_exponent,
+            symplectic=symplectic,
         )
+        return _apply_upper_bound(distance, upper_bound)
     if kept_stabilizers is not None:
         checks = _get_sparser_stabilizers(
             checks, kept_stabilizers, symplectic=symplectic, tuning=tuning
@@ -794,7 +806,7 @@ def _search_generators(
 def _get_nested_basis(
     generators: npt.NDArray[np.uint8], excluded: npt.NDArray[np.uint8]
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]] | None:
-    """A basis of the words that the rows span, and its quotient labels, or None if all are trivial.
+    """A basis of the span of the rows of both matrices and its labels, or None if all are trivial.
 
     The trivial words are those in the row space of the excluded rows.  With excluded rows, the
     basis is adapted to them (Section 3.4 of ``brouwer_zimmermann.md``).  Without, the labels have
@@ -815,10 +827,11 @@ def _get_brouwer_zimmermann_problem(
     symplectic: bool,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None,
 ) -> BrouwerZimmermannProblem:
-    """The nested bases and labels of sectors, as a Brouwer-Zimmermann search takes them.
+    """The problem of a BZ search of sectors, given by their nested bases and labels.
 
     A Pauli string weighs half the Hamming weight of its image under ``symplectic_to_hamming``
-    (Section 2.7 of ``brouwer_zimmermann.md``), whose coordinates the automorphisms are lifted to.
+    (Section 2.7 of ``brouwer_zimmermann.md``), so for Pauli strings the bases are mapped to those
+    images, and the automorphisms are lifted to their coordinates.
     """
     if not symplectic:
         return BrouwerZimmermannProblem(sectors, get_automorphisms=get_automorphisms)

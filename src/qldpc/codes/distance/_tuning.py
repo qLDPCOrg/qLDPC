@@ -87,7 +87,7 @@ Each default is in one of these classes, or was chosen by hand:
 
 The sizes of caches, ``auto_brute_force_max_words``, ``auto_free_work``,
 ``connected_cluster_state_evaluations``, ``coset_route_minimum_work``, and
-``macwilliams_shared_walk_rank`` were chosen by hand, and the comments of the five fields say why.
+``macwilliams_shared_walk_rank`` were chosen by hand, and the comments of those fields say why.
 
 Change a default only when its heuristic changes, or when a check shows that its assumption, such as
 the cost of a step, is off by more than a factor of about 3; only a maintainer changes a budget or a
@@ -227,25 +227,27 @@ class SearchTuning:
     # Fields of the automatic choice of a method.
 
     #: ``method="auto"`` enumerates every word, as ``"brute_force"`` does, if the enumeration
-    #: examines at most this many packed 64-bit integers, ``2**dim * ceil(width / 64)`` for words of
-    #: ``width`` bits in a space of dimension ``dim``.  Raising it enumerates larger spaces.
+    #: examines at most this many packed 64-bit integers: ``2**dim * ceil(width / 64)`` for words of
+    #: ``width`` bits in a space of dimension ``dim``, summed over the spaces of a search, such as
+    #: the two sectors of a CSS code.  Raising it enumerates larger spaces.
     #: Defaults to ``2**30``, chosen by hand: an enumeration of about a second, whose cost, unlike
     #: that of the other methods, is known before it runs.
     auto_brute_force_max_words: int = 2**30
 
-    #: The work, in candidate/set evaluations, that a search by cost of ``method="auto"``, as of a
-    #: quantum code or a circuit, may reach with its spent work plus the predicted work of its next
-    #: weight limit.  Beyond it, the search probes with a Brouwer-Zimmermann search, and then
-    #: considers switching to one.  Connected-cluster work counts each state as
-    #: ``connected_cluster_state_evaluations``.  Defaults to ``10**8``, chosen by hand: a fraction
-    #: of a second, below which fixed costs that the estimates leave out, such as setup, dominate
-    #: the costs that a switch would compare (section "Choosing a method" of ``README.md``).
+    #: The work, in candidate/set evaluations, below which a search by cost of ``method="auto"``
+    #: runs its connected-cluster search without probing or switching: it runs on while its spent
+    #: work plus the predicted work of its next weight limit stays within this.  Beyond it, the
+    #: search probes with a Brouwer-Zimmermann search, and then considers switching to one.
+    #: Connected-cluster work counts each state as ``connected_cluster_state_evaluations``.
+    #: Defaults to ``10**8``, chosen by hand: a fraction of a second, below which fixed costs that
+    #: the estimates leave out, such as setup, dominate the costs that a switch would compare
+    #: (section "Choosing a method" of ``README.md``).
     auto_free_work: int = 100_000_000
 
     #: The work, in candidate/set evaluations, of the Brouwer-Zimmermann probe of
     #: ``method="auto"``, whose bound caps the connected-cluster search.  The probe skips the
     #: costlier stages of setup, and stops before a layer that would take it over this work.
-    #: Defaults to ``10**8``, a budget of the effort of the choice: a fraction of a second (section
+    #: Defaults to ``10**8``, a budget for the cost of choosing: a fraction of a second (section
     #: "Choosing a method" of ``README.md``).
     auto_probe_work: int = 100_000_000
 

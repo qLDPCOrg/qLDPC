@@ -187,7 +187,7 @@ class ConnectedClusterSearch:
 
     @property
     def next_limit(self) -> tuple[int, int]:
-        """The search that the next advance runs, and the weight limit through which it searches."""
+        """The index of the search that the next advance runs, and that advance's weight limit."""
         index = self._lower_bounds.index(min(self._lower_bounds))
         return index, self.get_next_limit(index)
 
@@ -202,10 +202,10 @@ class ConnectedClusterSearch:
     def get_growth(self, index: int) -> float | None:
         """The factor by which the states of a search grow per unit of its weight limit.
 
-        Each ratio compares the states of two successive limits that found no witness, both nonzero
-        and from the same number of roots, per unit of weight between the limits.  The factor is the
-        geometric mean of the last two ratios, which evens out the alternation of weight limits of
-        odd and even parity, or the last ratio if there is one, or None if there is none.
+        A ratio compares the states of two successive limits without a witness, both nonzero and
+        from the same number of roots, per unit of weight between them.  The factor is the geometric
+        mean of the last two ratios, which evens out the alternation between limits of odd and even
+        weight.  With only one ratio, the factor is that ratio, and with none it is None.
         """
         limits = self._limits_without_witness[index]
         ratios = [
@@ -224,8 +224,8 @@ class ConnectedClusterSearch:
 
         The states of its last limit without a witness grow by ``get_growth`` for each unit of
         weight, and a prediction too large for a float is infinite.  Without a growth factor, the
-        prediction is that of the search itself for its next limit (Section 3.5 of
-        ``connected_cluster.md``).
+        prediction for any later limit is the search's own prediction for its next limit (Section
+        3.5 of ``connected_cluster.md``).
         """
         growth = self.get_growth(index)
         if growth is None:
