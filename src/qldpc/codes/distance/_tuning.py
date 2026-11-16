@@ -225,7 +225,7 @@ class SearchTuning:
     # Fields of connected-cluster searches.
 
     #: A connected-cluster search asks its caller for automorphisms before the first weight limit at
-    #: which it expects to have visited this many states over all limits of one problem, or before a
+    #: which it expects to have visited this many states over all limits of one sector, or before a
     #: first limit that ``cutoff`` sets; zero asks before the first limit, and ``MAX_VALUE`` never.
     #: Defaults to ``5 * 10**4``, a derived value: the cost of asking, for a large code, tens of
     #: thousands of states (Section 3.5 of ``connected_cluster.md``).
@@ -273,7 +273,7 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``).
     completion_bound_max_cost_percent: int = 100
 
-    #: The most bytes of completion tables kept by a distance search for each problem, by a count
+    #: The most bytes of completion tables kept by a distance search for each sector, by a count
     #: for each sector besides the tables that it is building, and by a ``CosetLeaderSearch`` for
     #: each set of a family; a basis whose tables do not fit gets none, and zero disables tables.
     #: Defaults to 256 MiB, a budget of memory, which fits blocks of 16 columns for bases of up to

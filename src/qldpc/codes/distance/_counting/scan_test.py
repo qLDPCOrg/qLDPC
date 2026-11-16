@@ -26,7 +26,7 @@ from ..conftest import (
     CostlyStages,
     assert_counts_match_enumeration,
     get_random_css_code,
-    get_sector_problem,
+    get_sector,
 )
 from ..core import DistanceMethod
 from . import scan
@@ -239,7 +239,7 @@ def test_steps_run_in_order() -> None:
 def test_step_tables_choose_and_keep_tables(tune: Tune) -> None:
     """Steps get tables only for layers of two or more rows of full sets, within a memory limit."""
     code = get_random_css_code(np.random.default_rng(1), 24, 8, 8)
-    basis, labels = get_sector_problem(code, Pauli.X)
+    basis, labels = get_sector(code, Pauli.X)
     disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
     deficient = len(disjoint.ranks) - 1
     assert disjoint.ranks[0] == len(basis) and disjoint.ranks[deficient] < len(basis)

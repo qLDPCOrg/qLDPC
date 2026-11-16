@@ -104,7 +104,8 @@ def parse_args() -> argparse.Namespace:
         "--hadamards",
         action="store_true",
         help="apply Hadamards to the second half of the qubits, and search the resulting code,"
-        " which is not CSS, as a QuditCode; this searches both sectors, and ignores --sectors",
+        " which is not CSS, as a QuditCode; this searches the whole code as one sector, and ignores"
+        " --sectors",
     )
     return parser.parse_args()
 
@@ -133,7 +134,7 @@ def time_distance(
 ) -> tuple[int | float, float, float]:
     """The distance of a code, and the wall and CPU seconds that it took.
 
-    A code that is not CSS has no sectors, and is searched whole.
+    A code that is not CSS is searched whole, as one sector.
     """
     code.forget_distance()
     wall, cpu = time.perf_counter(), time.process_time()

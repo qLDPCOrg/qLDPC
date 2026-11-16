@@ -31,19 +31,19 @@ from .._information_sets import (
 from .._tuning import SearchTuning, get_tuning
 from . import affine_instance, affine_search
 
-# The automorphism family of a problem: a basis family of the one set that a search scans, and the
+# The automorphism family of a sector: a basis family of the one set that a search scans, and the
 # certificate of all of its images.
 _AutomorphismFamily = tuple[basis_families.BasisFamily, certificates.Certificate]
 
-# A function that returns the automorphism family of a problem for a weight divisor, or None.
+# A function that returns the automorphism family of a sector for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[[int], _AutomorphismFamily | None]
 
 ####################################################################################################
 # search entry points
 
 
-def get_distance_brouwer_zimmermann_many(
-    problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
+def get_distance_brouwer_zimmermann(
+    sectors: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
     *,
     cutoff: int,
     weight_divisor: int = 1,
@@ -52,41 +52,41 @@ def get_distance_brouwer_zimmermann_many(
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning | None = None,
 ) -> int:
-    """Compute the minimum distance across nested-code problems by BZ searches.
+    """Compute the minimum distance across nested-code sectors by a BZ search.
 
-    The searches advance round-robin, and share their best upper bound, the weight of the lightest
-    witness that any of them has found, but not their certificates (Section 3.3).
+    The searches of the sectors advance round-robin, and share their best upper bound, the weight of
+    the lightest witness that any of them has found, but not their certificates (Section 3.3).
 
     Args:
-        problems: Nested-code bases and their quotient labels (see ``get_nested_code_basis``).  The
-            distance of a problem is the least weight of a word of its basis with nonzero labels, or
-            of any nonzero word if its labels have no columns.  Each problem must have such a word.
+        sectors: Nested-code bases and their quotient labels (see ``get_nested_code_basis``).  The
+            distance of a sector is the least weight of a word of its basis with nonzero labels, or
+            of any nonzero word if its labels have no columns.  Each sector must have such a word.
         cutoff: Return once the best upper bound is at most this cutoff.
-        weight_divisor: A proven divisor of the weights over which the problems minimize, to
-            whose multiples the certificates round up (Section 3.2).  Default: 1.
+        weight_divisor: A proven divisor of the weights over which the sectors minimize, to whose
+            multiples the certificates round up (Section 3.2).  Default: 1.
         upper_bound: A cap on the result, if any, such as the weight of a known witness outside
-            ``problems``, or ``max_weight + 1`` under a weight limit (Section 4.5).
-        get_disjoint_basis_families: If given, a function for each problem that returns a disjoint
+            ``sectors``, or ``max_weight + 1`` under a weight limit (Section 4.5).
+        get_disjoint_basis_families: If given, a function for each sector that returns a disjoint
             basis family of it, with its labels and certified with ``weight_divisor``, such as that
             of ``basis_families.get_disjoint_family``.  A search calls it only if it needs the
             family.
         get_automorphisms: If given, returns None or an array whose rows ``g`` generate a group of
             column permutations, each mapping column ``j`` to column ``g[j]``.  Each generator must
-            map the space and the excluded subspace of every problem onto themselves.  A search
+            map the space and the excluded subspace of every sector onto themselves.  A search
             calls the function at most once, and verifies the generators (Section 3.7).
         tuning: The tuning that every search uses throughout.  Default: the active tuning.
 
     Returns:
-        The minimum of the distances of the problems and ``upper_bound``, or, after an early exit
+        The minimum of the distances of the sectors and ``upper_bound``, or, after an early exit
         at ``cutoff``, the weight of a witness or ``upper_bound``, whichever is at most
         ``cutoff``.
 
     Raises:
-        ValueError: If there are neither problems nor an upper bound, or if a generator from
-            ``get_automorphisms`` is not an automorphism of a problem whose search uses it.
+        ValueError: If there are neither sectors nor an upper bound, or if a generator from
+            ``get_automorphisms`` is not an automorphism of a sector whose search uses it.
     """
-    searches = BrouwerZimmermannSearches(
-        problems,
+    search = BrouwerZimmermannSearch(
+        sectors,
         cutoff=cutoff,
         weight_divisor=weight_divisor,
         upper_bound=upper_bound,
@@ -94,33 +94,33 @@ def get_distance_brouwer_zimmermann_many(
         get_automorphisms=get_automorphisms,
         tuning=tuning,
     )
-    while not searches.finished:
-        searches.advance()
-    return searches.best
+    while not search.finished:
+        search.advance()
+    return search.best
 
 
-class BrouwerZimmermannSearches:
-    """The BZ searches of several problems, which advance one layer at a time, round-robin.
+class BrouwerZimmermannSearch:
+    """A BZ search of sectors, which advances their searches one layer at a time, round-robin.
 
-    The arguments are those of ``get_distance_brouwer_zimmermann_many``, which advances the searches
-    until they finish.
+    The arguments are those of ``get_distance_brouwer_zimmermann``, which advances the search until
+    it finishes.
 
     Attributes:
         best: The shared upper bound: the least of ``upper_bound``, the weights of the lightest
             eligible rows, the results of setup, and the weights of the witnesses that the searches
-            have found as they advanced.  A search can hold a lighter witness from its setup, which
-            lowers ``best`` once that search advances.  Once the searches finish, ``best`` is the
-            result of ``get_distance_brouwer_zimmermann_many``.
+            of the sectors have found as they advanced.  The search of a sector can hold a lighter
+            witness from its setup, which lowers ``best`` once that search advances.  Once the
+            search finishes, ``best`` is the result of ``get_distance_brouwer_zimmermann``.
 
     Raises:
-        ValueError: As ``get_distance_brouwer_zimmermann_many`` says, when the searches are built.
+        ValueError: As ``get_distance_brouwer_zimmermann`` says, when the search is built.
     """
 
     best: int
 
     def __init__(
         self,
-        problems: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
+        sectors: Sequence[tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]],
         *,
         cutoff: int,
         weight_divisor: int = 1,
@@ -131,26 +131,26 @@ class BrouwerZimmermannSearches:
         tuning: SearchTuning | None = None,
     ) -> None:
         self._cutoff = cutoff
-        self._searches: list[_BrouwerZimmermannSearch] = []
+        self._searches: list[_SectorSearch] = []
         self._next = 0
-        if not problems:
+        if not sectors:
             if upper_bound is None:
-                raise ValueError("Require at least one problem or an upper bound")
+                raise ValueError("Require at least one sector or an upper bound")
             self.best = upper_bound
             return
 
-        # Prepare a search of each problem, which setup may settle without searching.
+        # Prepare a search of each sector, which setup may settle without searching.
         tuning = get_tuning() if tuning is None else tuning
         initial_upper_bounds = [
-            _get_lightest_eligible_row_weight(basis, labels) for basis, labels in problems
+            _get_lightest_eligible_row_weight(basis, labels) for basis, labels in sectors
         ]
         best = min(initial_upper_bounds)
         if upper_bound is not None:
             best = min(best, upper_bound)
         for index, ((basis, labels), initial_upper_bound) in enumerate(
-            zip(problems, initial_upper_bounds, strict=True)
+            zip(sectors, initial_upper_bounds, strict=True)
         ):
-            prepared = _prepare_brouwer_zimmermann_search(
+            prepared = _prepare_sector_search(
                 basis,
                 labels,
                 cutoff=cutoff,
@@ -172,19 +172,19 @@ class BrouwerZimmermannSearches:
 
     @property
     def finished(self) -> bool:
-        """Whether the best upper bound is at most the cutoff, or every search has finished."""
+        """Whether the best upper bound is at most the cutoff, or every sector's search finished."""
         return self.best <= self._cutoff or all(search.finished for search in self._searches)
 
     def advance(self) -> None:
-        """Advance the next unfinished search, in round-robin order, by one layer, unless finished.
+        """Advance the next unfinished sector's search by one layer, round-robin, unless finished.
 
-        Every search then takes the best upper bound, which shares witnesses between problems.  If
-        this raises, as at a keyboard interrupt, the searches can be left inconsistent, so build new
-        ones to search again.
+        The search of every sector then takes the best upper bound, which shares witnesses between
+        sectors.  If this raises, as at a keyboard interrupt, the search can be left inconsistent,
+        so build a new one to search again.
 
         Raises:
             ValueError: If a generator from ``get_automorphisms`` is not an automorphism of the
-                problem of the search that uses it.
+                sector whose search uses it.
         """
         if self.finished:
             return
@@ -196,7 +196,7 @@ class BrouwerZimmermannSearches:
         self._share_best()
 
     def _share_best(self) -> None:
-        """Give every search the best upper bound; a search that this finishes frees its tables."""
+        """Give each sector's search the best upper bound; one that finishes frees its tables."""
         for search in self._searches:
             search.update_upper_bound(self.best)
 
@@ -206,8 +206,8 @@ class BrouwerZimmermannSearches:
 
 
 @dataclass
-class _BrouwerZimmermannSearch:
-    """State for one resumable Brouwer-Zimmermann search.
+class _SectorSearch:
+    """State for the resumable Brouwer-Zimmermann search of one sector.
 
     ``instance`` holds the packed sets that the search scans, and the certificate of its family:
     those sets, or, if ``uses_automorphism_family``, every image of the one packed set under
@@ -215,7 +215,7 @@ class _BrouwerZimmermannSearch:
     the search has finished once ``lower_bound`` reaches ``best``.  ``lower_bound`` bounds only the
     eligible words lighter than ``best`` (Section 3.9, "Certificates and contracts").
 
-    ``get_automorphism_family``, if given, returns an automorphism family of the problem, or None.
+    ``get_automorphism_family``, if given, returns an automorphism family of the sector, or None.
     The search calls it at most once, and then sets it to None.  A search that declines to switch
     keeps the family in ``automorphism_family``, and its best weight at that time in
     ``declined_best`` (Section 3.7, "When a search uses an automorphism family").
@@ -422,7 +422,7 @@ class _BrouwerZimmermannSearch:
         self.completion_tables = None
 
 
-def _prepare_brouwer_zimmermann_search(
+def _prepare_sector_search(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     *,
@@ -433,13 +433,13 @@ def _prepare_brouwer_zimmermann_search(
     get_disjoint_basis_family: Callable[[], basis_families.BasisFamily] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning,
-) -> int | _BrouwerZimmermannSearch:
-    """Prepare one BZ search, or return its result if setup already settles it.
+) -> int | _SectorSearch:
+    """Prepare the BZ search of one sector, or return its result if setup already settles it.
 
     The stages of ``basis_families`` run in order, and between them setup returns if the rows of the
     family bring the best weight to the cutoff, or if its certificate proves the best weight
     (Section 4.2).  ``get_disjoint_basis_family``, if given, returns the result of the first stage,
-    and ``get_automorphisms`` is as for ``get_distance_brouwer_zimmermann_many``.
+    and ``get_automorphisms`` is as for ``get_distance_brouwer_zimmermann``.
     """
     dimension = len(basis)
     best = min(
@@ -529,7 +529,7 @@ def _prepare_brouwer_zimmermann_search(
         if lower_bound >= best:
             return best
 
-    search = _BrouwerZimmermannSearch(
+    search = _SectorSearch(
         affine_instance.get_distance_instance(
             basis_family,
             basis_family.get_search_certificate(
@@ -561,7 +561,7 @@ def _get_automorphism_family(
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None],
     weight_divisor: int,
 ) -> _AutomorphismFamily | None:
-    """Verify the automorphisms of a problem, and build the automorphism family of one set.
+    """Verify the automorphisms of a sector, and build the automorphism family of one set.
 
     ``basis`` is an independent basis of the searched space, with quotient labels ``labels``, and
     ``weight_divisor`` divides the Hamming weight of every eligible word.
@@ -571,7 +571,7 @@ def _get_automorphism_family(
         ``get_automorphisms`` returns None.
 
     Raises:
-        ValueError: If a generator is not an automorphism of the problem.
+        ValueError: If a generator is not an automorphism of the sector.
     """
     automorphisms = get_automorphisms()
     if automorphisms is None:
@@ -589,7 +589,7 @@ def _get_automorphism_family_work(
 ) -> int:
     """The estimated work of the automorphism family that a search can switch to.
 
-    Returns ``WORK_CAP`` if the problem has no automorphism family.
+    Returns ``WORK_CAP`` if the sector has no automorphism family.
     """
     automorphism_family = get_automorphism_family(weight_divisor)
     if automorphism_family is None:

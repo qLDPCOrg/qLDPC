@@ -11,18 +11,18 @@ prediction of the cost of completion tables, comparison of a predicted cost with
 ``completion_bound_max_cost_percent``, and layer, and the first test of each number of rows and
 weight for tables.  For a connected-cluster search, it records each weight limit, and for a count by
 the MacWilliams method, each walk and test.  The wrapper of each event says what it records.  Each
-layer and weight limit numbers its problem, such as a sector of a CSS code, in a ``problem`` field
-(see ``wrap_problems``).  The script prints the events, and with ``--output`` saves them as JSON
-with the tuning and a fingerprint of the qLDPC source.  With ``--setup-only``, it ends the workload
-before the first layer of a BZ distance search, after its setup; workloads of other kinds run in
-full.
+layer and weight limit numbers its sector, such as the X-type logical operators of a CSS code, in a
+``sector`` field (see ``wrap_sectors``).  The script prints the events, and with ``--output`` saves
+them as JSON with the tuning and a fingerprint of the qLDPC source.  With ``--setup-only``, it ends
+the workload before the first layer of a BZ distance search, after its setup; workloads of other
+kinds run in full.
 
 With ``--compare``, the script instead says whether two saved traces of one workload, such as traces
 under two tunings or of two checkouts, make the same decisions, and prints the first that differs,
 unless one trace ends before it.  If the tunings differ only in thresholds and every decision is the
 same, so is the search, apart from the time of the decisions themselves.  The comparison sees the
 number of sets of each family but not the sets, not the states that a connected-cluster search
-visits within a weight limit, and not the problems of layers and weight limits.
+visits within a weight limit, and not the sectors of layers and weight limits.
 
 The script refuses to run if this process imports qLDPC from elsewhere; to trace another checkout,
 run the script of that checkout with its own Python.
@@ -85,12 +85,12 @@ LAST_PREDICTION: dict[str, Any] = {"rows": None, "weight": None}
 # The seconds of asking for automorphisms in the current weight limit of a connected-cluster search.
 CURRENT_ASK: dict[str, Any] = {}
 
-# The index of the problem of each search, by the id of the search (see wrap_problems).
-PROBLEM_INDICES: dict[int, int | None] = {}
+# The index of the sector of each search, by the id of the search (see wrap_sectors).
+SECTOR_INDICES: dict[int, int | None] = {}
 
-# The index of the problem whose search is prepared next, within a call that wrap_problems wraps, or
+# The index of the sector whose search is prepared next, within a call that wrap_sectors wraps, or
 # None outside such calls.
-NEXT_PROBLEM_INDEX: int | None = None
+NEXT_SECTOR_INDEX: int | None = None
 
 # The coverages that matroid partitioning tries within a call of get_partitioned_family, or None
 # outside such calls.
@@ -189,7 +189,7 @@ def parse_args() -> argparse.Namespace:
 
 def install_wrappers() -> None:
     """Wrap the stages of the exact searches, in this process, to record events."""
-    search_class = distance._BrouwerZimmermannSearch
+    search_class = distance._SectorSearch
     tables_class = completion_bounds.CompletionTables
     patches: list[tuple[object, str, Callable[[Any], Any]]] = [
         (basis_families, f"get_{kind}_family", functools.partial(wrap_family, kind))
@@ -208,10 +208,10 @@ def install_wrappers() -> None:
         (completion_bounds, "considers_tables", wrap_considers),
         (completion_bounds, "is_within_cost_limit", wrap_limit),
         (certificates, "get_lp_lower_bound", wrap_linear_program),
-        (core, "get_distance_brouwer_zimmermann_many", wrap_problems),
-        (core, "get_distance_connected_cluster", wrap_problems),
-        (logical_counts, "get_distance_brouwer_zimmermann_many", wrap_problems),
-        (distance, "_prepare_brouwer_zimmermann_search", wrap_prepare),
+        (core, "get_distance_brouwer_zimmermann", wrap_sectors),
+        (core, "get_distance_connected_cluster", wrap_sectors),
+        (logical_counts, "get_distance_brouwer_zimmermann", wrap_sectors),
+        (distance, "_prepare_sector_search", wrap_prepare),
         (support_search.SupportSearch, "__init__", wrap_support_search),
         (support_search.SupportSearch, "find_witness", wrap_find_witness),
         (support_search.SupportSearch, "_use_automorphisms", wrap_use_automorphisms),
@@ -222,53 +222,53 @@ def install_wrappers() -> None:
         setattr(owner, name, wrap(getattr(owner, name)))
 
 
-def wrap_problems(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Number the problems of each call of the wrapped distance search from zero.
+def wrap_sectors(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Number the sectors of each call of the wrapped distance search from zero.
 
-    The wrapped function, ``get_distance_brouwer_zimmermann_many`` or
-    ``get_distance_connected_cluster``, prepares a search of each of its problems in the order in
+    The wrapped function, ``get_distance_brouwer_zimmermann`` or
+    ``get_distance_connected_cluster``, prepares a search of each of its sectors in the order in
     which it receives them, and ``wrap_prepare`` and ``wrap_support_search`` record the index of the
-    problem of each search.  So a call with one problem has only problem 0.  ``core._search_css``
+    sector of each search.  So a call with one sector has only sector 0.  ``core._search_css``
     puts the X sector, of the X-type logical operators, before the Z sector, and so does the
     distance search of a count.
     """
 
     @functools.wraps(function)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        global NEXT_PROBLEM_INDEX
-        NEXT_PROBLEM_INDEX = 0
+        global NEXT_SECTOR_INDEX
+        NEXT_SECTOR_INDEX = 0
         try:
             return function(*args, **kwargs)
         finally:
-            NEXT_PROBLEM_INDEX = None
+            NEXT_SECTOR_INDEX = None
 
     return wrapper
 
 
-def take_problem_index() -> int | None:
-    """The index of the problem whose search is being prepared, or None outside a wrapped call.
+def take_sector_index() -> int | None:
+    """The index of the sector whose search is being prepared, or None outside a wrapped call.
 
     Within a wrapped call, it also advances the index for the next search.
     """
-    global NEXT_PROBLEM_INDEX
-    index = NEXT_PROBLEM_INDEX
+    global NEXT_SECTOR_INDEX
+    index = NEXT_SECTOR_INDEX
     if index is not None:
-        NEXT_PROBLEM_INDEX = index + 1
+        NEXT_SECTOR_INDEX = index + 1
     return index
 
 
 def wrap_prepare(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record, for each BZ distance search that a call prepares, the index of its problem.
+    """Record, for each BZ distance search that a call prepares, the index of its sector.
 
-    A problem that setup settles takes its index but has no search, and so no layers.
+    A sector that setup settles takes its index but has no search, and so no layers.
     """
 
     @functools.wraps(function)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        index = take_problem_index()
+        index = take_sector_index()
         prepared = function(*args, **kwargs)
-        if isinstance(prepared, distance._BrouwerZimmermannSearch):
-            PROBLEM_INDICES[id(prepared)] = index
+        if isinstance(prepared, distance._SectorSearch):
+            SECTOR_INDICES[id(prepared)] = index
         return prepared
 
     return wrapper
@@ -526,7 +526,7 @@ def wrap_switch(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record each layer that a search advances by, with the index of the problem of the search."""
+    """Record each layer that a search advances by, with the index of the sector of the search."""
 
     @functools.wraps(function)
     def wrapper(search: Any) -> int:
@@ -542,7 +542,7 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
         CURRENT_LAYER = {
             "event": "layer",
             "search": id(search),
-            "problem": PROBLEM_INDICES.get(id(search)),
+            "sector": SECTOR_INDICES.get(id(search)),
             "weight": weight,
             "dimension": dimension,
             "supports": math.comb(dimension, weight),
@@ -689,14 +689,14 @@ def wrap_scan_set(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def wrap_support_search(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Record the index of the problem of each connected-cluster search, as ``wrap_prepare`` does.
+    """Record the index of the sector of each connected-cluster search, as ``wrap_prepare`` does.
 
     Also time the function that the search calls to find automorphisms.
     """
 
     @functools.wraps(function)
     def wrapper(search: Any, *args: Any, get_automorphisms: Any = None, **kwargs: Any) -> None:
-        PROBLEM_INDICES[id(search)] = take_problem_index()
+        SECTOR_INDICES[id(search)] = take_sector_index()
         if get_automorphisms is not None:
             get_automorphisms = functools.partial(time_finding, get_automorphisms)
         function(search, *args, get_automorphisms=get_automorphisms, **kwargs)
@@ -728,7 +728,7 @@ def wrap_use_automorphisms(function: Callable[..., Any]) -> Callable[..., Any]:
 def wrap_find_witness(function: Callable[..., Any]) -> Callable[..., Any]:
     """Record each weight limit of a connected-cluster search, and any request for automorphisms.
 
-    Each event names the problem of the search (see ``wrap_problems``).  The predicted states are
+    Each event names the sector of the search (see ``wrap_sectors``).  The predicted states are
     those that ``find_witness`` adds to the states visited so far, and compares with
     ``automorphism_minimum_states``, while the search has not yet asked.
     """
@@ -745,7 +745,7 @@ def wrap_find_witness(function: Callable[..., Any]) -> Callable[..., Any]:
         event = {
             "event": "weight limit",
             "search": id(search),
-            "problem": PROBLEM_INDICES.get(id(search)),
+            "sector": SECTOR_INDICES.get(id(search)),
             "max_weight": max_weight,
             "states_before": states_before,
             "predicted_states": predicted,
@@ -827,7 +827,7 @@ def print_trace(result: str, seconds: float) -> None:
             continue
         tables = "" if event["tables"] is None else f" tables={event['tables']}"
         print(
-            f"  layer problem={event['problem']} w={event['weight']:<2d}"
+            f"  layer sector={event['sector']} w={event['weight']:<2d}"
             f" rows={event['dimension']:<4d} sets={event['sets']:<2d}"
             f" scanned={event['scanned_sets']:<2d}"
             f" supports={event['supports']:.2e} evaluated={event['evaluated']:.2e}"

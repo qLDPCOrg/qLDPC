@@ -262,13 +262,13 @@ def test_deprecated_max_information_sets_argument(
         counter.count_logical_ops(max_information_sets=-1)
 
     limits: list[int] = []
-    original = lc.get_distance_brouwer_zimmermann_many
+    original = lc.get_distance_brouwer_zimmermann
 
     def search(*args: Any, **kwargs: Any) -> int:
         limits.append(kwargs["tuning"].max_information_sets)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(lc, "get_distance_brouwer_zimmermann_many", search)
+    monkeypatch.setattr(lc, "get_distance_brouwer_zimmermann", search)
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     checks = code.matrix_x, code.matrix_z
     expected = lc.CSSLogicalCounter(*checks).count_logical_ops()

@@ -36,7 +36,7 @@ from .conftest import (
     CostlyStages,
     get_binary_matrix,
     get_random_css_code,
-    get_sector_problem,
+    get_sector,
 )
 
 
@@ -352,15 +352,15 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "restrict_viable_symbols",
     )
     record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
-    original_prepare = bz._prepare_brouwer_zimmermann_search
+    original_prepare = bz._prepare_sector_search
 
     def prepare(*args: Any, **kwargs: Any) -> Any:
         result = original_prepare(*args, **kwargs)
-        if isinstance(result, bz._BrouwerZimmermannSearch):
+        if isinstance(result, bz._SectorSearch):
             seen["search"].append((result.batch_size, result.tuning))
         return result
 
-    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", prepare)
+    monkeypatch.setattr(bz, "_prepare_sector_search", prepare)
 
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     with _tuning.use_tuning(
@@ -411,5 +411,5 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     # tables.
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     with _tuning.use_tuning(information_set_batch_exponent=5) as tuning:
-        bz.get_distance_brouwer_zimmermann_many([get_sector_problem(bb_code, Pauli.X)], cutoff=0)
+        bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
     assert seen["search"] and all(search == (1 << 5, tuning) for search in seen["search"])

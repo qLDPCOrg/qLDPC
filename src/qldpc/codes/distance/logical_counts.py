@@ -29,7 +29,7 @@ from ._binary import (
     get_css_stabilizers,
     get_nested_code_basis,
 )
-from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann_many
+from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann
 from ._brute_force import get_nested_distance_brute_force
 from ._counting import local_cliffords, macwilliams, scan
 from ._information_sets import basis_families
@@ -809,7 +809,7 @@ def _get_distance(
             )
             for basis, labels in sectors
         )
-    return get_distance_brouwer_zimmermann_many(
+    return get_distance_brouwer_zimmermann(
         sectors,
         cutoff=0,
         get_disjoint_basis_families=get_disjoint_basis_families[: len(sectors)],

@@ -39,7 +39,7 @@ _BLOCKED = 2**40
 
 
 def get_distance_connected_cluster(
-    problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+    sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
     *,
     cutoff: int,
     upper_bound: int | None = None,
@@ -47,68 +47,68 @@ def get_distance_connected_cluster(
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning | None = None,
 ) -> int:
-    """Compute the minimum distance across problems by searching connected supports.
+    """Compute the minimum distance across sectors by searching connected supports.
 
-    Each problem is a pair ``(checks, excluded)``, whose distance is the least weight of a witness:
+    Each sector is a pair ``(checks, excluded)``, whose distance is the least weight of a witness:
     a vector that satisfies every check and is outside the row space of ``excluded``.  The search of
-    each problem raises its weight limit one weight divisor at a time, and each limit within which
+    each sector raises its weight limit one weight divisor at a time, and each limit within which
     it finds no witness proves that every witness is heavier (Section 3.6 of
     ``connected_cluster.md``).
 
     Args:
-        problems: The problems, as ``SupportSearch`` takes them.
+        sectors: The pairs ``(checks, excluded)``, as ``SupportSearch`` takes them.
         cutoff: Return as soon as a witness, or ``upper_bound``, of weight at most ``cutoff`` is
-            known.  The first weight limit of a problem is its divisor, or the largest multiple of
+            known.  The first weight limit of a sector is its divisor, or the largest multiple of
             the divisor at most ``cutoff`` if that is larger.
         upper_bound: If not None, a cap on the result, such as the weight of a known witness outside
-            ``problems``, or one more than a weight limit of the caller.
-        symplectic: Whether the problems are symplectic (see ``SupportSearch``).
+            ``sectors``, or one more than a weight limit of the caller.
+        symplectic: Whether the sectors are symplectic (see ``SupportSearch``).
         get_automorphisms: A function that returns an array of generators of a group of
             permutations of the variables, or None.  Each row ``p`` of the array maps variable ``j``
-            to ``p[j]``, and must map the vectors that satisfy the checks of each problem, and the
-            row space of its excluded rows, onto themselves.  The search of each problem calls the
+            to ``p[j]``, and must map the vectors that satisfy the checks of each sector, and the
+            row space of its excluded rows, onto themselves.  The search of each sector calls the
             function at most once, as ``automorphism_minimum_states`` of ``tuning`` says (Section
             3.5), and verifies the generators.
         tuning: The tuning of the search (see ``_tuning``), by default the active one.
 
     Returns:
-        The least of ``upper_bound`` and the distances of the problems, in which a problem without
+        The least of ``upper_bound`` and the distances of the sectors, in which a sector without
         witnesses counts as one more than its number of variables; or, after an early exit, a
         weight at most ``cutoff``, which can exceed the distance.
 
     Raises:
-        ValueError: If there are neither problems nor an upper bound, if a problem is not valid
+        ValueError: If there are neither sectors nor an upper bound, if a sector is not valid
             (see ``SupportSearch``), or if a generator fails its verification.
-        RuntimeError: If the searches take more weight limits than a correct search can.
+        RuntimeError: If the search takes more weight limits than a correct one can.
     """
-    searches = ConnectedClusterSearches(
-        problems,
+    search = ConnectedClusterSearch(
+        sectors,
         cutoff=cutoff,
         upper_bound=upper_bound,
         symplectic=symplectic,
         get_automorphisms=get_automorphisms,
         tuning=tuning,
     )
-    while not searches.finished:
-        searches.advance()
-    return searches.result
+    while not search.finished:
+        search.advance()
+    return search.result
 
 
-class ConnectedClusterSearches:
-    """The connected-cluster searches of several problems, which advance one weight limit at a time.
+class ConnectedClusterSearch:
+    """A connected-cluster search of sectors, which advances one weight limit at a time.
 
-    The arguments are those of ``get_distance_connected_cluster``, which advances the searches until
-    they finish.  Each advance searches the problem with the lowest lower bound on its witnesses
+    The arguments are those of ``get_distance_connected_cluster``, which advances the search until
+    it finishes.  Each advance searches the sector with the lowest lower bound on its witnesses
     through its next weight limit (Section 3.6 of ``connected_cluster.md``).
 
     Raises:
-        ValueError: If there are neither problems nor an upper bound, or if a problem is not valid
+        ValueError: If there are neither sectors nor an upper bound, or if a sector is not valid
             (see ``SupportSearch``).
     """
 
     def __init__(
         self,
-        problems: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
+        sectors: Sequence[tuple[npt.ArrayLike, npt.ArrayLike]],
         *,
         cutoff: int,
         upper_bound: int | None = None,
@@ -116,17 +116,17 @@ class ConnectedClusterSearches:
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         tuning: SearchTuning | None = None,
     ) -> None:
-        if not problems and upper_bound is None:
-            raise ValueError("Require at least one problem or an upper bound")
+        if not sectors and upper_bound is None:
+            raise ValueError("Require at least one sector or an upper bound")
 
-        # Keep a search of each problem with witnesses; a problem without witnesses only bounds the
+        # Keep a search of each sector with witnesses; a sector without witnesses only bounds the
         # result.
         tuning = get_tuning() if tuning is None else tuning
         self._cutoff = cutoff
         self._best_weight = upper_bound
         self._no_distance_bounds: list[int] = []
         self._searches: list[SupportSearch] = []
-        for checks, excluded in problems:
+        for checks, excluded in sectors:
             search = SupportSearch(
                 checks,
                 excluded,
@@ -141,7 +141,7 @@ class ConnectedClusterSearches:
                 self._no_distance_bounds.append(search.num_variables + 1)
 
         # Start each lower bound at its divisor.  A correct search takes at most n // d limits for a
-        # problem of n variables and divisor d (Section 3.6 of connected_cluster.md), so a broken
+        # sector of n variables and divisor d (Section 3.6 of connected_cluster.md), so a broken
         # one fails rather than loops.
         self._lower_bounds = [search.weight_divisor for search in self._searches]
         self._max_num_limits = sum(
@@ -151,10 +151,10 @@ class ConnectedClusterSearches:
 
     @property
     def finished(self) -> bool:
-        """Whether no problem has witnesses, or the best weight is at most the cutoff or each bound.
+        """Whether no sector has witnesses, or the best weight is at most the cutoff or each bound.
 
         The best weight is that of the lightest witness found, or ``upper_bound`` if that is less,
-        and the bounds are the lower bounds of the problems on the weights of their witnesses.
+        and the bounds are the lower bounds of the sectors on the weights of their witnesses.
         """
         if not self._searches:
             return True
@@ -169,14 +169,14 @@ class ConnectedClusterSearches:
         return min(bound for bound in bounds if bound is not None)
 
     def advance(self) -> None:
-        """Search the problem with the lowest lower bound through its next limit, unless finished.
+        """Search the sector with the lowest lower bound through its next limit, unless finished.
 
-        If this raises, as at a keyboard interrupt, the searches can be left inconsistent, so build
-        new ones to search again.
+        If this raises, as at a keyboard interrupt, the search can be left inconsistent, so build a
+        new one to search again.
 
         Raises:
             ValueError: If a generator of automorphisms fails its verification.
-            RuntimeError: If the searches take more weight limits than a correct search can.
+            RuntimeError: If the search takes more weight limits than a correct one can.
         """
         if self.finished:
             return
@@ -186,7 +186,7 @@ class ConnectedClusterSearches:
                 " limits, which only a bug can cause"
             )
 
-        # Search the problem with the lowest lower bound through its next limit, which the cutoff
+        # Search the sector with the lowest lower bound through its next limit, which the cutoff
         # can raise.
         index = self._lower_bounds.index(min(self._lower_bounds))
         search = self._searches[index]

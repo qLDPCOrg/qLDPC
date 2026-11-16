@@ -16,14 +16,14 @@ from qldpc._binary import get_rank_packed, pack_bits
 from qldpc.objects import Pauli
 
 from .._binary import get_eligible_rows
-from ..conftest import get_sector_problem
+from ..conftest import get_sector
 from . import automorphism_families, certificates
 
 
 def test_automorphisms_must_map_both_spaces_onto_themselves() -> None:
     """Only permutations that preserve the searched space and its excluded subspace pass."""
     code = codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
-    basis, labels = get_sector_problem(code, Pauli.X)
+    basis, labels = get_sector(code, Pauli.X)
     shift = np.concatenate([np.roll(np.arange(7), 1), np.roll(np.arange(7), 1) + 7])
     automorphism_families.verify_automorphisms(basis, labels, shift[None])
     automorphism_families.verify_automorphisms(basis, labels, np.empty((0, 14), dtype=int))
@@ -53,7 +53,7 @@ def test_automorphism_families_certify_like_the_family_of_all_images() -> None:
         for automorphisms in (translations, translations[:1]):
             elements = _get_group_elements(automorphisms)
             for pauli in (Pauli.X, Pauli.Z):
-                basis, labels = get_sector_problem(code, pauli)
+                basis, labels = get_sector(code, pauli)
                 divisor = 2 if np.all(basis.sum(axis=1) % 2 == 0) else 1
                 family, certificate = automorphism_families.get_automorphism_family(
                     basis, labels, automorphisms, divisor
@@ -89,7 +89,7 @@ def test_scanned_sets_balance_two_orbits() -> None:
     rng = np.random.default_rng(1)
     for code in _get_random_mb_codes(rng, 12):
         for pauli in (Pauli.X, Pauli.Z):
-            basis, labels = get_sector_problem(code, pauli)
+            basis, labels = get_sector(code, pauli)
             dimension, num_columns = basis.shape
             family, _ = automorphism_families.get_automorphism_family(
                 basis, labels, code._get_qudit_automorphisms(), 1
