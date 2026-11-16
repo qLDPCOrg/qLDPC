@@ -139,6 +139,7 @@ Project maintainers remain responsible for accepting contributions and communica
 
 ## ⚓ Attribution
 
-If you use qLDPC in your work, please follow the [citation instructions](CITATION.md).
+If you use qLDPC in your work, please cite it as [`CITATION.cff`](https://github.com/qLDPCOrg/qLDPC/blob/main/CITATION.cff) describes.
+On GitHub, the "Cite this repository" button in the repository's sidebar formats this citation as BibTeX or APA.
 
 qLDPC is distributed under the [Apache License 2.0](https://github.com/qLDPCOrg/qLDPC/blob/main/LICENSE).
