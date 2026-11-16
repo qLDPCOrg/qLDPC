@@ -74,9 +74,13 @@ def test_new_threads_start_with_the_default_tuning() -> None:
 
 def test_tunings_are_validated() -> None:
     """Tunings store Python numbers and bools, and reject wrong types and out-of-range values."""
-    numpy_fields: dict[str, Any] = {"max_information_sets": np.int64(4)}
-    assert type(_tuning.SearchTuning(**numpy_fields).max_information_sets) is int
-    assert _tuning.SearchTuning(restrict_viable_symbols=False).restrict_viable_symbols is False
+    numpy_fields: dict[str, Any] = {
+        "max_information_sets": np.int64(4),
+        "restrict_viable_symbols": np.False_,
+    }
+    numpy_tuning = _tuning.SearchTuning(**numpy_fields)
+    assert type(numpy_tuning.max_information_sets) is int
+    assert numpy_tuning.restrict_viable_symbols is False
     assert _tuning.SearchTuning(lp_minimum_work=_tuning.MAX_VALUE).lp_minimum_work == 2**62
     # Float fields hold Python floats, from any real number.
     floats: dict[str, Any] = {"completion_bound_confidence_z": 3, "completion_bound_samples": 8}

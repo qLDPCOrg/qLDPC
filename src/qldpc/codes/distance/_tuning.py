@@ -6,7 +6,7 @@
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
 routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.4, 3.5, 3.8, and
-3.9 of ``connected_cluster.md`` explain the heuristics that read the fields.
+3.9 of ``connected_cluster.md`` explain how searches use the fields.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -78,7 +78,7 @@ Each default is in one of these classes, or was chosen by hand:
   against speed.  A batch or chunk size is meant to be the smallest whose overhead per call of
   compiled code is negligible, though not all current sizes meet this.
 - A convention is a statistical or numerical setting, and its comment says what it guarantees.
-- A switch turns a step of a search on or off, and defaults to on, the full search.
+- A switch turns a step of a search on or off, and defaults to on.
 - Blocks of completion tables default to the widest allowed width, and a budget bounds their memory
   (Section 4.4 of ``brouwer_zimmermann.md``).
 
@@ -104,6 +104,8 @@ import numbers
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
 
 from ._binary import as_integer
 
@@ -218,11 +220,10 @@ class SearchTuning:
     #: thousands of states (Section 3.5 of ``connected_cluster.md``).
     automorphism_minimum_states: int = 50_000
 
-    #: Whether a connected-cluster search, of distances or of vectors with a given syndrome, forbids
-    #: in the subtree of a state the symbols that, by a lower bound, no completion within the weight
-    #: limit holds (Section 3.4 of ``connected_cluster.md``).  ``False`` skips this step, and the
-    #: search stays exact.  Defaults to ``True``, a switch that keeps the full search; ``False`` is
-    #: for comparisons, such as ablations.
+    #: Whether a connected-cluster search, of distances or of vectors with a given syndrome,
+    #: restricts the subtree of each state to viable symbols (Section 3.4 of
+    #: ``connected_cluster.md``).  ``False`` skips the restriction, and the search stays exact.
+    #: Defaults to ``True``, a switch; ``False`` is for comparisons, such as ablations.
     restrict_viable_symbols: bool = True
 
     #: The most rounds, each a row reduction in a random order of the columns, in which a
@@ -375,22 +376,23 @@ class SearchTuning:
     max_css_single_pairs: int = 2**18
 
     def __post_init__(self) -> None:
-        """Validate the fields, and store numbers as Python integers and floats.
+        """Validate the fields, and store them as Python bools, integers, and floats.
 
-        Compiled code specializes on the types of its arguments, so storing every integer as a
-        Python integer keeps a tuning from compiling code again.
+        Compiled code specializes on the types of its arguments, so storing every bool and integer
+        as a Python bool or integer keeps a tuning from compiling code again.
 
         Raises:
-            TypeError: If a bool field is not a bool, or a number field is a bool or is not a number
-                of the type of its default.
+            TypeError: If a bool field is not a Python or NumPy bool, or a number field is a bool or
+                is not a number of the type of its default.
             ValueError: If an integer field is outside its bounds or choices, or a float field is
                 negative, above its bound, or not finite.
         """
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
             if isinstance(field.default, bool):
-                if not isinstance(value, bool):
+                if not isinstance(value, bool | np.bool_):
                     raise TypeError(f"{field.name} must be a bool, not {value!r}")
+                object.__setattr__(self, field.name, bool(value))
                 continue
             if isinstance(field.default, float):
                 if isinstance(value, bool) or not isinstance(value, numbers.Real):

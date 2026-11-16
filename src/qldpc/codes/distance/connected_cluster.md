@@ -118,7 +118,8 @@ A completion `T` of a descendant `S ∪ A` gives the completion `A ∪ T` of `S`
 A variable outside the unsatisfied checks has a repair of zero, so if `1 + Y > W - s`, the subtree uses only viable variables of unsatisfied checks.
 The search prunes the state if `Y > W - s` or an unsatisfied check has no viable variable, and otherwise branches on the check with the fewest.
 Forbidding variables can lower the `m_c` in the subtree, which raises the weights there, and so prunes more.
-Setting the field `restrict_viable_symbols` of `SearchTuning` in `_tuning.py` to `False` skips this step, for comparisons such as ablations: the search then leaves the variables that are not viable available, and branches on the unsatisfied check with the fewest available variables.
+Setting `restrict_viable_symbols` of `SearchTuning` in `_tuning.py` to `False` turns this forbidding off.
+The search then prunes a state if `Y > W - s` or an unsatisfied check has no available variable, and otherwise branches on the unsatisfied check with the fewest available variables.
 It stays exact, since the completeness argument of [Section 3.3](#33-the-depth-first-search) holds with fewer forbidden variables.
 
 Before it enters a child, the search applies the cheaper `b1`: it skips the child if the unsatisfied checks of the child outnumber `Δ(W - s - 1)`.
@@ -297,7 +298,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
-| Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, which turns that forbidding off |
+| Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 

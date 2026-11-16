@@ -634,14 +634,14 @@ def _get_branches(
     """Choose the branches of the state at ``depth``, whose syndrome is not empty, and count them.
 
     A symbol is available if its level is ``available_level``.  The support can take ``slack`` more
-    variables.  The weights of the unsatisfied checks are in units of
-    ``1 / inverse_overlaps[1]``, and the state is pruned, or, if ``restrict_viable_symbols``, allows
-    only viable symbols in its subtree, as Section 3.4 of ``connected_cluster.md`` says.  A state
-    that restricts its subtree raises the levels of the symbols that it allows, lists them in
-    ``allowances`` from ``allowance_starts[depth]``, and sets ``restricts[depth]``.  The branches,
-    the available symbols of the unsatisfied check with the fewest, which are viable after a
-    restriction, go to ``branches[depth]``, most repairing first, and their number is zero if the
-    state is pruned.  ``check_weights`` and ``branch_repairs`` are scratch space.
+    variables.  The weights of the unsatisfied checks are in units of ``1 / inverse_overlaps[1]``.
+    Section 3.4 of ``connected_cluster.md`` says when the state is pruned, and when it allows only
+    viable symbols in its subtree, which it does only if ``restrict_viable_symbols``.  A state that
+    restricts its subtree raises the levels of the symbols that it allows, lists them in
+    ``allowances`` from ``allowance_starts[depth]``, and sets ``restricts[depth]``.  The branches
+    are the available symbols of the unsatisfied check with the fewest, after any restriction.  They
+    go to ``branches[depth]``, most repairing first, and their number is zero if the state is
+    pruned.  ``check_weights`` and ``branch_repairs`` are scratch space.
 
     If ``memos`` has a column for each symbol, row 0 holds the stamp of the call that computed the
     overlap of each symbol, row 1 that overlap, and rows 2 and 3 the same for repairs.  ``stamp`` is
@@ -688,8 +688,8 @@ def _get_branches(
                 branch_check, fewest = check, count
 
     # Symbols that flip no unsatisfied check repair nothing, so they are viable exactly when every
-    # symbol is; if they are not, allow only the viable symbols of the unsatisfied checks, and count
-    # them in each check.
+    # symbol is.  If they are not, and restrict_viable_symbols is set, allow only the viable symbols
+    # of the unsatisfied checks, and count them in each check.
     if restrict_viable_symbols and total_weight > (slack - 1) * scale:
         restricts[depth] = True
         allowance_end = allowance_starts[depth]

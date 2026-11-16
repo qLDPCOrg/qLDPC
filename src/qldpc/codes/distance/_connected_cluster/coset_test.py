@@ -45,8 +45,11 @@ def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
     assert calls == [(5, 2)]
 
 
+@pytest.mark.parametrize(
+    ("changes", "expected"), [({}, True), ({"restrict_viable_symbols": False}, False)]
+)
 def test_connected_cluster_queries_read_the_restriction_of_their_tuning(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, changes: dict[str, bool], expected: bool
 ) -> None:
     """A ``CosetLeaderSearch`` passes ``restrict_viable_symbols`` of its tuning to its queries."""
     settings: list[bool] = []
@@ -63,10 +66,10 @@ def test_connected_cluster_queries_read_the_restriction_of_their_tuning(
     matrix = get_graph_state(4, [(0, 1), (1, 2), (2, 3)])
     syndrome = get_syndrome(matrix, 0b1001)
     assert get_exhaustive_minima(matrix, False)[syndrome] == 2
-    with use_tuning(restrict_viable_symbols=False):
+    with use_tuning(**changes):
         oracle = CosetLeaderSearch(matrix, method="connected_cluster")
     assert oracle.get_min_weight_bound(syndrome, 2).within_max_weight
-    assert settings and set(settings) == {False}
+    assert settings and set(settings) == {expected}
 
 
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])

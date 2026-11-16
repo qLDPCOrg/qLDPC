@@ -88,8 +88,8 @@ CURRENT_ASK: dict[str, Any] = {}
 # The index of the problem of each search, by the id of the search (see wrap_problems).
 PROBLEM_INDICES: dict[int, int | None] = {}
 
-# The index of the problem whose search is created next, within a call that wrap_problems wraps, or
-# None outside such calls.
+# The index of the problem whose search is prepared next, within a call that wrap_problems wraps,
+# or None outside such calls.
 NEXT_PROBLEM_INDEX: int | None = None
 
 # The kinds of workloads that the script can trace.
@@ -213,12 +213,14 @@ def wrap_problems(function: Callable[..., Any]) -> Callable[..., Any]:
     """Number the problems of each call of the wrapped distance search from zero.
 
     The wrapped function, ``get_distance_brouwer_zimmermann_many`` or
-    ``get_distance_connected_cluster``, creates a search for each of its problems in order, and
+    ``get_distance_connected_cluster``, prepares a search of each of its problems, in order, and
     ``wrap_prepare`` and ``wrap_support_search`` record the index of the problem of each search.  A
-    call that searches both sectors of a CSS code, as ``get_distance_css`` and
-    ``get_distance_exact`` do without a Pauli type, has problem 0 for the X sector, of the X-type
-    logical operators, and problem 1 for the Z sector, and so does the distance search of a count
-    that is not self-dual.  Any other call has only problem 0.
+    call that searches both sectors of a CSS code has problem 0 for the X sector, of the X-type
+    logical operators, and problem 1 for the Z sector.  ``get_distance_css`` makes such a call
+    without a Pauli type, and so does the distance search of a count that is not self-dual.
+    ``CSSCode.get_distance_exact`` without a Pauli type makes one only if it knows neither sector's
+    distance and the code does not promise that they are equal.  Any other call has only problem 0,
+    which is the Z sector in a call that searches only that sector.
     """
 
     @functools.wraps(function)
@@ -234,7 +236,10 @@ def wrap_problems(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def take_problem_index() -> int | None:
-    """The index of the problem whose search is being created, or None outside a wrapped call."""
+    """The index of the problem whose search is being prepared, or None outside a wrapped call.
+
+    Within a wrapped call, it also advances the index for the next search.
+    """
     global NEXT_PROBLEM_INDEX
     index = NEXT_PROBLEM_INDEX
     if index is not None:
@@ -245,7 +250,7 @@ def take_problem_index() -> int | None:
 def wrap_prepare(function: Callable[..., Any]) -> Callable[..., Any]:
     """Record, for each BZ distance search that a call prepares, the index of its problem.
 
-    A problem whose search finishes while it is prepared has no search, and no layers.
+    A problem that setup settles takes its index but has no search, and so no layers.
     """
 
     @functools.wraps(function)

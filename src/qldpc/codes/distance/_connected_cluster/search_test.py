@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import inspect
 import itertools
 import unittest.mock
 from collections.abc import Iterator
@@ -83,9 +84,12 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
 
 
 def get_search(*problem: npt.ArrayLike, **options: Any) -> cs.SupportSearch:
-    """A search that restricts to viable symbols and asks for automorphisms first, by default."""
+    """A search that asks for any automorphisms before its first weight limit, by default.
+
+    ``restrict_viable_symbols`` defaults to its value in the default tuning.
+    """
     options.setdefault("automorphism_minimum_states", 0)
-    options.setdefault("restrict_viable_symbols", True)
+    options.setdefault("restrict_viable_symbols", _tuning.DEFAULT_TUNING.restrict_viable_symbols)
     return cs.SupportSearch(*problem, **options)
 
 
@@ -424,8 +428,9 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     # limit W = 3, the state S = {0} leaves every check unsatisfied, with weights 1/3, 1/2, 1/3, and
     # 1/3.  Their total Y = 3/2 exceeds W - |S| - 1 = 1, so the state allows only the variables that
     # repair at least Y - 1 = 1/2 (Section 3.4 of connected_cluster.md).  Variable 2, only in check
-    # 0, repairs 1/3, so only the search without the restriction visits {0, 2}, and the searches
-    # otherwise visit the same states.
+    # 0, repairs 1/3.  Each check has two available variables, so the search without the restriction
+    # branches on check 0, the first, whose variables are 1 and 2.  So only that search visits
+    # {0, 2}, and the searches otherwise visit the same states.
     checks = np.array(
         [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
     )
@@ -438,22 +443,63 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     assert num_states[False] > num_states[True]
 
 
-@pytest.mark.parametrize("restrict_viable_symbols", [True, False])
-def test_public_functions_find_known_distances_with_either_restriction(
-    restrict_viable_symbols: bool,
-) -> None:
-    """The public distance functions find known distances, and exit early within a cutoff."""
-    steane = codes.SteaneCode()
-    toric = codes.ToricCode(4, rotated=True)
-    with _tuning.use_tuning(restrict_viable_symbols=restrict_viable_symbols):
-        # The Steane code and the five-qubit code have distance 3, and this toric code distance 4.
-        assert get_distance_css(steane.matrix_x, steane.matrix_z, method="connected_cluster") == 3
-        five_qubit_code = codes.FiveQubitCode()
-        assert get_distance_pauli(five_qubit_code.matrix, method="connected_cluster") == 3
-        distance = get_distance_css(
-            toric.matrix_x, toric.matrix_z, cutoff=8, method="connected_cluster"
+def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() -> None:
+    """Switching the restriction off also turns it off at the starting state of a syndrome query."""
+    # The query of syndrome 1101 at limit W = 2 starts with checks 0, 1, and 3 unsatisfied.
+    # Variable 2, in checks 0 and 3, has overlap 2, and variables 0 and 1 have overlap 1, so the
+    # checks weigh 1/2, 1, and 1/2, and Y = 2.  Since 1 + Y > W, the restriction allows only the
+    # variables that repair at least Y - 1 = 1: variable 1, of check 1, and variable 2, which
+    # repairs checks 0 and 3 (Section 3.4 of connected_cluster.md).  Each check then has one allowed
+    # variable, so the search branches on check 0, the first, and enters {2}.  Its child {1, 2}
+    # leaves check 2 unsatisfied with no room left, so b1 skips it.  Without the restriction, check
+    # 1 is the first with the fewest variables, one, and b1 skips {1}, which leaves three checks
+    # unsatisfied with room for one more variable, which flips at most two checks.
+    checks = np.array([[1, 0, 1, 0], [0, 1, 0, 0], [1, 1, 0, 1], [0, 0, 1, 0]], dtype=np.uint8)
+    search = get_search(checks, np.zeros((0, 4), dtype=np.uint8))
+    packed = cs.pack_bits(np.array([[1, 1, 0, 1]], dtype=np.uint8))[0]
+    num_states = {}
+    for restrict_viable_symbols in (True, False):
+        support, num_states[restrict_viable_symbols] = cs._search_supports(
+            search._check_starts,
+            search._check_symbols,
+            search._symbol_masks,
+            search._test_columns,
+            np.array([-1], dtype=np.int64),
+            search._ranks,
+            search._inverse_overlaps,
+            2,
+            packed,
+            True,
+            restrict_viable_symbols,
         )
-    assert 4 <= distance <= 8
+        assert not len(support)
+    assert num_states == {True: 1, False: 0}
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"), [({}, True), ({"restrict_viable_symbols": False}, False)]
+)
+def test_connected_cluster_distance_searches_read_the_restriction_of_their_tuning(
+    monkeypatch: pytest.MonkeyPatch, changes: dict[str, bool], expected: bool
+) -> None:
+    """Distance searches pass ``restrict_viable_symbols`` of their tuning to ``SupportSearch``."""
+    settings: list[tuple[bool, bool]] = []
+    initialize = cs.SupportSearch.__init__
+    signature = inspect.signature(initialize)
+
+    def record(*args: Any, **kwargs: Any) -> None:
+        arguments = signature.bind(*args, **kwargs).arguments
+        settings.append((arguments["symplectic"], arguments["restrict_viable_symbols"]))
+        initialize(*args, **kwargs)
+
+    # get_distance_css searches through core._search_css, and get_distance_pauli, whose searches
+    # are symplectic, through core._search_checks.
+    monkeypatch.setattr(cs.SupportSearch, "__init__", record)
+    steane = codes.SteaneCode()
+    with _tuning.use_tuning(**changes):
+        get_distance_css(steane.matrix_x, steane.matrix_z, method="connected_cluster")
+        get_distance_pauli(codes.FiveQubitCode().matrix, method="connected_cluster")
+    assert set(settings) == {(False, expected), (True, expected)}
 
 
 def test_wrong_automorphisms_are_rejected() -> None:
