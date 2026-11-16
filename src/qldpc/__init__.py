@@ -25,10 +25,11 @@ __all__ = [
 
 _deprecations.install_deprecated_methods()
 
-# Subpackages that are imported on first access, to keep "import qldpc" fast.  No other subpackage
-# imports them at import time (see qldpc/import_test.py).
+# Subpackages that are imported on first access, to keep "import qldpc" fast.  The subpackages that
+# "import qldpc" loads must not import them at import time, which import_test.py checks.
 _LAZY_SUBPACKAGES = ("circuits", "experimental")
 
+# Type checkers see the imports rather than __getattr__, so that they still reject unknown names.
 if TYPE_CHECKING:
     from . import circuits, experimental
 else:
@@ -36,7 +37,7 @@ else:
     def __getattr__(name: str) -> object:
         if name in _LAZY_SUBPACKAGES:
             return importlib.import_module(f"{__name__}.{name}")
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        return _deprecations.get_deprecated_attribute(__name__, name)
 
 
 def __dir__() -> list[str]:
