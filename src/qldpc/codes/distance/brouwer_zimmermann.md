@@ -610,7 +610,7 @@ A result of preparation can include a witness from another sector or the bound o
 | Trivial input | Returns `NO_DISTANCE`, whatever `max_weight` is, for an empty classical code, a quantum problem with no logical rows, or `V = S` |
 | `method="brute_force"` | Runs exhaustive enumeration over an independent basis, adapted to `S ⊆ V` for a quantum problem |
 
-`_prepare_brouwer_zimmermann_search` considers the following exits in order.
+`_prepare_sector_search` considers the following exits in order.
 The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models)), and any overlapping or partitioned replacement come from the stages of [_information_sets/basis_families.py](_information_sets/basis_families.py); the exits between those stages belong to the distance search.
 
 | Preparation stage | Outcome |

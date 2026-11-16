@@ -209,7 +209,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
     """Setup can reach the cutoff from initial rows or a newly systematic row."""
     basis = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
     assert (
-        bz._prepare_brouwer_zimmermann_search(
+        bz._prepare_sector_search(
             basis,
             _no_labels(basis),
             cutoff=3,
@@ -220,7 +220,7 @@ def test_brouwer_zimmermann_setup_cutoffs() -> None:
         == 3
     )
     assert (
-        bz._prepare_brouwer_zimmermann_search(
+        bz._prepare_sector_search(
             basis,
             _no_labels(basis),
             cutoff=2,
@@ -339,7 +339,7 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
 
     searches: list[bz._SectorSearch] = []
     advanced: set[int] = set()
-    original_prepare = bz._prepare_brouwer_zimmermann_search
+    original_prepare = bz._prepare_sector_search
     original_advance = bz._SectorSearch.advance
 
     def prepare(*args: Any, **kwargs: Any) -> int | bz._SectorSearch:
@@ -354,7 +354,7 @@ def test_brouwer_zimmermann_sector_certificates() -> None:
 
     # Exercise real layer advancement, rather than two results certified during setup.
     with (
-        mock.patch.object(bz, "_prepare_brouwer_zimmermann_search", side_effect=prepare),
+        mock.patch.object(bz, "_prepare_sector_search", side_effect=prepare),
         mock.patch.object(bz._SectorSearch, "advance", advance),
     ):
         actual = bz.get_distance_brouwer_zimmermann(
@@ -646,7 +646,7 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
 def prepared(monkeypatch: pytest.MonkeyPatch) -> list[bz._SectorSearch]:
     """The searches that setup prepares, rather than settles, in the order of their sectors."""
     searches: list[bz._SectorSearch] = []
-    prepare = bz._prepare_brouwer_zimmermann_search
+    prepare = bz._prepare_sector_search
 
     def recording_prepare(*args: Any, **kwargs: Any) -> Any:
         result = prepare(*args, **kwargs)
@@ -654,7 +654,7 @@ def prepared(monkeypatch: pytest.MonkeyPatch) -> list[bz._SectorSearch]:
             searches.append(result)
         return result
 
-    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
+    monkeypatch.setattr(bz, "_prepare_sector_search", recording_prepare)
     return searches
 
 
@@ -710,7 +710,7 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
 def test_searches_that_setup_settles_are_finished_at_once(
     prepared: list[bz._SectorSearch],
 ) -> None:
-    """A search is finished when built if setup settles every sector, or with no sectors.
+    """A search is finished when built if setup settles it, or with no sectors.
 
     Setup settles the sector of the Hamming code directly.  In the random code, it settles one
     sector, whose witness finishes the search of the other.
@@ -760,13 +760,13 @@ def test_stepped_searches_use_the_tuning_that_they_are_given(
     The function that builds the search passes its tuning on, so calling it checks both.
     """
     tunings: list[Any] = []
-    prepare = bz._prepare_brouwer_zimmermann_search
+    prepare = bz._prepare_sector_search
 
     def recording_prepare(*args: Any, **kwargs: Any) -> Any:
         tunings.append(kwargs["tuning"])
         return prepare(*args, **kwargs)
 
-    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
+    monkeypatch.setattr(bz, "_prepare_sector_search", recording_prepare)
     code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
     tuning = dataclasses.replace(DEFAULT_TUNING, information_set_batch_exponent=5)
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
@@ -859,7 +859,7 @@ def test_a_declined_switch_is_reconsidered_once_the_best_weight_drops(
         labels = _no_labels(basis)
         get_automorphisms = mock.Mock(return_value=np.roll(np.arange(num_columns), -step)[None])
         switch_decisions.clear()
-        search = bz._prepare_brouwer_zimmermann_search(
+        search = bz._prepare_sector_search(
             basis,
             labels,
             cutoff=0,

@@ -733,7 +733,7 @@ def test_a_broken_search_fails_instead_of_looping(
     with pytest.raises(RuntimeError, match="only a bug"):
         cs.get_distance_connected_cluster([PROBLEMS["toric-X"], PROBLEMS["toric-X"]], cutoff=0)
 
-    # Each of the two problems has 16 variables and weight divisor 2, so a correct search needs at
+    # Each of the two sectors has 16 variables and weight divisor 2, so a correct search needs at
     # most 8 limits for each.
     assert len(limits) == 2 * 16 // 2
 
@@ -768,7 +768,7 @@ def test_cutoffs_and_upper_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_problem_without_logical_operators_has_no_distance() -> None:
-    """Without witnesses, a problem counts as one more than its number of variables."""
+    """Without witnesses, a sector counts as one more than its number of variables."""
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
     assert not get_search(*trivial).has_witnesses
     assert cs.get_distance_connected_cluster([trivial], cutoff=0) == 3

@@ -205,7 +205,7 @@ def install_wrappers() -> None:
         (core, "get_distance_brouwer_zimmermann", wrap_sectors),
         (core, "get_distance_connected_cluster", wrap_sectors),
         (logical_counts, "get_distance_brouwer_zimmermann", wrap_sectors),
-        (distance, "_prepare_brouwer_zimmermann_search", wrap_prepare),
+        (distance, "_prepare_sector_search", wrap_prepare),
         (support_search.SupportSearch, "__init__", wrap_support_search),
         (support_search.SupportSearch, "find_witness", wrap_find_witness),
         (support_search.SupportSearch, "_use_automorphisms", wrap_use_automorphisms),

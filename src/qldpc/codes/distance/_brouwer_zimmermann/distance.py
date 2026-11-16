@@ -150,7 +150,7 @@ class BrouwerZimmermannSearch:
         for index, ((basis, labels), initial_upper_bound) in enumerate(
             zip(sectors, initial_upper_bounds, strict=True)
         ):
-            prepared = _prepare_brouwer_zimmermann_search(
+            prepared = _prepare_sector_search(
                 basis,
                 labels,
                 cutoff=cutoff,
@@ -422,7 +422,7 @@ class _SectorSearch:
         self.completion_tables = None
 
 
-def _prepare_brouwer_zimmermann_search(
+def _prepare_sector_search(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
     *,
@@ -434,7 +434,7 @@ def _prepare_brouwer_zimmermann_search(
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning,
 ) -> int | _SectorSearch:
-    """Prepare one BZ search, or return its result if setup already settles it.
+    """Prepare the BZ search of one sector, or return its result if setup already settles it.
 
     The stages of ``basis_families`` run in order, and between them setup returns if the rows of the
     family bring the best weight to the cutoff, or if its certificate proves the best weight

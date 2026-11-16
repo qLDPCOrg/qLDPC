@@ -352,7 +352,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "restrict_viable_symbols",
     )
     record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
-    original_prepare = bz._prepare_brouwer_zimmermann_search
+    original_prepare = bz._prepare_sector_search
 
     def prepare(*args: Any, **kwargs: Any) -> Any:
         result = original_prepare(*args, **kwargs)
@@ -360,7 +360,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
             seen["search"].append((result.batch_size, result.tuning))
         return result
 
-    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", prepare)
+    monkeypatch.setattr(bz, "_prepare_sector_search", prepare)
 
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     with _tuning.use_tuning(
