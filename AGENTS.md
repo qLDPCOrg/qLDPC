@@ -37,10 +37,7 @@ Use judgment to point out when a change would be easier to review as a sequence 
 ## Decisions and recommendations
 
 Before adding or recommending process or apparatus, such as a rule, a review step, or an experiment, check it against [the goal of the work](docs/source/contributing/decisions.rst#the-goal-of-the-work).
-When you brief a reviewer or a subagent, quote word for word each statement of that goal by the person who requested the work, including later restatements and corrections, as the linked section describes.
 Make every recommendation, and present every decision, as [decisions and recommendations](docs/source/contributing/decisions.rst) describes.
-A request for "the standard format" of a decision refers to the format that the decisions and recommendations page defines.
-A request for a pull request's information, even "in the standard format", asks for what [handing off a change](#handing-off-a-change) lists.
 
 ## Working on a change
 
@@ -75,6 +72,7 @@ When handing off a change, give the following for each of its pull requests in y
 4. The description, in a `markdown` code block, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
    If the description contains code blocks, use a longer fence for it, such as four backticks.
 
+A request for a pull request's information, even "in the standard format", asks for the list above.
 If the change has more than one pull request, say whether they depend on each other and in which order they should merge.
 
 ## Protected files

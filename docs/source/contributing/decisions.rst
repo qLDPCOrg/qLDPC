@@ -3,7 +3,7 @@ Decisions and recommendations
 
 Contributors, whether people or agents, often recommend a choice to the person who decides it, usually a maintainer.
 They also recommend choices to each other, as when a reviewer recommends one of several fixes to a review's coordinator.
-This page states the rules on the goal of the work, the principles that every recommendation follows in any form, and a standard format for presenting a complex or risky decision to the person who decides it.
+This page states a rule for adding process or apparatus, the principles that every recommendation follows in any form, and a standard format for presenting a complex or risky decision to the person who decides it.
 A report of requested work that is already done, such as a handoff or a review's findings with their suggested fixes, is not a recommendation, unless it asks its recipient to choose among options or to take an additional step.
 
 .. _decisions-goal:
@@ -11,16 +11,13 @@ A report of requested work that is already done, such as a handoff or a review's
 The goal of the work
 --------------------
 
-Process and apparatus include rules, review steps, checks, experiments, measurement protocols, tests that enforce the standards, and scripts for experiments, benchmarks, or checks, but not library code or the tests of its behavior.
-They must serve the goal of the work that they are added to.
-That goal is what the work as a whole was requested for, not the purpose of the addition.
-Before adding or recommending any process or apparatus, restate the goal of the work in one sentence, and check that the addition serves that goal.
-State that sentence in the recommendation, if there is one, and otherwise in the report on the work.
+Process and apparatus include rules, review steps, checks, experiments, measurement protocols, tests that enforce the standards, and scripts for experiments, benchmarks, or checks.
+They exclude library code, the tests of its behavior, and what a standard requires a change to add.
+They must serve the goal of the work that they are added to: what the work as a whole was requested for, not the purpose of the addition.
+Before adding or recommending process or apparatus that neither the request nor the rules for working on qLDPC call for, restate that goal in one sentence and check that the addition serves it.
+Give that sentence in the recommendation or the report on the work.
 When a fix would add process or apparatus to guard against a problem that other process or apparatus caused or left open, escalate the fix as a decision to the person who requested the work, even if they have delegated other decisions.
 Include removing or simplifying that other process or apparatus among the decision's options.
-
-When you brief a reviewer or a subagent, quote word for word what the person who requested the work said its goal is, including later restatements and corrections.
-If that person stated no goal, quote their request.
 
 Principles for recommendations
 ------------------------------

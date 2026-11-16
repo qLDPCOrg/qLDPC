@@ -33,7 +33,8 @@ Prose style
   * **Clear:** ``Run a simulation to estimate a failure rate, then check that estimate.``
 
 * Fix unclear text by cutting or restructuring it before adding words.
-  In a change made to reword prose, no file's prose grows in word count, apart from text moved into it from another file and text that the person who requested the change asks for.
+  In a change whose purpose is to reword prose, the changed files' prose does not grow in total word count, apart from text that the person who requested the change asks for.
+  In such a change, if a file's prose grows, say why in the pull request summary.
 * When a text mentions an object, quantity, or concept more than once by a long description, give it a short name or a symbol, such as one that the code or the literature uses.
   Then use that name, rather than repeating a long description or chaining noun phrases.
 
@@ -61,7 +62,7 @@ Where documentation belongs
   When a page grows past that, split it by topic or task.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
 * In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
-  Docstrings and comments in the package point to a guide's section rather than repeat its argument.
+  Docstrings and comments in the package point to a guide's section rather than repeat its argument, and may state in a clause what that section proves.
 * Keep measurements that justify a design or tuning choice out of comments, docstrings, and documentation, including guides, READMEs, and experiment documents.
   Such measurements include timings, ratios, and counts.
   Also leave out the machines, workloads, and pull requests that produced them.
