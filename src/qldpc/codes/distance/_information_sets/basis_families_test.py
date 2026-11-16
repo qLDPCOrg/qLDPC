@@ -207,9 +207,10 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         coverages.clear()
         return basis_families.get_partitioned_family(basis, labels, disjoint, 5, tuning)
 
-    # A family needs a set to hold, a coverage of two or more, and partitioning that pays.  Even a
-    # ratio of one rules partitioning out here, since the disjoint family does less work than the
-    # 139 * 4**2 * 10 evaluations of the unit of the ratio, for the coverages two to seven.
+    # Without a limit on coverage, a family needs a set to hold, a coverage of two or more, and
+    # partitioning that pays.  Even a ratio of one rules partitioning out here, since the disjoint
+    # family does less work than the 139 * 4**2 * 10 evaluations of the unit of the ratio, for the
+    # coverages two to seven.
     assert not len(get_family(partition_work_ratio=2**62).ranks)
     assert not len(get_family(partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
@@ -227,7 +228,7 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         np.testing.assert_array_equal(generators[:, pivots], np.eye(len(basis)))
     _assert_certificate_bounds_unvisited_words(basis, family)
 
-    # A limit on coverage ends the coverages that partitioning tries.
+    # A limit on coverage caps the coverages that partitioning tries.
     assert 1 < get_family(partition_max_coverage=3).max_coverage <= 3
     assert sorted(coverages) == [2, 3]
 
@@ -295,8 +296,8 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
     for coverage_limit, unit in ((MAX_VALUE, (2**2 + 3**2) * 20**2 * 45), (1, 20**2 * 45)):
         ratio = disjoint.certificate.work(19) // unit
 
-        # At a ratio of three or more, any unit up to three quarters of this one, such as its last
-        # term alone, would let partitioning run at the next ratio too.
+        # At a ratio of three or more, any unit up to three quarters of this one would let
+        # partitioning run at the next ratio too.
         assert ratio >= 3
 
         # Partitioning asks for the work of a competing family only if it would otherwise run.
@@ -370,12 +371,12 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
 def test_a_coverage_limit_of_one_partitions_into_a_maximum_disjoint_family() -> None:
     """At a coverage limit of one, partitioning finds a maximum disjoint family, and prunes it.
 
-    It does so whatever the limit on the sets of other families, and only if some disjoint family
-    could do less work.
+    It does so whatever ``max_information_sets`` is, and only if some disjoint family could do less
+    work.
     """
     # A greedy packing of e1, e2, e3, e1 + e2, e1 + e2, e3, e1 + e2 + e3 keeps ranks three and two,
-    # but the columns hold two disjoint information sets and a partial set of the last column,
-    # which adds nothing to the certificate before the two sets certify four.
+    # but the columns hold two disjoint information sets and a partial set of the last column, which
+    # adds nothing to the certificate before the two sets certify four.
     columns = [1, 2, 4, 3, 3, 4, 7]
     basis = ((np.array(columns) >> np.arange(3)[:, None]) & 1).astype(np.uint8)
     labels = np.eye(3, dtype=np.uint8)
@@ -405,6 +406,44 @@ def test_a_coverage_limit_of_one_partitions_into_a_maximum_disjoint_family() -> 
         partitioned = basis_families.get_partitioned_family(identity, labels, single, 3, tuning)
     assert not len(partitioned.ranks)
     spy.assert_not_called()
+
+
+def test_no_disjoint_family_does_less_work_than_the_disjoint_bound(
+    pytestconfig: pytest.Config,
+) -> None:
+    """Maximum disjoint families and greedy packings, pruned or not, do at least the bound's work.
+
+    A disjoint family can hold a partial set besides ``floor(N / r)`` information sets, as for the
+    columns e1, e2, e3, e4, e1, e2, e3 at the upper bound three, and fewer than ``ceil(N / r)``
+    sets, as for e1, e1, e1, e1, e2 at the upper bound six.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    bases = [
+        ((np.array(columns) >> np.arange(rows)[:, None]) & 1).astype(np.uint8)
+        for columns, rows in (([1, 2, 4, 8, 1, 2, 4], 4), ([1, 1, 1, 1, 2], 2))
+    ]
+    for _ in range(12):
+        rows = int(rng.integers(1, 6))
+        bases.append(get_random_full_rank_matrix(rng, rows, int(rng.integers(rows, 4 * rows + 2))))
+    for basis in bases:
+        dimension = len(basis)
+        num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
+        weight_divisor = basis_families.infer_weight_divisor(basis)
+        binomials = certificates.get_capped_binomials(dimension)
+        maximum = basis_families._get_family_of_sets(
+            basis,
+            np.empty((dimension, 0), dtype=np.uint8),
+            basis_families._get_maximum_disjoint_sets(basis),
+            weight_divisor,
+        )
+        greedy = basis_families.get_disjoint_family(basis, None, random_column_orders=0)
+        for upper_bound in range(1, num_columns + 2):
+            bound = basis_families._estimate_optimistic_disjoint_work(
+                dimension, num_columns, weight_divisor, upper_bound, binomials
+            )
+            for family in (maximum, greedy):
+                for each in (family, basis_families.prune_family(family, upper_bound)):
+                    assert bound <= each.certificate.work(upper_bound)
 
 
 def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pytest.Config) -> None:

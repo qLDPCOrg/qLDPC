@@ -46,8 +46,8 @@ class CostlyStages(NamedTuple):
 def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
     """Record the families of matroid partitioning and the certificates that searches choose.
 
-    A family with sets and a maximum coverage above one shows that a search took a partitioned
-    family, and a certificate with pivot blocks shows that a search used linear programming.
+    A family with sets shows that a search took a partitioned family, and a certificate with pivot
+    blocks shows that a search used linear programming.
     """
     stages = CostlyStages([], [])
     get_partitioned_family = basis_families.get_partitioned_family

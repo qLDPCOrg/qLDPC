@@ -328,11 +328,11 @@ def get_partitioned_family(
 ) -> BasisFamily:
     """Stage four: a basis family of information sets of bounded coverage, if it does less work.
 
-    For each coverage that it tries, from two up to ``tuning.partition_max_coverage``, matroid
-    partitioning finds the most information sets, up to ``tuning.max_information_sets``, within that
-    coverage.  If ``tuning.partition_max_coverage`` is one, it finds instead the maximum disjoint
-    family of ``get_maximum_disjoint_family``, and prunes it as stage two does (Section 4.4).
-    ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
+    For each coverage that it tries, from two and none above ``tuning.partition_max_coverage``,
+    matroid partitioning finds the most information sets, up to ``tuning.max_information_sets``,
+    within that coverage.  If ``tuning.partition_max_coverage`` is one, it finds instead the maximum
+    disjoint family of ``get_maximum_disjoint_family`` (Section 4.4), and prunes it as stage two
+    does.  ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
     ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
     to which the caller would switch instead, discarding this stage's family (Section 3.7).  It is
     called only if partitioning would otherwise run, and partitioning then runs only if that work
@@ -345,9 +345,10 @@ def get_partitioned_family(
     best_work = basis_family.certificate.work(upper_bound)
     best = _get_no_replacement(basis_family, basis, labels)
 
-    # Choose the coverages to try.  Above a limit of one, coverage one is left to the disjoint
-    # packing of stage one, and a family within the limit holds at most limit * N / r information
-    # sets, by counting their pivots.
+    # Choose the coverages to try and the unit of the gate.  Above a limit of one, capping the sets
+    # at the most that fit within the limit, by counting their pivots, caps the coverages, and
+    # coverage one is left to the disjoint packing of stage one, so that the default route stays
+    # unchanged.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     coverage_limit = tuning.partition_max_coverage
@@ -384,7 +385,7 @@ def get_partitioned_family(
         return best
 
     # Build a family for each coverage, and keep the one that does the least work.  A disjoint
-    # family can end with a partial set, which stage two would drop if it cannot help.
+    # family can end with a partial set, which ``prune_family`` drops if it cannot help.
     for coverage in coverages:
         if coverage == 1:
             maximum_disjoint = _get_family_of_sets(
@@ -579,9 +580,9 @@ def _get_partition_coverage_and_unit(
 
 def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
     """The column sets of the maximum disjoint family of ``get_maximum_disjoint_family``."""
-    # A disjoint family has at most num_columns // dimension information sets and a partial set,
-    # but a family at the limit of a packing holds as many information sets as a packing keeps,
-    # and no partial set.
+    # A disjoint family has at most num_columns // dimension information sets and a partial set, but
+    # a family at the limit of a packing holds as many information sets as a packing keeps, and no
+    # partial set.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     max_sets = min(num_columns // dimension + 1, _get_full_set_limit(dimension))
@@ -596,7 +597,10 @@ def _get_family_of_sets(
     column_sets: list[list[int]],
     weight_divisor: int,
 ) -> BasisFamily:
-    """The basis family of nonempty sets of independent columns of a basis, with its labels."""
+    """The basis family of nonempty sets of independent columns of a basis, with its labels.
+
+    The family is certified with the coverage of its pivots.
+    """
     # Reduce the basis on each set, transforming its labels along with it.
     dimension = len(basis)
     num_sets = len(column_sets)
@@ -690,11 +694,11 @@ def _estimate_optimistic_disjoint_work(
 ) -> int:
     """Return a lower bound on the estimated work of a disjoint family of a basis.
 
-    The arguments are as for ``_estimate_optimistic_work``.  The bound is the least work of a family
-    of full sets with coverage one, of each size up to the most sets that a disjoint family can
-    hold, with or without a partial set (Section 4.4).
+    The arguments are as for ``_estimate_optimistic_work``.  The bound is the least work of 1 to
+    ``k`` full sets of coverage one, where ``k``, the most sets that a disjoint family can hold,
+    counts a partial set (Section 4.4).
     """
-    max_sets = min(-(-num_columns // dimension), _get_full_set_limit(dimension))
+    max_sets = min((num_columns + dimension - 1) // dimension, _get_full_set_limit(dimension))
     return min(
         estimate_certificate_work(
             dimension,

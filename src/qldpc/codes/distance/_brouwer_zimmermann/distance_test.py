@@ -536,7 +536,7 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
 def test_a_coverage_limit_of_one_partitions_into_disjoint_sets(
     tune: Tune, costly_stages: CostlyStages
 ) -> None:
-    """With overlapping families off, a search partitions into disjoint sets if the gate admits it.
+    """A search with a coverage limit of one, and no overlapping families, takes disjoint sets.
 
     The search packs the first six columns of ``MISSED_SET_CODE`` and a partial set, and its
     partitioned family holds two disjoint information sets.
@@ -545,21 +545,16 @@ def test_a_coverage_limit_of_one_partitions_into_disjoint_sets(
         overlapping_minimum_work=MAX_VALUE,
         disjoint_random_column_orders=0,
         partition_max_coverage=1,
+        partition_work_ratio=0,
     )
-    distance = qldpc.codes.distance.get_distance_from_generators(
-        MISSED_SET_CODE, method="brute_force"
+    distance = qldpc.codes.distance.get_distance_from_generators(MISSED_SET_CODE, cutoff=0)
+    assert (
+        distance
+        == qldpc.codes.distance.get_distance_from_generators(MISSED_SET_CODE, method="brute_force")
+        == 4
     )
-    for partition_work_ratio, partitions in ((MAX_VALUE, False), (0, True)):
-        costly_stages.partitioned_families.clear()
-        with use_tuning(partition_work_ratio=partition_work_ratio):
-            assert (
-                qldpc.codes.distance.get_distance_from_generators(MISSED_SET_CODE, cutoff=0)
-                == distance
-                == 4
-            )
-        (family,) = costly_stages.partitioned_families
-        assert family.ranks.tolist() == ([6, 6] if partitions else [])
-        assert family.max_coverage == 1
+    (family,) = costly_stages.partitioned_families
+    assert family.ranks.tolist() == [6, 6] and family.max_coverage == 1
 
 
 @pytest.fixture

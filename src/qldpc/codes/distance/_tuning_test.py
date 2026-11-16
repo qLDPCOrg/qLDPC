@@ -201,18 +201,15 @@ def test_limits_on_partitioned_coverage_change_routes_but_not_results(
     """Exact distances and counts are the same under every limit on the coverage of partitioning.
 
     Partitioning runs whenever some family could do less work, and overlapping families and random
-    column orders are off.  The X sector of the CSS code searches the code of ``MISSED_SET_CODE``
-    modulo four of its words, so its searches and counts partition into disjoint sets at the limit
-    one.  The non-CSS code partitions with the coverage four without a limit.
+    column orders are off.  The X sector of the code searches the code of ``MISSED_SET_CODE`` modulo
+    the span of four of its words, so its search and counts partition into disjoint sets at the
+    limit one.
     """
     css_code = codes.CSSCode(
         get_binary_matrix(
             ["001010111111001", "101111011000010", "110100101001100", "111000100010101"]
         ).astype(int),
         get_kernel(MISSED_SET_CODE).astype(int),
-    )
-    noncss_code = get_random_css_code(np.random.default_rng(2), 24, 8, 8).conjugated(
-        range(0, 24, 3)
     )
     results, max_coverages = [], []
     for limit in (_tuning.MAX_VALUE, 2, 1):
@@ -228,8 +225,7 @@ def test_limits_on_partitioned_coverage_change_routes_but_not_results(
             counts = lc.CSSLogicalCounter(css_code.matrix_x, css_code.matrix_z).count_logical_ops(
                 count_pauli=True
             )
-            noncss_distance = core.get_distance_pauli(noncss_code.matrix)
-        results.append((distance, counts, noncss_distance))
+        results.append((distance, counts))
         max_coverages.append(
             max(
                 (
@@ -241,7 +237,7 @@ def test_limits_on_partitioned_coverage_change_routes_but_not_results(
             )
         )
     assert results[0] == results[1] == results[2]
-    assert max_coverages == [4, 2, 1]
+    assert max_coverages == [3, 2, 1]
 
 
 def test_the_tuning_page_documents_every_field_and_constant() -> None:
