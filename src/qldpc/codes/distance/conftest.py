@@ -105,6 +105,21 @@ OVERLAPPING_ROUTES_CODE = get_binary_matrix(
     ]
 )
 
+# A [15, 6, 4] code whose last nine columns have even weight on the first four rows.  A greedy
+# packing of its columns in natural order takes the first six, and leaves a partial set of rank
+# five, but the columns hold two disjoint information sets, which matroid partitioning with coverage
+# one finds (Section 4.4 of ``brouwer_zimmermann.md``).
+MISSED_SET_CODE = get_binary_matrix(
+    [
+        "100000111011011",
+        "010000110000010",
+        "001000101001100",
+        "000100100010101",
+        "000010010110101",
+        "000001111110101",
+    ]
+)
+
 
 def get_random_full_rank_matrix(
     rng: np.random.Generator, rows: int, cols: int

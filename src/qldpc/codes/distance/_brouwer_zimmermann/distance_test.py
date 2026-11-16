@@ -26,7 +26,12 @@ from ...conftest import Tune
 from .. import _brute_force
 from .._information_sets import basis_families, certificates, completion_bounds, matroid_partition
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
-from ..conftest import CostlyStages, get_random_full_rank_matrix, get_sector_problem
+from ..conftest import (
+    MISSED_SET_CODE,
+    CostlyStages,
+    get_random_full_rank_matrix,
+    get_sector_problem,
+)
 from . import affine_instance, affine_search
 from . import distance as bz
 
@@ -526,6 +531,35 @@ def test_a_search_through_the_costly_stages_finds_the_distance(
         for family in costly_stages.partitioned_families
     )
     assert any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
+
+
+def test_a_coverage_limit_of_one_partitions_into_disjoint_sets(
+    tune: Tune, costly_stages: CostlyStages
+) -> None:
+    """With overlapping families off, a search partitions into disjoint sets if the gate admits it.
+
+    The search packs the first six columns of ``MISSED_SET_CODE`` and a partial set, and its
+    partitioned family holds two disjoint information sets.
+    """
+    tune(
+        overlapping_minimum_work=MAX_VALUE,
+        disjoint_random_column_orders=0,
+        partition_max_coverage=1,
+    )
+    distance = qldpc.codes.distance.get_distance_from_generators(
+        MISSED_SET_CODE, method="brute_force"
+    )
+    for partition_work_ratio, partitions in ((MAX_VALUE, False), (0, True)):
+        costly_stages.partitioned_families.clear()
+        with use_tuning(partition_work_ratio=partition_work_ratio):
+            assert (
+                qldpc.codes.distance.get_distance_from_generators(MISSED_SET_CODE, cutoff=0)
+                == distance
+                == 4
+            )
+        (family,) = costly_stages.partitioned_families
+        assert family.ranks.tolist() == ([6, 6] if partitions else [])
+        assert family.max_coverage == 1
 
 
 @pytest.fixture

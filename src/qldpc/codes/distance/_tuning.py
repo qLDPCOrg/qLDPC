@@ -81,6 +81,8 @@ Each default is in one of these classes, or was chosen by hand:
 - A switch turns a step of a search on or off, and defaults to on.
 - Blocks of completion tables default to the widest allowed width, and a budget bounds their memory
   (Section 4.4 of ``brouwer_zimmermann.md``).
+- A limit for experiments restricts what searches may build, and its default, ``MAX_VALUE``,
+  restricts nothing.
 
 The sizes of caches, ``coset_route_minimum_work``, and ``macwilliams_shared_walk_rank`` were chosen
 by hand, and the comments of the two fields say why.
@@ -146,11 +148,11 @@ class SearchTuning:
 
     # Fields of information-set families.
 
-    #: The most information sets in a family of overlapping information sets, or in a family that
-    #: matroid partitioning finds; zero disables both, but not the maximum disjoint family of a
-    #: coset search.  More sets can stop a search before costly layers, but setup grows roughly with
-    #: the square of this limit, or with its cube when partitioning.  Defaults to 16, a budget of
-    #: setup effort (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: The most information sets in a family of overlapping information sets, or in a family of
+    #: coverage two or more that matroid partitioning finds; zero disables both, but not maximum
+    #: disjoint families.  More sets can stop a search before costly layers, but setup grows roughly
+    #: with the square of this limit, or with its cube when partitioning.  Defaults to 16, a budget
+    #: of setup effort (Section 4.4 of ``brouwer_zimmermann.md``).
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
@@ -189,6 +191,13 @@ class SearchTuning:
     #: closes it.  Defaults to 5, a derived value: partitioning costs roughly that sum times a few
     #: evaluations (Section 4.4 of ``brouwer_zimmermann.md``).
     partition_work_ratio: int = 5
+
+    #: The largest coverage of the families that matroid partitioning builds in distance searches
+    #: and counts, at least 1.  At 1, partitioning builds the maximum disjoint family, which
+    #: ``max_information_sets`` does not limit, rather than families of coverage two or more.
+    #: Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
+    #: ``brouwer_zimmermann.md``).
+    partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
     #: information sets also bounds unvisited words by linear programming; zero in every such
