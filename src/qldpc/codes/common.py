@@ -17,6 +17,7 @@ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from typing import Any, Literal, Self, TypeVar, get_args
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import scipy.linalg
@@ -31,7 +32,6 @@ from qldpc._deprecations.decoders import (
     selects_legacy_decoder,
 )
 from qldpc._utils import format_docstring, get_external_caller_stacklevel
-from qldpc._utils import networkx as nx
 from qldpc.decoders._capabilities import is_prebuilt_decoder, is_prebuilt_observable_decoder
 from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
 from qldpc.external import _bliss, _codes

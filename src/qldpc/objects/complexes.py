@@ -11,12 +11,12 @@ from collections.abc import Collection, Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 import scipy.sparse.csgraph
 
-from qldpc._utils import networkx as nx
 from qldpc.math import resolve_field
 
 from ._symmetries import get_block_permutations
