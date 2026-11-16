@@ -326,8 +326,8 @@ def get_partitioned_family(
     does.  ``basis``, ``labels``, and ``basis_family`` are as in ``get_overlapping_family``.
     ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
     to which the caller would switch instead, discarding this stage's family (Section 3.7).  It is
-    called only if partitioning would otherwise run, and partitioning then runs only if that work
-    exceeds the least that a family of this stage could do.
+    called only once partitioning passes its gate (Section 4.4), and partitioning then runs only if
+    that work exceeds the least that a family of this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
@@ -355,6 +355,10 @@ def get_partitioned_family(
     # drops if it cannot help.
     for coverage in plan.coverages:
         if coverage == 1:
+            # Skip coverage one if the given family already has the ranks of every pruned maximum
+            # disjoint family, which leaves the result unchanged (Section 4.4).
+            if _has_pruned_maximum_disjoint_ranks(basis_family, plan.num_columns, upper_bound):
+                continue
             maximum_disjoint = _get_family_of_sets(
                 basis, labels, _get_maximum_disjoint_sets(basis), weight_divisor
             )
@@ -670,6 +674,31 @@ def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
     max_sets = min(num_columns // dimension + 1, _get_full_set_limit(dimension))
     return matroid_partition.get_information_sets_with_coverage(
         basis, 1, max_sets, keep_partial=True
+    )
+
+
+def _has_pruned_maximum_disjoint_ranks(
+    basis_family: BasisFamily, num_columns: int, upper_bound: int
+) -> bool:
+    """Whether a basis family is disjoint and has the ranks of every pruned maximum disjoint family.
+
+    ``num_columns`` counts the nonzero columns of the basis, and ``prune_family`` prunes for
+    ``upper_bound``.  If so, partitioning with coverage one finds a family that, once pruned, has
+    the ranks of ``basis_family`` (Section 4.4).
+    """
+    # Bound the ranks of a maximum disjoint family: the most information sets that fit, up to the
+    # limit of a packing, and below that limit a rank-deficient set on the other columns, if any.
+    dimension = basis_family.generators.shape[1]
+    full_set_limit = _get_full_set_limit(dimension)
+    num_full = min(num_columns // dimension, full_set_limit)
+    remainder = num_columns - num_full * dimension if num_full < full_set_limit else 0
+    ranks = np.array([dimension] * num_full + ([remainder] if remainder else []), dtype=np.int64)
+
+    # Prune these ranks as prune_family does.
+    weight_divisor = basis_family.weight_divisor
+    retained = get_retained_set_mask(dimension, ranks, weight_divisor, 1, upper_bound)
+    return (
+        basis_family.max_coverage == 1 and basis_family.ranks.tolist() == ranks[retained].tolist()
     )
 
 

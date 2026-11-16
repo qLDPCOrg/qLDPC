@@ -313,7 +313,7 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
         # partitioning run at the next ratio too.
         assert ratio >= 3
 
-        # Partitioning asks for the work of a competing family only if it would otherwise run.
+        # Partitioning asks for the work of a competing family only once it passes its gate.
         for partition_work_ratio, runs in ((ratio, True), (ratio + 1, False)):
             get_competing_work = mock.Mock(return_value=0)
             tuning = SearchTuning(
@@ -512,6 +512,52 @@ def test_a_coverage_limit_of_one_partitions_into_a_maximum_disjoint_family() -> 
         partitioned = basis_families.get_partitioned_family(identity, labels, single, 3, tuning)
     assert not len(partitioned.ranks)
     spy.assert_not_called()
+
+
+def test_a_coverage_limit_of_one_skips_families_of_maximum_disjoint_ranks() -> None:
+    """At a coverage limit of one, partitioning skips a given family of maximum disjoint ranks.
+
+    Every maximum disjoint family has the ranks of such a family once pruned, so the result is that
+    of partitioning (Section 4.4 of ``brouwer_zimmermann.md``).
+    """
+    # Partitioning skips the packing of PARTIAL_BASIS, which, pruned for an upper bound of five,
+    # keeps two information sets and a rank-two set on the other two columns, and the packing of
+    # three_rows, which has the limit of 7 information sets.  The packing of one_extra has an
+    # information set and a set of rank one, and pruned for three, only the information set, which
+    # partitioning skips too.  Unpruned, that packing does more work, and partitioning replaces it.
+    three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)
+    one_extra = np.hstack([np.eye(3), np.eye(3)[:, :1]]).astype(np.uint8)
+    labels = np.eye(3, dtype=np.uint8)
+    tuning = SearchTuning(partition_max_coverage=1, partition_work_ratio=0)
+    get_sets = basis_families._get_maximum_disjoint_sets
+    for basis, upper_bound, pruned, skips in (
+        (PARTIAL_BASIS, 5, True, True),
+        (three_rows, 11, True, True),
+        (one_extra, 3, True, True),
+        (one_extra, 3, False, False),
+    ):
+        given = basis_families.get_disjoint_family(basis, labels, random_column_orders=0)
+        if pruned:
+            given = basis_families.prune_family(given, upper_bound)
+
+        # Trying coverage one builds the pruned maximum disjoint family, which replaces the given
+        # family exactly where partitioning does not skip it.
+        maximum = basis_families._get_family_of_sets(
+            basis, labels, get_sets(basis), given.weight_divisor
+        )
+        maximum = basis_families.prune_family(maximum, upper_bound)
+        replaces = maximum.certificate.work(upper_bound) < given.certificate.work(upper_bound)
+        assert replaces == (not skips)
+
+        # Partitioning asks for the work of a competing family, so it passes its gate.
+        get_competing_work = mock.Mock(return_value=MAX_VALUE)
+        with mock.patch.object(basis_families, "_get_maximum_disjoint_sets", wraps=get_sets) as spy:
+            family = basis_families.get_partitioned_family(
+                basis, labels, given, upper_bound, tuning, get_competing_work=get_competing_work
+            )
+        get_competing_work.assert_called_once()
+        assert spy.called == (not skips)
+        assert family.ranks.tolist() == (maximum.ranks.tolist() if replaces else [])
 
 
 def test_built_disjoint_families_do_at_least_the_disjoint_bound(

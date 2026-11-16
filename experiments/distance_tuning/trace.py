@@ -386,10 +386,11 @@ def get_partition_gate(
       family found at ``b`` could do (``coverage_optimistic_work``).
 
     Partitioning skips a coverage ``b`` if its bound is at least the work of the best family so far.
-    At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
-    is over disjoint families.  The record also says whether the search tried partitioning
-    (``partitioned``), even if it found no family; ``wrap_family`` clears it when a competing family
-    rules partitioning out.
+    At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, which it skips if
+    the given family has the ranks of every pruned maximum disjoint family, and the least work is
+    over disjoint families.  The record also says whether these quantities let partitioning run
+    (``partitioned``), even if it then tried no coverage or found no family; ``wrap_family`` clears
+    it when a competing family rules partitioning out.
     """
     plan = basis_families._get_partition_plan(basis, tuning)
     work = basis_family.certificate.work(upper_bound)
