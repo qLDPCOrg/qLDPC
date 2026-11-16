@@ -169,6 +169,7 @@ For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up 
 Of these, it keeps only the pairs whose first class `c_{m-1}` keeps the prefix `c_1, ..., c_{m-1}` independent.
 That `c_1, ..., c_{m-2}` are independent is not enough, since the flags of `c_{m-1}` could be the sum of some of theirs, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
 With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class found by a lookup of single classes.
+The classes have distinct flags, so a lookup finds at most one closing class, or at most one closing pair for each first class `c_{m-1}`, and so at most as many class codewords as there are classes.
 The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same class codewords in the same order as a loop over `c_{m-1}`, and the faults are listed in the same order whether or not the table fits within the memory limit.
 
 Many primitive faults can share their flags, which is why the search works with classes.
