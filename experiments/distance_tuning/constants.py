@@ -4,11 +4,14 @@
 
 Each derived value of ``SearchTuning`` in ``qldpc.codes.distance._tuning`` gates an optional step,
 and assumes the cost of the step to an order of magnitude (see the Retuning section of
-``_tuning.py``).  The script measures the cost of each such step on quick searches, and then the
-coefficients of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each
-tuning of ``COST_MODEL_ARMS``, which together can take hours.  It prints both beside their defaults;
-the README of this directory explains the columns, and the functions of this script say how it
-measures each cost.  The script sets no value.
+``_tuning.py``).  The script first measures the cost of each such step on quick searches.  It prints
+a table of these costs, in seconds and in the unit of the field that gates each step (``in units``),
+to compare with the default of that field.  A second table gives, by field, each cost rounded as
+``round_to_grid`` does (``derived``) beside the default.  The script then measures the coefficients
+of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each tuning of
+``COST_MODEL_ARMS``, which together can take hours.  It prints each coefficient, under ``measured``,
+beside its default.  The functions of this script say how it measures each cost.  The script sets no
+value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a
@@ -437,19 +440,30 @@ def get_evaluation_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
 
 def get_partition_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
-    """The costliest seconds of matroid partitioning, per unit of ``partition_work_ratio``."""
+    """The costliest seconds of matroid partitioning, per unit of ``partition_work_ratio``.
+
+    It divides the seconds of each run by ``tried_unit``, the sum of ``b**2 * r**2 * N`` over the
+    coverages ``b`` that the run tried, since partitioning skips a coverage at which no family could
+    replace the best so far (Section 4.4 of ``brouwer_zimmermann.md``).  The seconds leave out
+    building a competing family of automorphism images, which ``get_automorphism_seconds`` counts.
+    """
     runs = [
         (trace["workload"], event)
         for trace in traces.values()
         for event in trace["events"]
-        if event["event"] == "family" and event["kind"] == "partitioned" and event["partitioned"]
+        if event["event"] == "family" and event["kind"] == "partitioned" and event["coverages"]
     ]
+
+    def get_seconds_per_unit(event: dict[str, Any]) -> float:
+        seconds = event["seconds"] - event.get("competing_seconds", 0.0)
+        return float(seconds / event["tried_unit"])
+
     description = "costliest of " + ", ".join(
-        f"{workload} (coverages up to {event['max_coverage']}): "
-        f"{event['seconds'] / event['unit'] * 1e9:.2f} ns"
+        f"{workload} (coverages {', '.join(map(str, event['coverages']))}): "
+        f"{get_seconds_per_unit(event) * 1e9:.2f} ns"
         for workload, event in runs
     )
-    return Constant(max(event["seconds"] / event["unit"] for _, event in runs), description)
+    return Constant(max(get_seconds_per_unit(event) for _, event in runs), description)
 
 
 def get_prediction_seconds(traces: dict[str, dict[str, Any]]) -> Constant:

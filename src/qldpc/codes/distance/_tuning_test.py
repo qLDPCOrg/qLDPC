@@ -22,6 +22,7 @@ import pytest
 from sympy.abc import x, y
 
 from qldpc import codes
+from qldpc._binary import get_kernel
 from qldpc.objects import Pauli
 
 from . import _tuning, core
@@ -30,7 +31,13 @@ from ._brouwer_zimmermann import distance as bz
 from ._connected_cluster import search as connected_cluster
 from ._counting import scan
 from ._information_sets import basis_families
-from .conftest import CostlyStages, get_random_css_code, get_sector_problem
+from .conftest import (
+    MISSED_SET_CODE,
+    CostlyStages,
+    get_binary_matrix,
+    get_random_css_code,
+    get_sector_problem,
+)
 
 
 def test_tuning_changes_apply_within_their_block() -> None:
@@ -73,9 +80,14 @@ def test_new_threads_start_with_the_default_tuning() -> None:
 
 
 def test_tunings_are_validated() -> None:
-    """Fields hold Python numbers, and a tuning rejects wrong types and out-of-range values."""
-    numpy_fields: dict[str, Any] = {"max_information_sets": np.int64(4)}
-    assert type(_tuning.SearchTuning(**numpy_fields).max_information_sets) is int
+    """Tunings store Python numbers and bools, and reject wrong types and out-of-range values."""
+    numpy_fields: dict[str, Any] = {
+        "max_information_sets": np.int64(4),
+        "restrict_viable_symbols": np.False_,
+    }
+    numpy_tuning = _tuning.SearchTuning(**numpy_fields)
+    assert type(numpy_tuning.max_information_sets) is int
+    assert numpy_tuning.restrict_viable_symbols is False
     assert _tuning.SearchTuning(lp_minimum_work=_tuning.MAX_VALUE).lp_minimum_work == 2**62
     # Float fields hold Python floats, from any real number.
     floats: dict[str, Any] = {"completion_bound_confidence_z": 3, "completion_bound_samples": 8}
@@ -84,6 +96,7 @@ def test_tunings_are_validated() -> None:
     invalid: list[tuple[type[Exception], str, dict[str, Any]]] = [
         (TypeError, "must be an integer", {"max_information_sets": True}),
         (TypeError, "must be an integer", {"lp_minimum_work": 1.5}),
+        (TypeError, "must be a bool", {"restrict_viable_symbols": 1}),
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
         (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),
         (ValueError, "between 1 and", {"scan_chunk_size": 0}),
@@ -105,6 +118,7 @@ def test_tunings_are_validated() -> None:
     widths = {"choices": (1, 2, 4, 8, 16)}
     narrowed: dict[str, dict[str, Any]] = {
         "lp_dual_max_denominator": {"minimum": 1},
+        "partition_max_coverage": {"minimum": 1},
         "completion_bound_block_bits": widths,
         "coset_completion_block_bits": widths,
         "completion_bound_samples": {"minimum": 1, "maximum": 2**12},
@@ -179,6 +193,50 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
         )
     assert results[0] == results[1] == results[2]
     assert partitioned == [False, True, False]
+
+
+def test_limits_on_partitioned_coverage_change_routes_but_not_results(
+    costly_stages: CostlyStages,
+) -> None:
+    """Exact distances and counts are the same under every limit on the coverage of partitioning.
+
+    Partitioning runs whenever some family could do less work, and overlapping families and random
+    column orders are off.  The X sector of the test's CSS code searches the code that
+    ``MISSED_SET_CODE`` generates, modulo the span of four of its words, so at the limit one its
+    search and counts take a family of disjoint sets.  The counts are at weight five, where that
+    sector has words, so they scan that family.
+    """
+    css_code = codes.CSSCode(
+        get_binary_matrix(
+            ["001010111111001", "101111011000010", "110100101001100", "111000100010101"]
+        ).astype(int),
+        get_kernel(MISSED_SET_CODE).astype(int),
+    )
+    results, max_coverages = [], []
+    for limit in (_tuning.MAX_VALUE, 2, 1):
+        costly_stages.partitioned_families.clear()
+        with _tuning.use_tuning(
+            partition_work_ratio=0,
+            overlapping_minimum_work=_tuning.MAX_VALUE,
+            disjoint_random_column_orders=0,
+            partition_max_coverage=limit,
+        ):
+            # A new code, since codes remember their distances.
+            distance = codes.CSSCode(css_code.matrix_x, css_code.matrix_z).get_distance_exact()
+            counts = lc.CSSLogicalCounter(css_code.matrix_x, css_code.matrix_z).count_logical_ops(5)
+        results.append((distance, counts))
+        max_coverages.append(
+            max(
+                (
+                    family.max_coverage
+                    for family in costly_stages.partitioned_families
+                    if len(family.ranks)
+                ),
+                default=0,
+            )
+        )
+    assert results[0] == results[1] == results[2]
+    assert max_coverages == [3, 2, 1]
 
 
 def test_the_tuning_page_documents_every_field_and_constant() -> None:
@@ -287,7 +345,12 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
     record(scan, "_scan_coefficient_layers", "chunk_size", "max_chunks")
-    record(connected_cluster.SupportSearch, "__init__", "automorphism_minimum_states")
+    record(
+        connected_cluster.SupportSearch,
+        "__init__",
+        "automorphism_minimum_states",
+        "restrict_viable_symbols",
+    )
     record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
     original_prepare = bz._prepare_brouwer_zimmermann_search
 
@@ -313,6 +376,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         macwilliams_chunk_size=1000,
         macwilliams_shared_walk_rank=5,
         automorphism_minimum_states=7,
+        restrict_viable_symbols=False,
         max_distance_sparsifying_rounds=4,
         sparsifying_rounds_without_improvement=2,
     ) as tuning:
@@ -336,6 +400,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "chunk_size": {1000, 1001},
         "max_chunks": {3},
         "automorphism_minimum_states": {7},
+        "restrict_viable_symbols": {False},
         "max_rounds": {4},
         "rounds_without_improvement": {2},
     }

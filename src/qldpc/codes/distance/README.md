@@ -133,7 +133,7 @@ The table "Routes and the names that control them" of [Exact-search performance 
 ## Tuning
 
 A value that a search reads when it starts, and that changes how long the search takes or how much memory it uses but no result that it guarantees, is a field of `SearchTuning` in `_tuning.py`.
-Such values include a threshold that chooses a route, a limit, a coefficient of a cost model, and a batch size.
+Such values include a threshold that chooses a route, a limit, a coefficient of a cost model, a batch size, and a switch that turns a step off.
 They are not arguments of public functions, whose arguments say what to compute and by which method, such as `cutoff`, `max_weight`, and `method`.
 
 - A search reads the active tuning once, when it starts, and passes the values that it needs down as arguments, including to compiled code, so that one search never mixes two tunings.

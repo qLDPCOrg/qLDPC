@@ -49,6 +49,8 @@ class ConnectedClusterCosetSearch:
             ``get_sparser_rows``).
         rounds_without_improvement: The field ``sparsifying_rounds_without_improvement`` of
             ``SearchTuning``.
+        restrict_viable_symbols: The field ``restrict_viable_symbols`` of ``SearchTuning`` (see
+            ``SupportSearch``).
     """
 
     def __init__(
@@ -58,6 +60,7 @@ class ConnectedClusterCosetSearch:
         symplectic: bool,
         max_rounds: int,
         rounds_without_improvement: int,
+        restrict_viable_symbols: bool,
     ) -> None:
         # Tabulate the words of weight zero or one by syndrome.  The syndrome of a single bit is a
         # column of the checks, with the halves of symplectic checks swapped.
@@ -82,6 +85,7 @@ class ConnectedClusterCosetSearch:
             np.zeros((0, matrix.shape[1]), dtype=np.uint8),
             symplectic=symplectic,
             automorphism_minimum_states=_tuning.MAX_VALUE,
+            restrict_viable_symbols=restrict_viable_symbols,
         )
         # For ``rows``, word ``j`` of ``get_unit_syndrome_words`` has a syndrome of only bit ``j``,
         # so the words of the set bits of a syndrome sum to a representative of its coset.

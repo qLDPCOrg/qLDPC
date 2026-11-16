@@ -5,8 +5,8 @@
 :class:`SearchTuning` collects the values with which a search for an exact distance, a count of
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
-routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.5, 3.8, and 3.9 of
-``connected_cluster.md`` explain the heuristics that read the fields.
+routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.4, 3.5, 3.8, and
+3.9 of ``connected_cluster.md`` explain how searches use the fields.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -78,8 +78,11 @@ Each default is in one of these classes, or was chosen by hand:
   against speed.  A batch or chunk size is meant to be the smallest whose overhead per call of
   compiled code is negligible, though not all current sizes meet this.
 - A convention is a statistical or numerical setting, and its comment says what it guarantees.
+- A switch turns a step of a search on or off, and defaults to on.
 - Blocks of completion tables default to the widest allowed width, and a budget bounds their memory
   (Section 4.4 of ``brouwer_zimmermann.md``).
+- A limit for experiments restricts what searches may build, and its default, ``MAX_VALUE``,
+  restricts nothing.
 
 The sizes of caches, ``coset_route_minimum_work``, and ``macwilliams_shared_walk_rank`` were chosen
 by hand, and the comments of the two fields say why.
@@ -104,6 +107,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
 from ._binary import as_integer
 
 #: The largest value of an integer field.  Searches add and multiply some fields in compiled code
@@ -122,7 +127,7 @@ _BLOCK_WIDTHS = {"choices": (1, 2, 4, 8, 16)}
 
 @dataclass(frozen=True, kw_only=True)
 class SearchTuning:
-    """Settings of exact searches and counts: thresholds, limits, coefficients, and batch sizes.
+    """Settings of exact searches and counts, such as thresholds, limits, batch sizes, and switches.
 
     Work is counted in candidate/set evaluations: an evaluation checks the word of one support (a
     combination of rows of one information set); coefficient layer ``w`` evaluates the supports
@@ -143,11 +148,11 @@ class SearchTuning:
 
     # Fields of information-set families.
 
-    #: The most information sets in a family of overlapping information sets, or in a family that
-    #: matroid partitioning finds; zero disables both, but not the maximum disjoint family of a
-    #: coset search.  More sets can stop a search before costly layers, but setup grows roughly with
-    #: the square of this limit, or with its cube when partitioning.  Defaults to 16, a budget of
-    #: setup effort (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: The most information sets in a family of overlapping information sets, or in a family of
+    #: coverage two or more that matroid partitioning finds; zero disables both, but not maximum
+    #: disjoint families.  More sets can stop a search before costly layers, but setup grows roughly
+    #: with the square of this limit, or with its cube when partitioning.  Defaults to 16, a budget
+    #: of setup effort (Section 4.4 of ``brouwer_zimmermann.md``).
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
@@ -181,11 +186,18 @@ class SearchTuning:
     overlapping_attempts_per_set: int = 2
 
     #: A search tries matroid partitioning only if its estimated work, in candidate/set evaluations,
-    #: reaches this multiple of the sum of ``b**2 * r**2 * N`` over the coverages ``b`` that it
-    #: tries, for ``r`` rows and ``N`` nonzero columns; zero removes this gate, and ``MAX_VALUE``
-    #: closes it.  Defaults to 5, a derived value: partitioning costs roughly that sum times a few
-    #: evaluations (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: reaches this multiple of the sum of ``b**2 * r**2 * N`` over the coverages ``b`` that it may
+    #: try, for ``r`` rows and ``N`` nonzero columns; zero removes this gate, and ``MAX_VALUE``
+    #: closes it.  Defaults to 5, a derived value: trying every such coverage costs roughly that sum
+    #: times a few evaluations (Section 4.4 of ``brouwer_zimmermann.md``).
     partition_work_ratio: int = 5
+
+    #: The largest coverage of the families that matroid partitioning builds in distance searches
+    #: and counts.  At least 1.  At 1, partitioning builds the maximum disjoint family, which
+    #: ``max_information_sets`` does not limit, rather than families of coverage two or more.
+    #: Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
+    #: ``brouwer_zimmermann.md``).
+    partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
     #: information sets also bounds unvisited words by linear programming; zero in every such
@@ -216,6 +228,12 @@ class SearchTuning:
     #: Defaults to ``5 * 10**4``, a derived value: the cost of asking, for a large code, tens of
     #: thousands of states (Section 3.5 of ``connected_cluster.md``).
     automorphism_minimum_states: int = 50_000
+
+    #: Whether a connected-cluster search, of distances or of vectors with a given syndrome,
+    #: restricts the subtree of each state to viable symbols (Section 3.4 of
+    #: ``connected_cluster.md``).  ``False`` skips the restriction, and the search stays exact.
+    #: Defaults to ``True``, a switch; ``False`` is for comparisons, such as ablations.
+    restrict_viable_symbols: bool = True
 
     #: The most rounds, each a row reduction in a random order of the columns, in which a
     #: ``CosetLeaderSearch`` with the connected-cluster method makes its checks sparser when it is
@@ -367,18 +385,24 @@ class SearchTuning:
     max_css_single_pairs: int = 2**18
 
     def __post_init__(self) -> None:
-        """Validate the fields, and store numbers as Python integers and floats.
+        """Validate the fields, and store them as Python bools, integers, and floats.
 
         Compiled code specializes on the types of its arguments, so storing every integer as a
         Python integer keeps a tuning from compiling code again.
 
         Raises:
-            TypeError: If a field is not a number of the type of its default, or is a bool.
+            TypeError: If a bool field is not a Python or NumPy bool, or a number field is a bool or
+                is not a number of the type of its default.
             ValueError: If an integer field is outside its bounds or choices, or a float field is
                 negative, above its bound, or not finite.
         """
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
+            if isinstance(field.default, bool):
+                if not isinstance(value, bool | np.bool_):
+                    raise TypeError(f"{field.name} must be a bool, not {value!r}")
+                object.__setattr__(self, field.name, bool(value))
+                continue
             if isinstance(field.default, float):
                 if isinstance(value, bool) or not isinstance(value, numbers.Real):
                     raise TypeError(f"{field.name} must be a real number, not {value!r}")
