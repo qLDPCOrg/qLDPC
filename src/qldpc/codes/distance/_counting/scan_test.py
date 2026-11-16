@@ -46,8 +46,8 @@ def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max
         assert_counts_match_enumeration(deformed)
 
 
-def test_a_deformed_self_dual_counter_shares_its_basis_family() -> None:
-    """A self-dual code stays self-dual under a SWEL-preserving gate, and keeps one basis family."""
+def test_a_swel_gate_keeps_a_self_dual_counter_self_dual_and_exact() -> None:
+    """A self-dual code stays self-dual under a SWEL-preserving gate, and its counts stay exact."""
     counter = lc.CSSLogicalCounter.from_code(codes.SteaneCode())
     assert_counts_match_enumeration(counter)
     deformed = counter.deformed_swel(0, 1, 2, 3)
