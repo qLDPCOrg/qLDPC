@@ -4,14 +4,14 @@
 
 For a code of distance ``d``, the half supports are the distinct sets of ``(d + 1) // 2`` qubits
 that lie in the support of a minimum-weight X-only or Z-only logical operator, and the majority
-supports are those of ``d // 2 + 1`` qubits.  They coincide for odd ``d``.
-``figures/plot_error_estimates.py`` estimates logical error rates from the numbers of operators and
-of majority supports, and explains why.
+supports are those of ``d // 2 + 1`` qubits.  They coincide for odd ``d``.  For even ``d``, the
+decoder discards an error on a whole half support.  ``figures/plot_error_estimates.py`` estimates
+logical error rates from the numbers of operators and of majority supports, and explains why.
 
 Run with ``python -m experiments.code_annealing.analysis.half_supports [--max-qubits N]``.  The
-script recounts every code of the two code files exactly, and fails if a count differs from its
-header.  It prints a line for each code, in a block for each code file, and saves the text to
-``data/half_supports.txt`` of the results directory unless ``--max-qubits`` skips codes::
+script recounts each selected code exactly, and fails if its distance or count differs from what its
+code file claims.  It prints a line for each code, in a block for each code file, and saves the text
+to ``data/half_supports.txt`` of the results directory unless ``--max-qubits`` is given::
 
     annealed_codes.txt
     [7, 1, 3] 7/7 21/21

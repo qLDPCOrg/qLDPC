@@ -156,11 +156,12 @@ def _estimate_error_rate(counts: HalfSupportCounts, error_rate: float) -> float:
     """Estimate the logical error rate of a code under depolarizing noise from its counts.
 
     Each qubit has an X-type error with probability ``r = 2 p / 3`` for a physical error rate ``p``,
-    and the X and Z sectors are decoded separately, as in the simulations (see
-    ``common._simulate_error_rate_func``).  This decoder applies a minimum-weight logical operator
-    of weight ``d`` when ``w = d // 2 + 1`` qubits of its support err, because its lookup table
-    holds the error on the rest of the support.  For even ``d``, errors on
-    exactly half of a support are discarded, so they add to the discard rate and not to this one.
+    and the X and Z sectors are decoded separately, as in the simulations, by a lookup table of the
+    errors of weight up to ``(d - 1) // 2`` (see ``common._simulate_error_rate_func``).  The decoder
+    applies a minimum-weight logical operator of weight ``d`` when ``w = d // 2 + 1`` qubits of its
+    support err, because the table holds the error on the rest of the support.  For even ``d``,
+    errors on exactly half of a support are discarded, so they add to the discard rate and not to
+    this one.
 
     The estimate multiplies the number of minimum-weight operators by the ``comb(d, w)`` subsets of
     each support and by ``r**w``, the probability that every qubit in a subset errs.

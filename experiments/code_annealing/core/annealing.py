@@ -6,14 +6,14 @@ A Markov chain of codes minimizes the energy E of arXiv:2607.19574 (see ``energy
 Clifford conjugations of a binary CSS stabilizer code.  Each proposal is scored exactly by its
 distance d and its multiplicity m, the number of minimum-weight X-only and Z-only logical operators.
 
-Each epoch has one temperature, fit to the energy jumps of the previous epoch's proposals, accepted
-or not.  Before the first epoch, a pilot scores one epoch's worth of proposals from the initial code
-to fit the first temperature, without moving the chain.  The search keeps two optima among the
-initial code and the proposals of the chain and its pilot: the lowest-energy code, and the
-greatest-distance code (the lowest m among ties).
+Each epoch has one temperature, smoothed toward a fit to the energy jumps of the previous epoch's
+proposals, accepted or not.  Before the first epoch, a pilot scores one epoch's worth of proposals
+from the initial code to fit the first temperature, without moving the chain.  The search keeps two
+optima among the initial code and the proposals of the chain and its pilot: the lowest-energy code,
+and the greatest-distance code (the lowest m among ties).
 
-The counting method changes only the running time.  ``_select_method`` describes how ``auto``
-chooses one, on proposals that never become optima.
+The counting method changes only the running time.  With ``auto``, a race on separate proposals,
+which never become optima, chooses it for each epoch (see ``_select_method``).
 """
 
 from __future__ import annotations
@@ -100,8 +100,8 @@ class SearchConfig:
             ``EpochStatistics`` records the actual rate.
         uphill_acceptance_stop: The same target in the last epoch.  The targets in between decrease
             geometrically, which cools the chain.  A search of one epoch uses only the start target.
-        temperature_memory: The weight ``m`` of the previous log-temperature: the log-temperature
-            of the next epoch is ``m * previous + (1 - m) * fit``, where the fit gives the target
+        temperature_memory: The weight ``w`` of the previous log-temperature: the log-temperature
+            of the next epoch is ``w * previous + (1 - w) * fit``, where the fit gives the target
             acceptance to the uphill jumps of the last epoch (or of the pilot).
         physical_error_rate: The physical error rate p of the energy.
         method: How proposals are scored (see the module docstring).

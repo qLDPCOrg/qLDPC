@@ -8,7 +8,7 @@ The code-annealing experiment has offline tests that you can run locally, but th
 | --- | --- | --- |
 | [`bivariate_bicycle/`](bivariate_bicycle/) | Brute-force search for bivariate bicycle codes with toric layouts | `run_search.py`, then `collect_results.py` |
 | [`quantum_tanner/`](quantum_tanner/) | Search for quantum Tanner codes, by enumeration where cheap and random sampling otherwise | `run_search.py`, then `compute_distances.py`, `collect_results.py`, and `verify_codes.py` |
-| [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS and SWEL codes, scored exactly | `reproduce_paper.py`; or `write_jobs.py`, then `collect_data.py` and `make_figures.py` |
+| [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS and SWEL codes, scored exactly | `python -m experiments.code_annealing.reproduce_paper`; or `write_jobs`, its jobs, `collect_data`, and `make_figures` (see its guide) |
 | [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and checks of the heuristics behind their tuning | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
 
@@ -37,7 +37,7 @@ Each experiment in the table below holds a CSV summary in its results directory,
 | Distance tuning | `results/trials.jsonl`: one line per trial of a comparison; `results/constants/`: the measurements of `constants.py` | `results/summary-<tag>.csv`: times of both arms of a comparison on each workload, and their ratios |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
 
-Code annealing writes no CSV summary; [its guide](code_annealing/README.md#what-the-scripts-write) lists its results.
+[The code-annealing guide](code_annealing/README.md#what-the-scripts-write) lists its results.
 
 ## Bivariate bicycle codes
 
@@ -199,7 +199,7 @@ Verification requires `codes.QTCode.random` to sample the same code for the same
 ## Quantum codes from classical annealing
 
 [`code_annealing/`](code_annealing/) implements and reproduces the code search of the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574).
-It anneals CSS and SWEL codes, scoring every proposal exactly by its distance and its number of minimum-weight X-only and Z-only logical operators, which is only practical for moderate block lengths.
+It anneals CSS codes and self-dual CSS codes with equivalent logicals (SWEL codes), scoring every proposal exactly by its distance and its number of minimum-weight X-only and Z-only logical operators, which is only practical for moderate block lengths.
 Its [guide](code_annealing/README.md) shows how to rebuild the paper's table and figures from the paper's codes in one command, and how to rerun the searches at any scale.
 
 ## Distance tuning

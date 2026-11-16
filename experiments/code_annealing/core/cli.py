@@ -43,8 +43,7 @@ def add_test_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--test",
         action="store_true",
-        help="use the test subdirectory of the results directory, for the smoke-test campaign of"
-        " write_jobs --test",
+        help="use the test subdirectory of the results directory, which holds a smoke-test campaign",
     )
 
 

@@ -2,6 +2,7 @@
 
 This experiment implements and reproduces the code search of the paper [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574) by Michael A. Perlin, Matthew Steinberg, and Ben Criger.
 It also rebuilds the paper's table and figures from the paper's codes.
+To cite the paper, see [CITATION.md](CITATION.md).
 
 The experiment searches for quantum error-correcting codes with high encoding rates and large distances by adaptive simulated annealing.
 It searches two classes of codes: CSS codes, and self-dual CSS codes with equivalent logicals (SWEL codes), which admit transversal logical Hadamard and phase gates.
@@ -19,8 +20,9 @@ cd qLDPC
 python -m pip install . matplotlib
 ```
 
-[ENVIRONMENT.md](ENVIRONMENT.md) covers the requirements, development and tests, threads and caches, and running on a server.
+Every script runs as `python -m experiments.code_annealing.NAME`, and is named by its `NAME` below.
 Outputs go under `experiments/code_annealing/results/`, written `results/` below.
+[ENVIRONMENT.md](ENVIRONMENT.md) covers the requirements, development and tests, threads and caches, and running on a server.
 
 ## Check the paper's claims
 
@@ -39,7 +41,7 @@ python -m experiments.code_annealing.reproduce_paper
 ```
 
 This copies `paper_data/` to `results/paper/data/`, recounts every code, and writes the table (`table_css.tex` and `table_swel.tex`) and the listings of the paper's appendix there.
-It then simulates the codes, and saves the paper's figures to `results/paper/figures/`, with `error_rates.pdf`, which shows both code types in one figure.
+It then simulates the codes, and saves the paper's figures to `results/paper/figures/`, and also `error_rates.pdf`, which is not in the paper and shows both code types in one figure.
 The table takes about five minutes.
 The figures take many hours, because they sample 10^7 errors for each code.
 
@@ -53,9 +55,10 @@ The figures take many hours, because they sample 10^7 errors for each code.
 
 The paper's campaign ran 5700 searches, one for each code type (CSS or SWEL), code size, and seed, for about 10^4 core-hours.
 Any part of it runs alone, on a laptop.
-Each search is seeded, but repeats exactly only with the same versions of Python, its numerical packages, and this code, on the same kind of machine (see `core/run_annealing.py`), so a rerun can find codes other than the paper's.
+Each search is seeded, but repeats exactly only with the same software on the same kind of machine (see `core/run_annealing.py`).
+So a rerun can find codes other than the paper's.
 
-Each step runs as `python -m experiments.code_annealing.NAME`:
+The campaign runs in three steps:
 
 | Step | Script | What it does |
 | --- | --- | --- |
@@ -89,9 +92,11 @@ python -m experiments.code_annealing.make_figures
 - `make_figures` takes the options of [the paper's figures](#rebuild-the-papers-table-and-figures).
 - `collect_data` writes the LaTeX tables only from a scrape of qecdb.org.
   `--scrape` takes a new scrape, which needs network access and sends three requests per code.
-  Without it, `collect_data` uses the newest earlier scrape if that scrape can be read and covers the same codes, so `collect_data --test` skips the tables.
+  Without it, `collect_data` uses the newest scrape in its `data/` directory if that scrape can be read and covers the same codes.
+  Otherwise it skips the tables, as `collect_data --test` does.
   qecdb.org changes, so a new comparison can differ from the paper's.
-- To resume after an interruption, or to add code sizes or seeds, run `write_jobs` again and then the jobs.
+- To resume after an interruption, run `write_jobs` again with the same options, and then the jobs.
+  To add code sizes or seeds, change only `--qubits`, `--code-types`, or `--max-seeds`.
   Finished searches are skipped, and unfinished ones resume exactly.
 - The jobs run seed by seed, so a campaign stopped early has about as many searches of every size.
 - Run all the jobs of a results directory on one machine.
@@ -119,7 +124,7 @@ Every script explains itself with `--help`.
 To run one search by hand, for example a short one that prints one JSON line per epoch and writes nothing:
 
 ```bash
-python -m experiments.code_annealing.core.run_annealing 7 1 \
+NUMBA_NUM_THREADS=1 python -m experiments.code_annealing.core.run_annealing 7 1 \
   --epochs 2 --steps-per-epoch 32 --seed 7 --dry-run
 ```
 

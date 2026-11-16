@@ -3,7 +3,8 @@
 ## Requirements
 
 - Python 3.11 or later, on a Unix system such as Linux or macOS, because the searches lock their files with `fcntl`.
-- The `qldpc` package of the same clone, which brings NumPy, SciPy, numba, galois, and Stim, and matplotlib for the figures.
+- The `qldpc` package of the same clone, which brings NumPy, SciPy, numba, galois, and Stim.
+- matplotlib, for the figures.
 - Optional: network access to scrape qecdb.org, and [GNU parallel](https://www.gnu.org/software/parallel/) to run many searches at once.
 
 Tested on macOS on Apple silicon with Python 3.13 (October 2026), and on Linux on x86-64 with Python 3.11 (November 2026).

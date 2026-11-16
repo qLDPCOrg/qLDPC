@@ -8,11 +8,12 @@ from any directory.  From the root::
 
     parallel -j 16 < experiments/code_annealing/results/logs/jobs.txt
 
-The full campaign, ``CAMPAIGN``, takes very long.  ``--qubits``, ``--code-types``, and
-``--max-seeds`` select part of it.  ``--test`` writes a small smoke-test campaign to the ``test/``
-subdirectory instead.  After an interruption, or to extend a campaign, run ``write_jobs`` again.
-The new file resumes unfinished searches and skips finished ones.  ``README.md`` describes the
-workflow of a campaign, and ``core/run_annealing.py`` what a job saves.
+``--qubits``, ``--code-types``, and ``--max-seeds`` select part of the campaign, ``CAMPAIGN``.
+``--test`` writes a small smoke-test campaign to the ``test/`` subdirectory instead.  After an
+interruption, run ``write_jobs`` again with the same options; to extend a campaign, change only the
+options that select its part.  The new file resumes unfinished searches and skips finished ones.
+The section "Rerun the searches" of ``README.md`` describes a campaign and its cost, and
+``core/run_annealing.py`` what a job saves.
 
 Every search starts from the lowest-energy code of ``--init-samples`` random codes, which are
 self-dual for both code types.

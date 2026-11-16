@@ -31,7 +31,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = make_parser(__doc__)
     parser.add_argument("--skip-figures", action="store_true", help="do not simulate the codes")
     parser.add_argument(
-        "--max-qubits", type=int, help="skip codes with more qubits, for a quick look"
+        "--max-qubits",
+        type=int,
+        help="plot only codes with at most this many qubits, for a quick look",
     )
     parser.add_argument(
         "--num-samples",
