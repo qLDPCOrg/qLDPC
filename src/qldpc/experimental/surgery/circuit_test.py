@@ -131,8 +131,8 @@ def test_build_single_ppm_circuit_noiseless_no_detector_fires(basis: PauliXZ) ->
 def test_ppm_logical_error_rate_grows_with_p(layout: str, pytestconfig: pytest.Config) -> None:
     """Circuit noise flips the decoded PPM outcome far more often at p=3e-2 than at p=1e-3.
 
-    The thresholds below lie between the logical error rates of a one-round Steane X̄ (or X̄X̄)
-    measurement at the two noise strengths, several standard errors from each at 500 shots.
+    Each threshold below lies between the logical error rates of a one-round Steane X̄ or X̄X̄
+    measurement at p=1e-3 and at p=3e-2, several standard errors from each at 500 shots.
     """
     from qldpc import decoders
     from qldpc.circuits import DepolarizingNoiseModel
@@ -174,8 +174,8 @@ def test_ppm_logical_error_rate_grows_with_p(layout: str, pytestconfig: pytest.C
 def test_single_ppm_decoding_corrects_errors(pytestconfig: pytest.Config) -> None:
     """With repeated rounds, decoding lowers the logical error rate of a single PPM.
 
-    For a Steane X̄ measurement with three rounds at p=1e-3, the threshold below lies between the raw
-    and decoded rates, several standard errors from each at 2000 shots.
+    For a Steane X̄ measurement with three rounds at p=1e-3, the threshold below lies between the
+    undecoded and decoded logical error rates, several standard errors from each at 2000 shots.
     """
     from qldpc import decoders
     from qldpc.circuits import DepolarizingNoiseModel

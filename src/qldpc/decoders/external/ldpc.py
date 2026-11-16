@@ -4,7 +4,8 @@
 
 qLDPC imports this integration module while initializing its public decoder API.  Eagerly importing
 ``ldpc``, which imports PyMatching, would noticeably slow ``import qldpc``, so qLDPC's subclasses of
-``ldpc`` decoders are created on first use, in the private section at the bottom of this module.
+``ldpc`` decoders are created on first use, in the "lazy backend classes" section at the bottom of
+this module.
 """
 
 from __future__ import annotations

@@ -372,15 +372,15 @@ def _get_primitive_fault_signatures(
         diagnostics.append("DETECTOR", [stim.target_rec(jj - len(stabilizers))])
     diagnostic_circuit = circuit + diagnostics
 
-    # Stim raises an error here for a nondeterministic detector or observable.  It needs the option
-    # for correlated error chains, and treats their components as independent error mechanisms,
-    # which only approximates their probabilities, and no probabilities are used here.
+    # Stim raises an error here for a nondeterministic detector or observable.  Stim needs the
+    # option for correlated error chains here.  It treats their components as independent error
+    # mechanisms, which only approximates their probabilities, but no probabilities are used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
     # Parsing the DEM's text is much faster than reading the targets of its error instructions
     # through stim's Python objects.  Stim escapes "]" in tags, so the targets of an instruction
-    # such as "error[tag](0.1) D0 L1" follow the first ")" after its tag, if any.  Stim also escapes
-    # line feeds in tags, but not other line breaks, so split lines only at line feeds.
+    # such as "error[tag](0.1) D0 L1" follow the first ")" after any tag.  Stim also escapes line
+    # feeds in tags, but not some other line breaks, so split lines only at line feeds.
     flag_bit = {detector: jj for jj, detector in enumerate(selected)}
     first_stabilizer_detector = circuit.num_detectors
     flags: list[int] = []
