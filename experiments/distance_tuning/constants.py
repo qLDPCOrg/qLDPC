@@ -499,11 +499,12 @@ def get_overlapping_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 def get_automorphism_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
     """The costliest seconds of finding the automorphisms of a BZ search and building their images.
 
-    Each trace holds one search.  A search that would partition first finds, verifies, and builds
-    the family of its automorphisms, to compare its work (``competing_seconds``), and then considers
-    the switch at the end of setup; another takes these steps at its first consideration.  So each
-    search counts both its competing seconds and its first consideration, and searches that consider
-    no switch do not count.
+    Each trace holds one search.  If partitioning passes its gate and some partitioned family could
+    do less work, a search first finds, verifies, and builds the family of its automorphisms, to
+    compare its work (``competing_seconds``), and then considers the switch at the end of setup.
+    Another search takes these steps at its first consideration.  So each search counts both its
+    competing seconds and its first consideration, and searches that consider no switch do not
+    count.
     """
     searches = []
     for trace in traces.values():

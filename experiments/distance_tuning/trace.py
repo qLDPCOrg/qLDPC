@@ -377,7 +377,7 @@ def get_partition_gate(
 
     - the estimated work of the family that partitioning would replace;
     - the largest coverage that partitioning may try, or 0 if it may try none;
-    - the unit that the search multiplies by ``partition_work_ratio``: the sum of
+    - the unit that the gate of partitioning multiplies by ``partition_work_ratio``: the sum of
       ``b**2 * r**2 * N`` over the coverages ``b`` that it may try, for ``r`` rows and ``N``
       nonzero columns;
     - the least work that any partitioned family could do, which a search with automorphisms
@@ -388,10 +388,10 @@ def get_partition_gate(
     Partitioning skips a coverage ``b`` if its bound is at least the work of the best family so far.
     At a ``partition_max_coverage`` of 1, partitioning may try only coverage one, and the least work
     is over disjoint families.  It skips coverage one if the given family is disjoint and has the
-    pruned rank bound of maximum disjoint families (Section 4.4 of ``brouwer_zimmermann.md``).  The
-    record also says whether these quantities let partitioning run (``partitioned``), even if it
-    then tried no coverage or found no family; ``wrap_family`` clears it when a competing family
-    rules partitioning out.
+    pruned disjoint rank bound (Section 4.4 of ``brouwer_zimmermann.md``).  The record also says
+    whether these quantities let partitioning run (``partitioned``), even if it then tried no
+    coverage or found no family; ``wrap_family`` clears it when a competing family rules
+    partitioning out.
     """
     plan = basis_families._get_partition_plan(basis, tuning)
     work = basis_family.certificate.work(upper_bound)

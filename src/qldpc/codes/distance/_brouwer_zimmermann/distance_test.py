@@ -1045,8 +1045,9 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
 ) -> None:
     """The rows of a scanned set with images can end a search at the cutoff."""
     # The rows of the disjoint family weigh more than six, and a row of the scanned set weighs six.
-    # The search switches before its first layer, or, if it would partition, at the end of setup,
-    # after asking for automorphisms to decide whether to partition.
+    # If partitioning passes its gate and some partitioned family could do less work, the search
+    # asks for automorphisms to decide whether to partition, and switches at the end of setup.
+    # Otherwise it switches before its first layer.
     tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=partition_work_ratio)
     code = qldpc.codes.BBCode({x: 6, y: 3}, 1 + x + x**3 * y, 1 + y + x)
     problem = get_sector_problem(code, Pauli.Z)

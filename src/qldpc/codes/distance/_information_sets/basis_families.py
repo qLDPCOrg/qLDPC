@@ -327,8 +327,8 @@ def get_partitioned_family(
     ``get_competing_work``, if given, returns the work of a family, such as an automorphism family,
     to which the caller would switch instead, discarding this stage's family (Section 3.7).  It is
     called only if partitioning passes its gate and some family of this stage could do less work
-    (Section 4.4), and partitioning then runs only if that work exceeds the least that a family of
-    this stage could do.
+    than ``basis_family`` (Section 4.4).  Partitioning then runs only if the competing work exceeds
+    the least that a family of this stage could do.
 
     Returns the family that certifies ``upper_bound`` with the least estimated work, if partitioning
     runs and that is less than the work of ``basis_family``, and otherwise a family with no sets.
@@ -356,8 +356,8 @@ def get_partitioned_family(
     # drops if it cannot help.
     for coverage in plan.coverages:
         if coverage == 1:
-            # Skip coverage one if the given family is disjoint and has the pruned rank bound of
-            # maximum disjoint families, which leaves the result unchanged (Section 4.4).
+            # Skip coverage one if the given family is disjoint and has the pruned disjoint rank
+            # bound, which leaves the result unchanged (Section 4.4).
             if _has_pruned_disjoint_rank_bound(basis_family, plan.num_columns, upper_bound):
                 continue
             maximum_disjoint = _get_family_of_sets(
@@ -540,8 +540,9 @@ def _get_disjoint_sets_for_columns(
 class _OverlappingCheck(enum.Enum):
     """The first check of ``_check_overlapping_family`` that rules a replacement out, or ``NONE``.
 
-    The checks find no open sets (no full sets, as many as the limit, or full sets that use every
-    nonzero column), an estimated work below the minimum, or that no family could do less work.
+    The checks find no open sets (no full sets, at least as many as the limit, or full sets that use
+    every nonzero column), an estimated work below the minimum, or that no family could do less
+    work.
     """
 
     NONE = 0
@@ -595,7 +596,7 @@ def _check_overlapping_family(
 
 
 class _PartitionPlan(NamedTuple):
-    """The coverages that ``get_partitioned_family`` may try for a basis, and its gate's quantities.
+    """The coverages that ``get_partitioned_family`` may try for a basis, and the unit of its gate.
 
     Attributes:
         dimension: The rows ``r`` of the basis.
@@ -685,15 +686,17 @@ def _get_maximum_disjoint_sets(basis: npt.NDArray[np.uint8]) -> list[list[int]]:
 def _has_pruned_disjoint_rank_bound(
     basis_family: BasisFamily, num_columns: int, upper_bound: int
 ) -> bool:
-    """Whether a family is disjoint and has the pruned rank bound of maximum disjoint families.
+    """Whether a family is disjoint and has the disjoint rank bound, pruned for ``upper_bound``.
 
-    The bound is ``k = min(N // r, 2**r - 1)`` information sets, for ``r`` rows and the
-    ``N = num_columns`` nonzero columns of the basis, and below the limit of a packing a partial set
-    of rank ``N - k*r``, if that is positive.  ``prune_family`` prunes it for ``upper_bound``.  If
-    the family has these ranks, so does every pruned maximum disjoint family (Section 4.4).
+    The disjoint rank bound is ``f = min(N // r, 2**r - 1)`` information sets, for ``r`` rows and
+    the ``N = num_columns`` nonzero columns of the basis, and below the limit of a packing a partial
+    set of rank ``N - f*r``, if that is positive.  It is pruned as ``prune_family`` prunes a family.
+    If the family is disjoint and has these ranks, so does every pruned maximum disjoint family
+    (Section 4.4).
     """
     # Bound the ranks of a maximum disjoint family: the most information sets that fit, up to the
-    # limit of a packing, and below that limit a partial set on the other columns, if any.
+    # limit of a packing, and below that limit a partial set of rank N - f*r, the number of other
+    # columns, if positive.
     dimension = basis_family.generators.shape[1]
     full_set_limit = _get_full_set_limit(dimension)
     num_full = min(num_columns // dimension, full_set_limit)
