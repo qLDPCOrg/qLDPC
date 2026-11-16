@@ -16,8 +16,8 @@ For what the code does, use this order:
 3. The library map and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
-The standards take precedence over existing code.
-Re-derive behavior from the current branch before documenting or changing it, and check whether it already does what a request asks.
+For how code should be written, the [standards](docs/source/contributing/standards/index.rst) take precedence over existing code.
+Re-derive behavior from the current branch before documenting or changing it, and check whether the code already does what a request asks.
 
 ## Reviews
 
@@ -28,7 +28,7 @@ Point out when a change would be easier to review as a sequence of smaller pull 
 
 ## Decisions and recommendations
 
-Recommend, present decisions, and add process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
+Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
 
 ## Working on a change
 
@@ -36,11 +36,12 @@ Recommend, present decisions, and add process as [decisions and recommendations]
 2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for, unless the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
    If the review does not pass, stop and report.
 3. Run the extended checks only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
-   Fix each failure that the change causes, and report any other failure, such as one that also occurs on the main branch, as an open decision.
+   Fix each failure that the change causes, then return to step 2.
+   Report any other failure, such as one that also occurs on the main branch, as an open decision.
 4. Hand the change off as [handing off a change](#handing-off-a-change) describes.
 
 A request to finish a change, as in "finish this PR", asks for steps 2 to 4.
-Run checks one at a time, never through `checks/all_.py`, and run tests over the whole repository only in the extended checks.
+Run checks individually, never through `checks/all_.py`, and run tests over the whole repository only in the extended checks.
 Leave notebook runs and the GAP integration tests to CI.
 
 ## Handing off a change
@@ -71,6 +72,7 @@ These files state the rules for working on qLDPC, or enforce them:
 - every file under [`docs/source/contributing/`](docs/source/contributing/), [`checks/`](checks/), and [`.github/`](.github/);
 - the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compilation_test.py`](src/qldpc/_compilation_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
-Unless the maintainer says to apply a change to them directly, change them only through a patch that the maintainer approves, even when the maintainer asked for the change or a change elsewhere forces it, as a renamed path does.
+Unless the maintainer says to apply a change to them directly, change them only through a patch that the maintainer approves.
+This holds even when the maintainer asked for the change, or when a change elsewhere forces it, such as renaming a path that they cite.
 Write the patch outside the repository, link it, and say which parts of it no review has seen.
 Once the maintainer approves it, apply exactly that patch with `git apply`, and commit it; if it no longer applies, regenerate it and ask again.

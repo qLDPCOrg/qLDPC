@@ -73,10 +73,13 @@ An example notebook helps readers understand and adapt a scientific workflow, no
 Use the smallest meaningful example, make it easy to adapt to a new question, and point to the relevant literature and implementation.
 
 * **Purpose:** introduce the question that the example answers, and why it is useful, before implementation details, for readers still exploring what is possible.
-* **Framing:** say what the example enables, and describe its choices as choices for that example, without a straw-man contrast or an assumption that the reader needs correcting; keep contrasts that clarify assumptions, genuine alternatives, or limitations.
+* **Framing:** say what the example enables, and describe its choices as choices for that example.
+  Avoid straw-man contrasts and assumptions that the reader needs correcting, but keep contrasts that clarify assumptions, genuine alternatives, or limitations.
 * **Background and assumptions:** introduce the concepts, quantities, notation, and scientific assumptions that the example needs, without turning it into a textbook chapter.
 * **Terminology:** define metrics and any conditioning, such as on accepted shots, where they first appear, then use short names consistently.
-* **Interpretation:** explain how outputs, assertions, and figures answer the question; distinguish demonstrations of an interface from scientific checks, and exact results from estimates or bounds; and say what a result does not establish when that affects its meaning.
+* **Interpretation:** explain how outputs, assertions, and figures answer the question.
+  Distinguish demonstrations of an interface from scientific checks, and exact results from estimates or bounds.
+  Say what a result does not establish when that affects its meaning.
 * **Figures:** explain shared plot conventions, such as reference lines and uncertainty bands, before the first figure that uses them.
 
 Review the prose, code, and saved outputs together as the intended reader would; running without errors does not make an example clear or meaningful.

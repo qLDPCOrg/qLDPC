@@ -98,16 +98,17 @@ The first two, the drafting checks, run while a change is in progress, including
   To apply formatting to changed files, run ``python checks/format_.py --fix -i``.
   ``format_.py`` always checks ``pyproject.toml`` as well, and without ``--check`` it rewrites that file.
 * **As needed:** targeted tests of the change, selected by function or by the test file of a changed module.
-  Run ``pytest_.py`` only on selected paths, since over the whole repository it repeats the test run of ``coverage_.py``.
-  When targeted tests do not settle whether a module's own tests cover it fully, pass, and run fast as plain Python, run ``coverage_.py`` on the module and its test file.
-* **Extended:** the anytime checks, ``coverage_.py`` over the whole repository, the compiled runs, and ``build_docs.py``: the checks that CI runs, other than the notebook runs.
+  Run ``pytest_.py`` only on selected paths, since over the whole repository it largely repeats the test run of ``coverage_.py``.
+  When targeted tests do not settle whether a module's own tests cover it fully, or pass and run fast as plain Python, run ``coverage_.py`` on the module and its test file.
+* **Extended:** the anytime checks, ``coverage_.py`` over the whole repository, the compiled runs, and ``build_docs.py``: the checks that CI runs on every pull request, other than the notebook runs.
 
 CI runs on pull requests that are ready for review, not on drafts.
 It also runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
 Make the compiled runs locally only in the extended checks, or to test a change to compiled code.
 To re-balance the coverage shards, run the "Store test durations" workflow from the Actions tab, then ``python checks/_fetch_test_durations.py``, and commit the updated ``.test_durations``.
 
-Every check script except ``build_docs.py`` accepts explicit files, or ``-i/--incremental [REVISION ...]``, which checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
+Every check script except ``build_docs.py`` accepts explicit files, or ``-i/--incremental [REVISION ...]``.
+The incremental mode checks only the files changed since the merge base with ``upstream/main``, ``origin/main``, or ``main`` (the first that exists), or with the given revisions.
 Check scripts find files through Git, so stage new files with ``git add`` before checking them.
 
 Refreshing the saved outputs of a changed notebook, as the :doc:`writing standard <standards/writing>` requires, is part of writing the change, not a check; the docs build renders those outputs without running code.

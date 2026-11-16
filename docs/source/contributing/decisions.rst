@@ -2,8 +2,8 @@ Decisions and recommendations
 =============================
 
 Maintainers and agents follow this page; other contributors need not read it.
-It covers adding process, recommendations to whoever decides or to another contributor, and a standard format for presenting a complex or risky decision.
-A report of requested work, such as a hand-off or a review's findings, is not a recommendation unless it asks its recipient to choose or to take another step.
+It covers adding process, recommendations to whoever decides or to another contributor, and a standard format for presenting decisions.
+A report of requested work, such as a hand-off or a review's findings with their suggested fixes, is not a recommendation unless it asks its recipient to choose or to take another step.
 
 .. _decisions-adding-process:
 
@@ -36,7 +36,7 @@ Consider only options that meet these constraints in what they change; if none d
 Values
 ~~~~~~
 
-Among those options, the first of these values on which they :ref:`materially differ <decisions-material>` decides, whatever the later values say:
+Among the options that meet the constraints, the first of these values on which they :ref:`materially differ <decisions-material>` decides, whatever the later values say:
 
 * **Capability:** the :ref:`key uses <decisions-key-uses>` that users can carry out within practical time and memory.
 * **Simplicity:** the lasting code, API, state, and concepts that the option adds, for the code and for its users.
@@ -44,8 +44,8 @@ Among those options, the first of these values on which they :ref:`materially di
 * **Performance:** the absolute time and memory that it saves or costs on the key uses.
 * **Compatibility:** the existing uses of public behavior that must change, and the cost of migrating them.
 
-A recommendation says what decided it, in a sentence that it already needs where possible: a value, by name; a constraint that leaves one option; or, when the evidence cannot separate the options, :ref:`reversibility <decisions-reversibility>`.
-When it has something to say in them, and always in the standard format, it adds two lines:
+A recommendation says what decided it, where possible in a sentence that it already needs: a value, by name; a constraint that leaves one option; or, when the evidence cannot separate the options, :ref:`reversibility <decisions-reversibility>`.
+It adds two lines when it has something to say in them, and always in the standard format:
 
 * **Tension:** the values or evidence that pull the other way, and what the choice costs on them; or "none".
 * **Independent opinion:** "not warranted", "suggested", or "obtained", with whether it agreed.
@@ -57,7 +57,7 @@ Evidence
 
 * State each claim that matters to the decision with its scope and source, and say whether the evidence verifies it, supports it, is merely consistent with it, leaves it conjectural, or refutes it.
   A fix that a test shows failing before and passing after needs nothing more.
-* Match the evidence to the claim, independently of what it checks: a derivation or a primary source for a scientific guarantee; a proof, an independent oracle, or brute force on small cases for an implementation; and representative measurements for time and memory, saying which factors, such as the machine, the load, and a random seed, were varied and which were fixed.
+* Match the claim with evidence that does not reuse the reasoning or code under test: a derivation or a primary source for a scientific guarantee; a proof, an independent oracle, or brute force on small cases for an implementation; and representative measurements for time and memory, saying which factors, such as the machine, the load, and a random seed, were varied and which were fixed.
 * Before a measurement chooses between options, write down what result would change the choice.
   An explanation of observed behavior, or an extrapolation from it, stays a conjecture until a test that it could have failed supports it.
 * When several candidates, thresholds, or explanations were tried, say how many, and how the reported one was chosen.
@@ -85,9 +85,9 @@ Evidence
 The standard format
 -------------------
 
-Present a decision to the person who decides it in the standard format when they ask for "the standard format", or when the decision changes a public name, argument, mode, or default, affects many modules, risks a wrong result, would be hard to undo, or trades off what only that person can weigh.
+Present a decision in the standard format to the person who decides it when they ask for "the standard format", or when the decision changes a public name, argument, mode, or default, affects many modules, risks a wrong result, would be hard to undo, or trades off what only that person can weigh.
 A decision to fix a reproduced bug without changing a public contract does not need the format.
-Present any other decision as a plain question with choices that names the recommended choice and says in a few plain words what a wrong choice would risk.
+Present any other decision as a plain question with choices: name the recommended choice, and say in a few plain words what a wrong choice would risk.
 Between contributors who do not decide, as from a reviewer to a review's coordinator, use whatever form serves the recipient.
 
 The format has these parts, in order, each as long as the stakes call for, omitting any that does not apply:
@@ -100,4 +100,4 @@ The format has these parts, in order, each as long as the stakes call for, omitt
 * **Ask:** one question, with the options as its choices.
 
 Give each decision its own Question and Ask; a report that leads into several decisions may first list them briefly.
-Keep the presentation high-level and plain, with technical detail and a few rounded, absolute numbers only where they could change the choice, and put supporting detail after the Ask or in a linked file.
+Keep the presentation high-level and plain, with technical detail and a few rounded, absolute numbers only where they could change the choice, and put supporting detail, such as the evidence for each claim, after the Ask or in a linked file.
