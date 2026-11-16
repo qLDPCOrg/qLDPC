@@ -3,8 +3,9 @@
 """Exact search for an accepted fault of the smallest fault weight that violates the bound.
 
 The search sees only the flags and the syndrome of each primitive fault, never a circuit.
-``fault_propagation.md`` defines the terms used here, describes the search, and proves that it is
-exact.  Comments cite the guide's sections by title.
+``fault_propagation.md`` defines the search's terms, describes the search, and proves that it is
+exact, and ``FaultLister`` defines the terms of its implementation.  Comments and docstrings cite
+the guide's sections by title.
 """
 
 from __future__ import annotations
@@ -22,9 +23,10 @@ from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBou
 
 # The peak memory, in bytes per pair, of building the closing map of pairs of classes (see
 # ``FaultLister``).  The finished map takes 16 bytes per pair for its hash and two classes, and at
-# most 32 for the slots of its hash map.  While its closing table is built, each pair takes at most
-# 8 more for a bucket count, 24 in all.  This leaves out the merge sort of a bucket of more than 32
-# pairs that is out of order (see ``_sort_bucket``).
+# most 32 for the slots of its hash map, 48 in all.  While its closing table is built, before the
+# slots, each pair takes at most 8 more for a bucket count, 24 in all, so the peak is 48.  This
+# leaves out the extra memory of merge sorting a bucket (a range of the table whose keys share their
+# top bits) of more than 32 pairs that is out of order (see ``_sort_bucket``).
 _BYTES_PER_PAIR = 48
 
 # The number of faults in the first batch of a call of ``FaultLister.find_first``.  Each batch
@@ -78,8 +80,10 @@ def find_smallest_violation(
 ) -> Violation | None:
     """Find a violating accepted fault of the smallest fault weight, or None if there is none.
 
-    ``flags`` and ``syndromes`` are packed, with one entry for each primitive fault in DEM order,
-    and ``max_weight``, if not None, limits the fault weight.  The oracle is ``CosetLeaderSearch``.
+    ``flags`` and ``syndromes`` hold, for each primitive fault in DEM order, its flags or its
+    syndrome packed into an integer.  ``max_weight``, if not None, limits the fault weight.
+    ``stabilizers``, ``css_weight``, and ``method`` configure the oracle of the search, a
+    ``CosetLeaderSearch``.
     """
     # Keep the first primitive fault of each distinct nonzero signature (see "Duplicate and zero
     # signatures can be dropped").
@@ -111,7 +115,7 @@ def _search_irreducible_faults(
     smallest fault weight, or None if there is none.
     """
     # Check each primitive fault with zero flags alone (see "Listing each irreducible accepted fault
-    # once"), and keep the others for the lister.
+    # once"), and keep the others for ``FaultLister``.
     flagged: list[tuple[int, int, int]] = []
     for (flag, syndrome), index in signatures.items():
         if flag:
@@ -121,8 +125,9 @@ def _search_irreducible_faults(
         if failure is not None:
             return failure
 
-    # Split the other primitive faults into heavy and light ones.  Without a heavy one, no fault
-    # violates the bound (see "A violating fault contains a heavy primitive fault").
+    # Split the other primitive faults into heavy and light ones.  A fault that contains no heavy
+    # primitive fault satisfies the bound (see "A violating fault contains a heavy primitive
+    # fault"), so the search stops if none is heavy.
     heavy: list[tuple[int, int, int, int]] = []
     light: list[tuple[int, int, int, int]] = []
     for flag, syndrome, index in flagged:
@@ -132,11 +137,13 @@ def _search_irreducible_faults(
     if not heavy:
         return None
 
-    # Give each primitive fault a representative of low Pauli weight, so that the lister skips more
-    # faults (see "Checking one fault").  A light primitive fault's representative has Pauli weight
-    # at most one.  A heavy primitive fault whose syndrome is the sum of the syndromes of two light
-    # ones gets the product of their representatives.  Compiled code finds such pairs, since their
-    # search takes time proportional to the number of heavy times light primitive faults.
+    # Give each primitive fault a representative of low Pauli weight, so that ``FaultLister`` skips
+    # more faults (see "Checking one fault").  A light primitive fault's representative has Pauli
+    # weight at most one.  A heavy primitive fault whose syndrome is the sum of the syndromes of two
+    # light ones gets the product of their representatives.  Compiled code finds such pairs, since
+    # their search takes time proportional to the number of heavy primitive faults times the number
+    # of light ones.  Any other heavy primitive fault keeps the error that the oracle returned for
+    # it.
     light_errors = {syndrome: error for _, syndrome, _, error in light}
     light_syndromes = list(light_errors)
     num_words = _get_num_words(light_syndromes + [syndrome for _, syndrome, _, _ in heavy])
@@ -202,24 +209,24 @@ class FaultLister:
     """Lists each irreducible accepted fault of given primitive faults that has a start member.
 
     The lister refers to each primitive fault by its position in the arguments.  Every primitive
-    fault has nonzero flags, and the first ``num_starts`` are the start members, which are the
-    search's heavy primitive faults.  "Listing each irreducible accepted fault once" in
-    ``fault_propagation.md`` defines flag classes, start classes, class codewords, closing classes,
-    and closing pairs, and proves that each such fault is listed once.  The classes are numbered in
-    the order of their first members.  A class tuple is a row of classes from which the lister
-    expands faults: a start class twice for fault weight two, and a class codeword that starts with
-    a start class for larger fault weights.
+    fault must have nonzero flags, and the first ``num_starts`` are the start members.  The search
+    passes its heavy primitive faults first, as the start members.  "Listing each irreducible
+    accepted fault once" in ``fault_propagation.md`` defines flag classes, start classes, class
+    codewords, closing classes, and closing pairs, and proves that each such fault is listed once.
+    The classes are numbered in the order of their first members.  A class tuple is a row of classes
+    from which the lister expands faults: a start class twice for fault weight two, and a class
+    codeword that starts with a start class for larger fault weights.
 
     Each class is a row of 64-bit words: the hash of its flags, then its flags.  Each primitive
     fault is a row of the hash of its syndrome, its syndrome, and the X and Z parts of its
     representative.  The hashes and the other parts are linear, so the row of a set of classes or
     of primitive faults is the sum of their rows.
 
-    A closing map is a closing table, which lists single classes or pairs of classes sorted by the
-    hash of their summed flags, and a hash map from each hash to its first entry in the table.  The
-    closing map of pairs, for fault weight four or more, is built only if it fits within the memory
-    limit and has at most 2**31 pairs.  The table of syndromes of listed faults (see
-    ``find_first``) grows within the rest of the memory limit.
+    A closing map has two parts: a closing table, which lists single classes or pairs of classes
+    sorted by the hash of their summed flags, and a hash map from each hash to its first entry in
+    the table.  The closing map of pairs, for fault weight four or more, is built only if it fits
+    within the memory limit and has at most 2**31 pairs.  The table of syndromes of listed faults
+    (see ``find_first``) grows within the rest of the memory limit.
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -241,9 +248,7 @@ class FaultLister:
         memory_limit: int,
     ) -> None:
         # Group the primitive faults into classes by their flags, each with its members in order,
-        # and order the classes by their first members, so that the start classes come first.  The
-        # members of class ``c`` are entries ``class_offsets[c]`` to ``class_offsets[c + 1]`` of
-        # ``class_members``.
+        # and order the classes by their first members, so that the start classes come first.
         member_lists_by_flags: dict[int, list[int]] = {}
         for position, flag in enumerate(flags):
             member_lists_by_flags.setdefault(flag, []).append(position)
@@ -302,20 +307,21 @@ class FaultLister:
     ) -> tuple[tuple[int, ...], int] | None:
         """Find the first listed fault of a fault weight that violates the bound.
 
-        The listed faults are passed to ``find_violation(syndromes, fault_weight)`` in batches of
-        growing size (see ``_INITIAL_BATCH_SIZE``), one syndrome per row, with word ``j`` of a row
-        holding bits ``64 j`` and up.  ``find_violation`` returns the index of the first syndrome
-        that violates the bound at this fault weight, or the number of rows if there is none.
+        The listed faults that are not left out (see below) are passed to
+        ``find_violation(syndromes, fault_weight)`` in batches of growing size (see
+        ``_INITIAL_BATCH_SIZE``), one syndrome per row, with word ``j`` of a row holding bits
+        ``64 j`` and up.  ``find_violation`` returns the index of the first syndrome that violates
+        the bound at this fault weight, or the number of rows if there is none.
 
-        A listed fault is left out, that is, not passed, if the product of the representatives of
-        its primitive faults has Pauli weight at most its fault weight, or if its syndrome is in the
-        table of syndromes.  The table holds the syndromes of the faults that this call, or an
-        earlier call without a violation, listed before it, as far as the table had room.  A call
-        that finds a violation clears the table, since it holds syndromes of faults that were not
-        checked.  Leaving these faults out is exact, as "Checking one fault" in
-        ``fault_propagation.md`` shows, if the fault weight never decreases from one call to the
-        next, every call uses the same ``find_violation``, and a syndrome that satisfies the bound
-        at one fault weight satisfies it at every larger one.
+        A listed fault is left out if the product of the representatives of its primitive faults
+        has Pauli weight at most its fault weight, or if its syndrome is in the table of syndromes.
+        The table holds the syndromes of faults listed earlier, by this call or by an earlier call
+        that found no violation, as far as it had room.  A call that finds a violation clears the
+        table, since the table can hold syndromes of faults listed after that violation, which were
+        never checked.  Leaving these faults out does not change the result if the fault weight
+        never decreases from one call to the next, every call uses the same ``find_violation``, and
+        a syndrome that satisfies the bound at one fault weight satisfies it at every larger one.
+        "Checking one fault" in ``fault_propagation.md`` shows why.
 
         Returns:
             The positions of the primitive faults of the first violating fault that was passed, in
@@ -357,7 +363,8 @@ class FaultLister:
         expansion_state = np.array([0, -1, 0, self._num_syndromes], dtype=np.int64)
 
         # Expand each batch of class tuples into faults.  Whenever the expansion pauses, grow the
-        # table of syndromes if it should grow, and check the batch of faults if it is full.
+        # table of syndromes if it should grow, and check the batch of faults if it is full.  At the
+        # end, check the last batch.
         for class_tuples in self._iter_class_tuples(fault_weight):
             expansion_state[0], expansion_state[1] = 0, -1
             while expansion_state[0] < len(class_tuples):
@@ -451,9 +458,9 @@ def _get_closing_map(
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
     """Build a closing map of single classes (``size == 1``) or of pairs of classes (``size == 2``).
 
-    ``hashes`` holds the hash of the flags of each class.  Return the sorted hashes and the sets of
-    the closing table (see ``_get_closing_table``), and the slots of its hash map (see
-    ``_get_key_slots``).
+    ``hashes`` holds the hash of the flags of each class.  Return the keys of the closing table, the
+    hashes of the summed flags of its sets in increasing order, its sets of classes (see
+    ``_get_closing_table``), and the slots of its hash map (see ``_get_key_slots``).
     """
     keys, sets = _get_closing_table(hashes, size)
     return keys, sets, _get_key_slots(keys)
@@ -504,6 +511,8 @@ def _get_closing_table(
             sets[entry, 0] = first
             if size == 2:
                 sets[entry, 1] = second
+
+    # Sort each bucket stably (see ``_sort_bucket``).
     for bucket in range(1 << bucket_bits):
         start = bucket_starts[bucket - 1] if bucket else 0
         if bucket_starts[bucket] - start > 1:
@@ -554,9 +563,9 @@ def _hashed_rows(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64
 def _sort_bucket(
     keys: npt.NDArray[np.uint64], sets: npt.NDArray[np.int32], start: int, stop: int
 ) -> None:
-    """Sort the entries from ``start`` to ``stop`` of a closing table stably by their keys.
+    """Sort a bucket, the entries from ``start`` to ``stop`` of a closing table, stably by key.
 
-    A bucket of at most 32 entries, or one in order, such as one of many sets with one hash, is
+    A bucket of at most 32 entries, or one in order, such as a bucket of many sets with one hash, is
     sorted by insertion, which takes linear time on entries in order.  A larger bucket out of order
     is merge sorted, which takes memory in proportion to its size but avoids the quadratic time of
     insertion.
@@ -624,7 +633,7 @@ def _list_class_codewords(
 
     # The closing keys serve as rows of one column, a hash and no syndrome words, so that
     # ``_find_syndrome_slot`` compares the keys alone (see ``_get_key_slots``).  Make these arrays
-    # once, rather than for each lookup.
+    # once, rather than for each lookup, which would slow the listing.
     key_rows = closing_keys.reshape((len(closing_keys), 1))
     no_words = closing_keys[:0]
 
@@ -717,14 +726,15 @@ def _expand_class_tuples(
 
     A fault of a class tuple (see ``FaultLister``) takes one member of each of its classes, with
     increasing members where a class repeats, and must contain a start member, one of the first
-    ``num_starts`` primitive faults.  The start members come first in their classes, and the start
-    classes, the first ``num_start_classes`` classes, come first in each class tuple.  The members
-    of class ``c`` are entries ``class_offsets[c]`` to ``class_offsets[c + 1]`` of
-    ``class_members``, and ``primitive_rows`` holds the row of each primitive fault (see
-    ``FaultLister``).  The first ``expansion_state[3]`` rows of ``syndrome_rows``, with
-    ``syndrome_slots``, form the table of syndromes (see ``_find_syndrome``).  Each fault that is
-    not left out (see ``FaultLister.find_first``) gets the next row of the batch arrays: its
-    primitive faults, in the order of its classes, and its syndrome.
+    ``num_starts`` primitive faults.  The start members come first in their classes, and a class
+    tuple lists its start classes, the first ``num_start_classes`` classes, before its other
+    classes.  The members of class ``c`` are
+    ``class_members[class_offsets[c]:class_offsets[c + 1]]``, and ``primitive_rows`` holds the row
+    of each primitive fault (see ``FaultLister``).  The first ``expansion_state[3]`` rows of
+    ``syndrome_rows``, with ``syndrome_slots``, form the table of syndromes (see
+    ``_find_syndrome``).  Each fault that is not left out (see ``FaultLister.find_first``) gets the
+    next row of the batch arrays: its primitive faults, in the order of its classes, and its
+    syndrome.
 
     The level is the index, in a class tuple, of the class whose member is being chosen.  The
     expansion keeps its state between calls in ``expansion_state`` (the index of the class tuple to
@@ -894,7 +904,8 @@ def _find_syndrome_slot(
     refers to the syndrome.  The number of slots must be a power of two, at most 2**32, and at least
     one slot must be empty, so that the lookup ends.
     """
-    # The slot is the top bits of the low 32 bits of the product, which fits in 64 bits.
+    # The product of the hash's low 32 bits and ``_HASH_MULTIPLIER`` fits in 64 bits, and the slot
+    # is the top bits of its low 32 bits.
     low_bits = np.uint64(0xFFFFFFFF)
     shift = np.uint64(32 - trailing_zeros_word(np.uint64(len(syndrome_slots))))
     slot = np.int64((((hashed & low_bits) * _HASH_MULTIPLIER) & low_bits) >> shift)
@@ -915,7 +926,7 @@ def _get_key_slots(keys: npt.NDArray[np.uint64]) -> npt.NDArray[np.int64]:
 
     The slots form a hash map as in ``_find_syndrome_slot`` whose rows are the keys, each a row of
     one column that holds a hash and no syndrome words, so that a lookup compares the keys alone.
-    So the first entry of a key is
+    The first entry of a key is
     ``slots[_find_syndrome_slot(key, keys[:0], keys.reshape((len(keys), 1)), slots)]``, or -1 if no
     entry has the key.  The number of slots is the smallest power of two that is at least twice the
     number of distinct keys, and at least two, so that at least one slot is empty.

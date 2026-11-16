@@ -41,9 +41,10 @@ def certify_bounded_fault_propagation(
 
     Fault-tolerant state preparation requires that a few faults cannot leave an error on the
     prepared state that is too heavy for later error correction.  This function decides exactly
-    whether a circuit meets a sufficient criterion, bounded fault propagation (Definition 3 in
-    Section 4.2 of `arXiv:0904.2557 <https://arxiv.org/abs/0904.2557>`_), and returns a certificate
-    of the result.  The `guide to the certifier
+    whether a circuit meets, up to ``max_weight`` if one is given, a sufficient criterion, bounded
+    fault propagation (Definition 3 in Section 4.2 of `arXiv:0904.2557
+    <https://arxiv.org/abs/0904.2557>`_), and returns a certificate of the result.  The `guide to
+    the certifier
     <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/circuits/certification/fault_propagation.md>`_
     explains how it searches, and why the search is exact.
 
@@ -352,9 +353,9 @@ def _get_primitive_fault_signatures(
 ) -> tuple[stim.Circuit, stim.DetectorErrorModel, list[int], list[int]]:
     """Get the certificate's circuit and DEM, and the flags and syndrome of each primitive fault.
 
-    The flags of a primitive fault have bit ``j`` for the ``j``-th selected detector, and its
-    syndrome has bit ``j`` for stabilizer ``j``.  Both lists follow the order of the DEM's error
-    instructions.
+    Each primitive fault is one error mechanism of the DEM.  Its flags have bit ``j`` for the
+    ``j``-th selected detector, and its syndrome has bit ``j`` for stabilizer ``j``.  Both lists
+    follow the order of the DEM's error instructions.
     """
     diagnostics = get_pauli_product_measurements(stabilizers, qubits=qubits)
     for jj in range(len(stabilizers)):
@@ -362,8 +363,9 @@ def _get_primitive_fault_signatures(
     diagnostic_circuit = circuit + diagnostics
 
     # Stim raises an error here for a nondeterministic detector or observable.  The option lets Stim
-    # convert correlated error chains into independent error mechanisms, with approximate
-    # probabilities, which are not used here.
+    # convert noise whose cases exclude each other, such as ``PAULI_CHANNEL_1``,
+    # ``PAULI_CHANNEL_2``, and ``ELSE_CORRELATED_ERROR`` chains, into independent error mechanisms,
+    # with approximate probabilities, which are not used here.
     dem = diagnostic_circuit.detector_error_model(approximate_disjoint_errors=True).flattened()
 
     # Parsing the DEM's text is much faster than reading the targets of its error instructions

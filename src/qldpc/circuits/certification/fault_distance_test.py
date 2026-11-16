@@ -39,7 +39,7 @@ def test_fault_distance_without_logical_faults() -> None:
 
 
 def test_fault_distance_errors() -> None:
-    """Unknown methods, checked first, and circuits that Stim cannot convert raise errors."""
+    """Unknown methods raise errors before conversion, as do circuits that Stim cannot convert."""
     circuit = stim.Circuit("H 0\nM 0\nDETECTOR rec[-1]")
     with pytest.raises(ValueError):
         circuits.get_fault_distance(circuit)

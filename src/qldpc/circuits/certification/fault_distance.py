@@ -39,7 +39,7 @@ def get_fault_distance(
         d_{\mathrm{fault}} = \min_{D \cdot e=0,\;L \cdot e\ne0}|e|.
 
     This function computes it with :func:`~qldpc.codes.distance.get_distance_from_checks`, with
-    :math:`D` as the checks and the faults that flip no detector or observable excluded.  The exact
+    :math:`D` as the checks, excluding the faults that flip no detector or observable.  The exact
     calculation can be expensive for larger circuits.
 
     Args:

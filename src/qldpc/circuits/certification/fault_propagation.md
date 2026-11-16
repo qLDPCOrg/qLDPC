@@ -107,9 +107,10 @@ Each of the two minima is the smallest Hamming weight in a coset of a classical 
 The coset of `x` is determined by the syndrome bits of the pure-Z stabilizers, and that of `z` by those of the pure-X stabilizers.
 `CosetLeaderSearch` computes these bits from the syndrome for `g_1, ..., g_n`.
 For the physical weight, or for a state that is not CSS, the X and Z parts do not separate in this way.
-To choose the CSS weight by default, the certifier tests whether the prepared state is CSS with the binary matrices `W_X` and `W_Z` of the X and Z parts of `g_1, ..., g_n`.
-Up to phases, the pure-X stabilizers form a space of dimension `n - rank(W_Z)`, the pure-Z stabilizers one of dimension `n - rank(W_X)`, and the two meet only in the identity.
-So the state is CSS exactly when `rank(W_X) + rank(W_Z) = n`.
+Let `W_X` and `W_Z` be the binary matrices of the X and Z parts of `g_1, ..., g_n`.
+To choose the default Pauli weight, the certifier tests whether the prepared state is CSS by their ranks.
+Up to phases, the pure-X stabilizers form a space of dimension `n - rank(W_Z)`, the pure-Z stabilizers one of dimension `n - rank(W_X)`, and the two meet only in the identity, so together they generate a space of dimension `2n - rank(W_X) - rank(W_Z)`.
+This space is the whole stabilizer group, of dimension `n`, exactly when `rank(W_X) + rank(W_Z) = n`.
 
 By default, each search of the oracle is a Brouwer-Zimmermann search of the cosets of a binary code, which [brouwer_zimmermann.md](../../codes/distance/brouwer_zimmermann.md) describes, with the improvements that it uses for cosets.
 When a high threshold makes a search costly, the oracle may search with another family of information sets that it expects to take less work.
