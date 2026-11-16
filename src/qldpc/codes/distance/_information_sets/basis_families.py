@@ -326,7 +326,7 @@ def get_partitioned_family(
     *,
     get_competing_work: Callable[[], int] | None = None,
 ) -> BasisFamily:
-    """Stage four: a basis family of information sets of bounded coverage, if it does less work.
+    """Stage four: a basis family of bounded coverage, if it does less work.
 
     For each coverage that it tries, from two and none above ``tuning.partition_max_coverage``,
     matroid partitioning finds the most information sets, up to ``tuning.max_information_sets``,
@@ -346,9 +346,9 @@ def get_partitioned_family(
     best = _get_no_replacement(basis_family, basis, labels)
 
     # Choose the coverages to try and the unit of the gate.  Above a limit of one, capping the sets
-    # at the most that fit within the limit, by counting their pivots, caps the coverages, and
-    # coverage one is left to the disjoint packing of stage one, so that the default route stays
-    # unchanged.
+    # at the most that fit within the limit, by counting their pivots, caps the coverages.  Coverage
+    # one is left to the disjoint packing of stage one, so that searches at the default limit build
+    # no maximum disjoint family.
     dimension = len(basis)
     num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
     coverage_limit = tuning.partition_max_coverage
@@ -597,9 +597,10 @@ def _get_family_of_sets(
     column_sets: list[list[int]],
     weight_divisor: int,
 ) -> BasisFamily:
-    """The basis family of nonempty sets of independent columns of a basis, with its labels.
+    """The basis family of one or more sets of independent columns of a basis.
 
-    The family is certified with the coverage of its pivots.
+    The basis's labels are reduced along with it, and the family is certified with the coverage of
+    its pivots.
     """
     # Reduce the basis on each set, transforming its labels along with it.
     dimension = len(basis)
@@ -692,11 +693,12 @@ def _estimate_optimistic_disjoint_work(
     upper_bound: int,
     binomials: npt.NDArray[np.int64],
 ) -> int:
-    """Return a lower bound on the estimated work of a disjoint family of a basis.
+    """Return a lower bound on the estimated work of a disjoint family that partitioning can build.
 
-    The arguments are as for ``_estimate_optimistic_work``.  The bound is the least work of 1 to
-    ``k`` full sets of coverage one, where ``k``, the most sets that a disjoint family can hold,
-    counts a partial set (Section 4.4).
+    Such a family, like a packing, holds at most ``2**dimension - 1`` sets.  The arguments are as
+    for ``_estimate_optimistic_work``.  The bound is the least work of 1 to ``k`` full sets of
+    coverage one, where ``k``, the most sets that such a family can hold, counts a partial set
+    (Section 4.4).
     """
     max_sets = min((num_columns + dimension - 1) // dimension, _get_full_set_limit(dimension))
     return min(

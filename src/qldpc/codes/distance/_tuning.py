@@ -193,7 +193,7 @@ class SearchTuning:
     partition_work_ratio: int = 5
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches
-    #: and counts, at least 1.  At 1, partitioning builds the maximum disjoint family, which
+    #: and counts.  At least 1.  At 1, partitioning builds the maximum disjoint family, which
     #: ``max_information_sets`` does not limit, rather than families of coverage two or more.
     #: Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
     #: ``brouwer_zimmermann.md``).

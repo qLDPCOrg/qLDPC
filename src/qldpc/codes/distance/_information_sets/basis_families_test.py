@@ -408,20 +408,23 @@ def test_a_coverage_limit_of_one_partitions_into_a_maximum_disjoint_family() -> 
     spy.assert_not_called()
 
 
-def test_no_disjoint_family_does_less_work_than_the_disjoint_bound(
+def test_built_disjoint_families_do_at_least_the_disjoint_bound(
     pytestconfig: pytest.Config,
 ) -> None:
-    """Maximum disjoint families and greedy packings, pruned or not, do at least the bound's work.
+    """Built disjoint families do at least the work of ``_estimate_optimistic_disjoint_work``.
 
-    A disjoint family can hold a partial set besides ``floor(N / r)`` information sets, as for the
-    columns e1, e2, e3, e4, e1, e2, e3 at the upper bound three, and fewer than ``ceil(N / r)``
-    sets, as for e1, e1, e1, e1, e2 at the upper bound six.
+    The test checks maximum disjoint families and greedy packings, pruned or not.  Its fixed bases
+    are cases that a bound would miss if it took only ``floor(N / r)`` or only ``ceil(N / r)`` sets,
+    ignored the weight divisor, or took at most ``r`` sets: the columns e1, e2, e3, e4, e1, e2, e3
+    at the upper bound three, e1, e1, e1, e1, e2 at the upper bound six, and four copies of e1, e2,
+    e3, whose rows are even, at the upper bounds five and six.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     bases = [
         ((np.array(columns) >> np.arange(rows)[:, None]) & 1).astype(np.uint8)
         for columns, rows in (([1, 2, 4, 8, 1, 2, 4], 4), ([1, 1, 1, 1, 2], 2))
     ]
+    bases.append(np.tile(np.eye(3, dtype=np.uint8), 4))
     for _ in range(12):
         rows = int(rng.integers(1, 6))
         bases.append(get_random_full_rank_matrix(rng, rows, int(rng.integers(rows, 4 * rows + 2))))
