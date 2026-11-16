@@ -627,7 +627,7 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | --- | --- |
 | `_BrouwerZimmermannSearch.advance` | Returns after one layer, or after the leading search bases of a layer that certify `U`, or earlier if `U ≤ cutoff`; a search may first switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)); a finished search does no further work |
 | `_BrouwerZimmermannSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
-| `BrouwerZimmermannSearches.finished` | Marks the searches finished once the shared best bound is at most `cutoff`, or every search has finished; `get_distance_brouwer_zimmermann_many` then returns that bound |
+| `BrouwerZimmermannSearches.finished` | Marks the searches finished once the shared `U ≤ cutoff`, or every search has finished; `get_distance_brouwer_zimmermann_many` then returns `U` |
 
 The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, and `test_searches_that_setup_settles_are_finished_at_once` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
 
@@ -747,9 +747,8 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Once the search bases that `advance` scans have completed a layer, it may raise `lower_bound` ([Section 2.5](#25-the-stopping-certificate)), but it increments `next_weight` only once every search basis has.
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
   If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch.
-  After an exception, a later call restarts the layer from its first support; after a stop at the cutoff, the search has finished.
-  `BrouwerZimmermannSearches` steps the searches of several problems.
-  If its `advance` raises, those searches can be left inconsistent, so build a new `BrouwerZimmermannSearches` to search again.
+  A later call restarts the layer from its first support, unless the search has finished, as it has after a stop at the cutoff.
+  If `BrouwerZimmermannSearches.advance` raises, a witness that the interrupted scan found can stay out of the shared `U`, so build new searches to search again.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

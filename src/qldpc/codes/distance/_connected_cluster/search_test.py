@@ -552,7 +552,7 @@ def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Each advance searches one limit of the problem with the lowest lower bound, until the end."""
+    """Each advance searches the problem with the lowest lower bound until the searches finish."""
     searches_made: list[cs.SupportSearch] = []
     limits: list[tuple[int, int]] = []
     init, find_witness = cs.SupportSearch.__init__, cs.SupportSearch.find_witness
