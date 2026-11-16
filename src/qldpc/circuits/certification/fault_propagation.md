@@ -211,10 +211,10 @@ So once the search has chosen a primitive fault from each start class of a class
 The search could therefore skip all these faults if it finds a Pauli error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults chosen so far.
 Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
 
-The search does not use this rule, because at the fault weights where it was tried, the time that it saved did not justify the added complexity.
+The search does not use this rule, because in trials the time that it saved did not justify the added complexity.
 A trial implementation, in an earlier version of the search that worked with primitive faults rather than classes, applied the rule to each partial choice of primitive faults that contained a light primitive fault.
 It looked for such a Pauli error in the first two layers of the oracle's search of Pauli errors, at each light primitive fault added to a partial choice, and reused the answer for each heavy part.
 It did not look when adding the last primitive fault of a fault, since only one fault then completes the choice.
 The number of faults that complete a choice grows with the fault weight.
 Up to fault weight four, looking for such a Pauli error cost about as much time as it saved.
-At fault weights five and six, in searches that listed every fault, it made them up to about twice as fast, so the rule may pay off in searches that reach larger fault weights.
+In searches that listed every fault, it saved little time at fault weight five but made the search about twice as fast at fault weight six, so the rule may pay off in searches that reach larger fault weights.

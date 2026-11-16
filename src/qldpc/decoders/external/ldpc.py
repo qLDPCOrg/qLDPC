@@ -3,7 +3,7 @@
 """Decoder specifications for decoders provided by the ldpc package.
 
 qLDPC imports this integration module while initializing its public decoder API.  Eagerly importing
-``ldpc``, which imports PyMatching, would slow ``import qldpc`` by about 0.2 seconds, so qLDPC's
+``ldpc``, which imports PyMatching, would slow ``import qldpc`` by about 0.1 seconds, so qLDPC's
 subclasses of ``ldpc`` decoders are created on first use by the code in the "lazy backend classes"
 section at the bottom of this module.
 """
