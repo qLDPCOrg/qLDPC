@@ -642,7 +642,6 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
         )
 
 
-@pytest.mark.usefixtures("switch_before_any_layer", "completion_tables")
 def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -673,7 +672,8 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
     )
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
     searches = bz.BrouwerZimmermannSearches(problems, cutoff=0)
-    assert len(prepared) == 2 and not searches.finished
+    num_searches = len(prepared)
+    assert num_searches == 2 and not searches.finished
     bests = [searches.best]
     while not searches.finished:
         num_visits = len(visits)
@@ -685,7 +685,7 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
     # Each search that advances is the first unfinished one after the last, in cyclic order.
     previous = -1
     for index, finished in visits:
-        candidates = [(previous + offset) % 2 for offset in range(1, 3)]
+        candidates = [(previous + offset) % num_searches for offset in range(1, num_searches + 1)]
         assert index == next(candidate for candidate in candidates if not finished[candidate])
         previous = index
     assert any(
@@ -693,12 +693,16 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
     )
 
     # Once finished, the searches do nothing.
+    num_visits = len(visits)
     searches.advance()
-    assert len(visits) == num_visits + 1
+    assert len(visits) == num_visits
 
 
 def test_searches_that_setup_settles_are_finished_at_once() -> None:
-    """Searches are finished when built if setup settles every problem, or with no problems."""
+    """Searches are finished when built if setup settles every problem, or with no problems.
+
+    In the random code, setup settles one sector, whose witness finishes the search of the other.
+    """
     searches = bz.BrouwerZimmermannSearches([], cutoff=0, upper_bound=3)
     assert searches.finished and searches.best == 3
     hamming_code = qldpc.codes.HammingCode(3)
@@ -706,11 +710,14 @@ def test_searches_that_setup_settles_are_finished_at_once() -> None:
     searches = bz.BrouwerZimmermannSearches([problem], cutoff=7)
     assert searches.finished and searches.best == 3
 
+    code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
+    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
+    searches = bz.BrouwerZimmermannSearches(problems, cutoff=0)
+    assert searches.finished and searches.best == code.get_distance(method="brute_force") == 2
 
-def test_a_search_resumes_after_an_interrupt_and_keeps_its_witnesses(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A search that raises after a batch finds a witness keeps it, and later finds the distance.
+
+def test_an_interrupted_search_keeps_its_witnesses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A search that raises after a batch finds a witness keeps it, which gives the distance.
 
     The scan raises once, in the batch after the first that lowers the best weight, as a keyboard
     interrupt can.  This sector's witness then reaches the search's lower bound, so the search has
@@ -725,7 +732,8 @@ def test_a_search_resumes_after_an_interrupt_and_keeps_its_witnesses(
             raised = True
             raise KeyboardInterrupt
         result = scan_set(*args)
-        lowered = lowered or result[0] < args[8]
+        best_before, best_after = args[8], result[0]
+        lowered = lowered or best_after < best_before
         return result
 
     code = get_random_css_code(np.random.default_rng(33), 30, 10, 10)
@@ -743,6 +751,38 @@ def test_a_search_resumes_after_an_interrupt_and_keeps_its_witnesses(
     assert raised and searches.best == expected == 2
 
 
+def test_an_interrupted_search_that_has_not_finished_advances_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a scan raises, the next advance advances the same search, which is not finished."""
+    visits: list[bz._BrouwerZimmermannSearch] = []
+    advance, scan_set = bz._BrouwerZimmermannSearch.advance, affine_search.scan_set
+    raised = False
+
+    def recording_advance(search: bz._BrouwerZimmermannSearch) -> int:
+        visits.append(search)
+        return advance(search)
+
+    def interrupted_scan_set(*args: Any) -> Any:
+        nonlocal raised
+        if not raised:
+            raised = True
+            raise KeyboardInterrupt
+        return scan_set(*args)
+
+    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "advance", recording_advance)
+    monkeypatch.setattr(affine_search, "scan_set", interrupted_scan_set)
+    code = get_random_css_code(np.random.default_rng(4), 60, 20, 25)
+    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
+    searches = bz.BrouwerZimmermannSearches(problems, cutoff=0)
+    with pytest.raises(KeyboardInterrupt):
+        searches.advance()
+    assert not visits[0].finished
+    searches.advance()
+    assert visits[1] is visits[0]
+
+
+@pytest.mark.usefixtures("switch_before_any_layer", "completion_tables")
 def test_automorphism_family_searches_find_exact_distances() -> None:
     """Searches given automorphisms agree with brute force, alone or sharing witnesses."""
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)

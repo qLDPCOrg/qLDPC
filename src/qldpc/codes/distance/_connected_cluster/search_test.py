@@ -560,9 +560,11 @@ def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
 
     monkeypatch.setattr(cs.SupportSearch, "__init__", recording_init)
     monkeypatch.setattr(cs.SupportSearch, "find_witness", recording_find_witness)
-    sectors = get_sectors(codes.TetrahedralCode())
-    searches = cs.ConnectedClusterSearches(sectors, cutoff=0)
+    # The problems have the divisors 2 and 1, so the lowest lower bound is not round-robin.
+    problems = [PROBLEMS["toric-X"], PROBLEMS["steane-X"]]
+    searches = cs.ConnectedClusterSearches(problems, cutoff=0)
     lower_bounds = [search.weight_divisor for search in searches_made]
+    assert lower_bounds == [2, 1]
     while not searches.finished:
         num_limits = len(limits)
         searches.advance()
@@ -570,7 +572,7 @@ def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
         index, max_weight = limits[-1]
         assert max_weight == lower_bounds[index] == min(lower_bounds)
         lower_bounds[index] += searches_made[index].weight_divisor
-    assert searches.result == 3 and limits[-1][1] == 3
+    assert searches.result == 3 and limits == [(1, 1), (0, 2), (1, 2), (1, 3)]
 
     # Once finished, the searches do nothing.
     num_limits = len(limits)
@@ -581,7 +583,7 @@ def test_stepped_searches_advance_the_problem_with_the_lowest_lower_bound(
     trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
     for searches in (
         cs.ConnectedClusterSearches([trivial], cutoff=0),
-        cs.ConnectedClusterSearches(sectors, cutoff=3, upper_bound=3),
+        cs.ConnectedClusterSearches(problems, cutoff=3, upper_bound=3),
     ):
         assert searches.finished and searches.result == 3
         searches.advance()

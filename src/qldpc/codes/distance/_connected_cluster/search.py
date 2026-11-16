@@ -118,7 +118,8 @@ class ConnectedClusterSearches:
         if not problems and upper_bound is None:
             raise ValueError("Require at least one problem or an upper bound")
 
-        # A problem without witnesses only bounds the result.
+        # Build a search of each problem with witnesses; a problem without witnesses only bounds the
+        # result.
         tuning = get_tuning() if tuning is None else tuning
         self._cutoff = cutoff
         self._best_weight = upper_bound
@@ -181,8 +182,7 @@ class ConnectedClusterSearches:
                 " limits, which only a bug can cause"
             )
 
-        # Search the problem with the lowest lower bound through its next limit, which the cutoff
-        # can raise.
+        # The cutoff can raise the next limit.
         index = self._lower_bounds.index(min(self._lower_bounds))
         search = self._searches[index]
         divisor = search.weight_divisor

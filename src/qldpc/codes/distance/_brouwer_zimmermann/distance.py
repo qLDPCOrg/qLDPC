@@ -133,7 +133,6 @@ class BrouwerZimmermannSearches:
         self._cutoff = cutoff
         self._searches: list[_BrouwerZimmermannSearch] = []
         self._next = 0
-        self._finished = True
         if not problems:
             if upper_bound is None:
                 raise ValueError("Require at least one problem or an upper bound")
@@ -174,20 +173,21 @@ class BrouwerZimmermannSearches:
     @property
     def finished(self) -> bool:
         """Whether the best upper bound is at most the cutoff, or every search has finished."""
-        return self._finished
+        return self.best <= self._cutoff or all(search.finished for search in self._searches)
 
     def advance(self) -> None:
         """Advance the next unfinished search, in round-robin order, by one layer, unless finished.
 
         Every search then takes the best upper bound, which shares witnesses between problems.  If
-        the search raises, as at a keyboard interrupt, its witnesses still lower the best upper
-        bound, and a later call advances it again, from the start of its layer.
+        a scan of the search raises, as at a keyboard interrupt, the witnesses that the scan found
+        still lower the best upper bound, and a later call advances the same search again, from the
+        start of its layer, unless that search has finished.
 
         Raises:
             ValueError: If a generator from ``get_automorphisms`` is not an automorphism of the
                 problem of the search that uses it.
         """
-        if self._finished:
+        if self.finished:
             return
         while self._searches[self._next].finished:
             self._next = (self._next + 1) % len(self._searches)
@@ -201,15 +201,9 @@ class BrouwerZimmermannSearches:
         self._next = (self._next + 1) % len(self._searches)
 
     def _share_best(self) -> None:
-        """Give every search the best upper bound, and note whether the searches have finished.
-
-        A search that this finishes frees its completion tables.
-        """
+        """Give every search the best upper bound; a search that this finishes frees its tables."""
         for search in self._searches:
             search.update_upper_bound(self.best)
-        self._finished = self.best <= self._cutoff or all(
-            search.finished for search in self._searches
-        )
 
 
 ####################################################################################################

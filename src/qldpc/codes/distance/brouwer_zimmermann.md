@@ -600,7 +600,8 @@ The search of Pauli errors by CSS weight has no routes by tails, since the CSS w
 ### 4.2 Flow and exit points
 
 A public entry point validates inputs and chooses a method.
-For BZ, `get_distance_brouwer_zimmermann_many` builds a `BrouwerZimmermannSearches`, which prepares each problem, and whose `advance` method advances the searches that remain one layer at a time, in round-robin order for a joint CSS search ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
+For BZ, `get_distance_brouwer_zimmermann_many` builds a `BrouwerZimmermannSearches`, which prepares each problem.
+Each call of its `advance` method advances one remaining search by one layer, in round-robin order for a joint CSS search ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 Preparation returns a result, or a `_BrouwerZimmermannSearch` whose `advance` method searches one layer `t`, or only its first `j` search bases if step `(t, j)` certifies `U` ([Section 2.5](#25-the-stopping-certificate)).
 A result of preparation can include a witness from another sector or the bound of a weight limit ([Section 4.5](#45-behavior-spanning-files)), so it need not be the distance of its sector.
 
@@ -745,8 +746,9 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   A compiled scan of a distance search returns after at most `batch_size` supports, or supports and lookups together with completion tables, so that it stays responsive while it skips most supports, and successive batches reuse its `support` and `prefixes` arrays.
   Once the search bases that `advance` scans have completed a layer, it may raise `lower_bound` ([Section 2.5](#25-the-stopping-certificate)), but it increments `next_weight` only once every search basis has.
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
-  If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch, and a later call restarts the layer from its first support.
-  `BrouwerZimmermannSearches.advance` still takes the witnesses that such a scan found into the shared bound, and its next call advances the same search again.
+  If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch and the witnesses that the scan found.
+  After an exception, a later call restarts the layer from its first support; after a stop at the cutoff, the search has finished.
+  `BrouwerZimmermannSearches.advance` takes the witnesses of a scan that raises into the shared bound, and its next call advances the same search again unless that search has finished.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**
