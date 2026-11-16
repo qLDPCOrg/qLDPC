@@ -7,18 +7,12 @@ Use a pull request description as a guide to review, not a second set of documen
 Write a description for a reader who has read no other pull request: link merged pull requests by number, and explain any context that another pull request provides rather than referring to it, as in "the next pull request".
 Give numbers, such as test counts, timings, or speedups, only when review needs them, as for a change made for speed, and do not take measurements only for a description.
 The description of a change to the rules for working on qLDPC says how it changes their total length, and which rule, if any, it replaces.
-Normally use the following structure:
+Normally use the following structure, in proportion to the pull request, and omit sections that add no information:
 
-* **Motivation or Background:** explain why the change is needed and provide context necessary to review it.
-* **Changes:** outline what the full PR does, grouping related changes rather than listing individual commits.
-  Point readers toward important details instead of reproducing explanations from changed documentation.
-* **Testing or Validation, when useful:** explain how consequential decisions were made, tested, or validated, such as alternatives compared, independent controls, experiments, or manual exploration.
-  Do not list routine CI checks or results.
-  A check that also runs in CI can deserve mention when its design or interpretation matters; explain what it establishes and why it was chosen, not merely that it passed.
-* **Additional notes, when needed:** include material tradeoffs, limitations, compatibility considerations, or review questions that do not fit naturally above.
+* **Motivation or Background:** why the change is needed, and the context needed to review it.
+* **Changes:** what the whole pull request does, grouping related changes rather than listing commits, and pointing to important details rather than repeating changed documentation.
+* **Testing or Validation, when useful:** how consequential decisions were made, tested, or validated, such as alternatives compared, independent controls, experiments, or manual exploration.
+  Do not list routine CI checks or results; mention a check that also runs in CI only when its design or interpretation matters, and then say what it establishes.
+* **Additional notes, when needed:** material tradeoffs, limitations, compatibility considerations, or review questions that fit nowhere above.
 
-Write the prose of a description in paragraphs, with two spaces between sentences within each paragraph.
-Do not insert line breaks merely at sentence boundaries.
-
-Use bulleted lists for independent points and numbered lists when order matters.
-Keep the structure proportional to the PR, and omit sections that add no information.
+Write the prose of a description in paragraphs, with two spaces between sentences and no line breaks merely at sentence boundaries.
