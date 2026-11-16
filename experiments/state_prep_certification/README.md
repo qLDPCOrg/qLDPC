@@ -5,6 +5,7 @@ Each experiment is a subdirectory that plugs into shared code at this level:
 
 | Experiment | What it measures | Inputs |
 | --- | --- | --- |
+| [`distances/`](distances/) | Exact code distances with qLDPC's extensions of the Brouwer-Zimmermann search on, against the same search configured with only the techniques that some public exact tool shares with it | Codes drawn by a fixed rule with fixed seeds, and named anchors |
 
 The experiments run only qLDPC and its Python dependencies, so that they can run on a Linux node without practical network access.
 The shared workflow builds everything that the node needs into one offline bundle on a workstation, runs each experiment on the node with GNU parallel, and brings one archive back for analysis on the workstation.
