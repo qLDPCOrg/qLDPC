@@ -186,10 +186,10 @@ class SearchTuning:
     overlapping_attempts_per_set: int = 2
 
     #: A search tries matroid partitioning only if its estimated work, in candidate/set evaluations,
-    #: reaches this multiple of the sum of ``b**2 * r**2 * N`` over the coverages ``b`` that it
-    #: tries, for ``r`` rows and ``N`` nonzero columns; zero removes this gate, and ``MAX_VALUE``
-    #: closes it.  Defaults to 5, a derived value: partitioning costs roughly that sum times a few
-    #: evaluations (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: reaches this multiple of the sum of ``b**2 * r**2 * N`` over the coverages ``b`` that it may
+    #: try, for ``r`` rows and ``N`` nonzero columns; zero removes this gate, and ``MAX_VALUE``
+    #: closes it.  Defaults to 5, a derived value: trying every such coverage costs roughly that sum
+    #: times a few evaluations (Section 4.4 of ``brouwer_zimmermann.md``).
     partition_work_ratio: int = 5
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches

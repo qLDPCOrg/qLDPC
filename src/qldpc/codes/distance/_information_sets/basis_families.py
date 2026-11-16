@@ -393,6 +393,14 @@ def get_partitioned_family(
             )
             family = prune_family(maximum_disjoint, upper_bound)
         else:
+            # Skip a coverage at which no family could do less work than the best so far, which
+            # leaves the result unchanged (Section 4.4).
+            most_sets = min(max_sets, coverage * num_columns // dimension)
+            least_work = _estimate_optimistic_work(
+                dimension, num_columns, weight_divisor, upper_bound, most_sets, binomials
+            )
+            if least_work >= best_work:
+                continue
             column_sets = matroid_partition.get_information_sets_with_coverage(
                 basis, coverage, max_sets
             )

@@ -314,6 +314,49 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
             assert get_competing_work.called == runs
 
 
+def test_partitioning_skips_coverages_at_which_no_family_could_replace_the_best() -> None:
+    """Partitioning skips a coverage at which no family could do less work than the best so far.
+
+    It takes the family that trying every coverage would.
+    """
+    rows = [
+        "00101101010",
+        "01011111101",
+        "10000110010",
+        "00010110001",
+        "00001000101",
+        "10001110001",
+    ]
+    basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+    labels = np.eye(len(basis), dtype=np.uint8)
+    partition = matroid_partition.get_information_sets_with_coverage
+
+    # The families that partitioning finds at each coverage that it may try, from two up to
+    # ceil(16 * 6 / 11) = 9, and the work of each to certify the weight four.
+    families = {
+        coverage: basis_families._get_family_of_sets(
+            basis, labels, partition(basis, coverage, 16), weight_divisor=1
+        )
+        for coverage in range(2, 10)
+    }
+    works = {coverage: family.certificate.work(4) for coverage, family in families.items()}
+
+    # Given the family of coverage two, partitioning takes the family of least work, of the first
+    # coverage that reaches it, if that is less than the given family's work.
+    expected = min((work, coverage) for coverage, work in works.items() if work < works[2])[1]
+
+    # The given family does the least work of any family of at most three sets, the most that fit
+    # within coverage two, so partitioning skips that coverage.  No family of the coverages above
+    # three does less work than that of coverage three, which partitioning tries and takes.
+    tuning = SearchTuning(partition_work_ratio=0, max_information_sets=16)
+    with mock.patch.object(
+        matroid_partition, "get_information_sets_with_coverage", wraps=partition
+    ) as spy:
+        family = basis_families.get_partitioned_family(basis, labels, families[2], 4, tuning)
+    assert [call.args[1] for call in spy.call_args_list] == [expected] == [3]
+    np.testing.assert_array_equal(family.pivots, families[expected].pivots)
+
+
 def test_maximum_disjoint_families_replace_smaller_packings() -> None:
     """A maximum disjoint family has the most information sets, then the largest partial set."""
     # A greedy packing of e1, e2, e3, e1 + e2, e1 + e2 leaves a partial set of rank one, but
