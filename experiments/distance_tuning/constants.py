@@ -9,8 +9,9 @@ a table of these costs, in seconds and in the unit of the field that gates each 
 to compare with the default of that field.  A second table gives, by field, each cost rounded as
 ``round_to_grid`` does (``derived``) beside the default.  The script then measures the coefficients
 of the cost model of completion tables on the searches of ``COST_DATA_SET`` under each tuning of
-``COST_MODEL_ARMS``, which together can take hours, and prints each, under ``measured``, beside its
-default.  The functions of this script say how it measures each cost.  The script sets no value.
+``COST_MODEL_ARMS``, which together can take hours.  It prints each coefficient, under ``measured``,
+beside its default.  The functions of this script say how it measures each cost.  The script sets no
+value.
 
 Each measurement runs in a new single-threaded process, and the script saves it in ``constants/`` in
 the results directory with a fingerprint of the qLDPC source.  So the script measures again after a

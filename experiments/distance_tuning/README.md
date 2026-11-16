@@ -52,7 +52,7 @@ python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6
 ```
 
 `sweep.py` says what the summary of a comparison gives and flags, and when to time with `--repeat`.
-A flagged disagreement, or a median ratio well above one where the traced decisions do not change, points to a bug or a regression.
+A flagged disagreement, or a proposed arm much slower than the current one where the traced decisions do not change, points to a bug or a regression.
 
 Before timing:
 

@@ -21,10 +21,10 @@ current arm's over rounds, with its spread and, from six rounds on, a confidence
 A trial's time is the median of its ``--repeat`` repetitions, and later repetitions reuse what codes
 and coset searches cache (see ``trial.py``).  Cached work that is the same in every arm, such as the
 generator matrix of a classical code given by checks, can dominate a trial of a small code, and
-drops out of the median with ``--repeat 3``.  Time with one repetition a change to work that later
-repetitions skip: a setup budget of coset searches, or ``automorphism_minimum_states`` or
-``automorphism_minimum_layer_work``, which decide whether a search finds the automorphisms that
-codes remember.  Run comparisons with limits on their time and memory.
+drops out of the median with ``--repeat 3``.  Time with one repetition a change to what later
+repetitions skip: the setup of coset searches, or whether a search finds the automorphisms that
+codes remember, which ``automorphism_minimum_states`` and ``automorphism_minimum_layer_work``
+decide.  Run comparisons with limits on their time and memory.
 
 Examples, the first of which proposes a value of ``automorphism_minimum_states``, and the second of
 which compares the defaults of two checkouts:
