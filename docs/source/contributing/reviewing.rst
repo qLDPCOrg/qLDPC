@@ -49,7 +49,7 @@ The coordinator gives each reviewer:
     * documentation that leaves out a behavior or limitation without which a reader could get a wrong or materially misleading result without an error.
 
     Mark every other finding minor.
-    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is minor unless an agent that follows them in good faith would plausibly do something that a maintainer would have to correct, without reporting it.
+    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is significant exactly when a contributor who follows them in good faith would plausibly miss it and do something that a maintainer would have to correct.
   * Ask for documentation only where a standard calls for it; for a behavior that the writing standard says to state, name the reasonable expectation, its source, and the wrong result that it would give.
   * Report problems that existed before the change separately, as pre-existing problems; a problem that the change causes in unchanged code, such as a broken caller, is a finding about the change.
   * Check whether the change needs updates elsewhere, such as to callers, to documents that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
@@ -104,7 +104,7 @@ After each round, the coordinator:
 
 Decisions, unless already made, include design and public API changes, changes to the standards or to this page, disagreements with a reviewer, fixes that the rules on :ref:`adding process <decisions-adding-process>` make into decisions, and what to do about any other pre-existing problem that can give a wrong result or fail silently.
 No round reviews the final round's fixes, so in the final round make only local, evidently correct fixes, and report any other fix as a suggestion.
-Where it can, a final-round fix to prose keeps to wording that a reviewer saw.
+Where possible, a final-round fix to prose keeps to wording that a reviewer saw.
 A coordinator who may not revise the change, as for another contributor's pull request, reports every fix as a suggestion and ends the review after one round.
 
 The report gives:

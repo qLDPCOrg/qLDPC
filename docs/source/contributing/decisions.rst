@@ -11,7 +11,7 @@ Adding process
 --------------
 
 Process is what is added to how work is done: rules, review steps, checks, experiments, measurement protocols, and the scripts and tests that serve them.
-It excludes the library, the tests of its behavior, and what a standard requires.
+It excludes the library, the tests of the library's behavior, and what a standard already requires.
 Process can grow to serve itself, as when each fix to a benchmark protocol adds a rule to cover a gap that the previous rule left.
 
 * Before adding or recommending process that neither the request nor the rules call for, say in one sentence, in the recommendation or the report, what the work as a whole was requested for, and check that the addition serves that purpose, not only its own.
@@ -87,7 +87,7 @@ Evidence
 The standard format
 -------------------
 
-Present a decision in the standard format to the person who decides it when they ask for "the standard format", or when the decision affects many modules, risks a wrong result, would be hard to undo, trades off what only that person can weigh, or changes a public name, argument, mode, or default.
+Present a decision in the standard format to the person who decides it, when they ask for "the standard format", or when the decision affects many modules, risks a wrong result, would be hard to undo, trades off what only that person can weigh, or changes a public name, argument, mode, or default.
 A decision to fix a reproduced bug without changing a public contract does not need the format.
 Present any other decision as a plain question with choices: name the recommended choice, and say in a few plain words what a wrong choice would risk.
 Between contributors who do not decide, as from a reviewer to a review's coordinator, use whatever form serves the recipient.

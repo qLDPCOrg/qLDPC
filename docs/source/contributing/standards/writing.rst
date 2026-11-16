@@ -72,7 +72,7 @@ Example notebooks
 Example notebooks should help readers understand and adapt a scientific workflow, not merely show that API calls run.
 Use the smallest meaningful example, make it easy to adapt to a new question, and point to the relevant literature and implementation.
 
-* **Purpose:** for readers still exploring what is possible, introduce the question that the example answers, and why it is useful, before implementation details.
+* **Purpose:** before implementation details, introduce the question that the example answers, and why it is useful, to readers still exploring what is possible.
 * **Framing:** say what the example enables, and describe its choices as choices for that example.
   Avoid straw-man contrasts and assumptions that the reader needs correcting, but keep contrasts that clarify assumptions, genuine alternatives, or limitations.
 * **Background and assumptions:** introduce the concepts, quantities, notation, and scientific assumptions that the example needs, without turning it into a textbook chapter.
