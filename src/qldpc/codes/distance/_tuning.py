@@ -245,8 +245,9 @@ class SearchTuning:
     auto_free_work: int = 100_000_000
 
     #: The most work, in candidate/set evaluations, that the Brouwer-Zimmermann probe of
-    #: ``method="auto"`` may do.  Its bound caps the connected-cluster search.  The probe skips the
-    #: costlier stages of setup, and stops before a layer that would take it over this work.
+    #: ``method="auto"`` may do.  The weight of the lightest word that it finds caps the
+    #: connected-cluster search.  The probe skips the costlier stages of setup, and stops before a
+    #: layer that would take it over this work.
     #: Defaults to ``10**8``, a budget for the cost of choosing: a fraction of a second (section
     #: "Choosing a method" of ``README.md``).
     auto_probe_work: int = 100_000_000

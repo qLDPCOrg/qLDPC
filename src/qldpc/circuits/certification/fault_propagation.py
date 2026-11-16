@@ -262,10 +262,10 @@ class BoundedFaultPropagationCounterexample:
 
     No fault that passes post-selection and has a smaller fault weight violates the bound.
     Equivalence, fault weight, Pauli weight, output error, residual weight, and the bound are as
-    defined in ``certify_bounded_fault_propagation``.  With the method ``"brouwer_zimmermann"``, the
-    ``output_pauli`` and ``residual_weight_lower_bound`` of a counterexample can change between
-    versions of qLDPC, as the searches that find them change (see ``method`` in
-    ``certify_bounded_fault_propagation``).
+    defined in ``certify_bounded_fault_propagation``.  With the method ``"brouwer_zimmermann"``, or
+    ``"auto"``, which takes it here, the ``output_pauli`` and ``residual_weight_lower_bound`` of a
+    counterexample can change between versions of qLDPC, as the searches that find them change (see
+    ``method`` in ``certify_bounded_fault_propagation``).
 
     Attributes:
         fault_indices: The indices of the fault's error mechanisms among the error instructions of

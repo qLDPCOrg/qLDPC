@@ -272,7 +272,7 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
     # 7 as a Pauli string, more than the distance 4.  The setup of the probe's search finds a
     # witness of the distance, which joins the probe's bound only once that search advances.  So a
     # probe that advances no layer has the bound 14 in the weights of BZ words, or 7 in those of
-    # Pauli strings, a cutoff below 7 must not return 7, and a cutoff of 7, doubled for the BZ
+    # Pauli strings.  A cutoff below 7 must not return 7, and a cutoff of 7, doubled for the BZ
     # words, returns 7 before the setup.
     with use_tuning(**NO_PROBE):
         core.get_distance_pauli(hgp_checks, method="auto")
@@ -285,7 +285,8 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
     assert routes.probes == [(True, 8), (True, 8), (True, 14)]
 
     # A CSS search passes its cutoff on too: with the cutoff 7, a search of the Golay code probes
-    # before its first weight limit, and the setup of the probe finds a word of weight 7.
+    # before its first weight limit, and a row of the probe's basis weighs 7, so the probe finishes
+    # before its setup.
     routes.probes.clear()
     routes.limits.clear()
     with use_tuning(**NO_PROBE):
