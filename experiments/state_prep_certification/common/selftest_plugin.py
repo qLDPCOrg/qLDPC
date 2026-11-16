@@ -1,0 +1,123 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""A stand-in experiment with which ``selftest.py`` tests the shared code of the experiments.
+
+Each task's ``input`` is a list of steps that ``run`` performs in order:
+
+* ``["startup", s]``: sleep s seconds before timing starts;
+* ``["sleep", s]``: the measured call sleeps s seconds;
+* ``["alloc", gib]``: the measured call holds gib GiB of touched memory for 5 seconds;
+* ``["spawn", s]``: the measured call starts a grandchild that sleeps s seconds, and waits for it;
+* ``["orphan", s]``: the measured call starts a grandchild that sleeps s seconds, and does not wait;
+* ``["partial", n]``: the measured call sends n partial results;
+* ``["fail"]``: the measured call raises an exception;
+* ``["post", s]``: after the measured call, send the result and post-process for s seconds;
+* ``["value", v]``: the measured call returns v;
+* ``["garbage", s]``: the measured call writes a line that is not a message to the runner, then
+  sleeps s seconds.
+
+Every result also holds the child's process id and the wall-clock interval of its measured call,
+with which the tests check that concurrent runs use different CPUs.
+"""
+
+from __future__ import annotations
+
+import os
+import pathlib
+import subprocess
+import sys
+import time
+from typing import Any
+
+from experiments.state_prep_certification.common import runner
+
+NAME = "selftest"
+EXTRA_WHEELS: list[str] = []
+DATA: list[str] = []
+FROZEN_FILES: list[str] = []
+JOB_MEM_GIB = 1.0
+
+
+def prepare(label_dir: pathlib.Path) -> None:
+    """Nothing to prepare."""
+
+
+def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
+    """Three short timed tasks, for tests of ``run_node.py``."""
+    return [
+        {
+            "key": f"stand_in.timed.t{index}.r0",
+            "experiment": NAME,
+            "arm": "stand_in",
+            "mode": "timed",
+            "repeat": 0,
+            "input": [["sleep", 0.1 * index]],
+            "limit_s": 10.0,
+            "mem_cap_gib": JOB_MEM_GIB,
+            "grace_s": 5.0,
+        }
+        for index in range(3)
+    ]
+
+
+def worst_case_s(task: dict[str, Any]) -> float:
+    """Start-up cap, limit, and grace, times three for the first run and two repeats."""
+    once = runner.STARTUP_CAP_S + task["limit_s"] + runner.GRACE_S
+    return 3 * once
+
+
+def repeat_tasks(task: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Two repeats of every timed task that finished in under 1 s."""
+    if task.get("mode") != "timed" or row["status"] != "ok" or row["T"] >= 1:
+        return []
+    return [dict(task, key=f"{task['key']}.r{i}", repeat=i) for i in (1, 2)]
+
+
+def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
+    """Perform the task's steps."""
+    steps = [tuple(step) for step in task["input"]]
+    for step in steps:
+        if step[0] == "startup":
+            time.sleep(step[1])
+    start = time.time()
+    value = runner.timed(_measured, steps)
+    fields = {"value": value, "pid": os.getpid(), "wall": [start, time.time()]}
+    for step in steps:
+        if step[0] == "post":
+            runner.send_result(fields)
+            time.sleep(step[1])
+            return {"post": "done"}
+    return fields
+
+
+def acceptance(node: bool, results_dir: pathlib.Path) -> bool:
+    """The stand-in has no acceptance tests of its own."""
+    return True
+
+
+def _measured(steps: list[tuple[Any, ...]]) -> Any:
+    """The measured call of the stand-in."""
+    value = None
+    for step in steps:
+        if step[0] == "sleep":
+            time.sleep(step[1])
+        elif step[0] == "alloc":
+            block = bytearray(int(step[1] * 2**30))
+            for index in range(0, len(block), 4096):
+                block[index] = 1
+            time.sleep(5)
+        elif step[0] in ("spawn", "orphan"):
+            child = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({step[1]})"])
+            if step[0] == "spawn":
+                child.wait()
+        elif step[0] == "partial":
+            for index in range(step[1]):
+                runner.send_partial({"index": index})
+        elif step[0] == "fail":
+            raise RuntimeError("the stand-in failed on purpose")
+        elif step[0] == "value":
+            value = step[1]
+        elif step[0] == "garbage":
+            os.write(int(os.environ["FTSP_CHANNEL_FD"]), b"not a message\n")
+            time.sleep(step[1])
+    return value

@@ -2,7 +2,7 @@
 
 This directory holds research scripts that use `qldpc`.
 They are not part of the installed `qldpc` package, and the default test and coverage runs do not cover them.
-The code-annealing experiment has offline tests that you can run locally, but they do not run in CI.
+The code-annealing experiment and the shared code of `state_prep_certification/` have offline tests that you can run locally, but they do not run in CI.
 
 | Directory | What it does | Entry points |
 | --- | --- | --- |
@@ -11,8 +11,10 @@ The code-annealing experiment has offline tests that you can run locally, but th
 | [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS and SWEL codes, scored exactly | `python -m experiments.code_annealing.reproduce_paper`; or `write_jobs`, its jobs, `collect_data`, and `make_figures` (see its guide) |
 | [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and checks of the heuristics behind their tuning | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
+| [`state_prep_certification/`](state_prep_certification/) | Exact certification of fault-tolerant state preparation circuits, and the exact distance searches that it relies on, run offline on a Linux node | `node.sh` on the node; `bundle.py` on a workstation |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
+`state_prep_certification/node.sh` describes itself in its header comment, which `--help` prints.
 The quantum Tanner `run_search.py` and `verify_codes.py` use [GAP](https://www.gap-system.org) for groups in the SmallGroups library and for Cordaro-Wagner base codes (the GUAVA package), whereas `compute_distances.py` and `collect_results.py` only read saved files.
 If GAP cannot be called, `abstract.SmallGroup` retrieves groups from GroupNames.org instead.
 The generators of a group from GroupNames.org can differ from those of GAP, so the same file names can then save different codes, which fail verification on a machine that uses GAP.
@@ -36,6 +38,7 @@ Each experiment in the table below holds a CSV summary in its results directory,
 | Quantum Tanner | `results/codes/`: one text file per saved code; `results/exact_distances.csv`: exact distances | `results/codes.csv`: parameters of every distinct saved code with `k > 0` |
 | Distance tuning | `results/trials.jsonl`: one line per trial of a comparison; `results/constants/`: the measurements of `constants.py` | `results/summary-<tag>.csv`: times of both arms of a comparison on each workload, and their ratios |
 | Lattice surgery | `results/{preset}_{run_id}_progress.csv`: Sinter progress | `results/{preset}.csv`: sample counts, from which logical error rates follow |
+| State preparation certification | `results/<experiment>/<label>/runs.jsonl`: one row per run | the CSV summaries of each experiment's `analyze.py` |
 
 [The code-annealing guide](code_annealing/README.md#what-the-scripts-write) lists its results.
 
@@ -239,3 +242,12 @@ python experiments/distance_tuning/sweep.py --tag automorphism-states --rounds 6
 `collect_ler.py --preset PRESET` runs one of the presets `bb72`, `bb18`, or `steane-joint`, and writes aggregate sample counts, from which its logical error rates follow, to `results/{preset}.csv`.
 Collection is resumable, and some presets take hours to days at publication scale.
 See the [lattice-surgery README](lattice_surgery/README.md) for example commands, provenance tracking, and costs.
+
+## State preparation certification
+
+[`state_prep_certification/`](state_prep_certification/) holds experiments on the exact certification of fault-tolerant state preparation circuits, and on the exact distance searches that it relies on.
+They run only qLDPC and its Python dependencies, on a Linux node without practical network access.
+A workstation builds one offline bundle with `bundle.py`.
+The node runs an experiment with `node.sh` and GNU parallel, one pinned core per run, and one archive comes back for analysis.
+Each run's label fixes the pinned versions, the experiment's frozen inputs, and the commit of the scripts, so that a change gives a separately labeled run.
+See the [`state_prep_certification` README](state_prep_certification/README.md) for the shared workflow, which lists the experiments.
