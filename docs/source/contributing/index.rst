@@ -104,7 +104,7 @@ The first two, the drafting checks, run while a change is in progress, including
 
 CI runs on pull requests that are ready for review, not on drafts.
 It also runs the checks that need extra dependencies or platforms, such as the notebook and GAP integration tests, so these need not run locally.
-Make the compiled runs locally only in the extended checks, or to test a change to compiled code.
+Make the compiled runs locally only in the extended checks, or as targeted tests of a change to compiled code.
 To re-balance the coverage shards, run the "Store test durations" workflow from the Actions tab, then ``python checks/_fetch_test_durations.py``, and commit the updated ``.test_durations``.
 
 Every check script except ``build_docs.py`` accepts explicit files, or ``-i/--incremental [REVISION ...]``.

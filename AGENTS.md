@@ -35,7 +35,7 @@ Recommend, present decisions, and weigh new process as [decisions and recommenda
 1. While writing a change, run the drafting checks of the [validation commands](docs/source/contributing/index.rst#validation-commands).
 2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for, unless the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
    If the review does not pass, stop and report.
-3. Run the extended checks only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
+3. Run the [extended checks](docs/source/contributing/index.rst#validation-commands) only if the maintainer asks for them by name, or has said that they will be away while the change is completed.
    Fix each failure that the change causes, then return to step 2.
    Report any other failure, such as one that also occurs on the main branch, as an open decision.
 4. Hand the change off as [handing off a change](#handing-off-a-change) describes.

@@ -8,12 +8,12 @@ Such changes are most common in code constructions, code-core algebra or cached 
 qLDPC has two kinds of review:
 
 * A **full review** gives each angle that the change can affect its own reviewer, except as the :ref:`grouping rules <review-grouping>` allow.
-  It suits a high-risk change, a change to a public name, argument, mode, or default, a change to what the rules for working on qLDPC require, and a change too large for one reviewer to read in full.
+  It suits a high-risk change, a change to what the rules for working on qLDPC require, a change too large for one reviewer to read in full, and a change to a public name, argument, mode, or default.
 * A :ref:`quick review <quick-review>` has at most two rounds, each with one reviewer.
-  It suits every other change, such as one that rewords, moves, or cuts documentation without adding or correcting a claim, renames private names, or changes only tests.
+  It suits every other change, such as one that changes only tests, renames private names, or rewords, moves, or cuts documentation without adding or correcting a claim.
 
 Run the kind of review that a request names, and otherwise the kind that the change suits.
-A kind that a request names, and an instruction not to run a full review, hold for the rest of the work on the change, unless a revision gives it a new reason to suit a full review.
+A kind that a request names, and an instruction not to run a full review, hold for the rest of the work on the change, unless a revision gives the change a new reason to suit a full review.
 Instructions in the request, such as to narrow or extend the review, take precedence over this page.
 Where this page does not settle a case, choose by the risk of a wrong result that tests would miss, and say in the report what you chose and why.
 
@@ -36,7 +36,7 @@ The coordinator gives each reviewer:
 * the reviewer's angles and the standards that define them;
 * the decisions made so far, so that reviewers do not reopen them;
 * the findings of earlier rounds and how each was handled;
-* the output of the round's checks;
+* the output of the :ref:`round's checks <review-rounds>`;
 * these instructions:
 
   * Report findings without editing the change, each with a location, the problem, why it matters, and a suggested fix.
@@ -49,12 +49,12 @@ The coordinator gives each reviewer:
     * documentation that leaves out a behavior or limitation without which a reader could get a wrong or materially misleading result without an error.
 
     Mark every other finding minor.
-    For a change to the rules for working on qLDPC, a gap in the rules is minor unless an agent that follows them in good faith would plausibly cause one of these problems without reporting it.
+    For a change to the rules for working on qLDPC, a gap or ambiguity in the rules is minor unless an agent that follows them in good faith would plausibly cause one of these problems without reporting it.
   * Ask for documentation only where a standard calls for it; for a behavior that the writing standard says to state, name the reasonable expectation, its source, and the wrong result that it would give.
   * Report problems that existed before the change separately, as pre-existing problems; a problem that the change causes in unchanged code, such as a broken caller, is a finding about the change.
   * Check whether the change needs updates elsewhere, such as to callers, to documents that repeat a changed limitation, or to the :doc:`library map </library_map>` and examples.
   * Do not rerun the checks whose output you were given, and run only the other drafting checks that your angles need, with ``format_.py`` only in ``--check`` mode.
-    No angle requires any other check.
+    No angle requires a check beyond the drafting checks.
   * If you cannot read your share of the change in full, or check it as an angle requires, ask for a closer look, separately from your findings, and say what you could not read or check.
 
 Angles
@@ -63,7 +63,7 @@ Angles
 A review covers each of these angles that the change can affect, and each angle covers only the changes in its area, even when a request asks for all angles:
 
 * **Correctness:** results, edge cases, error handling, and documented contracts, checked against independent oracles where possible; the :doc:`implementation <standards/implementation>` and :doc:`decoder <standards/decoders>` standards in their areas; and, for a refactor, unchanged behavior.
-* **Clarity:** names, commented paragraphs of code, and whether comments and docstrings match the code, as :ref:`simplicity and clarity <simplicity-and-clarity>` describes.
+* **Clarity:** names and commented paragraphs of code, as :ref:`simplicity and clarity <simplicity-and-clarity>` describes, and whether comments and docstrings match the code.
 * **Simplicity:** code only as complex as its uses require, as the same section describes.
 * **Code standard:** the rest of the :doc:`code standard <standards/code>`.
 * **Testing standard:** the :doc:`testing standard <standards/testing>`.
@@ -96,13 +96,14 @@ A revision is local if it is not high-risk and changes no interface and no rule 
 After each round, the coordinator:
 
 * fixes clear findings about the change, and verifies each fix with the drafting checks;
-* fixes a minor pre-existing problem in the change, such as a misleading message or an untested edge case, if the fix is local, evidently correct, and needs no decision, and reports each such fix under its own heading;
+* fixes a minor pre-existing problem in the change, such as a misleading message or an untested edge case, if the fix is local, evidently correct, and needs no decision;
+* reports each such fix under its own heading;
 * leaves decisions to the person it works for, presents each as :doc:`decisions and recommendations <decisions>` describes, and continues with the other fixes;
 * if a significant problem needs a decision, or, from the third round on, needs a non-local fix outside the reviewed revisions, reports it and asks how to proceed before another round, such as by splitting the change.
 
 Decisions, unless already made, include design and public API changes, changes to the standards or to this page, disagreements with a reviewer, fixes that the rules on :ref:`adding process <decisions-adding-process>` make into decisions, and what to do about any other pre-existing problem that can give a wrong result or fail silently.
 No round reviews the final round's fixes, so in the final round make only local, evidently correct fixes, and report any other fix as a suggestion.
-A final-round fix to prose keeps, where it can, to wording that a reviewer saw.
+Where it can, a final-round fix to prose keeps to wording that a reviewer saw.
 A coordinator who may not revise the change, as for another contributor's pull request, reports every fix as a suggestion and ends the review after one round.
 
 The report gives:

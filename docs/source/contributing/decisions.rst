@@ -10,12 +10,13 @@ A report of requested work, such as a hand-off or a review's findings with their
 Adding process
 --------------
 
-Process is what is added to how work is done, beyond the library, the tests of its behavior, and what a standard requires: rules, review steps, checks, experiments, measurement protocols, and the scripts and tests that serve them.
+Process is what is added to how work is done: rules, review steps, checks, experiments, measurement protocols, and the scripts and tests that serve them.
+It excludes the library, the tests of its behavior, and what a standard requires.
 Process can grow to serve itself, as when each fix to a benchmark protocol adds a rule to cover a gap that the previous rule left.
 
 * Before adding or recommending process that neither the request nor the rules call for, say in one sentence, in the recommendation or the report, what the work as a whole was requested for, and check that the addition serves that purpose, not only its own.
 * A fix that would add process to guard against a problem that other process caused or left open is a decision for the person who requested the work, even if they delegated other decisions.
-  Offer removing or simplifying that other process as one of its options.
+  Offer removing or simplifying that other process as one of the decision's options.
 * A rule for working on qLDPC earns its place only if, without it, contributors would do something that a maintainer would have to correct.
   Prefer a principle with an example to a procedure, and sharpening or cutting a rule to adding one.
   In a review of a change to the rules, a gap that a good-faith reader would resolve correctly is not worth a new clause.
@@ -45,20 +46,21 @@ Among the options that meet the constraints, the first of these values on which 
 * **Compatibility:** the existing uses of public behavior that must change, and the cost of migrating them.
 
 A recommendation says what decided it, where possible in a sentence that it already needs: a value, by name; a constraint that leaves one option; or, when the evidence cannot separate the options, :ref:`reversibility <decisions-reversibility>`.
-It adds two lines when it has something to say in them, and always in the standard format:
+It adds two lines when it has something to say in them, and the :ref:`standard format <decisions-standard-format>` always has them:
 
 * **Tension:** the values or evidence that pull the other way, and what the choice costs on them; or "none".
 * **Independent opinion:** "not warranted", "suggested", or "obtained", with whether it agreed.
-  One is warranted when correctness is disputed, the evidence for a consequential choice is weak, an error would be costly or hard to undo, or the recommender has a stake in an option beyond having proposed it.
+  One is warranted when correctness is disputed, the evidence for a consequential choice is weak, an error would be costly or hard to undo, or the recommender has a stake in an option beyond having written or proposed it.
   Whoever gives it gets the problem, the options, the constraints, the key uses, and the evidence, but not the recommendation; so a review whose reviewers saw the recommendation is not one.
 
 Evidence
 ~~~~~~~~
 
 * State each claim that matters to the decision with its scope and source, and say whether the evidence verifies it, supports it, is merely consistent with it, leaves it conjectural, or refutes it.
-  A fix that a test shows failing before and passing after needs nothing more.
-* Match the claim with evidence that does not reuse the reasoning or code under test: a derivation or a primary source for a scientific guarantee; a proof, an independent oracle, or brute force on small cases for an implementation; and representative measurements for time and memory, saying which factors, such as the machine, the load, and a random seed, were varied and which were fixed.
-* Before a measurement chooses between options, write down what result would change the choice.
+  A fix needs nothing more when a test fails before it and passes after it.
+* Match the claim with evidence that does not reuse the reasoning or code under test: a derivation or a primary source for a scientific guarantee, and a proof, an independent oracle, or brute force on small cases for an implementation.
+  Support a claim about time or memory with representative measurements, saying which factors, such as the machine, the load, and a random seed, were varied and which were fixed.
+* Before measuring to choose between options, write down what result would change the choice.
   An explanation of observed behavior, or an extrapolation from it, stays a conjecture until a test that it could have failed supports it.
 * When several candidates, thresholds, or explanations were tried, say how many, and how the reported one was chosen.
 
@@ -85,7 +87,7 @@ Evidence
 The standard format
 -------------------
 
-Present a decision in the standard format to the person who decides it when they ask for "the standard format", or when the decision changes a public name, argument, mode, or default, affects many modules, risks a wrong result, would be hard to undo, or trades off what only that person can weigh.
+Present a decision in the standard format to the person who decides it when they ask for "the standard format", or when the decision affects many modules, risks a wrong result, would be hard to undo, trades off what only that person can weigh, or changes a public name, argument, mode, or default.
 A decision to fix a reproduced bug without changing a public contract does not need the format.
 Present any other decision as a plain question with choices: name the recommended choice, and say in a few plain words what a wrong choice would risk.
 Between contributors who do not decide, as from a reviewer to a review's coordinator, use whatever form serves the recipient.
@@ -100,4 +102,5 @@ The format has these parts, in order, each as long as the stakes call for, omitt
 * **Ask:** one question, with the options as its choices.
 
 Give each decision its own Question and Ask; a report that leads into several decisions may first list them briefly.
-Keep the presentation high-level and plain, with technical detail and a few rounded, absolute numbers only where they could change the choice, and put supporting detail, such as the evidence for each claim, after the Ask or in a linked file.
+Keep the presentation high-level and plain, with technical detail and a few rounded, absolute numbers only where they could change the choice.
+Put supporting detail, such as the evidence for each claim, after the Ask or in a linked file.
