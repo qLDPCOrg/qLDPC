@@ -21,6 +21,10 @@ This standard covers what tests should guard and the conditions under which they
   This applies to warnings from other packages too; avoid the call that triggers one, or add a narrow ``ignore`` entry to ``filterwarnings`` in ``pyproject.toml``.
 * A test should guard behavior that matters: results, invariants, documented errors, and contracts between modules.
   Do not pin implementation choices such as internal call order, cache layouts, or incidental error-message wording.
+  Some heuristics choose among routes that each give a correct result, such as search methods with different costs.
+  For such a heuristic, test that each route gives correct results, and that cases far from its thresholds take the intended route.
+  Its thresholds are implementation choices, even where documented.
+  But test the nearest cases on each side of any threshold past which a route would fail or give a wrong result even with unlimited time and memory.
   A test may call a private helper of the module that it tests to check the helper's contract or reach coverage, and may set private state of objects to construct a case, but should not assert on private state.
 * Keep tests minimal, both individually and in total.
   Use the smallest code, field, or circuit that exercises the behavior.
