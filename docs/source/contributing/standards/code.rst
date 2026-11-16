@@ -18,7 +18,7 @@ Public API and private code
 * Private modules, with an underscore anywhere in their import path, exist only for plumbing shared across subpackages or for a substantial standalone topic.
   Name them by topic, never ``_common``, ``_util``, ``_helpers``, or ``_misc``, and use plain names for what other modules use.
   A private subpackage is imported only from within its parent package, even elsewhere in its top-level subpackage, apart from tests and ``conftest.py`` files.
-* ``qldpc/_utils.py`` holds Python-level plumbing only: lazy imports, warning stack levels, and docstring formatting.
+* ``qldpc/_utils.py`` holds Python-level plumbing only: warning stack levels and docstring formatting.
 * Public objects are defined in public modules; never re-export a private module's object as public API.
 * Everything under ``src/qldpc/experimental/`` is unstable, can change without a deprecation period, and is exempt from these private-name rules, as are the research scripts in ``experiments/``.
 
