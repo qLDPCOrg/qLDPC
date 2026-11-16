@@ -52,7 +52,6 @@ Circuits
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
 * Noise-model operation immunity and qubit immunity are separate controls; preserve both.
 * Encode T gates and other π/4 rotations in Clifford+T tools as ``RotatedPauliString`` documents, following tsim.
-* State computational limitations in the relevant function or class docstring.
 * In a circuit workflow, such as a memory experiment, keep matrix, qubit-role, measurement-record, detector-record, and Stim-circuit bookkeeping in sync.
   Test noiseless detector determinism and observable behavior before adding noise.
   Exercise repeated rounds and seam behavior; a locally valid circuit fragment can still become wrong when initialization, QEC cycles, and readout are joined.

@@ -17,7 +17,7 @@ For what the code does, use this order:
 3. The library map and executable [examples](examples/).
 4. Historical discussion, issues, or review notes.
 
-For how code should be written, the standards take precedence over existing code.
+For how code should be written, the [standards](docs/source/contributing/standards/index.rst) take precedence over existing code.
 Re-derive behavior from the current branch before documenting or changing it.
 
 ## Before editing
@@ -31,7 +31,6 @@ Coordinate each **full review** or **quick review** as [reviewing changes](docs/
 As a reviewer, follow the coordinator's instructions, and end your report without a review status.
 Otherwise, end every report on a change with its review status, as in "review: not run", "quick review: passed after 1 round; open decisions: none", "full review: passed after 2 rounds; pre-existing problems fixed: 1; open decisions: none", or "full review: not passed after 4 rounds; open decisions: none".
 Count the pre-existing problems that the review fixed, as in the examples.
-When asked for a pull request description, follow the [pull request standard](docs/source/contributing/standards/pull_requests.rst).
 Use judgment to point out when a change would be easier to review as a sequence of smaller pull requests, such as when it mixes concerns that could merge separately or its review stops converging.
 
 ## Decisions and recommendations

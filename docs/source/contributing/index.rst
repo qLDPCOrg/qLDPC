@@ -9,16 +9,11 @@ Contributing in brief
 3. Find your kind of change in the :ref:`kinds-of-change table <kinds-of-change>`, and read the standards that it lists before editing.
 4. While you work, run the drafting checks of the :ref:`validation commands <validation-commands>`.
 5. Open a pull request, with a description that follows the :doc:`pull request standard <standards/pull_requests>`.
-6. Maintainers review each pull request against the standards, often with AI agents, as :doc:`reviewing changes <reviewing>` describes.
+6. Maintainers review each pull request against the :doc:`standards <standards/index>`, often with AI agents, as :doc:`reviewing changes <reviewing>` describes.
    You need not run that review yourself.
 
 The README states how `qLDPC uses AI assistants <https://github.com/qLDPCOrg/qLDPC#ai-usage>`_.
 AI agents follow `AGENTS.md <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_, which states what they may do without a maintainer's request.
-
-Contributor documentation comes in two kinds:
-
-* :doc:`Standards <standards/index>` state the rules that a change must satisfy, one topic per standard.
-* Guides, such as this page, explain how qLDPC works and how to make a change, and link to the standards rather than restating them.
 
 .. _kinds-of-change:
 
@@ -47,8 +42,6 @@ Some kinds of change have further requirements:
      - Writing standard: :ref:`where documentation belongs <writing-documentation>` and :ref:`example notebooks <writing-notebooks>`
    * - Public name, argument, mode, or default
      - :doc:`Deprecation standard <standards/deprecations>`
-   * - Pull request description
-     - :doc:`Pull request standard <standards/pull_requests>`
 
 Orientation
 -----------
@@ -94,8 +87,7 @@ CI's exact environments and commands are in ``.github/workflows/``.
    * - ``python checks/mypy_.py``
      - mypy with the repository's typing settings, over source and tests
    * - ``python checks/coverage_.py``
-     - Per-module tests and coverage, as in CI: each module under ``src/`` needs its own test file, which must pass and alone cover 100% of the module's statements.
-       It runs compiled functions as plain Python.
+     - Per-module tests and coverage, as in CI: the coverage gate that the :doc:`testing standard <standards/testing>` describes
    * - ``python -m pytest src/qldpc --compiled-module-tests``
      - Compiled run, as in CI: the test files of the modules that define compiled functions, with the always-compiled functions compiled
    * - ``python -m pytest src/qldpc/codes/distance --compile-search-setup``

@@ -44,7 +44,7 @@ Prose style
 * Python comments and docstrings use ordinary paragraphs: separate sentences with two spaces and fill lines to the 100-column limit.
 * Keep one prose sentence per physical source line in repository ``.rst`` and ``.md`` files and notebook Markdown cells.
   Put ``First sentence.`` and ``Second sentence.`` on separate source lines; leave code blocks, equations, and table syntax intact.
-  For PR-summary text, use the paragraph formatting in the :doc:`pull request standard <pull_requests>` instead.
+  For a pull request description, use the paragraph formatting in the :doc:`pull request standard <pull_requests>` instead.
 
 .. _writing-documentation:
 

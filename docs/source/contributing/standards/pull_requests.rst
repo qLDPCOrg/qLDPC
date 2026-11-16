@@ -1,12 +1,12 @@
 Pull request standard
 =====================
 
-This standard covers pull request summaries.
+This standard covers pull request descriptions.
 
-Use a PR summary as a guide to review, not a second set of documentation or an execution log.
-Write a summary for a reader who has read no other pull request: link merged pull requests by number, and explain any context that another pull request provides rather than referring to it, as in "the next pull request".
-Give numbers, such as test counts, timings, or speedups, only when review needs them, as for a change made for speed, and do not take measurements only for a summary.
-The summary of a change to the rules for working on qLDPC says how it changes their total length, and which rule, if any, it replaces.
+Use a pull request description as a guide to review, not a second set of documentation or an execution log.
+Write a description for a reader who has read no other pull request: link merged pull requests by number, and explain any context that another pull request provides rather than referring to it, as in "the next pull request".
+Give numbers, such as test counts, timings, or speedups, only when review needs them, as for a change made for speed, and do not take measurements only for a description.
+The description of a change to the rules for working on qLDPC says how it changes their total length, and which rule, if any, it replaces.
 Normally use the following structure:
 
 * **Motivation or Background:** explain why the change is needed and provide context necessary to review it.
@@ -17,8 +17,8 @@ Normally use the following structure:
   A check that also runs in CI can deserve mention when its design or interpretation matters; explain what it establishes and why it was chosen, not merely that it passed.
 * **Additional notes, when needed:** include material tradeoffs, limitations, compatibility considerations, or review questions that do not fit naturally above.
 
-Write PR-summary prose in paragraphs, with two spaces between sentences within each paragraph.
-Do not insert line breaks merely at sentence boundaries; the one-sentence-per-source-line convention is for repository documentation, not PR summaries.
+Write the prose of a description in paragraphs, with two spaces between sentences within each paragraph.
+Do not insert line breaks merely at sentence boundaries.
 
 Use bulleted lists for independent points and numbered lists when order matters.
 Keep the structure proportional to the PR, and omit sections that add no information.
