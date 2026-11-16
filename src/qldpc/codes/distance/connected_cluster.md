@@ -170,7 +170,7 @@ For example, each block row of the checks of a pair-partition code sums to the a
 For each problem, such as a sector of a CSS code, the searches keep a lower bound `L` on the weights of its witnesses, starting at its divisor.
 Each advance searches the problem with the lowest `L` at the weight limit `W = L`.
 A witness found then is a lightest one over all problems; otherwise every witness of the problem weighs more than `W`, and its `L` rises to the next multiple of its divisor.
-The search ends once the lightest witness found weighs at most every `L`, and so needs no initial upper bound.
+The searches finish once the lightest witness found weighs at most every `L`, and so need no initial upper bound.
 The problems share the lightest witness found, as the sectors of a CSS code do in BZ, and an upper bound that the caller passes, such as a known distance of another sector, acts as a witness of that weight.
 A `cutoff` above the `L` of a problem makes its first limit the largest multiple of its divisor at most `cutoff`, and a witness within that limit is returned at once, though it can be heavier than the distance.
 

@@ -746,9 +746,9 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   A compiled scan of a distance search returns after at most `batch_size` supports, or supports and lookups together with completion tables, so that it stays responsive while it skips most supports, and successive batches reuse its `support` and `prefixes` arrays.
   Once the search bases that `advance` scans have completed a layer, it may raise `lower_bound` ([Section 2.5](#25-the-stopping-certificate)), but it increments `next_weight` only once every search basis has.
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
-  If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch and the witnesses that the scan found.
+  If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch.
   After an exception, a later call restarts the layer from its first support; after a stop at the cutoff, the search has finished.
-  `BrouwerZimmermannSearches.advance` takes the witnesses of a scan that raises into the shared bound, and its next call advances the same search again unless that search has finished.
+  `BrouwerZimmermannSearches`, which steps the searches of several problems, makes no such promise: after its `advance` raises, build new searches to search again.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

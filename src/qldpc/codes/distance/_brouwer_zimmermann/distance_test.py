@@ -665,11 +665,9 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
 
     monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
     monkeypatch.setattr(bz._BrouwerZimmermannSearch, "advance", recording_advance)
-    # In this code, one sector's search finishes while the other's goes on, so the turns skip it.
+    # In this code, of distance 4 by the connected-cluster method, one sector's search finishes
+    # while the other's goes on, so the turns skip it.
     code = get_random_css_code(np.random.default_rng(4), 60, 20, 25)
-    expected = qldpc.codes.distance.get_distance_css(
-        code.matrix_x, code.matrix_z, method="connected_cluster"
-    )
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
     searches = bz.BrouwerZimmermannSearches(problems, cutoff=0)
     num_searches = len(prepared)
@@ -680,7 +678,7 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
         searches.advance()
         assert len(visits) == num_visits + 1
         bests.append(searches.best)
-    assert bests == sorted(bests, reverse=True) and bests[-1] == expected
+    assert bests == sorted(bests, reverse=True) and bests[-1] == 4
 
     # Each search that advances is the first unfinished one after the last, in cyclic order.
     previous = -1
@@ -698,11 +696,21 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
     assert len(visits) == num_visits
 
 
-def test_searches_that_setup_settles_are_finished_at_once() -> None:
-    """Searches are finished when built if setup settles every problem, or with no problems.
+def test_searches_that_setup_settles_are_finished_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Searches are finished when built if setup settles them, directly or by a shared witness.
 
     In the random code, setup settles one sector, whose witness finishes the search of the other.
     """
+    prepared: list[bz._BrouwerZimmermannSearch] = []
+    prepare = bz._prepare_brouwer_zimmermann_search
+
+    def recording_prepare(*args: Any, **kwargs: Any) -> Any:
+        result = prepare(*args, **kwargs)
+        if isinstance(result, bz._BrouwerZimmermannSearch):
+            prepared.append(result)
+        return result
+
+    monkeypatch.setattr(bz, "_prepare_brouwer_zimmermann_search", recording_prepare)
     searches = bz.BrouwerZimmermannSearches([], cutoff=0, upper_bound=3)
     assert searches.finished and searches.best == 3
     hamming_code = qldpc.codes.HammingCode(3)
@@ -713,73 +721,8 @@ def test_searches_that_setup_settles_are_finished_at_once() -> None:
     code = get_random_css_code(np.random.default_rng(153), 16, 5, 5)
     problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
     searches = bz.BrouwerZimmermannSearches(problems, cutoff=0)
-    assert searches.finished and searches.best == code.get_distance(method="brute_force") == 2
-
-
-def test_an_interrupted_search_keeps_its_witnesses(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A search that raises after a batch finds a witness keeps it, which gives the distance.
-
-    The scan raises once, in the batch after the first that lowers the best weight, as a keyboard
-    interrupt can.  This sector's witness then reaches the search's lower bound, so the search has
-    finished, and only the witness that it kept gives the distance.
-    """
-    scan_set = affine_search.scan_set
-    lowered = raised = False
-
-    def interrupted_scan_set(*args: Any) -> Any:
-        nonlocal lowered, raised
-        if lowered and not raised:
-            raised = True
-            raise KeyboardInterrupt
-        result = scan_set(*args)
-        best_before, best_after = args[8], result[0]
-        lowered = lowered or best_after < best_before
-        return result
-
-    code = get_random_css_code(np.random.default_rng(33), 30, 10, 10)
-    expected = qldpc.codes.distance.get_distance_from_generators(
-        code.get_logical_ops(Pauli.X), code.get_stabilizer_ops(Pauli.X), method="brute_force"
-    )
-    monkeypatch.setattr(affine_search, "scan_set", interrupted_scan_set)
-    with use_tuning(information_set_batch_exponent=0):
-        searches = bz.BrouwerZimmermannSearches([get_sector_problem(code, Pauli.X)], cutoff=0)
-        while not searches.finished:
-            try:
-                searches.advance()
-            except KeyboardInterrupt:
-                pass
-    assert raised and searches.best == expected == 2
-
-
-def test_an_interrupted_search_that_has_not_finished_advances_again(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """After a scan raises, the next advance advances the same search, which is not finished."""
-    visits: list[bz._BrouwerZimmermannSearch] = []
-    advance, scan_set = bz._BrouwerZimmermannSearch.advance, affine_search.scan_set
-    raised = False
-
-    def recording_advance(search: bz._BrouwerZimmermannSearch) -> int:
-        visits.append(search)
-        return advance(search)
-
-    def interrupted_scan_set(*args: Any) -> Any:
-        nonlocal raised
-        if not raised:
-            raised = True
-            raise KeyboardInterrupt
-        return scan_set(*args)
-
-    monkeypatch.setattr(bz._BrouwerZimmermannSearch, "advance", recording_advance)
-    monkeypatch.setattr(affine_search, "scan_set", interrupted_scan_set)
-    code = get_random_css_code(np.random.default_rng(4), 60, 20, 25)
-    problems = [get_sector_problem(code, pauli) for pauli in PAULIS_XZ]
-    searches = bz.BrouwerZimmermannSearches(problems, cutoff=0)
-    with pytest.raises(KeyboardInterrupt):
-        searches.advance()
-    assert not visits[0].finished
-    searches.advance()
-    assert visits[1] is visits[0]
+    assert len(prepared) == 1 and searches.finished
+    assert searches.best == code.get_distance(method="brute_force") == 2
 
 
 @pytest.mark.usefixtures("switch_before_any_layer", "completion_tables")

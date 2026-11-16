@@ -179,9 +179,8 @@ class BrouwerZimmermannSearches:
         """Advance the next unfinished search, in round-robin order, by one layer, unless finished.
 
         Every search then takes the best upper bound, which shares witnesses between problems.  If
-        a scan of the search raises, as at a keyboard interrupt, the witnesses that the scan found
-        still lower the best upper bound, and a later call advances the same search again, from the
-        start of its layer, unless that search has finished.
+        this raises, as at a keyboard interrupt, the searches can be left inconsistent, so build new
+        ones to search again.
 
         Raises:
             ValueError: If a generator from ``get_automorphisms`` is not an automorphism of the
@@ -192,13 +191,9 @@ class BrouwerZimmermannSearches:
         while self._searches[self._next].finished:
             self._next = (self._next + 1) % len(self._searches)
         search = self._searches[self._next]
-        try:
-            search.advance()
-        finally:
-            # A search lowers its best weight as it scans, so a raising layer keeps its witnesses.
-            self.best = min(self.best, search.best)
-            self._share_best()
         self._next = (self._next + 1) % len(self._searches)
+        self.best = min(self.best, search.advance())
+        self._share_best()
 
     def _share_best(self) -> None:
         """Give every search the best upper bound; a search that this finishes frees its tables."""

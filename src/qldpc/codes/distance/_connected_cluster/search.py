@@ -118,7 +118,7 @@ class ConnectedClusterSearches:
         if not problems and upper_bound is None:
             raise ValueError("Require at least one problem or an upper bound")
 
-        # Build a search of each problem with witnesses; a problem without witnesses only bounds the
+        # Keep a search of each problem with witnesses; a problem without witnesses only bounds the
         # result.
         tuning = get_tuning() if tuning is None else tuning
         self._cutoff = cutoff
@@ -170,6 +170,9 @@ class ConnectedClusterSearches:
     def advance(self) -> None:
         """Search the problem with the lowest lower bound through its next limit, unless finished.
 
+        If this raises, as at a keyboard interrupt, the searches can be left inconsistent, so build
+        new ones to search again.
+
         Raises:
             ValueError: If a generator of automorphisms fails its verification.
             RuntimeError: If the searches take more weight limits than a correct search can.
@@ -182,7 +185,8 @@ class ConnectedClusterSearches:
                 " limits, which only a bug can cause"
             )
 
-        # The cutoff can raise the next limit.
+        # Search the problem with the lowest lower bound through its next limit, which the cutoff
+        # can raise.
         index = self._lower_bounds.index(min(self._lower_bounds))
         search = self._searches[index]
         divisor = search.weight_divisor
