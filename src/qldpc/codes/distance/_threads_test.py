@@ -105,11 +105,13 @@ def test_an_interrupt_before_the_calling_thread_works_stops_the_other_threads(
 ) -> None:
     """A keyboard interrupt while threads start, as the second starts, stops the first.
 
-    The pool of threads raises the interrupt in place of a real one, which no test can time.
+    The pool of threads raises the interrupt in place of a real one, which no test can time.  The
+    first thread waits for the stop event before it claims an item, so it claims none.
     """
     submit = concurrent.futures.ThreadPoolExecutor.submit
     first_started = threading.Event()
     stopped: list[bool] = []
+    claimed: list[int] = []
 
     def interrupted_submit(pool: Any, *args: Any) -> Any:
         if first_started.is_set():
@@ -120,15 +122,12 @@ def test_an_interrupt_before_the_calling_thread_works_stops_the_other_threads(
 
     def start_worker(stop: threading.Event) -> Callable[[int], None]:
         first_started.set()
-
-        def run_item(item: int) -> None:
-            stopped.append(stop.wait())
-
-        return run_item
+        stopped.append(stop.wait())
+        return claimed.append
 
     monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "submit", interrupted_submit)
     before = threading.active_count()
     with pytest.raises(KeyboardInterrupt):
         _threads.run_work_items(10, 3, start_worker)
-    assert stopped == [True]
+    assert stopped == [True] and not claimed
     assert threading.active_count() == before

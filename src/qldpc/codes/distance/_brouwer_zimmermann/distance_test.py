@@ -1697,19 +1697,23 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
 ) -> None:
     """An error on a thread that scans work items ends the search with that error, on no threads.
 
-    The calling thread scans its first chunk only after the other thread has failed.
+    The other thread fails only once the calling thread has started to scan an item, and the
+    calling thread scans its chunk only after the other thread has failed.  Each holds one item,
+    and the layer has more, so neither can run out of items or see the stop event first.
     """
     tune(num_threads=2)
     calling_thread = threading.get_ident()
-    failed = threading.Event()
+    scanning, failed = threading.Event(), threading.Event()
     scan_set_item = affine_search.scan_set_item
 
     def failing_scan(*args: Any) -> tuple[int, int, int, int, int]:
         if threading.get_ident() != calling_thread:
+            scanning.wait()
             failed.set()
             raise ValueError("failed")
         # The scan from depth -1 before the threads start returns at once.
         if args[7] >= 0:
+            scanning.set()
             failed.wait()
         return scan_set_item(*args)
 
