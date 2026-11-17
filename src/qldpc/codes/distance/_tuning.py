@@ -141,7 +141,8 @@ class SearchTuning:
     of ``w`` rows of each set (Sections 2.5 and 3.6 of ``brouwer_zimmermann.md``).  Integer fields
     lie between zero and ``MAX_VALUE``, and float fields are finite and non-negative, unless a
     comment narrows them.  Each comment says how its default was chosen
-    (:ref:`Retuning <tuning-retuning>`).
+    (:ref:`Retuning <tuning-retuning>`).  The automorphisms of the comments are permutation
+    automorphisms, which permute coordinates and apply no single-qudit gates.
     """
 
     # Fields of exhaustive enumeration.

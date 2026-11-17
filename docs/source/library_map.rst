@@ -276,7 +276,7 @@ Otherwise, qLDPC runs a ``gap`` executable on ``PATH`` in a subprocess.
 If neither backend is available, some functions offer a manual workflow that prints GAP commands, copies them to the system clipboard, and reads GAP's output from standard input.
 When a needed GAP package such as GUAVA or QDistRnd is missing, qLDPC asks on standard input before installing it: with GAP's PackageManager for libgap, or by cloning it with Git into qLDPC's user cache directory for the executable.
 
-Functions that can use GAP include :meth:`ClassicalCode.from_name <qldpc.codes.common.ClassicalCode.from_name>`, :meth:`ClassicalCode.get_automorphism_group <qldpc.codes.common.ClassicalCode.get_automorphism_group>`, :meth:`abstract.Group.from_name <qldpc.abstract.groups.Group.from_name>`, distance bounds with the GAP backend, and transversal-gate searches such as :func:`~qldpc.circuits.transversal.get_transversal_ops`.
+Functions that can use GAP include :meth:`ClassicalCode.from_name <qldpc.codes.common.ClassicalCode.from_name>`, :meth:`ClassicalCode.get_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_permutation_automorphism_group>`, :meth:`abstract.Group.from_name <qldpc.abstract.groups.Group.from_name>`, distance bounds with the GAP backend, and transversal-gate searches such as :func:`~qldpc.circuits.transversal.get_transversal_ops`.
 
 Code and group lookups
 ~~~~~~~~~~~~~~~~~~~~~~

@@ -526,7 +526,7 @@ def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager
 
 def install_deprecated_methods() -> None:
     """Attach deprecated methods to their classes."""
-    from qldpc.abstract import GroupRing, SmallGroup, TrivialGroup
+    from qldpc.abstract import Group, GroupRing, SmallGroup, TrivialGroup
     from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
     from qldpc.decoders.dems import DetectorErrorModelArrays
@@ -552,6 +552,16 @@ def install_deprecated_methods() -> None:
             stacklevel=get_external_caller_stacklevel(),
         )
         return self.shortened(bits)
+
+    @_deprecated_method(ClassicalCode)
+    def get_automorphism_group(self: ClassicalCode, *, with_magma: bool = False) -> Group:
+        """Deprecated alias for ClassicalCode.get_permutation_automorphism_group."""
+        warn_deprecated(
+            "ClassicalCode.get_automorphism_group is DEPRECATED; use"
+            " ClassicalCode.get_permutation_automorphism_group instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        return self.get_permutation_automorphism_group(with_magma=with_magma)
 
     @_deprecated_method(QuditCode)
     def get_dual_subsystem_code(self: QuditCode) -> QuditCode:

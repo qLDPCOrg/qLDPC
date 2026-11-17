@@ -330,8 +330,10 @@ def test_conversions_classical(bits: int = 5, checks: int = 3) -> None:
     assert np.array_equal(code.matrix, code.graph.to_matrix())
 
 
-def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    """Compute automorphism groups."""
+def test_permutation_automorphism_group(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Compute permutation automorphism groups."""
     code: codes.ClassicalCode = codes.HammingCode(2, field=2)
     automorphisms = "\n(1,2)\n(2,3)\n"
 
@@ -346,7 +348,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
         ),
         pytest.raises(ValueError, match="Cannot build GAP group"),
     ):
-        codes.RepetitionCode(2).get_automorphism_group()
+        codes.RepetitionCode(2).get_permutation_automorphism_group()
 
     # otherwise, check that automorphisms do indeed preserve the code space
     with (  # noqa: PT031 - wraps several calls that warn
@@ -363,7 +365,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
             (codes.HammingCode(2, field=3), "\n()\n(2,4,3)\n(2,3,4)\n"),
         ]:
             with unittest.mock.patch("qldpc.external.gap.get_output", return_value=automorphisms):
-                group = code.get_automorphism_group()
+                group = code.get_permutation_automorphism_group()
                 for member in group.generate():
                     permutation = member.to_matrix().view(code.field)
                     assert not np.any(code.matrix @ permutation @ code.generator.T)
@@ -375,7 +377,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
             return "\n(1,2)\n"
 
         with unittest.mock.patch("qldpc.external.gap.get_output", side_effect=get_output):
-            assert codes.HammingCode(2, field=2).get_automorphism_group().order == 2
+            assert codes.HammingCode(2, field=2).get_permutation_automorphism_group().order == 2
 
     # compute an automorphism group with MAGMA
     user_inputs = iter(
@@ -384,7 +386,7 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     monkeypatch.setattr("builtins.input", lambda: next(user_inputs))
     code = codes.RepetitionCode(2)
     group = abstract.CyclicGroup(2)
-    assert code.get_automorphism_group(with_magma=True).equiv(group)
+    assert code.get_permutation_automorphism_group(with_magma=True).equiv(group)
     capsys.readouterr()  # intercept print statements
 
 

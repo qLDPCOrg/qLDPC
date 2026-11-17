@@ -132,6 +132,24 @@ def test_deprecated_methods() -> None:
     assert str(inspect.signature(puncture)).startswith("(self, bits")
 
 
+def test_deprecated_get_automorphism_group() -> None:
+    """The deprecated automorphism group of a classical code is its permutation automorphisms."""
+    code = codes.RepetitionCode(3)
+    group = abstract.CyclicGroup(3)
+    method_name = "get_automorphism_group"
+    with (
+        unittest.mock.patch.object(
+            codes.ClassicalCode, "get_permutation_automorphism_group", return_value=group
+        ) as get_group,
+        pytest.warns(DeprecationWarning, match="DEPRECATED") as caught,
+    ):
+        assert getattr(code, method_name)(with_magma=True) is group
+    get_group.assert_called_once_with(with_magma=True)
+    assert len(caught) == 1
+    assert caught[0].filename == __file__
+    assert str(caught[0].message).startswith(f"ClassicalCode.{method_name} is DEPRECATED")
+
+
 def test_deprecated_reduce_logical_ops() -> None:
     """The deprecated reduction of logical operators stores the operators that a decoder finds."""
     # the first code starts with a heavy X-type operator at index 0, the second with a heavy Z-type

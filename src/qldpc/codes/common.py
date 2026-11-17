@@ -823,11 +823,13 @@ class ClassicalCode(AbstractCode):
         code._name = name
         return code
 
-    def get_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
-        """Get the automorphism group of this code.
+    def get_permutation_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
+        """Get the permutation automorphism group of this code.
 
-        The automorphism group of a classical linear code is the group of permutations of bits that
-        preserve the code space.
+        The permutation automorphism group of a classical linear code is the group of permutations
+        of bits that preserve the code space.  For a binary code, it is the automorphism group of
+        the code.  For a nonbinary code, it is a subgroup of the automorphism group, which also
+        contains maps that multiply bits by nonzero field elements.
 
         This computation may run GAP, install GAP packages, access GroupNames.org, or prompt on
         standard input, or with ``with_magma=True`` prompt for MAGMA output on standard input; see
@@ -850,13 +852,14 @@ class ClassicalCode(AbstractCode):
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
         def get_group(gap_function: str) -> abstract.Group:
-            """Compute the automorphism group of this code with a GAP/GUAVA function."""
+            """Compute the permutation automorphism group of this code with a GAP/GUAVA function."""
             return abstract.Group.from_name(
                 f"{gap_function}({code_str})", warning_to_raise_if_calling_gap=warning
             )
 
-        # For a binary code, try GAP/GUAVA's AutomorphismGroup method, and fall back to its
-        # PermutationAutomorphismGroup method if GAP fails to compute that group.
+        # For a binary code, the automorphism group is the permutation automorphism group, so try
+        # GAP/GUAVA's AutomorphismGroup method, which handles only binary codes, and fall back to
+        # its PermutationAutomorphismGroup method if GAP fails to compute that group.
         if self.field is galois.GF2:
             try:
                 return get_group("AutomorphismGroup")
@@ -870,11 +873,12 @@ class ClassicalCode(AbstractCode):
         An automorphism of an ``m × n`` parity check matrix ``H`` is a permutation ``p`` of the
         ``m`` checks and ``n`` bits (in that order) that leaves ``H`` invariant, in the sense that
         ``H[p_checks][:, p_bits] == H`` for ``p_checks = p.array_form[:m]`` and
-        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the automorphism group of a code
-        (see :meth:`get_automorphism_group`), the automorphism group of a parity check matrix
-        depends on the choice of parity checks.  Its members are symmetries of this code, which
-        :class:`~qldpc.codes.quantum.balanced_product.BPCode` uses to construct balanced product
-        codes.  Computing this group requires the optional ``pybliss`` package, which can be
+        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the permutation automorphism
+        group of a code (see :meth:`get_permutation_automorphism_group`), the automorphism group of
+        a parity check matrix depends on the choice of parity checks.  The bit permutations of its
+        members are permutation automorphisms of this code, and
+        :class:`~qldpc.codes.quantum.balanced_product.BPCode` uses its members to construct balanced
+        product codes.  Computing this group requires the optional ``pybliss`` package, which can be
         installed with ``pip install 'qldpc[bliss]'``.
         """
         generators = _bliss.get_matrix_automorphism_generators(self.matrix)
