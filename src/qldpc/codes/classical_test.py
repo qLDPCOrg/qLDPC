@@ -13,7 +13,7 @@ import numpy.typing as npt
 import pytest
 from sympy.abc import x, y
 
-from qldpc import codes
+from qldpc import abstract, codes
 
 
 def test_basic() -> None:
@@ -60,6 +60,48 @@ def test_cyclic_codes() -> None:
 
     with pytest.raises(ValueError, match="not a univariate polynomial"):
         codes.CyclicCode(5, x + y)
+
+
+def test_bit_automorphisms_of_classes() -> None:
+    """Classes supply bit permutations that preserve their codes, and generate known groups.
+
+    Cyclic codes of length n over F_q have the shifts and, if gcd(n, q) = 1, the multiplier q, which
+    generate a group of order n times the order of q modulo n.  Binary Hamming codes of rank m have
+    GL(m, 2), and extended Hamming and Reed-Muller codes of size m have AGL(m, 2).
+    """
+    cases = [
+        (codes.CyclicCode(7, 1 + x + x**3), 7 * 3),
+        (codes.CyclicCode(8, 1 + x, field=3), 8 * 2),
+        (codes.CyclicCode(6, 1 + x), 6),
+        (codes.GolayCode(), 23 * 11),
+        (codes.BCHCode(15, 7), 15 * 4),
+        (codes.SimplexCode(3), 7 * 3),
+        (codes.HammingCode(2), 6),
+        (codes.HammingCode(3), 168),
+        (codes.ExtendedHammingCode(3), 8 * 168),
+        (codes.ReedMullerCode(1, 3), 8 * 168),
+        (codes.ReedMullerCode(2, 4), 16 * 20160),
+        (codes.ReedMullerCode(0, 1), 2),
+        (codes.ReedMullerCode(0, 0), 1),
+    ]
+    for code, order in cases:
+        generators = code._get_bit_automorphisms()
+        assert generators is not None
+        for generator in generators:
+            assert np.array_equal(np.sort(generator), np.arange(len(code)))
+            # bit j of a word moves to bit generator[j]
+            assert code.generator[:, np.argsort(generator)] in code
+        members = [abstract.GroupMember(generator.tolist()) for generator in generators]
+        group = abstract.Group(*members or [abstract.GroupMember(list(range(len(code))))])
+        assert group.order == order
+
+    for code in [
+        codes.HammingCode(2, field=3),
+        codes.SimplexCode(2, field=3),
+        codes.RepetitionCode(3),
+        codes.ClassicalCode([[1, 1, 0]]),
+    ]:
+        assert code._get_bit_automorphisms() is None
 
 
 def test_special_codes() -> None:

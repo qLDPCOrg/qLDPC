@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -91,6 +92,15 @@ class CyclicCode(ClassicalCode):
         matrix = ring.eval(poly, symbols).lift().T  # transpose the lift by convention
         super().__init__(matrix, field)
 
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """The cyclic shift and, if it permutes the bits, the Frobenius multiplier of this code.
+
+        The parity check matrix lifts an element of the group algebra of the cyclic group, so it is
+        circulant, and its row space and kernel are cyclic codes (see
+        ``_get_cyclic_automorphisms``).
+        """
+        return _get_cyclic_automorphisms(len(self), self.field.order)
+
 
 class GolayCode(CyclicCode):
     """Classical binary [23, 12, 7] Golay code.
@@ -157,6 +167,28 @@ class HammingCode(ClassicalCode):
         self._dimension = len(self) - len(self._matrix)
         self._distance = 3
 
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of the general linear group, for a binary code, which permutes its bits.
+
+        Bit ``j`` of a binary Hamming code of rank ``m`` is the nonzero point ``j + 1`` of
+        ``F_2^m``, written in binary as column ``j`` of the parity check matrix ``H``.  An
+        invertible matrix ``A`` maps the columns of ``H`` to a permutation of them, so it permutes
+        the bits.
+        Since ``A H`` spans the row space of ``H``, the permutation maps that row space onto itself.
+        ``_get_linear_point_permutations`` gives generators of the group of these matrices.
+        Nonbinary Hamming codes return None.
+        """
+        if self.field is not galois.GF2:
+            return None
+        size = len(self._matrix)
+        return np.array(
+            [
+                permutation[1:] - 1
+                for permutation in _get_linear_point_permutations(size, translations=False)
+            ],
+            dtype=int,
+        ).reshape(-1, len(self))
+
 
 class ExtendedHammingCode(ClassicalCode):
     """Classical extended Hamming code: the ordinary Hamming code with an extra parity bit.
@@ -182,6 +214,18 @@ class ExtendedHammingCode(ClassicalCode):
 
         self._dimension = len(self) - len(self._matrix)
         self._distance = 4
+
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """Generators of the affine group of ``F_2^m``, which permutes the bits of this code.
+
+        Bit ``j`` of this code is the point of ``F_2^m`` written in binary as ``j``, with bit ``0``
+        the origin.  The rows of the parity check matrix span the evaluations, at these points, of
+        the affine functions of ``F_2^m``.  An affine map of ``F_2^m`` composes with affine
+        functions to give affine functions, so its permutation of the bits maps the row space onto
+        itself.
+        ``_get_linear_point_permutations`` gives generators of the group of these maps.
+        """
+        return _get_linear_point_permutations(len(self._matrix) - 1, translations=True)
 
 
 class ReedMullerCode(ClassicalCode):
@@ -213,6 +257,20 @@ class ReedMullerCode(ClassicalCode):
 
         self._dimension = len(generator)
         self._distance = 2 ** (size - order)
+
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """Generators of the affine group of ``F_2^m``, which permutes the bits of this code.
+
+        The recursion of ``get_generator`` builds ``RM(r, m)`` from words ``(u, u + v)`` for ``u``
+        in ``RM(r, m - 1)`` and ``v`` in ``RM(r - 1, m - 1)``, which evaluate a polynomial
+        ``f(x) = g(x') + x_top h(x')`` of degree at most ``r`` at the points ``x = (x', x_top)`` of
+        ``F_2^m``.  So bit ``j`` is the point written in binary as ``j``, with ``x_top`` the
+        highest bit.  An affine map of ``F_2^m`` maps a polynomial of degree at most ``r`` to
+        another, so it maps ``RM(r, m)`` onto itself, and also its dual, whose generators are the
+        parity checks of this code.  ``_get_linear_point_permutations`` gives generators of the
+        group of these maps.
+        """
+        return _get_linear_point_permutations(self.size, translations=True)
 
     @property
     def size(self) -> int:
@@ -290,6 +348,15 @@ class BCHCode(ClassicalCode):
         super().__init__(bch.H)
         self._dimension = dimension
 
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+        """The cyclic shift and, if it permutes the bits, the Frobenius multiplier of this code.
+
+        A BCH code is a cyclic code whose bits galois orders by the descending powers of ``x``
+        (see ``_get_cyclic_automorphisms``).  Its parity check matrix holds only some shifts of the
+        check polynomial, so bliss finds neither of these permutations.
+        """
+        return _get_cyclic_automorphisms(len(self), self.field.order)
+
     @staticmethod
     def _is_valid_bch_length(length: int, field_order: int) -> bool:
         """Is the given block length valid for a BCH code over a field of the given order?
@@ -351,6 +418,16 @@ class SimplexCode(ClassicalCode):
 
         self._dimension = dim
         self._distance = field.order ** (dim - 1)
+
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """For a binary code, the cyclic shift and the Frobenius multiplier of its presentation.
+
+        The binary presentation is a cyclic code (see ``_get_cyclic_automorphisms``).  Nonbinary
+        simplex codes return None.
+        """
+        if self.field is not galois.GF2:
+            return None
+        return _get_cyclic_automorphisms(len(self), 2)
 
     @staticmethod
     def get_defining_polynomial(
@@ -562,3 +639,52 @@ class TannerCode(ClassicalCode):
                 f" {block_length} bits.  Every check node must have degree equal to the block length"
                 " of the subcode."
             )
+
+
+def _get_cyclic_automorphisms(num_bits: int, field_order: int) -> npt.NDArray[np.int_]:
+    """Generators of bit permutations that preserve every cyclic code of a length over a field.
+
+    A cyclic code ``C`` of length ``n`` over ``F_q`` is an ideal of ``F_q[x] / (x^n - 1)``, in which
+    bit ``i`` is the coefficient of ``x^i``.  Multiplication by ``x`` shifts the bits cyclically,
+    ``i -> i + 1``, and maps ``C`` onto itself.  If ``gcd(n, q) = 1``, the multiplier
+    ``i -> q i (mod n)`` permutes the bits, and maps ``c(x)`` to ``c(x^q) = c(x)^q``, since the
+    Frobenius map fixes the coefficients in ``F_q``, and ``c(x)^q`` is in the ideal ``C``.  So it
+    maps ``C`` onto itself too.  The dual code is cyclic, so both permutations also map the row
+    space of a parity check matrix of ``C`` onto itself.
+
+    If the bits are instead the coefficients of ``x^(n - 1 - i)``, the shift is the inverse shift,
+    and the multiplier is the multiplier of the descending order followed by a shift, so these two
+    permutations generate the same group.
+
+    Returns:
+        An array whose row ``p`` maps bit ``i`` to bit ``p[i]``: the shift, and the multiplier if
+        ``gcd(n, q) = 1``.  Rows can be the identity, when ``n = 1`` or ``q = 1 (mod n)``.
+    """
+    bits = np.arange(num_bits)
+    generators = [(bits + 1) % num_bits]
+    if math.gcd(num_bits, field_order) == 1:
+        generators.append(bits * field_order % num_bits)
+    return np.array(generators, dtype=int)
+
+
+def _get_linear_point_permutations(size: int, *, translations: bool) -> npt.NDArray[np.int_]:
+    """Generators of the linear or affine group of ``F_2^size``, as permutations of its points.
+
+    Point ``j`` is the vector of the binary digits of ``j``.  The generators are the transvection
+    that adds digit 0 to digit 1 and the cyclic rotation of the digits, which generate
+    ``GL(size, 2)`` for ``size >= 2`` (the rotation conjugates the transvection to those of
+    neighboring digits, whose commutators give every elementary transvection, and these generate
+    ``SL(size, 2) = GL(size, 2)``), and, if ``translations`` is True, the translation by the vector
+    of digit 0, which together with ``GL(size, 2)`` generates the affine group.
+
+    Returns:
+        An array whose row ``p`` maps point ``j`` to point ``p[j]``.  It can have no rows.
+    """
+    points = np.arange(2**size)
+    generators = []
+    if size >= 2:
+        generators.append(points ^ ((points & 1) << 1))
+        generators.append(((points << 1) | (points >> (size - 1))) & (2**size - 1))
+    if translations and size >= 1:
+        generators.append(points ^ 1)
+    return np.array(generators, dtype=int).reshape(-1, 2**size)

@@ -1234,6 +1234,128 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> No
         assert code.get_distance_exact(method="brouwer_zimmermann") == 6
 
 
+def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Classical codes combine the bit automorphisms that bliss finds with those of their class.
+
+    The bliss search is mocked here, and checked against the real package in its own tests.
+    """
+    shift_and_multiplier = codes.BCHCode(15, 7)._get_bit_automorphisms()
+
+    # without pybliss, or if bliss finds nothing, codes return the automorphisms of their class
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    code = codes.BCHCode(15, 7)
+    assert (found := code._found_bit_automorphisms) is not None
+    assert np.array_equal(found, shift_and_multiplier)
+    assert code.get_known_bit_automorphism_group().order == 15 * 4
+    generic_code = codes.ClassicalCode(code.matrix)
+    assert generic_code._found_bit_automorphisms is None
+    assert generic_code.get_known_bit_automorphism_group().order == 1
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
+    assert (found := codes.BCHCode(15, 7)._found_bit_automorphisms) is not None
+    assert np.array_equal(found, shift_and_multiplier)
+
+    # Bliss's permutations act on the checks and then the bits.  Codes keep the bit permutations,
+    # first, followed by those of the class, without repeats or the identity.  The parity checks
+    # of this cyclic code are circulant, so the cyclic shift of the bits shifts its checks too.
+    cyclic_code = codes.CyclicCode(7, 1 + sympy.abc.x + sympy.abc.x**3)
+    shift, multiplier = cyclic_code._get_bit_automorphisms()
+    checks = (np.arange(7) + 1) % 7
+
+    def get_generators(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
+        assert np.array_equal(matrix, cyclic_code.matrix)
+        return [[*checks, *(7 + shift)], list(range(14))]
+
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", get_generators)
+    assert (found := cyclic_code._found_bit_automorphisms) is not None
+    assert found.tolist() == [shift.tolist(), multiplier.tolist()]
+
+    # codes verify the permutations of their class
+    class CodeWithTransposition(codes.ClassicalCode):
+        def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+            return np.array([[1, 0, 2]])
+
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    with pytest.raises(ValueError, match="not an automorphism"):
+        CodeWithTransposition([[1, 0, 1]]).get_known_bit_automorphism_group()
+
+
+@pytest.mark.parametrize("bliss", [False, True])
+def test_classical_distances_use_automorphisms(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, bliss: bool
+) -> None:
+    """Exact distances of binary classical codes use their bit automorphisms, which they verify.
+
+    Each distance by the Brouwer-Zimmermann and connected-cluster methods asks for automorphisms
+    once, and matches brute force.  Distances from a vector use no automorphisms.
+    """
+    if bliss:
+        pytest.importorskip("pybliss")
+    else:
+        monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+    tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
+    x = sympy.abc.x
+    shuffle = np.random.default_rng(0).permutation(21)
+    cyclic_code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
+    code_builders: list[Callable[[], codes.ClassicalCode]] = [
+        lambda: codes.BCHCode(31, 16),
+        lambda: codes.BCHCode(31, 11),
+        lambda: codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6),
+        lambda: codes.ReedMullerCode(1, 4).forget_distance(),
+        lambda: codes.ExtendedHammingCode(4).forget_distance(),
+        lambda: codes.HammingCode(4).forget_distance(),
+        # with bliss, the generic code with shuffled bits finds the symmetries of its checks
+        lambda: codes.ClassicalCode(cyclic_code.matrix[:, shuffle]),
+    ]
+    for build in code_builders:
+        expected = build().get_distance_exact(method="brute_force")
+        methods: list[DistanceMethod] = ["brouwer_zimmermann", "connected_cluster"]
+        for method in methods:
+            code = build()
+            with unittest.mock.patch.object(
+                type(code),
+                "_get_bit_automorphisms",
+                autospec=True,
+                side_effect=type(code)._get_bit_automorphisms,
+            ) as get_automorphisms:
+                assert code.get_distance_exact(method=method) == expected
+            get_automorphisms.assert_called_once()
+        assert (build()._found_bit_automorphisms is not None) == (
+            bliss or type(build()) is not codes.ClassicalCode
+        )
+
+    # a wrong permutation of a class makes the search raise an error
+    class CodeWithTransposition(codes.ClassicalCode):
+        def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+            transposition = np.arange(len(self))
+            transposition[[0, 1]] = [1, 0]
+            return transposition[None]
+
+    for method in methods:
+        with pytest.raises(ValueError, match="not an automorphism"):
+            CodeWithTransposition(cyclic_code.matrix).get_distance_exact(method=method)
+
+    # distances from a vector use no automorphisms, which need not preserve its coset
+    vector = np.zeros(21, dtype=int)
+    vector[:3] = 1
+    for method, function_name in zip(
+        methods, ["get_distance_from_generators", "get_distance_from_checks"], strict=True
+    ):
+        code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
+        function = getattr(common, function_name)
+        with unittest.mock.patch.object(
+            common, function_name, autospec=True, side_effect=function
+        ) as search:
+            distance = code.get_distance_exact(vector=vector, method=method)
+        assert "automorphisms" not in search.call_args.kwargs
+        words = cyclic_code.generator.view(np.ndarray)
+        brute_force = min(
+            np.count_nonzero((np.array(coefficients) @ words + vector) % 2)
+            for coefficients in itertools.product([0, 1], repeat=len(words))
+        )
+        assert distance == brute_force
+
+
 @pytest.mark.parametrize("field", [2, 3])
 def test_conversions_quantum(field: int, bits: int = 5, checks: int = 3) -> None:
     """Conversions between matrix and graph representations of a code."""
