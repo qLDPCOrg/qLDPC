@@ -253,16 +253,21 @@ class AbstractCode(abc.ABC):
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
         """Are the two codes equivalent?
 
-        Do they have the same parity checks?
+        Two codes are equivalent if they are over the same field, and the rows of their parity check
+        matrices span the same space, even if their parity checks differ.  Codes that differ by a
+        permutation of their (qu)dits, which the literature also calls equivalent, need not be
+        equivalent in this sense.
         """
         return code_a.field is code_b.field and np.array_equal(
             code_a.canonicalized.matrix, code_b.canonicalized.matrix
         )
 
     def is_equiv_to(self, other: AbstractCode) -> bool:
-        """Are the two codes equivalent?
+        """Is this code equivalent to another, as the equiv method of its class decides?
 
-        Do they have the same parity checks?
+        By default, two codes are equivalent if they are over the same field, and the rows of their
+        parity check matrices span the same space, even if their parity checks differ (see
+        AbstractCode.equiv).
         """
         return self.equiv(self, other)
 
@@ -3242,7 +3247,9 @@ class CSSCode(QuditCode):
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
         """Are the two codes equivalent?
 
-        Do they have the same parity checks?
+        Two CSS codes are equivalent if they are over the same field, the rows of their X-type
+        parity check matrices span the same space, and so do the rows of their Z-type parity check
+        matrices.  Other codes are equivalent as AbstractCode.equiv decides.
         """
         if isinstance(code_a, CSSCode) and isinstance(code_b, CSSCode):
             return ClassicalCode.equiv(code_a.code_x, code_b.code_x) and ClassicalCode.equiv(
