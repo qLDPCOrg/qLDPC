@@ -31,7 +31,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
   `"auto"` runs it for the distances of quantum codes and the fault distances of circuits, unless enumerating is cheap (see "Choosing a method").
 - **Automorphism:** in this package, a permutation of the coordinates of a search that maps the words it searches, and those it excludes, onto themselves.
   The public functions take only permutation automorphisms of a code, which permute qudits and apply no single-qudit gates, and lift them to the coordinates of a Pauli problem (Section 2.7 of `brouwer_zimmermann.md`).
-  An automorphism of a quantum code can also apply single-qudit Clifford gates (see `get_transversal_automorphism_group` in `qldpc.circuits`); exchanging the coordinates of one qubit in a Pauli problem applies one, but qLDPC never supplies such permutations.
+  An automorphism of a quantum code can also apply single-qudit Clifford gates (see `get_transversal_automorphism_group` in `qldpc.circuits`); exchanging the coordinates of one qubit in a Pauli problem applies a single-qubit Clifford gate, but qLDPC never supplies such permutations.
 - **Scan:** the enumeration of the combinations of rows of each information set, layer by layer, a layer holding the combinations of a given number of rows.
   Counts have their own scan, in `_counting/scan.py`, and the Brouwer-Zimmermann distance and coset searches (see "The coset-leader search") use the compiled scans of `_brouwer_zimmermann/affine_search.py`.
   Every scan steps through a layer with `advance_support` in `_information_sets/support_stepping.py`.
