@@ -31,7 +31,7 @@ from . import logical_counts as lc
 from ._brouwer_zimmermann import distance as bz
 from ._connected_cluster import search as connected_cluster
 from ._counting import scan
-from ._information_sets import basis_families
+from ._information_sets import basis_families, certificates
 from .conftest import (
     MISSED_SET_CODE,
     CostlyStages,
@@ -333,7 +333,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     connected-cluster distance search of the subsystem code with X-type gauge generator [1, 1, 0]
     and Z-type gauge generators [0, 1, 1] and [1, 0, 0] shows that
     ``max_distance_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` reach
-    ``get_sparser_rows``.
+    ``get_sparser_rows``.  The last part of this test follows ``automorphism_minimum_layer_work``,
+    ``automorphism_orbit_bounds``, and ``lp_dual_max_denominator`` into the program over orbits of
+    a BZ distance search.
     """
     seen: dict[str, list[Any]] = collections.defaultdict(list)
 
@@ -440,3 +442,42 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(numba.config, "NUMBA_NUM_THREADS", 3)
     bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
     assert seen["search"] and all(search[1] == 3 for search in seen["search"])
+
+    # A search that gets automorphisms solves its program over orbits with the denominators of its
+    # tuning, and the images of its blocks finish the search when it asks for automorphisms, without
+    # a switch (Section 3.7 of brouwer_zimmermann.md).  Without automorphism_orbit_bounds, it solves
+    # none, and still switches to an automorphism family and finds the distance.
+    denominators = []
+    switches = []
+    get_lp_lower_bound = certificates.get_lp_lower_bound
+    switch = bz._SectorSearch._switch_to_automorphism_family
+
+    def recording_switch(search: bz._SectorSearch) -> None:
+        switch(search)
+        switches.append((search.uses_automorphism_family, search.finished))
+
+    def recording_lp(
+        pivot_blocks: Any, requirements: Any, max_denominator: int, column_orbits: Any
+    ) -> int:
+        if column_orbits:
+            denominators.append(max_denominator)
+        return get_lp_lower_bound(pivot_blocks, requirements, max_denominator, column_orbits)
+
+    monkeypatch.setattr(certificates, "get_lp_lower_bound", recording_lp)
+    monkeypatch.setattr(bz._SectorSearch, "_switch_to_automorphism_family", recording_switch)
+    for orbit_bounds in (True, False):
+        denominators.clear()
+        switches.clear()
+        with _tuning.use_tuning(
+            automorphism_minimum_layer_work=20_000,
+            lp_dual_max_denominator=97,
+            automorphism_orbit_bounds=orbit_bounds,
+        ):
+            distance = bz.get_distance_brouwer_zimmermann(
+                [get_sector(bb_code, Pauli.X)],
+                cutoff=0,
+                get_automorphisms=bb_code._get_qudit_automorphisms,
+            )
+        assert distance == 6
+        assert set(denominators) == ({97} if orbit_bounds else set())
+        assert switches == [(False, True) if orbit_bounds else (True, False)]

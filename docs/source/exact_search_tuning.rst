@@ -115,8 +115,8 @@ Routes and the names that control them
      - :attr:`SearchTuning.lp_minimum_work`, :attr:`SearchTuning.lp_dual_max_denominator`
      -
      - `Section 3.1 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#31-overlapping-search-bases>`__
-   * - Searching the images of one information set under permutation automorphisms
-     - :attr:`SearchTuning.automorphism_minimum_layer_work`
+   * - Searching the images of one information set under permutation automorphisms, or bounding with the images of the blocks of any family
+     - :attr:`SearchTuning.automorphism_minimum_layer_work`, :attr:`SearchTuning.automorphism_orbit_bounds`, :attr:`SearchTuning.lp_dual_max_denominator`
      -
      - `Section 3.7 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms>`__
    * - Searching from one root for each orbit of the permutation automorphisms of a code, in connected-cluster searches
