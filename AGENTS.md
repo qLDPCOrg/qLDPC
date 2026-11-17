@@ -29,6 +29,7 @@ Point out when a change would be easier to review as a sequence of smaller pull 
 ## Decisions and recommendations
 
 Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
+If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#standard-triage) by name, settle decisions as it describes.
 
 ## Working on a change
 
@@ -54,7 +55,7 @@ A hand-off claims that these conditions hold.
 For a pull request that you may not hand off because a review has not passed, give no push command, title, or description, and report the review as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
 For each pull request that you hand off, give in your message, not only in a file:
 
-1. its review status, as [reviews](#reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, and each open decision;
+1. its review status, as [reviews](#reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, each decision that standard triage settled, and each open decision;
 2. one shell block that pushes the branch and then opens GitHub's page for a new pull request, as in:
 
    ```bash
