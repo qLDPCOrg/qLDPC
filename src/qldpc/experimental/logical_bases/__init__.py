@@ -16,12 +16,23 @@ complete bases with low weights, whose X-type and Z-type operators pair up as
 basis, so that the chosen operators can be acted on in few parallel rounds.
 
 Public API:
-    evaluate_logical_ops, LogicalBasisMetrics            — check and measure a complete basis
-    LogicalOpsMetrics, LogicalOpsMetrics.from_ops        — check and measure one Pauli type
-    get_lightest_logical_basis, LightestLogicalBasis     — a lightest basis of one Pauli type
-    optimize_logical_basis, OptimizedLogicalBasis        — a complete basis with low weights
-    optimize_logical_rounds, OptimizedLogicalRounds      — operators to act on in few rounds
-    LogicalOpsRounds                                     — the rounds of one Pauli type
+
+- :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`,
+  :class:`~qldpc.experimental.logical_bases.LogicalBasisMetrics`: check and measure a complete
+  basis.
+- :class:`~qldpc.experimental.logical_bases.LogicalOpsMetrics`,
+  :meth:`LogicalOpsMetrics.from_ops <qldpc.experimental.logical_bases.LogicalOpsMetrics.from_ops>`:
+  check and measure one Pauli type.
+- :func:`~qldpc.experimental.logical_bases.get_lightest_logical_basis`,
+  :class:`~qldpc.experimental.logical_bases.LightestLogicalBasis`: a lightest basis of one Pauli
+  type.
+- :func:`~qldpc.experimental.logical_bases.optimize_logical_basis`,
+  :class:`~qldpc.experimental.logical_bases.OptimizedLogicalBasis`: a complete basis with low
+  weights.
+- :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds`,
+  :class:`~qldpc.experimental.logical_bases.OptimizedLogicalRounds`: operators to act on in few
+  rounds.
+- :class:`~qldpc.experimental.logical_bases.LogicalOpsRounds`: the rounds of one Pauli type.
 """
 
 from __future__ import annotations

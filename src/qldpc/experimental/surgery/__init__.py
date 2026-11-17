@@ -10,11 +10,17 @@ joint-PPM "bridges" (universal adapters), a distance boost, and a stim circuit l
 individual modules for references.
 
 Public API:
-    build_gadget, GadgetLayout        — single-PPM gadget
-    build_bridge, Bridge              — joint-PPM adapter (bridge)
-    boost_gadget, cheeger_constant    — distance boost + boundary Cheeger check
-    build_single_ppm_circuit, build_joint_ppm_circuit,
-    logical_state_init, keep_only_observable   — stim circuit assembly
+
+- :func:`~qldpc.experimental.surgery.build_gadget`,
+  :class:`~qldpc.experimental.surgery.GadgetLayout`: single-PPM gadget.
+- :func:`~qldpc.experimental.surgery.build_bridge`, :class:`~qldpc.experimental.surgery.Bridge`:
+  joint-PPM adapter (bridge).
+- :func:`~qldpc.experimental.surgery.boost_gadget`,
+  :func:`~qldpc.experimental.surgery.cheeger_constant`: distance boost and boundary Cheeger check.
+- :func:`~qldpc.experimental.surgery.build_single_ppm_circuit`,
+  :func:`~qldpc.experimental.surgery.build_joint_ppm_circuit`,
+  :func:`~qldpc.experimental.surgery.logical_state_init`,
+  :func:`~qldpc.experimental.surgery.keep_only_observable`: stim circuit assembly.
 """
 
 from __future__ import annotations
