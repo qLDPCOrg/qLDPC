@@ -1287,9 +1287,9 @@ def test_classical_distances_use_automorphisms(
 ) -> None:
     """Exact distances of binary classical codes use their bit automorphisms, which they verify.
 
-    Each distance by the Brouwer-Zimmermann and connected-cluster methods passes its search
-    generators of get_known_permutation_automorphism_group, asks the class for its generators once,
-    and matches brute force.  Distances from a vector use no automorphisms.
+    Each distance by the Brouwer-Zimmermann and connected-cluster methods passes its search a
+    function that returns generators of get_known_permutation_automorphism_group, asks the class for
+    its generators once, and matches brute force.  Distances from a vector use no automorphisms.
     """
     if bliss:
         pytest.importorskip("pybliss")
@@ -1350,8 +1350,9 @@ def test_classical_distances_use_automorphisms(
         with pytest.raises(ValueError, match="not an automorphism"):
             CodeWithTransposition(cyclic_code.matrix).get_distance_exact(method=method)
 
-    # distances from a vector use no automorphisms, which need not preserve its coset; from this
-    # vector, searches by either method would ask for them, and fail if they got the code's
+    # Distances from a vector use no automorphisms, which need not preserve the vector's coset.
+    # From this vector, searches by either method would ask for automorphisms, and raise an error
+    # if they got the code's.
     vector = np.zeros(21, dtype=int)
     vector[np.random.default_rng(14).choice(21, size=11, replace=False)] = 1
     words = cyclic_code.generator.view(np.ndarray)
