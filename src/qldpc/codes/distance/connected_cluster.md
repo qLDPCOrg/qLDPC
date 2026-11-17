@@ -17,7 +17,7 @@ G. Lee (Appendix C.4) takes the roots from general groups of automorphisms of th
 Related searches of classical LDPC codes look for small stopping sets and low-weight codewords: those of Richter, of Rosnes and Ytrehus, and of Khatami et al.
 The method's name, `"connected_cluster"`, follows `dist-m4ri`, the program of Pryadko and Zeng, which calls the search the "connected-cluster (CC) algorithm" of Dumer, Kovalev, and Pryadko.
 Webster, Jacob, and Higgott (Section 4.3.2) note that it is "also referred to as the irreducible cluster or linked cluster algorithm".
-This guide says what the cost of the search depends on ([Section 2](#2-what-the-cost-of-the-search-depends-on)), explains the algorithm ([Section 3](#3-the-algorithm)), maps it to the source code ([Section 4](#4-guide-to-the-source-code)), and lists what every change must preserve ([Section 5](#5-correctness-requirements)).
+This guide says what the cost of the search depends on ([Section 2](#2-what-the-cost-of-the-search-depends-on)), explains the algorithm and the techniques that it does not use ([Section 3](#3-the-algorithm)), maps it to the source code ([Section 4](#4-guide-to-the-source-code)), and lists what every change must preserve ([Section 5](#5-correctness-requirements)).
 
 ## 2. What the cost of the search depends on
 
@@ -158,42 +158,7 @@ For pair-partition and quantum Tanner codes, the cuts changed the number of stat
 At its last limit, the search stops at its first witness, and the cuts can forbid that witness, so that the search goes on to a later one.
 The searches of these three families took up to several percent longer.
 
-qLDPC does not use dual ascent, which raises each `y_c` as far as its constraints allow, at the cost of further passes over the unsatisfied checks of every state.
-
-Nor does it look up the last one or two variables of a support in a table of syndromes, as dist-m4ri and Qubitserf do ([references](#references)).
-With the bounds and the overlap cuts above, states with room for at most two more variables were observed to be few of the states that a search visits.
-Lookups of one or two variables, tried on the codes of `experiments/distance_tuning/workloads.py` and on the surface, toric, color, bivariate bicycle, pair-partition, and quantum Tanner codes that we timed, saved no measurable time.
-
-Nor does it prune by an erasure bound, as Qubitserf and DistQLDPC do ([references](#references)).
-Only the available variables of the unsatisfied checks carry weight in the dual above, so a completion of at most `W - s` variables holds at least `⌈Y⌉` of them, and at most `e = W - s - ⌈Y⌉` other available variables.
-For `e` up to 2, the bound prunes the state unless some available variables of the unsatisfied checks, in any number, and at most `e` other available variables complete the support to a witness, or, in a syndrome query, to a vector with the syndrome.
-Peeling and elimination over GF(2) decide this, and a hash of the checks lets them try every other variable, and every pair of them, at once.
-Unlike the bounds above, the erasure bound also uses the checks that the support satisfies, and a trial in qLDPC visited up to about 15 times fewer states.
-But each run of the bound cost about as much as 10 states, so the searches took about a quarter longer on a quantum Tanner code and on the [[288,12,18]] bivariate bicycle code, and up to about 2.5 times longer on pair-partition codes and on syndrome queries.
-They took about a third less time only on the [[144,12,12]] bivariate bicycle (gross) code and a color code, which took a few hundredths of a second.
-
-Nor does it prune by repairs through satisfied checks, as QEDist does ([references](#references)).
-A check that the support satisfies holds an even number of the variables of a completion, so a completion that holds an available variable `v` of such a check holds another available variable of it, and a dual solution may move weight from `v`, if `v` carries more than one, onto the other available variables of the check; the bound can then exceed every bound of the hitting-set problem above.
-QEDist adds weight greedily to up to 16 unsatisfied checks, each time moving the excess of each overloaded variable onto the first satisfied check with room, and also searches a bounded number of steps for more disjoint checks.
-A trial in qLDPC that started from the weights `y_c = 1/m_c` and repaired in the same way visited about 3 times fewer states on the [[144,12,12]] and [[288,12,18]] bivariate bicycle codes, about 1.3 to 1.9 times fewer on quantum Tanner and pair-partition codes, and about 1.1 to 1.3 times fewer on surface, toric, and color codes; the search for disjoint checks alone would have removed under a tenth of the states.
-But a run of the bound visits the satisfied checks of every overloaded variable, which costs several states on codes with heavy checks.
-So the searches took about 1.2 to 1.4 times less time on the two bivariate bicycle codes, but about 1.8 times longer on a quantum Tanner code, 1.5 times longer on a pair-partition code, 1.2 times longer on a larger one, and about 1.1 times longer on a color code.
-Other variants of the trial pruned more on some codes, but none was faster than qLDPC's search on the quantum Tanner or color code.
-
-Nor does it forbid a symbol that is the only available one of a satisfied check, where a symbol ([Section 3.7](#37-qubit-codes-that-are-not-css)) is a variable in binary problems.
-A completion holds an even number of the symbols that flip a check that the support satisfies (for a syndrome query, relative to the syndrome of the state), so it cannot hold such a symbol, and forbidding it for the subtree can leave another satisfied check with one available symbol, or an unsatisfied check with none, which prunes the state.
-Nearly all such checks arise at states that allow only viable symbols, where a pass over the checks of the allowed symbols finds them.
-A trial in qLDPC that ran this pass, and its closure, at those states visited about 1.2 to 1.9 times fewer states on bivariate bicycle, quantum Tanner, pair-partition, and color codes, and on searches of pair-partition codes that are not CSS.
-But the states that it removed were mostly ones that the search would have left at once, since adding the forbidden symbol leaves the check unsatisfied with no available symbol.
-So the searches took about the same time on the bivariate bicycle and color codes and on a small pair-partition code, and about 1.05 to 1.15 times longer on a quantum Tanner code, on a larger pair-partition code, and on searches of pair-partition codes that are not CSS.
-
-Nor does it forbid a variable that, with a variable of the support, a single variable could replace, as tropidist does ([references](#references)): it forbids `b` and `c` in the subtree of `a` if `h_a + h_b = h_c` and their logical labels sum likewise.
-Then `{a, b, c}` is the support of a word of `rowspan(G)` of weight 3, and the sum of this word with a witness that holds two of `a`, `b`, and `c` is a lighter witness, so no witness of minimum weight holds two of them.
-A syndrome query could use any word of `ker(H)` of weight 3, and a search of [Section 3.7](#37-qubit-codes-that-are-not-css) also a word of weight 2, whose qubits replace a symbol on each by one symbol on one of them.
-In binary problems, the rule is the cut above by a known word of weight 3 that is not a row of `G`.
-The distance search of a classical code has no such words, since its `G` is empty, and a count found none of weight 3 in the surface, toric, color, bivariate bicycle, generalized bicycle, pair-partition, quantum Tanner, and quantum Golay codes that we timed, in their sectors, their searches with Hadamards on some qubits, and their queries on the encoded state `|0…0⟩`; a CSS code whose stabilizers all have even weights, as these do, has none in `rowspan(G)` in any case.
-Only the surface codes have words of weight 2, their boundary stabilizers, which are rows of `G` and so already cut in binary problems.
-So the rule would change none of these searches except the searches and queries of surface codes with the values of Section 3.7, and qLDPC does not use it.
+[Section 3.10](#310-techniques-not-used) explains why qLDPC does not use some stronger bounds, forbidding rules, and lookups of other tools.
 
 ### 3.5 Symmetries
 
@@ -240,15 +205,7 @@ A witness found then is a lightest one over all sectors; otherwise every witness
 The search ends once the lightest witness found weighs at most every `L`, and so needs no initial upper bound.
 The sectors share the lightest witness found, as they do in BZ, and an upper bound that the caller passes, such as a known distance of another sector, acts as a witness of that weight.
 A `cutoff` above the `L` of a sector makes its first limit the largest multiple of its divisor at most `cutoff`, and a witness within that limit is returned at once, though it can be heavier than the distance.
-
-**Best-first search.**
-Raising the limit one divisor at a time, and searching each limit depth first, is iterative deepening, and with the bound `⌈Y⌉` of [Section 3.4](#34-pruning) it is the iterative-deepening form of A*.
-The decoder Tesseract and the search of Banfi et al. instead expand states in the order of the cost of `S`, which is `|S|` for unit costs, plus such a bound ([references](#references)).
-Any such search must still expand every state that the last limit without a witness visits, so it can save at most the states of the other limits, the lower ones and the one that finds a witness.
-On the slower searches that we measured, these were about half of the states of a quantum Tanner code, a quarter of those of the [[288,12,18]] bivariate bicycle code and of a search of a pair-partition code that is not CSS, and a tenth of those of the search of a larger pair-partition code that is CSS.
-Estimates for qLDPC's search found that best-first variants would visit about 0.6 to 2.5 times as many states as it does on these slower searches, since they lose part of the viability forbidding of [Section 3.4](#34-pruning), which depends on the limit, and would keep millions of states in memory.
-They would visit about 0.1 to 0.5 times as many states on surface, toric, and color codes, whose searches take hundredths of a second.
-They would also replace the single compiled call per limit on which the predictions of [Section 3.5](#35-symmetries), `method="auto"`, and interrupts rely, so qLDPC does not use them.
+[Section 3.10](#310-techniques-not-used) explains why qLDPC does not search best first instead.
 
 **Termination.**
 Each limit ends, since the search from a root is a finite tree of depth at most `W`.
@@ -369,6 +326,95 @@ Since a distance search uses its checks once, while a `CosetLeaderSearch` sparsi
 
 Sparsity is not all that matters: bases of equal weight can make the search visit very different numbers of states.
 So sparsifying changes the checks only when their total weight drops, which leaves a basis that is already as sparse as possible, such as the derived basis of a Bacon-Shor code, as it is.
+
+### 3.10 Techniques not used
+
+qLDPC tried or considered the techniques below, from public tools and papers, and does not use them.
+This section records why, so that later contributors do not repeat them without new evidence.
+The paragraphs use the terms of [Section 3.4](#34-pruning): the number `s` of variables of a state, the weight limit `W`, completions, the weights `y_c = 1/m_c` of the unsatisfied checks and their sum `Y`, and viable variables.
+Some also use symbols ([Section 3.7](#37-qubit-codes-that-are-not-css)), which are the variables in binary problems.
+
+**Dual ascent.**
+Dual ascent raises each weight `y_c` of the bound `Y` as far as its constraints allow.
+It costs further passes over the unsatisfied checks of every state, and qLDPC does not use it.
+
+**Repairs through satisfied checks.**
+QEDist prunes by repairs through satisfied checks, the checks that the support satisfies ([references](#references)); these repairs move dual weight onto satisfied checks, and are not the repairs `R_v` of [Section 3.4](#34-pruning).
+Such a check holds an even number of the variables of a completion.
+So a completion that holds an available variable `v` of the check holds another available variable of it.
+A dual solution may therefore move weight from `v`, if `v` carries more than one, onto the other available variables of the check.
+The bound can then exceed every bound of the hitting-set problem of [Section 3.4](#34-pruning).
+QEDist adds weight greedily to up to 16 unsatisfied checks.
+Each time, it moves the excess of each overloaded variable onto the first satisfied check with room.
+It also searches a bounded number of steps for more disjoint checks.
+A trial in qLDPC started from the weights `y_c = 1/m_c` and moved the excess weight in the same way.
+It visited about 3 times fewer states on the [[144,12,12]] and [[288,12,18]] bivariate bicycle codes, about 1.3 to 1.9 times fewer on quantum Tanner and pair-partition codes, and about 1.1 to 1.3 times fewer on surface, toric, and color codes.
+The search for disjoint checks alone would have removed under a tenth of the states.
+But a run of the bound visits the satisfied checks of every overloaded variable, which costs several states on codes with heavy checks.
+So the searches took about 1.2 to 1.4 times less time on the two bivariate bicycle codes.
+But they took about 1.8 times longer on a quantum Tanner code, 1.5 times longer on a pair-partition code, 1.2 times longer on a larger one, and about 1.1 times longer on a color code.
+Other variants of the trial pruned more on some codes, but none was faster than qLDPC's search on the quantum Tanner or color code.
+
+**Erasure bound.**
+Qubitserf and DistQLDPC prune by an erasure bound ([references](#references)).
+Only the available variables of the unsatisfied checks carry weight in the dual of [Section 3.4](#34-pruning).
+So a completion of at most `W - s` variables holds at least `⌈Y⌉` of them, and at most `e = W - s - ⌈Y⌉` other available variables.
+For `e` up to 2, the erasure bound prunes the state unless some available variables of the unsatisfied checks, in any number, and at most `e` other available variables complete the support to a witness.
+In a syndrome query, they must complete it to a vector with the syndrome.
+Peeling and elimination over GF(2) decide this.
+A hash of the checks lets them try every other variable, and every pair of them, at once.
+Unlike the bounds of Section 3.4, the erasure bound also uses the checks that the support satisfies.
+A trial in qLDPC visited up to about 15 times fewer states with it.
+But each run of the bound cost about as much as 10 states.
+So the searches took about a quarter longer on a quantum Tanner code and on the [[288,12,18]] bivariate bicycle code, and up to about 2.5 times longer on pair-partition codes and on syndrome queries.
+They took about a third less time only on the [[144,12,12]] bivariate bicycle (gross) code and a color code, which took a few hundredths of a second.
+
+**Forbidding the only available symbol of a satisfied check.**
+A completion holds an even number of the symbols that flip a check that the support satisfies.
+In a syndrome query, a check is satisfied if it is not in the syndrome `σ + Hx_S` of the state ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+So a completion cannot hold a symbol that is the only available one of such a check, and the search could forbid that symbol for the subtree.
+Forbidding it can leave another satisfied check with one available symbol, or an unsatisfied check with none, which prunes the state.
+Nearly all such checks arise at states that allow only viable symbols, where a pass over the checks of the allowed symbols finds them.
+A trial in qLDPC ran this pass, and its closure, at those states.
+It visited about 1.2 to 1.9 times fewer states on bivariate bicycle, quantum Tanner, pair-partition, and color codes, and on searches of pair-partition codes that are not CSS.
+But the states that it removed were mostly ones that the search would have left at once, since adding the forbidden symbol leaves the check unsatisfied with no available symbol.
+So the searches took about the same time on the bivariate bicycle and color codes and on a small pair-partition code.
+They took about 1.05 to 1.15 times longer on a quantum Tanner code, on a larger pair-partition code, and on searches of pair-partition codes that are not CSS.
+
+**Pairs that one variable could replace.**
+tropidist forbids a variable that, with a variable of the support, a single variable could replace ([references](#references)).
+It gives each variable `v` a logical label, the column of `v` in the rows of its logical observables, which play the role of the test rows of [Section 3.6](#36-from-a-search-to-the-distance).
+With `h_v` the column of `v` in `H`, it forbids `b` and `c` in the subtree of `a` if `h_a + h_b = h_c` and the labels of `a` and `b` sum to that of `c`.
+Then `{a, b, c}` is the support of a word of `rowspan(G)` of weight 3.
+The sum of this word with a witness that holds two of `a`, `b`, and `c` is a lighter witness, so no witness of minimum weight holds two of them.
+A syndrome query could use any word of `ker(H)` of weight 3.
+A search with the values of [Section 3.7](#37-qubit-codes-that-are-not-css) could also use a word of weight 2, whose qubits replace a symbol on each by one symbol on one of them.
+In binary problems, the rule is the overlap cut of [Section 3.4](#34-pruning) by a known word of weight 3 that is not a row of `G`.
+The distance search of a classical code has no such words, since its `G` is empty.
+A count found none of weight 3 in the surface, toric, color, bivariate bicycle, generalized bicycle, pair-partition, quantum Tanner, and quantum Golay codes that we timed, in their sectors, their searches with Hadamards on some qubits, and their queries on the encoded state `|0…0⟩`.
+A CSS code whose stabilizers all have even weights, as these do, has none in `rowspan(G)` in any case.
+Only the surface codes have words of weight 2, their boundary stabilizers, which are rows of `G` and so already cut in binary problems.
+So the rule would change none of these searches except the searches and queries of surface codes with the values of Section 3.7, and qLDPC does not use it.
+
+**Lookups of the last variables.**
+dist-m4ri and Qubitserf look up the last one or two variables of a support in a table of syndromes ([references](#references)).
+With the bounds and the overlap cuts of [Section 3.4](#34-pruning), states with room for at most two more variables were observed to be few of the states that a search visits.
+Lookups of one or two variables were tried on the codes of `experiments/distance_tuning/workloads.py` and on the surface, toric, color, bivariate bicycle, pair-partition, and quantum Tanner codes that we timed.
+They saved no measurable time.
+
+**Best-first search.**
+qLDPC raises the weight limit one divisor at a time, and searches each limit depth first ([Section 3.6](#36-from-a-search-to-the-distance)).
+This is iterative deepening, and with the bound `⌈Y⌉`, it is the iterative-deepening form of A*.
+The decoder Tesseract and the search of Banfi et al. instead expand states in the order of the cost of `S` plus such a bound ([references](#references)).
+The cost of `S` is `|S|` for unit costs.
+Any such search must still expand every state that the last limit without a witness visits.
+So it can save at most the states of the other limits: the lower ones, and the one that finds a witness.
+On the slower searches that we measured, these were about half of the states of a quantum Tanner code, a quarter of those of the [[288,12,18]] bivariate bicycle code and of a search of a pair-partition code that is not CSS, and a tenth of those of the search of a larger pair-partition code that is CSS.
+Estimates for qLDPC's search found that best-first variants would visit about 0.6 to 2.5 times as many states as it does on these slower searches.
+The reason is that they lose part of the forbidding of variables that are not viable, which depends on the limit.
+They would also keep millions of states in memory.
+On surface, toric, and color codes, whose searches take hundredths of a second, they would visit about 0.1 to 0.5 times as many states.
+Best-first variants would also replace the single compiled call per limit on which the predictions of [Section 3.5](#35-symmetries), `method="auto"`, and interrupts ([Section 3.6](#36-from-a-search-to-the-distance)) rely, so qLDPC does not use them.
 
 ## 4. Guide to the source code
 
