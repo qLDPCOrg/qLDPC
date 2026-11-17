@@ -141,7 +141,8 @@ By default, ``method="auto"`` chooses a method for each search: exhaustive enume
 All exact methods can take exponential time.
 :meth:`QuditCode.get_known_qudit_automorphism_group <qldpc.codes.common.QuditCode.get_known_qudit_automorphism_group>` returns the qudit permutations that a code knows to preserve it: those of its construction, such as the translations of a ``QTCode``, and, with the optional ``pybliss`` package, those that bliss finds.
 For binary quantum codes, the Brouwer-Zimmermann and connected-cluster searches can use these permutations to search less, and their heuristics decide whether a search asks for them.
-Brouwer-Zimmermann distance searches use ``numba.config.NUMBA_NUM_THREADS`` threads by default; setting ``NUMBA_NUM_THREADS=1`` before numba is imported keeps them on one, as callers that run searches in process pools or in their own threads should (see :doc:`exact_search_tuning`).
+Brouwer-Zimmermann distance searches use as many threads as the environment variable ``QLDPC_NUM_THREADS`` says, or else ``numba.config.NUMBA_NUM_THREADS``.
+Setting ``QLDPC_NUM_THREADS=1`` before Python starts keeps them, and numba's own parallel code, on one, as callers that run searches in process pools or in their own threads should; ``NUMBA_NUM_THREADS=1`` alone still keeps searches on one (see :doc:`exact_search_tuning`).
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.
 A result of at most ``c`` is therefore only an upper bound, while a larger result, or any result with ``cutoff <= 1`` (the default is 1), is exact.

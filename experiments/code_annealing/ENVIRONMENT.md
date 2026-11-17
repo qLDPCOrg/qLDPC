@@ -26,7 +26,7 @@ The other scripts have no tests, because their failures show in their output.
 ## Threads and caches
 
 Each search uses one core.
-The jobs of `write_jobs` set `NUMBA_NUM_THREADS=1`; set it too when you run a search by hand.
+The jobs of `write_jobs` set `NUMBA_NUM_THREADS=1` and `QLDPC_NUM_THREADS=1`; set them too when you run a search by hand.
 qLDPC caches its compiled kernels in the user's cache directory.
 Set `NUMBA_CACHE_DIR` to a writable directory if that one is read-only, or to share one cache among jobs.
 

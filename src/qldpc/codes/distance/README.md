@@ -236,10 +236,13 @@ They are not arguments of public functions, whose arguments say what to compute 
 ### Threads
 
 A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann.md`).
-By default, `num_threads` is `None`, which takes `numba.config.NUMBA_NUM_THREADS`.
-Numba reads this value from the environment variable `NUMBA_NUM_THREADS`, normally when it is imported, or else from the CPUs available to the process.
-It does not read the CPU quotas of containers, and `numba.set_num_threads` does not change it.
-To keep searches on one core, set `NUMBA_NUM_THREADS=1` before numba is imported, which reaches every thread and worker process, or run them within `use_tuning(num_threads=1)`.
+By default, `num_threads` is `None`, which takes the value of the environment variable `QLDPC_NUM_THREADS` when qLDPC was imported, if it was set, and otherwise `numba.config.NUMBA_NUM_THREADS`.
+`QLDPC_NUM_THREADS` is the recommended control, and must be a positive integer.
+If it is set before numba is imported, as by setting it before Python starts, it also sets numba's thread count, which numba's own parallel code, such as that of galois, uses; the docstring of `src/qldpc/_num_threads.py` says when qLDPC warns that the two counts differ.
+Numba reads its count from the environment variable `NUMBA_NUM_THREADS`, normally when it is imported, or else from the CPUs available to the process.
+It does not read the CPU quotas of containers, and `numba.set_num_threads` changes neither count.
+`NUMBA_NUM_THREADS` alone still sets the count of searches when `QLDPC_NUM_THREADS` is not set.
+To keep searches on one core, set `QLDPC_NUM_THREADS=1` before Python starts, which reaches every thread and worker process, or run them within `use_tuning(num_threads=1)`.
 New threads and spawned processes normally start with the default tuning (see the module docstring of `_tuning.py`), so a program that runs searches in a pool of workers must enter `use_tuning` in the function that each worker runs.
 Programs that run searches in several processes or threads at once should cap the count in one of these ways, since each search would otherwise start a thread for each CPU.
 Other searches and counts run on one thread, except the BZ distance search that a count may run first to find its default weight.

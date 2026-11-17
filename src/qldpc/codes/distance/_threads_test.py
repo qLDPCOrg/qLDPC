@@ -15,6 +15,8 @@ import numba
 import numpy as np
 import pytest
 
+from qldpc import _num_threads
+
 from . import _threads
 
 # How long a test waits for an event that a thread should set at once.
@@ -29,9 +31,16 @@ def no_threads_left() -> Iterator[None]:
     assert set(threading.enumerate()) <= before
 
 
-def test_the_number_of_threads_defaults_to_that_of_numba(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_number_of_threads_defaults_to_qldpc_num_threads_or_else_to_numba(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit number wins, then QLDPC_NUM_THREADS if it was set, then numba's count."""
     monkeypatch.setattr(numba.config, "NUMBA_NUM_THREADS", 3)
+    monkeypatch.setattr(_num_threads, "NUM_THREADS", None)
     assert _threads.get_num_threads(None) == 3
+    assert _threads.get_num_threads(2) == 2
+    monkeypatch.setattr(_num_threads, "NUM_THREADS", 5)
+    assert _threads.get_num_threads(None) == 5
     assert _threads.get_num_threads(2) == 2
 
 

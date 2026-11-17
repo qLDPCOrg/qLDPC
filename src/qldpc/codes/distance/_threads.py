@@ -19,6 +19,8 @@ import numba
 import numpy as np
 import numpy.typing as npt
 
+from qldpc import _num_threads
+
 
 class _NumbaConfig(Protocol):
     """The setting of numba that this module reads."""
@@ -37,13 +39,19 @@ _NOT_STARTED = "cannot join thread before it is started"
 
 
 def get_num_threads(num_threads: int | None) -> int:
-    """The number of threads of a search, or ``numba.config.NUMBA_NUM_THREADS`` if it is None.
+    """The number of threads of a search, or the default number if ``num_threads`` is None.
 
-    Numba reads ``numba.config.NUMBA_NUM_THREADS``, normally when it is imported, from the
+    The default is the value of the environment variable ``QLDPC_NUM_THREADS`` when qLDPC was
+    imported, if it was set (see ``qldpc/_num_threads.py``), and otherwise
+    ``numba.config.NUMBA_NUM_THREADS``.  Numba reads that, normally when it is imported, from the
     environment variable ``NUMBA_NUM_THREADS``, or else from the CPUs available to the process.
-    ``numba.set_num_threads`` does not change it.
+    ``numba.set_num_threads`` does not change either.
     """
-    return _numba_config.NUMBA_NUM_THREADS if num_threads is None else num_threads
+    if num_threads is not None:
+        return num_threads
+    if _num_threads.NUM_THREADS is not None:
+        return _num_threads.NUM_THREADS
+    return _numba_config.NUMBA_NUM_THREADS
 
 
 def run_work_items(

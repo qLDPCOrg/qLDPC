@@ -1890,6 +1890,7 @@ def test_searches_resolve_their_number_of_threads_once(monkeypatch: pytest.Monke
         run_work_items(num_items, num_threads, *args, **kwargs)
 
     monkeypatch.setattr(bz._threads, "run_work_items", recording_run)
+    monkeypatch.setattr(bz._threads._num_threads, "NUM_THREADS", None)
     monkeypatch.setattr(bz._threads.numba.config, "NUMBA_NUM_THREADS", 3)
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     search = bz.BrouwerZimmermannSearch([get_sector(code, Pauli.X)], cutoff=0)

@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 from sympy.abc import x, y
 
-from qldpc import codes
+from qldpc import _num_threads, codes
 from qldpc._binary import get_kernel
 from qldpc.objects import PAULIS_XZ, Pauli
 
@@ -431,8 +431,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
     assert seen["search"] and all(search == (1 << 5, 3, tuning) for search in seen["search"])
 
-    # Under the default tuning, a search scans on numba.config.NUMBA_NUM_THREADS threads.
+    # Under the default tuning, without QLDPC_NUM_THREADS, a search scans on
+    # numba.config.NUMBA_NUM_THREADS threads.
     seen["search"].clear()
+    monkeypatch.setattr(_num_threads, "NUM_THREADS", None)
     monkeypatch.setattr(numba.config, "NUMBA_NUM_THREADS", 3)
     bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
     assert seen["search"] and all(search[1] == 3 for search in seen["search"])

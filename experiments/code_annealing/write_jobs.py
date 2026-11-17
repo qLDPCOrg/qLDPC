@@ -281,7 +281,8 @@ def _get_job(python: str, arguments: list[str], log: Path, *, append: bool) -> s
     root = shlex.quote(str(_REPO_ROOT))
     path = shlex.quote(f"{_REPO_ROOT}/src:{_REPO_ROOT}")
     return (
-        f"cd {root} && PYTHONPATH={path} NUMBA_NUM_THREADS=1 {shlex.quote(python)}"
+        f"cd {root} && PYTHONPATH={path} NUMBA_NUM_THREADS=1 QLDPC_NUM_THREADS=1"
+        f" {shlex.quote(python)}"
         f" -m experiments.code_annealing.core.run_annealing {quoted}"
         f" {'>>' if append else '>'} {shlex.quote(str(log))} 2>&1"
     )
