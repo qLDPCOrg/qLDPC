@@ -102,14 +102,22 @@ class Certificate:
         if not self._solves_linear_programs:
             return False
         # No requirement exceeds its block, since a set that has completed the last layer makes the
-        # coverage bound certify any upper bound.
+        # coverage bound certify any upper bound.  Each pivot column takes the largest share
+        # requirement / len(block) of its blocks, which is that of the first block that holds it in
+        # decreasing order of shares, so the point's value sums each share times the number of
+        # columns that its block holds first.
         requirements = self._get_requirements(weight, num_completed)
-        largest_fractions: dict[int, Fraction] = {}
-        for block, requirement in zip(self.pivot_blocks, requirements):
-            for column in block:
-                fraction = Fraction(max(requirement, 0), len(block))
-                largest_fractions[column] = max(fraction, largest_fractions.get(column, fraction))
-        reachable = math.ceil(sum(largest_fractions.values(), Fraction(0)))
+        shares = [
+            Fraction(max(requirement, 0), len(block))
+            for block, requirement in zip(self.pivot_blocks, requirements)
+        ]
+        order = sorted(range(len(shares)), key=shares.__getitem__, reverse=True)
+        columns = np.concatenate([self._pivot_block_arrays[index] for index in order])
+        owners = np.repeat(order, [len(self.pivot_blocks[index]) for index in order])
+        _, first_entries = np.unique(columns, return_index=True)
+        counts = np.bincount(owners[first_entries], minlength=len(shares))
+        value = sum((share * int(count) for share, count in zip(shares, counts)), Fraction(0))
+        reachable = math.ceil(value)
         reachable += (-reachable) % self.weight_divisor
         return (
             reachable >= upper_bound and self.step_lower_bound(weight, num_completed) >= upper_bound
@@ -203,6 +211,11 @@ class Certificate:
         """The table of ``get_step_lower_bounds`` for this certificate."""
         return get_step_lower_bounds(self.dimension, *self._as_array_arguments())
 
+    @functools.cached_property
+    def _pivot_block_arrays(self) -> tuple[npt.NDArray[np.int64], ...]:
+        """The pivot blocks as arrays, for ``certifies``."""
+        return tuple(np.array(block, dtype=np.int64) for block in self.pivot_blocks)
+
     def _get_requirements(self, weight: int, num_completed: int) -> list[int]:
         """The fewest ones that an unvisited word has in each block after the given step."""
         return [
@@ -255,8 +268,10 @@ def get_lp_lower_bound(
     if result.status != 0:
         return 0
 
-    # Evaluate the dual value exactly.  The solver gives the dual of each constraint
-    # ``-sum x >= -b`` as a nonpositive marginal.
+    # Evaluate the dual value exactly, in integer multiples of the common denominator of the
+    # weights.  The solver gives the dual of each constraint ``-sum x >= -b`` as a nonpositive
+    # marginal.  Columns in the same blocks carry the same load, so each pattern of blocks counts
+    # once, times its number of columns.
     weights = [
         max(
             Fraction(0),
@@ -264,15 +279,16 @@ def get_lp_lower_bound(
         )
         for marginal in result.ineqlin.marginals
     ]
+    denominator = math.lcm(*(weight.denominator for weight in weights))
+    numerators = [weight.numerator * (denominator // weight.denominator) for weight in weights]
     value = sum(
-        (requirement * weight for requirement, weight in zip(positive, weights)), Fraction(0)
+        int(requirement) * numerator for requirement, numerator in zip(positive, numerators)
     )
-    for position in range(len(columns)):
-        load = sum(
-            (weight for row, weight in enumerate(weights) if incidence[row, position]), Fraction(0)
-        )
-        value -= max(Fraction(0), load - 1)
-    return max(0, math.ceil(value))
+    patterns, counts = np.unique(incidence.astype(bool), axis=1, return_counts=True)
+    for pattern, count in zip(patterns.T, counts):
+        load = sum(numerator for numerator, member in zip(numerators, pattern) if member)
+        value -= int(count) * max(0, load - denominator)
+    return max(0, -(-value // denominator))
 
 
 @functools.lru_cache(maxsize=_tuning.BINOMIAL_CACHE_SIZE)

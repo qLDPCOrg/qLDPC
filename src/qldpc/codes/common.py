@@ -56,7 +56,12 @@ from .distance import (
     get_distance_from_generators,
     get_distance_pauli,
 )
-from .distance._binary import get_css_stabilizers, get_pauli_stabilizers, infer_field
+from .distance._binary import (
+    get_css_stabilizers,
+    get_pauli_stabilizers,
+    infer_field,
+    multiply_binary,
+)
 from .distance.core import _validate_distance_method
 from .monte_carlo import ErrorRateFunc
 
@@ -362,7 +367,7 @@ class ClassicalCode(AbstractCode):
         """The same code with its parity matrix in reduced row echelon form."""
         if self._is_canonicalized:
             return self
-        matrix = self.matrix.row_space()
+        matrix = _get_row_space(self.matrix)
         code = ClassicalCode(matrix, self.field)
         code._dimension = len(self) - len(matrix)
         code._distance = self._distance
@@ -1204,7 +1209,7 @@ class QuditCode(AbstractCode):
         if self._is_canonicalized:
             return self
         is_subsystem_code = self.is_subsystem_code
-        matrix = self.matrix.row_space()
+        matrix = _get_row_space(self.matrix)
         code = QuditCode(matrix, self.field)
         code._is_subsystem_code = is_subsystem_code  # known, so not re-verified
         if not is_subsystem_code:
@@ -1928,7 +1933,7 @@ class QuditCode(AbstractCode):
             return len(self._logical_ops) // 2
         if not self.is_subsystem_code:
             return len(self) - self.rank
-        num_stabs = len(self.get_stabilizer_ops().row_space())
+        num_stabs = len(_get_row_space(self.get_stabilizer_ops()))
         return len(self) - (self.rank + num_stabs) // 2
 
     @functools.cached_property
@@ -1936,7 +1941,7 @@ class QuditCode(AbstractCode):
         """The number of gauge qudits in this code."""
         if not self.is_subsystem_code:
             return 0
-        num_stabs = len(self.get_stabilizer_ops().row_space())
+        num_stabs = len(_get_row_space(self.get_stabilizer_ops()))
         return (self.rank - num_stabs) // 2
 
     def get_code_params(
@@ -3025,7 +3030,14 @@ class CSSCode(QuditCode):
         That is, do some parity checks fail to commute with each other?
         """
         if self._is_subsystem_code is None:
-            self._is_subsystem_code = bool(np.any(self.matrix_x @ self.matrix_z.T))
+            if self.field.order == 2:
+                # the float product of multiply_binary is much faster than galois
+                matrix_x = self.matrix_x.view(np.ndarray).astype(np.uint8)
+                matrix_z = self.matrix_z.view(np.ndarray).astype(np.uint8)
+                overlaps = multiply_binary(matrix_x, matrix_z.T)
+            else:
+                overlaps = self.matrix_x @ self.matrix_z.T
+            self._is_subsystem_code = bool(np.any(overlaps))
         return self._is_subsystem_code
 
     @property
@@ -4573,6 +4585,18 @@ def _mark_read_only(array: _ArrayT) -> _ArrayT:
     """
     array.flags.writeable = False
     return array
+
+
+def _get_row_space(matrix: galois.FieldArray) -> galois.FieldArray:
+    """Return the reduced row echelon form of a matrix over a finite field, without zero rows.
+
+    This is ``matrix.row_space()``, computed over GF(2) by the bit-packed routines, which are much
+    faster than galois.
+    """
+    if type(matrix).order != 2:
+        return matrix.row_space()
+    rows = get_independent_rows(matrix.view(np.ndarray).astype(np.uint8))
+    return rows.astype(matrix.dtype).view(type(matrix))
 
 
 def _get_random_array(

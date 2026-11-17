@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 
-from qldpc._binary import get_independent_rows, get_kernel
+from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
 
 ####################################################################################################
 # input checks
@@ -147,12 +147,15 @@ def get_nested_code_basis(
         excluding nothing.
     """
     stabilizer_basis = get_independent_rows(stabilizers)
-    stabilizer_pivots = [int(np.flatnonzero(row)[0]) for row in stabilizer_basis]
-    reduced_logical_ops = logical_ops.copy()
-    for row, pivot in zip(stabilizer_basis, stabilizer_pivots, strict=True):
-        reduced_logical_ops[reduced_logical_ops[:, pivot] == 1] ^= row
 
-    logical_quotient = get_independent_rows(reduced_logical_ops)
+    # Reduce the logical operators modulo the stabilizers by clearing the stabilizer pivots, which
+    # leaves the rows of the reduced row echelon stabilizer basis unchanged.
+    stabilizer_pivots = np.argmax(stabilizer_basis, axis=1)
+    reduced, _, _ = row_reduce_binary(
+        np.vstack([stabilizer_basis, logical_ops]), columns=stabilizer_pivots
+    )
+    logical_quotient = get_independent_rows(reduced[len(stabilizer_basis) :])
+
     basis = np.vstack([stabilizer_basis, logical_quotient]).astype(np.uint8, copy=False)
     labels = np.zeros((len(basis), len(logical_quotient)), dtype=np.uint8)
     labels[len(stabilizer_basis) :] = np.eye(len(logical_quotient), dtype=np.uint8)
