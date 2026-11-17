@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Light bases of logical operators that share few qubits, for binary CSS codes.
+"""Check bases of logical operators of binary CSS codes, and find the lightest ones.
 
 EXPERIMENTAL: this subpackage is under active development; its public API is unstable and may
 change without notice or deprecation.
 
 Logical operators that share no physical qubits can be acted on at the same time, for example by
 parallel lattice surgery, so a basis whose operators are light and overlap little allows more
-parallel logical operations.  This subpackage checks bases and measures their weights and overlaps
-among operators of the same Pauli type, and finds the lightest bases of each Pauli type, which bound
-the weights of every basis from below.
+parallel logical operations.  This subpackage checks bases, and measures the weights of their
+operators and the overlaps between operators of the same Pauli type.  It also finds a lightest basis
+of each Pauli type, whose weights bound those of every basis of that type and kind (dressed or bare)
+from below.
 
 Public API:
     evaluate_logical_ops, LogicalOpsMetrics    — check a basis and measure weights and overlaps

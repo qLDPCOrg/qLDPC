@@ -52,7 +52,7 @@ Packages at a glance
      - ``external.gap``, ``external.sqetch``, and ``cache.clear_entry``.
      - `External tools, side effects, and caching`_
    * - ``qldpc.experimental``
-     - Unstable research code: lattice surgery, decoder-free benchmarks of state-preparation circuits, and checking bases of logical operators and finding the lightest ones.
+     - Unstable research code: lattice surgery, decoder-free benchmarks of state-preparation circuits, and light bases of logical operators.
      - ``experimental.surgery``, ``experimental.circuits.estimate_residual_weight_histogram``, and ``experimental.logical_bases``.
      - :doc:`Lattice surgery <examples/lattice_surgery>` and :doc:`benchmarking state preparation <examples/experimental/logical_state_preparation>`
 
