@@ -63,8 +63,11 @@ def row_reduce_binary(
     if len(columns) and (columns.min() < 0 or columns.max() >= width):
         raise IndexError("Row-reduction columns are out of range")
     tags = np.empty((len(matrix), 0), dtype=np.uint8) if labels is None else labels
+    # Pack C-ordered arrays, so that inputs in any memory layout share compiled specializations.
     rows, packed_tags, pivots = row_reduce_packed(
-        pack_bits(matrix), pack_bits(tags), columns.astype(np.int64)
+        pack_bits(np.ascontiguousarray(matrix)),
+        pack_bits(np.ascontiguousarray(tags)),
+        columns.astype(np.int64),
     )
     reduced_tags = None if labels is None else unpack_bits(packed_tags, tags.shape[1])
     return unpack_bits(rows, width), reduced_tags, pivots.astype(int)
