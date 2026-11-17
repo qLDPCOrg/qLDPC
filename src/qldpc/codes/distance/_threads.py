@@ -29,6 +29,9 @@ class _NumbaConfig(Protocol):
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
 _numba_config = cast(_NumbaConfig, numba.config)
 
+# The message of the error that joining a thread raises before the thread counts as started.
+_NOT_STARTED = "cannot join thread before it is started"
+
 ####################################################################################################
 # threads
 
@@ -59,11 +62,11 @@ def run_work_items(
     it, until every item is claimed or the event is set.  A function that runs a range should check
     the event between chunks of its work, and may set it to stop every thread.
 
-    Ranges follow guided self-scheduling: a range holds the next items up to about
-    ``1 / (2 * num_threads)`` of the weight that no thread has claimed, and at least one item, so
-    ranges shrink as the work ends.  The claims number at most about
-    ``2 * num_threads * ln(W / w)``, for the total weight ``W`` and the weight ``w`` of the lightest
-    item, plus the last items, which ranges of one item each claim.  ``cumulative_weights``, if
+    Ranges follow guided self-scheduling: a range holds the fewest next items whose weight reaches
+    about ``1 / (2 * num_threads)`` of the weight that no thread has claimed, so a heavy item can
+    make a range overshoot that share, and ranges shrink as the work ends.  The claims number at
+    most about ``2 * num_threads * ln(W / w) + 1``, for the total weight ``W`` and the weight ``w``
+    of the lightest item.  ``cumulative_weights``, if
     given, holds for each item the total weight of the items up to it, which estimates their work;
     without it, items count one each.
 
@@ -98,6 +101,8 @@ def run_work_items(
     def work() -> None:
         """Claim and run ranges until no item is left or the event is set."""
         try:
+            if stop.is_set():
+                return
             run_range = start_worker(stop)
             while not stop.is_set():
                 start, end = claim()
@@ -117,7 +122,7 @@ def run_work_items(
     # The calling thread works too, so that it takes keyboard interrupts while the others work.  A
     # thread is listed before it starts, so that the cleanup joins it if its start got far enough to
     # set its ident, even if the start then raised.  A thread whose start is interrupted earlier may
-    # start late, but it finds the event set and claims nothing.
+    # start late, but it finds the event set and returns without starting its worker.
     threads: list[threading.Thread] = []
     try:
         for _ in range(num_threads - 1):
@@ -145,16 +150,18 @@ def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
     interrupt: BaseException | None = None
     for thread in threads:
         delay = 0.0
-        while thread.ident is not None:
+        while True:
             try:
                 time.sleep(delay)
-                thread.join()
+                if thread.ident is not None:
+                    thread.join()
                 break
-            except RuntimeError:
-                # On Python 3.11 to 3.13, a thread has an ident a moment before it counts as
-                # started, and joining it before then raises this error.
-                delay = 0.001
             except BaseException as error:  # noqa: BLE001 - raised once the threads return
+                # A thread has an ident a moment before it counts as started, and joining it
+                # before then raises this error, so try again.
+                if isinstance(error, RuntimeError) and _NOT_STARTED in str(error):
+                    delay = 0.001
+                    continue
                 interrupt = error
                 stop.set()
     if interrupt is not None:

@@ -772,8 +772,8 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
   The items are numbered in lexicographic order.
   Their numbers of supports vary widely, and earlier items tend to hold more.
-  The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling, weighted by the number of supports of each item: each range holds the next items up to about `1 / (2 * num_threads)` of the supports that no thread has claimed, and at least one item.
-  So the ranges shrink toward the end of the layer, which balances the threads, and the claims number at most about `2 * num_threads * ln(W / w)`, for the `W` supports of the layer and the `w` supports of its lightest item, plus the last items, one range each.
+  The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling, weighted by the number of supports of each item: each range holds the fewest next items whose supports reach about `1 / (2 * num_threads)` of the supports that no thread has claimed, so a heavy item can make a range overshoot that share.
+  So the ranges shrink toward the end of the layer, which balances the threads, and the claims number at most about `2 * num_threads * ln(W / w) + 1`, for the `W` supports of the layer and the `w` supports of its lightest item.
   Ranges of equal numbers of items would not do, since earlier items tend to hold more supports.
   A thread scans its range with `scan_set_items`, which Numba compiles without the global interpreter lock, and which stops once a support passes the last item of the range.
   The threads share one copy of the rows, labels, and tables of the set.

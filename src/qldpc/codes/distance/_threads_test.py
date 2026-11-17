@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import math
+import sys
 import threading
+import types
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -64,8 +66,8 @@ def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None
     """A range of several items holds at most half of the weight not yet claimed.
 
     Ranges never get heavier, and they cover the items.  The items weigh as the supports of the
-    items of layer seven of a set of 150 rows, which fix one row each, so the first items weigh the
-    most.
+    items of layer seven of a set of 150 rows, which fix one row each, so their weights decrease;
+    these properties are for decreasing weights, since a heavy item can make a range overshoot.
     """
     weights = np.array([math.comb(149 - row, 6) for row in range(144)], dtype=np.float64)
     ranges: list[tuple[int, int]] = []
@@ -151,7 +153,8 @@ def test_an_interrupt_while_a_thread_starts_stops_it(
     The start of the thread raises the interrupt once the thread has claimed its first range, in
     place of a real one, which no test can time.  That range waits for the stop event, so the
     thread claims no other range, and the calling thread claims none.  A thread can have an ident
-    a moment before it can be joined, as on Python 3.11 to 3.13, and the cleanup then tries again.
+    a moment before it counts as started, and the cleanup then tries again to join it, as many
+    times as it takes, without recursion.
     """
     start = threading.Thread.start
     claimed = threading.Event()
@@ -177,17 +180,63 @@ def test_an_interrupt_while_a_thread_starts_stops_it(
 
     def late_join(thread: threading.Thread, *args: Any, **kwargs: Any) -> None:
         joins.append(thread)
-        if len(joins) == 1:
+        if len(joins) <= sys.getrecursionlimit():
             raise RuntimeError("cannot join thread before it is started")
         join(thread, *args, **kwargs)
 
     monkeypatch.setattr(threading.Thread, "start", interrupted_start)
     if joinable_late:
         monkeypatch.setattr(threading.Thread, "join", late_join)
+        monkeypatch.setattr(_threads, "time", types.SimpleNamespace(sleep=lambda seconds: None))
     with pytest.raises(KeyboardInterrupt):
         _threads.run_work_items(10, 3, start_worker)
     assert len(claims) == 1 and stopped == [True]
-    assert len(joins) == (2 if joinable_late else 0)
+    if joinable_late:
+        assert len(joins) >= 2
+
+
+@pytest.mark.usefixtures("no_threads_left")
+def test_another_error_while_the_calling_thread_waits_stops_the_other_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runtime error while the calling thread waits, as from a signal handler, stops the others.
+
+    The error is raised again once the other thread has returned, rather than taken for a thread
+    that cannot be joined yet.  The wait for the thread raises it, in place of a real one.
+    """
+
+    class HandlerError(RuntimeError):
+        """An error that a signal handler raises."""
+
+    join = threading.Thread.join
+    errors: list[HandlerError] = []
+
+    def failing_join(thread: threading.Thread, *args: Any, **kwargs: Any) -> None:
+        if thread.name == "qldpc-search" and not errors:
+            errors.append(HandlerError("from a signal handler"))
+            raise errors[-1]
+        join(thread, *args, **kwargs)
+
+    calling_thread = threading.get_ident()
+    working = threading.Event()
+    stopped: list[bool] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        def run_range(start: int, end: int) -> None:
+            # The calling thread runs out of work while the other thread works.
+            if threading.get_ident() == calling_thread:
+                assert working.wait(timeout=_TIMEOUT)
+                return
+            working.set()
+            stopped.append(stop.wait(timeout=_TIMEOUT))
+
+        return run_range
+
+    monkeypatch.setattr(threading.Thread, "join", failing_join)
+    with pytest.raises(HandlerError) as raised:
+        _threads.run_work_items(2, 2, start_worker)
+    assert stopped == [True]
+    assert raised.value is errors[0]
 
 
 @pytest.mark.usefixtures("no_threads_left")

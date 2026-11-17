@@ -1719,8 +1719,8 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     one set of an automorphism family, whose best weight is ten before layer four.  In that layer,
     the item whose fixed rows are 0 and 13 holds a word of weight eight.  Ranges that start after
     that item wait for the stop event before they scan, so the threads stop before they claim the
-    last item.  The first range of the layer, which the weights of the items size, holds less than
-    half of its supports.
+    last item.  The first range of the layer, sized by the weights of its items, holds about
+    ``1 / (2 * num_threads)`` of its supports: without its last item, less than that share.
     """
     tune(num_threads=num_threads)
     gated = False
@@ -1768,9 +1768,10 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     assert all(end < num_items for _, end, num_items in ranges)
     first_end = min(end for start, end, _ in ranges if start == 0)
     first_supports = sum(
-        math.comb(dimension - 1 - rows[-1], weight - len(rows)) for rows in item_rows[:first_end]
+        math.comb(dimension - 1 - rows[-1], weight - len(rows))
+        for rows in item_rows[: first_end - 1]
     )
-    assert first_supports <= math.comb(dimension, weight) / 2
+    assert first_supports < math.comb(dimension, weight) / (2 * num_threads)
 
 
 @pytest.mark.usefixtures("small_batches")
