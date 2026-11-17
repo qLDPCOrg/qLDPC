@@ -1648,15 +1648,15 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
 
 @pytest.mark.parametrize(
     ("num_rows", "weight", "num_threads", "length"),
-    [(12, 3, 8, 1), (12, 5, 8, 2), (40, 3, 1, 1), (40, 4, 4, 2)],
+    [(12, 3, 8, 1), (12, 5, 8, 2), (40, 3, 1, 1), (40, 4, 1, 1), (40, 4, 4, 2)],
 )
-def test_work_items_fix_the_first_rows_of_heads_in_lexicographic_order(
+def test_work_items_fix_the_first_rows_of_supports_in_lexicographic_order(
     num_rows: int, weight: int, num_threads: int, length: int
 ) -> None:
     """The items of a layer fix one row, or two if fixing one leaves fewer than 32 for each thread.
 
-    Their fixed rows are those of the heads of the supports of the layer, which end before its last
-    row, in lexicographic order.  Their weights count their supports.
+    Their fixed rows are the first rows of the supports of the layer, in lexicographic order.  Their
+    weights count their supports.
     """
     items = bz._WorkItems(num_rows, weight, num_threads)
     supports = collections.Counter(
@@ -1720,12 +1720,38 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     """A stop at the cutoff, in a layer split across threads, leaves the bounds as before the layer.
 
     The search returns the weight of a word between the distance, eight, and the cutoff.  It scans
-    one set of an automorphism family, whose best weight is ten before layer four.  In that layer,
-    the item whose fixed rows are 0 and 13 holds a word of weight eight.  Ranges that start after
-    that item wait for the stop event before they scan, so the threads stop before they claim the
-    last item, and they scan no chunk of those ranges.  The range of that item waits until another
-    thread holds such a range.  The ranges are sized by the weights of the items of the layer.
+    one set of an automorphism family, whose best weight is ten before layer four.  A search on one
+    thread finds the item of that layer that holds the first word within the cutoff.  On threads,
+    ranges that start after that item wait for the stop event before they scan, so the threads
+    stop before they claim the last item, and they scan no chunk of those ranges.  The range of
+    that item waits until another thread holds such a range.  The ranges are sized by the weights
+    of the items of the layer.
     """
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    sector = get_sector(code, Pauli.X)
+    dimension, weight = 38, 4
+    items = bz._WorkItems(dimension, weight, num_threads)
+
+    # Find the fixed rows of the first word within the cutoff, at which a scan on one thread stops.
+    witness_items: list[tuple[int, ...]] = []
+    scan_set = affine_search.scan_set
+
+    def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        result = scan_set(*args)
+        if result[0] <= cutoff and not witness_items:
+            witness_items.append(tuple(args[5][: items.length].tolist()))
+        return result
+
+    with monkeypatch.context() as patch, use_tuning(num_threads=1):
+        patch.setattr(affine_search, "scan_set", recording_scan)
+        bz.get_distance_brouwer_zimmermann(
+            [sector], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
+        )
+    item_rows = [tuple(items.get_item(index).tolist()) for index in range(items.num_items)]
+    (witness_item,) = witness_items
+    witness_index = item_rows.index(witness_item)
+    prepared.clear()
+
     tune(num_threads=num_threads)
     gated = False
     ranges: list[tuple[int, int, int]] = []
@@ -1733,10 +1759,6 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     later_claimed = threading.Event()
     weights: list[npt.NDArray[np.float64]] = []
     run_work_items = bz._threads.run_work_items
-    dimension, weight = 38, 4
-    items = bz._WorkItems(dimension, weight, num_threads)
-    item_rows = [tuple(items.get_item(index).tolist()) for index in range(items.num_items)]
-    witness_index = item_rows.index((0, 13))
 
     def gated_run(
         num_items: int,
@@ -1769,9 +1791,8 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
         run_work_items(num_items, threads, gated_start, **kwargs)
 
     monkeypatch.setattr(bz._threads, "run_work_items", gated_run)
-    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     search = bz.BrouwerZimmermannSearch(
-        [get_sector(code, Pauli.X)], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
+        [sector], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
     )
     (sector_search,) = prepared
     while not search.finished:

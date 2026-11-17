@@ -58,8 +58,9 @@ def test_the_variable_sets_numba_thread_count_before_numba_is_imported() -> None
         assert environ["NUMBA_NUM_THREADS"] == "3"
 
         # The same number replaces nothing, however it is written.
-        environ = {"QLDPC_NUM_THREADS": "3", "NUMBA_NUM_THREADS": "03"}
-        assert _num_threads.read_num_threads(environ, {}) == 3
+        for numba_value in ("03", " 3"):
+            environ = {"QLDPC_NUM_THREADS": "3", "NUMBA_NUM_THREADS": numba_value}
+            assert _num_threads.read_num_threads(environ, {}) == 3
 
     environ = {"QLDPC_NUM_THREADS": "3", "NUMBA_NUM_THREADS": "5"}
     with pytest.warns(RuntimeWarning, match="QLDPC_NUM_THREADS=3 replaces NUMBA_NUM_THREADS=5"):

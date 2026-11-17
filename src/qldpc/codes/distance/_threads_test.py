@@ -95,6 +95,22 @@ def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None
         assert end - start == 1 or weight <= weights[start:].sum() / 2
 
 
+def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
+    """A range holds at least one item, even when its share of the weight is lost to rounding.
+
+    After the first item, a quarter of the three units of weight left falls below the spacing of
+    floats near ``8e15``, so the share adds nothing to the weight claimed so far.
+    """
+    claimed: list[int] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        return lambda start, end: claimed.extend(range(start, end))
+
+    cumulative_weights = 8e15 + np.arange(4, dtype=np.float64)
+    _threads.run_work_items(4, 16, start_worker, cumulative_weights=cumulative_weights)
+    assert sorted(claimed) == [0, 1, 2, 3]
+
+
 def test_no_items_run_on_the_calling_thread_alone() -> None:
     workers: list[int] = []
 
@@ -231,7 +247,7 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
 
 
 @pytest.mark.usefixtures("no_threads_left")
-def test_an_interrupt_as_the_cleanup_starts_stops_the_other_threads(
+def test_an_interrupt_as_the_calling_thread_starts_to_wait_stops_the_other_threads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A keyboard interrupt as the calling thread starts to wait for the others stops them too.
@@ -266,6 +282,29 @@ def test_an_interrupt_as_the_cleanup_starts_stops_the_other_threads(
     with pytest.raises(KeyboardInterrupt):
         _threads.run_work_items(2, 2, start_worker)
     assert stopped == [True]
+
+
+@pytest.mark.usefixtures("no_threads_left")
+def test_an_exception_of_the_calling_thread_wins_over_those_of_the_others() -> None:
+    """The calling thread's exception, as at a keyboard interrupt, is raised, even if it comes last.
+
+    The other thread fails first, and the calling thread raises once the stop event is set.
+    """
+    calling_thread = threading.get_ident()
+    started = threading.Barrier(2, timeout=_TIMEOUT)
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        def run_range(start: int, end: int) -> None:
+            started.wait()
+            if threading.get_ident() != calling_thread:
+                raise ValueError("first")
+            assert stop.wait(timeout=_TIMEOUT)
+            raise KeyboardInterrupt
+
+        return run_range
+
+    with pytest.raises(KeyboardInterrupt):
+        _threads.run_work_items(2, 2, start_worker)
 
 
 @pytest.mark.usefixtures("no_threads_left")
@@ -305,8 +344,8 @@ def test_another_error_while_the_calling_thread_waits_stops_the_other_threads(
 ) -> None:
     """A runtime error while the calling thread waits, as from a signal handler, stops the others.
 
-    The error is raised again once the other thread has returned, rather than taken for a thread
-    that cannot be joined yet.  The wait for the thread raises it, in place of a real one.
+    The error is raised again once the other thread has returned.  The wait for the thread raises
+    it, in place of a real one.
     """
 
     class HandlerError(RuntimeError):

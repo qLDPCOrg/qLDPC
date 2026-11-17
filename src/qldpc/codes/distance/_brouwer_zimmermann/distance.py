@@ -474,6 +474,8 @@ class _SectorSearch:
             *table_arguments,
             items.get_item(0),
         )
+
+        # Scan the work items on the threads.
         _threads.run_work_items(
             items.num_items,
             self.num_threads,
@@ -568,8 +570,9 @@ class _WorkItems:
         few = num_rows - weight + 1 < _ITEMS_PER_THREAD * num_threads
         self.length = 2 if few and weight >= 4 else 1
 
-        # The fixed rows of an item are combinations of the rows that leave room for the rest of a
-        # head, which ends before the last row.  Count the items whose first row is less than each.
+        # The fixed rows of an item are combinations of the rows that leave room for the
+        # ``weight - length`` later rows of its supports.  Count the items whose first row is less
+        # than each row.
         num_values = num_rows - weight + self.length
         self.num_items = math.comb(num_values, self.length)
         self._starts = np.array(
@@ -583,13 +586,13 @@ class _WorkItems:
             if self.length == 1
             else np.concatenate([np.arange(first + 1, num_values) for first in range(num_values)])
         )
-        supports = np.array(
+        num_supports_by_last_row = np.array(
             [
                 float(math.comb(num_rows - 1 - last, weight - self.length))
                 for last in range(num_values)
             ]
         )
-        self.cumulative_weights = np.cumsum(supports[last_rows])
+        self.cumulative_weights = np.cumsum(num_supports_by_last_row[last_rows])
 
     def get_item(self, index: int) -> npt.NDArray[np.int64]:
         """The fixed rows of the item ``index``."""

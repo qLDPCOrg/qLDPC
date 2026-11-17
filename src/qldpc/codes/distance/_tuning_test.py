@@ -102,6 +102,7 @@ def test_tunings_are_validated() -> None:
         (TypeError, "must be an integer", {"max_information_sets": True}),
         (TypeError, "must be an integer", {"lp_minimum_work": 1.5}),
         (TypeError, "must be an integer", {"num_threads": 2.0}),
+        (TypeError, "must be an integer", {"lp_minimum_work": None}),
         (TypeError, "must be a bool", {"restrict_viable_symbols": 1}),
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
         (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),

@@ -6,8 +6,8 @@ qLDPC reads ``QLDPC_NUM_THREADS`` when it is imported, before any of its modules
 If the variable is set, it must be a positive integer, and searches whose tuning leaves
 ``num_threads`` at ``None`` use that many threads (see :mod:`qldpc.codes.distance._tuning`).
 
-Numba never reads ``QLDPC_NUM_THREADS``; it reads its own thread count, which its parallel code,
-such as some of galois's, uses, from ``NUMBA_NUM_THREADS`` when numba is imported.  So the variable
+Numba never reads ``QLDPC_NUM_THREADS``.  Its parallel code, such as some of galois's, uses its own
+thread count, which numba reads from ``NUMBA_NUM_THREADS`` when it is imported.  So the variable
 sets numba's count too only if qLDPC is imported before numba, and so before galois:
 
 - If numba has not been imported, qLDPC sets the environment variable ``NUMBA_NUM_THREADS`` to the
@@ -16,7 +16,9 @@ sets numba's count too only if qLDPC is imported before numba, and so before gal
 - If numba has already been imported with another count, qLDPC warns that numba's parallel code
   keeps that count.  To give it the same count, import qLDPC before numba and galois, or also set
   ``NUMBA_NUM_THREADS`` to the same value before Python starts.  ``numba.set_num_threads`` would
-  change the count only for the calling thread, so qLDPC does not call it.
+  change the count of numba's parallel code only for the calling thread, so qLDPC does not call
+  it.  It changes neither ``QLDPC_NUM_THREADS`` nor ``numba.config.NUMBA_NUM_THREADS``, nor the
+  threads of qLDPC's searches.
 
 If the variable is not set, qLDPC changes nothing, and searches use numba's thread count,
 ``numba.config.NUMBA_NUM_THREADS``.

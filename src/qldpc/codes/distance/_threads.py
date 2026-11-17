@@ -82,7 +82,8 @@ def run_work_items(
     exception is raised again: that of the calling thread, as at a keyboard interrupt, or else the
     first that another thread raised.  An exception while the calling thread starts or waits for
     the others, such as a keyboard interrupt, also sets the event, and is raised again once every
-    thread that started has returned.  A thread whose start was interrupted before it counted as
+    thread that started has returned, except in narrow windows that a further interrupt can open
+    (see the comment in the code).  A thread whose start was interrupted before it counted as
     started may still run, but it finds the event set and returns without starting its worker.  No
     thread claims a range once the event is set.
     """
@@ -139,9 +140,12 @@ def run_work_items(
         work()
         _join(threads, stop)
     except BaseException:
-        # A second interrupt that arrives before the event is set, or as the cleanup starts, ends
-        # this function without stopping the other threads; only a signal handler could prevent
-        # that, which a library should not install.
+        # A further interrupt can end this function before every thread that started has returned,
+        # in narrow windows that only a signal handler could close, which a library should not
+        # install.  One that arrives before the event is set, or as the second wait for the threads
+        # starts, leaves them running.  One that arrives while the wait handles an earlier exception
+        # leaves them running too, but the event is set by then, so no thread starts a new range or
+        # chunk.
         stop.set()
         _join(threads, stop)
         raise
@@ -155,17 +159,20 @@ def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
     A thread that has not started is skipped: the stop event is set whenever its start was
     interrupted, so it returns without starting its worker if it runs later.  An exception while
     waiting, such as a keyboard interrupt, sets the stop event, and the wait goes on.  The last such
-    exception is raised once the threads have returned.
+    exception is raised once the threads have returned, unless a further exception arrives while
+    this handles one (see the comment in ``run_work_items``).
     """
     interrupt: BaseException | None = None
-    for thread in threads:
-        while True:
-            try:
-                if thread.is_alive():
-                    thread.join()
-                break
-            except BaseException as error:  # noqa: BLE001 - raised once the threads return
-                interrupt = error
-                stop.set()
+    index = 0
+    while True:
+        try:
+            while index < len(threads):
+                if threads[index].is_alive():
+                    threads[index].join()
+                index += 1
+            break
+        except BaseException as error:  # noqa: BLE001 - raised once the threads return
+            interrupt = error
+            stop.set()
     if interrupt is not None:
         raise interrupt

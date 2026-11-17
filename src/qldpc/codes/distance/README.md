@@ -238,11 +238,13 @@ They are not arguments of public functions, whose arguments say what to compute 
 A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann.md`).
 By default, `num_threads` is `None`, which takes the value of the environment variable `QLDPC_NUM_THREADS` when qLDPC was imported, if it was set, and otherwise `numba.config.NUMBA_NUM_THREADS`.
 `QLDPC_NUM_THREADS` is the recommended control, and must be a positive integer.
-Numba never reads it: numba reads its own count, which its parallel code, such as some of galois's, uses, from the environment variable `NUMBA_NUM_THREADS` when numba is imported, or else from the CPUs available to the process.
+Numba never reads it.
+Numba's parallel code, such as some of galois's, uses numba's own count, which numba reads from the environment variable `NUMBA_NUM_THREADS` when it is imported, or else from the CPUs available to the process.
 So `QLDPC_NUM_THREADS` sets numba's count too only if qLDPC is imported before numba, and so before galois: qLDPC then sets `NUMBA_NUM_THREADS` to the same value.
 If numba was imported first with another count, qLDPC warns that numba keeps it; to avoid that, also set `NUMBA_NUM_THREADS` to the same value before Python starts.
 The docstring of `src/qldpc/_num_threads.py` gives the other warnings.
-Numba does not read the CPU quotas of containers, and `numba.set_num_threads` changes neither count.
+Numba does not read the CPU quotas of containers.
+`numba.set_num_threads` changes only the count of the calling thread's numba parallel code, not `QLDPC_NUM_THREADS` or `numba.config.NUMBA_NUM_THREADS`, nor the threads of searches.
 `NUMBA_NUM_THREADS` alone still sets the count of searches when `QLDPC_NUM_THREADS` is not set.
 To keep searches on one core, set `QLDPC_NUM_THREADS=1` before Python starts, which reaches every thread and worker process, or run them within `use_tuning(num_threads=1)`.
 New threads and spawned processes normally start with the default tuning (see the module docstring of `_tuning.py`), so a program that runs searches in a pool of workers must enter `use_tuning` in the function that each worker runs.

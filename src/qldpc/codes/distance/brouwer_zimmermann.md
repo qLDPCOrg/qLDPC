@@ -780,19 +780,19 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   The items are numbered in lexicographic order.
   Their numbers of supports vary widely, and earlier items tend to hold more.
   The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling, weighted by the number of supports of each item: each range holds the fewest next items whose supports reach about `1 / (2 * num_threads)` of the supports that no thread has claimed, so a heavy item can make a range overshoot that share.
-  So the ranges shrink toward the end of the layer, which balances the threads, and the claims number at most about `2 * num_threads * ln(W / w) + 1`, for the `W` supports of the layer and the `w` supports of its lightest item.
+  So the ranges shrink toward the end of the layer, which balances the threads, and the claims number at most about `2 * num_threads * ln(W / m) + 1`, for the `W` supports of the layer and the `m` supports of its lightest item.
   Ranges of equal numbers of items would not do, since earlier items tend to hold more supports.
   A thread scans its range with `scan_set_items`, which Numba compiles without the global interpreter lock, and which stops once a support passes the last item of the range.
   The threads share one copy of the rows, labels, and tables of the set.
   They scan one set at a time, in the order of the sets, so `advance` and its certificate are unchanged.
   Each thread lowers `U` under a lock after each chunk, and starts its next chunk from the `U` of that moment, which skips more than an older `U` would.
-  Every value of `U` is the weight of an eligible word, or the caller's upper bound, so whichever value a chunk starts from, it skips only words that cannot lower `U`.
+  Every value of `U` is the weight of an eligible word of some sector, or the caller's upper bound, so whichever value a chunk starts from, it skips only words that cannot lower `U`.
   After the layer, `U` is the least of its value before the layer and the weights of the eligible words of the layer, as on one thread.
   So every later decision, such as completion tables and the switch to an automorphism family, is that of one thread.
   The thread that brings `U` to the cutoff stops the others after their chunks.
   The witness, and so the result of an early exit, can then depend on the timing of the threads, though its weight still lies between the distance and the cutoff.
   An exception in any thread stops the others after their chunks, and so does one in the calling thread while it starts or waits for them, such as a keyboard interrupt.
-  The exception is raised again once all threads have returned, except in the narrow windows that only a signal handler could close (see `_threads.py`).
+  The exception is raised again once all threads have returned, except in the narrow windows that only a signal handler could close, in which a further interrupt can end the search while threads still finish their chunks (see `run_work_items` in `_threads.py`).
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**
