@@ -114,8 +114,8 @@ def test_subsystem_code(
 
 def test_optimum_of_kind() -> None:
     """A bare basis proven optimal among bare bases can be heavier than the best dressed basis."""
-    # a [[5, 2]] subsystem code whose bare search reaches its lower bound
-    code = codes.CSSCode([[0, 1, 0, 0, 1], [1, 1, 0, 1, 1]], [[0, 0, 1, 1, 0], [0, 0, 0, 1, 0]])
+    # a [[3, 2]] subsystem code whose bare search reaches its lower bound
+    code = codes.CSSCode([[0, 0, 1]], [[0, 1, 1]])
     result = optimize_logical_basis(code, logicals="bare")
     assert result.optimal
     metrics = evaluate_logical_ops(code, result.logical_ops, logicals="bare")

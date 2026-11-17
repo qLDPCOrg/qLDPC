@@ -179,7 +179,7 @@ class LogicalOpsRounds:
             classes of these operators, with candidates as
             :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds` defines them.
         stop_reason: Why the search stopped.  ``"optimal"``: the choice is proven optimal among
-            every choice of candidates in the classes of these operators.  It has the fewest rounds,
+            all choices of candidates in the classes of these operators.  It has the fewest rounds,
             then the smallest largest load, then the smallest total weight.
             ``"incomplete_candidates"``: the sampling did not find every candidate, so a better
             choice may exist.  ``"time_limit"``: the candidates are complete, but the time limit ran

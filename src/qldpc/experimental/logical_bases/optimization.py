@@ -142,15 +142,16 @@ def optimize_logical_basis(
 class OptimizedLogicalBasis:
     """A complete basis of logical operators found by a search for low weights.
 
+    Its operators are dressed or bare, as the ``logicals`` argument of
+    :func:`~qldpc.experimental.logical_bases.optimize_logical_basis` selects.
+
     Attributes:
         logical_ops: The basis, with shape ``(2k, 2n)``, laid out as by
             :meth:`qldpc.codes.CSSCode.get_logical_ops`.
         lower_bound: The value of the objective for the lightest bases of the two Pauli types, which
-            no complete basis of the same kind, dressed or bare, as the ``logicals`` passed to
-            :func:`~qldpc.experimental.logical_bases.optimize_logical_basis` can beat.  For
-            ``"max_weight"`` and ``"total_weight"``, it is a tuple, as that function's ``objective``
-            describes.  It is None for an objective given as a function, unless the code has no
-            logical qubits.
+            no complete basis of that kind can beat.  For ``"max_weight"`` and ``"total_weight"``,
+            it is a tuple, as that function's ``objective`` describes.  It is None for an objective
+            given as a function, unless the code has no logical qubits.
         stop_reason: Why the search stopped.  ``"optimal"``: the search reached ``lower_bound``,
             which proves the basis optimal for the objective among all complete bases of that kind.
             ``"patience"``: the search stopped improving.  ``"max_searches"``: the search used up
