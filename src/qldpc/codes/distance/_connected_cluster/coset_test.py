@@ -56,7 +56,9 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
 
-    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+    def record(
+        *args: Any, **kwargs: Any
+    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
         num_checks.append(len(signature.bind(*args, **kwargs).arguments["check_starts"]) - 1)
         return search_supports(*args, **kwargs)
 
@@ -87,7 +89,9 @@ def test_connected_cluster_queries_read_the_restriction_of_their_tuning(
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
 
-    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+    def record(
+        *args: Any, **kwargs: Any
+    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
         settings.append(signature.bind(*args, **kwargs).arguments["restrict_viable_symbols"])
         return search_supports(*args, **kwargs)
 
@@ -125,7 +129,9 @@ def test_connected_cluster_queries_cut_by_the_stabilizers_of_their_state(
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
 
-    def record_cuts(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+    def record_cuts(
+        *args: Any, **kwargs: Any
+    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
         num_cuts_per_query.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
         return search_supports(*args, **kwargs)
 
@@ -178,7 +184,7 @@ def test_connected_cluster_answers_match_exhaustive_minima(
             ):
                 minimum = int(minima[syndrome])
                 single = oracle.get_min_weight_bound(syndrome, max_weight)
-                batched = oracle._get_batch_cluster_bound(syndrome, max_weight)
+                batched, _ = oracle._get_batch_cluster_bound(syndrome, max_weight)
                 # A first limit above max_weight answers as a single query does.
                 if not css_weight:
                     search = oracle._connected_cluster_searches[0]

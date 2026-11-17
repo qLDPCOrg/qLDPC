@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import itertools
+import threading
 from collections.abc import Sequence
 from typing import Any, cast, get_args
 
@@ -840,3 +841,175 @@ def test_both_passes_of_css_states_take_the_threads_of_the_search(
     assert [name for name, _, _ in calls[3:]] == ["find_first_not_within_max_weight"] * 2
     assert {(threads, work) for _, threads, work in calls} == {(single[1], single[2])}
     assert single[1] == 3
+
+
+def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
+    pytestconfig: pytest.Config,
+) -> None:
+    """Connected-cluster batch queries moved to threads answer as on one thread.
+
+    The found index, its bound and error, and the weights are those of one thread, by physical
+    weight and by CSS weight.  With chunks of one state, a batch moves to threads once its queries
+    have visited a state for each thread.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
+    for matrix, css_weight in cases:
+        num_qubits = len(matrix)
+        minima = get_exhaustive_minima(matrix, css_weight)
+        syndromes = rng.integers(1 << num_qubits, size=40)
+        batch = split_syndromes_into_words(syndromes.tolist(), num_qubits)
+        oracles = []
+        for num_threads in (1, 2, 3, 8):
+            with use_tuning(num_threads=num_threads, information_set_batch_exponent=0):
+                oracles.append(
+                    CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
+                )
+        for max_weight in range(num_qubits + 1):
+            found = _find_each_not_within_max_weight(oracles[-1], matrix, batch, max_weight)
+            assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
+            for start in [0, *found]:
+                answers = [
+                    oracle.find_first_not_within_max_weight(batch[start:], max_weight)
+                    for oracle in oracles
+                ]
+                assert all(answer == answers[0] for answer in answers)
+            weights = [oracle.get_min_weights(batch, max_weight) for oracle in oracles]
+            assert all(np.array_equal(weight, weights[0]) for weight in weights)
+            assert np.array_equal(weights[0], np.minimum(minima[syndromes], max_weight + 1))
+
+
+# A state whose syndromes 3 and 7 have errors of weight 2 and 3 at least, which connected-cluster
+# queries at weight 2 find, or rule out, by visiting states.
+THREADED_STATE = ROUTED_PHYSICAL_STATES[1]
+
+
+@pytest.mark.parametrize("later_first", [True, False])
+def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_first(
+    later_first: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch finds its least index without an error in reach, whichever block finds one first.
+
+    With chunks of one state, the calling thread answers the first query, which visits states, and
+    moves the rest of the batch to two threads, in blocks of one query each.  Every later class has
+    no error of weight 2.  The range of the first block runs either after a later range has run, or
+    while a later block that has started its queries waits for it.
+    """
+    later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
+    run_work_items = _threads.run_work_items
+    get_bound = CosetLeaderSearch._get_batch_cluster_bound
+    minima = get_exhaustive_minima(THREADED_STATE, False)
+    heavy = np.flatnonzero(minima > 2).tolist()
+    syndromes = [3, heavy[0]] + [heavy[1 + row % (len(heavy) - 1)] for row in range(30)]
+    assert minima[3] == 2
+
+    def gated_run(num_items: int, num_threads: int, start_worker: Any, **kwargs: Any) -> None:
+        def gated_start(stop: threading.Event) -> Any:
+            run_range = start_worker(stop)
+
+            def gated_range(start: int, end: int) -> None:
+                if start == 0:
+                    assert (later_ran if later_first else later_started).wait(timeout=10)
+                run_range(start, end)
+                (later_ran if start else first_ran).set()
+
+            return gated_range
+
+        run_work_items(num_items, num_threads, gated_start, **kwargs)
+
+    def gated_bound(
+        oracle: CosetLeaderSearch, syndrome: int, max_weight: int
+    ) -> tuple[MinWeightBound, int]:
+        if not later_first and syndrome not in syndromes[:2]:
+            later_started.set()
+            assert first_ran.wait(timeout=10)
+        return get_bound(oracle, syndrome, max_weight)
+
+    monkeypatch.setattr(_threads, "run_work_items", gated_run)
+    monkeypatch.setattr(CosetLeaderSearch, "_get_batch_cluster_bound", gated_bound)
+    batch = split_syndromes_into_words(syndromes, len(THREADED_STATE))
+    with use_tuning(num_threads=2, information_set_batch_exponent=0):
+        oracle = CosetLeaderSearch(THREADED_STATE, method="connected_cluster")
+    index, bound = oracle.find_first_not_within_max_weight(batch, 2)
+    assert later_ran.is_set() and first_ran.is_set()
+    assert index == 1 and bound is not None and not bound.within_max_weight
+
+
+def test_connected_cluster_batches_run_on_the_threads_of_their_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Costly connected-cluster batches run on the threads with which their search was built.
+
+    With chunks of one state, a batch whose queries visit states moves to threads, and with the
+    default chunks, this small batch stays on the calling thread.  So does a batch of syndromes of
+    errors of weight at most one, whose queries look up their errors and visit no states.
+    """
+    calls: list[int] = []
+    run_work_items = _threads.run_work_items
+
+    def record(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
+        calls.append(num_threads)
+        run_work_items(num_items, num_threads, *args, **kwargs)
+
+    monkeypatch.setattr(_threads, "run_work_items", record)
+    num_qubits = len(THREADED_STATE)
+    batch = split_syndromes_into_words([1 + row % 31 for row in range(32)], num_qubits)
+    for exponent, splits in [(0, True), (15, False)]:
+        calls.clear()
+        with use_tuning(num_threads=3, information_set_batch_exponent=exponent):
+            oracle = CosetLeaderSearch(THREADED_STATE, method="connected_cluster")
+        assert oracle.find_first_not_within_max_weight(batch, num_qubits) == (len(batch), None)
+        num_calls = len(calls)
+        assert bool(num_calls) == splits
+        oracle.get_min_weights(batch, num_qubits)
+        assert (len(calls) > num_calls) == splits
+        assert set(calls) <= {3}
+
+    # Syndromes of the single-qubit Paulis, which the queries look up.
+    calls.clear()
+    singles = [get_syndrome(THREADED_STATE, 1 << bit) for bit in range(2 * num_qubits)]
+    batch = split_syndromes_into_words(
+        [singles[row % len(singles)] for row in range(32)], num_qubits
+    )
+    with use_tuning(num_threads=3, information_set_batch_exponent=0):
+        oracle = CosetLeaderSearch(THREADED_STATE, method="connected_cluster")
+    assert oracle.find_first_not_within_max_weight(batch, 1) == (len(batch), None)
+    oracle.get_min_weights(batch, 1)
+    assert not calls
+
+
+def test_connected_cluster_batches_by_css_weight_count_the_work_of_z_parts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A CSS-weight batch whose Z parts search moves to threads, though its X parts do no work.
+
+    The errors of the batch have only Z parts, so the queries look up their X parts, whose
+    syndromes are zero.
+    """
+    calls: list[int] = []
+    run_work_items = _threads.run_work_items
+
+    def record(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
+        calls.append(num_threads)
+        run_work_items(num_items, num_threads, *args, **kwargs)
+
+    monkeypatch.setattr(_threads, "run_work_items", record)
+    matrix = get_random_css_state(8, 4, np.random.default_rng(0))
+    num_qubits = len(matrix)
+    rng = np.random.default_rng(1)
+    z_errors = [
+        sum(1 << int(bit) for bit in rng.choice(num_qubits, 3, replace=False)) for _ in range(32)
+    ]
+    syndromes = [get_syndrome(matrix, z_error << num_qubits) for z_error in z_errors]
+    batch = split_syndromes_into_words(syndromes, num_qubits)
+    with use_tuning(num_threads=2, information_set_batch_exponent=0):
+        oracle = CosetLeaderSearch(matrix, css_weight=True, method="connected_cluster")
+    assert oracle.find_first_not_within_max_weight(batch, num_qubits) == (len(batch), None)
+    num_calls = len(calls)
+    oracle.get_min_weights(batch, num_qubits)
+    assert 0 < num_calls < len(calls) and set(calls) == {2}
+
+    # Below the weights of some Z parts, their searches still do work.
+    num_calls = len(calls)
+    assert np.any(oracle.get_min_weights(batch, 2) == 3)
+    assert num_calls < len(calls) and set(calls) == {2}
