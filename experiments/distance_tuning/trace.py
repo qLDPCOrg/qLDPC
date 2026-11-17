@@ -4,18 +4,18 @@
 
 The script wraps functions of ``qldpc.codes.distance`` in this process only, warms up as
 ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or ``mcount``
-workload once under the given tuning.  It cannot trace ``ccount`` workloads, whose compiled setup
-calls the stages past the wrappers.  For a Brouwer-Zimmermann (BZ) search, it records each family of
-information sets, certificate, linear program, consideration of a switch to automorphism images,
-prediction of the cost of completion tables, comparison of a predicted cost with
-``completion_bound_max_cost_percent``, and layer, and the first test of each number of rows and
-weight for tables.  For a connected-cluster search, it records each weight limit, and for a count by
-the MacWilliams method, each walk and test.  The wrapper of each event says what it records.  Each
-layer and weight limit numbers its sector, such as the X-type logical operators of a CSS code, in a
-``sector`` field (see ``wrap_sectors``).  The script prints the events, and with ``--output`` saves
-them as JSON with the tuning and a fingerprint of the qLDPC source.  With ``--setup-only``, it ends
-the workload before the first layer of a BZ distance search, after its setup; workloads of other
-kinds run in full.
+workload once under the given tuning, on one thread unless the tuning sets ``num_threads``.  It
+cannot trace ``ccount`` workloads, whose compiled setup calls the stages past the wrappers.  For a
+Brouwer-Zimmermann (BZ) search, it records each family of information sets, certificate, linear
+program, consideration of a switch to automorphism images, prediction of the cost of completion
+tables, comparison of a predicted cost with ``completion_bound_max_cost_percent``, and layer, and
+the first test of each number of rows and weight for tables.  For a connected-cluster search, it
+records each weight limit, and for a count by the MacWilliams method, each walk and test.  The
+wrapper of each event says what it records.  Each layer and weight limit numbers its sector, such as
+the X-type logical operators of a CSS code, in a ``sector`` field (see ``wrap_sectors``).  The
+script prints the events, and with ``--output`` saves them as JSON with the tuning and a fingerprint
+of the qLDPC source.  With ``--setup-only``, it ends the workload before the first layer of a BZ
+distance search, after its setup; workloads of other kinds run in full.
 
 With ``--compare``, the script instead says whether two saved traces of one workload, such as traces
 under two tunings or of two checkouts, make the same decisions, and prints the first that differs,
@@ -125,7 +125,7 @@ def main() -> None:
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
     source = sweep.get_source_fingerprint()
-    with _tuning.use_tuning(**json.loads(args.tuning)) as tuning:
+    with _tuning.use_tuning(**{"num_threads": 1} | json.loads(args.tuning)) as tuning:
         trial.warm_up(args.workload.split("/")[0])
         install_wrappers()
         EVENTS.clear()
