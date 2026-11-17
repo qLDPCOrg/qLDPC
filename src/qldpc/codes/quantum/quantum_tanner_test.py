@@ -7,6 +7,7 @@ from __future__ import annotations
 import itertools
 import pathlib
 import random
+import re
 import unittest.mock
 from typing import Literal
 
@@ -15,12 +16,13 @@ import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import pytest
+import scipy.linalg
 import sympy
 
 from qldpc import abstract, codes
 from qldpc.codes.quantum import quantum_tanner
 from qldpc.conftest import run_python
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 LocalChecks = Literal["min_weight", "from_codes"]
 LOCAL_CHECKS: tuple[LocalChecks, ...] = ("min_weight", "from_codes")
@@ -327,9 +329,9 @@ def get_min_weights(space: galois.FieldArray) -> list[int]:
     return weights
 
 
-def get_sorted_rows(matrix: npt.NDArray[np.int_]) -> list[tuple[int, ...]]:
+def get_sorted_rows(matrix: npt.ArrayLike) -> list[tuple[int, ...]]:
     """The rows of a matrix, in sorted order, with their multiplicities."""
-    return sorted(map(tuple, matrix.tolist()))
+    return sorted(map(tuple, np.asarray(matrix).tolist()))
 
 
 def assert_same_row_space(matrix: galois.FieldArray, other: galois.FieldArray) -> None:
@@ -530,6 +532,10 @@ def test_quantum_tanner_default_local_checks(tmp_path: pathlib.Path) -> None:
     assert random_code == codes.QTCode.random(
         abstract.CyclicGroup(4), code_a, seed=0, local_checks="min_weight"
     )
+    members = [~shift, shift, shift**2, shift**4]
+    assert codes.QTCode.from_ordered_members(
+        members, members, code_a
+    ) == codes.QTCode.from_ordered_members(members, members, code_a, local_checks="min_weight")
 
     # Files saved by earlier releases record no choice of local checks and no generator matrices of
     # the local codes, and load with minimum-weight local checks.
@@ -890,3 +896,856 @@ def test_quantum_tanner_symmetries_of_parity_checks() -> None:
     assert parity_checks_group.order == 800
     group = code.get_known_qudit_automorphism_group()
     assert all(member in group for member in parity_checks_group.generators)
+
+
+def get_d5_subsets() -> tuple[list[abstract.GroupMember], list[abstract.GroupMember]]:
+    """Subsets of the dihedral group D5 that satisfy Total No Conjugacy, in increasing order.
+
+    The subset A holds the identity and two reflections, and B holds the four rotations.  The
+    quadripartite complex of these subsets is connected.
+    """
+    rotation = abstract.GroupMember([1, 2, 3, 4, 0])
+    subset_a = [abstract.GroupMember(image) for image in ([0, 1, 2, 3, 4], [0, 4, 3, 2, 1])]
+    subset_a.append(abstract.GroupMember([4, 3, 2, 1, 0]))
+    return subset_a, [rotation**power for power in range(1, 5)]
+
+
+def test_quantum_tanner_from_ordered_members() -> None:
+    """QTCode.from_ordered_members permutes local coordinates into the order of their members."""
+    shift = abstract.CyclicGroup(6).generators[0]
+    members_a = [shift**5, shift**2, shift, shift**4]
+    members_b = [shift**3, shift**5, shift]
+    code_a = codes.ClassicalCode([[1, 1, 0, 1], [0, 1, 1, 1]])
+    code_a.set_generator([[1, 1, 1, 0], [1, 0, 1, 1]])  # not in reduced row echelon form
+    code_b = codes.ClassicalCode([[1, 1, 0]])
+
+    def get_sorted_code(code: codes.ClassicalCode, order: list[int]) -> codes.ClassicalCode:
+        """The code whose coordinate i is coordinate order[i] of a code, with its generator."""
+        return codes.ClassicalCode(code.matrix[:, order]).set_generator(code.generator[:, order])
+
+    # members in increasing order are those with increasing exponents, which permutes coordinates
+    order_a, order_b = [2, 1, 3, 0], [2, 0, 1]
+    code = codes.QTCode.from_ordered_members(
+        members_a, members_b, code_a, code_b, local_checks="from_codes"
+    )
+    expected_code_a = get_sorted_code(code_a, order_a)
+    expected_code = codes.QTCode(
+        members_a,
+        members_b,
+        expected_code_a,
+        get_sorted_code(code_b, order_b),
+        local_checks="from_codes",
+    )
+    assert code == expected_code
+    assert np.array_equal(code.code_a.generator, expected_code_a.generator)
+
+    # The default C_B is ~C_A, whose coordinate j belongs to members_b[j].  Here members_b lists the
+    # members of members_a in reverse order, so its members in increasing order are at [1, 2, 0, 3].
+    code = codes.QTCode.from_ordered_members(
+        members_a, members_a[::-1], code_a, local_checks="from_codes"
+    )
+    assert np.array_equal(code.code_b.generator, code_a.matrix[:, [1, 2, 0, 3]])
+
+    # local codes given as matrices over another field
+    matrix_a, matrix_b = np.array([[1, 2, 0, 1], [0, 1, 1, 2]]), np.array([[1, 2, 0]])
+    code = codes.QTCode.from_ordered_members(members_a, members_b, matrix_a, matrix_b, field=3)
+    expected_code = codes.QTCode(
+        members_a, members_b, matrix_a[:, order_a], matrix_b[:, order_b], field=3
+    )
+    assert code.field.order == 3
+    assert code == expected_code
+
+    # Bipartite complexes work alike.  The members of A in increasing order are at [1, 2, 0], and
+    # those of B at [1, 3, 0, 2].
+    subset_a, subset_b = get_d5_subsets()
+    members_a = [subset_a[2], subset_a[0], subset_a[1]]
+    members_b = [subset_b[2], subset_b[0], subset_b[3], subset_b[1]]
+    code_a, code_b = codes.ClassicalCode([[1, 1, 0]]), codes.ClassicalCode([[1, 1, 1, 0]])
+    code = codes.QTCode.from_ordered_members(
+        members_a, members_b, code_a, code_b, bipartite=True, local_checks="from_codes"
+    )
+    expected_code = codes.QTCode(
+        members_a,
+        members_b,
+        get_sorted_code(code_a, [1, 2, 0]),
+        get_sorted_code(code_b, [1, 3, 0, 2]),
+        bipartite=True,
+        local_checks="from_codes",
+    )
+    assert code.complex.bipartite
+    assert code == expected_code
+
+    # members must be distinct, even if they act on different numbers of points
+    repeated_members = [shift, abstract.GroupMember(shift.array_form, size=7), ~shift]
+    with pytest.raises(ValueError, match="members_a repeats a member"):
+        codes.QTCode.from_ordered_members(repeated_members, members_b, [[1, 1, 1]], code_b)
+    with pytest.raises(ValueError, match="C_B has block length 4, but members_b has 3"):
+        codes.QTCode.from_ordered_members(members_a[:3], members_b[:3], code_a, code_b)
+
+
+# The supports of the rows of the check matrices HX_C2C2_144_12_11.mtx and HZ_C2C2_144_12_11.mtx of
+# the [[144, 12, 11]] code in the ancillary files of arXiv:2512.20532, with nine qubits per row.
+# The files index qubit (i, j, h) by ``36 h + 6 i + j``, where the members h of C2 x C2 are 0, 1,
+# 2, and 3 under bitwise XOR.
+LRZ_144_12_11_SUPPORTS_X = (
+    "1 2 3 25 26 27 31 32 33 0 2 4 24 26 28 30 32 34 0 1 5 24 25 29 30 31 35 7 8 9 19 20 21 31 "
+    "32 33 6 8 10 18 20 22 30 32 34 6 7 11 18 19 23 30 31 35 13 14 15 19 20 21 25 26 27 12 14 "
+    "16 18 20 22 24 26 28 12 13 17 18 19 23 24 25 29 37 38 39 61 62 63 67 68 69 36 38 40 60 62 "
+    "64 66 68 70 36 37 41 60 61 65 66 67 71 43 44 45 55 56 57 67 68 69 42 44 46 54 56 58 66 68 "
+    "70 42 43 47 54 55 59 66 67 71 49 50 51 55 56 57 61 62 63 48 50 52 54 56 58 60 62 64 48 49 "
+    "53 54 55 59 60 61 65 73 74 75 97 98 99 103 104 105 72 74 76 96 98 100 102 104 106 72 73 77 "
+    "96 97 101 102 103 107 79 80 81 91 92 93 103 104 105 78 80 82 90 92 94 102 104 106 78 79 83 "
+    "90 91 95 102 103 107 85 86 87 91 92 93 97 98 99 84 86 88 90 92 94 96 98 100 84 85 89 90 91 "
+    "95 96 97 101 109 110 111 133 134 135 139 140 141 108 110 112 132 134 136 138 140 142 108 "
+    "109 113 132 133 137 138 139 143 115 116 117 127 128 129 139 140 141 114 116 118 126 128 "
+    "130 138 140 142 114 115 119 126 127 131 138 139 143 121 122 123 127 128 129 133 134 135 "
+    "120 122 124 126 128 130 132 134 136 120 121 125 126 127 131 132 133 137 1 13 29 39 51 77 "
+    "89 97 135 0 12 28 29 76 77 88 89 96 0 1 12 13 38 50 96 97 134 7 13 21 45 51 55 83 89 131 6 "
+    "12 54 82 83 88 89 130 131 6 7 12 13 20 44 50 54 55 21 29 55 71 97 105 131 135 139 28 29 54 "
+    "70 71 96 130 131 138 20 54 55 96 97 104 134 138 139 3 15 37 49 65 99 113 125 133 36 48 64 "
+    "65 112 113 124 125 132 2 14 36 37 48 49 98 132 133 9 15 19 43 49 57 95 119 125 18 42 48 94 "
+    "95 118 119 124 125 8 14 18 19 42 43 48 49 56 19 35 57 65 95 99 103 133 141 18 34 35 64 65 "
+    "94 95 102 132 18 19 56 98 102 103 132 133 140 5 17 25 63 73 85 101 111 123 4 5 16 17 24 72 "
+    "84 100 101 24 25 62 72 73 84 85 110 122 11 17 59 79 85 93 117 123 127 10 11 16 17 58 59 78 "
+    "84 126 78 79 84 85 92 116 122 126 127 25 33 59 63 67 93 101 127 143 24 58 59 66 100 101 "
+    "126 142 143 24 25 32 62 66 67 92 126 127 27 41 53 61 75 87 109 121 137 40 41 52 53 60 108 "
+    "120 136 137 26 60 61 74 86 108 109 120 121 23 47 53 81 87 91 115 121 129 22 23 46 47 52 53 "
+    "90 114 120 80 86 90 91 114 115 120 121 128 23 27 31 61 69 91 107 129 137 22 23 30 60 90 "
+    "106 107 136 137 26 30 31 60 61 68 90 91 128"
+)
+LRZ_144_12_11_SUPPORTS_Z = (
+    "6 10 11 54 58 59 138 142 143 7 9 11 55 57 59 139 141 143 8 9 10 56 57 58 140 141 142 0 4 5 "
+    "96 100 101 138 142 143 1 3 5 97 99 101 139 141 143 2 3 4 98 99 100 140 141 142 0 4 5 6 10 "
+    "11 12 16 17 1 3 5 7 9 11 13 15 17 2 3 4 8 9 10 14 15 16 18 22 23 42 46 47 102 106 107 19 "
+    "21 23 43 45 47 103 105 107 20 21 22 44 45 46 104 105 106 36 40 41 102 106 107 132 136 137 "
+    "37 39 41 103 105 107 133 135 137 38 39 40 104 105 106 134 135 136 36 40 41 42 46 47 48 52 "
+    "53 37 39 41 43 45 47 49 51 53 38 39 40 44 45 46 50 51 52 66 70 71 78 82 83 126 130 131 67 "
+    "69 71 79 81 83 127 129 131 68 69 70 80 81 82 128 129 130 24 28 29 66 70 71 72 76 77 25 27 "
+    "29 67 69 71 73 75 77 26 27 28 68 69 70 74 75 76 72 76 77 78 82 83 84 88 89 73 75 77 79 81 "
+    "83 85 87 89 74 75 76 80 81 82 86 87 88 30 34 35 90 94 95 114 118 119 31 33 35 91 93 95 115 "
+    "117 119 32 33 34 92 93 94 116 117 118 30 34 35 60 64 65 108 112 113 31 33 35 61 63 65 109 "
+    "111 113 32 33 34 62 63 64 110 111 112 108 112 113 114 118 119 120 124 125 109 111 113 115 "
+    "117 119 121 123 125 110 111 112 116 117 118 122 123 124 6 12 18 44 50 56 82 88 94 7 13 19 "
+    "44 45 50 51 56 57 45 51 57 82 83 88 89 94 95 0 12 24 38 50 62 76 88 100 1 13 25 38 39 50 "
+    "51 62 63 39 51 63 76 77 88 89 100 101 0 6 30 38 44 68 76 82 106 1 7 31 38 39 44 45 68 69 "
+    "39 45 69 76 77 82 83 106 107 8 14 20 42 48 54 118 124 130 8 9 14 15 20 21 43 49 55 9 15 21 "
+    "118 119 124 125 130 131 2 14 26 36 48 60 112 124 136 2 3 14 15 26 27 37 49 61 3 15 27 112 "
+    "113 124 125 136 137 2 8 32 36 42 66 112 118 142 2 3 8 9 32 33 37 43 67 3 9 33 112 113 118 "
+    "119 142 143 10 16 22 78 84 90 116 122 128 79 85 91 116 117 122 123 128 129 10 11 16 17 22 "
+    "23 117 123 129 4 16 28 72 84 96 110 122 134 73 85 97 110 111 122 123 134 135 4 5 16 17 28 "
+    "29 111 123 135 4 10 34 72 78 102 110 116 140 73 79 103 110 111 116 117 140 141 4 5 10 11 "
+    "34 35 111 117 141 46 52 58 80 86 92 114 120 126 80 81 86 87 92 93 115 121 127 46 47 52 53 "
+    "58 59 81 87 93 40 52 64 74 86 98 108 120 132 74 75 86 87 98 99 109 121 133 40 41 52 53 64 "
+    "65 75 87 99 40 46 70 74 80 104 108 114 138 74 75 80 81 104 105 109 115 139 40 41 46 47 70 "
+    "71 75 81 105"
+)
+
+
+def get_lrz_144_12_11_data() -> tuple[
+    abstract.Group,
+    list[abstract.GroupMember],
+    list[abstract.GroupMember],
+    list[codes.ClassicalCode],
+]:
+    """The group, lists of members, and codes C_0, C_1, C'_0, and C'_1 of an LRZ code.
+
+    The code is the [[144, 12, 11]] code of arXiv:2512.20532 (LRZ), whose check matrices are in
+    LRZ_144_12_11_SUPPORTS_X and LRZ_144_12_11_SUPPORTS_Z.  The members 1, 2, and 3 of C2 x C2 in
+    those matrices are x, y, and xy here.  The lists of members and the codes were read off these
+    matrices.  The codes C_0 = C'_0 carry the matrices H and G of the [6, 3, 3] code in Section 2
+    of the paper, and C_1 = C'_1 is C_0 with its coordinates shifted cyclically by one.
+    """
+    group = abstract.Group.product(abstract.CyclicGroup(2), repeat=2)
+    shift_x, shift_y = group.generators
+    identity = group.identity
+    members_a = [identity, identity, identity, shift_x, shift_y, shift_x * shift_y]
+    members_b = [identity, identity, shift_x, shift_x, shift_y, shift_y]
+    matrix = np.array([[1, 0, 0, 0, 1, 1], [0, 1, 0, 1, 0, 1], [0, 0, 1, 1, 1, 0]])
+    generator = np.array([[0, 1, 1, 1, 0, 0], [1, 0, 1, 0, 1, 0], [1, 1, 0, 0, 0, 1]])
+    code_0 = codes.ClassicalCode(matrix).set_generator(generator)
+    code_1 = codes.ClassicalCode(np.roll(matrix, -1, axis=1))
+    code_1.set_generator(np.roll(generator, -1, axis=1))
+    return group, members_a, members_b, [code_0, code_1, code_0, code_1]
+
+
+def get_lrz_checks(
+    group: abstract.Group,
+    members_a: list[abstract.GroupMember],
+    members_b: list[abstract.GroupMember],
+    lrz_codes: list[codes.ClassicalCode],
+) -> tuple[galois.FieldArray, galois.FieldArray]:
+    """The check matrices H_X and H_Z of Eq. (2) of arXiv:2512.20532, built as in that paper.
+
+    The codes are C_0, C_1, C'_0, and C'_1, with parity check matrices H = code.matrix and generator
+    matrices G = code.generator.  The members of the group, in increasing order, index the rows and
+    columns of the permutation matrices ``(λ_a)_{g,h} = δ_{h,ag}`` and
+    ``(ρ_b)_{g,h} = δ_{h,gb^-1}``.
+    """
+    field = lrz_codes[0].field
+    members = sorted(group.generate())
+    positions = {member: position for position, member in enumerate(members)}
+
+    def get_lift(member: abstract.GroupMember, right: bool) -> npt.NDArray[np.int_]:
+        """The permutation matrix λ_a of a member a, or ρ_b of a member b."""
+        lift = np.zeros((len(members), len(members)), dtype=int)
+        for row, element in enumerate(members):
+            lift[row, positions[element * ~member if right else member * element]] = 1
+        return lift
+
+    lift_a = field(
+        scipy.linalg.block_diag(*[get_lift(aa, False) for aa in members_a for _ in members_b])
+    )
+    lift_b = field(
+        scipy.linalg.block_diag(*[get_lift(bb, True) for _ in members_a for bb in members_b])
+    )
+    identity = field.Identity(len(members))
+    h_0, h_1, h_0_prime, h_1_prime = [code.matrix for code in lrz_codes]
+    g_0, g_1, g_0_prime, g_1_prime = [code.generator for code in lrz_codes]
+    matrix_x = np.vstack(
+        [
+            np.kron(np.kron(h_0, g_0_prime), identity),
+            np.kron(np.kron(h_1, g_1_prime), identity) @ lift_a @ lift_b,
+        ]
+    )
+    matrix_z = np.vstack(
+        [
+            np.kron(np.kron(g_0, h_1_prime), identity) @ lift_b,
+            np.kron(np.kron(g_1, h_0_prime), identity) @ lift_a,
+        ]
+    )
+    return matrix_x.view(field), matrix_z.view(field)
+
+
+def test_lifted_quantum_tanner_lrz_published() -> None:
+    """LQTCode.from_lrz rebuilds the [[144, 12, 11]] code of arXiv:2512.20532, and its checks.
+
+    With local_checks="from_codes", the checks are the rows of the published check matrices, in
+    which each qubit is in at most 10 checks.
+    """
+    group, members_a, members_b, lrz_codes = get_lrz_144_12_11_data()
+    lrz_qt_codes = {
+        local_checks: codes.LQTCode.from_lrz(
+            group,
+            members_a,
+            members_b,
+            code_0=lrz_codes[0],
+            code_1=lrz_codes[1],
+            code_0_prime=lrz_codes[2],
+            code_1_prime=lrz_codes[3],
+            local_checks=local_checks,
+        )
+        for local_checks in LOCAL_CHECKS
+    }
+    code = lrz_qt_codes["from_codes"]
+    assert (len(code), code.dimension, code.get_weight()) == (144, 12, 9)
+    default_code = codes.LQTCode.from_lrz(
+        group,
+        members_a,
+        members_b,
+        code_0=lrz_codes[0],
+        code_1=lrz_codes[1],
+        code_0_prime=lrz_codes[2],
+        code_1_prime=lrz_codes[3],
+    )
+    assert np.array_equal(default_code.matrix, lrz_qt_codes["min_weight"].matrix)
+    assert not np.array_equal(default_code.matrix, code.matrix)
+
+    # read the qubit (i, j, g) of the code as the published qubit 36 h + 6 i + j, where h labels g
+    identity, shift_x, shift_y = group.identity, *group.generators
+    labels = {member: h for h, member in enumerate([identity, shift_x, shift_y, shift_x * shift_y])}
+    columns = [
+        36 * labels[member] + 6 * ii + jj
+        for ii, jj, member in itertools.product(range(6), range(6), sorted(group.generate()))
+    ]
+    sectors = [
+        (code.matrix_x, lrz_qt_codes["min_weight"].matrix_x, LRZ_144_12_11_SUPPORTS_X),
+        (code.matrix_z, lrz_qt_codes["min_weight"].matrix_z, LRZ_144_12_11_SUPPORTS_Z),
+    ]
+    for matrix, min_weight_matrix, supports in sectors:
+        published_matrix = np.zeros((72, 144), dtype=int)
+        np.put_along_axis(
+            published_matrix, np.array(supports.split(), dtype=int).reshape(72, 9), 1, 1
+        )
+        relabeled_matrix = np.zeros_like(published_matrix)
+        relabeled_matrix[:, columns] = matrix.view(np.ndarray)
+        assert get_sorted_rows(relabeled_matrix) == get_sorted_rows(published_matrix)
+        assert_same_row_space(min_weight_matrix, matrix)
+    checks = np.vstack([code.matrix_x, code.matrix_z]).view(np.ndarray)
+    assert np.max(np.count_nonzero(checks, axis=0)) == 10
+
+
+def test_lifted_quantum_tanner_lrz(pytestconfig: pytest.Config) -> None:
+    """LQTCode.from_lrz builds the code of Eq. (2) of arXiv:2512.20532 from the given bases."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    def get_random_codes(length_a: int, length_b: int, field: int) -> list[codes.ClassicalCode]:
+        """Random codes C_0 and C_1 of length length_a, and C'_0 and C'_1 of length length_b."""
+        return [
+            codes.ClassicalCode.random(length, length // 2, field, seed=int(rng.integers(2**31)))
+            for length in [length_a, length_a, length_b, length_b]
+        ]
+
+    # A [[144, 10]] code over C4, found in a search for small quantum Tanner codes, in which some
+    # members are not their own inverses.  Its local codes C_0 = C'_0 are [6, 3, 3] codes, and
+    # C_1 = C'_1 is C_0 with coordinates 3 and 4 exchanged.
+    cyclic_group = abstract.CyclicGroup(4)
+    shift = cyclic_group.generators[0]
+    identity = cyclic_group.identity
+    matrix = np.array([[1, 1, 0, 1, 0, 0], [1, 0, 1, 0, 1, 0], [0, 0, 1, 1, 0, 1]])
+    generator = np.array([[1, 0, 1, 1, 0, 0], [1, 1, 0, 0, 1, 0], [0, 1, 0, 1, 0, 1]])
+    swap = [0, 1, 2, 4, 3, 5]
+    code_0 = codes.ClassicalCode(matrix).set_generator(generator)
+    code_1 = codes.ClassicalCode(matrix[:, swap]).set_generator(generator[:, swap])
+    members_a = [identity, identity, shift, shift**3, shift, shift**2]
+    members_b = [identity, shift, shift, shift**2, shift**2, shift**3]
+
+    # S3, a nonabelian group, and one of its transpositions, which generates a proper subgroup
+    symmetric_group = abstract.SymmetricGroup(3)
+    transposition = abstract.GroupMember([1, 0, 2])
+    random_members = [symmetric_group.random(seed=int(rng.integers(2**31))) for _ in range(5)]
+
+    # the cyclic group of order 2, which is shorter than the list A that repeats its identity
+    parity_group = abstract.CyclicGroup(2)
+    parity_identity, flip = parity_group.identity, parity_group.generators[0]
+
+    cases: list[
+        tuple[
+            abstract.Group,
+            list[abstract.GroupMember],
+            list[abstract.GroupMember],
+            list[codes.ClassicalCode],
+            int | None,
+        ]
+    ] = [
+        (cyclic_group, members_a, members_b, [code_0, code_1, code_0, code_1], 10),
+        (symmetric_group, random_members[:3], random_members[3:], get_random_codes(3, 2, 3), None),
+        (
+            symmetric_group,
+            [transposition, transposition, symmetric_group.identity],
+            [symmetric_group.identity, transposition],
+            get_random_codes(3, 2, 2),
+            None,
+        ),
+        (
+            parity_group,
+            [parity_identity, parity_identity, parity_identity, flip],
+            [parity_identity, flip],
+            get_random_codes(4, 2, 2),
+            None,
+        ),
+    ]
+    for group, members_a, members_b, lrz_codes, dimension in cases:
+        matrix_x, matrix_z = get_lrz_checks(group, members_a, members_b, lrz_codes)
+        for local_checks in LOCAL_CHECKS:
+            code = codes.LQTCode.from_lrz(
+                group,
+                members_a,
+                members_b,
+                code_0=lrz_codes[0],
+                code_1=lrz_codes[1],
+                code_0_prime=lrz_codes[2],
+                code_1_prime=lrz_codes[3],
+                local_checks=local_checks,
+            )
+            assert len(code) == len(members_a) * len(members_b) * group.order
+            assert not np.any(code.matrix_x @ code.matrix_z.T)
+            if local_checks == "from_codes":
+                assert get_sorted_rows(code.matrix_x) == get_sorted_rows(matrix_x)
+                assert get_sorted_rows(code.matrix_z) == get_sorted_rows(matrix_z)
+            else:
+                assert_same_row_space(code.matrix_x, matrix_x)
+                assert_same_row_space(code.matrix_z, matrix_z)
+        if dimension is not None:
+            assert code.dimension == dimension
+
+
+def test_lifted_quantum_tanner_local_views() -> None:
+    """The local view of a vertex (h, s, t) holds the squares (i, j, a_i^-s h b_j^-t).
+
+    The checks of the vertices of each class are consecutive rows of matrix_x or matrix_z.  With
+    "from_codes", they are the rows of products of the matrices that the local codes carry.  With
+    "min_weight", the default, they form a minimum-weight basis of each local check space, and a
+    brute-force search finds the weights of such a basis independently.  The generator matrix of
+    C_A^1 is not a minimum-weight basis, so the two choices give different checks.
+    """
+    group = abstract.SymmetricGroup(3)
+    rotation, transposition = abstract.GroupMember([1, 2, 0]), abstract.GroupMember([1, 0, 2])
+    members_a = [transposition, transposition, rotation]
+    members_b = [rotation, group.identity]
+    code_a1 = codes.ClassicalCode([[1, 1, 0]]).set_generator([[1, 1, 1], [0, 0, 1]])
+    codes_a = [codes.HammingCode(2), code_a1]
+    codes_b = [codes.RepetitionCode(2), codes.ClassicalCode([[1, 0]])]
+    lifted_codes = {
+        local_checks: codes.LQTCode(
+            group,
+            members_a,
+            members_b,
+            codes_a[0],
+            codes_b[0],
+            code_a1=codes_a[1],
+            code_b1=codes_b[1],
+            local_checks=local_checks,
+        )
+        for local_checks in LOCAL_CHECKS
+    }
+    default_code = codes.LQTCode(
+        group, members_a, members_b, codes_a[0], codes_b[0], code_a1=codes_a[1], code_b1=codes_b[1]
+    )
+    assert np.array_equal(default_code.matrix, lifted_codes["min_weight"].matrix)
+    assert not np.array_equal(lifted_codes["min_weight"].matrix, lifted_codes["from_codes"].matrix)
+    members = sorted(group.generate())
+
+    for local_checks, code in lifted_codes.items():
+        assert len(code) == 3 * 2 * 6
+        sectors: list[tuple[PauliXZ, galois.FieldArray, list[tuple[int, int]]]] = [
+            (Pauli.X, code.matrix_x, [(0, 0), (1, 1)]),
+            (Pauli.Z, code.matrix_z, [(0, 1), (1, 0)]),
+        ]
+        for pauli, matrix, vertex_classes in sectors:
+            local_views = code.get_local_views(pauli)
+            assert local_views.shape == (2 * len(members), 3, 2)
+            assert not local_views.flags.writeable
+            vertices = [(hh, ss, tt) for ss, tt in vertex_classes for hh in members]
+            first_row = 0
+            for (hh, ss, tt), local_view in zip(vertices, local_views):
+                # the qudit (i, j, g) at coordinate (i, j) has the index (2 i + j) |G| + r(g)
+                for (ii, member_a), (jj, member_b) in itertools.product(
+                    enumerate(members_a), enumerate(members_b)
+                ):
+                    square = (~member_a if ss else group.identity) * hh
+                    square *= ~member_b if tt else group.identity
+                    assert local_view[ii, jj] == (2 * ii + jj) * len(members) + members.index(
+                        square
+                    )
+
+                # the local check space of the vertex is spanned by G_A^s ⨂ G_B^t or H_A^s ⨂ H_B^t
+                factors = (
+                    [codes_a[ss].generator, codes_b[tt].generator]
+                    if pauli is Pauli.X
+                    else [codes_a[ss].matrix, codes_b[tt].matrix]
+                )
+                local_space: galois.FieldArray = np.kron(*factors).view(code.field)
+                if local_checks == "from_codes":
+                    num_checks = len(local_space)
+                else:
+                    num_checks = np.linalg.matrix_rank(local_space) if local_space.size else 0
+
+                # the checks of the vertex lie in its local view
+                checks = matrix[first_row : first_row + num_checks]
+                vertex_checks = checks[:, local_view.ravel()]
+                assert np.count_nonzero(checks) == np.count_nonzero(vertex_checks)
+                if local_checks == "from_codes":
+                    assert np.array_equal(vertex_checks, local_space)
+                else:
+                    assert_same_row_space(vertex_checks, local_space)
+                    weights = np.count_nonzero(vertex_checks.view(np.ndarray), axis=1)
+                    assert sorted(weights.tolist()) == get_min_weights(local_space)
+                first_row += num_checks
+            assert first_row == len(matrix)
+
+
+def get_squares_of_faces(
+    code: codes.QTCode, members: list[abstract.GroupMember]
+) -> list[list[int]]:
+    """The squares of an LQTCode, as qudit indices, that are the faces of a QTCode.
+
+    The face ``f(g,a,b)`` at a vertex g of class (0, 0) of a quadripartite complex, or of class 0 of
+    a bipartite complex, is the square (i, j, g) whose members of A and B are a and b.  In a
+    bipartite complex, this face is also ``f(agb,a^-1,b^-1)``, and so two squares.  The members of
+    the group, in increasing order, give the squares their indices.
+    """
+    num_points = members[0].size
+    subgraph_x, _ = codes.QTCode.get_subgraphs(code.complex)
+    cover_a, cover_b = sorted(code.complex.cover_subset_a), sorted(code.complex.cover_subset_b)
+    squares: list[list[int]] = [[] for _ in range(len(code))]
+    for vertex in subgraph_x:
+        # the vertices of class (0, 0) or 0 are those that fix the points of the covering factors
+        if not subgraph_x.out_degree(vertex):
+            continue
+        image = vertex.array_form
+        if image[num_points:] == sorted(image[num_points:]):
+            position = members.index(abstract.GroupMember(image[:num_points]))
+            for _, face, (member_a, member_b) in subgraph_x.out_edges(vertex, data="sort"):
+                label = cover_a.index(member_a) * len(cover_b) + cover_b.index(member_b)
+                squares[subgraph_x.nodes[face]["sort"]].append(label * len(members) + position)
+    return squares
+
+
+def test_lifted_quantum_tanner_qtcode() -> None:
+    """QTCodes have the stabilizer groups of LQTCodes with C^1 = C^0∘ι, or of their quotients.
+
+    The quotients are by an involution σ.  The quadripartite complex of the code over D5 is
+    connected, so σ maps it onto itself.  That of the code over D6 has two components, which σ
+    exchanges.  With local_checks="from_codes", and local codes C^1 that carry the matrices of C^0
+    with permuted columns, the parity checks correspond as well.  With "min_weight", only the spaces
+    that they span do.
+    """
+    rotation = abstract.GroupMember([2, 3, 4, 5, 0, 1])
+    reflections = [[1, 0, 5, 4, 3, 2], [3, 2, 1, 0, 5, 4], [5, 4, 3, 2, 1, 0]]
+    cases: list[
+        tuple[
+            list[abstract.GroupMember],
+            list[abstract.GroupMember],
+            codes.ClassicalCode | None,
+            bool,
+        ]
+    ] = [
+        (*get_d5_subsets(), codes.ClassicalCode([[1, 1, 1, 0]]), True),
+        (
+            [abstract.GroupMember(image) for image in reflections],
+            [abstract.GroupMember(list(range(6))), rotation, ~rotation],
+            None,
+            False,
+        ),
+    ]
+    for subset_a, subset_b, code_b, connected in cases:
+        for local_checks in LOCAL_CHECKS:
+            qt_codes = [
+                codes.QTCode(
+                    subset_a,
+                    subset_b,
+                    codes.HammingCode(2),
+                    code_b,
+                    bipartite=bipartite,
+                    local_checks=local_checks,
+                )
+                for bipartite in [False, True]
+            ]
+            quadripartite_code, bipartite_code = qt_codes
+
+            # the LQTCode on all of the group that A and B generate, with C^1 = C^0∘ι
+            members_a = list(quadripartite_code.members_a)
+            members_b = list(quadripartite_code.members_b)
+            local_codes = []
+            for members, local_code in [
+                (members_a, quadripartite_code.code_a),
+                (members_b, quadripartite_code.code_b),
+            ]:
+                inversion = [members.index(~member) for member in members]
+                inverted_code = codes.ClassicalCode(local_code.matrix[:, inversion])
+                local_codes.append(
+                    (local_code, inverted_code.set_generator(local_code.generator[:, inversion]))
+                )
+            generated_group = abstract.Group(*members_a, *members_b)
+            lifted_code = codes.LQTCode(
+                generated_group,
+                members_a,
+                members_b,
+                local_codes[0][0],
+                local_codes[1][0],
+                code_a1=local_codes[0][1],
+                code_b1=local_codes[1][1],
+                local_checks=local_checks,
+            )
+            num_points = members_a[0].size
+            members = sorted(
+                abstract.GroupMember(member.array_form, size=num_points)
+                for member in generated_group.generate()
+            )
+            assert (len(lifted_code) == len(quadripartite_code)) == connected
+            assert lifted_code.dimension == (1 if connected else 2) * quadripartite_code.dimension
+            assert len(bipartite_code) == len(quadripartite_code) // (2 if connected else 1)
+
+            # Fold the squares onto the faces of each QTCode.  Each check of the LQTCode lies
+            # on these squares or off them, and those on them fold onto checks that span the space
+            # of the checks of the QTCode.  With "from_codes", they are those checks, which appear
+            # once for each square of a face.
+            for qt_code in qt_codes:
+                squares_of_faces = get_squares_of_faces(qt_code, members)
+                num_copies = 2 if qt_code.complex.bipartite else 1
+                assert all(len(squares) == num_copies for squares in squares_of_faces)
+                faces = {
+                    square: face
+                    for face, squares in enumerate(squares_of_faces)
+                    for square in squares
+                }
+                for matrix, qt_matrix in [
+                    (lifted_code.matrix_x, qt_code.matrix_x),
+                    (lifted_code.matrix_z, qt_code.matrix_z),
+                ]:
+                    folded_checks = []
+                    for check in matrix.view(np.ndarray):
+                        support = set(np.flatnonzero(check))
+                        if support <= faces.keys():
+                            folded_check = np.zeros(len(qt_code), dtype=int)
+                            for square in support:
+                                folded_check[faces[int(square)]] += check[square]
+                            folded_checks.append(folded_check)
+                        else:
+                            assert not support & faces.keys()
+                    if local_checks == "from_codes":
+                        assert get_sorted_rows(folded_checks) == sorted(
+                            get_sorted_rows(qt_matrix) * num_copies
+                        )
+                    else:
+                        folded_matrix = qt_code.field(np.array(folded_checks))
+                        assert_same_row_space(folded_matrix, qt_matrix)
+
+
+def get_s3_lifted_qt_code(exchange_classes: bool = False) -> codes.LQTCode:
+    """An LQTCode over S3 whose lists repeat members, with a group of 6 translations.
+
+    The list A holds each transposition twice, in adjacent positions.  Conjugation by any member of
+    S3 permutes A, and since it matches repeated members in order, it maps the first and second
+    positions of each pair to the first and second positions of a pair.  So it maps C_A^0, whose
+    words have equal entries at the first positions of the pairs, onto itself.  The words of C_A^1
+    have equal entries on the first pair, and even weight on the other four positions, so only
+    conjugation by the identity and by the transposition of the first pair, which exchanges the
+    other two transpositions, maps C_A^1 onto itself.  Conjugation by any member of S3 permutes
+    B = (e, r, r^-1): rotations fix each member, and transpositions exchange r and r^-1.  So all
+    conjugations map C_B^0, whose words have equal entries at positions 1 and 2, onto itself, but
+    only those by rotations map C_B^1, whose words have a zero at position 1, onto itself.  So the
+    translations from the left and from the right form groups of orders 2 and 3, which commute,
+    and generate a group of order 6.
+
+    If exchange_classes is True, the local codes of classes 0 and 1 are exchanged on each side,
+    which does not change the translations.
+    """
+    group = abstract.SymmetricGroup(3)
+    rotation = abstract.GroupMember([1, 2, 0])
+    transpositions = [abstract.GroupMember(image) for image in [[1, 0, 2], [2, 1, 0], [0, 2, 1]]]
+    codes_a = [[[1, 0, 1, 0, 0, 0], [0, 0, 1, 0, 1, 0]], [[1, 1, 0, 0, 0, 0], [0, 0, 1, 1, 1, 1]]]
+    codes_b = [[[0, 1, 1]], [[0, 1, 0]]]
+    if exchange_classes:
+        codes_a, codes_b = codes_a[::-1], codes_b[::-1]
+    return codes.LQTCode(
+        group,
+        [member for member in transpositions for _ in range(2)],
+        [group.identity, rotation, ~rotation],
+        codes_a[0],
+        codes_b[0],
+        code_a1=codes_a[1],
+        code_b1=codes_b[1],
+    )
+
+
+def test_lifted_quantum_tanner_translations() -> None:
+    """Translations of the complex preserve an LQTCode, matching repeated members in order.
+
+    Exchanging the local codes of classes 0 and 1 checks that translations need to preserve both.
+    """
+    for exchange_classes in [False, True]:
+        code = get_s3_lifted_qt_code(exchange_classes)
+        translations = code._get_qudit_automorphisms()
+        assert translations is not None
+        for translation in translations:
+            for matrix in [code.matrix_x, code.matrix_z]:
+                assert_same_row_space(matrix[:, np.argsort(translation)], matrix)
+        group = abstract.Group(*[abstract.GroupMember(row.tolist()) for row in translations])
+        assert group.order == 6
+
+
+def get_light_words(space: galois.FieldArray) -> galois.FieldArray:
+    """The light words of the row space of a matrix, by brute force.
+
+    These are the nonzero words that are no heavier than the heaviest word of a minimum-weight
+    basis of the space.
+    """
+    field = type(space)
+    basis = space.row_space()
+    coefficients = field(list(itertools.product(range(field.order), repeat=len(basis))))
+    words = coefficients.reshape(field.order ** len(basis), len(basis)) @ basis
+    weights = np.count_nonzero(words.view(np.ndarray), axis=1)
+    return words[(weights > 0) & (weights <= max(get_min_weights(basis), default=0))]
+
+
+def test_lifted_quantum_tanner_canonical_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bliss searches the parity checks, and the light words of the local check space of each class.
+
+    In this code, the local check spaces of the vertices with X-type checks have 256 words, and
+    those of the vertices with Z-type checks have 4 words.
+    """
+    code = get_s3_lifted_qt_code()
+    codes_a, codes_b = [code.code_a0, code.code_a1], [code.code_b0, code.code_b1]
+    num_qudits = len(code)
+    search_matrix = code._get_canonical_checks()
+    search_matrices = code._get_automorphism_search_matrices()
+    assert len(search_matrices) == 2
+    for matrix in [code.matrix, search_matrix]:
+        assert any(np.array_equal(matrix, other) for other in search_matrices)
+    is_x_check = np.any(search_matrix[:, :num_qudits], axis=1)
+    assert not np.any(search_matrix[is_x_check, num_qudits:])
+    sectors: list[tuple[PauliXZ, galois.FieldArray, list[tuple[int, int]]]] = [
+        (Pauli.X, search_matrix[is_x_check, :num_qudits], [(0, 0), (1, 1)]),
+        (Pauli.Z, search_matrix[~is_x_check, num_qudits:], [(0, 1), (1, 0)]),
+    ]
+    for pauli, checks, vertex_classes in sectors:
+        # every vertex has the light words of the local check space of its class on its local view
+        local_views = code.get_local_views(pauli)
+        expected_checks = []
+        for vertex, local_view in enumerate(local_views):
+            ss, tt = vertex_classes[vertex * 2 // len(local_views)]
+            if pauli is Pauli.X:
+                local_space = np.kron(codes_a[ss].generator, codes_b[tt].generator)
+            else:
+                local_space = np.kron(codes_a[ss].matrix, codes_b[tt].matrix)
+            for word in get_light_words(local_space.view(code.field)):
+                check = code.field.Zeros(num_qudits)
+                check[local_view.ravel()] = word
+                expected_checks.append(check)
+        assert get_sorted_rows(checks) == get_sorted_rows(expected_checks)
+
+    # if the local check space of one class is too large, the parity checks of its type replace the
+    # canonical checks of that type
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_CANONICAL_CHECKS", 16)
+    search_matrix = code._get_canonical_checks()
+    num_x_checks = len(code.matrix_x)
+    assert np.array_equal(search_matrix[:num_x_checks, :num_qudits], code.matrix_x)
+    assert_same_row_space(search_matrix[num_x_checks:, num_qudits:], code.matrix_z)
+    assert len(search_matrix) - num_x_checks > len(code.matrix_z)
+
+    # if they replace all canonical checks, bliss searches only the parity checks
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_CANONICAL_CHECKS", 0)
+    search_matrices = code._get_automorphism_search_matrices()
+    assert len(search_matrices) == 1
+    assert np.array_equal(search_matrices[0], code.matrix)
+
+
+def test_lifted_quantum_tanner_generating_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LQTCode reads and validates its generating data."""
+    group = abstract.CyclicGroup(4)
+    shift = group.generators[0]
+    code_a = codes.RepetitionCode(2)
+
+    # members are read on as many points as the group acts on, keeping repeated members
+    padded_shift = abstract.GroupMember(shift.array_form + [4])
+    code = codes.LQTCode(group, [shift, padded_shift], [shift, ~shift], code_a, [[1, 0]])
+    assert code.members_a == (shift, shift)
+
+    # the local codes of class 1 default to those of class 0
+    assert code.code_a1 == code.code_a0
+    assert code.code_b1 == code.code_b0
+    assert code == codes.LQTCode(
+        group, [shift, shift], [shift, ~shift], code_a, [[1, 0]], code_a1=code_a, code_b1=[[1, 0]]
+    )
+
+    # either list, or both, may be empty, which leaves no qudits
+    no_bits = codes.ClassicalCode(np.zeros((0, 0), dtype=int))
+    one_bit = codes.ClassicalCode([[1]])
+    empty_cases: list[
+        tuple[
+            list[abstract.GroupMember],
+            list[abstract.GroupMember],
+            codes.ClassicalCode,
+            codes.ClassicalCode,
+        ]
+    ] = [
+        ([], [shift], no_bits, one_bit),
+        ([shift], [], one_bit, no_bits),
+        ([], [], no_bits, no_bits),
+    ]
+    for members_a, members_b, code_a0, code_b0 in empty_cases:
+        code = codes.LQTCode(group, members_a, members_b, code_a0, code_b0)
+        assert len(code) == 0
+        assert code.matrix_x.shape == code.matrix_z.shape == (0, 0)
+        for pauli in PAULIS_XZ:
+            assert code.get_local_views(pauli).shape == (8, len(members_a), len(members_b))
+        assert code._get_canonical_checks().shape == (0, 0)
+        assert code.get_known_qudit_automorphism_group().order == 1
+
+    # invalid generating data
+    swap = abstract.GroupMember([1, 0])
+    with pytest.raises(ValueError, match="members_b contains"):
+        codes.LQTCode(group, [shift], [swap], [[1]], [[1]])
+    with pytest.raises(ValueError, match=re.escape(f"members_a contains {shift},")):
+        codes.LQTCode.from_lrz(
+            abstract.Group(shift**2),
+            [shift],
+            [shift],
+            code_0=[[1]],
+            code_1=[[1]],
+            code_0_prime=[[1]],
+            code_1_prime=[[1]],
+        )
+    with pytest.raises(ValueError, match="C_A\\^1 has block length 3, but members_a has 2"):
+        codes.LQTCode(group, [shift, shift], [shift], code_a, [[1]], code_a1=[[1, 1, 1]])
+    with pytest.raises(ValueError, match="different fields"):
+        codes.LQTCode(group, [shift], [shift], [[1]], codes.ClassicalCode([[1]], field=3))
+    for local_checks in ["row_reduced", None]:
+        with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
+            codes.LQTCode(
+                group,
+                [shift],
+                [shift],
+                [[1]],
+                [[1]],
+                local_checks=local_checks,  # type: ignore[arg-type]
+            )
+
+    # minimum-weight local checks need local codes and duals with few enough words
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_MIN_WEIGHT_BASIS", 1)
+    with pytest.raises(ValueError, match="local_checks='from_codes'"):
+        codes.LQTCode(group, [shift, shift], [shift], code_a, [[1]])
+    codes.LQTCode(group, [shift, shift], [shift], code_a, [[1]], local_checks="from_codes")
+
+
+def test_lifted_quantum_tanner_matrices_over_other_fields() -> None:
+    """LQTCode and LQTCode.from_lrz read parity check matrices over a given field."""
+    group = abstract.CyclicGroup(3)
+    shift = group.generators[0]
+    members_a = [shift, shift, group.identity]
+    members_b = [shift, group.identity]
+    matrices = [[[1, 2, 0], [0, 1, 1]], [[1, 1, 2]], [[1, 2]], [[2, 1]]]
+    lrz_codes = [codes.ClassicalCode(matrix, field=3) for matrix in matrices]
+    matrix_x, matrix_z = get_lrz_checks(group, members_a, members_b, lrz_codes)
+
+    # from_lrz builds the code of Eq. (2) from the given parity check matrices of C_0, C_1, C'_0,
+    # and C'_1, and their computed generator matrices
+    code = codes.LQTCode.from_lrz(
+        group,
+        members_a,
+        members_b,
+        code_0=matrices[0],
+        code_1=matrices[1],
+        code_0_prime=matrices[2],
+        code_1_prime=matrices[3],
+        field=3,
+        local_checks="from_codes",
+    )
+    assert code.field.order == 3
+    assert get_sorted_rows(code.matrix_x) == get_sorted_rows(matrix_x)
+    assert get_sorted_rows(code.matrix_z) == get_sorted_rows(matrix_z)
+
+    # the local code C_A^s is the dual of C_s, with the parity check and generator matrices of C_s
+    # exchanged
+    for local_code, lrz_code, matrix in [
+        (code.code_a0, lrz_codes[0], matrices[0]),
+        (code.code_a1, lrz_codes[1], matrices[1]),
+    ]:
+        assert np.array_equal(local_code.matrix, lrz_code.generator)
+        assert np.array_equal(local_code.generator, code.field(matrix))
+
+    # the constructor reads matrices over the given field in the same way
+    code = codes.LQTCode(
+        group,
+        [~member for member in members_a],
+        members_b,
+        lrz_codes[0].generator.tolist(),
+        matrices[2],
+        field=3,
+        code_a1=lrz_codes[1].generator.tolist(),
+        code_b1=matrices[3],
+    )
+    assert code.field.order == 3
+    assert_same_row_space(code.matrix_x, matrix_x)
+    assert_same_row_space(code.matrix_z, matrix_z)
+
+
+def test_quantum_tanner_min_weight_limit_of_duals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Minimum-weight local checks need duals of local codes with few enough words.
+
+    The repetition code [3, 1] has 2 words, and its dual has 4.  So only the duals exceed a limit of
+    3 words, and both quantum Tanner code classes raise an error for them, but not under a limit of
+    4 words.
+    """
+    shift = abstract.CyclicGroup(4).generators[0]
+    subset = [shift, ~shift, shift**2]
+    repetition_code = codes.RepetitionCode(3)
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_MIN_WEIGHT_BASIS", 3)
+    with pytest.raises(ValueError, match="dual of a local code has 4 words"):
+        codes.QTCode(subset, subset, repetition_code, repetition_code, local_checks="min_weight")
+    with pytest.raises(ValueError, match="dual of a local code has 4 words"):
+        codes.LQTCode(abstract.CyclicGroup(4), subset, subset, repetition_code, repetition_code)
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_MIN_WEIGHT_BASIS", 4)
+    codes.QTCode(subset, subset, repetition_code, repetition_code, local_checks="min_weight")
+    codes.LQTCode(abstract.CyclicGroup(4), subset, subset, repetition_code, repetition_code)

@@ -34,7 +34,7 @@ from .named import (
     TwoGrossCode,
 )
 from .pair_partition import PairPartitionCode
-from .quantum_tanner import QTCode
+from .quantum_tanner import LQTCode, QTCode
 from .self_orthogonal import (
     IcebergCode,
     ManyHypercubeCode,
@@ -63,6 +63,7 @@ __all__ = [
     "HGPCode",
     "IcebergCode",
     "LPCode",
+    "LQTCode",
     "MBCode",
     "ManyHypercubeCode",
     "PairPartitionCode",

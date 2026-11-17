@@ -21,6 +21,7 @@ The other notebooks in this group are standalone technical examples.
    basics
    decoders
    bivariate_bicycle_codes
+   quantum_tanner_codes
    noise_models
    transversal_gates
 
