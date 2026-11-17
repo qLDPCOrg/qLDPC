@@ -13,6 +13,7 @@ from typing import Literal
 import galois
 import networkx as nx
 import numpy as np
+import numpy.typing as npt
 import pytest
 import sympy
 
@@ -326,6 +327,11 @@ def get_min_weights(space: galois.FieldArray) -> list[int]:
     return weights
 
 
+def get_sorted_rows(matrix: npt.NDArray[np.int_]) -> list[tuple[int, ...]]:
+    """The rows of a matrix, in sorted order, with their multiplicities."""
+    return sorted(map(tuple, matrix.tolist()))
+
+
 def assert_same_row_space(matrix: galois.FieldArray, other: galois.FieldArray) -> None:
     """Assert that two matrices over a field have the same row space."""
     rank = np.linalg.matrix_rank(matrix) if matrix.size else 0
@@ -445,11 +451,10 @@ def test_quantum_tanner_local_checks(pytestconfig: pytest.Config) -> None:
                         assert weights.tolist() == get_min_weights(local_space)
 
 
-def test_quantum_tanner_min_weight_regression() -> None:
-    """Minimum-weight local checks give a [[144, 8, 12]] code checks of weight 6.
+def get_c4_a4_code(local_checks: LocalChecks = "min_weight") -> codes.QTCode:
+    """A [[144, 8, 12]] code on a bipartite complex of C4 x A4.
 
-    The code, on a bipartite complex of C4 x A4, was found in a search for small quantum Tanner
-    codes.
+    The code was found in a search for small quantum Tanner codes.
     """
     subset_a = [[1, 2, 3, 0, 4, 7, 5, 6], [3, 0, 1, 2, 4, 6, 7, 5]]
     subset_b = [
@@ -460,13 +465,19 @@ def test_quantum_tanner_min_weight_regression() -> None:
         [3, 0, 1, 2, 6, 7, 4, 5],
         [3, 0, 1, 2, 7, 6, 5, 4],
     ]
-    code = codes.QTCode(
+    return codes.QTCode(
         [abstract.GroupMember(member) for member in subset_a],
         [abstract.GroupMember(member) for member in subset_b],
         [[1, 1]],
         [[1, 0, 1, 0, 1, 0], [0, 0, 0, 1, 1, 1], [0, 1, 1, 1, 0, 0]],
         bipartite=True,
+        local_checks=local_checks,
     )
+
+
+def test_quantum_tanner_min_weight_regression() -> None:
+    """Minimum-weight local checks give a [[144, 8, 12]] code checks of weight 6."""
+    code = get_c4_a4_code()
     assert (len(code), code.dimension) == (144, 8)
     assert code.get_weight() == 6
 
@@ -613,3 +624,269 @@ def test_quantum_tanner_without_checks() -> None:
     assert code.get_local_views(Pauli.X).shape == (len(code) // 2, 2, 2)
     with pytest.raises(ValueError, match=r"Expected Pauli\.X or Pauli\.Z"):
         code.get_local_views(Pauli.Y)  # type: ignore[arg-type]
+
+
+def get_small_qt_codes(rng: np.random.Generator) -> list[codes.QTCode]:
+    """Small QTCodes over abelian and nonabelian groups, on both complexes, over GF(2) and GF(3).
+
+    The codes on the quadripartite complex are random.  A bipartite complex needs subsets that
+    satisfy Total No Conjugacy, as those of the fixed seeds do.
+    """
+    cases: list[
+        tuple[abstract.Group, codes.ClassicalCode, codes.ClassicalCode | None, bool, int | None]
+    ] = [
+        (abstract.CyclicGroup(6), codes.HammingCode(2), None, False, None),
+        (
+            abstract.SymmetricGroup(3),
+            codes.ClassicalCode([[1, 1, 0, 1], [0, 1, 1, 1]]),
+            None,
+            False,
+            None,
+        ),
+        (
+            abstract.CyclicGroup(4),
+            codes.ClassicalCode([[1, 2, 0], [0, 1, 1]], field=3),
+            None,
+            False,
+            None,
+        ),
+        (
+            abstract.DihedralGroup(5),
+            codes.HammingCode(2),
+            codes.ClassicalCode([[1, 1, 1, 0]]),
+            True,
+            36,
+        ),
+        (abstract.DihedralGroup(6), codes.HammingCode(2), None, True, 9),
+    ]
+    return [
+        codes.QTCode.random(
+            group,
+            code_a,
+            code_b,
+            bipartite=bipartite,
+            seed=int(rng.integers(2**31)) if seed is None else seed,
+        )
+        for group, code_a, code_b, bipartite, seed in cases
+    ]
+
+
+def test_quantum_tanner_translations(pytestconfig: pytest.Config) -> None:
+    """The translations that QTCode._get_qudit_automorphisms returns preserve the code."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for code in get_small_qt_codes(rng):
+        translations = code._get_qudit_automorphisms()
+        for translation in translations if translations is not None else []:
+            for matrix in [code.matrix_x, code.matrix_z]:
+                assert_same_row_space(matrix[:, np.argsort(translation)], matrix)
+
+
+def test_quantum_tanner_all_translations() -> None:
+    """On small codes, the returned translations generate all translations that preserve the code.
+
+    A brute-force search finds every translation by a vertex, from the left or the right, that
+    preserves the code.  The conditions under which QTCode._get_qudit_automorphisms returns a
+    translation are sufficient but not known to be necessary, so this test uses fixed codes.
+    """
+    for code in get_small_qt_codes(np.random.default_rng(0)):
+        translations = code._get_qudit_automorphisms()
+        assert translations is not None
+
+        # translate the faces by every vertex, keeping the translations that preserve the code
+        subgraph_x, subgraph_z = codes.QTCode.get_subgraphs(code.complex)
+        faces = {face: qudit for face, qudit in subgraph_x.nodes(data="sort") if qudit is not None}
+        vertices = [node for node in subgraph_x if subgraph_x.out_degree(node)]
+        vertices += [node for node in subgraph_z if subgraph_z.out_degree(node)]
+        symmetries = []
+        for vertex, left in itertools.product(vertices, [True, False]):
+            images = [frozenset(vertex * v if left else v * vertex for v in face) for face in faces]
+            if all(image in faces for image in images):
+                permutation = np.array([faces[image] for image in images])
+                if all(
+                    np.linalg.matrix_rank(np.vstack([matrix, matrix[:, np.argsort(permutation)]]))
+                    == np.linalg.matrix_rank(matrix)
+                    for matrix in [code.matrix_x, code.matrix_z]
+                ):
+                    symmetries.append(abstract.GroupMember(permutation.tolist()))
+        all_translations = abstract.Group(*symmetries)
+        generators = [abstract.GroupMember(row.tolist()) for row in translations]
+        assert all(generator in all_translations for generator in generators)
+        assert abstract.Group(*generators).order == all_translations.order > 1
+
+
+def test_quantum_tanner_canonical_checks(pytestconfig: pytest.Config) -> None:
+    """Bliss searches all light words of the local check spaces of a QTCode, at every vertex.
+
+    The light words of a local check space are its nonzero words that are no heavier than the
+    heaviest word of a minimum-weight basis.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    # include a code whose local check spaces for Z-type checks are zero
+    shift = abstract.CyclicGroup(4).generators[0]
+    code_without_z_checks = codes.QTCode(
+        [shift, ~shift],
+        [shift, ~shift, shift**2],
+        np.zeros((0, 2), dtype=int),  # the code with all words
+        codes.HammingCode(2),
+    )
+    for code in [*get_small_qt_codes(rng), code_without_z_checks]:
+        search_matrix = code._get_canonical_checks()
+        num_qudits = len(code)
+        is_x_check = np.any(search_matrix[:, :num_qudits], axis=1)
+        assert not np.any(search_matrix[is_x_check, num_qudits:])
+        sectors: list[tuple[PauliXZ, galois.FieldArray, list[galois.FieldArray]]] = [
+            (
+                Pauli.X,
+                search_matrix[is_x_check, :num_qudits],
+                [code.code_a.generator, code.code_b.generator],
+            ),
+            (
+                Pauli.Z,
+                search_matrix[~is_x_check, num_qudits:],
+                [code.code_a.matrix, code.code_b.matrix],
+            ),
+        ]
+        for pauli, checks, local_spaces in sectors:
+            # all light words of the local check space, by brute force
+            field = code.field
+            basis = np.kron(*local_spaces).view(field).row_space()
+            coefficients = field(list(itertools.product(range(field.order), repeat=len(basis))))
+            words = coefficients.reshape(field.order ** len(basis), len(basis)) @ basis
+            weights = np.count_nonzero(words.view(np.ndarray), axis=1)
+            max_weight = max(get_min_weights(basis), default=0)
+            light_words = words[(weights > 0) & (weights <= max_weight)]
+
+            # every vertex has the light words of its local check space on its local view
+            expected_checks = []
+            for local_view in code.get_local_views(pauli):
+                for word in light_words:
+                    check = field.Zeros(num_qudits)
+                    check[local_view.ravel()] = word
+                    expected_checks.append(tuple(check.tolist()))
+            assert get_sorted_rows(checks) == sorted(expected_checks)
+            assert_same_row_space(checks, code.matrix_x if pauli is Pauli.X else code.matrix_z)
+
+
+def test_quantum_tanner_canonical_checks_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bliss searches the parity checks of X-type or Z-type, if their local spaces are too large.
+
+    In this code, each local check space of X-type checks has 2 words, of which 1 is light, and each
+    local check space of Z-type checks has 16 words, of which 9 are light: the words of weight 4 in
+    the tensor product of two [3, 2] codes.
+    """
+    shift = abstract.CyclicGroup(4).generators[0]
+    subset = [shift, ~shift, shift**2]
+    code = codes.QTCode(subset, subset, codes.HammingCode(2), codes.HammingCode(2))
+    num_qudits = len(code)
+    num_vertices_x = len(code.get_local_views(Pauli.X))
+    num_vertices_z = len(code.get_local_views(Pauli.Z))
+    canonical_search_matrix = code._get_canonical_checks()
+    assert len(canonical_search_matrix) == num_vertices_x + 9 * num_vertices_z
+
+    # the limit on canonical checks applies to each vertex, not to all vertices together
+    monkeypatch.setattr(quantum_tanner, "_MAX_CANONICAL_CHECKS_PER_VERTEX", 10)
+    assert 9 * num_vertices_z > 10
+    assert get_sorted_rows(code._get_canonical_checks()) == get_sorted_rows(canonical_search_matrix)
+
+    # limits that only the local check spaces of Z-type checks exceed
+    for name, limit in [
+        ("_MAX_WORDS_FOR_CANONICAL_CHECKS", 8),
+        ("_MAX_CANONICAL_CHECKS_PER_VERTEX", 4),
+    ]:
+        with monkeypatch.context() as context:
+            context.setattr(quantum_tanner, name, limit)
+            search_matrix = code._get_canonical_checks()
+        assert len(search_matrix) == num_vertices_x + len(code.matrix_z)
+        assert_same_row_space(search_matrix[:num_vertices_x, :num_qudits], code.matrix_x)
+        assert np.array_equal(search_matrix[num_vertices_x:, num_qudits:], code.matrix_z)
+
+    # a limit that all local check spaces exceed
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_CANONICAL_CHECKS", 0)
+    assert np.array_equal(code._get_canonical_checks(), code.matrix)
+
+
+def test_quantum_tanner_canonical_checks_without_qudits() -> None:
+    """Canonical checks of codes without qudits, and of local check spaces without nonzero words."""
+    shift = abstract.CyclicGroup(4).generators[0]
+    repetition_code = codes.ClassicalCode([[1, 1]])
+    empty_code = codes.ClassicalCode(np.zeros((0, 0), dtype=int))
+    for subset_a, subset_b, code_a, code_b in [
+        ([shift, ~shift], [], repetition_code, empty_code),
+        ([], [shift, ~shift], empty_code, repetition_code),
+    ]:
+        code = codes.QTCode(subset_a, subset_b, code_a, code_b)
+        assert len(code) == 0
+        assert code._get_canonical_checks().shape == (0, 0)
+        assert code._get_qudit_automorphisms() is None
+        assert code.get_known_qudit_automorphism_group().order == 1
+
+    # a zero factor makes a zero space, whose canonical checks need no search of the other factor
+    field = galois.GF(2)
+    canonical_checks = quantum_tanner._get_canonical_local_checks(
+        field.Zeros((0, 3)), field.Identity(62)
+    )
+    assert canonical_checks is not None and canonical_checks.shape == (0, 3 * 62)
+
+
+def test_quantum_tanner_symmetries() -> None:
+    """The symmetries of a [[144, 8, 12]] code.
+
+    The code has 72 translations.  With pybliss, bliss finds 1152 symmetries among its canonical
+    local checks, but only 48 among its parity checks, and the known group of the code has order
+    1152.  Exact distance searches, which can use the symmetries, find the distance of the code with
+    either method.
+    """
+    code = get_c4_a4_code("min_weight")
+    translations = code._get_qudit_automorphisms()
+    assert translations is not None
+    group = abstract.Group(*[abstract.GroupMember(row.tolist()) for row in translations])
+    assert group.order == 72
+
+    methods: list[Literal["brouwer_zimmermann", "connected_cluster"]] = [
+        "brouwer_zimmermann",
+        "connected_cluster",
+    ]
+    for method in methods:
+        assert get_c4_a4_code("min_weight").get_distance_exact(method=method) == 12
+
+    # the canonical checks do not depend on the choice of local checks, unlike the parity checks
+    search_matrix = code._get_canonical_checks()
+    for local_checks in LOCAL_CHECKS:
+        other_code = get_c4_a4_code(local_checks)
+        assert get_sorted_rows(other_code._get_canonical_checks()) == get_sorted_rows(search_matrix)
+    assert not np.array_equal(get_c4_a4_code("from_codes").matrix, code.matrix)
+
+    # plain codes, which know no symmetries of a construction, give the groups that bliss finds
+    pytest.importorskip("pybliss")
+    for matrix, order in [(search_matrix, 1152), (code.matrix, 48)]:
+        assert codes.QuditCode(matrix).get_known_qudit_automorphism_group().order == order
+    assert code.get_known_qudit_automorphism_group().order == 1152
+
+
+def test_quantum_tanner_symmetries_of_parity_checks() -> None:
+    """The known group of a QTCode contains the symmetries that bliss finds among its parity checks.
+
+    In this [[200, 12]] code over the dihedral group D5, the local code C_B is the direct sum of
+    repetition codes on two disjoint pairs of coordinates.  Bliss finds a group of order 800 among
+    the parity checks, but only 8 among the canonical local checks, which some of those symmetries
+    do not map onto themselves.
+    """
+    pytest.importorskip("pybliss")
+    subset_a = [[1, 0, 4, 3, 2], [2, 1, 0, 4, 3], [2, 3, 4, 0, 1], [3, 2, 1, 0, 4], [3, 4, 0, 1, 2]]
+    subset_b = [[1, 0, 4, 3, 2], [1, 2, 3, 4, 0], [3, 2, 1, 0, 4], [4, 0, 1, 2, 3]]
+    code = codes.QTCode(
+        [abstract.GroupMember(member) for member in subset_a],
+        [abstract.GroupMember(member) for member in subset_b],
+        [[1, 0, 0, 0, 1], [1, 1, 1, 1, 0]],
+        [[1, 1, 1, 1], [0, 1, 0, 1]],
+    )
+    assert (len(code), code.dimension) == (200, 12)
+    canonical_checks_code = codes.QuditCode(code._get_canonical_checks())
+    parity_checks_group = codes.CSSCode(
+        code.matrix_x, code.matrix_z
+    ).get_known_qudit_automorphism_group()
+    assert canonical_checks_code.get_known_qudit_automorphism_group().order == 8
+    assert parity_checks_group.order == 800
+    group = code.get_known_qudit_automorphism_group()
+    assert all(member in group for member in parity_checks_group.generators)
