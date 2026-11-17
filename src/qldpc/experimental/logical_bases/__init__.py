@@ -29,8 +29,8 @@ Public API:
 - :func:`~qldpc.experimental.logical_bases.optimize_logical_basis`,
   :class:`~qldpc.experimental.logical_bases.OptimizedLogicalBasis`: a complete basis with low
   weights.
-- :data:`~qldpc.experimental.logical_bases.WeightObjective`: the type of an objective of
-  ``optimize_logical_basis`` given as a function of the weights.
+- :data:`~qldpc.experimental.logical_bases.WeightObjective`: the type of a function of the weights
+  that ``optimize_logical_basis`` can minimize.
 - :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds`,
   :class:`~qldpc.experimental.logical_bases.OptimizedLogicalRounds`: operators to act on in few
   rounds.

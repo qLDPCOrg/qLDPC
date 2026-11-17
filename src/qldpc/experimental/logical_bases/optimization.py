@@ -509,7 +509,7 @@ class _ClassSearch:
         return self.max_searches is not None and self.searches >= self.max_searches
 
     def _reaches_bound(self, value: Any) -> bool:
-        """Whether an objective value reaches the lower bound, which proves it optimal."""
+        """Whether an objective value reaches the lower bound, which proves the basis optimal."""
         return self.lower_bound is not None and value == self.lower_bound
 
 

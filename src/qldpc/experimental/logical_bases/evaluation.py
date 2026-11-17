@@ -56,7 +56,7 @@ def evaluate_logical_ops(
         TypeError: If ``code`` is not a CSS code.
         ValueError: If ``code`` is not binary, or ``logicals`` is invalid.  Also if ``logical_ops``
             has the wrong shape, has entries other than 0 and 1, is a ``galois`` array over a field
-            other than GF(2), or is not a basis as described above.
+            other than GF(2) or a list or tuple of them, or is not a basis as described above.
     """
     sector_x = get_sector(code, Pauli.X, logicals)
     sector_z = get_sector(code, Pauli.Z, logicals)
@@ -151,8 +151,8 @@ class LogicalOpsMetrics:
             TypeError: If ``code`` is not a CSS code.
             ValueError: If ``code`` is not binary, or ``pauli`` or ``logicals`` is invalid.  Also if
                 ``logical_ops`` has the wrong shape, has entries other than 0 and 1, is a ``galois``
-                array over a field other than GF(2), does not consist of logical operators of this
-                type, or does not have independent logical classes.
+                array over a field other than GF(2) or a list or tuple of them, does not consist of
+                logical operators of this type, or does not have independent logical classes.
         """
         sector = get_sector(code, pauli, logicals)
         ops = code.get_logical_ops(pauli) if logical_ops is None else logical_ops
@@ -197,7 +197,7 @@ def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray
 
     Raises:
         ValueError: If ``ops`` does not have the given shape, has entries other than 0 and 1, or is
-            a ``galois`` array, or a sequence of ``galois`` arrays, over a field other than GF(2).
+            a ``galois`` array over a field other than GF(2) or a list or tuple of them.
     """
     parts = ops if isinstance(ops, (list, tuple)) else [ops]
     for part in parts:
