@@ -793,6 +793,33 @@ def test_quantum_tanner_canonical_checks_without_qudits() -> None:
     assert canonical_checks is not None and canonical_checks.shape == (0, 3 * 62)
 
 
+def test_quantum_tanner_canonical_checks_in_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The canonical local checks are the light words of a space, also when found in chunks.
+
+    The local check spaces of Z-type checks here have 16 and 9 words, which a chunk size of 5 splits
+    into several chunks.  The first space has 6 light words.
+    """
+    binary_codes = (
+        codes.ClassicalCode([[1, 1, 0, 0], [0, 0, 1, 1]]),
+        codes.ClassicalCode([[1, 1, 1, 0], [0, 1, 1, 1]]),
+    )
+    ternary_codes = (
+        codes.ClassicalCode([[1, 2, 0], [0, 1, 1]], field=3),
+        codes.ClassicalCode([[1, 1, 1]], field=3),
+    )
+    monkeypatch.setattr(quantum_tanner, "_WORDS_PER_CHUNK", 5)
+    for code_a, code_b in [binary_codes, ternary_codes]:
+        light_words = get_light_words(get_local_space(code_a, code_b, Pauli.Z))
+        canonical_checks = quantum_tanner._get_canonical_local_checks(code_a, code_b, Pauli.Z)
+        assert canonical_checks is not None
+        assert get_sorted_rows(canonical_checks) == get_sorted_rows(light_words)
+
+    # the cap on canonical checks per vertex counts the light words of all chunks
+    monkeypatch.setattr(quantum_tanner, "_WORDS_PER_CHUNK", 1)
+    monkeypatch.setattr(quantum_tanner, "_MAX_CANONICAL_CHECKS_PER_VERTEX", 1)
+    assert quantum_tanner._get_canonical_local_checks(*binary_codes, Pauli.Z) is None
+
+
 def test_quantum_tanner_symmetries() -> None:
     """The symmetries of a [[144, 8, 12]] code.
 
@@ -1496,6 +1523,7 @@ def test_lifted_quantum_tanner_canonical_checks(monkeypatch: pytest.MonkeyPatch)
             light_words = get_light_words(get_local_space(codes_a[ss], codes_b[tt], pauli))
             expected_checks += place_words(light_words, local_views, num_qudits)
         assert get_sorted_rows(checks) == sorted(expected_checks)
+        assert_same_row_space(checks, code.matrix_x if pauli is Pauli.X else code.matrix_z)
 
     # if the local check spaces of the vertices with X-type checks are too large, the X-type parity
     # checks replace the canonical X-type checks
