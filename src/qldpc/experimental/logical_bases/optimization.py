@@ -163,7 +163,11 @@ class OptimizedLogicalBasis:
 
     @property
     def metrics(self) -> LogicalBasisMetrics:
-        """The metrics of the X-type and Z-type operators, as from ``evaluate_logical_ops``."""
+        """The metrics of the X-type and Z-type operators.
+
+        These are the metrics that :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
+        returns for this basis.
+        """
         k, n = len(self.logical_ops) // 2, self.logical_ops.shape[1] // 2
         ops_x, ops_z = self.logical_ops[:k, :n], self.logical_ops[k:, n:]
         return LogicalBasisMetrics(
