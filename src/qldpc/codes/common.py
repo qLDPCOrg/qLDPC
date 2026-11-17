@@ -4590,8 +4590,8 @@ def _mark_read_only(array: _ArrayT) -> _ArrayT:
 def _get_row_space(matrix: galois.FieldArray) -> galois.FieldArray:
     """Return the reduced row echelon form of a matrix over a finite field, without zero rows.
 
-    This is ``matrix.row_space()``, computed over GF(2) by the bit-packed routines, which are much
-    faster than galois.
+    This is ``matrix.row_space()``, computed over GF(2) by the bit-packed routines of
+    ``qldpc._binary``, which are much faster than galois.
     """
     if type(matrix).order != 2:
         return matrix.row_space()

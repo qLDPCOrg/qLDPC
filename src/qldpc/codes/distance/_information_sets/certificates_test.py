@@ -216,17 +216,25 @@ def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:
 
 
 def test_certificates_with_overlapping_blocks_of_different_sizes_follow_their_definition() -> None:
-    """``certifies`` agrees with ``step_lower_bound`` when blocks overlap and differ in size."""
-    certificate = certificates.Certificate(
-        2,
-        (1, 1, 2),
-        max_coverage=2,
-        pivot_blocks=((2,), (2,), (1, 3)),
-        lp_max_denominator=DENOMINATOR,
-    )
-    for num_completed, upper_bound in itertools.product(range(4), range(1, 6)):
-        bound = certificate.step_lower_bound(1, num_completed)
-        assert certificate.certifies(1, num_completed, upper_bound) == (bound >= upper_bound)
+    """``certifies`` agrees with ``step_lower_bound`` when blocks overlap and differ in size.
+
+    In the second certificate, a set of rank one in dimension three that has not completed layer
+    one requires at least ``-1`` ones in its block, which asks for nothing.
+    """
+    for dimension, ranks, blocks in [
+        (2, (1, 1, 2), ((2,), (2,), (1, 3))),
+        (3, (1, 3, 1), ((0,), (0, 1, 2), (3,))),
+    ]:
+        certificate = certificates.Certificate(
+            dimension,
+            ranks,
+            max_coverage=2,
+            pivot_blocks=blocks,
+            lp_max_denominator=DENOMINATOR,
+        )
+        for num_completed, upper_bound in itertools.product(range(4), range(1, 6)):
+            bound = certificate.step_lower_bound(1, num_completed)
+            assert certificate.certifies(1, num_completed, upper_bound) == (bound >= upper_bound)
 
 
 def test_plans_with_linear_programs_solve_their_programs_lazily(

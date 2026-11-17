@@ -1152,8 +1152,11 @@ def test_canonicalized_code_is_its_own_canonical_form() -> None:
         assert canonicalized.canonicalized is canonicalized
 
 
-def test_canonical_forms_over_extension_fields_of_two() -> None:
-    """Over GF(4), which has characteristic two, a row that is twice another is dependent."""
+def test_canonical_forms_over_extension_fields_of_gf2() -> None:
+    """Canonical forms over GF(4), whose characteristic is also two, use galois, not GF(2) routines.
+
+    The row ``[2, 3, 1]`` is ``[1, 2, 3]`` times the element ``2``, so it is dependent.
+    """
     code = codes.ClassicalCode(galois.GF(4)([[1, 2, 3], [2, 3, 1]]))
     assert len(code.canonicalized.matrix) == 1 and code.dimension == 2
 
