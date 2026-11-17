@@ -5,7 +5,8 @@
 
 This script regenerates every code saved by run_search.py from the specification and sample in its
 file name, and checks that the regenerated code equals the saved code.  It reports every code that
-fails this check, or cannot be loaded or regenerated, and exits with an error if there are any.
+fails this check, cannot be loaded or regenerated, or records another choice of local checks than
+saved_codes.LOCAL_CHECKS, and exits with an error if there are any.
 
 Example:
     python experiments/quantum_tanner/verify_codes.py
@@ -62,14 +63,20 @@ def parse_args() -> argparse.Namespace:
 def get_verification_problem(path: pathlib.Path) -> str | None:
     """Say why a saved quantum Tanner code fails verification, or return None if it passes.
 
-    A saved code passes if it can be loaded, and if regenerating it from its specification and
+    A saved code passes if it can be loaded, if it records the choice of local checks of the
+    search (saved_codes.LOCAL_CHECKS) or none, and if regenerating it from its specification and
     sample reproduces it.
     """
     # load the saved code, which fails if its file is truncated or malformed
     try:
-        saved_code = codes.QTCode.load(str(path))
+        saved_code = codes.QTCode.load(str(path), local_checks=saved_codes.LOCAL_CHECKS)
     except (IndexError, SyntaxError, ValueError) as error:
         return f"Saved code cannot be loaded ({error!r})"
+
+    # the stabilizer weight in the header of the file belongs to the checks that the file records
+    choice = saved_codes.read_sections(path).get("local checks", [saved_codes.LOCAL_CHECKS])
+    if choice != [saved_codes.LOCAL_CHECKS]:
+        return f"Saved code chose the local checks {choice}, not {saved_codes.LOCAL_CHECKS!r}"
 
     # regenerate the code from its file name, and compare
     try:

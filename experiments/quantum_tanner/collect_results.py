@@ -8,9 +8,10 @@ compute_distances.py, if any.  It writes the parameters of the codes to codes.cs
 (by default, results/codes.csv in this directory), with one row per distinct code that has at least
 one logical qubit.  Saved codes count as distinct if their generating data (subsets, local codes,
 and complex; see saved_codes.get_code_key) differ, and the saved files with the same generating data
-are copies of one code.  Each row summarizes the copies of one code.  Different generating data can
-still give the same code, which then has several rows.  The specification and sample of a row are
-those of its first copy, where copies are ordered by group (order first), local codes, complex,
+are copies of one code, since the search builds every code with one choice of local checks (see
+saved_codes.LOCAL_CHECKS).  Each row summarizes the copies of one code.  Different generating data
+can still give the same code, which then has several rows.  The specification and sample of a row
+are those of its first copy, where copies are ordered by group (order first), local codes, complex,
 identity exclusion, and sample (enumerated before random, and then by number).  The columns of the
 CSV file are CSV_FIELDS:
 - group, group_order: the identifier and order of the group that defines the code (see

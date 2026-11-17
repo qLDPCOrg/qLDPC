@@ -534,6 +534,13 @@ def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
 
 
+def test_weight_without_checks() -> None:
+    """A code without parity checks has weight 0."""
+    assert codes.ClassicalCode(np.zeros((0, 3), dtype=int)).get_weight() == 0
+    no_checks = np.zeros((0, 3), dtype=int)
+    assert codes.CSSCode(no_checks, no_checks).get_weight() == 0
+
+
 def test_qudit_codes() -> None:
     """Miscellaneous qudit code tests and coverage."""
     code = codes.FiveQubitCode()
