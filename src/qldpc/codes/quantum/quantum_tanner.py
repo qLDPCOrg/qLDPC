@@ -63,7 +63,7 @@ spaces, but generating sets of the stabilizer group that combine checks at diffe
 lighter.
 
 Canonical local checks.  With the optional pybliss package, bliss finds qudit permutations that map
-a set of checks onto itself (see QuditCode.get_known_qudit_automorphism_group).  QTCode and LQTCode
+a set of checks onto itself (see QuditCode.get_known_automorphism_group).  QTCode and LQTCode
 have it search their canonical local checks, as well as their parity checks.  The canonical local
 checks of a vertex are the nonzero words of weight at most w_max of its local check space, placed on
 its local view, where w_max is the largest weight of a word in a minimum-weight basis of the space.
@@ -212,7 +212,7 @@ class QTCode(CSSCode):
     For lists of members that repeat or are not symmetric, four local codes, or a complex on all of
     a given group, use LQTCode, whose docstring also relates QTCodes to it.
 
-    Symmetries: QTCode.get_known_qudit_automorphism_group gives a group of qudit permutations that
+    Symmetries: QTCode.get_known_automorphism_group gives a group of qudit permutations that
     preserve the code.  Its generators include translations of the Cayley complex.  Left translation
     by a vertex x with X-type checks multiplies every vertex by x from the left.  It is included if
     conjugation by x permutes A, and the induced permutation of the coordinates of C_A maps C_A onto
@@ -990,7 +990,7 @@ class LQTCode(CSSCode):
     that qLDPC computes, which "from_codes" uses.  LQTCode.from_lrz builds a code from the data of
     arXiv:2512.20532, in that paper's notation.
 
-    Symmetries: LQTCode.get_known_qudit_automorphism_group gives a group of qudit permutations that
+    Symmetries: LQTCode.get_known_automorphism_group gives a group of qudit permutations that
     preserve the code.  Its generators include translations of the complex.  Left translation by a
     member x of G maps each vertex (g, s, t) to (xg, s, t).  It is included if conjugation by x,
     ``a -> x a x^-1``, permutes the list A, which is to say that the conjugate of each member occurs
