@@ -8,6 +8,11 @@ the distance search, and the other scans the coset searches of ``CosetLeaderSear
 runs one body, ``_scan``, which Numba compiles separately for each set of constant flags, so that no
 flag costs a branch for each word.  Sections cited in this module are those of
 ``brouwer_zimmermann.md``, whose Section 4.1 lists the scans.
+
+Threads run ``_scan`` at once, through ``scan_set_items`` and the batch loops of coset searches in
+``coset.py``.  So a change to it must keep the requirements on threads in Section 5, notably "Keep
+the scans of a layer splittable across threads" and, for the coset scans, "Keep coset queries
+reproducible".
 """
 
 from __future__ import annotations

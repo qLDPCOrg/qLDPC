@@ -10,6 +10,10 @@ weight ``U`` in a distance search, ``t + 1`` in a count of the words of weight `
 bound that proves a word heavier than the maximum weight in a coset query, and a limit that falls
 as lighter words turn up in a search for a minimum weight.  Sections 3.9 and 3.10 of
 ``brouwer_zimmermann.md`` derive the bound and the limits.
+
+Threads read shared tables at once (Sections 3.9, "Tables and lookups", and 5 of that guide).
+Compiled functions here, such as ``get_completion_bound``, also run within nogil calls of threaded
+searches, so they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations

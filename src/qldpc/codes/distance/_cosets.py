@@ -4,6 +4,8 @@
 
 They are the words with unit syndromes, the packing of binary rows into integers, the sums of the
 rows that a support selects, and the tables of the errors of weight zero or one by syndrome.
+Compiled functions here, such as ``xor_selected_rows``, also run within nogil calls of threaded
+searches, so they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations
