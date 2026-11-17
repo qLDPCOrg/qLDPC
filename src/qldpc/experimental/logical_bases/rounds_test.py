@@ -29,9 +29,6 @@ from .rounds import (
 # a [[7, 4]] code whose choices of X-type operators at minimum weight need from 2 to 4 rounds
 _CHOICE_CHECKS = ([[1, 0, 1, 1, 1, 0, 0]], [[0, 1, 1, 1, 0, 0, 1], [1, 1, 0, 0, 1, 1, 0]])
 
-# a [[6, 3]] code whose X-type operators need 3 rounds at minimum weight, and 2 with slack 2
-_SLACK_CHECKS = ([[1, 1, 1, 1, 0, 1]], [[1, 1, 0, 1, 1, 1], [0, 1, 1, 1, 1, 1]])
-
 # an [[8, 4]] code in which a 2-round choice exists; but if only single rows of the basis reduced on
 # the column-order information set are listed, the X-type candidates of three classes all contain
 # qubit 1, which would wrongly bound the rounds below by 3
@@ -103,16 +100,21 @@ def test_time_limit() -> None:
 
 def test_time_limit_fallback() -> None:
     """Without any choice in time, the lightest candidates are used, even with slack."""
-    code = codes.CSSCode(*_SLACK_CHECKS)
+    code = codes.CSSCode(*_CHOICE_CHECKS)
     out_of_time = scipy.optimize.OptimizeResult(status=1, x=None, message="time limit")
     with mock.patch.object(scipy.optimize, "milp", return_value=out_of_time):
         result = optimize_logical_rounds(code, weight_slack=2)
     _check_valid(code, code.get_logical_ops(), result, 2, "dressed")
-    assert result.x.stop_reason == "time_limit"
+    assert (result.x.stop_reason, result.z.stop_reason) == ("time_limit", "time_limit")
     k, n = code.dimension, len(code)
-    weights = get_class_weights(code, Pauli.X, "dressed")
-    for op in result.logical_ops[:k, :n].astype(int):
-        assert op.sum() == weights[get_class(code, Pauli.X, op)]
+    paulis: list[tuple[PauliXZ, slice, slice]] = [
+        (Pauli.X, slice(None, k), slice(None, n)),
+        (Pauli.Z, slice(k, None), slice(n, None)),
+    ]
+    for pauli, rows, cols in paulis:
+        weights = get_class_weights(code, pauli, "dressed")
+        for op in result.logical_ops[rows, cols].astype(int):
+            assert op.sum() == weights[get_class(code, pauli, op)]
 
 
 def test_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,9 +130,9 @@ def test_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # the Z-type lists, which these samples leave incomplete, are the same every time
     trivial = code.get_matrix(Pauli.Z).view(np.ndarray).astype(np.uint8)
+    weights = get_class_weights(code, Pauli.Z, "dressed")
     for op in code.get_logical_ops(Pauli.Z).view(np.ndarray).astype(np.uint8):
-        words = get_class_words(code, Pauli.Z, "dressed")[get_class(code, Pauli.Z, op)]
-        min_weight = min(int(word.sum()) for word in words)
+        min_weight = weights[get_class(code, Pauli.Z, op)]
         lists = [_list_candidates(op, trivial, min_weight, 2)[0] for _ in range(4)]
         for listed in lists[1:]:
             np.testing.assert_array_equal(listed, lists[0])
@@ -234,7 +236,7 @@ def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_solver_failures() -> None:
-    """Results that cannot be right raise errors."""
+    """Solver failures, and results that cannot be right, raise errors."""
     code = codes.CSSCode(*_CHOICE_CHECKS)
     milp = scipy.optimize.milp
 
@@ -280,7 +282,7 @@ def test_check_choice() -> None:
 
 
 def test_special_inputs(subsystem_code: codes.CSSCode) -> None:
-    """Edge cases: no logical qubits, mixed optimality, a slack beyond n, and invalid bases."""
+    """Edge cases: no logical qubits, mixed optimality, a slack beyond n, and invalid inputs."""
     code = codes.CSSCode([[1, 1]], [[1, 1]])
     result = optimize_logical_rounds(code)
     assert result.logical_ops.shape == (0, 4)

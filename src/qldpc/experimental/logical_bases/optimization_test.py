@@ -274,7 +274,8 @@ def test_moves(paired_code: codes.CSSCode) -> None:
     """A move is taken exactly when it improves the objective, by the brute-force class weights.
 
     Starting from the code's own basis, some moves give an operator a class heavier than both
-    classes that the move replaces.
+    classes that the move replaces.  No move lowers the Z-type weight here, and some leave it equal,
+    so this checks that a tie is not an improvement; ``test_local_optima`` checks improvements.
     """
     weights_x = get_class_weights(paired_code, Pauli.X, "dressed")
     weights_z = get_class_weights(paired_code, Pauli.Z, "dressed")
@@ -342,7 +343,7 @@ def test_start(swap: bool) -> None:
     ]
     assert values.index(min(values)) == (2 if swap else 1)
 
-    # the search finds this start even without a budget, and then tries no move
+    # the search finds this start even with a budget of zero searches, and then tries no move
     result = optimize_logical_basis(code, max_searches=0)
     metrics = evaluate_logical_ops(code, result.logical_ops)
     assert _max_weight(metrics.x.weights.tolist(), metrics.z.weights.tolist()) == min(values)
