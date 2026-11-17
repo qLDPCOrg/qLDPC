@@ -2,6 +2,8 @@
 
 """Unit tests for the smallest weights that a basis of logical operators can have."""
 
+from typing import Literal
+
 import galois
 import numpy as np
 import numpy.typing as npt
@@ -10,18 +12,23 @@ import pytest
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
-from ._sectors import LogicalOpsKind
+from . import lightest_basis
 from .evaluation import evaluate_logical_ops
-from .spectrum import _get_min_weight, _has_light_word, get_logical_weight_spectrum
+from .lightest_basis import (
+    LightestLogicalBasis,
+    _get_min_weight,
+    _has_light_word,
+    get_lightest_logical_basis,
+)
 
 
 @pytest.mark.parametrize("pauli", [Pauli.X, Pauli.Z])
-def test_spectrum(
+def test_lightest_basis(
     pauli: PauliXZ, stabilizer_code: codes.CSSCode, subsystem_code: codes.CSSCode
 ) -> None:
-    """The spectrum matches a greedy search over every logical operator, and is achieved."""
-    other: PauliXZ = Pauli.Z if pauli == Pauli.X else Pauli.X
-    cases: list[tuple[codes.CSSCode, LogicalOpsKind, npt.ArrayLike, npt.ArrayLike]] = [
+    """The weights match a greedy search over every logical operator, and the basis has them."""
+    other = pauli.swap_xz()
+    cases: list[tuple[codes.CSSCode, Literal["dressed", "bare"], npt.ArrayLike, npt.ArrayLike]] = [
         (
             stabilizer_code,
             "dressed",
@@ -41,27 +48,46 @@ def test_spectrum(
             subsystem_code.get_stabilizer_ops(pauli),
         ),
     ]
+    weights = []
     for code, logicals, checks, trivial in cases:
-        spectrum = get_logical_weight_spectrum(code, pauli, logicals=logicals)
-        assert list(spectrum.weights) == _get_brute_force_spectrum(checks, trivial)
-        metrics = evaluate_logical_ops(code, spectrum.logical_ops, pauli=pauli, logicals=logicals)
-        assert tuple(metrics.weights) == spectrum.weights
+        basis = get_lightest_logical_basis(code, pauli, logicals=logicals)
+        assert list(basis.weights) == _get_brute_force_weights(checks, trivial)
+        metrics = evaluate_logical_ops(code, basis.logical_ops, pauli=pauli, logicals=logicals)
+        assert tuple(metrics.weights) == basis.weights
+        weights.append(basis.weights)
 
-    # The dressed spectra of this subsystem code are lighter than its bare spectra.
-    dressed = get_logical_weight_spectrum(subsystem_code, pauli)
-    bare = get_logical_weight_spectrum(subsystem_code, pauli, logicals="bare")
-    assert dressed.weights != bare.weights
+    # the dressed operators of this subsystem code are lighter than its bare operators
+    dressed, bare = weights[1:]
+    assert dressed != bare
+    assert all(dressed_weight <= bare_weight for dressed_weight, bare_weight in zip(dressed, bare))
 
 
-def test_spectrum_properties() -> None:
+def test_exact_searches_only_at_new_weights(
+    stabilizer_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The greedy search runs an exact search only when the weight rises."""
+    exact_weights = []
+    get_min_weight = lightest_basis._get_min_weight
+
+    def record_min_weight(space: npt.NDArray[np.uint8], excluded: npt.NDArray[np.uint8]) -> int:
+        exact_weights.append(get_min_weight(space, excluded))
+        return exact_weights[-1]
+
+    monkeypatch.setattr(lightest_basis, "_get_min_weight", record_min_weight)
+    basis = get_lightest_logical_basis(stabilizer_code, Pauli.X)
+    assert len(set(basis.weights)) < len(basis.weights)
+    assert exact_weights == sorted(set(basis.weights))
+
+
+def test_lightest_basis_properties() -> None:
     """Summary values follow from the weights, including for codes without logical qubits."""
-    spectrum = get_logical_weight_spectrum(codes.SteaneCode(), Pauli.X)
-    assert (spectrum.max_weight, spectrum.total_weight, spectrum.load_lower_bound) == (3, 3, 1)
+    basis = LightestLogicalBasis((3, 3, 3), np.zeros((3, 4), dtype=np.uint8))
+    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 9, 3)
 
-    spectrum = get_logical_weight_spectrum(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
-    assert spectrum.weights == ()
-    assert spectrum.logical_ops.shape == (0, 2)
-    assert (spectrum.max_weight, spectrum.total_weight, spectrum.load_lower_bound) == (0, 0, 0)
+    basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
+    assert basis.weights == ()
+    assert basis.logical_ops.shape == (0, 2)
+    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (0, 0, 0)
 
 
 def test_weight_queries() -> None:
@@ -73,7 +99,7 @@ def test_weight_queries() -> None:
     assert not _has_light_word(space, space, 3)
 
 
-def _get_brute_force_spectrum(checks: npt.ArrayLike, trivial: npt.ArrayLike) -> list[int]:
+def _get_brute_force_weights(checks: npt.ArrayLike, trivial: npt.ArrayLike) -> list[int]:
     """Greedy weights over all words of ker(checks), sorted by weight, modulo row(trivial)."""
     space = [_to_int(row) for row in galois.GF2(np.asarray(checks)).null_space()]
     words = []

@@ -37,9 +37,8 @@ def test_sectors(
             assert not np.any(sector.checks.astype(int) @ space.T.astype(int) % 2)
             assert _rank(space) == _rank(sector.trivial) + code.dimension
             assert _rank(np.vstack([space, sector.trivial])) == _rank(space)
-            np.testing.assert_array_equal(
-                sector.get_classes(sector.reference_ops), np.eye(code.dimension)
-            )
+            reference_ops = code.get_logical_ops(pauli).view(np.ndarray)
+            np.testing.assert_array_equal(sector.get_classes(reference_ops), np.eye(code.dimension))
             assert not np.any(sector.get_classes(sector.trivial))
 
         # Every bare operator is a dressed operator, and every stabilizer is a gauge operator.

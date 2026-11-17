@@ -9,7 +9,7 @@ from qldpc import codes
 
 @pytest.fixture
 def stabilizer_code() -> codes.CSSCode:
-    """A [[10, 5]] stabilizer code whose spectra are [1, 2, 2, 2, 3] (X) and [1, 2, 2, 2, 2] (Z)."""
+    """A [[10, 5]] stabilizer code whose lightest bases have several distinct weights."""
     return codes.CSSCode(
         [
             [1, 1, 0, 1, 0, 1, 1, 0, 1, 0],

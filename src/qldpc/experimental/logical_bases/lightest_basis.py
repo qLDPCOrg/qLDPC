@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -15,28 +16,66 @@ from qldpc._binary import get_independent_rows, get_kernel
 from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
 from qldpc.objects import PauliXZLike
 
-from ._sectors import LogicalOpsKind, get_sector
+from ._sectors import get_sector
 
 ####################################################################################################
-# weight spectra
+# lightest bases
+
+
+def get_lightest_logical_basis(
+    code: codes.CSSCode, pauli: PauliXZLike, *, logicals: Literal["dressed", "bare"] = "dressed"
+) -> LightestLogicalBasis:
+    """A basis of logical operators of one Pauli type whose weights are as small as possible.
+
+    The weights of this basis are the successive minima of the logical operators of this type: the
+    ``i``-th weight is the smallest ``w`` for which ``i`` operators of weight at most ``w`` have
+    independent logical classes.  Logical classes form a matroid, so a greedy search finds these
+    weights exactly, by repeatedly adding a lightest operator whose class is independent of the
+    classes of those already chosen.
+
+    Each step finds the next weight with an exact distance search (see :mod:`qldpc.codes.distance`),
+    whose cost generally grows exponentially with that weight.  Many steps only confirm that the
+    previous weight recurs, which is cheaper.  Each step then recovers an operator of that weight
+    with many searches limited to that weight.  Results are cached on disk with :mod:`qldpc.cache`
+    under the name ``"lightest_logical_basis_v1"``.
+
+    Args:
+        code: A binary CSS code, which may be a subsystem code.
+        pauli: The Pauli type of the logical operators.
+        logicals: For a subsystem code, ``"dressed"`` (the default) uses logical operators that
+            commute with the stabilizers, while ``"bare"`` uses those that commute with every gauge
+            operator.  The two are the same for a stabilizer code.
+
+    Returns:
+        The basis, with its weights.
+
+    Raises:
+        TypeError: If ``code`` is not a CSS code.
+        ValueError: If ``code`` is not binary, or ``logicals`` is invalid.
+    """
+    sector = get_sector(code, pauli, logicals)
+    space = get_independent_rows(sector.get_space())
+    trivial = get_independent_rows(sector.trivial)
+    weights, logical_ops = _get_greedy_basis(space, trivial)
+    return LightestLogicalBasis(weights, logical_ops)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
-class WeightSpectrum:
-    """The smallest weights that a basis of logical operators of one Pauli type can have.
+class LightestLogicalBasis:
+    """A basis of logical operators of one Pauli type whose weights are as small as possible.
 
     The weights do not decrease, and bound every basis of logical operators of this type from below:
     the ``i``-th smallest weight of any basis is at least ``weights[i]``.  In particular, no basis
-    has a smaller maximum weight or total weight than ``logical_ops``, which achieves these weights.
+    has a smaller maximum weight or total weight than ``logical_ops``.
 
     These bounds hold for each Pauli type separately.  The X-type and Z-type operators of a complete
     basis must also pair up, as
     :func:`~qldpc.experimental.logical_bases.evaluation.evaluate_logical_ops` describes, and pairing
-    can force some operators to be heavier than either spectrum suggests.
+    can force some operators to be heavier than either lightest basis.
 
     Attributes:
-        weights: The smallest weights, in nondecreasing order.
-        logical_ops: A basis of logical operators with these weights, with shape ``(k, n)``.
+        weights: The weights of the operators, in nondecreasing order.
+        logical_ops: The operators, with shape ``(k, n)``.
     """
 
     weights: tuple[int, ...]
@@ -63,42 +102,8 @@ class WeightSpectrum:
         return math.ceil(self.total_weight / num_qubits) if num_qubits else 0
 
 
-def get_logical_weight_spectrum(
-    code: codes.CSSCode, pauli: PauliXZLike, *, logicals: LogicalOpsKind = "dressed"
-) -> WeightSpectrum:
-    """The smallest weights that a basis of logical operators of one Pauli type can have.
-
-    Logical classes form a matroid, so a greedy search finds these weights exactly: it repeatedly
-    adds a lightest logical operator whose class is independent of the classes of those already
-    chosen.  Each step is an exact distance search (see :mod:`qldpc.codes.distance`), whose cost
-    generally grows exponentially with the weight it finds, and many steps only confirm that the
-    previous weight recurs, which is cheaper.  Results are cached on disk with :mod:`qldpc.cache`
-    under the name ``"logical_weight_spectrum"``.
-
-    Args:
-        code: A binary CSS code, which may be a subsystem code.
-        pauli: The Pauli type of the logical operators.
-        logicals: For a subsystem code, ``"dressed"`` (the default) uses logical operators that
-            commute with the stabilizers, while ``"bare"`` uses those that commute with every gauge
-            operator.  The two are the same for a stabilizer code.
-
-    Returns:
-        The weight spectrum, with a basis of logical operators that achieves it.
-
-    Raises:
-        TypeError: If ``code`` is not a CSS code.
-        ValueError: If ``code`` is not binary, or if ``logicals`` is not ``"dressed"`` or
-            ``"bare"``.
-    """
-    sector = get_sector(code, pauli, logicals)
-    space = get_independent_rows(sector.get_space())
-    trivial = get_independent_rows(sector.trivial)
-    weights, logical_ops = _get_greedy_basis(space, trivial)
-    return WeightSpectrum(weights, logical_ops)
-
-
 @cache.use_disk_cache(
-    "logical_weight_spectrum",
+    "lightest_logical_basis_v1",
     key_func=lambda space, trivial: (space.shape[1], space.tobytes(), trivial.tobytes()),
 )
 def _get_greedy_basis(
@@ -152,10 +157,11 @@ def _get_min_weight_word(
 ) -> npt.NDArray[np.uint8]:
     """A word of span(space) outside span(excluded) with the given minimum weight.
 
-    Qubits are deleted in blocks of decreasing size while some such word of weight ``weight`` is
-    supported on the qubits that remain.  When no single qubit can be deleted, every remaining qubit
-    lies in every such word, so the remaining qubits are exactly the support of one.  Each probe is
-    a search limited to ``weight`` in a smaller code, and so is no harder than finding the weight.
+    Delete blocks of qubits, keeping each deletion that leaves a word of weight ``weight`` on the
+    remaining qubits, and halve the block size when no block can be deleted.  While more than
+    ``weight`` qubits remain, some qubit lies outside such a word and can be deleted, so the loop
+    ends with exactly the support of one such word.  Each probe is a search limited to ``weight`` in
+    a smaller code, which is typically no harder than finding the weight.
     """
     num_qubits = space.shape[1]
     keep = np.ones(num_qubits, dtype=bool)
@@ -187,10 +193,6 @@ def _has_word_within(
     No such word is lighter than ``weight``, which is the minimum over all supports.
     """
     return _has_light_word(_restrict(space, keep), _restrict(excluded, keep), weight)
-
-
-####################################################################################################
-# linear algebra
 
 
 def _restrict(rows: npt.NDArray[np.uint8], keep: npt.NDArray[np.bool_]) -> npt.NDArray[np.uint8]:
