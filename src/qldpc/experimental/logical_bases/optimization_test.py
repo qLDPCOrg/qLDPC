@@ -57,7 +57,7 @@ def test_optimum(
     objective: Literal["max_weight", "total_weight"] | Callable[..., Any],
     function: Callable[..., Any],
 ) -> None:
-    """The search finds an optimal complete basis, which pairing makes heavier than the bound."""
+    """The search finds an optimal basis, which pairing makes heavier than the lightest bases."""
     result = optimize_logical_basis(paired_code, objective=objective, seed=0)
     metrics = evaluate_logical_ops(paired_code, result.logical_ops)
     value = function(metrics.x.weights.tolist(), metrics.z.weights.tolist())
@@ -85,7 +85,7 @@ def test_certified_optimum() -> None:
             _ClassSearch, "_perturb", autospec=True, side_effect=_ClassSearch._perturb
         ) as perturb,
     ):
-        result = optimize_logical_basis(code, seed=0)
+        result = optimize_logical_basis(code)
     assert not improves.called  # the start meets the bound, so the descent tries no move
     assert not perturb.called
     assert result.optimal
@@ -115,7 +115,7 @@ def test_local_optima(
     paired_code: codes.CSSCode, function: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A descent takes only improving moves, and ends at a basis that no move improves."""
-    result = optimize_logical_basis(paired_code, objective=function, patience=0, seed=0)
+    result = optimize_logical_basis(paired_code, objective=function, patience=0)
     k, n = paired_code.dimension, len(paired_code)
     classes_x = [_get_class(paired_code, Pauli.X, op) for op in result.logical_ops[:k, :n]]
     classes_z = [_get_class(paired_code, Pauli.Z, op) for op in result.logical_ops[k:, n:]]
@@ -209,6 +209,7 @@ def test_patience(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_budget(paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch) -> None:
     """A budget of searches stops the search early, with the best basis that it found."""
+    # the first descent alone runs fewer searches than the whole search
     first_descent = optimize_logical_basis(paired_code, patience=0, seed=0)
     unbounded = optimize_logical_basis(paired_code, seed=0)
     assert first_descent.searches + 1 < unbounded.searches
@@ -239,17 +240,18 @@ def test_budget(paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch) -> 
     evaluate_logical_ops(paired_code, result.logical_ops)
 
 
-def test_searches_and_seed(paired_code: codes.CSSCode) -> None:
+def test_searches_and_seed(paired_code: codes.CSSCode, pytestconfig: pytest.Config) -> None:
     """The number of searches is counted exactly, and a seed makes the search reproducible."""
+    seed = pytestconfig.getoption("randomly_seed")
     with mock.patch.object(
         optimization,
         "get_distance_from_generators",
         side_effect=optimization.get_distance_from_generators,
     ) as search:
-        result = optimize_logical_basis(paired_code, seed=1)
+        result = optimize_logical_basis(paired_code, seed=seed)
     assert result.searches == search.call_count
 
-    repeat = optimize_logical_basis(paired_code, seed=1)
+    repeat = optimize_logical_basis(paired_code, seed=seed)
     np.testing.assert_array_equal(repeat.logical_ops, result.logical_ops)
     assert repeat.searches == result.searches
 
@@ -298,9 +300,9 @@ def test_perturbation_stops_when_out_of_searches(paired_code: codes.CSSCode) -> 
 
 @pytest.mark.parametrize("swap", [False, True])
 def test_start(swap: bool) -> None:
-    """The search starts from the candidate with the smallest maximum weight.
+    """The search starts from the start with the smallest maximum weight.
 
-    The candidates are the code's own basis and the lightest basis of either Pauli type, with the
+    The starts are the code's own basis and the lightest basis of either Pauli type, with the
     classes that complete them.  Swapping the checks of the code swaps which lightest basis wins.
     """
     code = codes.CSSCode(*(_PAIRED_CHECKS[::-1] if swap else _PAIRED_CHECKS))
@@ -332,6 +334,20 @@ def test_start(swap: bool) -> None:
     assert _max_weight(start_x, start_z) == min(values)
 
 
+def test_start_by_max_weight() -> None:
+    """The start has the smallest maximum weight, even if another start has a better objective."""
+    # a [[6, 4]] code whose own basis has maximum weight 2 and total Z-type weight 8, while its
+    # Z-type lightest basis, completed by the classes that pair with it, has maximum weight 3 and
+    # total Z-type weight 7
+    code = codes.CSSCode([[0, 1, 1, 1, 1, 1]], [[1, 0, 1, 1, 1, 1]])
+    search = _ClassSearch(code, _z_weight, "dressed", None)
+    lightest_x, lightest_z = _get_lightest_bases(code)
+    assert lightest_z.total_weight < 8
+    classes_x, classes_z = search._get_start(lightest_x, lightest_z)
+    assert classes_x == classes_z == [1, 2, 4, 8]
+    assert search._get_value(classes_x, classes_z) == 8
+
+
 def test_special_inputs() -> None:
     """A code without logical qubits has an empty optimal basis, and arguments are validated."""
     code = codes.CSSCode([[1, 1]], [[1, 1]])
@@ -346,10 +362,6 @@ def test_special_inputs() -> None:
         optimize_logical_basis(code, patience=-1)
     with pytest.raises(ValueError, match="nonnegative"):
         optimize_logical_basis(code, max_searches=-1)
-    with pytest.raises(TypeError, match="CSS code"):
-        optimize_logical_basis(codes.FiveQubitCode())  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="'dressed' or 'bare'"):
-        optimize_logical_basis(code, logicals="gauge")  # type: ignore[arg-type]
 
 
 def _record_descent(code: codes.CSSCode, budgeted: bool) -> list[bool]:

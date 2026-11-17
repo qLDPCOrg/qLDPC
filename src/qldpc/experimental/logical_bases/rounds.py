@@ -32,10 +32,11 @@ from .evaluation import (
 )
 from .lightest_basis import _get_min_weight, _get_min_weight_word
 
-# Each class's candidates are listed from a basis of the class, reduced on information sets: first
-# the column-order information set, which reduction in column order finds, then random ones.  Each
-# contributes the words that combine at most _MAX_ROWS_PER_SAMPLE reduced rows, until the list
-# matches an exact count or _MAX_SAMPLES information sets have been used.
+# Candidates of a class are listed by sampling information sets.  For each set, the rows of a basis
+# of span(trivial, op), reduced on that set, are combined at most _MAX_ROWS_PER_SAMPLE at a time,
+# and the sums in the class within the weight limit are kept.  The first set is the column-order
+# one, and later ones are random, from a fixed seed.  Sampling stops when the list matches the exact
+# count, or after _MAX_SAMPLES sets.
 _MAX_ROWS_PER_SAMPLE = 3
 _MAX_SAMPLES = 2000
 
@@ -58,8 +59,8 @@ def optimize_logical_rounds(
     ``logical_ops``, and chooses an operator in each class from its candidates: the operators of the
     class with weight at most the minimum weight of the class plus ``weight_slack``.  It minimizes
     the number of rounds of disjoint operators needed to act on all of the chosen operators.  Among
-    the choices with the fewest rounds, it minimizes the largest load (the number of chosen
-    operators on one qubit), and then the total weight.  Keeping the classes keeps the X-type and
+    the choices with the fewest rounds, it minimizes the largest load, which is the number of chosen
+    operators on one qubit, and then the total weight.  Keeping the classes keeps the X-type and
     Z-type operators paired, so the result is a complete basis.
 
     The candidates of each class are listed by sampling information sets, and a list is proven
@@ -68,9 +69,10 @@ def optimize_logical_rounds(
     rounds, from a lower bound upward, is solved with ``scipy.optimize.milp`` until one has a
     solution.  The choices that the solver returns are checked against the constraints, but it is
     trusted to prove that fewer rounds are impossible, and that no choice with as few rounds is
-    better.  The result is optimal unless a list is incomplete or the time
-    limit runs out.  Counting, listing, and solving each generally take time exponential in the
-    size of the code.
+    better.  The result is optimal unless a list is incomplete or the time limit runs out.
+    Counting, listing, and solving each generally take time exponential in the size of the code.
+    The sampling uses a fixed seed, so a result is reproducible unless the time limit runs out,
+    which can happen at different points on different machines.
 
     In some codes, such as bivariate bicycle codes, all operators of a class have weights of the
     same parity, so a slack of 1 allows no new operators, and 2 is the next useful value.
@@ -91,8 +93,7 @@ def optimize_logical_rounds(
             the limit.  Finding minimum weights, and counting and listing candidates, are not
             limited.
 
-    Returns:
-        The chosen basis, with the round of each operator, a lower bound on the rounds, and why
+    Returns: The chosen basis, with the round of each operator, a lower bound on the rounds, and why
         the search stopped.
 
     Raises:
@@ -114,24 +115,24 @@ def optimize_logical_rounds(
     # choose the operators of each Pauli type, sharing the time limit
     remaining = time_limit
     chosen = np.zeros_like(matrix)
-    rounds = {}
+    rounds_by_type: dict[PauliXZ, LogicalOpsRounds] = {}
     paulis: list[tuple[PauliXZ, slice, slice]] = [
         (Pauli.X, slice(None, k), slice(None, n)),
         (Pauli.Z, slice(k, None), slice(n, None)),
     ]
     for pauli, rows, cols in paulis:
         sector = get_sector(code, pauli, logicals)
-        chosen[rows, cols], rounds[pauli], solve_time = _choose_operators(
+        chosen[rows, cols], rounds_by_type[pauli], solve_time = _choose_operators(
             sector, matrix[rows, cols], weight_slack, remaining
         )
         if remaining is not None:
             remaining = max(remaining - solve_time, 0)
-    return OptimizedLogicalRounds(chosen, rounds[Pauli.X], rounds[Pauli.Z])
+    return OptimizedLogicalRounds(chosen, rounds_by_type[Pauli.X], rounds_by_type[Pauli.Z])
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class OptimizedLogicalRounds:
-    """A complete basis of logical operators, chosen so that they can be acted on in few rounds.
+    """A complete basis of logical operators, whose operators can be acted on in few rounds.
 
     Attributes:
         logical_ops: The basis, with shape ``(2k, 2n)``, laid out as by
@@ -146,7 +147,11 @@ class OptimizedLogicalRounds:
 
     @property
     def optimal(self) -> bool:
-        """Whether the choice of operators of both Pauli types is proven optimal."""
+        """Whether the choice of operators of both Pauli types is proven optimal.
+
+        The choice is among the candidates of the classes of the given basis, as
+        :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds` describes.
+        """
         return self.x.optimal and self.z.optimal
 
     @property
@@ -170,11 +175,13 @@ class LogicalOpsRounds:
         lower_bound: A lower bound on the number of rounds of every choice of candidates in the
             classes of these operators, with candidates as
             :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds` defines them.
-        stop_reason: Why the search stopped.  ``"optimal"``: the choice is proven optimal, with
-            the fewest rounds, then the smallest largest load, then the smallest total weight.
+        stop_reason: Why the search stopped.  ``"optimal"``: the choice is proven optimal, with the
+            fewest rounds, then the smallest largest load, then the smallest total weight.
             ``"incomplete_candidates"``: the sampling did not find every candidate, so a better
-            choice may exist.  ``"time_limit"``: the candidates are complete, but the time limit
-            ran out before the choice was proven optimal.
+            choice may exist.  ``"time_limit"``: the candidates are complete, but the time limit ran
+            out before the choice was proven optimal.  If no choice was found in time, the lightest
+            candidates are used, in rounds found by greedy coloring, which may be many more than the
+            fewest.
     """
 
     rounds: npt.NDArray[np.int_]
@@ -201,7 +208,8 @@ def _choose_operators(
 ) -> tuple[npt.NDArray[np.uint8], LogicalOpsRounds, float]:
     """Choose an operator in the class of each row of ``ops``, to act on them in few rounds.
 
-    Also returns the time spent solving integer programs, which ``time_limit`` limits.
+    Returns the chosen operators, their rounds, and the time spent solving integer programs, which
+    ``time_limit`` limits.
     """
     k, n = ops.shape
     if k == 0:
@@ -224,8 +232,8 @@ def _choose_operators(
     if complete:
         lower_bound = max(lower_bound, _get_common_qubit_bound(candidates))
 
-    # try more and more rounds, until a choice exists or the time limit runs out; k rounds, with
-    # one class in each, always suffice
+    # try more and more rounds, until a choice exists or the time limit runs out; k rounds, with one
+    # class in each, always suffice
     solve_time = 0.0
     for num_rounds in range(lower_bound, k + 1):
         timeout = None if time_limit is None else max(time_limit - solve_time, 0)
@@ -339,10 +347,10 @@ def _solve_rounds(
     """The best choice of one candidate and one round per class, if any choice exists.
 
     Operators in one round share no qubit.  The best choice minimizes the largest number of chosen
-    operators on one qubit, and then their total weight.  Returns a status, and the chosen
-    operators and their rounds, if any.  The status is ``"optimal"`` if the choice is proven best,
-    ``"feasible"`` if it is found but not proven best within the time limit, ``"infeasible"`` if
-    no choice exists, and ``"time_limit"`` if none is found within the time limit.
+    operators on one qubit, and then their total weight.  Returns a status, and the chosen operators
+    and their rounds, if any.  The status is ``"optimal"`` if the choice is proven best,
+    ``"feasible"`` if it is found but not proven best within the time limit, ``"infeasible"`` if no
+    choice exists, and ``"time_limit"`` if none is found within the time limit.
 
     Variable ``(c, j, r)`` is 1 if class ``c`` takes candidate ``j`` in round ``r``.  Class 0 is put
     in round 0, since rounds can be relabeled.  One more variable bounds the load of every qubit.
@@ -358,8 +366,8 @@ def _solve_rounds(
     supports = np.array([candidates[c][j] for c, j, _ in assignments], dtype=np.int64)
     num_vars = len(assignments)
 
-    # each class takes one candidate in one round, no qubit is used twice in one round, and the
-    # last variable is at least the number of chosen operators on each qubit
+    # each class takes one candidate in one round, no qubit is used twice in one round, and the last
+    # variable is at least the number of chosen operators on each qubit
     classes = np.array([c for c, _, _ in assignments])
     rounds = np.array([r for _, _, r in assignments])
     variables, qubits = np.nonzero(supports)

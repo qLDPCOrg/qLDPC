@@ -14,13 +14,15 @@ from ._sectors import get_sector
 
 
 def test_get_sector_validation() -> None:
-    """Only binary CSS codes and the two kinds of logical operators are supported."""
+    """Only binary CSS codes, the X and Z types, and the two kinds of operators are supported."""
     with pytest.raises(TypeError, match="CSS code"):
         get_sector(codes.FiveQubitCode(), "X", "dressed")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="binary"):
         get_sector(codes.CSSCode([[1, 1]], [[1, 2]], field=3), "X", "dressed")
     with pytest.raises(ValueError, match="'dressed' or 'bare'"):
         get_sector(codes.SteaneCode(), "X", "gauge")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        get_sector(codes.SteaneCode(), Pauli.Y, "dressed")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("pauli", [Pauli.X, Pauli.Z])

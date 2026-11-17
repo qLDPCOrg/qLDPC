@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Literal
 
+import galois
 import numpy as np
 import numpy.typing as npt
 
@@ -70,7 +71,9 @@ def evaluate_logical_ops(
     classes_x = _get_valid_classes(sector_x, ops_x)
     classes_z = _get_valid_classes(sector_z, ops_z)
 
-    # check that the classes of the two halves pair up
+    # check that the classes of the two halves pair up: classes are coordinates in the code's own
+    # basis, whose operators pair as the identity, so the parity of their dot product is whether two
+    # operators anticommute
     pairings = classes_x.astype(np.int64) @ classes_z.T.astype(np.int64) % 2
     if np.any(pairings != np.eye(k, dtype=np.int64)):
         raise ValueError(
@@ -190,7 +193,13 @@ class LogicalOpsMetrics:
 
 
 def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray[np.uint8]:
-    """A binary matrix with the given shape, such as from a ``galois`` or SciPy sparse array."""
+    """A plain uint8 array of logical operators, such as from a ``galois`` or SciPy sparse array.
+
+    Raise ValueError if it does not have the given shape, has entries other than 0 and 1, or is an
+    array over a field other than GF(2).
+    """
+    if isinstance(ops, galois.FieldArray) and type(ops).order != 2:
+        raise ValueError(f"Logical operators must be binary, not over GF({type(ops).order})")
     matrix = np.asarray(_as_dense(ops)).view(np.ndarray)
     if matrix.shape != shape:
         raise ValueError(f"Expected logical operators with shape {shape}, not {matrix.shape}")
@@ -200,7 +209,11 @@ def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray
 
 
 def _get_valid_classes(sector: Sector, ops: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-    """The logical classes of a basis of logical operators of one type, or an error."""
+    """The logical classes of a basis of logical operators of one type.
+
+    Raise ValueError if the rows of ``ops`` are not logical operators of this type, or if their
+    classes are not independent.
+    """
     name = f"{sector.pauli}-type"
     if np.any(sector.checks.astype(np.int64) @ ops.T.astype(np.int64) % 2):
         raise ValueError(f"Some {name} operators are not logical operators of the code")

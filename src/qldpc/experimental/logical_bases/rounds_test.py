@@ -17,7 +17,7 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from . import rounds
-from .evaluation import evaluate_logical_ops
+from .evaluation import LogicalOpsMetrics, evaluate_logical_ops
 from .rounds import (
     LogicalOpsRounds,
     OptimizedLogicalRounds,
@@ -33,16 +33,16 @@ _CHOICE_CHECKS = ([[1, 0, 1, 1, 1, 0, 0]], [[0, 1, 1, 1, 0, 0, 1], [1, 1, 0, 0, 
 # a [[6, 3]] code whose X-type operators need 3 rounds at minimum weight, and 2 with slack 2
 _SLACK_CHECKS = ([[1, 1, 1, 1, 0, 1]], [[1, 1, 0, 1, 1, 1], [0, 1, 1, 1, 1, 1]])
 
-# an [[8, 4]] code in which, if only single rows of the basis reduced on the column-order
-# information set are listed, the X-type candidates listed for three classes all contain qubit 1,
-# which would wrongly bound the rounds below by 3, since a 2-round choice exists
+# an [[8, 4]] code in which a 2-round choice exists; but if only single rows of the basis reduced on
+# the column-order information set are listed, the X-type candidates of three classes all contain
+# qubit 1, which would wrongly bound the rounds below by 3
 _SHARED_CHECKS = (
     [[1, 1, 0, 1, 1, 1, 0, 1], [1, 1, 1, 0, 0, 1, 0, 0]],
     [[0, 1, 0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 0, 0, 1]],
 )
 
-# a [[7, 4]] code whose X-type choice at slack 3 with the smallest largest load is 3 heavier than
-# the lightest choice with the fewest rounds
+# a [[7, 4]] code whose X-type choices at slack 3 with the fewest rounds differ in their largest
+# load; the choice with the smallest is 3 heavier than the lightest
 _ORDER_CHECKS = ([[1, 1, 1, 1, 1, 1, 1]], [[1, 0, 0, 0, 1, 0, 0], [1, 1, 1, 1, 1, 1, 0]])
 
 # a [[10, 6]] code with an integer program that HiGHS (in SciPy 1.18) fails to solve with presolve
@@ -76,6 +76,7 @@ def test_subsystem_code(
 ) -> None:
     """Operators of a subsystem code are chosen optimally, in the classes of the given basis."""
     k = subsystem_code.dimension
+    # a paired basis other than the code's own
     ops = np.asarray(subsystem_code.get_logical_ops(), dtype=int)
     ops[0] = (ops[0] + ops[1]) % 2
     ops[k + 1] = (ops[k + 1] + ops[k]) % 2
@@ -193,7 +194,7 @@ def test_incomplete_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Random information sets find candidates that combine many rows on the column-order one."""
+    """Random information sets find candidates that need many rows of the first reduced basis."""
     monkeypatch.setattr(rounds, "_MAX_ROWS_PER_SAMPLE", 1)
     code = codes.CSSCode(*_CHOICE_CHECKS)
     trivial = code.get_matrix(Pauli.X).view(np.ndarray).astype(np.uint8)
@@ -335,11 +336,11 @@ def _check_valid(
     evaluate_logical_ops(code, result.logical_ops, logicals=logicals)
     k, n = code.dimension, len(code)
     ops = np.asarray(logical_ops, dtype=int)
-    paulis: list[tuple[PauliXZ, LogicalOpsRounds, slice, slice]] = [
-        (Pauli.X, result.x, slice(None, k), slice(None, n)),
-        (Pauli.Z, result.z, slice(k, None), slice(n, None)),
+    paulis: list[tuple[PauliXZ, LogicalOpsRounds, LogicalOpsMetrics, slice, slice]] = [
+        (Pauli.X, result.x, result.metrics.x, slice(None, k), slice(None, n)),
+        (Pauli.Z, result.z, result.metrics.z, slice(k, None), slice(n, None)),
     ]
-    for pauli, rounds_of_type, rows, cols in paulis:
+    for pauli, rounds_of_type, metrics, rows, cols in paulis:
         words = _get_class_words(code, pauli, logicals)
         chosen = result.logical_ops[rows, cols].astype(int)
         for op, new_op in zip(ops[rows, cols], chosen):
@@ -349,9 +350,7 @@ def _check_valid(
         for r in range(rounds_of_type.num_rounds):
             assert chosen[rounds_of_type.rounds == r].sum(axis=0).max(initial=0) <= 1
         assert rounds_of_type.lower_bound <= _get_value(chosen)[0]
-        np.testing.assert_array_equal(
-            getattr(result.metrics, str(pauli).lower()).weights, chosen.sum(axis=1)
-        )
+        np.testing.assert_array_equal(metrics.weights, chosen.sum(axis=1))
 
 
 def _get_best(

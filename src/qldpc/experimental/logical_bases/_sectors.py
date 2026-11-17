@@ -21,15 +21,16 @@ LogicalOpsKind = Literal["dressed", "bare"]
 # sectors
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, eq=False)
 class Sector:
     """The logical operators of one Pauli type of a binary CSS code.
 
     The logical operators of this type are the words of ``ker(checks)``, and those in
-    ``row(trivial)`` act trivially on the logical qubits.  The rows of ``dual_ops`` are the code's
+    ``span(trivial)`` act trivially on the logical qubits.  The rows of ``dual_ops`` are the code's
     logical operators of the opposite type.  They are bare, so they commute with every row of
-    ``trivial``, and the logical class ``dual_ops @ op`` of an operator ``op`` is well defined
-    modulo ``row(trivial)``.
+    ``trivial``, and the logical class ``dual_ops @ op`` of an operator ``op`` is unchanged by
+    adding rows of ``trivial``.  The class of the code's own logical operator ``j`` of this type is
+    the ``j``-th unit vector.
 
     Attributes:
         pauli: The Pauli type of the operators.
