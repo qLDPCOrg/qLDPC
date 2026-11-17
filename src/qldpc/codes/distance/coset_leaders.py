@@ -19,6 +19,7 @@ import numpy.typing as npt
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary
 from qldpc._compilation import always_compiled
 
+from . import _threads
 from ._binary import as_binary_matrix, as_integer, multiply_binary, swap_pauli_halves
 from ._brouwer_zimmermann.coset import (
     BrouwerZimmermannCosetSearch,
@@ -61,6 +62,19 @@ class CosetLeaderSearch:
     tuning of the search, but the error and the lower bound that a query returns can (see
     :class:`~qldpc.codes.distance.MinWeightBound`).  The search reads the active tuning when it is
     built, and :doc:`/exact_search_tuning` says how to change it.
+
+    With the Brouwer-Zimmermann method, :meth:`find_first_not_within_max_weight` and
+    :meth:`get_min_weights` move the rest of a costly batch to several threads.  The calling thread
+    starts a batch alone, and a batch of cheap queries stays there.  The search fixes the number of
+    threads when it is built, from the ``num_threads`` field of the tuning.  By default that is the
+    environment variable ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
+    ``numba.config.NUMBA_NUM_THREADS``, one for each CPU that numba counts unless the environment
+    variable ``NUMBA_NUM_THREADS`` says otherwise.  The results of the queries do not depend on the
+    number of threads.  To keep the queries on one core, set ``QLDPC_NUM_THREADS=1`` before Python
+    starts, or build the search within ``use_tuning(num_threads=1)``.  Programs that run queries in
+    several processes or threads at once should cap the threads in this way.  A search that the
+    workers of a pool share must be built within ``use_tuning(num_threads=1)``, since ``use_tuning``
+    entered in a worker covers only the searches built there.
 
     The Brouwer-Zimmermann method caches its searches for recently used stabilizers, so that
     another ``CosetLeaderSearch`` for the same stabilizers, measure of weight, and tuning reuses
@@ -110,6 +124,13 @@ class CosetLeaderSearch:
 
         # Read the active tuning, and prepare the searches.
         tuning = get_tuning()
+        # A BZ batch query moves to threads once its queries on the calling thread have done the
+        # split work (Section 4.5 of brouwer_zimmermann.md).
+        num_threads = _threads.get_num_threads(tuning.num_threads)
+        split_work = min(
+            num_threads << tuning.information_set_batch_exponent, _threads.NO_WORK_LIMIT
+        )
+        self._thread_options = {"num_threads": num_threads, "split_work": split_work}
         cluster_search = functools.partial(
             ConnectedClusterCosetSearch,
             max_rounds=tuning.max_sparsifying_rounds,
@@ -260,7 +281,7 @@ class CosetLeaderSearch:
         # With one search, take its bound and the lightest error that it weighed.
         if len(self._brouwer_zimmermann_searches) == 1:
             return self._brouwer_zimmermann_searches[0].find_first_not_within_max_weight(
-                syndromes, max_weight
+                syndromes, max_weight, **self._thread_options
             )
 
         # With two searches, a class has no error within ``max_weight`` exactly if its X part or its
@@ -270,7 +291,9 @@ class CosetLeaderSearch:
         index = len(syndromes)
         for search, map_columns in zip(self._brouwer_zimmermann_searches, self._map_columns):
             part_syndromes = _map_syndromes(syndromes[:index], map_columns)
-            index, _ = search.find_first_not_within_max_weight(part_syndromes, max_weight)
+            index, _ = search.find_first_not_within_max_weight(
+                part_syndromes, max_weight, **self._thread_options
+            )
         if index == len(syndromes):
             return index, None
         return index, self.get_min_weight_bound(words_to_int(syndromes[index]), max_weight)
@@ -311,7 +334,7 @@ class CosetLeaderSearch:
         # With one search, take its weights.
         if len(self._brouwer_zimmermann_searches) == 1:
             return self._brouwer_zimmermann_searches[0].get_min_weights(
-                syndromes, max_weight, floors
+                syndromes, max_weight, floors, **self._thread_options
             )
 
         # With two searches, search the Z parts only of the classes whose X parts are within
@@ -319,10 +342,12 @@ class CosetLeaderSearch:
         # search").
         x_search, z_search = self._brouwer_zimmermann_searches
         x_syndromes = _map_syndromes(syndromes, self._map_columns[0])
-        weights = x_search.get_min_weights(x_syndromes, max_weight, floors)
+        weights = x_search.get_min_weights(x_syndromes, max_weight, floors, **self._thread_options)
         rows = np.flatnonzero(weights <= max_weight)
         z_syndromes = _map_syndromes(syndromes[rows], self._map_columns[1])
-        z_weights = z_search.get_min_weights(z_syndromes, max_weight, weights[rows])
+        z_weights = z_search.get_min_weights(
+            z_syndromes, max_weight, weights[rows], **self._thread_options
+        )
         weights[rows] = np.maximum(weights[rows], z_weights)
         return weights
 

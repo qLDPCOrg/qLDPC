@@ -51,8 +51,8 @@ class CosetSearchTables(NamedTuple):
             embedded words (Section 4.4).  The last set of a disjoint family may be partial.
         pivots: The pivot columns of each set, padded with -1 beyond its rank.
         planning: The planning buffer of the search with this family (see ``_get_planning``).
-            Queries write only its cached stopping steps, which callers that share a cached search
-            share.
+            Single queries write only its cached stopping steps, which callers that share a cached
+            search share, and batch queries write those of their own copies (Section 4.1).
         x_mask: Selects the bits of a packed embedded word that form its X part, with one machine
             word for each machine word of the embedded words.  Only searches of Pauli errors by
             CSS weight scan with it, but every search reads it when it weighs the word of a
