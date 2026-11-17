@@ -1287,9 +1287,9 @@ def test_classical_distances_use_automorphisms(
 ) -> None:
     """Exact distances of binary classical codes use their bit automorphisms, which they verify.
 
-    Each distance by the Brouwer-Zimmermann and connected-cluster methods passes its search the
-    permutations of get_known_permutation_automorphism_group, asks the class for them once, and
-    matches brute force.  Distances from a vector use no automorphisms.
+    Each distance by the Brouwer-Zimmermann and connected-cluster methods passes its search
+    generators of get_known_permutation_automorphism_group, asks the class for its generators once,
+    and matches brute force.  Distances from a vector use no automorphisms.
     """
     if bliss:
         pytest.importorskip("pybliss")
@@ -1350,18 +1350,23 @@ def test_classical_distances_use_automorphisms(
         with pytest.raises(ValueError, match="not an automorphism"):
             CodeWithTransposition(cyclic_code.matrix).get_distance_exact(method=method)
 
-    # distances from a vector use no automorphisms, which need not preserve its coset: searches
-    # from this heavy vector ask for automorphisms, and raise an error if they get the code's
+    # distances from a vector use no automorphisms, which need not preserve its coset; from this
+    # vector, searches by either method would ask for them, and fail if they got the code's
     vector = np.zeros(21, dtype=int)
-    vector[np.random.default_rng(0).choice(21, size=11, replace=False)] = 1
+    vector[np.random.default_rng(14).choice(21, size=11, replace=False)] = 1
     words = cyclic_code.generator.view(np.ndarray)
     brute_force = min(
         np.count_nonzero((np.array(coefficients) @ words + vector) % 2)
         for coefficients in itertools.product([0, 1], repeat=len(words))
     )
-    for method in methods:
+    for method, function_name in zip(methods, function_names, strict=True):
         code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
-        assert code.get_distance_exact(vector=vector, method=method) == brute_force
+        function = getattr(common, function_name)
+        with unittest.mock.patch.object(
+            common, function_name, autospec=True, side_effect=function
+        ) as search:
+            assert code.get_distance_exact(vector=vector, method=method) == brute_force
+        assert search.call_args.kwargs.get("automorphisms") is None
 
 
 @pytest.mark.parametrize("field", [2, 3])

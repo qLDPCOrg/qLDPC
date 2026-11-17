@@ -4774,9 +4774,11 @@ def _combine_automorphisms(
 ) -> npt.NDArray[np.int_] | None:
     """Combine the permutations that bliss found with those of a construction, verifying the latter.
 
-    The result holds the found permutations, then the construction generators, without repeats or
-    the identity, or None if there are none.  Raises a ValueError that names ``source`` if a
-    construction generator does not map the row space of the matrix onto itself.
+    The permutations act on ``num_coordinates`` coordinates, and permute each block of that many
+    columns of the matrix alike (see ``_preserves_row_space``).  The result holds the found
+    permutations, then the construction generators, without repeats or the identity, or None if
+    there are none.  Raises a ValueError that names ``source`` if a construction generator does not
+    map the row space of the matrix onto itself.
     """
     generators = np.empty((0, num_coordinates), dtype=int)
     for permutations in found:
