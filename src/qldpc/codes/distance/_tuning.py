@@ -398,15 +398,19 @@ class SearchTuning:
 
     #: The number of threads on which a distance search by the BZ method scans a costly layer of a
     #: set, which they split into work items, sharing one copy of its completion tables.  At least
-    #: 1, and 1 scans on the calling thread alone.  ``None`` takes numba's thread count,
-    #: ``numba.config.NUMBA_NUM_THREADS``, which numba sets when it is imported, from the
+    #: 1, and 1 scans on the calling thread alone.  ``None`` takes
+    #: ``numba.config.NUMBA_NUM_THREADS``, which numba reads, normally when it is imported, from the
     #: environment variable ``NUMBA_NUM_THREADS`` or else from the CPUs available to the process;
-    #: numba does not read the CPU quotas of containers.  A search resolves ``None`` once, when it
-    #: starts.  A layer of a set runs on the calling thread alone unless it has at least three rows
-    #: and more than ``num_threads * 2**information_set_batch_exponent`` supports (Section 4.5 of
-    #: ``brouwer_zimmermann.md``).  Programs that run searches in several processes at once should
-    #: cap it, with ``NUMBA_NUM_THREADS=1`` or ``use_tuning(num_threads=1)``.  Defaults to ``None``,
-    #: chosen by hand: a search uses the cores that numba counts unless its caller caps them.
+    #: numba does not read the CPU quotas of containers, and ``numba.set_num_threads`` does not
+    #: change it.  A search resolves ``None`` once, when it starts.  A layer of a set runs on the
+    #: calling thread alone unless it has at least three rows and more than
+    #: ``num_threads * 2**information_set_batch_exponent`` supports (Section 4.5 of
+    #: ``brouwer_zimmermann.md``).  Programs that run searches in several processes or threads at
+    #: once should cap it: with ``NUMBA_NUM_THREADS=1``, set before numba is imported, which reaches
+    #: every worker, or with ``use_tuning(num_threads=1)`` entered in the function that each worker
+    #: runs, since new threads and spawned processes start with the default tuning.  Defaults to
+    #: ``None``, chosen by hand: a search uses the cores that numba counts unless its caller caps
+    #: them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
     #: A chunk of the scan of a count, by the BZ or brute-force method, visits at most this many

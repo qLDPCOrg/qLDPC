@@ -420,7 +420,8 @@ A bound for a larger `s` is stronger, so a support is skipped exactly if the bou
 
 A skipped word weighs at least the `U` of the moment it was skipped, and hence any later `U`, so an eligible word lighter than `U` has been neither skipped nor examined, and the arguments of [Section 2.5](#25-the-stopping-certificate) hold for it.
 The certificate `L` bounds only such words, and can exceed the weights of skipped words, as it can those of words examined through their images ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), so the distance is at least `min(L, U)`, not `L`.
-Since no skipped word is lighter than `U` at any later time, a scan with tables finds the same witnesses in the same order as one without, an early exit ([Section 4.5](#45-behavior-spanning-files)) returns the same weight, and the search stops when it would without skipping.
+Since no skipped word is lighter than `U` at any later time, a scan with tables on one thread finds the same witnesses in the same order as one without, an early exit ([Section 4.5](#45-behavior-spanning-files)) returns the same weight, and the search stops when it would without skipping.
+On several threads, only the bounds hold: an early exit returns a weight between the distance and the cutoff, and `U` after a layer is the same as on one thread (Section 4.5).
 These arguments hold for each search basis, with its own tables, so a search can skip in each basis of a layer that it scans one at a time, and stop after any basis whose step `(t, j)` certifies `U` by the certificate of its family, which may need a linear program ([Section 3.1](#31-overlapping-search-bases)).
 
 Words that weigh exactly `U` can be skipped, since they cannot lower `U`.
@@ -766,20 +767,22 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
 - **Threads.**
   A search scans a layer of a set on `num_threads` threads, which `BrouwerZimmermannSearch` resolves once from the tuning, if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports.
   Otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
-  A **work item** is the set of supports of the layer whose first `k` rows are fixed: `k = 1`, or `k = 2` if one leaves fewer than 32 items for each thread and `w ≥ 4`.
+  A **work item** is the set of supports of the layer whose first `k` rows are fixed: `k = 1`, or `k = 2` if fixing one row leaves fewer than 32 items for each thread and `w ≥ 4`.
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
-  The items are numbered in lexicographic order, in which the first are the largest.
-  The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling: each range holds `max(1, m // (2 * num_threads))` of the `m` items that no thread has claimed, so the ranges shrink toward the end of the layer, which balances the threads, and the claims grow only with the logarithm of the number of items.
+  The items are numbered in lexicographic order, in which the first hold the most supports.
+  The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling, weighted by the number of supports of each item: each range holds the next items up to about `1 / (2 * num_threads)` of the supports that no thread has claimed, and at least one item.
+  So the ranges shrink toward the end of the layer, which balances the threads, and the claims grow only with the logarithm of the number of items.
+  Ranges of equal numbers of items would not do, since the first items hold the most supports.
   A thread scans its range with `scan_set_items`, which Numba compiles without the global interpreter lock, and which stops once a support passes the last item of the range.
   The threads share one copy of the rows, labels, and tables of the set.
   They scan one set at a time, in the order of the sets, so `advance` and its certificate are unchanged.
-  Each chunk starts from the shared `U`, and its thread lowers `U` under a lock after the chunk.
-  Every value of `U` is the weight of an eligible word, or the caller's upper bound, so a chunk that starts from a stale `U` only skips less.
+  Each thread lowers `U` under a lock after each chunk, and starts its next chunk from the `U` of that moment, which skips more than an older `U` would.
+  Every value of `U` is the weight of an eligible word, or the caller's upper bound, so whichever value a chunk starts from, it skips only words that cannot lower `U`.
   After the layer, `U` is the least of its value before the layer and the weights of the eligible words of the layer, as on one thread.
   So every later decision, such as completion tables and the switch to an automorphism family, is that of one thread.
   The thread that brings `U` to the cutoff stops the others after their chunks.
   The witness, and so the result of an early exit, can then depend on the timing of the threads, though its weight still lies between the distance and the cutoff.
-  An exception in any thread stops the others after their chunks, and so does one in the calling thread while it waits for them, such as a keyboard interrupt.
+  An exception in any thread stops the others after their chunks, and so does one in the calling thread while it starts or waits for them, such as a keyboard interrupt.
   The exception is raised again once all threads have returned.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
@@ -824,7 +827,7 @@ These tests check the requirements, against exhaustive enumeration where they ca
 - [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py): `test_family_certificates` and `test_overlapping_family_certificates`, certificates with rank-deficient blocks, parity, and overlaps.
 - [_information_sets/automorphism_families_test.py](_information_sets/automorphism_families_test.py): `test_automorphism_families_certify_like_the_family_of_all_images`.
 - [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py): `test_bounds_are_exact_relaxations`, completion bounds against enumerated completions.
-- [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py): `test_brouwer_zimmermann_sector_certificates`, joint searches with distinct sector certificates; `test_automorphism_family_searches_scan_every_layer_they_certify` and `test_automorphism_family_searches_scan_their_new_set_from_layer_two`, distances that skipping a layer would miss; `test_searches_ask_for_automorphisms_only_before_costly_layers`; `test_completion_tables_keep_distances_exact`; and, for searches on threads, `test_searches_on_threads_find_the_distances_that_one_thread_finds`, `test_searches_on_threads_advance_as_searches_on_one_thread`, `test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does`, and `test_searches_on_threads_stop_at_the_cutoff_within_a_layer`.
+- [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py): `test_brouwer_zimmermann_sector_certificates`, joint searches with distinct sector certificates; `test_automorphism_family_searches_scan_every_layer_they_certify` and `test_automorphism_family_searches_scan_their_new_set_from_layer_two`, distances that skipping a layer would miss; `test_searches_ask_for_automorphisms_only_before_costly_layers`; `test_completion_tables_keep_distances_exact`; and, for searches on threads, `test_searches_on_threads_find_the_distances_that_one_thread_finds`, `test_threads_find_the_lightest_words_of_layers_split_across_them`, `test_layers_of_a_set_of_deficient_rank_are_exact_on_threads`, `test_searches_on_threads_advance_as_searches_on_one_thread`, `test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does`, and `test_searches_on_threads_stop_at_the_cutoff_within_a_layer`.
 - [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py): `test_scan_of_one_information_set`, which weighs or skips each support once, `test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer`, which checks that the ranges of work items cover a layer, and `test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound`, including rank deficiency three.
 - [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py): `test_searches_by_tails_answer_as_searches_of_whole_words`, the words, skips, and bounds `R` of queries with tables; `test_min_weights_of_cosets_match_brute_force`; `test_min_weight_searches_above_max_weight_examine_as_queries`; and `test_answers_do_not_depend_on_earlier_queries`.
 - [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py): the tables that routes by tails ask for and keep, also when threads choose routes at once.
