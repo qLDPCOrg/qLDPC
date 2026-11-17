@@ -12,10 +12,7 @@ element.  The sample identifier identifies the subsets of the group:
   (see get_subset_pairs).
 
 Each saved code is a text file, written by qldpc.codes.QTCode.save, whose name identifies its
-specification and sample, and whose header records the parameters computed by run_search.py.  The
-codes of the search build their parity checks from row-reduced bases of their local check spaces
-(local_checks="row_reduced"; see help(qldpc.codes.QTCode)), which earlier versions of qldpc used by
-default, so that the stabilizer weights in the headers of all saved codes are comparable.
+specification and sample, and whose header records the parameters computed by run_search.py.
 
 Identifiers of groups (see get_group) are:
 - "SmallGroup-{order}-{index}": a group in the GAP SmallGroups library, and
@@ -43,16 +40,12 @@ import itertools
 import math
 import pathlib
 import re
-from typing import Final
 
 import galois
 
 from qldpc import abstract, codes, objects
 
 RESULTS_DIR = pathlib.Path(__file__).parent / "results"  # default directory of all results
-# the parity checks of saved codes, whose weights depend on it: "row_reduced" or "min_weight",
-# which depend only on the generating data that code keys compare (see get_code_key)
-LOCAL_CHECKS: Final = "row_reduced"
 CODES_NAME = "codes"  # subdirectory of the results directory that holds saved codes
 EXACT_DISTANCES_NAME = "exact_distances.csv"  # file of exact distances in the results directory
 
@@ -131,14 +124,7 @@ class CodeSpec:
             if not 0 <= index < len(subset_pairs):
                 raise ValueError(f"Enumerated sample out of range: {sample_id}")
             subset_a, subset_b = subset_pairs[index]
-            return codes.QTCode(
-                subset_a,
-                subset_b,
-                code_a,
-                code_b,
-                bipartite=self.bipartite,
-                local_checks=LOCAL_CHECKS,
-            )
+            return codes.QTCode(subset_a, subset_b, code_a, code_b, bipartite=self.bipartite)
         if kind != "r":
             raise ValueError(f"Sample identifier not recognized: {sample_id}")
 
@@ -153,7 +139,6 @@ class CodeSpec:
                     bipartite=self.bipartite,
                     exclude_identity=self.exclude_identity,
                     seed=self.get_seed(index, attempt),
-                    local_checks=LOCAL_CHECKS,
                 )
             except ValueError as error:
                 # retry only for a violation of the Total No Conjugacy condition
@@ -476,10 +461,9 @@ def get_code_key(path: pathlib.Path) -> str:
     file, and the choice of parity checks of each local code, which can differ between equal codes
     with different identifiers.  It also ignores the sections that only choose the parity checks of
     the quantum code, which files saved by earlier versions of qldpc lack.  So two QTCodes loaded
-    from files with the same key have the same parity checks if they both chose "row_reduced" or
-    both chose "min_weight", which depend only on the spaces that the key compares, as the codes of
-    this search do (see LOCAL_CHECKS).  The choice "from_codes" also depends on the matrices of the
-    local codes, which the key ignores.
+    from files with the same key have the same parity checks if they both chose "min_weight", the
+    choice of this search, which depends only on the spaces that the key compares.  The choice
+    "from_codes" also depends on the matrices of the local codes, which the key ignores.
     """
     sections = {
         name: lines

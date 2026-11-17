@@ -215,7 +215,7 @@ def compute_exact_distance(path: pathlib.Path, time_limit: float) -> tuple[int |
 
 def print_exact_distance(path: pathlib.Path) -> None:
     """Print the exact distance of a saved code on the last line of output."""
-    code = codes.QTCode.load(str(path), local_checks=saved_codes.LOCAL_CHECKS)
+    code = codes.QTCode.load(str(path))
     print(int(code.get_distance_exact(method="connected_cluster")))
 
 

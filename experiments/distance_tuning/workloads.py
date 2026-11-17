@@ -8,8 +8,9 @@ A code name is one of:
 - ``gross``: the [[144, 12, 12]] bivariate bicycle code;
 - ``bb288``: ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]]
   bivariate bicycle code;
-- ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1, local_checks="row_reduced")``,
-  a quantum Tanner code with the parity checks that earlier benchmarks used;
+- ``qt7``: the quantum Tanner code ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, as a
+  ``CSSCode`` with the row-reduced parity checks that earlier benchmarks used (see
+  ``get_row_reduced_qt_code``);
 - ``qgolay``: the [[23, 1, 7]] quantum Golay code, which is self-dual;
 - ``qrm:<order>:<size>``: ``QuantumReedMullerCode(order, size)``, which is self-dual, for ``mcount``
   workloads: qLDPC knows its distance in closed form, so a distance workload of it searches nothing;
@@ -183,8 +184,8 @@ def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
     if kind == "bb288":
         return codes.BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)
     if kind == "qt7":
-        return codes.QTCode.random(
-            abstract.CyclicGroup(7), codes.HammingCode(3), seed=1, local_checks="row_reduced"
+        return get_row_reduced_qt_code(
+            codes.QTCode.random(abstract.CyclicGroup(7), codes.HammingCode(3), seed=1)
         )
     if kind == "qgolay":
         return codes.QuantumGolayCode()
@@ -219,6 +220,20 @@ def get_published_parameters(name: str) -> tuple[int, int, int] | None:
     if name.startswith("pp") and name[2:] in INSTANCES:
         return INSTANCES[name[2:]][0]
     return None
+
+
+def get_row_reduced_qt_code(code: codes.QTCode) -> codes.CSSCode:
+    """A quantum Tanner code with the parity checks that versions of qldpc up to 0.4.1 built.
+
+    These versions spanned each local check space with a basis in reduced row echelon form, rather
+    than a minimum-weight basis.  Both span the same spaces, so the stabilizer group and qubits are
+    those of the given code, but the parity checks, and so the work of exact searches, can differ.
+    """
+    subgraph_x, subgraph_z = codes.QTCode.get_subgraphs(code.complex)
+    code_a, code_b = code.code_a, code.code_b
+    code_x = codes.TannerCode(subgraph_x, ~codes.ClassicalCode.tensor_product(code_a, code_b))
+    code_z = codes.TannerCode(subgraph_z, ~codes.ClassicalCode.tensor_product(~code_a, ~code_b))
+    return codes.CSSCode(code_x, code_z)
 
 
 def get_lifted_product_code(order: int, seed: int) -> codes.LPCode:
