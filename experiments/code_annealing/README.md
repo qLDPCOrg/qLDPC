@@ -124,7 +124,7 @@ Every script explains itself with `--help`.
 To run one search by hand, for example a short one that prints one JSON line per epoch and writes nothing:
 
 ```bash
-NUMBA_NUM_THREADS=1 python -m experiments.code_annealing.core.run_annealing 7 1 \
+NUMBA_NUM_THREADS=1 QLDPC_NUM_THREADS=1 python -m experiments.code_annealing.core.run_annealing 7 1 \
   --epochs 2 --steps-per-epoch 32 --seed 7 --dry-run
 ```
 

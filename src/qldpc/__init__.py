@@ -6,6 +6,11 @@ import importlib
 import importlib.metadata
 from typing import TYPE_CHECKING
 
+# Read QLDPC_NUM_THREADS before any module of qLDPC imports numba (see _num_threads.py).
+from . import _num_threads  # noqa: F401 - imported for its effect on the environment
+
+# isort: split
+
 from . import _deprecations, abstract, cache, codes, decoders, external, math, objects
 
 __version__ = importlib.metadata.version("qldpc")

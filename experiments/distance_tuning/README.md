@@ -2,7 +2,7 @@
 
 Many defaults of `SearchTuning` in `qldpc.codes.distance._tuning` come from simple heuristics, such as "run an optional step when the work that it acts on reaches the cost of the step".
 The [Retuning section of `_tuning.py`](../../src/qldpc/codes/distance/_tuning.py) names the classes of defaults.
-These scripts check the tuning, and none of them sets or justifies a value:
+These scripts check the tuning, and none of them sets or justifies a value, apart from running searches on one thread:
 
 - [`workloads.py`](workloads.py) names the codes and the workloads that the other scripts run.
 - [`constants.py`](constants.py) checks that the orders of magnitude that the heuristics assume still hold on a machine.
@@ -58,6 +58,9 @@ A flagged disagreement, or a proposed arm much slower than the current one where
 Before timing:
 
 - Time searches in new single-threaded processes, one at a time, as `sweep.py` and `constants.py` do, since completion tables save less when several searches run at once.
+  `sweep.py` sets `NUMBA_NUM_THREADS=1` and `QLDPC_NUM_THREADS=1` for its trials.
+  `trace.py` and `benchmark.py` set `num_threads` to 1, and `trace.py` refuses a `--tuning` that sets another value, since it counts the work of one thread.
+  Set `QLDPC_NUM_THREADS=1` when you run `trial.py` directly.
 - Do not edit `src/` while the scripts run, since each process imports it anew.
 
 ## Changing a default

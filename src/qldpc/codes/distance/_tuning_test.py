@@ -17,11 +17,12 @@ import sys
 from fractions import Fraction
 from typing import Any
 
+import numba
 import numpy as np
 import pytest
 from sympy.abc import x, y
 
-from qldpc import codes
+from qldpc import _num_threads, codes
 from qldpc._binary import get_kernel
 from qldpc.objects import PAULIS_XZ, Pauli
 
@@ -92,10 +93,16 @@ def test_tunings_are_validated() -> None:
     # Float fields hold Python floats, from any real number.
     floats: dict[str, Any] = {"completion_bound_confidence_z": 3, "completion_bound_samples": 8}
     assert type(_tuning.SearchTuning(**floats).completion_bound_confidence_z) is float
+    # A field whose default is None takes None or a number of its type.
+    assert _tuning.SearchTuning(num_threads=None).num_threads is None
+    numpy_threads: dict[str, Any] = {"num_threads": np.int64(2)}
+    assert type(_tuning.SearchTuning(**numpy_threads).num_threads) is int
 
     invalid: list[tuple[type[Exception], str, dict[str, Any]]] = [
         (TypeError, "must be an integer", {"max_information_sets": True}),
         (TypeError, "must be an integer", {"lp_minimum_work": 1.5}),
+        (TypeError, "must be an integer", {"num_threads": 2.0}),
+        (TypeError, "must be an integer", {"lp_minimum_work": None}),
         (TypeError, "must be a bool", {"restrict_viable_symbols": 1}),
         (ValueError, "between 0 and", {"overlapping_minimum_work": -1}),
         (ValueError, "between 0 and", {"lp_minimum_work": _tuning.MAX_VALUE + 1}),
@@ -126,6 +133,7 @@ def test_tunings_are_validated() -> None:
         "completion_bound_confidence_z": {"maximum": 10.0},
         "enumeration_batch_exponent": {"maximum": 62},
         "information_set_batch_exponent": {"maximum": 62},
+        "num_threads": {"minimum": 1},
         "scan_chunk_size": {"minimum": 1},
         "scan_chunks_per_call": {"minimum": 1},
         "macwilliams_chunk_size": {"minimum": 1},
@@ -363,7 +371,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     def prepare(*args: Any, **kwargs: Any) -> Any:
         result = original_prepare(*args, **kwargs)
         if isinstance(result, bz._SectorSearch):
-            seen["search"].append((result.batch_size, result.tuning))
+            seen["search"].append((result.batch_size, result.num_threads, result.tuning))
         return result
 
     monkeypatch.setattr(bz, "_prepare_sector_search", prepare)
@@ -418,9 +426,17 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     assert {key: set(values) for key, values in seen.items()} == expected
 
     # A search that scans layers, rather than finish while it prepares, scans with batches of
-    # 2**information_set_batch_exponent supports, and passes its tuning to its choices of completion
-    # tables.
+    # 2**information_set_batch_exponent supports, on num_threads threads, and passes its tuning to
+    # its choices of completion tables.
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    with _tuning.use_tuning(information_set_batch_exponent=5) as tuning:
+    with _tuning.use_tuning(information_set_batch_exponent=5, num_threads=3) as tuning:
         bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
-    assert seen["search"] and all(search == (1 << 5, tuning) for search in seen["search"])
+    assert seen["search"] and all(search == (1 << 5, 3, tuning) for search in seen["search"])
+
+    # Under the default tuning, without QLDPC_NUM_THREADS, a search scans on
+    # numba.config.NUMBA_NUM_THREADS threads.
+    seen["search"].clear()
+    monkeypatch.setattr(_num_threads, "NUM_THREADS", None)
+    monkeypatch.setattr(numba.config, "NUMBA_NUM_THREADS", 3)
+    bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
+    assert seen["search"] and all(search[1] == 3 for search in seen["search"])

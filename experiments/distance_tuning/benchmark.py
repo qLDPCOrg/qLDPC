@@ -9,10 +9,10 @@ codes of ``workloads.INSTANCES`` (arXiv:2607.14091 and arXiv:2609.30069) or of o
 (see ``workloads.parse_cpm``), and, for contrast, ``gross`` (the [[144, 12, 12]] bivariate bicycle
 code) and the rotated ``surface:D`` and ``toric:D`` codes of distance ``D``, which is even for a
 toric code.  The script calls ``get_distance_exact`` once for each code, method, and sector, on one
-core, and prints the distance and the wall and CPU time.  It flags a distance of an embedded
-instance below the published one, or, for both sectors, different from it; Hadamards from
-``--hadamards`` keep the distance.  It saves nothing.  Numba caches compiled code on disk, so run
-the script twice for the times of a warm cache.  Some searches run for hours, so run them with a
+core (``num_threads=1``), and prints the distance and the wall and CPU time.  It flags a distance of
+an embedded instance below the published one, or, for both sectors, different from it; Hadamards
+from ``--hadamards`` keep the distance.  It saves nothing.  Numba caches compiled code on disk, so
+run the script twice for the times of a warm cache.  Some searches run for hours, so run them with a
 hard deadline.
 
 Examples:
@@ -32,7 +32,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
 
 from qldpc import codes
-from qldpc.codes.distance import DistanceMethod
+from qldpc.codes.distance import DistanceMethod, _tuning
 from qldpc.objects import Pauli
 
 # Scripts in this directory import each other as top-level modules.  mypy knows these files only as
@@ -138,11 +138,12 @@ def time_distance(
     """
     code.forget_distance()
     wall, cpu = time.perf_counter(), time.process_time()
-    if isinstance(code, codes.CSSCode):
-        pauli = None if sector == "both" else Pauli.coerce_xz(sector)
-        distance = code.get_distance_exact(pauli, method=method)
-    else:
-        distance = code.get_distance_exact(method=method)
+    with _tuning.use_tuning(num_threads=1):
+        if isinstance(code, codes.CSSCode):
+            pauli = None if sector == "both" else Pauli.coerce_xz(sector)
+            distance = code.get_distance_exact(pauli, method=method)
+        else:
+            distance = code.get_distance_exact(method=method)
     return distance, time.perf_counter() - wall, time.process_time() - cpu
 
 

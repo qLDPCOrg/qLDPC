@@ -24,6 +24,9 @@ Circuit tools currently only support qubit codes.
 - **Distance calculations.**
   Compute exact distances of binary codes with an [optimized Brouwer-Zimmermann search](src/qldpc/codes/distance/brouwer_zimmermann.md) or a [connected-cluster search](src/qldpc/codes/distance/connected_cluster.md), which can be much faster on quantum codes with sparse checks.
   By default, each search chooses its method, and enumerates every word if that is cheap.
+  Brouwer-Zimmermann distance searches run on several threads: as many as the environment variable `QLDPC_NUM_THREADS` says, or else `numba.config.NUMBA_NUM_THREADS`, by default one for each CPU that numba counts.
+  Callers that run searches in process pools or in their own threads should keep each search on one thread.
+  To do so, set `QLDPC_NUM_THREADS=1` before Python starts ([details](src/qldpc/codes/distance/README.md#threads)).
   Bound code distance using [QDistRnd](https://arxiv.org/abs/2308.15140) or [`sqetch`](https://github.com/a7b/yarn/tree/main/sqetch).
 - **Code structure and analysis.**
   Work with check matrices, Tanner graphs, canonical logical operators, subsystem gauge operators, and code-capacity error estimates.

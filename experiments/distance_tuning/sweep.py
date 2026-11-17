@@ -62,6 +62,7 @@ SINGLE_THREAD = {
     variable: "1"
     for variable in (
         "NUMBA_NUM_THREADS",
+        "QLDPC_NUM_THREADS",
         "OMP_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
         "MKL_NUM_THREADS",

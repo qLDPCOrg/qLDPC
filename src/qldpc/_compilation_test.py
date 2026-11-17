@@ -15,7 +15,7 @@ import pickle
 import time
 import types
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numba
 import numpy as np
@@ -86,6 +86,20 @@ def test_inlined_functions_are_cached_and_their_compiled_callers_include_them(
     caller = numba.njit(lambda value: inlined(value) * 2)
     assert caller(1) == 4
     assert not any("_add_one" in code for code in caller.inspect_llvm().values())
+
+
+@pytest.mark.parametrize("cached", [True, False])
+def test_functions_can_be_compiled_without_the_global_interpreter_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cached: bool
+) -> None:
+    """Numba compiles a function with ``nogil=True`` to release the lock, cached on disk or not."""
+    directory = tmp_path / "cache" if cached else None
+    monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: directory)
+    released = _compilation.always_compiled(nogil=True)(_add_one)
+    assert (released.stats.cache_path is not None) == cached
+    assert released.targetoptions["nogil"] is True
+    assert released(1) == 2
+    assert not _compilation.always_compiled(_add_one).targetoptions.get("nogil", False)
 
 
 def test_the_source_hash_covers_every_source_file_but_no_tests(tmp_path: Path) -> None:
@@ -299,11 +313,11 @@ def test_a_function_is_not_cached_if_numba_does_not_use_the_directory(
     monkeypatch.setattr(_compilation, "_get_cache_directory", lambda package: tmp_path / "cache")
     njit = numba.njit
 
-    def cache_elsewhere(*, cache: bool = False, inline: Literal["always", "never"]) -> object:
+    def cache_elsewhere(*, cache: bool = False, **options: Any) -> object:
         if cache:
             elsewhere = types.SimpleNamespace(cache_path=str(tmp_path / "elsewhere"))
             return lambda function: types.SimpleNamespace(stats=elsewhere)
-        return njit(inline=inline)
+        return njit(**options)
 
     monkeypatch.setattr(_compilation.numba, "njit", cache_elsewhere)
     with pytest.warns(RuntimeWarning, match="numba does not use.*NUMBA_CACHE_DIR"):
