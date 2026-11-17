@@ -28,7 +28,7 @@ def evaluate_logical_ops(
     *,
     pauli: None = None,
     logicals: Literal["dressed", "bare"] = "dressed",
-) -> tuple[LogicalOpsMetrics, LogicalOpsMetrics]: ...
+) -> LogicalBasisMetrics: ...
 
 
 @overload
@@ -47,7 +47,7 @@ def evaluate_logical_ops(
     *,
     pauli: PauliXZLike | None = None,
     logicals: Literal["dressed", "bare"] = "dressed",
-) -> tuple[LogicalOpsMetrics, LogicalOpsMetrics] | LogicalOpsMetrics:
+) -> LogicalBasisMetrics | LogicalOpsMetrics:
     """Check a basis of logical operators of a CSS code, and measure its weights and overlaps.
 
     Without ``pauli``, ``logical_ops`` is a complete basis with shape ``(2k, 2n)``, laid out as by
@@ -70,7 +70,8 @@ def evaluate_logical_ops(
             operator.  The two are the same for a stabilizer code.
 
     Returns:
-        The metrics of the X-type and Z-type operators, or only those of the requested type.
+        The metrics of the X-type and Z-type operators of a complete basis, or the metrics of the
+        operators of the requested type.
 
     Raises:
         TypeError: If ``code`` is not a CSS code.
@@ -105,7 +106,22 @@ def evaluate_logical_ops(
             "Logical X-type operator j must anticommute with logical Z-type operator j, and commute"
             " with all others"
         )
-    return LogicalOpsMetrics._from_ops(ops_x), LogicalOpsMetrics._from_ops(ops_z)
+    return LogicalBasisMetrics(
+        LogicalOpsMetrics._from_ops(ops_x), LogicalOpsMetrics._from_ops(ops_z)
+    )
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class LogicalBasisMetrics:
+    """The metrics of the X-type and Z-type operators of a complete basis of logical operators.
+
+    Attributes:
+        x: The metrics of the X-type operators.
+        z: The metrics of the Z-type operators.
+    """
+
+    x: LogicalOpsMetrics
+    z: LogicalOpsMetrics
 
 
 @dataclasses.dataclass(frozen=True, eq=False)

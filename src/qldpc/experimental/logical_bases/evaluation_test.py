@@ -26,28 +26,28 @@ def test_metrics() -> None:
 
 
 def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
-    """By default, the code's own basis is evaluated, as a pair or one Pauli type at a time."""
-    metrics_x, metrics_z = evaluate_logical_ops(stabilizer_code)
+    """By default, the code's own basis is evaluated, complete or one Pauli type at a time."""
+    metrics = evaluate_logical_ops(stabilizer_code)
+    assert not np.array_equal(metrics.x.overlaps, metrics.z.overlaps)  # so a swap would show
     paulis_and_metrics: list[tuple[PauliXZ, LogicalOpsMetrics]] = [
-        (Pauli.X, metrics_x),
-        (Pauli.Z, metrics_z),
+        (Pauli.X, metrics.x),
+        (Pauli.Z, metrics.z),
     ]
-    for pauli, metrics in paulis_and_metrics:
+    for pauli, metrics_of_type in paulis_and_metrics:
         ops = stabilizer_code.get_logical_ops(pauli).view(np.ndarray)
-        np.testing.assert_array_equal(metrics.overlaps, ops.astype(int) @ ops.T.astype(int))
+        np.testing.assert_array_equal(metrics_of_type.overlaps, ops.astype(int) @ ops.T.astype(int))
         single = evaluate_logical_ops(stabilizer_code, pauli=pauli)
-        np.testing.assert_array_equal(single.overlaps, metrics.overlaps)
+        np.testing.assert_array_equal(single.overlaps, metrics_of_type.overlaps)
 
     # sparse input gives the same metrics
     sparse_ops = scipy.sparse.csr_array(stabilizer_code.get_logical_ops().view(np.ndarray))
     np.testing.assert_array_equal(
-        evaluate_logical_ops(stabilizer_code, sparse_ops)[0].overlaps, metrics_x.overlaps
+        evaluate_logical_ops(stabilizer_code, sparse_ops).x.overlaps, metrics.x.overlaps
     )
 
     # a code without logical qubits has an empty basis
     code = codes.CSSCode([[1, 1]], [[1, 1]])
-    metrics_x, _ = evaluate_logical_ops(code)
-    assert metrics_x.weights.shape == (0,)
+    assert evaluate_logical_ops(code).x.weights.shape == (0,)
     assert evaluate_logical_ops(code, pauli=Pauli.Z).max_weight == 0
 
 
