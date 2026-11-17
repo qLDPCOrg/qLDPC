@@ -16,7 +16,7 @@ from qldpc._binary import get_inverse
 from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
 from qldpc.objects import Pauli
 
-from ._sectors import Sector, _as_uint8, get_sector
+from ._sectors import LogicalOpsKind, Sector, _as_uint8, get_sector
 from .evaluation import LogicalOpsMetrics
 from .lightest_basis import LightestLogicalBasis, _get_min_weight_word, get_lightest_logical_basis
 
@@ -24,9 +24,10 @@ from .lightest_basis import LightestLogicalBasis, _get_min_weight_word, get_ligh
 # weight, so that they never have to resolve the weights of heavy classes, which are expensive.
 _PERTURBATION_SLACK = 2
 
-# Each perturbation applies between 2 and this many random moves (fewer if there are fewer logical
-# qubits), and tries up to this many random moves per logical qubit to find each one.
+# The largest number of random moves in one perturbation, which applies at least two.
 _MAX_PERTURBATION_MOVES = 6
+
+# The number of random moves that a perturbation tries, per logical qubit, for each move it applies.
 _ATTEMPTS_PER_MOVE = 4
 
 ####################################################################################################
@@ -61,9 +62,9 @@ def optimize_logical_basis(
     The smallest weights that a basis can have depend only on the logical classes of its operators,
     so the search runs over class bases: lists of the classes of the X-type and of the Z-type
     operators, paired as above.  Each class gets an operator of minimum weight.  The search starts
-    from the code's own basis or the lightest basis of either Pauli type
-    (:func:`~qldpc.experimental.logical_bases.get_lightest_logical_basis`), with the classes that
-    complete it: whichever has the smallest maximum weight, with ties broken by the objective.
+    from the code's own basis, or from the lightest basis of either Pauli type
+    (:func:`~qldpc.experimental.logical_bases.get_lightest_logical_basis`) completed by the classes
+    that pair with it: whichever has the smallest maximum weight, with ties broken by the objective.
 
     A descent then takes moves while they lower the objective.  A move replaces the class of X-type
     operator ``i`` by its sum with the class of X-type operator ``j``, and the class of Z-type
@@ -72,10 +73,11 @@ def optimize_logical_basis(
     from there continue the search.
 
     The weights of the lightest bases of the two Pauli types bound the objective from below.  The
-    search stops once it reaches this lower bound, which proves the basis optimal, once ``patience``
-    rounds of perturbation and descent in a row bring no improvement, or once it has run
-    ``max_searches`` distance searches.  Pairing can force a basis to be heavier than the lightest
-    bases, so a basis that does not reach the lower bound may still be optimal.
+    search stops once it reaches this lower bound, which proves the basis optimal.  It also stops
+    once ``patience`` rounds of perturbation and descent in a row bring no improvement, or once it
+    has used up its budget of ``max_searches`` distance searches.  Pairing can force a basis to be
+    heavier than the lightest bases, so a basis that does not reach the lower bound may still be
+    optimal.
 
     Each class weight comes from an exact distance search (see :mod:`qldpc.codes.distance`).  Most
     searches only ask whether a class has an operator of at most some weight, so their cost depends
@@ -87,16 +89,18 @@ def optimize_logical_basis(
             ``2k`` weights, then the next largest, and so on.  ``"total_weight"`` minimizes the
             total weight, and breaks ties as ``"max_weight"`` does.  A function of the lists of the
             weights of the X-type and Z-type operators sets another objective (see
-            :data:`ClassObjective`), for which there is no lower bound.
+            :data:`ClassObjective`), for which there is no lower bound unless the code has no
+            logical qubits.
         logicals: For a subsystem code, ``"dressed"`` (the default) uses logical operators that
             commute with the stabilizers, while ``"bare"`` uses those that commute with every gauge
             operator.  The two are the same for a stabilizer code.  Only a basis of bare operators
             can be passed to :meth:`qldpc.codes.CSSCode.set_logical_ops`.
         patience: The number of rounds of perturbation and descent in a row without improvement
             after which the search stops.  With zero, the search stops after the first descent.
-        max_searches: If given, a budget of distance searches.  The search always finishes finding
-            its start, and checks the budget between moves and between rounds, so it can run more
-            searches than the budget.  It then returns the best basis found so far.
+        max_searches: If given, a budget for the distance searches that the result's
+            ``searches`` counts.  The search always finishes finding its start, and checks the
+            budget between moves, so it can run a few more searches than the budget.  It then
+            returns the best basis found so far.
         seed: A seed for the random perturbations, which makes the search reproducible.
 
     Returns:
@@ -134,7 +138,8 @@ class OptimizedLogicalBasis:
         logical_ops: The basis, with shape ``(2k, 2n)``, laid out as by
             :meth:`qldpc.codes.CSSCode.get_logical_ops`.
         lower_bound: The value of the objective for the lightest bases of the two Pauli types,
-            which no complete basis can beat, or None for an objective given as a function.
+            which no complete basis can beat.  It is None for an objective given as a function,
+            unless the code has no logical qubits.
         stop_reason: Why the search stopped: ``"lower_bound"`` if it reached the lower bound, which
             proves the basis optimal, ``"patience"`` if it stopped improving, or ``"max_searches"``
             if it used up its budget of distance searches.
@@ -167,26 +172,22 @@ def _get_objective_function(
     if callable(objective):
         return objective
     if objective == "max_weight":
-        return _get_max_weight_objective
+        return _max_weight_objective
     if objective == "total_weight":
-        return _get_total_weight_objective
+        return _total_weight_objective
     raise ValueError(
         f"objective must be 'max_weight', 'total_weight', or a function, not {objective!r}"
     )
 
 
-def _get_max_weight_objective(
-    weights_x: Sequence[int], weights_z: Sequence[int]
-) -> tuple[int, ...]:
+def _max_weight_objective(weights_x: Sequence[int], weights_z: Sequence[int]) -> tuple[int, ...]:
     """All ``2k`` weights in decreasing order, so that the largest is minimized first."""
     return tuple(sorted([*weights_x, *weights_z], reverse=True))
 
 
-def _get_total_weight_objective(
-    weights_x: Sequence[int], weights_z: Sequence[int]
-) -> tuple[int, ...]:
+def _total_weight_objective(weights_x: Sequence[int], weights_z: Sequence[int]) -> tuple[int, ...]:
     """The total of the ``2k`` weights, followed by the weights in decreasing order."""
-    return (sum(weights_x) + sum(weights_z), *_get_max_weight_objective(weights_x, weights_z))
+    return (sum(weights_x) + sum(weights_z), *_max_weight_objective(weights_x, weights_z))
 
 
 ####################################################################################################
@@ -242,7 +243,8 @@ class _ClassTable:
 
         Each operator of a lightest basis is a lightest operator outside the span of the classes of
         the operators before it, which contains no operator of its class, so it is a lightest
-        operator of its class.  Returns the classes of the operators.
+        operator of its class.  The lightest weight also becomes the floor of this table.  Returns
+        the classes of the operators.
         """
         classes = [_from_bits(bits) for bits in self.sector.get_classes(lightest.logical_ops)]
         for c, operator in zip(classes, lightest.logical_ops, strict=True):
@@ -259,7 +261,10 @@ class _ClassTable:
         return self.operators[c]
 
     def _get_coset_space(self, c: int) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-        """Rows whose span, outside span(trivial), is exactly the operators of class ``c``."""
+        """Rows whose span, outside span(trivial), is exactly the operators of class ``c``.
+
+        Returns these rows, and the rows of ``trivial``.
+        """
         bits = _to_bits(c, self.sector.dimension).astype(np.int64)
         representative = (bits @ self.reference_ops.astype(np.int64) % 2).astype(np.uint8)
         return np.vstack([self.sector.trivial, representative]), self.sector.trivial
@@ -268,22 +273,27 @@ class _ClassTable:
 class _ClassSearch:
     """A local search over class bases, for a monotone objective of their weights.
 
-    The X-type classes ``a`` and the Z-type classes ``b`` of a basis are lists of ``k`` integers,
-    with ``a[i]`` and ``b[j]`` pairing to 1 exactly when ``i == j``.
+    The X-type classes ``classes_x`` and the Z-type classes ``classes_z`` of a basis are lists of
+    ``k`` integers, with ``classes_x[i]`` and ``classes_z[j]`` pairing to 1 exactly when ``i == j``.
     """
 
     def __init__(
         self,
         code: codes.CSSCode,
         objective: ClassObjective,
-        logicals: Literal["dressed", "bare"],
+        logicals: LogicalOpsKind,
         max_searches: int | None,
     ) -> None:
         self.objective = objective
         self.max_searches = max_searches
+        self.lower_bound: Any = None
         self.table_x = _ClassTable(code, get_sector(code, Pauli.X, logicals))
         self.table_z = _ClassTable(code, get_sector(code, Pauli.Z, logicals))
-        self.dimension = code.dimension
+
+    @property
+    def dimension(self) -> int:
+        """The number of logical qubits."""
+        return self.table_x.sector.dimension
 
     @property
     def searches(self) -> int:
@@ -301,6 +311,7 @@ class _ClassSearch:
         """Search from the best start, and return the best classes and why the search stopped."""
         if self.dimension == 0:
             return [], [], "lower_bound"
+        self.lower_bound = lower_bound
 
         # descend from the best start
         best_x, best_z = self._descend(*self._get_start(lightest_x, lightest_z))
@@ -372,7 +383,10 @@ class _ClassSearch:
         return self.objective(weights_x, weights_z)
 
     def _descend(self, classes_x: list[int], classes_z: list[int]) -> tuple[list[int], list[int]]:
-        """Take improving moves, heaviest pairs first, until none improves or searches run out."""
+        """Take improving moves, heaviest pairs first, until none improves or searches run out.
+
+        The descent also stops once it reaches the lower bound, which no move can improve.
+        """
         classes_x, classes_z = list(classes_x), list(classes_z)
         improved = True
         while improved and not self._is_out_of_searches():
@@ -380,6 +394,8 @@ class _ClassSearch:
             weights_x = [self.table_x.weight(c) for c in classes_x]
             weights_z = [self.table_z.weight(c) for c in classes_z]
             value = self.objective(weights_x, weights_z)
+            if value == self.lower_bound:
+                break
             moves = sorted(
                 ((i, j) for i in range(self.dimension) for j in range(self.dimension) if i != j),
                 key=lambda move: -max(weights_x[move[0]], weights_z[move[1]]),
@@ -411,19 +427,25 @@ class _ClassSearch:
         not improve even then cannot improve at all.  Otherwise, the classes are searched up to a
         limit that doubles until their weights are known or the bounds rule out an improvement.
         """
-        limit = max(weights_x[i], weights_z[j])
         trial_x, trial_z = list(weights_x), list(weights_z)
+
+        def get_best_case() -> Any:
+            """The objective after the move if the new classes are as light as their bounds."""
+            trial_x[i] = self.table_x.lower_bound(new_x)
+            trial_z[j] = self.table_z.lower_bound(new_z)
+            return self.objective(trial_x, trial_z)
+
+        limit = max(weights_x[i], weights_z[j])
         while True:
-            # check the bounds again before each search, which can make the next search unneeded
+            # search each class up to the limit, unless the bounds already rule out an improvement
             for table, c in [(self.table_x, new_x), (self.table_z, new_z)]:
-                trial_x[i] = self.table_x.lower_bound(new_x)
-                trial_z[j] = self.table_z.lower_bound(new_z)
-                if not self.objective(trial_x, trial_z) < value:
+                if not get_best_case() < value:
                     return False
                 table.weight_at_most(c, limit)
+
+            # once both weights are known, the best case is the actual objective after the move
             if new_x in self.table_x.weights and new_z in self.table_z.weights:
-                trial_x[i], trial_z[j] = self.table_x.weights[new_x], self.table_z.weights[new_z]
-                return bool(self.objective(trial_x, trial_z) < value)
+                return bool(get_best_case() < value)
             limit = min(2 * limit, self.table_x.sector.num_qubits)
 
     def _perturb(
@@ -439,6 +461,8 @@ class _ClassSearch:
             num_moves = int(rng.integers(2, min(self.dimension, _MAX_PERTURBATION_MOVES) + 1))
         for _ in range(num_moves):
             for _ in range(_ATTEMPTS_PER_MOVE * self.dimension):
+                if self._is_out_of_searches():
+                    return classes_x, classes_z
                 i, j = (int(index) for index in rng.choice(self.dimension, size=2, replace=False))
                 new_x, new_z = classes_x[i] ^ classes_x[j], classes_z[j] ^ classes_z[i]
                 if (

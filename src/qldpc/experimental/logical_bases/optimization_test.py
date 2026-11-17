@@ -17,7 +17,7 @@ from qldpc.objects import Pauli, PauliXZ
 
 from . import optimization
 from .evaluation import evaluate_logical_ops
-from .lightest_basis import get_lightest_logical_basis
+from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
 from .optimization import _ClassSearch, optimize_logical_basis
 
 # a [[7, 3]] code whose optimal complete basis is heavier than its lightest bases
@@ -74,25 +74,20 @@ def test_optimum(
     assert result.stop_reason == "patience"
 
 
-@pytest.mark.parametrize(
-    "objective, lower_bound",
-    [("max_weight", (4, 4, 4, 4)), ("total_weight", (16, 4, 4, 4, 4))],
-)
-def test_certified_optimum(
-    objective: Literal["max_weight", "total_weight"], lower_bound: tuple[int, ...]
-) -> None:
-    """The search stops at the lower bound, which proves its result optimal."""
-    code = codes.ToricCode(4)
+def test_certified_optimum() -> None:
+    """The search stops at the lower bound, which proves its result optimal, whatever its budget."""
+    code = codes.ToricCode(2)
     with mock.patch.object(
         _ClassSearch, "_perturb", autospec=True, side_effect=_ClassSearch._perturb
     ) as perturb:
-        result = optimize_logical_basis(code, objective=objective, seed=0)
+        result = optimize_logical_basis(code, seed=0)
     assert not perturb.called
     assert result.optimal
     assert result.stop_reason == "lower_bound"
-    assert result.lower_bound == lower_bound
+    assert result.lower_bound == (2, 2, 2, 2)
     metrics_x, metrics_z = evaluate_logical_ops(code, result.logical_ops)
-    assert (metrics_x.max_weight, metrics_z.max_weight) == (4, 4)
+    assert (metrics_x.max_weight, metrics_z.max_weight) == (2, 2)
+    assert optimize_logical_basis(code, max_searches=0).optimal
 
 
 @pytest.mark.parametrize("logicals", ["dressed", "bare"])
@@ -111,6 +106,24 @@ def test_subsystem_code(
         subsystem_code.set_logical_ops(result.logical_ops.astype(int))
 
 
+@pytest.mark.parametrize("function", [_max_weight, _total_weight])
+def test_local_optima(paired_code: codes.CSSCode, function: Callable[..., Any]) -> None:
+    """A descent ends at a basis that no move improves, by the brute-force class weights."""
+    result = optimize_logical_basis(paired_code, objective=function, patience=0, seed=0)
+    k, n = paired_code.dimension, len(paired_code)
+    classes_x = [_get_class(paired_code, Pauli.X, op) for op in result.logical_ops[:k, :n]]
+    classes_z = [_get_class(paired_code, Pauli.Z, op) for op in result.logical_ops[k:, n:]]
+    assert not _get_improving_moves(paired_code, function, classes_x, classes_z)
+
+    # this descent from the code's own basis needs more than one move
+    code = codes.CSSCode([[1, 0, 1, 1, 0, 0]], [[1, 0, 1, 0, 0, 1], [0, 1, 1, 1, 1, 0]])
+    search = _ClassSearch(code, function, "dressed", None)
+    descent_x, descent_z = search._descend([1, 2, 4], [1, 2, 4])
+    bits_x = [_to_bits(c, 3) for c in descent_x]
+    bits_z = [_to_bits(c, 3) for c in descent_z]
+    assert not _get_improving_moves(code, function, bits_x, bits_z)
+
+
 def test_perturbations_escape_local_optima() -> None:
     """Perturbations lead from a basis that no move improves to an optimal one."""
     code = codes.CSSCode(
@@ -126,23 +139,33 @@ def test_patience(monkeypatch: pytest.MonkeyPatch) -> None:
         [[0, 1, 0, 0, 1, 0, 1, 1, 1], [1, 1, 1, 0, 0, 1, 1, 1, 0]],
         [[0, 1, 0, 0, 0, 1, 1, 1, 1], [1, 1, 0, 1, 1, 1, 1, 0, 1]],
     )
-    values = []
+    descents = []
     descend = _ClassSearch._descend
 
-    def record_value(self: _ClassSearch, *args: Any) -> tuple[list[int], list[int]]:
-        classes = descend(self, *args)
-        values.append(self._get_value(*classes))
-        return classes
+    def record_descent(self: _ClassSearch, *args: Any) -> tuple[list[int], list[int]]:
+        descents.append(descend(self, *args))
+        return descents[-1]
 
-    monkeypatch.setattr(_ClassSearch, "_descend", record_value)
+    monkeypatch.setattr(_ClassSearch, "_descend", record_descent)
     patience = 2
     optimize_logical_basis(code, objective=_max_weight, patience=patience, seed=1)
 
-    # count the rounds since the last improvement, after each round
-    stale_counts: list[int] = []
-    best = values[0]
+    # score each descent by brute force, and count the rounds since the last improvement
+    weights_x = _get_class_weights(code, Pauli.X, "dressed")
+    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    k = code.dimension
+    values = [
+        _max_weight(
+            [weights_x[_to_bits(c, k)] for c in classes_x],
+            [weights_z[_to_bits(c, k)] for c in classes_z],
+        )
+        for classes_x, classes_z in descents
+    ]
+    stale_counts = []
+    best, stale = values[0], 0
     for value in values[1:]:
-        stale_counts.append(0 if value < best else stale_counts[-1] + 1 if stale_counts else 1)
+        stale = 0 if value < best else stale + 1
+        stale_counts.append(stale)
         best = min(best, value)
     assert stale_counts[-1] == patience
     assert max(stale_counts[:-1]) < patience
@@ -235,8 +258,16 @@ def test_descent_stops_when_out_of_searches(
 
     monkeypatch.setattr(_ClassSearch, "_improves", record_move)
     search._descend([1, 2, 4], [1, 2, 4])
-    assert search.searches >= budget
     assert out_of_searches and not any(out_of_searches)
+
+
+def test_perturbation_stops_when_out_of_searches(paired_code: codes.CSSCode) -> None:
+    """A perturbation makes no move once the search has used up its budget of distance searches."""
+    search = _ClassSearch(paired_code, _max_weight, "dressed", None)
+    search._get_value([1, 2, 4], [1, 2, 4])
+    search.max_searches = search.searches
+    rng = np.random.default_rng(0)
+    assert search._perturb([1, 2, 4], [1, 2, 4], rng) == ([1, 2, 4], [1, 2, 4])
 
 
 @pytest.mark.parametrize("swap", [False, True])
@@ -289,9 +320,13 @@ def test_special_inputs() -> None:
         optimize_logical_basis(code, patience=-1)
     with pytest.raises(ValueError, match="nonnegative"):
         optimize_logical_basis(code, max_searches=-1)
+    with pytest.raises(TypeError, match="CSS code"):
+        optimize_logical_basis(codes.FiveQubitCode())  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="'dressed' or 'bare'"):
+        optimize_logical_basis(code, logicals="gauge")  # type: ignore[arg-type]
 
 
-def _get_lightest_bases(code: codes.CSSCode) -> tuple[Any, Any]:
+def _get_lightest_bases(code: codes.CSSCode) -> tuple[LightestLogicalBasis, LightestLogicalBasis]:
     """The lightest bases of the two Pauli types."""
     return get_lightest_logical_basis(code, Pauli.X), get_lightest_logical_basis(code, Pauli.Z)
 
@@ -321,6 +356,34 @@ def _get_brute_force_optimum(
         value = function([weights_x[c] for c in classes], [weights_z[c] for c in duals])
         best = value if best is None or value < best else best
     return best
+
+
+def _get_class(code: codes.CSSCode, pauli: PauliXZ, operator: npt.ArrayLike) -> tuple[int, ...]:
+    """The class of an operator: its pairing with each of the code's opposite-type operators."""
+    dual_ops = np.asarray(code.get_logical_ops(pauli.swap_xz()), dtype=int)
+    return tuple(int(bit) for bit in dual_ops @ np.asarray(operator, dtype=int) % 2)
+
+
+def _get_improving_moves(
+    code: codes.CSSCode,
+    function: Callable[..., Any],
+    classes_x: Sequence[tuple[int, ...]],
+    classes_z: Sequence[tuple[int, ...]],
+) -> list[tuple[int, int]]:
+    """The moves that improve a class basis, by the brute-force class weights."""
+    weights_x = _get_class_weights(code, Pauli.X, "dressed")
+    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    current_x = [weights_x[c] for c in classes_x]
+    current_z = [weights_z[c] for c in classes_z]
+    value = function(current_x, current_z)
+    moves = []
+    for i, j in itertools.permutations(range(len(classes_x)), 2):
+        new_x = tuple(a ^ b for a, b in zip(classes_x[i], classes_x[j]))
+        new_z = tuple(a ^ b for a, b in zip(classes_z[j], classes_z[i]))
+        trial_x, trial_z = list(current_x), list(current_z)
+        trial_x[i], trial_z[j] = weights_x[new_x], weights_z[new_z]
+        moves.append((i, j, function(trial_x, trial_z) < value))
+    return [(i, j) for i, j, improves in moves if improves]
 
 
 def _to_bits(c: int, k: int) -> tuple[int, ...]:

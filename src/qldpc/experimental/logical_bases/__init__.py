@@ -10,8 +10,8 @@ parallel lattice surgery, so a basis whose operators are light and overlap littl
 parallel logical operations.  This subpackage checks bases, and measures the weights of their
 operators and the overlaps between operators of the same Pauli type.  It also finds a lightest basis
 of each Pauli type, whose weights bound those of every basis of that type (and, for a subsystem
-code, of the same kind, dressed or bare) from below.  Finally, it searches for complete bases, whose
-X-type and Z-type operators pair up, with low weights.
+code, of the same kind, dressed or bare) from below.  Finally, it searches for complete bases with
+low weights, whose X-type and Z-type operators pair up.
 
 Public API:
     evaluate_logical_ops, LogicalBasisMetrics            — check a basis, measure its overlaps
