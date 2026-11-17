@@ -33,11 +33,13 @@ def get_lightest_logical_basis(
     weights exactly, by repeatedly adding a lightest operator whose class is independent of the
     classes of those already chosen.
 
-    Each step finds the next weight with an exact distance search (see :mod:`qldpc.codes.distance`),
-    whose cost generally grows exponentially with that weight.  Many steps only confirm that the
-    previous weight recurs, which is cheaper.  Each step then recovers an operator of that weight
-    with many searches limited to that weight.  Results are cached on disk with :mod:`qldpc.cache`
-    under the name ``"lightest_logical_basis_v1"``.
+    A step whose weight rises finds it with an exact distance search (see
+    :mod:`qldpc.codes.distance`), whose cost generally grows exponentially with that weight.  A step
+    that repeats the previous weight only confirms it with a search limited to that weight, which is
+    cheaper.  Each step then recovers an operator of that weight with many searches limited to that
+    weight.  Among operators of equal weight, the choice ignores how many qubits they share, which
+    :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops` measures.  Results are cached on
+    disk with :mod:`qldpc.cache` under the name ``"lightest_logical_basis_v1"``.
 
     Args:
         code: A binary CSS code, which may be a subsystem code.
@@ -51,49 +53,54 @@ def get_lightest_logical_basis(
 
     Raises:
         TypeError: If ``code`` is not a CSS code.
-        ValueError: If ``code`` is not binary, or ``logicals`` is invalid.
+        ValueError: If ``code`` is not binary, or ``pauli`` or ``logicals`` is invalid.
     """
     sector = get_sector(code, pauli, logicals)
-    space = get_independent_rows(sector.get_space())
+    space = get_independent_rows(sector.get_logical_space())
     trivial = get_independent_rows(sector.trivial)
-    weights, logical_ops = _get_greedy_basis(space, trivial)
-    return LightestLogicalBasis(weights, logical_ops)
+    return LightestLogicalBasis(_get_greedy_basis(space, trivial))
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class LightestLogicalBasis:
     """A basis of logical operators of one Pauli type whose weights are as small as possible.
 
-    The weights do not decrease, and bound every basis of logical operators of this type from below:
-    the ``i``-th smallest weight of any basis is at least ``weights[i]``.  In particular, no basis
-    has a smaller maximum weight or total weight than ``logical_ops``.
+    The weights of its operators do not decrease, and bound every basis of logical operators of the
+    same Pauli type and kind (dressed or bare) from below: the ``i``-th smallest weight of every
+    such basis is at least ``weights[i]``.  In particular, no such basis has a smaller maximum
+    weight or total weight.
 
     These bounds hold for each Pauli type separately.  The X-type and Z-type operators of a complete
-    basis must also pair up, as
-    :func:`~qldpc.experimental.logical_bases.evaluation.evaluate_logical_ops` describes, and pairing
-    can force some operators to be heavier than either lightest basis.
+    basis must also pair up, as :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
+    describes, so a complete basis may not reach the bounds of both types at once.
 
     Attributes:
-        weights: The weights of the operators, in nondecreasing order.
         logical_ops: The operators, with shape ``(k, n)``.
     """
 
-    weights: tuple[int, ...]
     logical_ops: npt.NDArray[np.uint8]
+
+    @property
+    def weights(self) -> npt.NDArray[np.int_]:
+        """The weight of each operator, in nondecreasing order."""
+        return self.logical_ops.astype(np.int_).sum(axis=1)
 
     @property
     def max_weight(self) -> int:
         """The smallest maximum weight of a basis, or zero if there are no logical qubits."""
-        return max(self.weights, default=0)
+        return int(self.weights.max(initial=0))
 
     @property
     def total_weight(self) -> int:
         """The smallest total weight of a basis."""
-        return sum(self.weights)
+        return int(self.weights.sum())
 
     @property
     def load_lower_bound(self) -> int:
-        """A lower bound on the largest number of operators of any basis that act on one qubit.
+        """A lower bound on the ``max_load`` of every basis of the same type and kind.
+
+        ``max_load`` is the largest number of operators that act on one qubit, as in
+        :class:`~qldpc.experimental.logical_bases.LogicalOpsMetrics`.
 
         The operators of a basis have total weight at least ``total_weight``, spread over ``n``
         qubits, so some qubit is acted on by at least ``ceil(total_weight / n)`` of them.
@@ -108,8 +115,8 @@ class LightestLogicalBasis:
 )
 def _get_greedy_basis(
     space: npt.NDArray[np.uint8], trivial: npt.NDArray[np.uint8]
-) -> tuple[tuple[int, ...], npt.NDArray[np.uint8]]:
-    """Lightest operators of span(space) with independent classes modulo span(trivial).
+) -> npt.NDArray[np.uint8]:
+    """Lightest operators of span(space) with independent classes modulo span(trivial), a subspace.
 
     Both arguments are row-reduced, so that equal spaces give equal cache keys.
     """
@@ -125,8 +132,7 @@ def _get_greedy_basis(
             weight = _get_min_weight(space, excluded)
         chosen.append(_get_min_weight_word(space, excluded, weight))
         weights.append(weight)
-    logical_ops = np.array(chosen, dtype=np.uint8).reshape(dimension, space.shape[1])
-    return tuple(weights), logical_ops
+    return np.array(chosen, dtype=np.uint8).reshape(dimension, space.shape[1])
 
 
 ####################################################################################################
