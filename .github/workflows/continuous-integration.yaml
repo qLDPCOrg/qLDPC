@@ -150,8 +150,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      # Keep each test worker to one Numba thread, as checks/pytest_.py does.
+      # Keep each test worker to one thread, as checks/pytest_.py does.
       NUMBA_NUM_THREADS: 1
+      QLDPC_NUM_THREADS: 1
     strategy:
       # Let each run finish when the other fails, so that each reports its own failures.
       fail-fast: false
