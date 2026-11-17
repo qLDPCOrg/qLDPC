@@ -13,7 +13,6 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from . import lightest_basis
-from .evaluation import evaluate_logical_ops
 from .lightest_basis import (
     LightestLogicalBasis,
     _get_min_weight,
@@ -52,8 +51,14 @@ def test_lightest_basis(
     for code, logicals, checks, trivial in cases:
         basis = get_lightest_logical_basis(code, pauli, logicals=logicals)
         assert basis.weights.tolist() == _get_brute_force_weights(checks, trivial)
-        metrics = evaluate_logical_ops(code, basis.logical_ops, pauli=pauli, logicals=logicals)
-        np.testing.assert_array_equal(metrics.weights, basis.weights)
+
+        # the operators are logical, and independent modulo the trivial operators
+        ops = basis.logical_ops.astype(int)
+        assert not np.any(np.asarray(checks, dtype=int) @ ops.T % 2)
+        pivots: dict[int, int] = {}
+        for row in np.asarray(trivial):
+            _insert(pivots, _to_int(row))
+        assert all(_insert(pivots, _to_int(row)) for row in ops)
         weights.append(basis.weights)
 
     # the dressed operators of this subsystem code are lighter than its bare operators
@@ -80,9 +85,11 @@ def test_exact_searches_only_at_new_weights(
 
 
 def test_lightest_basis_properties() -> None:
-    """Summary values follow from the weights, including for codes without logical qubits."""
-    basis = LightestLogicalBasis(np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8))
-    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 6, 2)
+    """Summary values follow from the operators, including for codes without logical qubits."""
+    basis = LightestLogicalBasis(np.array([[1, 1, 0, 0], [1, 1, 1, 0]], dtype=np.uint8))
+    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 5, 2)
+    np.testing.assert_array_equal(basis.metrics.loads, [2, 2, 1, 0])
+    np.testing.assert_array_equal(basis.metrics.overlaps, [[2, 2], [2, 3]])
 
     basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
     assert basis.logical_ops.shape == (0, 2)

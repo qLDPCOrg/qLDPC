@@ -171,7 +171,7 @@ class OptimizedLogicalBasis:
         k, n = len(self.logical_ops) // 2, self.logical_ops.shape[1] // 2
         ops_x, ops_z = self.logical_ops[:k, :n], self.logical_ops[k:, n:]
         return LogicalBasisMetrics(
-            x=LogicalOpsMetrics._from_ops(ops_x), z=LogicalOpsMetrics._from_ops(ops_z)
+            x=LogicalOpsMetrics._from_valid_ops(ops_x), z=LogicalOpsMetrics._from_valid_ops(ops_z)
         )
 
 

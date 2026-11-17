@@ -17,6 +17,7 @@ from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
 from qldpc.objects import PauliXZLike
 
 from ._sectors import get_sector
+from .evaluation import LogicalOpsMetrics
 
 ####################################################################################################
 # lightest bases
@@ -38,9 +39,8 @@ def get_lightest_logical_basis(
     finds the new weight, at a cost that generally grows exponentially with that weight.  Each step
     then recovers an operator of its weight with many searches limited to that weight.  Among
     operators of the lightest weight, the choice ignores how many qubits each shares with the
-    operators already chosen; :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
-    measures these overlaps.  Results are cached on disk with :mod:`qldpc.cache` under the name
-    ``"lightest_logical_basis_v1"``.
+    operators already chosen; :attr:`LightestLogicalBasis.metrics` measures these overlaps.  Results
+    are cached on disk with :mod:`qldpc.cache` under the name ``"lightest_logical_basis_v1"``.
 
     Args:
         code: A binary CSS code, which may be a subsystem code.
@@ -85,6 +85,15 @@ class LightestLogicalBasis:
     def weights(self) -> npt.NDArray[np.int_]:
         """The weight of each operator, in nondecreasing order."""
         return self.logical_ops.astype(np.int_).sum(axis=1)
+
+    @property
+    def metrics(self) -> LogicalOpsMetrics:
+        """The metrics of the operators: their weights, loads, and overlaps.
+
+        These are the metrics that
+        :meth:`~qldpc.experimental.logical_bases.LogicalOpsMetrics.from_ops` returns for this basis.
+        """
+        return LogicalOpsMetrics._from_valid_ops(self.logical_ops)
 
     @property
     def max_weight(self) -> int:
