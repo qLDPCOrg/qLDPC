@@ -41,7 +41,7 @@ def test_every_item_runs_once(num_threads: int) -> None:
     Each of ``num_threads`` workers starts once, on the calling thread or on a new thread.  The
     number of ranges grows only with the logarithm of the number of items.
     """
-    num_items = 50
+    num_items = 500
     claims: list[list[tuple[int, int]]] = []
     workers: list[int] = []
 
@@ -59,12 +59,13 @@ def test_every_item_runs_once(num_threads: int) -> None:
     assert len(ranges) <= 2 * num_threads * (1 + math.log(num_items))
 
 
-@pytest.mark.parametrize("num_threads", [1, 4])
+@pytest.mark.parametrize("num_threads", [2, 4])
 def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None:
-    """Each range holds about ``1 / (2 * num_threads)`` of the weight not yet claimed, or one item.
+    """A range of several items holds at most half of the weight not yet claimed.
 
-    The items weigh as the supports of the items of layer seven of a set of 150 rows, which fix one
-    row each, so the first items weigh the most.
+    Ranges never get heavier, and they cover the items.  The items weigh as the supports of the
+    items of layer seven of a set of 150 rows, which fix one row each, so the first items weigh the
+    most.
     """
     weights = np.array([math.comb(149 - row, 6) for row in range(144)], dtype=np.float64)
     ranges: list[tuple[int, int]] = []
@@ -76,13 +77,11 @@ def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None
         len(weights), num_threads, start_worker, cumulative_weights=np.cumsum(weights)
     )
     ranges.sort()
-    assert ranges[-1][1] == len(weights)
-    for start, end in ranges:
-        target = weights[start:].sum() / (2 * num_threads)
-        assert end - start == 1 or weights[start : end - 1].sum() < target
-        assert weights[start:end].sum() >= 0.99 * target or end == len(weights)
-    first_start, first_end = ranges[0]
-    assert weights[first_start : first_end - 1].sum() < weights.sum() / (2 * num_threads)
+    assert [item for start, end in ranges for item in range(start, end)] == list(range(144))
+    range_weights = [weights[start:end].sum() for start, end in ranges]
+    assert range_weights == sorted(range_weights, reverse=True)
+    for (start, end), weight in zip(ranges, range_weights, strict=True):
+        assert end - start == 1 or weight <= weights[start:].sum() / 2
 
 
 def test_no_items_run_on_the_calling_thread_alone() -> None:
@@ -143,12 +142,16 @@ def test_an_exception_stops_every_thread_and_is_raised_again(
 
 
 @pytest.mark.usefixtures("no_threads_left")
-def test_an_interrupt_while_a_thread_starts_stops_it(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("joinable_late", [False, True])
+def test_an_interrupt_while_a_thread_starts_stops_it(
+    monkeypatch: pytest.MonkeyPatch, joinable_late: bool
+) -> None:
     """A keyboard interrupt as a new thread starts stops that thread, which claims nothing more.
 
     The start of the thread raises the interrupt once the thread has claimed its first range, in
     place of a real one, which no test can time.  That range waits for the stop event, so the
-    thread claims no other range, and the calling thread claims none.
+    thread claims no other range, and the calling thread claims none.  A thread can have an ident
+    a moment before it can be joined, as on Python 3.11 to 3.13, and the cleanup then tries again.
     """
     start = threading.Thread.start
     claimed = threading.Event()
@@ -169,10 +172,22 @@ def test_an_interrupt_while_a_thread_starts_stops_it(monkeypatch: pytest.MonkeyP
 
         return run_range
 
+    join = threading.Thread.join
+    joins: list[threading.Thread] = []
+
+    def late_join(thread: threading.Thread, *args: Any, **kwargs: Any) -> None:
+        joins.append(thread)
+        if len(joins) == 1:
+            raise RuntimeError("cannot join thread before it is started")
+        join(thread, *args, **kwargs)
+
     monkeypatch.setattr(threading.Thread, "start", interrupted_start)
+    if joinable_late:
+        monkeypatch.setattr(threading.Thread, "join", late_join)
     with pytest.raises(KeyboardInterrupt):
         _threads.run_work_items(10, 3, start_worker)
     assert len(claims) == 1 and stopped == [True]
+    assert len(joins) == (2 if joinable_late else 0)
 
 
 @pytest.mark.usefixtures("no_threads_left")

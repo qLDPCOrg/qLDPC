@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
+import time
 from collections.abc import Callable
 from typing import Protocol, cast
 
@@ -60,15 +61,18 @@ def run_work_items(
 
     Ranges follow guided self-scheduling: a range holds the next items up to about
     ``1 / (2 * num_threads)`` of the weight that no thread has claimed, and at least one item, so
-    ranges shrink as the work ends, and the number of claims grows only with the logarithm of the
-    number of items.  ``cumulative_weights``, if given, holds for each item the total weight of the
-    items up to it, which estimates their work; without it, every item weighs one.
+    ranges shrink as the work ends.  The claims number at most about
+    ``2 * num_threads * ln(W / w)``, for the total weight ``W`` and the weight ``w`` of the lightest
+    item, plus the last items, which ranges of one item each claim.  ``cumulative_weights``, if
+    given, holds for each item the total weight of the items up to it, which estimates their work;
+    without it, items count one each.
 
     If a thread raises an exception, the event is set, and once every thread has returned, the
     exception is raised again: that of the calling thread, as at a keyboard interrupt, or else the
     first that another thread raised.  An exception while the calling thread starts or waits for
-    the others, such as a keyboard interrupt, also sets the event, and is raised again once they
-    have returned; no thread claims a range once the event is set.
+    the others, such as a keyboard interrupt, also sets the event, and is raised again once every
+    thread whose start set its ``ident`` has returned; no thread claims a range once the event is
+    set.
     """
     stop = threading.Event()
     lock = threading.Lock()
@@ -111,7 +115,9 @@ def run_work_items(
             work()
 
     # The calling thread works too, so that it takes keyboard interrupts while the others work.  A
-    # thread is listed before it starts, so that the cleanup joins it even if its start raises.
+    # thread is listed before it starts, so that the cleanup joins it if its start got far enough to
+    # set its ident, even if the start then raised.  A thread whose start is interrupted earlier may
+    # start late, but it finds the event set and claims nothing.
     threads: list[threading.Thread] = []
     try:
         for _ in range(num_threads - 1):
@@ -131,17 +137,25 @@ def run_work_items(
 
 
 def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
-    """Wait until every thread in a list that has started returns.
+    """Wait until every thread in a list whose start set its ``ident`` returns.
 
-    An exception while waiting, such as a keyboard interrupt, sets the stop event, and is raised
-    again once the threads have returned.  The wait goes on through further exceptions, of which the
-    last is raised.
+    An exception while waiting, such as a keyboard interrupt, sets the stop event, and the wait goes
+    on.  The last such exception is raised once the threads have returned.
     """
-    try:
-        for thread in threads:
-            if thread.ident is not None:
+    interrupt: BaseException | None = None
+    for thread in threads:
+        delay = 0.0
+        while thread.ident is not None:
+            try:
+                time.sleep(delay)
                 thread.join()
-    except BaseException:
-        stop.set()
-        _join(threads, stop)
-        raise
+                break
+            except RuntimeError:
+                # On Python 3.11 to 3.13, a thread has an ident a moment before it counts as
+                # started, and joining it before then raises this error.
+                delay = 0.001
+            except BaseException as error:  # noqa: BLE001 - raised once the threads return
+                interrupt = error
+                stop.set()
+    if interrupt is not None:
+        raise interrupt

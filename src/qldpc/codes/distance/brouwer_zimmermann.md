@@ -421,7 +421,8 @@ A bound for a larger `s` is stronger, so a support is skipped exactly if the bou
 A skipped word weighs at least the `U` of the moment it was skipped, and hence any later `U`, so an eligible word lighter than `U` has been neither skipped nor examined, and the arguments of [Section 2.5](#25-the-stopping-certificate) hold for it.
 The certificate `L` bounds only such words, and can exceed the weights of skipped words, as it can those of words examined through their images ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), so the distance is at least `min(L, U)`, not `L`.
 Since no skipped word is lighter than `U` at any later time, a scan with tables on one thread finds the same witnesses in the same order as one without, an early exit ([Section 4.5](#45-behavior-spanning-files)) returns the same weight, and the search stops when it would without skipping.
-On several threads, only the bounds hold: an early exit returns a weight between the distance and the cutoff, and `U` after a layer is the same as on one thread (Section 4.5).
+On several threads, the witnesses and their order can differ, and so can the result of an early exit, which still lies between the distance and the cutoff.
+`U` after each layer, and so where the search stops, is the same as on one thread ([Section 4.5](#45-behavior-spanning-files)).
 These arguments hold for each search basis, with its own tables, so a search can skip in each basis of a layer that it scans one at a time, and stop after any basis whose step `(t, j)` certifies `U` by the certificate of its family, which may need a linear program ([Section 3.1](#31-overlapping-search-bases)).
 
 Words that weigh exactly `U` can be skipped, since they cannot lower `U`.
@@ -769,10 +770,11 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
   A **work item** is the set of supports of the layer whose first `k` rows are fixed: `k = 1`, or `k = 2` if fixing one row leaves fewer than 32 items for each thread and `w ≥ 4`.
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
-  The items are numbered in lexicographic order, in which the first hold the most supports.
+  The items are numbered in lexicographic order.
+  Their numbers of supports vary widely, and earlier items tend to hold more.
   The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling, weighted by the number of supports of each item: each range holds the next items up to about `1 / (2 * num_threads)` of the supports that no thread has claimed, and at least one item.
-  So the ranges shrink toward the end of the layer, which balances the threads, and the claims grow only with the logarithm of the number of items.
-  Ranges of equal numbers of items would not do, since the first items hold the most supports.
+  So the ranges shrink toward the end of the layer, which balances the threads, and the claims number at most about `2 * num_threads * ln(W / w)`, for the `W` supports of the layer and the `w` supports of its lightest item, plus the last items, one range each.
+  Ranges of equal numbers of items would not do, since earlier items tend to hold more supports.
   A thread scans its range with `scan_set_items`, which Numba compiles without the global interpreter lock, and which stops once a support passes the last item of the range.
   The threads share one copy of the rows, labels, and tables of the set.
   They scan one set at a time, in the order of the sets, so `advance` and its certificate are unchanged.

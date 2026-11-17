@@ -1618,7 +1618,9 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
     """Threads find the lightest words of searches whose lightest words lie in split layers.
 
     The searches are of a random [50, 30] classical code, and of the X sector of a [[72, 4, 8]]
-    bivariate bicycle code, and they find the distances of searches on one thread.
+    bivariate bicycle code, and they find the distances of searches on one thread.  Only the
+    search of the bivariate bicycle code tests, on threads, the labels that tell its logical
+    operators from its stabilizers.
     """
     random_code = get_random_full_rank_matrix(np.random.default_rng(1), 30, 50)
     bicycle = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
@@ -1714,15 +1716,20 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     """A stop at the cutoff, in a layer split across threads, leaves the bounds as before the layer.
 
     The search returns the weight of a word between the distance, eight, and the cutoff.  It scans
-    one set of an automorphism family, whose best weight is ten before layer four, which holds the
-    first words of weight eight or nine in its first items.  In that layer, each thread waits for
-    the stop event after its first range, so the threads claim only their first ranges, which hold
-    such a word, and then stop, before they claim the last item.
+    one set of an automorphism family, whose best weight is ten before layer four.  In that layer,
+    the item whose fixed rows are 0 and 13 holds a word of weight eight.  Ranges that start after
+    that item wait for the stop event before they scan, so the threads stop before they claim the
+    last item.  The first range of the layer, which the weights of the items size, holds less than
+    half of its supports.
     """
     tune(num_threads=num_threads)
     gated = False
     ranges: list[tuple[int, int, int]] = []
     run_work_items = bz._threads.run_work_items
+    dimension, weight = 38, 4
+    items = bz._WorkItems(dimension, weight, num_threads)
+    item_rows = [tuple(items.get_item(index).tolist()) for index in range(items.num_items)]
+    witness_index = item_rows.index((0, 13))
 
     def gated_run(
         num_items: int,
@@ -1735,9 +1742,9 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
 
             def gated_range(start: int, end: int) -> None:
                 ranges.append((start, end, num_items))
-                run_range(start, end)
-                if gated:
+                if gated and start > witness_index:
                     assert stop.wait(timeout=10)
+                run_range(start, end)
 
             return gated_range
 
@@ -1757,8 +1764,13 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     assert 8 <= search.best <= cutoff
     assert sector_search.uses_automorphism_family and bounds[1] == 4
     assert (sector_search.lower_bound, sector_search.next_weight) == bounds
-    assert 0 < len(ranges) <= num_threads
+    assert sector_search.dimension == dimension and ranges[0][2] == items.num_items
     assert all(end < num_items for _, end, num_items in ranges)
+    first_end = min(end for start, end, _ in ranges if start == 0)
+    first_supports = sum(
+        math.comb(dimension - 1 - rows[-1], weight - len(rows)) for rows in item_rows[:first_end]
+    )
+    assert first_supports <= math.comb(dimension, weight) / 2
 
 
 @pytest.mark.usefixtures("small_batches")
@@ -1837,7 +1849,6 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
     assert set(threading.enumerate()) <= threads
 
 
-@pytest.mark.usefixtures("small_batches")
 def test_layers_of_a_set_of_deficient_rank_are_exact_on_threads(
     item_scans: list[ItemScan],
 ) -> None:
@@ -1867,13 +1878,21 @@ def test_layers_of_a_set_of_deficient_rank_are_exact_on_threads(
     assert any(scan.lowered for scan in item_scans)
 
 
-def test_searches_resolve_their_number_of_threads_once(
-    prepared: list[bz._SectorSearch], monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("small_batches")
+def test_searches_resolve_their_number_of_threads_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """A search under the default tuning keeps the thread count that numba had when it started."""
+    thread_counts: list[int] = []
+    run_work_items = bz._threads.run_work_items
+
+    def recording_run(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
+        thread_counts.append(num_threads)
+        run_work_items(num_items, num_threads, *args, **kwargs)
+
+    monkeypatch.setattr(bz._threads, "run_work_items", recording_run)
     monkeypatch.setattr(bz._threads.numba.config, "NUMBA_NUM_THREADS", 3)
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     search = bz.BrouwerZimmermannSearch([get_sector(code, Pauli.X)], cutoff=0)
     monkeypatch.setattr(bz._threads.numba.config, "NUMBA_NUM_THREADS", 5)
-    search.advance()
-    assert [each.num_threads for each in prepared] == [3]
+    while not search.finished:
+        search.advance()
+    assert thread_counts and set(thread_counts) == {3}

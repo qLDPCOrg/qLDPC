@@ -558,9 +558,9 @@ class _WorkItems:
     An item fixes the first ``length`` rows of its supports: one row, or two if fixing one row
     leaves fewer than ``_ITEMS_PER_THREAD`` items for each thread and the layer has four or more
     rows.  So ``length <= weight - 2``, as ``affine_search.scan_set_items`` requires.  The items are
-    numbered in lexicographic order, in which the first hold the most supports.
-    ``cumulative_weights`` holds, for each item, the number of supports of the items up to it, as
-    floats, which never overflow.
+    numbered in lexicographic order.  Their numbers of supports vary widely, and earlier items tend
+    to hold more.  ``cumulative_weights`` holds, for each item, the number of supports of the items
+    up to it, as floats, which overflow only for layers far too large to scan.
     """
 
     def __init__(self, num_rows: int, weight: int, num_threads: int) -> None:

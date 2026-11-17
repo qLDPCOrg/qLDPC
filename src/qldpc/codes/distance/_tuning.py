@@ -406,11 +406,11 @@ class SearchTuning:
     #: calling thread alone unless it has at least three rows and more than
     #: ``num_threads * 2**information_set_batch_exponent`` supports (Section 4.5 of
     #: ``brouwer_zimmermann.md``).  Programs that run searches in several processes or threads at
-    #: once should cap it: with ``NUMBA_NUM_THREADS=1``, set before numba is imported, which reaches
-    #: every worker, or with ``use_tuning(num_threads=1)`` entered in the function that each worker
-    #: runs, since new threads and spawned processes start with the default tuning.  Defaults to
-    #: ``None``, chosen by hand: a search uses the cores that numba counts unless its caller caps
-    #: them.
+    #: once should cap it.  ``NUMBA_NUM_THREADS=1``, set before numba is imported, reaches every
+    #: worker.  ``use_tuning(num_threads=1)`` does so only if entered in the function that each
+    #: worker runs, since new threads and spawned processes normally start with the default tuning
+    #: (see the module docstring).  Defaults to ``None``, chosen by hand: a search uses the cores
+    #: that numba counts unless its caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
     #: A chunk of the scan of a count, by the BZ or brute-force method, visits at most this many
