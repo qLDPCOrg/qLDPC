@@ -18,7 +18,7 @@ from qldpc.objects import Pauli, PauliXZ
 from . import optimization
 from .evaluation import evaluate_logical_ops
 from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
-from .optimization import _ClassSearch, optimize_logical_basis
+from .optimization import _ClassSearch, _get_dual_classes, optimize_logical_basis
 
 # a [[7, 3]] code whose optimal complete basis is heavier than its lightest bases
 _PAIRED_CHECKS = (
@@ -300,7 +300,7 @@ def test_perturbation_stops_when_out_of_searches(paired_code: codes.CSSCode) -> 
 
 @pytest.mark.parametrize("swap", [False, True])
 def test_start(swap: bool) -> None:
-    """The search starts from the start with the smallest maximum weight.
+    """Of the three starts, the search takes the one with the smallest maximum weight.
 
     The starts are the code's own basis and the lightest basis of either Pauli type, with the
     classes that complete them.  Swapping the checks of the code swaps which lightest basis wins.
@@ -337,13 +337,18 @@ def test_start(swap: bool) -> None:
 def test_start_by_max_weight() -> None:
     """The start has the smallest maximum weight, even if another start has a better objective."""
     # a [[6, 4]] code whose own basis has maximum weight 2 and total Z-type weight 8, while its
-    # Z-type lightest basis, completed by the classes that pair with it, has maximum weight 3 and
-    # total Z-type weight 7
+    # Z-type lightest basis, completed by the classes that pair with it, has a larger maximum weight
+    # and a smaller total Z-type weight
     code = codes.CSSCode([[0, 1, 1, 1, 1, 1]], [[1, 0, 1, 1, 1, 1]])
     search = _ClassSearch(code, _z_weight, "dressed", None)
     lightest_x, lightest_z = _get_lightest_bases(code)
-    assert lightest_z.total_weight < 8
     classes_x, classes_z = search._get_start(lightest_x, lightest_z)
+    start_z = search.table_z.record(lightest_z)
+    start_x = _get_dual_classes(start_z)
+    weights = [search.table_x.weight(c) for c in start_x] + [
+        search.table_z.weight(c) for c in start_z
+    ]
+    assert max(weights) > 2 and search._get_value(start_x, start_z) < 8
     assert classes_x == classes_z == [1, 2, 4, 8]
     assert search._get_value(classes_x, classes_z) == 8
 

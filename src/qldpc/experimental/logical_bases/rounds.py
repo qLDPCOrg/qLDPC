@@ -32,11 +32,12 @@ from .evaluation import (
 )
 from .lightest_basis import _get_min_weight, _get_min_weight_word
 
-# Candidates of a class are listed by sampling information sets.  For each set, the rows of a basis
-# of span(trivial, op), reduced on that set, are combined at most _MAX_ROWS_PER_SAMPLE at a time,
-# and the sums in the class within the weight limit are kept.  The first set is the column-order
-# one, and later ones are random, from a fixed seed.  Sampling stops when the list matches the exact
-# count, or after _MAX_SAMPLES sets.
+# The candidates of a class are its operators within the weight limit of optimize_logical_rounds.
+# They are listed from a basis of the class's representative and the trivial operators, reduced on
+# sampled information sets: first the one that reduction in column order finds, then random ones
+# from a fixed seed.  Each set contributes the sums of at most _MAX_ROWS_PER_SAMPLE reduced rows
+# that lie in the class and within the weight limit.  Sampling stops when the list matches the
+# exact count of candidates, or after _MAX_SAMPLES sets.
 _MAX_ROWS_PER_SAMPLE = 3
 _MAX_SAMPLES = 2000
 
@@ -59,9 +60,9 @@ def optimize_logical_rounds(
     ``logical_ops``, and chooses an operator in each class from its candidates: the operators of the
     class with weight at most the minimum weight of the class plus ``weight_slack``.  It minimizes
     the number of rounds of disjoint operators needed to act on all of the chosen operators.  Among
-    the choices with the fewest rounds, it minimizes the largest load, which is the number of chosen
-    operators on one qubit, and then the total weight.  Keeping the classes keeps the X-type and
-    Z-type operators paired, so the result is a complete basis.
+    the choices with the fewest rounds, it minimizes the largest load, where the load of a qubit is
+    the number of chosen operators on it, and then the total weight.  Keeping the classes keeps the
+    X-type and Z-type operators paired, so the result is a complete basis.
 
     The candidates of each class are listed by sampling information sets, and a list is proven
     complete when its length equals an exact count from
@@ -93,8 +94,9 @@ def optimize_logical_rounds(
             the limit.  Finding minimum weights, and counting and listing candidates, are not
             limited.
 
-    Returns: The chosen basis, with the round of each operator, a lower bound on the rounds, and why
-        the search stopped.
+    Returns:
+        The chosen basis, with the round of each operator, a lower bound on the rounds, and why the
+        search stopped.
 
     Raises:
         TypeError: If ``code`` is not a CSS code.
@@ -179,9 +181,9 @@ class LogicalOpsRounds:
             fewest rounds, then the smallest largest load, then the smallest total weight.
             ``"incomplete_candidates"``: the sampling did not find every candidate, so a better
             choice may exist.  ``"time_limit"``: the candidates are complete, but the time limit ran
-            out before the choice was proven optimal.  If no choice was found in time, the lightest
-            candidates are used, in rounds found by greedy coloring, which may be many more than the
-            fewest.
+            out before the choice was proven optimal.  Whichever reason is reported, if no choice
+            was found in time, the lightest candidates are used, in rounds found by greedy coloring,
+            which may be many more rounds than needed.
     """
 
     rounds: npt.NDArray[np.int_]

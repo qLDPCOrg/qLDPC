@@ -42,7 +42,7 @@ _SHARED_CHECKS = (
 )
 
 # a [[7, 4]] code whose X-type choices at slack 3 with the fewest rounds differ in their largest
-# load; the choice with the smallest is 3 heavier than the lightest
+# load; the choice with the smallest largest load is 3 heavier than the lightest choice
 _ORDER_CHECKS = ([[1, 1, 1, 1, 1, 1, 1]], [[1, 0, 0, 0, 1, 0, 0], [1, 1, 1, 1, 1, 1, 0]])
 
 # a [[10, 6]] code with an integer program that HiGHS (in SciPy 1.18) fails to solve with presolve
@@ -106,6 +106,31 @@ def test_time_limit() -> None:
         result = optimize_logical_rounds(code)
     _check_valid(code, code.get_logical_ops(), result, 0, "dressed")
     assert result.x.stop_reason == "time_limit"
+
+
+def test_time_limit_fallback() -> None:
+    """Without any choice in time, the lightest candidates are used, even with slack."""
+    code = codes.CSSCode(*_SLACK_CHECKS)
+    out_of_time = scipy.optimize.OptimizeResult(status=1, x=None, message="time limit")
+    with mock.patch.object(scipy.optimize, "milp", return_value=out_of_time):
+        result = optimize_logical_rounds(code, weight_slack=2)
+    _check_valid(code, code.get_logical_ops(), result, 2, "dressed")
+    assert result.x.stop_reason == "time_limit"
+    k, n = code.dimension, len(code)
+    words = _get_class_words(code, Pauli.X, "dressed")
+    for op in result.logical_ops[:k, :n].astype(int):
+        assert op.sum() == min(int(word.sum()) for word in words[_get_class(code, Pauli.X, op)])
+
+
+def test_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sampling with random information sets gives the same result every time."""
+    monkeypatch.setattr(rounds, "_MAX_ROWS_PER_SAMPLE", 1)
+    monkeypatch.setattr(rounds, "_MAX_SAMPLES", 3)
+    code = codes.CSSCode(*_ORDER_CHECKS)
+    results = [optimize_logical_rounds(code, weight_slack=2) for _ in range(4)]
+    for result in results[1:]:
+        np.testing.assert_array_equal(result.logical_ops, results[0].logical_ops)
+        np.testing.assert_array_equal(result.x.rounds, results[0].x.rounds)
 
 
 def test_time_limit_shared(monkeypatch: pytest.MonkeyPatch) -> None:

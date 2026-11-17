@@ -9,12 +9,11 @@ Logical operators that share no physical qubits can be acted on at the same time
 parallel lattice surgery, so a basis whose operators are light and overlap little allows more
 parallel logical operations.  This subpackage checks bases, complete or of one Pauli type, and
 measures the weights of their operators and the overlaps between operators of the same Pauli type.
-It also finds a lightest basis of each Pauli type.  Sorted by weight, the weights of every basis of
-that type are at least those of the lightest basis, entry by entry; for a subsystem code, this holds
-among bases of the same kind, dressed or bare.  It searches for complete bases with low weights,
-whose X-type and Z-type operators pair up as ``evaluate_logical_ops`` describes.  Finally, it
-chooses an operator in each logical class of a basis, so that the chosen operators can be acted on
-in few parallel rounds.
+It also finds a lightest basis of each Pauli type, whose sorted weights bound those of every basis
+of that type and kind, as ``LightestLogicalBasis`` describes.  It searches for complete bases with
+low weights, whose X-type and Z-type operators pair up as ``evaluate_logical_ops`` describes.
+Finally, it chooses an operator in each logical class of a basis, so that the chosen operators can
+be acted on in few parallel rounds.
 
 Public API:
     evaluate_logical_ops, LogicalBasisMetrics            — check and measure a complete basis

@@ -99,22 +99,22 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
 
 
 def test_evaluate_dressed_ops(subsystem_code: codes.CSSCode) -> None:
-    """Dressed operators are paired by their logical classes, not by physical commutation."""
-    n = len(subsystem_code)
+    """Dressed operators pair by their classes, and bare bases besides the code's are accepted."""
+    k, n = subsystem_code.dimension, len(subsystem_code)
     ops = subsystem_code.get_logical_ops().view(np.ndarray).copy()
     gauge_x = subsystem_code.get_gauge_ops(Pauli.X).view(np.ndarray)[0]
     gauge_z = subsystem_code.get_gauge_ops(Pauli.Z).view(np.ndarray)[0]
     assert gauge_x @ gauge_z % 2 == 1
     ops[0, :n] ^= gauge_x
-    ops[subsystem_code.dimension, n:] ^= gauge_z
+    ops[k, n:] ^= gauge_z
 
     # X-type operator 0 and Z-type operator 0 now commute physically, but their classes anticommute
-    assert ops[0, :n] @ ops[subsystem_code.dimension, n:] % 2 == 0
+    assert ops[0, :n] @ ops[k, n:] % 2 == 0
     evaluate_logical_ops(subsystem_code, ops)
 
     # each half of the dressed operators is rejected when bare operators are required
     original = subsystem_code.get_logical_ops().view(np.ndarray)
-    for row, name in [(0, "X"), (subsystem_code.dimension, "Z")]:
+    for row, name in [(0, "X"), (k, "Z")]:
         one_half = original.copy()
         one_half[row] = ops[row]
         with pytest.raises(ValueError, match=f"{name}-type operators are not logical"):
@@ -122,14 +122,13 @@ def test_evaluate_dressed_ops(subsystem_code: codes.CSSCode) -> None:
 
     # the X-type half of these dressed operators is likewise accepted as a basis of one type, and
     # rejected when bare operators are required
-    ops_x = ops[: subsystem_code.dimension, :n]
+    ops_x = ops[:k, :n]
     LogicalOpsMetrics.from_ops(subsystem_code, Pauli.X, ops_x)
     with pytest.raises(ValueError, match="X-type operators are not logical"):
         LogicalOpsMetrics.from_ops(subsystem_code, Pauli.X, ops_x, logicals="bare")
 
     # a bare basis other than the code's own is accepted when bare operators are required, and by
     # set_logical_ops
-    k = subsystem_code.dimension
     bare = original.copy()
     bare[0] ^= bare[1]
     bare[k + 1] ^= bare[k]

@@ -64,10 +64,10 @@ def get_lightest_logical_basis(
 class LightestLogicalBasis:
     """A basis of logical operators of one Pauli type whose weights are as small as possible.
 
-    Its operators are in nondecreasing order of weight.  Sorted in the same order, the weights of
-    every basis of the same Pauli type are at least ``weights``, entry by entry, so no such basis
-    has a smaller maximum weight or total weight.  For a subsystem code, these bounds hold among
-    bases of the kind, dressed or bare, passed to
+    Its operators are in nondecreasing order of weight.  Sort the weights of any basis of the same
+    Pauli type in nondecreasing order; they are at least ``weights``, entry by entry, so no such
+    basis has a smaller maximum weight or total weight.  For a subsystem code, these bounds hold
+    among bases of the kind of operators, dressed or bare, that ``logicals`` selected in
     :func:`~qldpc.experimental.logical_bases.get_lightest_logical_basis`.
 
     These bounds hold for each Pauli type separately.  The X-type and Z-type operators of a complete
@@ -118,7 +118,8 @@ class LightestLogicalBasis:
         return math.ceil(self.total_weight / num_qubits) if num_qubits else 0
 
 
-# bump the version of the cache name whenever the stored value, or the choice of operators, changes
+# bump the version in the cache name, and in the docstring of get_lightest_logical_basis, whenever
+# the operators chosen for the same arguments change
 @cache.use_disk_cache(
     "lightest_logical_basis_v1",
     key_func=lambda space, trivial: (space.shape[1], space.tobytes(), trivial.tobytes()),

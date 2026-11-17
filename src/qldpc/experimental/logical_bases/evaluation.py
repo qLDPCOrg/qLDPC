@@ -55,8 +55,8 @@ def evaluate_logical_ops(
     Raises:
         TypeError: If ``code`` is not a CSS code.
         ValueError: If ``code`` is not binary, or ``logicals`` is invalid.  Also if ``logical_ops``
-            has the wrong shape, has entries other than 0 and 1, or is not a basis as described
-            above.
+            has the wrong shape, has entries other than 0 and 1, is a ``galois`` array over a field
+            other than GF(2), or is not a basis as described above.
     """
     sector_x = get_sector(code, Pauli.X, logicals)
     sector_z = get_sector(code, Pauli.Z, logicals)
@@ -71,9 +71,10 @@ def evaluate_logical_ops(
     classes_x = _get_valid_classes(sector_x, ops_x)
     classes_z = _get_valid_classes(sector_z, ops_z)
 
-    # check that the classes of the two halves pair up: classes are coordinates in the code's own
-    # basis, whose operators pair as the identity, so the parity of their dot product is whether two
-    # operators anticommute
+    # check that the classes of the two halves pair up: X-type operator i and Z-type operator j of
+    # the code's own basis anticommute exactly when i == j, so the parity of the dot product of two
+    # classes is whether the classes anticommute, which for bare operators is whether the operators
+    # themselves do
     pairings = classes_x.astype(np.int64) @ classes_z.T.astype(np.int64) % 2
     if np.any(pairings != np.eye(k, dtype=np.int64)):
         raise ValueError(
@@ -150,9 +151,9 @@ class LogicalOpsMetrics:
         Raises:
             TypeError: If ``code`` is not a CSS code.
             ValueError: If ``code`` is not binary, or ``pauli`` or ``logicals`` is invalid.  Also if
-                ``logical_ops`` has the wrong shape, has entries other than 0 and 1, does not
-                consist of logical operators of this type, or does not have independent logical
-                classes.
+                ``logical_ops`` has the wrong shape, has entries other than 0 and 1, is a ``galois``
+                array over a field other than GF(2), does not consist of logical operators of this
+                type, or does not have independent logical classes.
         """
         sector = get_sector(code, pauli, logicals)
         ops = code.get_logical_ops(pauli) if logical_ops is None else logical_ops
@@ -195,8 +196,9 @@ class LogicalOpsMetrics:
 def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray[np.uint8]:
     """A plain uint8 array of logical operators, such as from a ``galois`` or SciPy sparse array.
 
-    Raise ValueError if it does not have the given shape, has entries other than 0 and 1, or is an
-    array over a field other than GF(2).
+    Raises:
+        ValueError: If ``ops`` does not have the given shape, has entries other than 0 and 1, or is
+            a ``galois`` array over a field other than GF(2).
     """
     if isinstance(ops, galois.FieldArray) and type(ops).order != 2:
         raise ValueError(f"Logical operators must be binary, not over GF({type(ops).order})")
@@ -211,8 +213,9 @@ def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray
 def _get_valid_classes(sector: Sector, ops: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """The logical classes of a basis of logical operators of one type.
 
-    Raise ValueError if the rows of ``ops`` are not logical operators of this type, or if their
-    classes are not independent.
+    Raises:
+        ValueError: If the rows of ``ops`` are not logical operators of this type, or if their
+            classes are not independent.
     """
     name = f"{sector.pauli}-type"
     if np.any(sector.checks.astype(np.int64) @ ops.T.astype(np.int64) % 2):

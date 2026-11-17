@@ -20,9 +20,9 @@ from ._sectors import LogicalOpsKind, Sector, _as_uint8, get_sector
 from .evaluation import LogicalBasisMetrics
 from .lightest_basis import LightestLogicalBasis, _get_min_weight_word, get_lightest_logical_basis
 
-# Perturbations of the iterated local search keep every class within this much of the maximum weight
-# of the basis that they perturb, so that they never have to resolve the weights of heavy classes,
-# which are expensive.
+# Perturbations of the iterated local search keep every class at most this much above the maximum
+# weight of the basis that they perturb, so that they never have to resolve the weights of heavy
+# classes, which are expensive.
 _PERTURBATION_SLACK = 2
 
 # One perturbation chooses to apply between two and this many random moves, and no more moves than
@@ -67,7 +67,7 @@ def optimize_logical_basis(
     The smallest weights that a basis can have depend only on the logical classes of its operators,
     so the search runs over class bases: lists of the classes of the X-type and of the Z-type
     operators, paired as above.  Each class gets an operator of minimum weight.  The search starts
-    from the best of three bases: the code's own, and the lightest basis of each Pauli type (see
+    from one of three bases: the code's own, and the lightest basis of each Pauli type (see
     :func:`~qldpc.experimental.logical_bases.get_lightest_logical_basis`), completed by the classes
     that pair with it.  It takes the one with the smallest maximum weight, breaking ties by the
     objective.
@@ -285,8 +285,9 @@ class _ClassSearch:
 
     The X-type classes ``classes_x`` and the Z-type classes ``classes_z`` of a basis are lists of
     ``k`` integers, with ``classes_x[i]`` and ``classes_z[j]`` pairing to 1 exactly when ``i == j``.
-    The code's own logical operators pair as the identity, so X-type class ``a`` and Z-type class
-    ``b`` pair to the parity of ``a & b``.  ``lower_bound`` is a lower bound on the objective of
+    X-type operator ``i`` and Z-type operator ``j`` of the code's own basis anticommute exactly
+    when ``i == j``, so X-type class ``a`` and Z-type class ``b`` pair to the parity of the number
+    of bits set in ``a & b``.  ``lower_bound`` is a lower bound on the objective of
     every basis, or None.
     """
 
@@ -370,6 +371,7 @@ class _ClassSearch:
         of a nontrivial operator until some start has every class within it, so the classes of the
         other starts are never resolved above that limit.
         """
+        # the starts: the code's own classes, and each lightest basis completed by its dual classes
         classes_x = self.table_x.record(lightest_x)
         classes_z = self.table_z.record(lightest_z)
         code_classes = [1 << m for m in range(self.dimension)]
@@ -470,9 +472,9 @@ class _ClassSearch:
     def _perturb(
         self, classes_x: list[int], classes_z: list[int], rng: np.random.Generator
     ) -> tuple[list[int], list[int]]:
-        """Apply a few random moves that keep every class near the maximum weight of the basis.
+        """Apply a few random moves that keep every class within the perturbation slack.
 
-        Every class stays within ``_PERTURBATION_SLACK`` of the maximum weight of the given basis.
+        Every class stays at most ``_PERTURBATION_SLACK`` above the basis's maximum weight.
         """
         # allow classes up to the slack above the maximum weight of the basis
         classes_x, classes_z = list(classes_x), list(classes_z)
@@ -480,7 +482,7 @@ class _ClassSearch:
         weights += [self.table_z.weight(c) for c in classes_z]
         limit = max(weights) + _PERTURBATION_SLACK
 
-        # draw random moves until each fits the limit
+        # apply a few random moves, each the first of a bounded number of draws that fits the limit
         num_moves = 0
         if self.dimension > 1:
             num_moves = int(rng.integers(2, min(self.dimension, _MAX_PERTURBATION_MOVES) + 1))
