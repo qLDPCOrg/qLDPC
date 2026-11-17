@@ -98,7 +98,7 @@ After each round, the coordinator:
 
 * fixes clear findings about the change, and verifies each fix with the drafting checks;
 * fixes a minor pre-existing problem in the change, such as a misleading message or an untested edge case, if the fix is local, evidently correct, and needs no decision;
-* leaves decisions to the person it works for, unless :ref:`standard triage <decisions-standard-triage>` settles them, presents each as :doc:`decisions and recommendations <decisions>` describes, and continues with the other fixes;
+* leaves decisions to the person it works for, or to :ref:`standard triage <decisions-standard-triage>` when asked for it, presents each decision as :doc:`decisions and recommendations <decisions>` describes, and continues with the other fixes;
 * if a significant problem needs a decision that is still open, or, from the third round on, needs a non-local fix outside the reviewed revisions, reports it and asks how to proceed before another round, such as by splitting the change.
 
 Decisions, unless already made, include design and public API changes, changes to the standards or to this page, disagreements with a reviewer, fixes that the rules on :ref:`adding process <decisions-adding-process>` make into decisions, and what to do about any other pre-existing problem that can give a wrong result or fail silently.
