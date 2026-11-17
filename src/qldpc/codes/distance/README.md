@@ -283,7 +283,7 @@ Numba's parallel code, such as some of galois's, uses numba's own count, which n
 So `QLDPC_NUM_THREADS` sets numba's count too only if qLDPC is imported before numba, and so before galois: qLDPC then sets `NUMBA_NUM_THREADS` to the same value.
 If numba was imported first with another count, qLDPC warns that numba keeps it; to avoid that, also set `NUMBA_NUM_THREADS` to the same value before Python starts.
 The docstring of `src/qldpc/_num_threads.py` gives the other warnings.
-Numba does not read the CPU quotas of containers, so in a container, set `QLDPC_NUM_THREADS` to its CPU quota, rounded down to at least 1.
+Numba does not read the CPU quotas of containers, so in a container, set `QLDPC_NUM_THREADS` to its CPU quota rounded down, or to 1 if the quota is below 1.
 `numba.set_num_threads` changes only the count of the calling thread's numba parallel code, not `QLDPC_NUM_THREADS` or `numba.config.NUMBA_NUM_THREADS`, nor the threads of searches.
 `NUMBA_NUM_THREADS` alone still sets the count of searches when `QLDPC_NUM_THREADS` is not set.
 To keep searches on one core, set `QLDPC_NUM_THREADS=1` before Python starts, which reaches every thread and worker process, or run them within `use_tuning(num_threads=1)`.

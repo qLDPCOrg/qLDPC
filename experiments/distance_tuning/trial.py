@@ -8,8 +8,9 @@ compiled code of the workload's kind on small codes, times the workload ``--repe
 prints one JSON object with the result and the wall and CPU seconds of each repetition, and the peak
 resident memory.  Later repetitions can be much faster than the first, since codes remember work
 such as generator matrices and found automorphisms, and coset searches reuse their setups.  To run
-the script directly, limit it to one thread with ``QLDPC_NUM_THREADS=1``, and limit BLAS with the
-variables that ``sweep.py`` sets, such as ``OPENBLAS_NUM_THREADS=1`` and ``OMP_NUM_THREADS=1``.
+the script directly, limit it to one thread as ``sweep.py`` does: set to 1 each variable of its
+``SINGLE_THREAD``, which include ``QLDPC_NUM_THREADS`` and the variables of BLAS libraries, such as
+``VECLIB_MAXIMUM_THREADS`` for Accelerate on macOS.
 
 Example:
 

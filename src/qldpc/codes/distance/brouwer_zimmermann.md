@@ -795,8 +795,8 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   An exception in any thread stops the others after their chunks, and so does one in the calling thread while it starts or waits for them, such as a keyboard interrupt.
   The exception is raised again once all threads have returned, except in narrow windows that only a signal handler could close (see `run_work_items` in `_threads.py`).
   A further interrupt in such a window can end the search while threads still run.
-  If it arrives before the calling thread has told the others to stop, they run until the layer ends; otherwise, until their chunks end.
-  The process waits for them at exit.
+  If it arrives before any thread has told the others to stop, they run until the layer ends; otherwise, until their chunks end.
+  The process waits for them at exit, unless the search ran on a daemon thread, whose threads are daemons too.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

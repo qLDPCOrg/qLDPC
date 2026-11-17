@@ -51,7 +51,7 @@ Start from a symptom
        Set the environment variable ``QLDPC_NUM_THREADS`` before Python starts, which sets the default number of threads, or set :attr:`~SearchTuning.num_threads`.
        Without ``QLDPC_NUM_THREADS``, the environment variable ``NUMBA_NUM_THREADS`` sets the default.
        Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example with ``QLDPC_NUM_THREADS=1``.
-       Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota, rounded down to at least 1.
+       Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota rounded down, or to 1 if the quota is below 1.
        The section `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
