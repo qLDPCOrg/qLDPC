@@ -534,8 +534,9 @@ def test_quantum_tanner_default_local_checks(tmp_path: pathlib.Path) -> None:
     assert_same_row_space(loaded_code.matrix_x, code.matrix_x)
     assert_same_row_space(loaded_code.matrix_z, code.matrix_z)
 
-    with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
-        codes.QTCode(subset, subset, code_a, local_checks="row_reduced")  # type: ignore[arg-type]
+    for local_checks in ["row_reduced", None]:
+        with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
+            codes.QTCode(subset, subset, code_a, local_checks=local_checks)  # type: ignore[arg-type]
 
 
 def test_quantum_tanner_saved_local_checks(tmp_path: pathlib.Path) -> None:

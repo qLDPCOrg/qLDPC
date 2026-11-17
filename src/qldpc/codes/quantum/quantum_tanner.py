@@ -29,8 +29,7 @@ which the argument ``local_checks`` of QTCode chooses:
   redundant checks.
 
 Both choices span the same local check space at every vertex, so they give the same stabilizer
-group, number of qudits, and dimension.  Versions of qLDPC before these choices existed built a
-basis in reduced row echelon form, which also spans these spaces.
+group, number of qudits, and dimension.
 
 The minimum-weight bases are tensor products of minimum-weight bases of the factors, such as
 ``{u_i ⨂ v_j}`` for minimum-weight bases {u_i} of C_A and {v_j} of C_B, which
@@ -569,10 +568,10 @@ class QTCode(CSSCode):
         return local_views[0], local_views[1]
 
 
-def _parse_local_checks(value: str) -> _LocalChecks:
+def _parse_local_checks(value: object) -> _LocalChecks:
     """Read a choice of local checks, raising a ValueError if it is not one."""
     for local_checks in get_args(_LocalChecks):
-        if value.strip() == local_checks:
+        if isinstance(value, str) and value.strip() == local_checks:
             return local_checks
     raise ValueError(
         f"Unrecognized choice of local checks for a QTCode: {value!r} (expected one of"

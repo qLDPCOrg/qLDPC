@@ -223,11 +223,12 @@ def get_published_parameters(name: str) -> tuple[int, int, int] | None:
 
 
 def get_row_reduced_qt_code(code: codes.QTCode) -> codes.CSSCode:
-    """A quantum Tanner code with the parity checks that versions of qldpc up to 0.4.1 built.
+    """A quantum Tanner code with the parity checks that QTCode built before minimum-weight checks.
 
-    These versions spanned each local check space with a basis in reduced row echelon form, rather
-    than a minimum-weight basis.  Both span the same spaces, so the stabilizer group and qubits are
-    those of the given code, but the parity checks, and so the work of exact searches, can differ.
+    Earlier versions of qldpc spanned each local check space with a basis in reduced row echelon
+    form, rather than a minimum-weight basis.  Both span the same spaces, so the stabilizer group
+    and qubits are those of the given code, but the parity checks, and so the work of exact
+    searches, can differ.
     """
     subgraph_x, subgraph_z = codes.QTCode.get_subgraphs(code.complex)
     code_a, code_b = code.code_a, code.code_b
