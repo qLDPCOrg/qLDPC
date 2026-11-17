@@ -39,9 +39,8 @@ def get_lightest_logical_basis(
     finds the new weight, at a cost that generally grows exponentially with that weight.  Each step
     then recovers an operator of its weight with many searches limited to that weight.  Among
     operators of the lightest weight, the choice ignores how many qubits each shares with the
-    operators already chosen; :attr:`LightestLogicalBasis.metrics` measures these overlaps.
-    Results are cached on disk with :mod:`qldpc.cache` under the name
-    ``"lightest_logical_basis_v1"``.
+    operators already chosen; :attr:`LightestLogicalBasis.metrics` measures these overlaps.  Results
+    are cached on disk with :mod:`qldpc.cache` under the name ``"lightest_logical_basis_v1"``.
 
     Args:
         code: A binary CSS code, which may be a subsystem code.
@@ -89,7 +88,10 @@ class LightestLogicalBasis:
 
     @property
     def metrics(self) -> LogicalOpsMetrics:
-        """The metrics of the operators: their weights, loads, and overlaps."""
+        """The metrics of the operators: their weights, loads, and overlaps.
+
+        These are the metrics that :meth:`LogicalOpsMetrics.from_ops` returns for this basis.
+        """
         return LogicalOpsMetrics._from_valid_ops(self.logical_ops)
 
     @property

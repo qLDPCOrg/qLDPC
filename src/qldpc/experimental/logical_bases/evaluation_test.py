@@ -61,6 +61,8 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
 
     with pytest.raises(ValueError, match="shape"):
         evaluate_logical_ops(stabilizer_code, ops[:, :n])
+    with pytest.raises(ValueError, match="shape"):
+        LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.X, np.vstack([ops[:k, :n], ops[:1, :n]]))
     with pytest.raises(ValueError, match="binary"):
         evaluate_logical_ops(stabilizer_code, 2 * ops)
     for row, other_half in [(0, slice(n, None)), (k, slice(None, n))]:
@@ -110,7 +112,8 @@ def test_evaluate_dressed_ops(subsystem_code: codes.CSSCode) -> None:
         with pytest.raises(ValueError, match=f"{name}-type operators are not logical"):
             evaluate_logical_ops(subsystem_code, one_half, logicals="bare")
 
-    # the same holds for a basis of one type
+    # a basis of one type of these dressed operators is likewise accepted, and rejected when bare
+    # operators are required
     ops_x = ops[: subsystem_code.dimension, :n]
     LogicalOpsMetrics.from_ops(subsystem_code, Pauli.X, ops_x)
     with pytest.raises(ValueError, match="X-type operators are not logical"):
