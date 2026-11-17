@@ -117,14 +117,17 @@ def test_local_optima(
     classes_z = [_get_class(paired_code, Pauli.Z, op) for op in result.logical_ops[k:, n:]]
     assert not _get_improving_moves(paired_code, function, classes_x, classes_z)
 
-    # this descent from the code's own basis needs more than one move
+    # this descent from the code's own basis needs more than one move, and a descent that judged
+    # moves with outdated weights would take a move here that does not lower the objective
     code = codes.CSSCode([[1, 0, 1, 1, 1, 1], [0, 1, 0, 1, 1, 1]], [[0, 1, 1, 0, 1, 0]])
     search = _ClassSearch(code, function, "dressed", None)
     moves = []
     improves = _ClassSearch._improves
 
-    def record_move(self: _ClassSearch, *args: Any) -> bool:
-        moves.append((args[3], args[4], improves(self, *args)))
+    def record_move(
+        self: _ClassSearch, weights_x: Any, weights_z: Any, value: Any, i: int, j: int, *rest: int
+    ) -> bool:
+        moves.append((i, j, improves(self, weights_x, weights_z, value, i, j, *rest)))
         return moves[-1][2]
 
     monkeypatch.setattr(_ClassSearch, "_improves", record_move)
@@ -137,7 +140,7 @@ def test_local_optima(
     weights_x = _get_class_weights(code, Pauli.X, "dressed")
     weights_z = _get_class_weights(code, Pauli.Z, "dressed")
     replay_x, replay_z = [1, 2, 4], [1, 2, 4]
-    taken = [(i, j) for i, j, taken in moves if taken]
+    taken = [(i, j) for i, j, improved in moves if improved]
     assert len(taken) > 1
     for i, j in taken:
         value = function(

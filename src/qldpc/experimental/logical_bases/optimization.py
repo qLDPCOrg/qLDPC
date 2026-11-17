@@ -24,12 +24,12 @@ from .lightest_basis import LightestLogicalBasis, _get_min_weight_word, get_ligh
 # weight, so that they never have to resolve the weights of heavy classes, which are expensive.
 _PERTURBATION_SLACK = 2
 
-# The largest number of random moves that one perturbation tries to apply.  With at least two
-# logical qubits, it tries to apply at least two.
+# One perturbation chooses to apply between two and this many random moves, and at most one per
+# logical qubit.
 _MAX_PERTURBATION_MOVES = 6
 
-# A perturbation tries at most this many random moves, per logical qubit, for each move that it
-# tries to apply.
+# For each move that a perturbation chooses to apply, it draws at most this many random moves per
+# logical qubit, and applies the first that keeps every class within the slack.
 _ATTEMPTS_PER_MOVE = 4
 
 ####################################################################################################
@@ -40,9 +40,9 @@ ClassObjective = Callable[[Sequence[int], Sequence[int]], Any]
 """A function of the weights of the X-type and Z-type operators of a basis; lower is better.
 
 Its values must be totally ordered, such as numbers or tuples of numbers, and it must be monotone:
-raising any one weight never lowers it.  It must also accept empty lists, for a code without logical
-qubits.  The search relies on monotonicity to rule out moves from
-lower bounds on weights, so a function that is not monotone can make it miss better bases.
+raising any one weight never lowers it.  The search relies on monotonicity to rule out moves from
+lower bounds on weights, so a function that is not monotone can make it miss better bases.  The
+function must also accept empty lists, for a code without logical qubits.
 """
 
 
@@ -102,8 +102,8 @@ def optimize_logical_basis(
             after which the search stops.  With zero, the search stops after the first descent.
         max_searches: If given, a budget for the distance searches that the result's
             ``searches`` counts.  The search always finishes finding its start, and then checks the
-            budget between moves, so it can run more searches than the budget: all those that
-            finding the start needs, and a few more after that.  It then returns the best basis
+            budget between moves, so it can exceed the budget by the searches that finding the
+            start needs, and by a few more after that.  It then returns the best basis
             found so far.
         seed: A seed for the random perturbations, which makes the search reproducible.
 
