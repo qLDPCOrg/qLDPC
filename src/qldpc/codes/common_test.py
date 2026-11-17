@@ -1153,7 +1153,7 @@ def test_canonicalized_code_is_its_own_canonical_form() -> None:
 
 
 def test_canonical_forms_over_extension_fields_of_gf2() -> None:
-    """Canonical forms over GF(4), whose characteristic is also two, use galois, not GF(2) routines.
+    """GF(4) has characteristic two, like GF(2), but canonical forms over it use galois.
 
     The row ``[2, 3, 1]`` is ``[1, 2, 3]`` times the element ``2``, so it is dependent.
     """
