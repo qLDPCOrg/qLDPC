@@ -58,15 +58,13 @@ Pass ``nogil=True`` to :func:`always_compiled` only for an entry point that seve
 once, such as the scan of a work item of a distance search.  Its compiled code then runs without
 Python's global interpreter lock, so that threads run it in parallel, and so does every compiled
 function that it calls.  Such an entry point, and every compiled function that it calls, may write
-only to arrays that it allocates, and to arrays or entries that no other call running at the same
-time reads or writes, such as buffers that its caller gives to one thread.  It must read no data
-that another thread writes while it runs, and call no numba code compiled with ``parallel=True`` or
-``prange``: two threads that call such code at once abort the process under numba's default
-threading layer (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  Section 5 of the
-guide of the search that runs it, ``brouwer_zimmermann.md`` or ``connected_cluster.md`` in
-``qldpc/codes/distance/``, states the requirements on threads in full.  A compiled function without
-``nogil=True`` keeps the lock when Python calls it, so threads that call it at once from Python take
-turns.
+only to arrays that it allocates, or to arrays or entries that nothing else reads or writes while it
+runs, such as buffers that its caller gives to one thread.  It must read nothing that anything else
+writes while it runs, and call no numba code compiled with ``parallel=True`` or ``prange`` (see
+``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  For a distance search, Section 5 of
+its guide in ``qldpc/codes/distance/`` states the requirements on threads in full.  A compiled
+function without ``nogil=True`` keeps the lock when Python calls it while it is compiled, so threads
+that call it at once from Python take turns.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
 function of both kinds runs as plain Python, much more slowly.  :func:`always_compiled` then returns

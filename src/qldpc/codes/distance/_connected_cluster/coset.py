@@ -2,11 +2,8 @@
 
 """Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first.
 
-Batches of ``CosetLeaderSearch`` run the queries of a coset search on several threads at once
-(Section 3.11 of ``connected_cluster.md``), and so can callers that share a ``CosetLeaderSearch``
-(the section "Threads" of ``README.md``).  So a query only reads the coset search, whose tables,
-such as the overlap cuts of its queries, ``CosetLeaderSearch`` builds before any query runs.
-Section 5 of ``connected_cluster.md`` states the requirements on threads that a change must keep.
+Several threads can run the queries of a coset search at once, as Section 3.8 of
+``connected_cluster.md`` says, and a change must keep the requirements on threads of its Section 5.
 """
 
 from __future__ import annotations

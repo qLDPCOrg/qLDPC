@@ -220,7 +220,8 @@ A better rule could use:
 - more features of the sectors, such as the weights of their checks.
 
 It could also resume the probe rather than start a new BZ search.
-It must read from a search only what is the same on any number of threads, as Section 5 of each guide requires ("Decide only from what a layer leaves the same on any number of threads" in `brouwer_zimmermann.md`): for example, the counts of supports that a BZ layer on threads weighs and skips depend on the timing of its threads, but the predictions of its completion tables do not.
+It must read from a search only what is the same on any number of threads, as Section 5 of each guide requires ("Decide only from what a layer leaves the same on any number of threads" in `brouwer_zimmermann.md`).
+For example, the counts of supports that a BZ layer on threads weighs and skips depend on the timing of its threads, but the predictions of its completion tables do not.
 To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
 A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.
 
@@ -339,4 +340,5 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
 - A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads in Section 5 of the guide of each method, and pass the tests on threads that the guide lists.
   So must a change to data that threads read, such as completion tables, the routes of coset searches, and the tables of a connected-cluster search, or to a decision that a search makes from the results of a layer or a weight limit.
+  Code that threads run reads the tuning only from its search, never through `get_tuning()`, since new threads start with the default tuning (see the module docstring of `_tuning.py`).
 - `_readme_test.py` fails if this page omits a module, or names a file that does not exist.

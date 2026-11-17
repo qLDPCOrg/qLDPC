@@ -11,9 +11,9 @@ bound that proves a word heavier than the maximum weight in a coset query, and a
 as lighter words turn up in a search for a minimum weight.  Sections 3.9 and 3.10 of
 ``brouwer_zimmermann.md`` derive the bound and the limits.
 
-The threads that share a layer of a distance search (Section 4.5 of that guide), and coset queries
-that run at once, each read shared tables.  So a table must be complete before any scan reads it,
-and unchanged while scans do, as Section 5 of that guide requires of the data that threads read.
+Threads read shared tables at once (Sections 3.9, "Tables and lookups", and 5 of that guide).
+Compiled functions here, such as ``get_completion_bound``, also run within nogil calls of threaded
+searches, so they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations

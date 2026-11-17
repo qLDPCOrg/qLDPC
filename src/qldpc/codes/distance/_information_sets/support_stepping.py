@@ -3,7 +3,9 @@
 """The step of the scans of search bases from one support of a layer to the next.
 
 The work items of a layer on threads rely on the lexicographic order of the steps (Section 5 of
-``brouwer_zimmermann.md``, "Keep the scans of a layer splittable across threads").
+``brouwer_zimmermann.md``, "Keep the scans of a layer splittable across threads").  Compiled
+functions here, such as ``advance_support``, also run within nogil calls of threaded searches, so
+they must keep the rules for such code in the docstring of ``qldpc/_compilation.py``.
 """
 
 from __future__ import annotations

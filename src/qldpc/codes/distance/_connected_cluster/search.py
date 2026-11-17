@@ -7,9 +7,8 @@ checks ``H`` and are outside the row space of ``G``, or that have a given syndro
 supports through unsatisfied checks.  It is the connected-cluster algorithm of Dumer, Kovalev, and
 Pryadko, with the branch and bound of Okada and Kasai.  ``connected_cluster.md`` in
 ``src/qldpc/codes/distance/`` derives the search, cites its sources, and states its correctness
-requirements.  These include requirements on threads, since several threads run
-``_search_supports`` at once, to search a costly weight limit or to answer queries that run at once
-(Sections 3.11 and 5).
+requirements.  These include requirements on threads, since several threads run ``_search_supports``
+at once, to search a costly weight limit or to answer several queries (Sections 3.11 and 5).
 """
 
 from __future__ import annotations
