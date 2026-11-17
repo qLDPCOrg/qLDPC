@@ -9,7 +9,7 @@ import pathlib
 import random
 import re
 import unittest.mock
-from typing import Literal
+from typing import get_args
 
 import galois
 import networkx as nx
@@ -21,11 +21,11 @@ import sympy
 
 from qldpc import abstract, codes
 from qldpc.codes.quantum import quantum_tanner
+from qldpc.codes.quantum.quantum_tanner import LocalChecks
 from qldpc.conftest import run_python
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
-LocalChecks = Literal["min_weight", "from_codes"]
-LOCAL_CHECKS: tuple[LocalChecks, ...] = ("min_weight", "from_codes")
+LOCAL_CHECKS: tuple[LocalChecks, ...] = get_args(LocalChecks)
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> None:

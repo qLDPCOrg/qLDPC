@@ -124,7 +124,8 @@ from ..common import (
     _preserves_row_space,
 )
 
-_LocalChecks = Literal["min_weight", "from_codes"]
+LocalChecks = Literal["min_weight", "from_codes"]
+"""The choices of the checks that span each local check space (see the module docstring)."""
 
 # the classes (s, t) of the vertices of an LQTCode with checks of each type, in the order of their
 # rows in matrix_x and matrix_z
@@ -250,7 +251,7 @@ class QTCode(CSSCode):
         field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> None:
         """Construct a quantum Tanner code.
 
@@ -395,7 +396,7 @@ class QTCode(CSSCode):
         code_a: ClassicalCode,
         code_b: ClassicalCode,
         *,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> tuple[TannerCode, TannerCode]:
         """Get the classical Tanner subcodes of a quantum Tanner code.
 
@@ -488,7 +489,7 @@ class QTCode(CSSCode):
         field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> QTCode:
         """Construct a quantum Tanner code whose local codes label coordinates by given members.
 
@@ -558,7 +559,7 @@ class QTCode(CSSCode):
         one_subset: bool = False,
         exclude_identity: bool = False,
         seed: int | None = None,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> QTCode:
         """Construct a random quantum Tanner code from a group and local codes.
 
@@ -670,7 +671,7 @@ class QTCode(CSSCode):
     def load(
         path: str,
         *,
-        local_checks: Literal["min_weight", "from_codes"] | None = None,
+        local_checks: LocalChecks | None = None,
     ) -> QTCode:
         """Load a QTCode from a file written by QTCode.save.
 
@@ -1034,7 +1035,7 @@ class LQTCode(CSSCode):
         *,
         code_a1: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
         code_b1: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> None:
         """Construct a lifted quantum Tanner code.
 
@@ -1130,7 +1131,7 @@ class LQTCode(CSSCode):
         code_0_prime: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_1_prime: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         field: int | type[galois.FieldArray] | None = None,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> LQTCode:
         """The lifted quantum Tanner code of Eq. (2) of arXiv:2512.20532, in that paper's notation.
 
@@ -1383,13 +1384,13 @@ class LQTCode(CSSCode):
         return np.vstack(blocks).view(self.field)
 
 
-def _parse_local_checks(value: object) -> _LocalChecks:
+def _parse_local_checks(value: object) -> LocalChecks:
     """Read a choice of local checks, raising a ValueError if it is not one."""
-    for local_checks in get_args(_LocalChecks):
+    for local_checks in get_args(LocalChecks):
         if isinstance(value, str) and value.strip() == local_checks:
             return local_checks
     raise ValueError(
-        f"Unrecognized choice of local checks: {value!r} (expected one of {get_args(_LocalChecks)})"
+        f"Unrecognized choice of local checks: {value!r} (expected one of {get_args(LocalChecks)})"
     )
 
 
@@ -1425,7 +1426,7 @@ def _get_member_on_points(member: abstract.GroupMember, num_points: int) -> abst
 
 
 def _get_local_check_spaces(
-    code_a: ClassicalCode, code_b: ClassicalCode, local_checks: _LocalChecks
+    code_a: ClassicalCode, code_b: ClassicalCode, local_checks: LocalChecks
 ) -> tuple[ClassicalCode, ClassicalCode]:
     """Classical codes whose parity checks are the local X-type and Z-type checks of a QTCode.
 
