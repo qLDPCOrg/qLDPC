@@ -9,13 +9,13 @@ from unittest import mock
 
 import galois
 import numpy as np
-import numpy.typing as npt
 import pytest
 
 from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from . import optimization
+from .conftest import get_class, get_class_weights
 from .evaluation import evaluate_logical_ops
 from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
 from .optimization import OptimizedLogicalBasis, _ClassSearch, optimize_logical_basis
@@ -144,8 +144,8 @@ def test_local_optima(
     """A descent takes only improving moves, and ends at a basis that no move improves."""
     result = optimize_logical_basis(paired_code, objective=function, patience=0)
     k, n = paired_code.dimension, len(paired_code)
-    classes_x = [_get_class(paired_code, Pauli.X, op) for op in result.logical_ops[:k, :n]]
-    classes_z = [_get_class(paired_code, Pauli.Z, op) for op in result.logical_ops[k:, n:]]
+    classes_x = [get_class(paired_code, Pauli.X, op) for op in result.logical_ops[:k, :n]]
+    classes_z = [get_class(paired_code, Pauli.Z, op) for op in result.logical_ops[k:, n:]]
     assert not _get_improving_moves(paired_code, function, classes_x, classes_z)
 
     # this descent from the code's own basis needs more than one move, and a descent that judged
@@ -168,8 +168,8 @@ def test_local_optima(
     assert not _get_improving_moves(code, function, bits_x, bits_z)
 
     # replay the moves taken, each of which must lower the objective
-    weights_x = _get_class_weights(code, Pauli.X, "dressed")
-    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    weights_x = get_class_weights(code, Pauli.X, "dressed")
+    weights_z = get_class_weights(code, Pauli.Z, "dressed")
     replay_x, replay_z = [1, 2, 4], [1, 2, 4]
     taken = [(i, j) for i, j, improved in moves if improved]
     assert len(taken) > 1
@@ -213,8 +213,8 @@ def test_patience(monkeypatch: pytest.MonkeyPatch) -> None:
     optimize_logical_basis(code, objective=_max_weight, patience=patience, seed=1)
 
     # score each descent by brute force, and count the rounds since the last improvement
-    weights_x = _get_class_weights(code, Pauli.X, "dressed")
-    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    weights_x = get_class_weights(code, Pauli.X, "dressed")
+    weights_z = get_class_weights(code, Pauli.Z, "dressed")
     k = code.dimension
     values = [
         _max_weight(
@@ -307,8 +307,8 @@ def test_moves(paired_code: codes.CSSCode, function: Callable[..., Any]) -> None
     Starting from the code's own basis, some moves give an operator a class heavier than both
     classes that the move replaces.
     """
-    weights_x = _get_class_weights(paired_code, Pauli.X, "dressed")
-    weights_z = _get_class_weights(paired_code, Pauli.Z, "dressed")
+    weights_x = get_class_weights(paired_code, Pauli.X, "dressed")
+    weights_z = get_class_weights(paired_code, Pauli.Z, "dressed")
     search = _ClassSearch(paired_code, function, "dressed", None)
     classes_x, classes_z = [1, 2, 4], [1, 2, 4]
     current_x = [weights_x[_to_bits(c, 3)] for c in classes_x]
@@ -352,8 +352,8 @@ def test_start(swap: bool) -> None:
     classes that complete them.  Swapping the checks of the code swaps which lightest basis wins.
     """
     code = codes.CSSCode(*(_PAIRED_CHECKS[::-1] if swap else _PAIRED_CHECKS))
-    weights_x = _get_class_weights(code, Pauli.X, "dressed")
-    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    weights_x = get_class_weights(code, Pauli.X, "dressed")
+    weights_z = get_class_weights(code, Pauli.Z, "dressed")
     k = code.dimension
 
     # the classes of the starts, with the classes that complete them
@@ -386,8 +386,8 @@ def test_start_by_max_weight() -> None:
     # Z-type lightest basis, completed by the classes that pair with it, has a larger maximum weight
     # and a smaller total Z-type weight
     code = codes.CSSCode([[0, 1, 1, 1, 1, 1]], [[1, 0, 1, 1, 1, 1]])
-    weights_x = _get_class_weights(code, Pauli.X, "dressed")
-    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    weights_x = get_class_weights(code, Pauli.X, "dressed")
+    weights_z = get_class_weights(code, Pauli.Z, "dressed")
     k = code.dimension
     own = [tuple(int(bit) for bit in row) for row in np.eye(k, dtype=int)]
     assert [weights_x[c] for c in own] == [weights_z[c] for c in own] == [2] * k
@@ -486,8 +486,8 @@ def _get_brute_force_optimum(
     code: codes.CSSCode, logicals: Literal["dressed", "bare"], function: Callable[..., Any]
 ) -> Any:
     """The best value of an objective over all complete bases, by enumerating class bases."""
-    weights_x = _get_class_weights(code, Pauli.X, logicals)
-    weights_z = _get_class_weights(code, Pauli.Z, logicals)
+    weights_x = get_class_weights(code, Pauli.X, logicals)
+    weights_z = get_class_weights(code, Pauli.Z, logicals)
     k = code.dimension
     best = None
     for classes in itertools.product(list(weights_x), repeat=k):
@@ -500,12 +500,6 @@ def _get_brute_force_optimum(
     return best
 
 
-def _get_class(code: codes.CSSCode, pauli: PauliXZ, operator: npt.ArrayLike) -> tuple[int, ...]:
-    """The class of an operator: its pairing with each of the code's opposite-type operators."""
-    dual_ops = np.asarray(code.get_logical_ops(pauli.swap_xz()), dtype=int)
-    return tuple(int(bit) for bit in dual_ops @ np.asarray(operator, dtype=int) % 2)
-
-
 def _get_improving_moves(
     code: codes.CSSCode,
     function: Callable[..., Any],
@@ -513,8 +507,8 @@ def _get_improving_moves(
     classes_z: Sequence[tuple[int, ...]],
 ) -> list[tuple[int, int]]:
     """The moves that improve a class basis, by the brute-force class weights."""
-    weights_x = _get_class_weights(code, Pauli.X, "dressed")
-    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    weights_x = get_class_weights(code, Pauli.X, "dressed")
+    weights_z = get_class_weights(code, Pauli.Z, "dressed")
     current_x = [weights_x[c] for c in classes_x]
     current_z = [weights_z[c] for c in classes_z]
     value = function(current_x, current_z)
@@ -531,25 +525,3 @@ def _get_improving_moves(
 def _to_bits(c: int, k: int) -> tuple[int, ...]:
     """The bits of a class given as an integer."""
     return tuple(c >> m & 1 for m in range(k))
-
-
-def _get_class_weights(
-    code: codes.CSSCode, pauli: PauliXZ, logicals: Literal["dressed", "bare"]
-) -> dict[tuple[int, ...], int]:
-    """The minimum weight of each nontrivial logical class of one Pauli type, by enumeration.
-
-    The class of an operator is its pairing with each of the code's logical operators of the
-    opposite type.  Dressed operators commute with the stabilizers of the opposite type, and bare
-    ones with its gauge operators.
-    """
-    other = pauli.swap_xz()
-    checks = code.get_stabilizer_ops(other) if logicals == "dressed" else code.get_matrix(other)
-    space: npt.NDArray[np.int_] = np.asarray(galois.GF2(np.asarray(checks)).null_space(), dtype=int)
-    dual_ops = np.asarray(code.get_logical_ops(other), dtype=int)
-    weights: dict[tuple[int, ...], int] = {}
-    for combination in itertools.product([0, 1], repeat=len(space)):
-        word = np.array(combination, dtype=int) @ space % 2
-        bits = tuple(int(bit) for bit in dual_ops @ word % 2)
-        if any(bits):
-            weights[bits] = min(weights.get(bits, len(word)), int(word.sum()))
-    return weights
