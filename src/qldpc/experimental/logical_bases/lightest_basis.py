@@ -69,8 +69,7 @@ class LightestLogicalBasis:
     Its operators are in nondecreasing order of weight, and their weights bound the weights of every
     basis of logical operators of the same Pauli type and kind (dressed or bare) from below: sorted
     in nondecreasing order, the weights of every such basis are at least ``weights``, entry by
-    entry.  In particular, no such basis
-    has a smaller maximum weight or total weight.
+    entry.  In particular, no such basis has a smaller maximum weight or total weight.
 
     These bounds hold for each Pauli type separately.  The X-type and Z-type operators of a complete
     basis must also pair up, as :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
