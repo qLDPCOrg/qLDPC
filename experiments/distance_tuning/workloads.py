@@ -8,7 +8,8 @@ A code name is one of:
 - ``gross``: the [[144, 12, 12]] bivariate bicycle code;
 - ``bb288``: ``BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)``, the [[288, 12, 18]]
   bivariate bicycle code;
-- ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1)``, a quantum Tanner code;
+- ``qt7``: ``QTCode.random(CyclicGroup(7), HammingCode(3), seed=1, local_checks="row_reduced")``,
+  a quantum Tanner code with the parity checks that earlier benchmarks used;
 - ``qgolay``: the [[23, 1, 7]] quantum Golay code, which is self-dual;
 - ``qrm:<order>:<size>``: ``QuantumReedMullerCode(order, size)``, which is self-dual, for ``mcount``
   workloads: qLDPC knows its distance in closed form, so a distance workload of it searches nothing;
@@ -182,7 +183,9 @@ def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
     if kind == "bb288":
         return codes.BBCode({x: 12, y: 12}, x**3 + y**2 + y**7, y**3 + x + x**2)
     if kind == "qt7":
-        return codes.QTCode.random(abstract.CyclicGroup(7), codes.HammingCode(3), seed=1)
+        return codes.QTCode.random(
+            abstract.CyclicGroup(7), codes.HammingCode(3), seed=1, local_checks="row_reduced"
+        )
     if kind == "qgolay":
         return codes.QuantumGolayCode()
     if kind == "qrm":

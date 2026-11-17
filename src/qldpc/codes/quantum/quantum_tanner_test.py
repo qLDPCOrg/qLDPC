@@ -4,17 +4,25 @@
 
 from __future__ import annotations
 
+import itertools
 import pathlib
 import random
 import unittest.mock
+from typing import Literal
 
+import galois
 import networkx as nx
 import numpy as np
 import pytest
 import sympy
 
 from qldpc import abstract, codes
+from qldpc.codes.quantum import quantum_tanner
 from qldpc.conftest import run_python
+from qldpc.objects import Pauli, PauliXZ
+
+LocalChecks = Literal["min_weight", "from_codes", "row_reduced"]
+LOCAL_CHECKS: tuple[LocalChecks, ...] = ("min_weight", "from_codes", "row_reduced")
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> None:
@@ -24,7 +32,9 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     # random quantum Tanner code
     group = abstract.CyclicGroup(12)
     subcode = codes.RepetitionCode(4, field=3)
-    code = codes.QTCode.random(group, subcode, seed=np.random.randint(2**31))
+    code = codes.QTCode.random(
+        group, subcode, seed=np.random.randint(2**31), local_checks="min_weight"
+    )
 
     # assert that subgraphs have the right number of nodes, edges, and node degrees
     subgraph_x, subgraph_z = codes.QTCode.get_subgraphs(code.complex)
@@ -41,12 +51,12 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     subset_b = group.random_symmetric_subset(len(subset_a) - 1)
     subcode_a = codes.RepetitionCode(len(subset_a))
     with pytest.raises(ValueError, match="Underspecified generating data"):
-        codes.QTCode(subset_a, subset_b, subcode_a)
+        codes.QTCode(subset_a, subset_b, subcode_a, local_checks="min_weight")
 
     # raise error if seed codes are over different fields
     subcode_b = codes.RepetitionCode(2, field=3)
     with pytest.raises(ValueError, match="different fields"):
-        codes.QTCode(subset_a, subset_a, subcode_a, subcode_b)
+        codes.QTCode(subset_a, subset_a, subcode_a, subcode_b, local_checks="min_weight")
 
     # saving and loading a QTCode, creating a missing directory along the way
     path = tmp_path / "subdirectory" / "code.txt"
@@ -72,8 +82,12 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     # seed codes without parity checks, load back too, even with headers that mimic section names
     generator = abstract.CyclicGroup(2).generators[0]
     for saved_code in [
-        codes.QTCode.random(abstract.TrivialGroup(), codes.ClassicalCode([[1]])),
-        codes.QTCode([generator], [generator], np.zeros((0, 1), dtype=int), [[1]]),
+        codes.QTCode.random(
+            abstract.TrivialGroup(), codes.ClassicalCode([[1]]), local_checks="min_weight"
+        ),
+        codes.QTCode(
+            [generator], [generator], np.zeros((0, 1), dtype=int), [[1]], local_checks="min_weight"
+        ),
     ]:
         saved_code.save(str(path), "subset_a:\nsubset_b:")
         assert codes.QTCode.load(str(path)) == saved_code
@@ -89,7 +103,11 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     first_seed = np.random.randint(2**31)
     for seed in range(first_seed, first_seed + 10):
         code = codes.QTCode.random(
-            symmetric_group, codes.HammingCode(2), exclude_identity=True, seed=seed
+            symmetric_group,
+            codes.HammingCode(2),
+            exclude_identity=True,
+            seed=seed,
+            local_checks="min_weight",
         )
         assert not any(
             member.is_Identity for member in code.complex.subset_a | code.complex.subset_b
@@ -101,16 +119,16 @@ def test_quantum_tanner_generating_data() -> None:
     shift = abstract.CyclicGroup(6).generators[0]
     members = [shift, ~shift]
     subcode = codes.RepetitionCode(2)
-    code = codes.QTCode(members, members, subcode)
+    code = codes.QTCode(members, members, subcode, local_checks="min_weight")
 
     # repeated members are merged before the sizes of the subsets are compared
-    assert codes.QTCode(members * 2, members, subcode) == code
+    assert codes.QTCode(members * 2, members, subcode, local_checks="min_weight") == code
 
     # codes are equal if their members are equal after adding fixed points to the end of them
     padded_members = [
         abstract.GroupMember(member.array_form, size=member.size + 1) for member in members
     ]
-    padded_code = codes.QTCode(padded_members, padded_members, subcode)
+    padded_code = codes.QTCode(padded_members, padded_members, subcode, local_checks="min_weight")
     assert padded_code.complex.subset_a != code.complex.subset_a
     assert padded_code == code
     assert code == padded_code
@@ -125,14 +143,14 @@ def test_quantum_tanner_generating_data() -> None:
         (codes.RepetitionCode(3), codes.RepetitionCode(2), "C_[AB]"),
     ]:
         with pytest.raises(ValueError, match=f"seed code {wrong_code} has block length"):
-            codes.QTCode(members, other_members, code_a, code_b)
+            codes.QTCode(members, other_members, code_a, code_b, local_checks="min_weight")
 
     # one generating subset may be empty, which leaves a complex without faces, but not both
     no_bits = np.zeros((0, 0), dtype=int)
-    assert codes.QTCode([], members, no_bits, subcode).num_qudits == 0
-    assert codes.QTCode(members, [], subcode, no_bits).num_qudits == 0
+    assert codes.QTCode([], members, no_bits, subcode, local_checks="min_weight").num_qudits == 0
+    assert codes.QTCode(members, [], subcode, no_bits, local_checks="min_weight").num_qudits == 0
     with pytest.raises(ValueError, match="at least one generating member"):
-        codes.QTCode([], [], no_bits)
+        codes.QTCode([], [], no_bits, local_checks="min_weight")
 
 
 def test_quantum_tanner_nonabelian_faces() -> None:
@@ -146,6 +164,7 @@ def test_quantum_tanner_nonabelian_faces() -> None:
         [generator_j, ~generator_j],
         codes.RepetitionCode(2),
         bipartite=False,
+        local_checks="min_weight",
     )
     cayplex = code.complex
     subgraph_x, subgraph_z = codes.QTCode.get_subgraphs(cayplex)
@@ -213,7 +232,9 @@ def test_quantum_tanner_qudit_order() -> None:
         return [tuple(np.flatnonzero(row)) for row in code.matrix_x.view(np.ndarray)]
 
     shift = abstract.CyclicGroup(3).generators[0]
-    code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
+    code = codes.QTCode(
+        [shift, ~shift], [shift, ~shift], codes.RepetitionCode(2), local_checks="min_weight"
+    )
     assert get_supports(code) == [
         (0, 1, 2, 3),
         (1, 2, 4, 5),
@@ -226,7 +247,9 @@ def test_quantum_tanner_qudit_order() -> None:
     # a bipartite complex of the symmetric group S_3, generated by 3-cycles and by transpositions
     cycle = abstract.GroupMember([1, 2, 0])
     swaps = [abstract.GroupMember([1, 0, 2]), abstract.GroupMember([2, 1, 0])]
-    code = codes.QTCode([cycle, ~cycle], swaps, codes.RepetitionCode(2), bipartite=True)
+    code = codes.QTCode(
+        [cycle, ~cycle], swaps, codes.RepetitionCode(2), bipartite=True, local_checks="min_weight"
+    )
     assert get_supports(code) == [
         (0, 1, 2, 3),
         (0, 3, 4, 5),
@@ -239,7 +262,9 @@ def test_quantum_tanner_qudit_order() -> None:
     # a code in which visiting the least node first and visiting nodes in the order in which they
     # are found give different orders of faces
     shift = abstract.CyclicGroup(6).generators[0]
-    code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
+    code = codes.QTCode(
+        [shift, ~shift], [shift, ~shift], codes.RepetitionCode(2), local_checks="min_weight"
+    )
     assert get_supports(code) == [
         (0, 1, 2, 3),
         (1, 2, 4, 5),
@@ -256,7 +281,9 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
     subcode = codes.RepetitionCode(2)
 
     def matrix_for(seed: int | None = None, one_subset: bool = False) -> bytes:
-        code = codes.QTCode.random(group, subcode, seed=seed, one_subset=one_subset)
+        code = codes.QTCode.random(
+            group, subcode, seed=seed, one_subset=one_subset, local_checks="min_weight"
+        )
         return np.asarray(code.matrix).tobytes()
 
     # the same seed gives the same code every time, and different seeds give different codes
@@ -280,7 +307,8 @@ def test_random_quantum_tanner_code_is_reproducible() -> None:
     script = (
         "import numpy as np;"
         "from qldpc import abstract, codes;"
-        "code = codes.QTCode.random(abstract.CyclicGroup(8), codes.RepetitionCode(2), seed=7);"
+        "code = codes.QTCode.random(abstract.CyclicGroup(8), codes.RepetitionCode(2), seed=7,"
+        " local_checks='min_weight');"
         "print(np.asarray(code.matrix).tobytes().hex())"
     )
     matrices = {run_python(script, env={"PYTHONHASHSEED": hash_seed}) for hash_seed in ["0", "1"]}
@@ -294,6 +322,366 @@ def test_toric_tanner_code(size: int = 4) -> None:
     subset_a = [shift_x, ~shift_x]
     subset_b = [shift_y, ~shift_y]
     subcode_a = codes.RepetitionCode(2)
-    code = codes.QTCode(subset_a, subset_b, subcode_a, bipartite=False)
+    code = codes.QTCode(subset_a, subset_b, subcode_a, bipartite=False, local_checks="min_weight")
     assert code.get_code_params() == (size**2, 2, size)
     assert code.get_weight() == 4
+
+
+def get_min_weights(space: galois.FieldArray) -> list[int]:
+    """The weights of a minimum-weight basis of the row space of a matrix, by brute force.
+
+    A minimum-weight basis has exactly r_w - r_(w-1) vectors of weight w, where r_w is the dimension
+    of the span of all vectors of the row space with weight at most w.
+    """
+    field = type(space)
+    basis = space.row_space()
+    coefficients = field(list(itertools.product(range(field.order), repeat=len(basis))))
+    words = coefficients.reshape(field.order ** len(basis), len(basis)) @ basis
+    word_weights = np.count_nonzero(words.view(np.ndarray), axis=1)
+    weights: list[int] = []
+    for weight in range(1, space.shape[1] + 1):
+        light_words = words[(word_weights > 0) & (word_weights <= weight)]
+        light_rank = np.linalg.matrix_rank(light_words) if len(light_words) else 0
+        weights += [weight] * (light_rank - len(weights))
+    return weights
+
+
+def assert_same_row_space(matrix: galois.FieldArray, other: galois.FieldArray) -> None:
+    """Assert that two matrices over a field have the same row space."""
+    rank = np.linalg.matrix_rank(matrix) if matrix.size else 0
+    other_rank = np.linalg.matrix_rank(other) if other.size else 0
+    stacked = np.vstack([matrix, other]).view(type(matrix))
+    assert rank == other_rank == (np.linalg.matrix_rank(stacked) if stacked.size else 0)
+
+
+def test_quantum_tanner_local_checks(pytestconfig: pytest.Config) -> None:
+    """The choices of local checks span the local check spaces of the local views of vertices."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    # random codes over abelian and nonabelian groups, on both complexes, and over GF(2) and GF(3)
+    cases: list[
+        tuple[abstract.Group, codes.ClassicalCode, codes.ClassicalCode | None, bool, int | None]
+    ] = [
+        (abstract.CyclicGroup(6), codes.HammingCode(2), None, False, None),
+        (
+            abstract.SymmetricGroup(3),
+            codes.ClassicalCode([[1, 1, 0, 1], [0, 1, 1, 1]]),
+            None,
+            False,
+            None,
+        ),
+        (
+            abstract.CyclicGroup(4),
+            codes.ClassicalCode([[1, 2, 0], [0, 1, 1]], field=3),
+            None,
+            False,
+            None,
+        ),
+        # a bipartite complex needs subsets that satisfy Total No Conjugacy, as those of seed 36 do
+        (
+            abstract.DihedralGroup(5),
+            codes.HammingCode(2),
+            codes.ClassicalCode([[1, 1, 1, 0]]),
+            True,
+            36,
+        ),
+    ]
+    for group, code_a, code_b, bipartite, seed in cases:
+        code = codes.QTCode.random(
+            group,
+            code_a,
+            code_b,
+            bipartite=bipartite,
+            seed=int(rng.integers(2**31)) if seed is None else seed,
+            local_checks="row_reduced",
+        )
+        code_a, code_b = code.code_a, code.code_b
+
+        # give C_A a generator matrix with redundant rows, which "from_codes" uses as given
+        generator = code_a.generator
+        code_a = codes.ClassicalCode(code_a).set_generator(np.vstack([generator, generator[:1]]))
+
+        # the faces and their qudits, and the members of the subsets in the cover of the complex
+        subgraphs = codes.QTCode.get_subgraphs(code.complex)
+        face_qudits = dict(subgraphs[0].nodes(data="sort"))
+        members_a = sorted(code.complex.cover_subset_a)
+        members_b = sorted(code.complex.cover_subset_b)
+
+        # the members of the subsets label local coordinates in the order of their covers
+        size = code.members_a[0].size
+        for cover_members, members in [(members_a, code.members_a), (members_b, code.members_b)]:
+            assert [member.array_form[:size] for member in cover_members] == [
+                member.array_form for member in members
+            ]
+
+        for local_checks in LOCAL_CHECKS:
+            new_code = codes.QTCode(
+                code.complex.subset_a,
+                code.complex.subset_b,
+                code_a,
+                code_b,
+                bipartite=bipartite,
+                local_checks=local_checks,
+            )
+            assert len(new_code) == len(code)
+            assert new_code.dimension == code.dimension
+            assert_same_row_space(new_code.matrix_x, code.matrix_x)
+            assert_same_row_space(new_code.matrix_z, code.matrix_z)
+            assert not np.any(new_code.matrix_x @ new_code.matrix_z.T)
+
+            sectors: list[
+                tuple[PauliXZ, nx.DiGraph, galois.FieldArray, list[galois.FieldArray]]
+            ] = [
+                (Pauli.X, subgraphs[0], new_code.matrix_x, [code_a.generator, code_b.generator]),
+                (Pauli.Z, subgraphs[1], new_code.matrix_z, [code_a.matrix, code_b.matrix]),
+            ]
+            for pauli, subgraph, matrix, local_spaces in sectors:
+                # the local view of each vertex v labels face f(v,a,b) by its members a and b
+                sources = sorted(node for node in subgraph if subgraph.out_degree(node))
+                local_views = new_code.get_local_views(pauli)
+                assert local_views.shape == (len(sources), len(members_a), len(members_b))
+                assert not local_views.flags.writeable
+                for source, local_view in zip(sources, local_views):
+                    for (row, member_a), (col, member_b) in itertools.product(
+                        enumerate(members_a), enumerate(members_b)
+                    ):
+                        corners = [source, member_a * source, source * member_b]
+                        face = frozenset([*corners, member_a * source * member_b])
+                        assert local_view[row, col] == face_qudits[face]
+
+                # the checks of each vertex lie in its local view, and span its local check space
+                local_space = np.kron(*local_spaces).view(new_code.field)
+                num_checks = len(matrix) // len(local_views)
+                for vertex, local_view in enumerate(local_views):
+                    checks = matrix[vertex * num_checks : (vertex + 1) * num_checks]
+                    outside = np.setdiff1d(np.arange(len(new_code)), local_view.ravel())
+                    assert not np.any(checks[:, outside])
+                    local_checks_at_vertex = checks[:, local_view.ravel()]
+                    if local_checks == "from_codes":
+                        assert np.array_equal(local_checks_at_vertex, local_space)
+                    else:
+                        assert_same_row_space(local_checks_at_vertex, local_space)
+                    if local_checks == "min_weight":
+                        weights = np.count_nonzero(local_checks_at_vertex.view(np.ndarray), axis=1)
+                        assert weights.tolist() == get_min_weights(local_space)
+
+
+def test_quantum_tanner_min_weight_regression() -> None:
+    """Minimum-weight local checks lower the weight of a [[144, 8, 12]] code from 8 to 6.
+
+    The code, on a bipartite complex of C4 x A4, was found in a search for small quantum Tanner
+    codes.
+    """
+    subset_a = [[1, 2, 3, 0, 4, 7, 5, 6], [3, 0, 1, 2, 4, 6, 7, 5]]
+    subset_b = [
+        [1, 2, 3, 0, 5, 4, 7, 6],
+        [1, 2, 3, 0, 6, 7, 4, 5],
+        [1, 2, 3, 0, 7, 6, 5, 4],
+        [3, 0, 1, 2, 5, 4, 7, 6],
+        [3, 0, 1, 2, 6, 7, 4, 5],
+        [3, 0, 1, 2, 7, 6, 5, 4],
+    ]
+    code_b = [[1, 0, 1, 0, 1, 0], [0, 0, 0, 1, 1, 1], [0, 1, 1, 1, 0, 0]]
+    local_check_choices: tuple[LocalChecks, ...] = ("min_weight", "row_reduced")
+    qt_codes = {
+        local_checks: codes.QTCode(
+            [abstract.GroupMember(member) for member in subset_a],
+            [abstract.GroupMember(member) for member in subset_b],
+            [[1, 1]],
+            code_b,
+            bipartite=True,
+            local_checks=local_checks,
+        )
+        for local_checks in local_check_choices
+    }
+    code = qt_codes["min_weight"]
+    assert (len(code), code.dimension) == (144, 8)
+    assert qt_codes["row_reduced"].get_weight() == 8
+    assert code.get_weight() == 6
+    assert_same_row_space(code.matrix_x, qt_codes["row_reduced"].matrix_x)
+    assert_same_row_space(code.matrix_z, qt_codes["row_reduced"].matrix_z)
+
+    # the checks are deterministic, as a saved code relies on: pin those of the first vertices
+    expected_checks: dict[PauliXZ, list[list[int]]] = {
+        Pauli.X: [
+            [1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1],
+            [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+            [0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0],
+        ],
+        Pauli.Z: [
+            [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+            [1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1],
+            [0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1],
+        ],
+    }
+    for pauli, matrix in zip(expected_checks, [code.matrix_x, code.matrix_z]):
+        local_view = code.get_local_views(pauli)[0]
+        assert np.array_equal(matrix[:3][:, local_view.ravel()], expected_checks[pauli])
+
+
+def test_quantum_tanner_released_checks() -> None:
+    """The checks "row_reduced" are those of earlier releases, and "min_weight" has as many.
+
+    The expected supports of the checks were computed with qLDPC before "min_weight" existed.
+    """
+    shift = abstract.CyclicGroup(3).generators[0]
+    qt_codes = {
+        local_checks: codes.QTCode(
+            [shift, ~shift],
+            [shift, ~shift, shift**3],
+            [[1, 1]],
+            [[1, 0, 1]],
+            local_checks=local_checks,
+        )
+        for local_checks in LOCAL_CHECKS
+    }
+    code = qt_codes["row_reduced"]
+    supports_x = [tuple(np.flatnonzero(row)) for row in code.matrix_x.view(np.ndarray)]
+    supports_z = [tuple(np.flatnonzero(row)) for row in code.matrix_z.view(np.ndarray)]
+    assert supports_x == [
+        (0, 2, 3, 5),
+        (1, 4),
+        (4, 6, 8, 9),
+        (2, 7),
+        (6, 10, 11, 13),
+        (9, 12),
+        (0, 12, 14, 15),
+        (5, 11),
+        (7, 8, 14, 16),
+        (15, 17),
+        (1, 3, 10, 17),
+        (13, 16),
+    ]
+    assert supports_z == [
+        (0, 3, 15, 17),
+        (6, 8, 13, 16),
+        (1, 4, 6, 10),
+        (0, 2, 7, 14),
+        (8, 9, 12, 14),
+        (3, 5, 10, 11),
+    ]
+    assert qt_codes["min_weight"] != code
+    for name in ["matrix_x", "matrix_z"]:
+        assert getattr(qt_codes["min_weight"], name).shape == getattr(code, name).shape
+
+
+def test_quantum_tanner_default_dual_code() -> None:
+    """The default C_B is ~C_A, whose generator matrix is the parity check matrix of C_A."""
+    shift = abstract.CyclicGroup(4).generators[0]
+    subset = [shift, ~shift, shift**2, shift**4]
+    matrix_a = [[1, 1, 0, 1], [0, 1, 1, 1]]  # not in reduced row echelon form
+    code = codes.QTCode(subset, subset, matrix_a, local_checks="from_codes")
+    assert np.array_equal(code.code_b.generator, matrix_a)
+    local_views = code.get_local_views(Pauli.X)
+    num_checks = len(code.matrix_x) // len(local_views)
+    local_checks = code.matrix_x[:num_checks][:, local_views[0].ravel()]
+    assert np.array_equal(local_checks, np.kron(code.code_a.generator, matrix_a))
+
+
+def test_future_change_quantum_tanner_local_checks(tmp_path: pathlib.Path) -> None:
+    """The default choice of local checks warns that it will change from "row_reduced"."""
+    shift = abstract.CyclicGroup(4).generators[0]
+    subset = [shift, ~shift, shift**2, shift**4]
+    code_a = codes.ClassicalCode([[1, 0, 0, 0], [0, 1, 1, 0]])
+    expected_code = codes.QTCode(subset, subset, code_a, local_checks="row_reduced")
+    new_code = codes.QTCode(subset, subset, code_a, local_checks="min_weight")
+    assert new_code != expected_code
+
+    with pytest.warns(FutureWarning, match="In a future release"):
+        assert codes.QTCode(subset, subset, code_a) == expected_code
+    with pytest.warns(FutureWarning, match="In a future release"):
+        subcode_x, subcode_z = codes.QTCode.get_subcodes(expected_code.complex, code_a, ~code_a)
+    assert np.array_equal(subcode_x.matrix, expected_code.matrix_x)
+    assert np.array_equal(subcode_z.matrix, expected_code.matrix_z)
+    with pytest.warns(FutureWarning, match="In a future release"):
+        codes.QTCode.random(abstract.CyclicGroup(4), code_a)
+
+    # files saved by earlier releases record no choice of local checks
+    path = tmp_path / "code.txt"
+    expected_code.save(str(path))
+    lines = path.read_text().splitlines()
+    first, last = lines.index("# local checks: row_reduced"), lines.index("# base field: 2")
+    path.write_text("\n".join(lines[:first] + lines[last:]) + "\n")
+    with pytest.warns(FutureWarning, match="In a future release"):
+        assert codes.QTCode.load(str(path)) == expected_code
+    assert codes.QTCode.load(str(path), local_checks="min_weight") == new_code
+
+    with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
+        codes.QTCode(subset, subset, code_a, local_checks="lightest")  # type: ignore[arg-type]
+
+
+def test_quantum_tanner_saved_local_checks(tmp_path: pathlib.Path) -> None:
+    """Saved codes keep their choice of local checks, and the generator matrices of local codes."""
+    shift = abstract.CyclicGroup(4).generators[0]
+    subset = [shift, ~shift, shift**2, shift**4]
+    code_a = codes.ClassicalCode([[1, 0, 0, 0], [0, 1, 1, 0]])
+    code_a.set_generator([[0, 1, 1, 1], [0, 0, 0, 1]])
+    code_b = codes.ClassicalCode([[1, 1, 0, 1]])
+    code_b.set_generator([[1, 1, 1, 0], [0, 0, 1, 0], [1, 0, 0, 1]])
+    path = tmp_path / "code.txt"
+    for local_checks in LOCAL_CHECKS:
+        code = codes.QTCode(subset, subset, code_a, code_b, local_checks=local_checks)
+        code.save(str(path))
+        loaded_code = codes.QTCode.load(str(path))
+        assert loaded_code == code
+        assert np.array_equal(loaded_code.code_a.generator, code_a.generator)
+        assert np.array_equal(loaded_code.code_b.generator, code_b.generator)
+
+    # Released versions of QTCode.load up to 0.4.1 read the lines of integers between comment lines
+    # as the subsets and local codes, and the field and complex from the last two lines.  The lines
+    # that record the choice of local checks are comment lines, so these versions ignore them.
+    lines = path.read_text().splitlines()
+    assert lines[-2:] == ["# base field: 2", "# bipartite: False"]
+    first, last = lines.index("# local checks: row_reduced"), lines.index("# base field: 2")
+    assert all(line.startswith("#") for line in lines[first:last])
+
+    # the choice of local checks given to load takes precedence over the saved one
+    min_weight_code = codes.QTCode(subset, subset, code_a, code_b, local_checks="min_weight")
+    assert codes.QTCode.load(str(path), local_checks="min_weight") == min_weight_code
+
+    # loading fails clearly if one of the sections that choose the parity checks is missing
+    lines = path.read_text().splitlines()
+    lines = [line for line in lines if not line.startswith("# code_b.generator:")]
+    path.write_text("\n".join(lines) + "\n")
+    with pytest.raises(ValueError, match="no '# code_b\\.generator:' line"):
+        codes.QTCode.load(str(path))
+
+    # QTCodes with different checks are different, even with the same generating data
+    toric_codes = [
+        codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2), local_checks=choice)
+        for choice in LOCAL_CHECKS
+    ]
+    assert toric_codes[0] == toric_codes[1] == toric_codes[2]
+    assert min_weight_code != codes.QTCode(
+        subset, subset, code_a, code_b, local_checks="row_reduced"
+    )
+
+
+def test_quantum_tanner_min_weight_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Minimum-weight local checks need local codes and duals with few enough words."""
+    shift = abstract.CyclicGroup(4).generators[0]
+    subset = [shift, ~shift, shift**2]
+    code_a = codes.HammingCode(2)  # the [3, 1] repetition code, whose dual has 4 words
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_MIN_WEIGHT_BASIS", 4)
+    codes.QTCode(subset, subset, code_a, local_checks="min_weight")
+    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_MIN_WEIGHT_BASIS", 3)
+    with pytest.raises(ValueError, match="local_checks='from_codes'"):
+        codes.QTCode(subset, subset, code_a, local_checks="min_weight")
+    codes.QTCode(subset, subset, code_a, local_checks="from_codes")
+
+
+def test_quantum_tanner_without_checks() -> None:
+    """Local check spaces of dimension zero give no checks."""
+    shift = abstract.CyclicGroup(3).generators[0]
+    code = codes.QTCode(
+        [shift, ~shift],
+        [shift, ~shift],
+        np.eye(2, dtype=int),  # the code with no nonzero words
+        np.zeros((0, 2), dtype=int),  # the code with all words
+        local_checks="min_weight",
+    )
+    assert code.matrix_x.shape == code.matrix_z.shape == (0, len(code))
+    assert code.get_weight() == 0
+    assert code.get_local_views(Pauli.X).shape == (len(code) // 2, 2, 2)
+    with pytest.raises(ValueError, match=r"Expected Pauli\.X or Pauli\.Z"):
+        code.get_local_views(Pauli.Y)  # type: ignore[arg-type]

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import TypeVar
 
 import galois
@@ -317,6 +317,83 @@ def symplectic_gram_schmidt(
 
     hyperbolic = field(firsts + partners) if firsts else field.Zeros((0, dimension))
     return hyperbolic, field(radical) if radical else field.Zeros((0, dimension))
+
+
+def get_min_weight_basis(vectors: galois.FieldArray) -> galois.FieldArray:
+    """A minimum-weight basis of the space spanned by vectors over a finite field.
+
+    The weight of a vector is its number of nonzero entries.  A basis of a space has minimum weight
+    if, for each i, its i-th lightest vector is as light as the i-th lightest vector of any basis of
+    the space.  This function finds such a basis with the greedy algorithm, which is exact for the
+    independent sets of any matroid, such as the linearly independent sets of vectors in a space
+    (https://doi.org/10.1007/BF01584082): it considers the vectors of the space in order of weight,
+    and keeps each one that is independent of those kept before it.
+
+    The search enumerates all q^r vectors of the space, for a field of order q and a space of
+    dimension r, so its time grows as q^r.  It enumerates them in chunks, so its memory stays
+    bounded.
+
+    Args:
+        vectors: Vectors over a finite field, as the rows of a matrix.  They may be linearly
+            dependent.
+
+    Returns:
+        A minimum-weight basis of the row space of the vectors, as the rows of a matrix over the
+        same field, in order of weight.  The basis is deterministic: vectors of equal weight are
+        kept in the order in which the search enumerates them.
+
+    Raises:
+        ValueError: If the space has 2^62 or more vectors, which this search cannot enumerate.
+    """
+    field = type(vectors)
+    reduced_basis = vectors.row_space()
+    dimension, length = reduced_basis.shape
+    if field.order**dimension >= 2**62:
+        raise ValueError(
+            f"A minimum-weight basis of a space of dimension {dimension} over GF({field.order}) has"
+            " too many vectors to enumerate"
+        )
+
+    # Enumerate the vectors of the space, and keep, for each weight, linearly independent vectors of
+    # that weight that span all vectors of that weight.
+    spanning_vectors: dict[int, galois.FieldArray] = {}
+    for coefficients in _iter_coefficients(field.order, dimension):
+        words = field(coefficients) @ reduced_basis
+        weights = np.count_nonzero(words.view(np.ndarray), axis=1)
+        for weight in np.unique(weights[weights > 0]).tolist():
+            candidates = words[weights == weight]
+            if weight in spanning_vectors:
+                candidates = np.vstack([spanning_vectors[weight], candidates]).view(field)
+            spanning_vectors[weight] = _get_independent_rows(candidates)
+
+    # add the vectors of each weight in turn, keeping those independent of those kept before them
+    basis = field.Zeros((0, length))
+    for weight in sorted(spanning_vectors):
+        basis = _get_independent_rows(np.vstack([basis, spanning_vectors[weight]]).view(field))
+        if len(basis) == dimension:
+            break
+    return basis
+
+
+def _get_independent_rows(matrix: galois.FieldArray) -> galois.FieldArray:
+    """The rows of a matrix that are linearly independent of the rows above them."""
+    pivots = first_nonzero_cols(matrix.T.row_reduce())
+    return matrix[pivots[pivots < len(matrix)]]
+
+
+def _iter_coefficients(
+    order: int, num_coefficients: int, chunk_size: int = 2**14
+) -> Iterator[npt.NDArray[np.int64]]:
+    """Iterate over all vectors of coefficients in {0, ..., order - 1}, in chunks of rows.
+
+    Row k of the concatenated chunks holds the digits of k in base ``order``, least significant
+    first.
+    """
+    num_vectors = order**num_coefficients
+    place_values = order ** np.arange(num_coefficients, dtype=np.int64)
+    for start in range(0, num_vectors, chunk_size):
+        indices = np.arange(start, min(start + chunk_size, num_vectors), dtype=np.int64)
+        yield indices[:, None] // place_values % order
 
 
 def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldArray] | None:

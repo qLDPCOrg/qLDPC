@@ -397,8 +397,8 @@ class ClassicalCode(AbstractCode):
         return nx.freeze(TannerGraph.from_matrix(self.matrix))
 
     def get_weight(self) -> int:
-        """Compute the weight of the largest parity check."""
-        return int(np.max(np.count_nonzero(self.matrix.view(np.ndarray), axis=1)))
+        """Compute the weight of the largest parity check, or 0 if there are no parity checks."""
+        return int(np.max(np.count_nonzero(self.matrix.view(np.ndarray), axis=1), initial=0))
 
     @functools.cached_property
     def dimension(self) -> int:
@@ -1465,10 +1465,10 @@ class QuditCode(AbstractCode):
         return len(self)
 
     def get_weight(self) -> int:
-        """Compute the weight of the largest parity check."""
+        """Compute the weight of the largest parity check, or 0 if there are no parity checks."""
         matrix_x = self.matrix[:, : len(self)].view(np.ndarray)
         matrix_z = self.matrix[:, len(self) :].view(np.ndarray)
-        return int(np.max(np.count_nonzero(matrix_x | matrix_z, axis=1)))
+        return int(np.max(np.count_nonzero(matrix_x | matrix_z, axis=1), initial=0))
 
     def get_logical_ops(
         self, pauli: PauliXZLike | None = None, *, recompute: bool = False, symplectic: bool = True

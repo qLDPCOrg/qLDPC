@@ -123,6 +123,7 @@ The semisimple route is implemented only for group algebras whose group order th
 The split route covers other rings whose involution transposes lifts, for seed matrices that meet the square invertibility condition of `arXiv:2607.28795 <https://arxiv.org/abs/2607.28795v2>`_ with their pivot columns last, and follows Appendix B of that paper.
 :class:`~qldpc.codes.quantum.pair_partition.PairPartitionCode` takes integer arrays of exponents and a lift size :math:`P`, and builds its ``RingArray`` matrices over the group algebra :math:`\mathbb{F}_2[\mathbb{Z}_P]` as ``code.ring_array_x`` and ``code.ring_array_z``.
 :class:`~qldpc.codes.quantum.quantum_tanner.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.surface.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
+The parity checks of a ``QTCode`` at each vertex of its complex span a local check space, and its argument ``local_checks`` chooses them, such as a minimum-weight basis of each local check space (see :mod:`~qldpc.codes.quantum.quantum_tanner`).
 :class:`~qldpc.codes.quantum.balanced_product.BPCode` takes symmetries of two classical codes, as permutations or as members of :meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and builds its chain complex with :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>`.
 The API reference documents each family's conventions and literature.
 
@@ -255,6 +256,14 @@ What qLDPC computes exactly, bounds, and trusts
 * Trusted, not verified: recorded parameters of built-in families and online lookups, promises such as ``promise_equal_distance_xz``, an explicit ``is_subsystem_code=True`` hint to ``QuditCode`` or ``CSSCode``, a code-capacity ``min_error_weight`` below which errors are assumed to be corrected, and an explicit ``detector_to_time`` mapping.
   An explicit ``is_subsystem_code=False`` is verified instead, and raises a ``ValueError`` if some checks do not commute.
   Omit ``is_subsystem_code`` to have it computed when first needed.
+
+Future changes
+--------------
+
+* :class:`~qldpc.codes.quantum.quantum_tanner.QTCode` will build its parity checks from minimum-weight bases of its local check spaces (``local_checks="min_weight"``) by default, rather than from bases in reduced row echelon form (``local_checks="row_reduced"``).
+  The stabilizer group stays the same, but the rows of ``matrix_x`` and ``matrix_z`` change, and checks can become lighter.
+  Until then, the default ``local_checks=None`` selects ``"row_reduced"`` with a ``FutureWarning``, as do the ``local_checks`` arguments of ``QTCode.get_subcodes`` and ``QTCode.random``.
+  ``QTCode.load`` uses the choice that a saved file records, and treats files that record none, written by earlier versions, in the same way.
 
 External tools, side effects, and caching
 -----------------------------------------
