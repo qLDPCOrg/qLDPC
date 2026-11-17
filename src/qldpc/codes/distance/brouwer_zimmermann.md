@@ -830,7 +830,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   The distance functions take automorphisms as an array or as a function, and pass them to their BZ searches as a function that calls the function of the caller at most once.
   `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_found_qudit_automorphisms` of the code, which the code caches, so bliss runs at most once for a code.
   It holds the automorphisms that bliss (`src/qldpc/external/_bliss.py`) finds among each set of checks from `_get_automorphism_search_matrices`, followed by the generators from `_get_qudit_automorphisms`, without repeats or the identity.
-  The code verifies the generators from `_get_qudit_automorphisms` before it appends them.
+  The code verifies the generators from `_get_qudit_automorphisms`, and those that bliss finds in sets of checks other than the parity checks, before it appends them.
   A search calls the function only at the points of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), and uses the generators only after `verify_automorphisms` accepts them; for a CSS code, they must map the row spaces of both parity-check matrices onto themselves.
   For a general Pauli problem, `_get_lifted_automorphisms` lifts them to the coordinates of `T`, except for Pauli strings that `get_distance_pauli` searches as a CSS code.
 
