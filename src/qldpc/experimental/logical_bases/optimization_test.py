@@ -258,14 +258,14 @@ def test_budget(paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch) -> 
 def test_searches_and_seed(paired_code: codes.CSSCode, pytestconfig: pytest.Config) -> None:
     """The number of searches is counted exactly, and a seed makes the search reproducible."""
     seed = pytestconfig.getoption("randomly_seed")
-    perturb = _ClassSearch._perturb
+    original_perturb = _ClassSearch._perturb
 
     def run() -> tuple[OptimizedLogicalBasis, list[tuple[list[int], list[int]]]]:
         """Search with the seed, and record the classes of every perturbation."""
         recorded = []
 
         def record(self: _ClassSearch, *args: Any) -> tuple[list[int], list[int]]:
-            recorded.append(perturb(self, *args))
+            recorded.append(original_perturb(self, *args))
             return recorded[-1]
 
         with mock.patch.object(_ClassSearch, "_perturb", record):
@@ -279,7 +279,8 @@ def test_searches_and_seed(paired_code: codes.CSSCode, pytestconfig: pytest.Conf
         result, perturbed = run()
     assert result.searches == search.call_count
 
-    # the perturbations, which depend on the seed, repeat exactly
+    # a repeat with the same seed perturbs identically, and so finds the same basis with the same
+    # searches
     repeat, repeat_perturbed = run()
     np.testing.assert_array_equal(repeat.logical_ops, result.logical_ops)
     assert repeat.searches == result.searches
@@ -405,12 +406,13 @@ def test_special_inputs() -> None:
     with pytest.raises(ValueError, match="nonnegative"):
         optimize_logical_basis(code, max_searches=-1)
 
-    # an objective whose values are None is not reported optimal for reaching the lower bound, which
-    # is None for an objective given as a function, but fails once a move compares two values; the
-    # code's own basis is this [[6, 4]] code's only start that fits, so choosing it compares none
+    # an objective whose values are None never reaches its lower bound, which is None for a
+    # function, so the basis is not reported optimal; only this [[6, 4]] code's own basis is within
+    # the first weight limit of the start search, and with no budget no move is tried, so no values
+    # compare
     code = codes.CSSCode([[0, 1, 1, 1, 1, 1]], [[1, 0, 1, 1, 1, 1]])
-    with pytest.raises(TypeError):
-        optimize_logical_basis(code, objective=lambda *weights: None)
+    result = optimize_logical_basis(code, objective=lambda *weights: None, max_searches=0)
+    assert result.stop_reason == "max_searches"
 
 
 def _record_descent(code: codes.CSSCode, budgeted: bool) -> list[bool]:
