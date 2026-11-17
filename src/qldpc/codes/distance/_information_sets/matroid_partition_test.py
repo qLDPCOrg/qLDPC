@@ -58,6 +58,25 @@ def test_a_basis_whose_sets_need_columns_that_could_not_join_earlier() -> None:
     assert len(get_information_sets_with_coverage(basis, 2, 16)) == 3
 
 
+def test_bases_whose_sets_need_members_removed_along_augmenting_paths() -> None:
+    """Sets stay correct after augmenting paths move members out of them, as brute force finds."""
+    for rows, max_coverage in [
+        (["100001", "010001", "010101"], 3),
+        (["1010", "1101", "0011"], 2),
+    ]:
+        basis = np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
+        sets = get_information_sets_with_coverage(basis, max_coverage, 16)
+        assert all(_is_information_set(basis, columns) for columns in sets)
+        assert len(sets) == _get_max_num_sets(basis, max_coverage, 16)
+
+
+def test_bases_of_more_rows_than_a_byte() -> None:
+    """Two copies of the identity on nine rows give two disjoint information sets."""
+    basis = np.hstack([np.eye(9), np.eye(9)]).astype(np.uint8)
+    sets = get_information_sets_with_coverage(basis, 1, 3)
+    assert len(sets) == 2 and all(_is_information_set(basis, columns) for columns in sets)
+
+
 def test_sets_are_information_sets_with_bounded_coverage(pytestconfig: pytest.Config) -> None:
     """On random bases, the sets are information sets within the coverage, as many as possible."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))

@@ -116,6 +116,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.restrict_viable_symbols`
      -
      - `Section 3.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#34-pruning>`__
+   * - Forbidding symbols that would make a support meet a known word, such as a stabilizer or gauge generator, in more than about half of it, in connected-cluster distance searches and in the coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch`
+     - :attr:`SearchTuning.stabilizer_overlap_cuts`
+     -
+     - `Section 3.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#34-pruning>`__
    * - Making the checks of the connected-cluster coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch` sparser
      - :attr:`SearchTuning.max_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -

@@ -81,6 +81,11 @@ def test_binary_matrices_and_nested_bases() -> None:
     np.testing.assert_array_equal(basis, [[1, 0, 1], [0, 1, 1]])
     np.testing.assert_array_equal(tags, [[0], [1]])
 
+    # Words of no width have an empty basis.
+    empty = np.zeros((1, 0), dtype=np.uint8)
+    basis, tags = binary.get_nested_code_basis(empty, empty)
+    assert basis.shape == tags.shape == (0, 0)
+
 
 def test_integer_arguments() -> None:
     """Integers of any type become Python integers, and bools and other values are rejected."""

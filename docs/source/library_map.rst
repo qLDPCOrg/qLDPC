@@ -52,8 +52,8 @@ Packages at a glance
      - ``external.gap``, ``external.sqetch``, and ``cache.clear_entry``.
      - `External tools, side effects, and caching`_
    * - ``qldpc.experimental``
-     - Unstable research code: lattice surgery, and decoder-free benchmarks of state-preparation circuits.
-     - ``experimental.surgery`` and ``experimental.circuits.estimate_residual_weight_histogram``.
+     - Unstable research code: lattice surgery, decoder-free benchmarks of state-preparation circuits, and light bases of logical operators, of one Pauli type or with X-type and Z-type operators that pair up.
+     - ``experimental.surgery``, ``experimental.circuits.estimate_residual_weight_histogram``, and ``experimental.logical_bases``.
      - :doc:`Lattice surgery <examples/lattice_surgery>` and :doc:`benchmarking state preparation <examples/experimental/logical_state_preparation>`
 
 The arrows below show which objects pass between packages.
@@ -122,7 +122,11 @@ Their canonical logical operators come from one of two routes (see :meth:`LPCode
 The semisimple route is implemented only for group algebras whose group order the field characteristic does not divide, and takes precedence wherever it applies.
 The split route covers other rings whose involution transposes lifts, for seed matrices that meet the square invertibility condition of `arXiv:2607.28795 <https://arxiv.org/abs/2607.28795v2>`_ with their pivot columns last, and follows Appendix B of that paper.
 :class:`~qldpc.codes.quantum.pair_partition.PairPartitionCode` takes integer arrays of exponents and a lift size :math:`P`, and builds its ``RingArray`` matrices over the group algebra :math:`\mathbb{F}_2[\mathbb{Z}_P]` as ``code.ring_array_x`` and ``code.ring_array_z``.
-:class:`~qldpc.codes.quantum.quantum_tanner.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two subsets of a group, and families such as :class:`~qldpc.codes.quantum.surface.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
+:class:`~qldpc.codes.quantum.quantum_tanner.QTCode` builds a :class:`~qldpc.objects.complexes.CayleyComplex` from two symmetric subsets of a group, and exposes it as ``code.complex``.
+:class:`~qldpc.codes.quantum.quantum_tanner.LQTCode` builds the lifted quantum Tanner codes of `arXiv:2512.20532 <https://arxiv.org/abs/2512.20532>`_ from an explicit group, ordered lists of its members, and four local codes, and ``LQTCode.from_lrz`` takes them in that paper's notation.
+Use ``QTCode`` for symmetric sets of distinct members and for the bipartite complex, and ``LQTCode`` for lists whose members repeat or are not symmetric, for four local codes, or for the codes of Eq. (2) of that paper; the ``LQTCode`` docstring relates the two.
+The parity checks of both classes at each vertex of their complex span a local check space, and their argument ``local_checks`` chooses them: a minimum-weight basis of each local check space by default, or products of the rows of the matrices that the local codes carry (see :mod:`~qldpc.codes.quantum.quantum_tanner`).
+Families such as :class:`~qldpc.codes.quantum.surface.T4Code` (built from a 4×4 integer lattice matrix) build a :class:`~qldpc.objects.complexes.ChainComplex` internally and expose it as ``code.chain``.
 :class:`~qldpc.codes.quantum.balanced_product.BPCode` takes symmetries of two classical codes, as permutations or as members of :meth:`ClassicalCode.get_matrix_automorphism_group <qldpc.codes.common.ClassicalCode.get_matrix_automorphism_group>`, and builds its chain complex with :meth:`ChainComplex.balanced_product <qldpc.objects.complexes.ChainComplex.balanced_product>`.
 The API reference documents each family's conventions and literature.
 
@@ -135,6 +139,8 @@ For a binary subsystem code, :func:`~qldpc.codes.distance.get_distance_from_chec
 Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_ or, for sparse parity checks, a `search over supports that are connected in the Tanner graph <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md>`_, and nonbinary codes use exhaustive enumeration.
 By default, ``method="auto"`` chooses a method for each search: exhaustive enumeration if it is cheap, the Brouwer-Zimmermann search for a classical code, and, for the checks of a quantum code or a circuit, a connected-cluster search that may switch to the Brouwer-Zimmermann search (see :data:`~qldpc.codes.distance.DistanceMethod`).
 All exact methods can take exponential time.
+:meth:`QuditCode.get_known_qudit_automorphism_group <qldpc.codes.common.QuditCode.get_known_qudit_automorphism_group>` returns the qudit permutations that a code knows to preserve it: those of its construction, such as the translations of a ``QTCode``, and, with the optional ``pybliss`` package, those that bliss finds.
+For binary quantum codes, the Brouwer-Zimmermann and connected-cluster searches can use these permutations to search less, and their heuristics decide whether a search asks for them.
 Brouwer-Zimmermann distance searches use ``numba.config.NUMBA_NUM_THREADS`` threads by default; setting ``NUMBA_NUM_THREADS=1`` before numba is imported keeps them on one, as callers that run searches in process pools or in their own threads should (see :doc:`exact_search_tuning`).
 A code that encodes nothing, or a circuit with no undetected logical fault, has no distance, and distance methods then return :data:`~qldpc.codes.distance.NO_DISTANCE`, a float ``nan`` (see :class:`~qldpc.codes.distance.NoDistance`).
 ``get_distance_exact(cutoff=c)`` stops once it finds a nontrivial word of weight at most ``c``.

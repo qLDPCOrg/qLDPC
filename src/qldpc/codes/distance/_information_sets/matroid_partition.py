@@ -13,6 +13,7 @@ independent sets with Edmonds' matroid partitioning algorithm.  Section 4.4 of
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -38,8 +39,8 @@ def get_information_sets_with_coverage(
         The sorted column indices of each set.
     """
     dimension = len(basis)
-    columns = [column for column in range(basis.shape[1]) if np.any(basis[:, column])]
-    vectors = [_get_column_int(basis, column) for column in columns]
+    columns = np.flatnonzero(np.any(basis, axis=0)).tolist()
+    vectors = _get_column_ints(basis[:, columns])
     # Element ``e`` is a copy of column ``columns[e // max_coverage]``.
     copies = [vector for vector in vectors for _ in range(max_coverage)]
     partition = _Partition(copies)
@@ -55,56 +56,73 @@ def get_information_sets_with_coverage(
     ]
 
 
-def _get_column_int(basis: npt.NDArray[np.uint8], column: int) -> int:
-    """A column of a binary matrix as an integer, with row ``i`` in bit ``i``."""
-    return sum(int(bit) << row for row, bit in enumerate(basis[:, column]))
+def _get_column_ints(matrix: npt.NDArray[np.uint8]) -> list[int]:
+    """The columns of a binary matrix as integers, with row ``i`` in bit ``i``."""
+    packed = np.packbits(np.asarray(matrix, dtype=np.uint8).T, axis=1, bitorder="little")
+    return [int.from_bytes(column.tobytes(), "little") for column in packed]
 
 
 class _IndependentSet:
     """Independent column vectors, row reduced so that circuits are cheap to find.
 
-    Row ``(pivot, vector, mask)`` of the reduction is the sum of the members whose positions are the
-    set bits of ``mask``, its highest set bit is ``pivot``, and no other row has that bit set.
+    ``_rows`` maps each pivot to a pair ``(row, mask)``.  The row is the sum of the members whose
+    positions are the set bits of ``mask``, and it is the only row with its pivot bit set.  So
+    reducing a vector adds the row of each pivot bit that the vector has set.  Circuits are cached
+    by vector until the members change.
     """
 
     def __init__(self) -> None:
         self.elements: list[int] = []
-        self._rows: list[tuple[int, int, int]] = []
+        self._rows: dict[int, tuple[int, int]] = {}
+        self._pivots = 0
+        self._circuits: dict[int, list[int] | None] = {}
 
     def add(self, element: int, vectors: list[int]) -> None:
         """Add an element whose vector is independent of the members, and reduce the rows."""
         vector, mask = self._reduce(vectors[element], 1 << len(self.elements))
         assert vector, "a member depends on the others"
         pivot = vector.bit_length() - 1
-        # Clear the new pivot from the other rows, so that every query reduces in one pass.
-        self._rows = [
-            (row_pivot, row ^ vector, row_mask ^ mask)
-            if row >> pivot & 1
-            else (row_pivot, row, row_mask)
-            for row_pivot, row, row_mask in self._rows
-        ]
-        self._rows.append((pivot, vector, mask))
+        # Clear the new pivot from the other rows.
+        for row_pivot, (row, row_mask) in self._rows.items():
+            if row >> pivot & 1:
+                self._rows[row_pivot] = row ^ vector, row_mask ^ mask
+        self._rows[pivot] = vector, mask
+        self._pivots |= 1 << pivot
         self.elements.append(element)
+        self._circuits.clear()
 
-    def rebuild(self, vectors: list[int]) -> None:
-        """Row reduce the vectors of the members again, after members have been exchanged."""
-        elements, self.elements, self._rows = self.elements, [], []
-        for element in elements:
-            self.add(element, vectors)
+    def remove(self, element: int) -> None:
+        """Remove a member, and keep the rows reduced."""
+        # Drop a row whose mask has the member's position, after adding that row to the others whose
+        # masks have it.  That row has no bit at the other pivots, so they stay pivots of theirs.
+        position = self.elements.index(element)
+        pivot = next(pivot for pivot, (_, mask) in self._rows.items() if mask >> position & 1)
+        vector, mask = self._rows.pop(pivot)
+        self._pivots ^= 1 << pivot
+        low = (1 << position) - 1
+        for row_pivot, (row, row_mask) in self._rows.items():
+            if row_mask >> position & 1:
+                row, row_mask = row ^ vector, row_mask ^ mask
+            # Close the gap that the member leaves in the positions.
+            self._rows[row_pivot] = row, (row_mask & low) | (row_mask >> (position + 1) << position)
+        del self.elements[position]
+        self._circuits.clear()
 
     def get_circuit(self, vector: int) -> list[int] | None:
         """The members that sum to ``vector``, or None if it is independent of them."""
-        vector, mask = self._reduce(vector, 0)
-        if vector:
-            return None
-        return [element for position, element in enumerate(self.elements) if mask >> position & 1]
+        if vector in self._circuits:
+            return self._circuits[vector]
+        reduced, mask = self._reduce(vector, 0)
+        circuit = None if reduced else [self.elements[position] for position in _get_bits(mask)]
+        self._circuits[vector] = circuit
+        return circuit
 
     def _reduce(self, vector: int, mask: int) -> tuple[int, int]:
         """Reduce a vector by the rows, tracking which members the reduction adds."""
-        for pivot, row, row_mask in self._rows:
-            if vector >> pivot & 1:
-                vector ^= row
-                mask ^= row_mask
+        for pivot in _get_bits(vector & self._pivots):
+            row, row_mask = self._rows[pivot]
+            vector ^= row
+            mask ^= row_mask
         return vector, mask
 
 
@@ -160,13 +178,19 @@ class _Partition:
         parent: dict[int, tuple[int, int]] = {}
         queue = deque([element])
         seen = {element}
+        # An element skips each set in which an earlier element with the same vector already found a
+        # circuit.  Equal vectors have equal circuits in a set, and that circuit's members are seen.
+        searched: dict[int, set[int]] = {}
         end: tuple[int, int] | None = None
         while queue and end is None:
             current = queue.popleft()
+            vector = self.vectors[current]
+            searched_sets = searched.setdefault(vector, set())
             for index, independent in enumerate(self.sets):
-                if self.owner[current] == index:
+                if self.owner[current] == index or index in searched_sets:
                     continue
-                circuit = independent.get_circuit(self.vectors[current])
+                searched_sets.add(index)
+                circuit = independent.get_circuit(vector)
                 if circuit is None:
                     assert len(independent.elements) < size
                     end = (current, index)
@@ -180,17 +204,23 @@ class _Partition:
             return False
 
         # Move each element on the path into the set of the next, and the last into the open set.
+        # Each set ends independent, so removing the moved elements first keeps it independent as
+        # each one joins.
         moves = [end]
         while moves[-1][0] != element:
             moves.append(parent[moves[-1][0]])
-        changed = set()
-        for moved, index in moves:
+        for moved, _ in moves:
             if self.owner[moved] >= 0:
-                self.sets[self.owner[moved]].elements.remove(moved)
-                changed.add(self.owner[moved])
-            self.sets[index].elements.append(moved)
+                self.sets[self.owner[moved]].remove(moved)
+        for moved, index in moves:
+            self.sets[index].add(moved, self.vectors)
             self.owner[moved] = index
-            changed.add(index)
-        for index in changed:
-            self.sets[index].rebuild(self.vectors)
         return True
+
+
+def _get_bits(value: int) -> Iterator[int]:
+    """The positions of the set bits of a nonnegative integer, in increasing order."""
+    while value:
+        low = value & -value
+        yield low.bit_length() - 1
+        value ^= low

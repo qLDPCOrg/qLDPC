@@ -264,6 +264,7 @@ def test_lifted_products_of_empty_matrices() -> None:
         code = code_type(empty, set_logicals=True)
         assert len(code) == code.dimension == 0
         assert code.get_logical_ops().shape == (0, 0)
+        assert code.get_known_qudit_automorphism_group().order == 1
 
 
 def test_lifted_product_line_logicals_noncommutative(

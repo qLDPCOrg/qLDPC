@@ -277,6 +277,13 @@ class SearchTuning:
     #: Defaults to ``True``, a switch; ``False`` is for comparisons, such as ablations.
     restrict_viable_symbols: bool = True
 
+    #: Whether a connected-cluster search, of distances or of vectors with a given syndrome, forbids
+    #: the symbols that would make its support meet a known word, such as a stabilizer or gauge
+    #: generator, in more than about half that word (Section 3.4 of ``connected_cluster.md``).
+    #: ``False`` skips these cuts, and the search stays exact.  Defaults to ``True``, a switch;
+    #: ``False`` is for comparisons, such as ablations.
+    stabilizer_overlap_cuts: bool = True
+
     #: The most rounds, each a row reduction in a random order of the columns, in which a
     #: ``CosetLeaderSearch`` with the connected-cluster method makes its checks sparser when it is
     #: built; zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE``

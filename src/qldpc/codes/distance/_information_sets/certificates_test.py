@@ -215,6 +215,28 @@ def test_sets_to_certify_a_bound_may_come_from_linear_programs() -> None:
     assert certificate.get_num_sets_to_certify(1, 5) == 5
 
 
+def test_certificates_with_overlapping_blocks_of_different_sizes_follow_their_definition() -> None:
+    """``certifies`` agrees with ``step_lower_bound`` when blocks overlap and differ in size.
+
+    In the second certificate, a set of rank one in dimension three that has not completed layer
+    one requires at least ``-1`` ones in its block, which asks for nothing.
+    """
+    for dimension, ranks, blocks in [
+        (2, (1, 1, 2), ((2,), (2,), (1, 3))),
+        (3, (1, 3, 1), ((0,), (0, 1, 2), (3,))),
+    ]:
+        certificate = certificates.Certificate(
+            dimension,
+            ranks,
+            max_coverage=2,
+            pivot_blocks=blocks,
+            lp_max_denominator=DENOMINATOR,
+        )
+        for num_completed, upper_bound in itertools.product(range(4), range(1, 6)):
+            bound = certificate.step_lower_bound(1, num_completed)
+            assert certificate.certifies(1, num_completed, upper_bound) == (bound >= upper_bound)
+
+
 def test_plans_with_linear_programs_solve_their_programs_lazily(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -287,6 +309,9 @@ def test_linear_programming_can_beat_the_coverage_bound() -> None:
     # No word has three ones in a block of two columns, and requirements of zero ask for nothing.
     assert certificates.get_lp_lower_bound([(0, 1)], [3], DENOMINATOR) == certificates.NO_WORD_BOUND
     assert certificates.get_lp_lower_bound([(0, 1)], [0], DENOMINATOR) == 0
+
+    # A word with every column of two blocks of three that share two columns has weight four.
+    assert certificates.get_lp_lower_bound([(0, 1, 2), (0, 1, 3)], [3, 3], DENOMINATOR) == 4
 
 
 def test_a_failed_linear_program_gives_no_bound(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -310,7 +310,10 @@ def draw_qt(params: dict[str, Any], rng: np.random.Generator) -> codes.CSSCode:
         group: abstract.Group = abstract.DihedralGroup(order // 2)
     else:
         group = abstract.CyclicGroup(order)
-    code = codes.QTCode.random(group, local_code(length), seed=int(rng.integers(2**31)))
+    # the row-reduced checks that qldpc built when sample.json was fixed
+    code = workloads.get_row_reduced_qt_code(
+        codes.QTCode.random(group, local_code(length), seed=int(rng.integers(2**31)))
+    )
     if len(code) != order * length * length:
         raise Rejected(f"{len(code)} qubits, not g c^2 = {order * length * length}")
     return code
