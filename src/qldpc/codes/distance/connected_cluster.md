@@ -95,7 +95,7 @@ Take a state of the search from `r` with `S ⊊ supp(x)` and `F ∩ supp(x) = �
 By the lemma, the syndrome of `S` is not empty, and every check holds an even number of the variables of `supp(x)`, so each unsatisfied check, such as the check `c` on which the search branches, holds an available variable of `supp(x) \ S`.
 The child of the first such variable of `c` is another state of this kind, since the variables of its earlier siblings lie outside `supp(x)`.
 So the search reaches `supp(x)`, unless it reports another witness first.
-The pruning of [Section 3.4](#34-pruning) keeps these states, since its bounds hold for any state that a witness of weight at most `W` extends, and it forbids only variables that no such witness holds.
+The pruning of [Section 3.4](#34-pruning) keeps these states, since its bounds hold for any state that a witness of weight at most `W` extends, and it forbids only variables that no such witness holds, except for the overlap cuts, which [Section 3.4](#34-pruning) shows keep the states of one witness of minimum weight.
 
 ### 3.4 Pruning
 
@@ -126,7 +126,41 @@ It stays exact, since the completeness argument of [Section 3.3](#33-the-depth-f
 
 Before it enters a child, the search applies the cheaper `b1`: it skips the child if the unsatisfied checks of the child outnumber `Δ(W - s - 1)`.
 
+**Overlaps with known words.**
+The bounds above hold for every witness that extends a state.
+The search also forbids variables by a rule that holds only for one witness, chosen as follows.
+Order the witnesses of minimum weight by their supports, each listed in increasing rank, compared lexicographically, and call the least one the **canonical** witness `x*`.
+Let `g` be a **known word**: a row of `G`, which is in `rowspan(G)`, so that `x + g` is a witness whenever `x` is.
+Then `wt(x + g) = wt(x) + |g| - 2|x ∩ g|`, so a witness `x` with `|x ∩ g| > |g|/2` is not of minimum weight.
+If `|x* ∩ g| = |g|/2`, then `x* + g` is another witness of minimum weight, which differs from `x*` only on the support of `g`; if `x*` lacked the lowest-ranked variable `u` of `g`, then `x* + g` would hold it and agree with `x*` on every variable of lower rank, so `x* + g` would come first.
+So `x*` holds `u`, and in either case `2|x* ∩ (g \ {u})| ≤ |g| - 1`.
+If `|g|` is odd, a stronger rule needs no tie to break: `2|x ∩ g| ≤ |g|` gives `2|x ∩ g| ≤ |g| - 1` for every witness `x` of minimum weight, `u` included, as in Qubitserf ([references](#references)).
+The **load** of a support `S` on a known word `g` is `2|S ∩ g|` if `|g|` is odd, and `2|S ∩ (g \ {u})|` otherwise, and `S` **passes** the cut of `g` if its load is at most the **capacity** `|g| - 1`.
+So `x*` passes every cut.
+The search forbids each variable that would raise the load of the support on `g` above the capacity, until the load drops.
+The load of a state is at most that of any witness that extends it, so no variable of `x*` is forbidden at a state `S ⊊ supp(x*)`, and the completeness argument of [Section 3.3](#33-the-depth-first-search), applied to `x*`, still holds; since `x*` has the lowest-ranked least variable of all witnesses of minimum weight, the argument of [Section 3.5](#35-symmetries) applies to it too.
+Since `x*` is never cut along its path, its completion from each such state uses only available variables, so the bounds and the forbidding of variables that are not viable, above, still keep its states.
+The same argument applies to any lightest witness that passes every cut, and the search visits only supports that pass every cut.
+So at any limit `W` at least the distance, the search finds a witness, though not necessarily a lightest one if `W` exceeds the distance.
+At `W` equal to the distance, a root finds a witness exactly if it is the lowest-ranked variable of a lightest witness that passes every cut.
+Below the distance, there is nothing to find.
+A support within the limit has a load of at most `2W` on any word, so the search skips words with a capacity of at least `2W`.
+Setting `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py` to `False` turns these cuts off, and the search stays exact.
+
+For a CSS code, the known words of the search of X-type logical operators are its X-type stabilizer generators, and those of a subsystem code its gauge generators.
+The distance search of a classical code has no known words, since its `G` is empty, so the cuts change nothing there.
+The search for the distance of a vector from a classical code (see [Section 4](#4-guide-to-the-source-code)) excludes the rows of the generator matrix of the code, which are rows of `G`, so it cuts by them, and the argument above applies.
+The half-overlap rule is a property of minimum-weight vectors of a coset; the search programs Qubitserf (`cpp/distfind/cc.cpp`, which also leaves out the first variable of each even word), QEDist (`cssdist/native_css/exact.cpp`), public-regular-logical-frames (`src/lp_exclusion.cpp`) of J. Y. Lee, and tropidist (`cdist/gmitm.c`) prune by it ([references](#references)).
+The cuts made the searches of surface, toric, and color codes, whose stabilizers are much lighter than their distances, visit about 4 to over 1000 times fewer states, and those of bivariate bicycle codes up to 3 times fewer.
+For pair-partition and quantum Tanner codes, the cuts changed the number of states visited by at most about 5 percent, and for lifted-product codes by up to about a quarter either way.
+At its last limit, the search stops at its first witness, and the cuts can forbid that witness, so that the search goes on to a later one.
+The searches of these three families took up to several percent longer.
+
 qLDPC does not use dual ascent, which raises each `y_c` as far as its constraints allow, at the cost of further passes over the unsatisfied checks of every state.
+
+Nor does it look up the last one or two variables of a support in a table of syndromes, as dist-m4ri and Qubitserf do ([references](#references)).
+With the bounds and the overlap cuts above, states with room for at most two more variables were observed to be few of the states that a search visits.
+Lookups of one or two variables, tried on the codes of `experiments/distance_tuning/workloads.py` and on the surface, toric, color, bivariate bicycle, pair-partition, and quantum Tanner codes that we timed, saved no measurable time.
 
 ### 3.5 Symmetries
 
@@ -211,6 +245,12 @@ Sections 3.2 to 3.6 carry over with symbols for variables:
 - **Pruning.**
   A completion has one symbol on each new variable, and the overlaps, weights, and repairs of [Section 3.4](#34-pruning) are those of symbols.
   A `Y` flips the checks that act on its qubit as `X` or `Z`, an `X` those that act as `Z` or `Y`, and a `Z` those that act as `X` or `Y`, so in a CSS code with Hadamards on some qubits, where no check acts as `Y`, a `Y` flips every check on its qubit, which raises overlaps and lowers weights.
+- **Overlaps with known words.**
+  The known words are the gauge generators, the stabilizers of a stabilizer code.
+  If `x` and a known word `g` have equal values on `a` qubits and different nonzero values on `b` qubits, then `wt(x + g) = wt(x) + |g| - 2a - b`, so the argument of [Section 3.4](#34-pruning) gives `2a + b ≤ |g|` for a witness of minimum weight, and `2a + b ≤ |g| - 1` without the lowest-ranked qubit `u` of `g` for the canonical one, which compares supports as before.
+  So a symbol on a qubit of `g` other than `u` adds 2 to the load of `g` if it has the value of `g` there and 1 otherwise, and the capacity is again `|g| - 1`.
+  Several witnesses of minimum weight can share the least support with different values; any of them serves as the canonical one, since the argument compares only supports.
+  The rule for words of odd weight does not carry over, since `2a + b` can be odd: it applies only in binary problems, in which every symbol adds 2.
 - **Symmetries.**
   A permutation of the qubits moves both halves of each vector, and qLDPC verifies it on all `2n` columns; the roots and ranks are those of variables, and the search from a root forbids every value of the variables of lower rank.
 - **Logical test and divisor.**
@@ -220,8 +260,8 @@ Sections 3.2 to 3.6 carry over with symbols for variables:
 
 A **syndrome query** asks for a vector `x` of weight at most `W` with `Hx = σ`, for a nonzero syndrome `σ`; its solutions form a coset of `ker(H)`.
 If `H` holds the stabilizers of a stabilizer state, a lightest solution is a coset leader, a lightest Pauli error with syndrome `σ`.
-For a code with logical qubits, the query ranges over every logical class and ignores `G`.
-The query searches as [Section 3.3](#33-the-depth-first-search) does, but from the empty support and without roots or ranks: the syndrome of a state is `σ + Hx_S`, where `x_S` is the vector with support `S`, and the search reports `S` once that syndrome is empty.
+For a code with logical qubits, the query ranges over every logical class, and does not use `G` to decide which vectors count.
+The query searches as [Section 3.3](#33-the-depth-first-search) does, but from the empty support, without roots, and with ranks only in its overlap cuts (below): the syndrome of a state is `σ + Hx_S`, where `x_S` is the vector with support `S`, and the search reports `S` once that syndrome is empty.
 
 **Completeness.**
 Let `x` be a lightest solution, and take a state with `S ⊊ supp(x)` and `F ∩ supp(x) = ∅`, such as the empty state.
@@ -229,7 +269,17 @@ The syndrome of the state is that of the restriction of `x` to `supp(x) \ S`, wh
 So do the pruning of [Section 3.4](#34-pruning), with completions that empty the syndrome, and the values of [Section 3.7](#37-qubit-codes-that-are-not-css).
 The support of `x` need not be connected, but the restriction of `x` to each component flips a check of `σ`, through which the search can enter that component.
 
-The roots and ranks, symmetries, weight divisor, and logical test of a distance search do not carry over: the nonzero syndrome gives the empty state a check to branch on, a syndrome is not invariant under the symmetries of the code, the weights of the solutions need not share a divisor, and every solution counts.
+**Overlaps with known words.**
+For any word `g` of `ker(H)`, `x + g` has the same syndrome as `x`, so the cuts of [Section 3.4](#34-pruning) apply with known words of `ker(H)`, and a lightest solution whose support comes first, the canonical one, passes every cut.
+The order of the supports is that of the current ranks of the search, by index unless symmetries of an earlier distance search set them; any fixed order of the variables keeps the argument.
+This is the classical property that a coset leader meets each word of the code in at most half of that word.
+A query uses the rows of `G` and the words that `SupportSearch.use_query_overlap_words` adds as known words.
+Distance searches do not use the added words: for a word `g` outside `rowspan(G)`, `x + g` need not be a witness, so the cut of `g` can forbid every lightest witness.
+The stabilizers of a stabilizer state commute with each other, so they lie in `ker(H)`, which they span if the state is pure.
+So `CosetLeaderSearch` gives the search of Pauli errors its own sparser checks as known words, and, for the CSS weight, gives the search of X parts the X parts of the pure-X stabilizers, the sparser checks of the search of Z parts, and vice versa.
+The cuts can change which solution a query returns, but not whether the query finds one within a limit, so the answers and lower bounds of the queries do not change.
+
+The roots, the forbidding of variables of lower rank than the root, the symmetries, the weight divisor, and the logical test of a distance search do not carry over: the nonzero syndrome gives the empty state a check to branch on, a syndrome is not invariant under the symmetries of the code, the weights of the solutions need not share a divisor, and every solution counts.
 
 `CosetLeaderSearch` of `coset_leaders.py`, which `certify_bounded_fault_propagation` and the experimental `estimate_residual_weight_histogram` use, answers its queries by syndrome queries when built with `method="connected_cluster"`.
 It searches Pauli errors for the physical weight, but the CSS weight `max(|a|, |b|)` of an error `(a | b)` is not a sum over qubits, so it supports that weight only on a CSS state, where it searches the X and Z parts of errors separately, and raises a `ValueError` on any other state.
@@ -301,6 +351,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
+| Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
@@ -318,7 +369,11 @@ Changes to the search can use other bounds and orders, but must keep these requi
   A bound must be a lower bound on the number of variables that such a witness adds, all of which are available ([Section 3.3](#33-the-depth-first-search)).
   A bound that is too strong can still give the right distance, so the tests need cases where the bound is tight at the distance, such as the tests of known distances.
 - **Forbid a variable for a subtree only if no completion of the state within the weight limit holds it**, and make it available again when the search leaves the state.
-- **Give the same exact distances, and the same answers and lower bounds of coset queries, with `restrict_viable_symbols` on and off** ([Section 3.4](#34-pruning)), so the tests compare both settings with enumeration.
+- **Forbid a symbol by an overlap cut at a state only if the canonical witness, or canonical solution, does not extend the state or lacks the symbol** ([Section 3.4](#34-pruning)), with the lowest-ranked variable of each word under the current ranks of the search, which a syndrome query uses too, and loads that are undone when a symbol leaves the support.
+  The canonical witness has a support that comes first in the order of these ranks, with ties in values broken arbitrarily.
+  A distance search may use only rows of `G` as known words, while a syndrome query may use any word of `ker(H)` ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+  A cut that ignored the ranks that symmetries set could forbid the only witness that the roots reach, so the tests check that each root finds exactly the lightest witnesses that pass every cut, with and without symmetries.
+- **Give the same exact distances, and the same answers and lower bounds of coset queries, with `restrict_viable_symbols` and `stabilizer_overlap_cuts` on and off** ([Section 3.4](#34-pruning)), so the tests compare these settings with enumeration.
 - **Give each variable at most one value**: block the other values of the variable of a symbol while the symbol is in the support, unblock them when the search leaves its branch, and let a sibling forbid only its own symbol.
   Without the blocking, distances would not change, but a witness could hold two symbols on one variable and overstate its weight, so the tests check witnesses at every weight limit.
 - **Forbid each earlier sibling's symbol, and every value of the variables of lower rank than the root.**
@@ -326,7 +381,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - **Verify the automorphisms, and make each root the lowest-ranked variable of its orbit under all generators**, since roots from unverified permutations are unsound.
 - **Preserve the logical test**: a state with an empty syndrome holds a witness exactly if its product with some test row is odd, and no word of `rowspan(G)` may be reported.
 - **Use a proven weight divisor**, since a divisor that some witness lacks skips its weight.
-- **Start a syndrome query from its syndrome alone**, without ranks, symmetries, divisor, or logical test ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+- **Start a syndrome query from its syndrome alone**, without roots, symmetries, divisor, or logical test, and with ranks only in its overlap cuts ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   The search keeps only the distinct nonzero checks, so the syndrome of the given checks must be mapped onto them, and a syndrome with a nonzero entry for a zero check, or with different entries for two equal checks, has no solution.
 - **Reuse an overlap or a repair only within the state that computed it**, since another state can have another syndrome or other weights.
   Compute a repair only after weighing all the unsatisfied checks, since it sums their weights.
@@ -348,5 +403,8 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - G. Richter, "Finding small stopping sets in the Tanner graphs of LDPC codes", 4th International Symposium on Turbo Codes and Related Topics and 6th International ITG-Conference on Source and Channel Coding, 2006, pp. 1–5.
 - E. Rosnes and Ø. Ytrehus, "An efficient algorithm to find all small-size stopping sets of low-density parity-check matrices", IEEE Transactions on Information Theory 55, 4167 (2009).
 - S. M. Khatami, L. Danjean, D. V. Nguyen, and B. Vasić, "An efficient exhaustive low-weight codeword search for structured LDPC codes", Information Theory and Applications Workshop, 2013, pp. 401–410.
-- [QEC-pages/dist-m4ri](https://github.com/QEC-pages/dist-m4ri), by L. P. Pryadko and W. Zeng: a program whose connected-cluster (CC) method computes exact distances of classical codes, of quantum CSS codes, and of detector error models.
+- [QEC-pages/dist-m4ri](https://github.com/QEC-pages/dist-m4ri), by L. P. Pryadko and W. Zeng: a program whose connected-cluster (CC) method computes exact distances of classical codes, of quantum CSS codes, and of detector error models; its `src/dist_m4ri.c`, lines 827–877 at v0.16.1 (commit `4cc9c12`), looks up the last one or two columns of a support by a hash of the syndrome.
 - M. Webster, A. Jacob, and O. Higgott, "Distance-finding algorithms for quantum codes and circuits", Section 4.3.2, [arXiv:2603.22532](https://arxiv.org/abs/2603.22532): other names of the algorithm.
+- [Quantinuum/Qubitserf](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/cc.cpp), `cpp/distfind/cc.cpp`, lines 251–288 and 421–431 at commit `04b9349`: cuts by the overlaps with stabilizers, leaving out the first qubit of each stabilizer of even weight; and lines 445–475 and 551–554: a hash lookup of the last two qubits of a support, and a scan of one check for the last qubit.
+- [yeon-lee/QEDist](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/native_css/exact.cpp), `cssdist/native_css/exact.cpp`, lines 136–138 and 222 at commit `71a0f0c`, and J. Y. Lee, "Designing group-valued codes with full regular low-weight bases", [arXiv:2610.06820](https://arxiv.org/abs/2610.06820), with [yeon-lee/public-regular-logical-frames](https://github.com/yeon-lee/public-regular-logical-frames/blob/04ad4795ad15cb89ee47b7868ff925c30b2fc731/src/lp_exclusion.cpp), `src/lp_exclusion.cpp`, lines 68–69 at commit `04ad479`: pruning of supports that meet a stabilizer in more than half of it.
+- [Fanerst/tropidist](https://github.com/Fanerst/tropidist/blob/b03ec2d4077f287f89f97b5c2c16ce5ce17c2c58/cdist/gmitm.c), `cdist/gmitm.c`, lines 388–416 at commit `b03ec2d`, the program of Cheng, Guo, and Pan, [arXiv:2611.08247](https://arxiv.org/abs/2611.08247): the same rule, as "kernel dominance", by sets of variables with zero syndrome and zero logical value (see lines 207–210 for the name).

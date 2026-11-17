@@ -51,6 +51,9 @@ class ConnectedClusterCosetSearch:
             ``SearchTuning``.
         restrict_viable_symbols: The field ``restrict_viable_symbols`` of ``SearchTuning`` (see
             ``SupportSearch``).
+        stabilizer_overlap_cuts: The field ``stabilizer_overlap_cuts`` of ``SearchTuning`` (see
+            ``SupportSearch``).  The cuts need known words of the kernel of the checks, which
+            ``use_query_overlap_words`` gives.
     """
 
     def __init__(
@@ -61,6 +64,7 @@ class ConnectedClusterCosetSearch:
         max_rounds: int,
         rounds_without_improvement: int,
         restrict_viable_symbols: bool,
+        stabilizer_overlap_cuts: bool,
     ) -> None:
         # Tabulate the words of weight zero or one by syndrome.  The syndrome of a single bit is a
         # column of the checks, with the halves of symplectic checks swapped.
@@ -75,7 +79,7 @@ class ConnectedClusterCosetSearch:
             max_rounds=max_rounds,
             rounds_without_improvement=rounds_without_improvement,
         )
-        self._num_checks = len(rows)
+        self._rows = rows
         # Row ``i`` of ``rows`` sums the given rows that row ``i`` of ``transform`` selects, so a
         # given syndrome maps to the sum of the columns of ``transform`` that its bits select.
         self._syndrome_map_columns = row_ints(np.ascontiguousarray(transform.T))
@@ -86,11 +90,31 @@ class ConnectedClusterCosetSearch:
             symplectic=symplectic,
             automorphism_minimum_states=_tuning.MAX_VALUE,
             restrict_viable_symbols=restrict_viable_symbols,
+            stabilizer_overlap_cuts=stabilizer_overlap_cuts,
         )
         # For ``rows``, word ``j`` of ``get_unit_syndrome_words`` has a syndrome of only bit ``j``,
         # so the words of the set bits of a syndrome sum to a representative of its coset.
         syndrome_rows = swap_pauli_halves(rows) if symplectic else rows
         self._inverse_rows = row_ints(get_unit_syndrome_words(syndrome_rows))
+
+    @property
+    def checks(self) -> npt.NDArray[np.uint8]:
+        """The sparser checks that the search uses, which span the same space as the given ones.
+
+        The array is a read-only view.
+        """
+        rows = self._rows.view()
+        rows.flags.writeable = False
+        return rows
+
+    def use_query_overlap_words(self, words: npt.ArrayLike) -> None:
+        """Let the overlap cuts of the queries use words of the kernel of the checks.
+
+        Such words are stabilizers, for example.  The cuts do nothing until this method gives them
+        words.  The words are in the representation of the checks (see
+        ``SupportSearch.use_query_overlap_words``).
+        """
+        self._search.use_query_overlap_words(words)
 
     def get_min_weight_bound(
         self,
@@ -117,7 +141,7 @@ class ConnectedClusterCosetSearch:
         # all, in order.  The map is invertible and the lookup answers the zero syndrome, so the
         # mapped syndrome is not zero, as ``_find_vector_with_packed_syndrome`` requires.
         syndrome = xor_selected(self._syndrome_map_columns, syndrome)
-        packed_syndrome = int_to_words(syndrome, (self._num_checks + 63) // 64)
+        packed_syndrome = int_to_words(syndrome, (len(self._rows) + 63) // 64)
 
         # The lookup leaves only cosets without a word below weight two, so search no limit below
         # two, and raise the lower bound above each limit within which the search finds no word.

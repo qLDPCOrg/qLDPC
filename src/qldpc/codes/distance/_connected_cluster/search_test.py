@@ -83,18 +83,65 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
 def get_search(*problem: npt.ArrayLike, **options: Any) -> cs.SupportSearch:
     """A search that asks for any automorphisms before its first weight limit, by default.
 
-    ``restrict_viable_symbols`` defaults to its value in the default tuning.
+    ``restrict_viable_symbols`` and ``stabilizer_overlap_cuts`` default to their values in the
+    default tuning.
     """
     options.setdefault("automorphism_minimum_states", 0)
     options.setdefault("restrict_viable_symbols", _tuning.DEFAULT_TUNING.restrict_viable_symbols)
+    options.setdefault("stabilizer_overlap_cuts", _tuning.DEFAULT_TUNING.stabilizer_overlap_cuts)
     return cs.SupportSearch(*problem, **options)
+
+
+def passes_overlap_cuts(
+    words: npt.NDArray[np.uint8],
+    vector: int,
+    symplectic: bool,
+    ranks: npt.NDArray[np.int64] | None = None,
+    *,
+    odd_rule: bool = True,
+) -> bool:
+    """Whether a vector passes the overlap cut of each word, with variables ranked by index or rank.
+
+    Bit ``j`` of ``vector`` is entry ``j`` of the vector, as in ``get_span``.  The cut of a word
+    ``g`` lets each variable of ``g`` add 2 to the load if the vector equals ``g`` there, and 1 if
+    it is nonzero and differs, except the variable of ``g`` that ranks lowest, unless the problem is
+    binary, ``|g|`` is odd, and ``odd_rule`` is true.  A vector passes the cut if its load is at
+    most ``|g| - 1`` (Section 3.4 of ``connected_cluster.md``).
+    """
+    width = words.shape[1]
+    num_variables = width // 2 if symplectic else width
+    bits = np.array([vector >> index & 1 for index in range(width)], dtype=np.uint8)
+    for word in words:
+        pairs: list[tuple[int, ...]]
+        values: list[tuple[int, ...]]
+        if symplectic:
+            pairs = list(zip(word[:num_variables], word[num_variables:]))
+            values = list(zip(bits[:num_variables], bits[num_variables:]))
+        else:
+            pairs, values = [(bit,) for bit in word], [(bit,) for bit in bits]
+        support = [index for index, pair in enumerate(pairs) if any(pair)]
+        if ranks is not None:
+            support.sort(key=lambda index: ranks[index])
+        loaded = support if odd_rule and not symplectic and len(support) % 2 else support[1:]
+        load = sum(
+            2 if values[index] == pairs[index] else 1 for index in loaded if any(values[index])
+        )
+        if len(support) >= 2 and load > len(support) - 1:
+            return False
+    return True
+
+
+def get_symplectic_witness_words(problem: Problem) -> set[int]:
+    """The witnesses of a symplectic problem, with bit ``j`` for entry ``j`` of their vectors."""
+    checks, excluded = problem
+    num_qubits = checks.shape[1] // 2
+    return get_span(get_kernel(np.roll(checks, num_qubits, axis=1))) - get_span(excluded)
 
 
 def get_symplectic_witness_supports(problem: Problem) -> list[int]:
     """The supports of the witnesses of a symplectic problem, with bit ``j`` for qubit ``j``."""
-    checks, excluded = problem
-    num_qubits = checks.shape[1] // 2
-    words = get_span(get_kernel(np.roll(checks, num_qubits, axis=1))) - get_span(excluded)
+    num_qubits = problem[0].shape[1] // 2
+    words = get_symplectic_witness_words(problem)
     return [(word | word >> num_qubits) % 2**num_qubits for word in words]
 
 
@@ -240,8 +287,11 @@ def test_the_distance_matches_enumeration(name: str, restrict_viable_symbols: bo
     """The distance search, and a search through each weight limit, agree with an enumeration."""
     problem = PROBLEMS[name]
     distance = get_brute_force_distance(problem)
-    tuning = _tuning.SearchTuning(restrict_viable_symbols=restrict_viable_symbols)
-    assert cs.get_distance_connected_cluster([problem], cutoff=0, tuning=tuning) == distance
+    for cuts in (True, False):
+        tuning = _tuning.SearchTuning(
+            restrict_viable_symbols=restrict_viable_symbols, stabilizer_overlap_cuts=cuts
+        )
+        assert cs.get_distance_connected_cluster([problem], cutoff=0, tuning=tuning) == distance
     for max_weight in range(1, distance + 1):
         search = get_search(*problem, restrict_viable_symbols=restrict_viable_symbols)
         witness = search.find_witness(max_weight)
@@ -253,29 +303,221 @@ def test_the_distance_matches_enumeration(name: str, restrict_viable_symbols: bo
             )
 
 
+@pytest.mark.parametrize("cuts", [True, False])
 @pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
-def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str) -> None:
+def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str, cuts: bool) -> None:
     """A root finds a witness at the distance exactly if it is the least variable of a lightest one.
 
-    Section 3.3 of ``connected_cluster.md`` proves this completeness.
+    With the overlap cuts, the lightest witness must also pass the cut of each excluded row.
+    Sections 3.3 and 3.4 of ``connected_cluster.md`` prove this completeness, and some lightest
+    witness passes every cut.
     """
     problem = PROBLEMS[name]
     checks, excluded = problem
     words = get_span(get_kernel(checks)) - get_span(excluded)
     distance = min(word.bit_count() for word in words)
+    lightest = [word for word in words if word.bit_count() == distance]
+    admissible = [word for word in lightest if passes_overlap_cuts(excluded, word, False)]
+    assert admissible
     least_variables = {
-        (word & -word).bit_length() - 1 for word in words if word.bit_count() == distance
+        (word & -word).bit_length() - 1 for word in (admissible if cuts else lightest)
     }
     for root in range(checks.shape[1]):
-        search = get_search(*problem)
+        search = get_search(*problem, stabilizer_overlap_cuts=cuts)
         search._roots = np.array([root])
         witness = search.find_witness(distance)
         assert (witness is not None) == (root in least_variables)
         assert witness is None or (min(witness) == root and is_witness(problem, witness))
 
 
+def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
+    """With symmetries, the cuts leave out the variable of each word that ranks lowest.
+
+    The ranks order the orbits under the permutation by their lowest indices, and the variables
+    within each orbit by index.  A root finds a witness at the distance exactly if it ranks lowest
+    in a lightest witness that passes every cut under these ranks (Sections 3.4 and 3.5 of
+    ``connected_cluster.md``).  Under cuts by index, another root would find one.
+    """
+    automorphism = np.array([5, 2, 3, 1, 4, 7, 6, 0])
+    checks = np.array([[0, 0, 0, 0, 1, 0, 0, 0], [1, 1, 1, 1, 0, 1, 1, 1]], dtype=np.uint8)
+    excluded = np.array(
+        [[0, 0, 1, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0]],
+        dtype=np.uint8,
+    )
+    num_variables = len(automorphism)
+    orbits = np.arange(num_variables)
+    for variable in range(num_variables):
+        image = variable
+        while (image := int(automorphism[image])) != variable:
+            orbits[variable] = min(orbits[variable], image)
+    ranks = np.argsort(np.lexsort((np.arange(num_variables), orbits)))
+    roots = sorted(set(orbits.tolist()))
+    assert not np.array_equal(ranks, np.arange(num_variables))
+
+    words = get_span(get_kernel(checks)) - get_span(excluded)
+    distance = min(word.bit_count() for word in words)
+    expected = {}
+    for name, cut_ranks in [("ranks", ranks), ("indices", None)]:
+        expected[name] = {
+            min(
+                (index for index in range(num_variables) if word >> index & 1),
+                key=ranks.__getitem__,
+            )
+            for word in words
+            if word.bit_count() == distance
+            and passes_overlap_cuts(excluded, word, False, cut_ranks)
+        } & set(roots)
+    assert expected["ranks"] and expected["ranks"] != expected["indices"]
+
+    for root in roots:
+        search = get_search(checks, excluded)
+        search._use_automorphisms(automorphism[None])
+        search._roots = np.array([root])
+        witness = search.find_witness(distance)
+        assert (witness is not None) == (root in expected["ranks"])
+        assert witness is None or is_witness((checks, excluded), witness)
+    for max_weight in range(1, distance + 1):
+        search = get_search(checks, excluded, get_automorphisms=lambda: automorphism[None])
+        assert (search.find_witness(max_weight) is None) == (max_weight < distance)
+
+
+def get_tree_code(rng: np.random.Generator, num_bits: int) -> codes.ClassicalCode:
+    """A repetition code whose checks, of two bits each, form a random tree on the bits."""
+    order = rng.permutation(num_bits)
+    matrix = np.zeros((num_bits - 1, num_bits), dtype=np.uint8)
+    for index in range(1, num_bits):
+        matrix[index - 1, [order[index], order[rng.integers(index)]]] = 1
+    return codes.ClassicalCode(matrix)
+
+
+def test_overlap_cuts_keep_the_distances_of_random_codes(pytestconfig: pytest.Config) -> None:
+    """Random surface-like codes have the same distances with and without the cuts.
+
+    The hypergraph product of two repetition codes of 3 or 4 bits, with random trees of checks, has
+    distance 3 or 4 and stabilizers of weight at most 5, some of them odd, whose cuts are tight on
+    lightest witnesses.  BZ gives an independent answer.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(2):
+        first, second = [get_tree_code(rng, int(rng.integers(3, 5))) for _ in range(2)]
+        code = codes.HGPCode(first, second)
+        expected = get_distance_css(code.matrix_x, code.matrix_z, method="brouwer_zimmermann")
+        assert expected >= 3
+        assert 2 * expected > max(np.sum(code.matrix_x.view(np.ndarray), axis=1, dtype=int))
+        assert 2 * expected > max(np.sum(code.matrix_z.view(np.ndarray), axis=1, dtype=int))
+        for cuts in (True, False):
+            with _tuning.use_tuning(stabilizer_overlap_cuts=cuts):
+                distance = get_distance_css(
+                    code.matrix_x, code.matrix_z, method="connected_cluster"
+                )
+                assert distance == expected
+
+
+def test_odd_excluded_words_cut_their_lowest_ranked_variable_too() -> None:
+    """The cut of an excluded binary word of odd weight counts all of its variables.
+
+    The word ``g = {2, 3, 4}`` is excluded, and the lightest witnesses, such as ``{4, 5}``, weigh 2.
+    The witnesses of weight at most 3 whose least variable is 2, such as ``{2, 3, 5}``, hold two
+    variables of ``g``, so they fail its cut, though they would pass it without variable 2.  So the
+    search from root 2 finds no witness at limit 3 (Section 3.4 of ``connected_cluster.md``).
+    """
+    checks = np.array([[1, 0, 1, 1, 0, 0], [0, 1, 0, 1, 1, 1]], dtype=np.uint8)
+    excluded = np.array([[0, 0, 1, 1, 1, 0]], dtype=np.uint8)
+    words = get_span(get_kernel(checks)) - get_span(excluded)
+    rooted = [word for word in words if word.bit_count() <= 3 and (word & -word) == 1 << 2]
+    assert rooted
+    assert not any(passes_overlap_cuts(excluded, word, False) for word in rooted)
+    assert any(passes_overlap_cuts(excluded, word, False, odd_rule=False) for word in rooted)
+
+    search = get_search(checks, excluded)
+    search._roots = np.array([2])
+    assert search.find_witness(3) is None
+    assert get_brute_force_distance((checks, excluded)) == 2
+    witness = get_search(checks, excluded).find_witness(2)
+    assert witness is not None and is_witness((checks, excluded), witness)
+
+
+def test_vector_distances_from_classical_codes_are_cut_by_their_generators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The distance of a vector from a classical code agrees with brute force, with or without cuts.
+
+    The search excludes the rows of the generator matrix of the code, which are known words, here of
+    weights 2 and 3, so its cuts act exactly when the switch is on (Section 3.4 of
+    ``connected_cluster.md``).
+    """
+    num_cuts_per_search: list[int] = []
+    search_supports = cs._search_supports
+    signature = inspect.signature(search_supports)
+
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+        num_cuts_per_search.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
+        return search_supports(*args, **kwargs)
+
+    monkeypatch.setattr(cs, "_search_supports", record)
+    weights = set()
+    for seed in (2, 7):
+        code = codes.ClassicalCode.random(6, 3, seed=seed)
+        generator = code.generator.view(np.ndarray).astype(np.uint8)
+        weights |= set(np.sum(generator, axis=1).tolist())
+        code_words = get_span(generator)
+        for vector in range(2**6):
+            bits = [vector >> index & 1 for index in range(6)]
+            expected = min((vector ^ word).bit_count() for word in code_words)
+            for cuts in (True, False):
+                num_cuts_per_search.clear()
+                with _tuning.use_tuning(stabilizer_overlap_cuts=cuts):
+                    distance = code.get_distance_exact(vector=bits, method="connected_cluster")
+                assert distance == expected
+                assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_search)
+    assert {2, 3} <= weights
+
+
+def query_symbols(search: cs.SupportSearch) -> list[int] | None:
+    """The symbols that a query for the syndrome 01 at limit 2 returns, or None."""
+    vector = search.find_vector_with_syndrome([0, 1], 2)
+    return None if vector is None else vector.tolist()
+
+
+def test_query_overlap_words_cut_queries_but_not_witnesses() -> None:
+    """Words outside the excluded rows cut syndrome queries, but not the search for witnesses.
+
+    The word 111 of these checks is not excluded, so it is a witness, and its cut would forbid it.
+    Its cut lets a query at limit 2 return only the lighter vector of its syndrome.
+    """
+    checks = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
+    search = get_search(checks, np.zeros((0, 3), dtype=np.uint8))
+    assert query_symbols(search) == [0, 1]
+    search.use_query_overlap_words([[1, 1, 1]])
+    witness = search.find_witness(3)
+    assert witness is not None and witness.tolist() == [0, 1, 2]
+    assert query_symbols(search) == [2]
+
+
+def test_query_overlap_words_must_satisfy_the_checks_and_need_the_switch() -> None:
+    """Query words must be a binary matrix as wide as the checks, and satisfy them.
+
+    They cut only with the switch on.
+    """
+    checks = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
+    search = get_search(checks, np.zeros((0, 3), dtype=np.uint8), stabilizer_overlap_cuts=False)
+    with pytest.raises(ValueError, match="satisfy the checks"):
+        search.use_query_overlap_words([[1, 1, 0]])
+    with pytest.raises(ValueError, match="as wide"):
+        search.use_query_overlap_words([[1, 1]])
+    with pytest.raises(ValueError, match="as wide"):
+        search.use_query_overlap_words([1, 1, 1])
+    with pytest.raises(ValueError, match="binary"):
+        search.use_query_overlap_words([[2, 0, 0]])
+    search.use_query_overlap_words([[1, 1, 1]])
+    assert query_symbols(search) == [0, 1]
+
+
 def test_each_support_is_visited_once_above_its_least_variable() -> None:
-    """With every word excluded, a search visits the supports that grow from each root once."""
+    """With every word excluded, a search visits the supports that grow from each root once.
+
+    The overlap cuts are off, since the excluded words would cut some of these supports.
+    """
     # The checks {0, 1, 2} and {1, 2, 3} have the words {0, 1, 3}, {0, 2, 3}, and {1, 2}.  At limit
     # 4, root 0 visits {0}, {0, 1}, {0, 1, 2}, {0, 1, 3}, {0, 2}, and {0, 2, 3}, since its branch on
     # 1 forbids 1 for its sibling {0, 2}.  Root 1 visits {1} and {1, 2}, and roots 2 and 3 visit
@@ -284,7 +526,7 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     num_states = {}
     for max_weight in (2, 4):
-        search = get_search(checks, get_kernel(checks))
+        search = get_search(checks, get_kernel(checks), stabilizer_overlap_cuts=False)
         assert search.find_witness(max_weight) is None
         num_states[max_weight] = search.num_states
     assert num_states == {2: 5, 4: 6 + 2 + 1 + 1}
@@ -358,6 +600,7 @@ def test_automorphisms_are_found_once_by_the_threshold(minimum_states: int) -> N
         get_kernel(checks),
         get_automorphisms=lambda: found.append(True),
         automorphism_minimum_states=minimum_states,
+        stabilizer_overlap_cuts=False,
     )
     for max_weight in [1, 2, 3, 4, 4, 4]:
         reached = search.num_states >= minimum_states
@@ -480,25 +723,26 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
             packed,
             True,
             restrict_viable_symbols,
+            *search._cuts,
         )
         assert not len(support)
     assert num_states == {True: 1, False: 0}
 
 
-@pytest.mark.parametrize(
-    ("changes", "expected"), [({}, True), ({"restrict_viable_symbols": False}, False)]
-)
-def test_connected_cluster_distance_searches_read_the_restriction_of_their_tuning(
-    monkeypatch: pytest.MonkeyPatch, changes: dict[str, bool], expected: bool
+@pytest.mark.parametrize("switch", ["restrict_viable_symbols", "stabilizer_overlap_cuts"])
+@pytest.mark.parametrize("expected", [True, False])
+def test_connected_cluster_distance_searches_read_the_switches_of_their_tuning(
+    monkeypatch: pytest.MonkeyPatch, switch: str, expected: bool
 ) -> None:
-    """Distance searches pass ``restrict_viable_symbols`` of their tuning to ``SupportSearch``."""
+    """Distance searches pass the switches of their tuning to ``SupportSearch``."""
+    changes = {switch: expected}
     settings: list[tuple[bool, bool]] = []
     initialize = cs.SupportSearch.__init__
     signature = inspect.signature(initialize)
 
     def record(*args: Any, **kwargs: Any) -> None:
         arguments = signature.bind(*args, **kwargs).arguments
-        settings.append((arguments["symplectic"], arguments["restrict_viable_symbols"]))
+        settings.append((arguments["symplectic"], arguments[switch]))
         initialize(*args, **kwargs)
 
     # get_distance_css searches through core._search_css, and get_distance_pauli, whose searches are
@@ -514,7 +758,7 @@ def test_connected_cluster_distance_searches_read_the_restriction_of_their_tunin
     # them passes its tuning on.
     settings.clear()
     tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, **changes)
-    with _tuning.use_tuning(restrict_viable_symbols=not expected):
+    with _tuning.use_tuning(**{switch: not expected}):
         cs.get_distance_connected_cluster(get_sectors(steane), cutoff=0, tuning=tuning)
     assert set(settings) == {(False, expected)}
 
@@ -627,11 +871,15 @@ def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> It
         yield get_qubit_problem(codes.QuditCode(matrix, is_subsystem_code=code.is_subsystem_code))
 
 
+@pytest.mark.parametrize("cuts", [True, False])
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])
 def test_random_qubit_problems_match_enumeration(
-    pytestconfig: pytest.Config, restrict_viable_symbols: bool
+    pytestconfig: pytest.Config, restrict_viable_symbols: bool, cuts: bool
 ) -> None:
-    """Qubit problems agree with an enumeration at every weight limit, and from every root."""
+    """Qubit problems agree with an enumeration at every weight limit, and from every root.
+
+    With the overlap cuts, a root finds a lightest witness only if one passes every cut.
+    """
     # The five-qubit code in two frames: in the first, a state needs Y on a qubit after an earlier
     # sibling of the state tried X there, and in the second, a state needs the other values of the
     # qubit of a branch once the search has left that branch.
@@ -655,7 +903,10 @@ def test_random_qubit_problems_match_enumeration(
         *(get_qubit_problem(codes.QuditCode(matrix)) for matrix in mixed_five_qubit_codes),
         *get_random_qubit_problems(rng, 10),
     ]
-    tuning = _tuning.SearchTuning(restrict_viable_symbols=restrict_viable_symbols)
+    tuning = _tuning.SearchTuning(
+        restrict_viable_symbols=restrict_viable_symbols, stabilizer_overlap_cuts=cuts
+    )
+    options = {"restrict_viable_symbols": restrict_viable_symbols, "stabilizer_overlap_cuts": cuts}
     for problem in problems:
         num_qubits = problem[0].shape[1] // 2
         supports = get_symplectic_witness_supports(problem)
@@ -669,24 +920,27 @@ def test_random_qubit_problems_match_enumeration(
         # Searching at every limit catches a witness with two values on a qubit, and searching from
         # every root catches a value that the search misses.
         for max_weight in range(1, num_qubits + 1):
-            search = get_search(
-                *problem, symplectic=True, restrict_viable_symbols=restrict_viable_symbols
-            )
+            search = get_search(*problem, symplectic=True, **options)
             witness = search.find_witness(max_weight)
             assert (witness is None) == (max_weight < distance)
             assert witness is None or (
                 len(witness) <= max_weight and is_symplectic_witness(problem, witness)
             )
 
+        lightest = [
+            word
+            for word in get_symplectic_witness_words(problem)
+            if ((word | word >> num_qubits) % 2**num_qubits).bit_count() == distance
+        ]
+        if cuts:
+            lightest = [word for word in lightest if passes_overlap_cuts(problem[1], word, True)]
+            assert lightest
         least_qubits = {
             (support & -support).bit_length() - 1
-            for support in supports
-            if support.bit_count() == distance
+            for support in ((word | word >> num_qubits) % 2**num_qubits for word in lightest)
         }
         for root in range(num_qubits):
-            search = get_search(
-                *problem, symplectic=True, restrict_viable_symbols=restrict_viable_symbols
-            )
+            search = get_search(*problem, symplectic=True, **options)
             search._roots = np.array([root])
             witness = search.find_witness(distance)
             assert (witness is not None) == (root in least_qubits)
@@ -963,6 +1217,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
             cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
             True,
             True,
+            *search._cuts,
         )
         return sorted(support.tolist())
 
@@ -1001,6 +1256,7 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
                     packed,
                     memoize,
                     True,
+                    *search._cuts,
                 )
                 for memoize in (False, True)
             ]
