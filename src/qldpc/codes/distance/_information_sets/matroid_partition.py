@@ -58,16 +58,17 @@ def get_information_sets_with_coverage(
 
 def _get_column_ints(matrix: npt.NDArray[np.uint8]) -> list[int]:
     """The columns of a binary matrix as integers, with row ``i`` in bit ``i``."""
-    packed = np.packbits(matrix.T, axis=1, bitorder="little")
+    packed = np.packbits(np.asarray(matrix, dtype=np.uint8).T, axis=1, bitorder="little")
     return [int.from_bytes(column.tobytes(), "little") for column in packed]
 
 
 class _IndependentSet:
     """Independent column vectors, row reduced so that circuits are cheap to find.
 
-    Row ``pivot: (vector, mask)`` of the reduction is the sum of the members whose positions are the
-    set bits of ``mask``, and it is the only row with bit ``pivot`` set.  So reducing a vector adds
-    the rows at the pivots that it has set.  Circuits are cached by vector until the members change.
+    ``_rows`` maps each pivot to a pair ``(row, mask)``.  The row is the sum of the members whose
+    positions are the set bits of ``mask``, and it is the only row with its pivot bit set.  So
+    reducing a vector adds the row of each pivot bit that the vector has set.  Circuits are cached
+    by vector until the members change.
     """
 
     def __init__(self) -> None:
@@ -92,8 +93,8 @@ class _IndependentSet:
 
     def remove(self, element: int) -> None:
         """Remove a member, and keep the rows reduced."""
-        # Drop a row whose mask has the member, after adding that row to the others whose masks have
-        # it.  That row has no bit at the other pivots, so they stay pivots of their rows.
+        # Drop a row whose mask has the member's position, after adding that row to the others whose
+        # masks have it.  That row has no bit at the other pivots, so they stay pivots of theirs.
         position = self.elements.index(element)
         pivot = next(pivot for pivot, (_, mask) in self._rows.items() if mask >> position & 1)
         vector, mask = self._rows.pop(pivot)
@@ -177,8 +178,8 @@ class _Partition:
         parent: dict[int, tuple[int, int]] = {}
         queue = deque([element])
         seen = {element}
-        # Elements with equal vectors have equal circuits in each set, so an element skips the sets
-        # in which an earlier one with its vector found its circuit, whose members are all seen.
+        # An element skips each set in which an earlier element with the same vector already found a
+        # circuit.  Equal vectors have equal circuits in a set, and that circuit's members are seen.
         searched: dict[int, set[int]] = {}
         end: tuple[int, int] | None = None
         while queue and end is None:
