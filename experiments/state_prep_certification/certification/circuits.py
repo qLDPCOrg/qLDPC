@@ -13,10 +13,12 @@ the cat-state circuits ``ft_ghz_<w>_<t>.stim``, and MQT's license into ``circuit
 ``--build`` and ``--check`` make and verify the certification inputs; see ``build_inputs`` and
 ``check_inputs``.  Every circuit lives in ``circuit_data/``, which Git ignores: the circuits
 fetched from MQT QECC (``mqt/``), the hand-translated ones (``translated/``), the ones synthesized
-with MQT QECC (``synthesized/``, with ``provenance.json``, which records each synthesis call and
+with MQT QECC (``synthesized/``, and the restored syntheses with release 1.9.0 in
+``synthesized_mqt_1.9.0/``, each with ``provenance.json``, which records each synthesis call and
 its code's [[n, k, d]]), and the inputs with ``circuits.json`` (``inputs/``).  The synthesized
 circuits are made outside qLDPC, by the tooling that keeps them, and ``--build`` uses those that
-``provenance.json`` records as synthesized.
+``provenance.json`` records as synthesized.  Each folder of synthesized circuits gives a family of
+its own (``SYNTHESES``).
 """
 
 from __future__ import annotations
@@ -42,6 +44,12 @@ HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = json.loads((HERE / "config.json").read_text())
 DATA = HERE / "circuit_data"
 SYNTHESIZED = DATA / "synthesized"
+SYNTHESIZED_MQT_1_9_0 = DATA / "synthesized_mqt_1.9.0"
+# The families of synthesized circuits: the prefix of their ids, and the folder of their circuits.
+SYNTHESES = {
+    "D-synth": ("dsynth", SYNTHESIZED),
+    "D-synth (MQT 1.9.0)": ("dsynth190", SYNTHESIZED_MQT_1_9_0),
+}
 MQT_DIR = DATA / "mqt"
 SOURCES = CONFIG["workstation_sources"]
 INPUTS = DATA / "inputs"
@@ -80,7 +88,7 @@ def parse_args() -> argparse.Namespace:
     commands.add_argument(
         "--check",
         action="store_true",
-        help="check the inputs' hashes, DEM parameters, and D-synth states, and, where "
+        help="check the inputs' hashes, DEM parameters, and code files, and, where "
         "circuit_data/mqt/ is present, rebuild the inputs from the sources",
     )
     return parser.parse_args()
@@ -151,6 +159,9 @@ A_CODES = {
 ALLOWED_GATES = {"H", "CX", "R", "RX", "M", "MR", "MX", "MRX", "CZ", "TICK"}
 RESET_GATES = {"R", "RX"}
 
+# The families of verified circuits: each gets a weakened variant, a code file, and deletion tasks.
+VERIFIED_FAMILIES = ("A-ft", "C-goto", *SYNTHESES)
+
 
 def build_inputs() -> None:
     """Build every certification input, with its weakened variant, and write ``circuits.json``.
@@ -177,19 +188,31 @@ def make_inputs(inputs: pathlib.Path) -> dict[str, Any]:
     certifier, untimed and without an oracle, which also gives the DEM parameters of
     ``circuits.json`` (``dem_parameters``); a cat circuit whose added detectors qLDPC rejects is
     recorded as excluded.  The licenses of ``LICENSES`` are copied beside the inputs.  The record
-    of the sources gives the MQT QECC releases that synthesized the D-synth circuits, from
-    ``circuit_data/synthesized/provenance.json``.
+    of the sources gives the MQT QECC releases that synthesized the circuits of ``SYNTHESES``, from
+    their ``provenance.json``, and each of these circuits records its release.  Each input of
+    ``VERIFIED_FAMILIES`` records its code file and the file's SHA-256
+    (``code_files.code_file_fields``).
     """
+    from experiments.state_prep_certification.certification import code_files
+
     inputs.mkdir(parents=True, exist_ok=True)
     for name, path in LICENSES.items():
         shutil.copyfile(path, inputs / name)
     entries = []
     for source in _sources():
         made = [_make_entry(source, inputs)]
-        if source["family"] in ("A-ft", "C-goto", "D-synth") and made[0]["status"] == "ok":
+        if made[0]["status"] == "ok":
+            made[0] |= code_files.code_file_fields(made[0])
+        if source["family"] in VERIFIED_FAMILIES and made[0]["status"] == "ok":
             made.append(_make_weakened(made[0], inputs))
         entries += made
-    releases = sorted({call["versions"]["mqt.qecc"] for call in _synthesized_circuits()})
+    releases = sorted(
+        {
+            call["versions"]["mqt.qecc"]
+            for _, folder in SYNTHESES.values()
+            for call in _synthesized_circuits(folder)
+        }
+    )
     return {"circuits": entries, "sources": SOURCES | {"mqt_qecc_synthesis_releases": releases}}
 
 
@@ -309,20 +332,22 @@ def _sources() -> list[dict[str, Any]]:
             "t": 1,
         }
     )
-    for call in _synthesized_circuits():
-        n, k, d = call["parameters"]
-        sources.append(
-            {
-                "id": f"dsynth.{call['code']}.{call['step']}",
-                "family": "D-synth",
-                "path": SYNTHESIZED / call["stim_file"],
-                "repository": f"MQT QECC {call['versions']['mqt.qecc']} synthesis",
-                "commit": None,
-                "source_path": f"circuit_data/synthesized/{call['stim_file']}",
-                "code": [n, k, d],
-                "t": (d - 1) // 2,
-            }
-        )
+    for family, (prefix, synthesized) in SYNTHESES.items():
+        for call in _synthesized_circuits(synthesized):
+            n, k, d = call["parameters"]
+            sources.append(
+                {
+                    "id": f"{prefix}.{call['code']}.{call['step']}",
+                    "family": family,
+                    "path": synthesized / call["stim_file"],
+                    "repository": f"MQT QECC {call['versions']['mqt.qecc']} synthesis",
+                    "mqt_qecc_release": call["versions"]["mqt.qecc"],
+                    "commit": None,
+                    "source_path": f"circuit_data/{synthesized.name}/{call['stim_file']}",
+                    "code": [n, k, d],
+                    "t": (d - 1) // 2,
+                }
+            )
     sources.append(
         {
             "id": "echen",
@@ -339,9 +364,9 @@ def _sources() -> list[dict[str, Any]]:
     return sources
 
 
-def _synthesized_circuits() -> list[dict[str, Any]]:
+def _synthesized_circuits(folder: pathlib.Path) -> list[dict[str, Any]]:
     """The records of the verification calls that synthesized a circuit, from the provenance."""
-    provenance = json.loads((SYNTHESIZED / "provenance.json").read_text())
+    provenance = json.loads((folder / "provenance.json").read_text())
     return [
         call
         for call in provenance["calls"]
@@ -537,18 +562,21 @@ def _validate_and_write(
 
 
 def check_inputs() -> None:
-    """Check every input against ``circuits.json``, and the states of the D-synth inputs.
+    """Check every input against ``circuits.json``, and the code file of each circuit that has one.
 
     Every input file must match the SHA-256 that ``circuits.json`` records for it, and the licenses
     of ``LICENSES`` must lie beside the inputs.  The DEM parameters of each input, recomputed as
-    ``--build`` computes them (``dem_parameters``), must equal those of ``circuits.json``.  The
-    state stabilizers of each D-synth input must generate the stabilizers and logical Z operators
-    of its code, whose check matrices ``circuit_data/synthesized/`` holds.  Where the fetched
-    sources are present, in ``circuit_data/mqt/`` on the workstation, the inputs are also rebuilt
-    from the sources in a scratch directory, and the rebuilt ``circuits.json``, with the SHA-256 of
-    every input, and the licenses must equal the recorded ones.
+    ``--build`` computes them (``dem_parameters``), must equal those of ``circuits.json``.  Each
+    input of ``VERIFIED_FAMILIES`` must have a code file that passes
+    ``code_files.check_code_file``, which checks, among others, that the input's state stabilizers
+    generate the code's stabilizers and logical Z operators.  Where the fetched sources are present,
+    in ``circuit_data/mqt/`` on the workstation, the inputs are also rebuilt from the sources in a
+    scratch directory, and the rebuilt ``circuits.json``, with the SHA-256 of every input, and the
+    licenses must equal the recorded ones.
     """
     import stim
+
+    from experiments.state_prep_certification.certification import code_files
 
     recorded = json.loads(CIRCUITS_JSON.read_text())
     entries = recorded["circuits"]
@@ -568,9 +596,10 @@ def check_inputs() -> None:
             if entry.get(key) != value:
                 problems.append(f"{entry['id']}: {key} is {value}, not {entry.get(key)}")
         checked += 1
-        if entry["family"] == "D-synth":
-            code_path = SYNTHESIZED / f"{entry['id'].split('.')[1]}_code.json"
-            problems += _check_synthesized_state(entry, json.loads(code_path.read_text()))
+        if "code_file" in entry:
+            problems += code_files.check_code_file(entry)
+        elif entry["family"] in VERIFIED_FAMILIES:
+            problems.append(f"{entry['id']}: no code_file")
     rebuilt = MQT_DIR.exists()
     if rebuilt:
         problems += _check_rebuilt(recorded)
