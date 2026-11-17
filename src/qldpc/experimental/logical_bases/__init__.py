@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Check bases of logical operators of binary CSS codes, and find light or parallel ones.
+"""Check bases of logical operators of binary CSS codes, and find light ones to act on in parallel.
 
 EXPERIMENTAL: this subpackage is under active development; its public API is unstable and may
 change without notice or deprecation.

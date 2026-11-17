@@ -33,8 +33,9 @@ from .evaluation import (
 )
 from .lightest_basis import _get_min_weight, _get_min_weight_word
 
-# Candidates are listed from random information sets, each contributing the words that combine at
-# most this many of its rows, until the list matches the exact count or the samples run out.
+# Candidates are listed from information sets, that of the column order and then random ones, each
+# contributing the words that combine at most this many of its rows, until the list matches the
+# exact count or the samples run out.
 _MAX_ROWS_PER_SAMPLE = 3
 _MAX_SAMPLES = 2000
 
@@ -61,14 +62,15 @@ def optimize_logical_rounds(
     operators on one qubit), and then the total weight.  Keeping the classes keeps the X-type and
     Z-type operators paired, so the result is a complete basis.
 
-    The candidates of each class are listed by sampling information sets, and each list is checked
-    against an exact count from :func:`qldpc.codes.distance.count_logical_ops_css`, which proves it
-    complete when the two agree.  Then an integer program for each number of rounds, from a lower
-    bound upward, is solved with ``scipy.optimize.milp`` until a choice exists.  The choices that
-    the solver returns are checked against the constraints, but its proofs (that fewer rounds are
-    impossible, and that no choice has a smaller largest load or total weight) are trusted.  The
-    result is optimal unless a list is incomplete or the time limit runs out.  Counting, listing,
-    and solving each generally take time exponential in the size of the code.
+    The candidates of each class are listed by sampling information sets, and a list is proven
+    complete when its length equals an exact count from
+    :func:`qldpc.codes.distance.count_logical_ops_css`.  Then an integer program for each number of
+    rounds, from a lower bound upward, is solved with ``scipy.optimize.milp`` until one has a
+    solution.  The choices that the solver returns are checked against the constraints, but its
+    proofs are trusted.  These are its proofs that fewer rounds are impossible, and that no choice
+    with as few rounds is better.  The result is optimal unless a list is incomplete or the time
+    limit runs out.  Counting, listing, and solving each generally take time exponential in the
+    size of the code.
 
     In some codes, such as bivariate bicycle codes, all operators of a class have weights of the
     same parity, so a slack of 1 allows no new operators, and 2 is the next useful value.
@@ -86,7 +88,8 @@ def optimize_logical_rounds(
             can be passed to :meth:`qldpc.codes.CSSCode.set_logical_ops`.
         time_limit: If given, a limit in seconds on the time spent solving integer programs, for
             both Pauli types together.  The X-type operators are chosen first, so they can use up
-            the limit.  Counting and listing candidates are not limited.
+            the limit.  Finding minimum weights, and counting and listing candidates, are not
+            limited.
 
     Returns:
         The chosen basis, with the round of each operator, a lower bound on the rounds, and why
@@ -97,8 +100,8 @@ def optimize_logical_rounds(
         ValueError: If ``code`` is not binary, if ``logicals`` is invalid, if ``logical_ops`` is not
             a complete basis as :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
             describes, or if ``weight_slack`` or ``time_limit`` is negative.
-        RuntimeError: If the integer-program solver fails, or returns a choice that breaks its
-            constraints.
+        RuntimeError: If the integer-program solver fails, or returns a result that cannot be
+            right, such as a choice that breaks its constraints.
     """
     # check the arguments and the basis
     if weight_slack < 0 or (time_limit is not None and time_limit < 0):
@@ -238,6 +241,8 @@ def _choose_operators(
         # infeasibility is proven only over the listed candidates
         if complete:
             lower_bound = num_rounds + 1
+    if status == "infeasible":
+        raise RuntimeError("The integer-program solver claims that no choice has k rounds")
 
     # without a choice, use the lightest candidates, in greedily colored rounds
     if choice is None:
@@ -268,13 +273,13 @@ def _list_candidates(
     expected = _count_candidates(op, trivial, min_weight, max_weight)
     basis, labels = get_nested_code_basis(op[None, :], trivial)
     rank, n = basis.shape
-    width = (n + 63) // 64
     combinations = [
         np.array(list(itertools.combinations(range(rank), size)), dtype=np.int64).reshape(-1, size)
         for size in range(1, _MAX_ROWS_PER_SAMPLE + 1)
     ]
 
-    # combine few rows of the basis reduced on the first information set, then on random ones
+    # combine few rows of the basis reduced on the information set of the column order, then on
+    # random ones
     found: dict[bytes, npt.NDArray[np.uint64]] = {}
     rng = np.random.default_rng(0)
     for sample in range(_MAX_SAMPLES):
@@ -298,7 +303,7 @@ def _list_candidates(
         found[word.tobytes()] = word
 
     # sort the words lightest first, and otherwise in an order that does not depend on the sampling
-    words = unpack_bits(np.array(list(found.values()), dtype=np.uint64).reshape(-1, width), n)
+    words = unpack_bits(np.array(list(found.values())), n)
     words = words[np.lexsort((*words.T[::-1], words.sum(axis=1)))]
     return list(words), len(found) == expected
 
@@ -320,7 +325,7 @@ def _count_candidates(
 
 
 def _get_common_qubit_bound(candidates: Sequence[Sequence[npt.NDArray[np.uint8]]]) -> int:
-    """A lower bound on rounds: the most classes whose candidates all contain one given qubit."""
+    """A lower bound on rounds: the most classes whose candidates all contain the same qubit."""
     common = np.array([np.bitwise_and.reduce(np.array(words), axis=0) for words in candidates])
     return int(common.astype(int).sum(axis=0).max())
 
@@ -402,8 +407,8 @@ def _solve_rounds(
             options["time_limit"] = max(time_limit - (time.monotonic() - start), 0)
         result = milp(options={**options, "presolve": False})
 
-    # statuses 0, 1, and 2 are optimal, a time or iteration limit, and infeasible (or a malformed
-    # program, which these are not)
+    # statuses 0, 1, and 2 are optimal, a time or iteration limit (these programs set no iteration
+    # limit), and infeasible (or a malformed program, which these are not)
     if result.status == 2:
         return "infeasible", None
     if result.status not in (0, 1):
@@ -418,7 +423,7 @@ def _solve_rounds(
 def _check_choice(
     candidates: Sequence[Sequence[npt.NDArray[np.uint8]]], picked: Sequence[tuple[int, int, int]]
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.int_]]:
-    """The operators and rounds of a choice, checked, rather than trusted from the solver.
+    """The operators and rounds of a choice from the solver, checked rather than trusted.
 
     ``picked`` holds the class, candidate, and round of each chosen operator.  The choice must take
     one candidate of each class, and operators in one round must share no qubit.
