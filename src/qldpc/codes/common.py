@@ -4821,8 +4821,8 @@ def _combine_automorphisms(
     columns of the matrix alike (see ``_preserves_row_space``).  The result holds the found
     permutations, then the construction generators, without repeats or the identity, or None if
     there are none.  Raises a ValueError that names ``source`` if a construction generator does not
-    map the row space of the matrix onto itself.  A caller that already computes the rank of the
-    matrix can pass a cached function that returns it, so that the rank is computed at most once.
+    map the row space of the matrix onto itself.  A caller that may also need the rank of the matrix
+    can pass a cached function that returns it, so that the rank is computed at most once.
     """
     generators = np.empty((0, num_coordinates), dtype=int)
     for permutations in found:
