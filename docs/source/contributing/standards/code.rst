@@ -35,6 +35,11 @@ Code style and organization
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * Do not copy transient project history, machine-specific paths, or local-session instructions into any committed file, including code, tests, configuration, and documentation.
+* An experiment in ``experiments/`` commits no data files, such as sampled codes, circuits, tables from the literature, or results, and no checksums of data generated for it in any file.
+  Data files worth keeping live in a separate data repository, and the experiment uses them from a directory that Git ignores.
+  Its Python code may still define what it runs.
+  It may also hold small tables that others published, such as reference distances, but not data generated for it, such as sampled codes or results.
+  Its configuration files hold only its settings, which may pin a public source that it fetches or draws from, other than the data repository.
 * Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compiled_code_rules_test.py`` enforces its rules.
 * ``src/qldpc/_code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
 * Give each feature that users or other packages use one home.
