@@ -28,7 +28,9 @@ def test_metrics() -> None:
 def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
     """By default, the code's own basis is evaluated, complete or one Pauli type at a time."""
     metrics = evaluate_logical_ops(stabilizer_code)
-    assert not np.array_equal(metrics.x.overlaps, metrics.z.overlaps)  # so a swap would show
+    assert not np.array_equal(
+        metrics.x.overlaps, metrics.z.overlaps
+    )  # so that swapping x and z would fail
     paulis_and_metrics: list[tuple[PauliXZ, LogicalOpsMetrics]] = [
         (Pauli.X, metrics.x),
         (Pauli.Z, metrics.z),

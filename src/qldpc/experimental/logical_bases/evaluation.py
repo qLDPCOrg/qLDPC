@@ -107,7 +107,7 @@ def evaluate_logical_ops(
             " with all others"
         )
     return LogicalBasisMetrics(
-        LogicalOpsMetrics._from_ops(ops_x), LogicalOpsMetrics._from_ops(ops_z)
+        x=LogicalOpsMetrics._from_ops(ops_x), z=LogicalOpsMetrics._from_ops(ops_z)
     )
 
 
