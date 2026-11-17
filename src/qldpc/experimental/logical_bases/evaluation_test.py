@@ -70,7 +70,7 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
     # rejects it
     with pytest.raises(ValueError, match="shape"):
         LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.X, np.vstack([ops[:k, :n], ops[:1, :n]]))
-    for not_binary in [2 * ops, -ops.astype(int), galois.GF(3)(ops)]:
+    for not_binary in [2 * ops, -ops.astype(int), galois.GF(3)(ops), galois.GF(4)(ops)]:
         with pytest.raises(ValueError, match="binary"):
             evaluate_logical_ops(stabilizer_code, not_binary)
     for row, other_half in [(0, slice(n, None)), (k, slice(None, n))]:

@@ -71,10 +71,9 @@ def evaluate_logical_ops(
     classes_x = _get_valid_classes(sector_x, ops_x)
     classes_z = _get_valid_classes(sector_z, ops_z)
 
-    # check that the classes of the two halves pair up: X-type operator i and Z-type operator j of
+    # check that the classes of the two halves pair up; X-type operator i and Z-type operator j of
     # the code's own basis anticommute exactly when i == j, so the parity of the dot product of two
-    # classes is whether the classes anticommute, which for bare operators is whether the operators
-    # themselves do
+    # classes is whether the classes anticommute
     pairings = classes_x.astype(np.int64) @ classes_z.T.astype(np.int64) % 2
     if np.any(pairings != np.eye(k, dtype=np.int64)):
         raise ValueError(

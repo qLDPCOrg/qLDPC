@@ -18,7 +18,7 @@ from qldpc.objects import Pauli, PauliXZ
 from . import optimization
 from .evaluation import evaluate_logical_ops
 from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
-from .optimization import _ClassSearch, _get_dual_classes, optimize_logical_basis
+from .optimization import _ClassSearch, optimize_logical_basis
 
 # a [[7, 3]] code whose optimal complete basis is heavier than its lightest bases
 _PAIRED_CHECKS = (
@@ -209,7 +209,8 @@ def test_patience(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_budget(paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch) -> None:
     """A budget of searches stops the search early, with the best basis that it found."""
-    # the first descent alone runs fewer searches than the whole search
+    # the first descent alone runs at least two fewer searches than the whole search, so a budget of
+    # one more than the first descent stops the search early
     first_descent = optimize_logical_basis(paired_code, patience=0, seed=0)
     unbounded = optimize_logical_basis(paired_code, seed=0)
     assert first_descent.searches + 1 < unbounded.searches
@@ -310,20 +311,20 @@ def test_start(swap: bool) -> None:
     weights_z = _get_class_weights(code, Pauli.Z, "dressed")
     k = code.dimension
 
-    # the classes of the candidates, with the classes that complete them
-    candidates = [(np.eye(k, dtype=int), np.eye(k, dtype=int))]
+    # the classes of the starts, with the classes that complete them
+    starts = [(np.eye(k, dtype=int), np.eye(k, dtype=int))]
     paulis: list[PauliXZ] = [Pauli.X, Pauli.Z]
     for pauli in paulis:
         lightest = get_lightest_logical_basis(code, pauli).logical_ops.astype(int)
         classes = lightest @ np.asarray(code.get_logical_ops(pauli.swap_xz()), dtype=int).T % 2
         duals = np.asarray(np.linalg.inv(galois.GF2(classes)).T, dtype=int)
-        candidates.append((classes, duals) if pauli is Pauli.X else (duals, classes))
+        starts.append((classes, duals) if pauli is Pauli.X else (duals, classes))
     values = [
         _max_weight(
             [weights_x[tuple(int(bit) for bit in c)] for c in classes_x],
             [weights_z[tuple(int(bit) for bit in c)] for c in classes_z],
         )
-        for classes_x, classes_z in candidates
+        for classes_x, classes_z in starts
     ]
     assert values.index(min(values)) == (2 if swap else 1)
 
@@ -340,17 +341,24 @@ def test_start_by_max_weight() -> None:
     # Z-type lightest basis, completed by the classes that pair with it, has a larger maximum weight
     # and a smaller total Z-type weight
     code = codes.CSSCode([[0, 1, 1, 1, 1, 1]], [[1, 0, 1, 1, 1, 1]])
-    search = _ClassSearch(code, _z_weight, "dressed", None)
+    weights_x = _get_class_weights(code, Pauli.X, "dressed")
+    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    k = code.dimension
+    own = [tuple(int(bit) for bit in row) for row in np.eye(k, dtype=int)]
+    assert [weights_x[c] for c in own] == [weights_z[c] for c in own] == [2] * k
+
+    # the Z-type lightest basis, completed by the X-type classes that pair with it
     lightest_x, lightest_z = _get_lightest_bases(code)
+    dual_ops = np.asarray(code.get_logical_ops(Pauli.X), dtype=int)
+    classes = lightest_z.logical_ops.astype(int) @ dual_ops.T % 2
+    duals = np.asarray(np.linalg.inv(galois.GF2(classes)).T, dtype=int)
+    other_x = [weights_x[tuple(int(bit) for bit in row)] for row in duals]
+    other_z = [weights_z[tuple(int(bit) for bit in row)] for row in classes]
+    assert max(other_x + other_z) > 2 and sum(other_z) < 2 * k
+
+    search = _ClassSearch(code, _z_weight, "dressed", None)
     classes_x, classes_z = search._get_start(lightest_x, lightest_z)
-    start_z = search.table_z.record(lightest_z)
-    start_x = _get_dual_classes(start_z)
-    weights = [search.table_x.weight(c) for c in start_x] + [
-        search.table_z.weight(c) for c in start_z
-    ]
-    assert max(weights) > 2 and search._get_value(start_x, start_z) < 8
     assert classes_x == classes_z == [1, 2, 4, 8]
-    assert search._get_value(classes_x, classes_z) == 8
 
 
 def test_special_inputs() -> None:

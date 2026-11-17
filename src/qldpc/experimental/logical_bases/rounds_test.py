@@ -131,6 +131,16 @@ def test_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:
     for result in results[1:]:
         np.testing.assert_array_equal(result.logical_ops, results[0].logical_ops)
         np.testing.assert_array_equal(result.x.rounds, results[0].x.rounds)
+        np.testing.assert_array_equal(result.z.rounds, results[0].z.rounds)
+
+    # the Z-type lists, which these samples leave incomplete, are the same every time
+    trivial = code.get_matrix(Pauli.Z).view(np.ndarray).astype(np.uint8)
+    for op in code.get_logical_ops(Pauli.Z).view(np.ndarray).astype(np.uint8):
+        words = _get_class_words(code, Pauli.Z, "dressed")[_get_class(code, Pauli.Z, op)]
+        min_weight = min(int(word.sum()) for word in words)
+        lists = [_list_candidates(op, trivial, min_weight, 2)[0] for _ in range(4)]
+        for listed in lists[1:]:
+            np.testing.assert_array_equal(listed, lists[0])
 
 
 def test_time_limit_shared(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -219,7 +229,7 @@ def test_incomplete_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Random information sets find candidates that need many rows of the first reduced basis."""
+    """Random information sets find candidates that need many rows of the column-order basis."""
     monkeypatch.setattr(rounds, "_MAX_ROWS_PER_SAMPLE", 1)
     code = codes.CSSCode(*_CHOICE_CHECKS)
     trivial = code.get_matrix(Pauli.X).view(np.ndarray).astype(np.uint8)

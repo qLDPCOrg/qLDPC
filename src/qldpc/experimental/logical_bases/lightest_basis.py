@@ -64,10 +64,10 @@ def get_lightest_logical_basis(
 class LightestLogicalBasis:
     """A basis of logical operators of one Pauli type whose weights are as small as possible.
 
-    Its operators are in nondecreasing order of weight.  Sort the weights of any basis of the same
-    Pauli type in nondecreasing order; they are at least ``weights``, entry by entry, so no such
-    basis has a smaller maximum weight or total weight.  For a subsystem code, these bounds hold
-    among bases of the kind of operators, dressed or bare, that ``logicals`` selected in
+    Its operators are in nondecreasing order of weight.  Sorted in nondecreasing order, the weights
+    of any basis of the same Pauli type are at least ``weights``, entry by entry, so no such basis
+    has a smaller maximum weight or total weight.  For a subsystem code, the bounds cover bases of
+    the same kind, dressed or bare, as the ``logicals`` passed to
     :func:`~qldpc.experimental.logical_bases.get_lightest_logical_basis`.
 
     These bounds hold for each Pauli type separately.  The X-type and Z-type operators of a complete

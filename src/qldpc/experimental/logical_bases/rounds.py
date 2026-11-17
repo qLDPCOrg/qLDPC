@@ -36,8 +36,8 @@ from .lightest_basis import _get_min_weight, _get_min_weight_word
 # They are listed from a basis of the class's representative and the trivial operators, reduced on
 # sampled information sets: first the one that reduction in column order finds, then random ones
 # from a fixed seed.  Each set contributes the sums of at most _MAX_ROWS_PER_SAMPLE reduced rows
-# that lie in the class and within the weight limit.  Sampling stops when the list matches the
-# exact count of candidates, or after _MAX_SAMPLES sets.
+# that lie in the class and within the weight limit.  Sampling stops when the list matches the exact
+# count of candidates, or after _MAX_SAMPLES sets.
 _MAX_ROWS_PER_SAMPLE = 3
 _MAX_SAMPLES = 2000
 
@@ -101,8 +101,9 @@ def optimize_logical_rounds(
     Raises:
         TypeError: If ``code`` is not a CSS code.
         ValueError: If ``code`` is not binary, if ``logicals`` is invalid, if ``logical_ops`` is not
-            a complete basis as :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
-            describes, or if ``weight_slack`` or ``time_limit`` is negative.
+            a complete basis of binary entries as
+            :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops` describes, or if
+            ``weight_slack`` or ``time_limit`` is negative.
         RuntimeError: If the integer-program solver fails, returns a choice that breaks its
             constraints, or claims that no choice has as many rounds as there are classes.
     """
@@ -134,7 +135,7 @@ def optimize_logical_rounds(
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class OptimizedLogicalRounds:
-    """A complete basis of logical operators, whose operators can be acted on in few rounds.
+    """A complete basis of logical operators, chosen to be acted on in few rounds, with the rounds.
 
     Attributes:
         logical_ops: The basis, with shape ``(2k, 2n)``, laid out as by
@@ -181,8 +182,8 @@ class LogicalOpsRounds:
             fewest rounds, then the smallest largest load, then the smallest total weight.
             ``"incomplete_candidates"``: the sampling did not find every candidate, so a better
             choice may exist.  ``"time_limit"``: the candidates are complete, but the time limit ran
-            out before the choice was proven optimal.  Whichever reason is reported, if no choice
-            was found in time, the lightest candidates are used, in rounds found by greedy coloring,
+            out before the choice was proven optimal.  If the time limit runs out before any choice
+            is found, the lightest listed candidates are used, in rounds found by greedy coloring,
             which may be many more rounds than needed.
     """
 
@@ -210,8 +211,9 @@ def _choose_operators(
 ) -> tuple[npt.NDArray[np.uint8], LogicalOpsRounds, float]:
     """Choose an operator in the class of each row of ``ops``, to act on them in few rounds.
 
-    Returns the chosen operators, their rounds, and the time spent solving integer programs, which
-    ``time_limit`` limits.
+    Returns:
+        The chosen operators, their rounds, and the time spent solving integer programs, which
+        ``time_limit`` limits.
     """
     k, n = ops.shape
     if k == 0:
