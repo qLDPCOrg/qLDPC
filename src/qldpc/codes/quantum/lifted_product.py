@@ -55,6 +55,10 @@ class LPCode(CSSCode):
     raised.  A ValueError is also raised if these operators are invalid, which can happen for a
     group algebra whose involution does not transpose lifts.
 
+    If the ring is the group algebra of an abelian group whose members lift to permutation matrices,
+    translating every block of qudits by the same group member maps the checks of each type onto
+    themselves, so LPCode.get_known_qudit_automorphism_group includes these translations.
+
     As an example, the lift-connected surface code in Eq. (2) of https://arxiv.org/pdf/2401.02911v2
     can be constructed by::
 
@@ -289,7 +293,10 @@ class SLPCode(CSSCode):
     The subsystem lifted product code is a lifted version of the subsystem hypergraph product code.
     That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See
     help(qldpc.codes.LPCode) for additional information.  The ring of an SLPCode must satisfy
-    requirements 1 and 2 of an LPCode.  ``set_logicals`` is as for :class:`LPCode`.
+    requirements 1 and 2 of an LPCode.  ``set_logicals`` is as for :class:`LPCode`.  As for an
+    LPCode, SLPCode.get_known_qudit_automorphism_group includes the translations of every block of
+    qudits by the same group member if the ring is the group algebra of an abelian group whose
+    members lift to permutation matrices.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by::

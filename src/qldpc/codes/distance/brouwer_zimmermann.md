@@ -356,12 +356,13 @@ The switch keeps both certificates: an eligible word lighter than `U` is unexami
 
 #### Where automorphisms come from
 
-With the optional `pybliss` package, a binary quantum code searches its parity checks for automorphisms, and also other sets of checks that span the same space, if the code class chooses any, so that bliss can find automorphisms that do not map parity checks to parity checks.
-`QTCode`, for example, adds its canonical local checks where they are few enough (see `QTCode._get_automorphism_search_matrices`).
+With the optional `pybliss` package, bliss searches the parity checks of a binary quantum code for automorphisms.
+The class of the code can also supply other sets of checks that span the same space, through `QuditCode._get_automorphism_search_matrices`, so that bliss can find automorphisms that do not map parity checks to parity checks.
+`QTCode`, for example, supplies its canonical local checks where they are few enough.
 Bliss finds the automorphisms of the Tanner graph of each set, whose edges are colored by the Pauli operators of the checks.
 These Tanner-graph automorphisms permute the checks and leave their Paulis unchanged, so they preserve the stabilizers, gauge operators, and logical operators, and for a CSS code those of each sector.
 They form a subgroup of the automorphisms of the code, which suffices, since any group of automorphisms gives a sound certificate.
-Code classes can also supply generators through `_get_qudit_automorphisms`: `MBCode` and `PairPartitionCode` the translations of their groups, `QTCode` translations of its Cayley complex, and `GALACode`, `LPCode`, and `SLPCode` those of the group of their group algebra, if it is abelian and its generators lift to permutation matrices.
+Code classes can also supply generators of automorphisms that their construction provides, through `QuditCode._get_qudit_automorphisms`, such as the translations of the group of an `MBCode`.
 Searches use these generators together with those that bliss finds.
 Bliss finds only automorphisms of the Tanner graphs of the sets of checks that it searches, so it can miss the generators of a construction.
 A wrong generator would make the certificate unsound, so a search first checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
