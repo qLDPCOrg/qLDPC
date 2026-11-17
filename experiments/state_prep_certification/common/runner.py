@@ -23,9 +23,10 @@ child and the runner in ``active/<task_key>``, and watches the child:
   ``post_s`` makes the run an ``error``.
 * **Memory:** every second the parent sums the resident memory of the child's process group (or
   process tree), records the peak, and kills a run above ``mem_cap_gib`` as a ``memout``.
-* **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then waits up to
-  ``grace_s`` for them to go, and accepts no result meanwhile.  A process is killed only if its
-  start time is the one recorded when it was seen, so that a reused process id is never killed.
+* **Kills:** a kill sends SIGKILL to every process of the run at once; the parent then reads the
+  partial results that the child wrote before the kill, waits up to ``grace_s`` for the processes
+  to go, and accepts no other message.  A process is killed only if its start time is the one
+  recorded when it was seen, so that a reused process id is never killed.
 
 The parent appends exactly one final row to the store and exits with status 0, or, on SIGTERM or
 SIGINT, kills the run, waits out the grace, and exits with status 2 without a row.  If the parent
@@ -302,14 +303,19 @@ class _Watcher:
                 if rss > self.mem_cap_bytes:
                     reason = "memout"
             if reason is not None:
-                self.killed_at = time.monotonic()
                 self._kill()
+                self.killed_at = time.monotonic()
+                while open_channel and self._read(read_fd, 0.0, drain=True, partials_only=True):
+                    pass
                 return reason, None
 
-    def _read(self, read_fd: int, timeout: float, drain: bool = False) -> bool:
+    def _read(
+        self, read_fd: int, timeout: float, drain: bool = False, partials_only: bool = False
+    ) -> bool:
         """Read and handle available messages; return False once the channel is closed.
 
-        With ``drain``, return False also when nothing is waiting, so that a loop ends.
+        With ``drain``, return False also when nothing is waiting, so that a loop ends.  With
+        ``partials_only``, as after a kill, handle only the partial results.
         """
         ready, _, _ = select.select([read_fd], [], [], timeout)
         if not ready:
@@ -319,6 +325,8 @@ class _Watcher:
         *lines, self.buffer = self.buffer.split(b"\n")
         for line in lines:
             message = json.loads(line)
+            if partials_only and message["type"] != "partial":
+                continue
             now = time.monotonic()
             if message["type"] == "start":
                 self.timing_started_at = now
