@@ -132,22 +132,24 @@ def test_deprecated_methods() -> None:
     assert str(inspect.signature(puncture)).startswith("(self, bits")
 
 
-def test_deprecated_get_automorphism_group() -> None:
-    """The deprecated automorphism group of a classical code is its permutation automorphisms."""
-    code = codes.RepetitionCode(3)
-    group = abstract.CyclicGroup(3)
+def test_deprecated_get_automorphism_group(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The deprecated get_automorphism_group returns the permutation automorphism group."""
+    # read the generators of the group from MAGMA output, pasted on standard input
+    user_inputs = iter(
+        ["Permutation group acting on a set of cardinality 2", "Order = 2", "    (1, 2)", ""]
+    )
+    monkeypatch.setattr("builtins.input", lambda: next(user_inputs))
+    code = codes.RepetitionCode(2)
     method_name = "get_automorphism_group"
-    with (
-        unittest.mock.patch.object(
-            codes.ClassicalCode, "get_permutation_automorphism_group", return_value=group
-        ) as get_group,
-        pytest.warns(DeprecationWarning, match="DEPRECATED") as caught,
-    ):
-        assert getattr(code, method_name)(with_magma=True) is group
-    get_group.assert_called_once_with(with_magma=True)
+    with pytest.warns(DeprecationWarning, match="DEPRECATED") as caught:
+        group = getattr(code, method_name)(with_magma=True)
     assert len(caught) == 1
     assert caught[0].filename == __file__
     assert str(caught[0].message).startswith(f"ClassicalCode.{method_name} is DEPRECATED")
+    assert group.equiv(abstract.CyclicGroup(2))
+    assert "PermutationGroup(LinearCode(" in capsys.readouterr().out
 
 
 def test_deprecated_reduce_logical_ops() -> None:

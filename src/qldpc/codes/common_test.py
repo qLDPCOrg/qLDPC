@@ -379,7 +379,8 @@ def test_permutation_automorphism_group(
         with unittest.mock.patch("qldpc.external.gap.get_output", side_effect=get_output):
             assert codes.HammingCode(2, field=2).get_permutation_automorphism_group().order == 2
 
-    # compute an automorphism group with MAGMA
+    # compute a permutation automorphism group with MAGMA, which asks for the PermutationGroup of
+    # the code rather than its AutomorphismGroup, whose members also scale nonbinary coordinates
     user_inputs = iter(
         ["Permutation group acting on a set of cardinality 2", "Order = 2", "    (1, 2)", ""]
     )
@@ -387,7 +388,7 @@ def test_permutation_automorphism_group(
     code = codes.RepetitionCode(2)
     group = abstract.CyclicGroup(2)
     assert code.get_permutation_automorphism_group(with_magma=True).equiv(group)
-    capsys.readouterr()  # intercept print statements
+    assert "\nPermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));\n" in capsys.readouterr().out
 
 
 def test_matrix_automorphism_group() -> None:

@@ -839,14 +839,15 @@ class ClassicalCode(AbstractCode):
         if with_magma:
             rows, cols = self.canonicalized.matrix.shape
             magma_matrix = f"Matrix(GF({self.field.order}), {rows}, {cols}, {matrix_str})"
-            magma_group = f"AutomorphismGroup(LinearCode({magma_matrix}));"
+            # MAGMA's AutomorphismGroup of a nonbinary code is its monomial automorphism group,
+            # which acts on n * (q - 1) points, so ask for its PermutationGroup, on n points
+            magma_group = f"PermutationGroup(LinearCode({magma_matrix}));"
             return abstract.Group.from_name(magma_group, from_magma=True)
 
         warning = (
-            "Attempting to compute an automorphism group with GAP, which may take a long time."
-            "  If this calculation takes too long, try computing the automorphism group with MAGMA"
-            ' by passing the argument "with_magma=True" to the method that needs to compute the'
-            " automorphism group."
+            "Attempting to compute a permutation automorphism group with GAP, which may take a long"
+            " time.  If this calculation takes too long, try computing the group with MAGMA by"
+            ' passing the argument "with_magma=True" to the method that needs to compute the group.'
         )
 
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
@@ -2776,14 +2777,15 @@ class QuditCode(AbstractCode):
         return None
 
     def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
-        """Sets of checks, whose Tanner graphs bliss searches for automorphisms of this code.
+        """Sets of checks, whose Tanner graphs bliss searches for permutation automorphisms.
 
         By default, the only matrix is the parity check matrix.  Bliss finds only qudit permutations
-        that map the rows of a matrix onto themselves.  An automorphism of this code maps the row
-        space of the parity check matrix onto itself, but it can map parity checks to other words of
-        that space, and then bliss cannot find it among the parity checks.  A subclass can let bliss
-        find such automorphisms by adding a set of checks that the structure of the code determines,
-        rather than a choice of basis, such as the canonical local checks of a QTCode.
+        that map the rows of a matrix onto themselves.  A permutation automorphism of this code maps
+        the row space of the parity check matrix onto itself, but it can map parity checks to other
+        words of that space, and then bliss cannot find it among the parity checks.  A subclass can
+        let bliss find such permutation automorphisms by adding a set of checks that the structure
+        of the code determines, rather than a choice of basis, such as the canonical local checks of
+        a QTCode.
 
         Each matrix must meet two requirements:
 
@@ -4439,10 +4441,10 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
-        Brouwer-Zimmermann and connected-cluster searches use the automorphisms of this code.
-        ``upper_bound``, if given, is the weight of a known logical operator of the other type,
-        which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
-        below ``cutoff`` can be an upper bound.
+        Brouwer-Zimmermann and connected-cluster searches can use the permutation automorphisms that
+        this code knows.  ``upper_bound``, if given, is the weight of a known logical operator of
+        the other type, which ends the search if it is at most ``cutoff``, and otherwise limits it.
+        A result at or below ``cutoff`` can be an upper bound.
         """
         if upper_bound is not None and upper_bound <= cutoff:
             return upper_bound

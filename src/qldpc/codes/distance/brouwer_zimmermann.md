@@ -315,7 +315,8 @@ Such a group lets a search certify with many information sets while scanning onl
 #### The certificate of an automorphism family
 
 An **automorphism** of a problem is a permutation `g` of the coordinates that maps `V` and `S` onto themselves, and so maps eligible words to eligible words of the same weight, and an information set `I` to an information set `g(I)`.
-For a code, it is a permutation automorphism, which applies no single-qudit gates; like the rest of this package, this guide drops "permutation".
+qLDPC supplies only permutation automorphisms of a code, which permute qudits and apply no single-qudit gates, lifted for a Pauli problem to each block of [Section 2.7](#27-pauli-weight-as-hamming-weight) alike.
+A permutation that exchanges the blocks of a qubit applies a single-qubit Clifford gate; it can also satisfy the definition, and the certificate below holds for it, but qLDPC never supplies one.
 For a group `Γ` of automorphisms, the images `g(I)` for `g ∈ Γ` form an **automorphism family**.
 
 Suppose that a search has examined every word `v` with `wt(v|_I) ≤ t`, as searching `G_I` through weight `t` does.
