@@ -13,17 +13,19 @@ of each Pauli type, whose weights bound those of every basis of that type (and, 
 code, of the same kind, dressed or bare) from below.
 
 Public API:
-    evaluate_logical_ops, LogicalOpsMetrics               — check a basis, measure its overlaps
+    evaluate_logical_ops, LogicalBasisMetrics            — check a basis, measure its overlaps
+    LogicalOpsMetrics                                    — the metrics of one Pauli type
     get_lightest_logical_basis, LightestLogicalBasis     — a lightest basis of one Pauli type
 """
 
 from __future__ import annotations
 
-from .evaluation import LogicalOpsMetrics, evaluate_logical_ops
+from .evaluation import LogicalBasisMetrics, LogicalOpsMetrics, evaluate_logical_ops
 from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
 
 __all__ = [
     "LightestLogicalBasis",
+    "LogicalBasisMetrics",
     "LogicalOpsMetrics",
     "evaluate_logical_ops",
     "get_lightest_logical_basis",
