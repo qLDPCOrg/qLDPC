@@ -59,11 +59,11 @@ def test_optimum(
 ) -> None:
     """The search finds an optimal complete basis, which pairing makes heavier than the bound."""
     result = optimize_logical_basis(paired_code, objective=objective, seed=0)
-    metrics_x, metrics_z = evaluate_logical_ops(paired_code, result.logical_ops)
-    value = function(metrics_x.weights.tolist(), metrics_z.weights.tolist())
+    metrics = evaluate_logical_ops(paired_code, result.logical_ops)
+    value = function(metrics.x.weights.tolist(), metrics.z.weights.tolist())
     assert value == _get_brute_force_optimum(paired_code, "dressed", function)
-    np.testing.assert_array_equal(result.metrics[0].weights, metrics_x.weights)
-    np.testing.assert_array_equal(result.metrics[1].weights, metrics_z.weights)
+    np.testing.assert_array_equal(result.metrics.x.weights, metrics.x.weights)
+    np.testing.assert_array_equal(result.metrics.z.weights, metrics.z.weights)
 
     if callable(objective):
         assert result.lower_bound is None
@@ -85,8 +85,8 @@ def test_certified_optimum() -> None:
     assert result.optimal
     assert result.stop_reason == "lower_bound"
     assert result.lower_bound == (2, 2, 2, 2)
-    metrics_x, metrics_z = evaluate_logical_ops(code, result.logical_ops)
-    assert (metrics_x.max_weight, metrics_z.max_weight) == (2, 2)
+    metrics = evaluate_logical_ops(code, result.logical_ops)
+    assert (metrics.x.max_weight, metrics.z.max_weight) == (2, 2)
     assert optimize_logical_basis(code, max_searches=0).optimal
 
 
@@ -96,10 +96,8 @@ def test_subsystem_code(
 ) -> None:
     """Dressed and bare complete bases of a subsystem code are optimal, and bare ones can be set."""
     result = optimize_logical_basis(subsystem_code, logicals=logicals, seed=0)
-    metrics_x, metrics_z = evaluate_logical_ops(
-        subsystem_code, result.logical_ops, logicals=logicals
-    )
-    value = _max_weight(metrics_x.weights.tolist(), metrics_z.weights.tolist())
+    metrics = evaluate_logical_ops(subsystem_code, result.logical_ops, logicals=logicals)
+    value = _max_weight(metrics.x.weights.tolist(), metrics.z.weights.tolist())
     assert value == _get_brute_force_optimum(subsystem_code, logicals, _max_weight)
     assert result.lower_bound == _get_lower_bound(subsystem_code, logicals, _max_weight)
     if logicals == "bare":
@@ -224,8 +222,8 @@ def test_budget(paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch) -> 
     assert result.searches < unbounded.searches
     values = []
     for basis in [result, first_descent]:
-        metrics_x, metrics_z = evaluate_logical_ops(paired_code, basis.logical_ops)
-        values.append(_max_weight(metrics_x.weights.tolist(), metrics_z.weights.tolist()))
+        metrics = evaluate_logical_ops(paired_code, basis.logical_ops)
+        values.append(_max_weight(metrics.x.weights.tolist(), metrics.z.weights.tolist()))
     assert values[0] <= values[1]
 
     # the start is found whatever the budget
