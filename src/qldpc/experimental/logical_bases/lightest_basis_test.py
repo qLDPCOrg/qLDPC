@@ -81,10 +81,8 @@ def test_exact_searches_only_at_new_weights(
 
 def test_lightest_basis_properties() -> None:
     """Summary values follow from the weights, including for codes without logical qubits."""
-    basis = LightestLogicalBasis(
-        np.array([[1, 1, 1, 0], [0, 1, 1, 1], [1, 0, 1, 1]], dtype=np.uint8)
-    )
-    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 9, 3)
+    basis = LightestLogicalBasis(np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8))
+    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 6, 2)
 
     basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
     assert basis.logical_ops.shape == (0, 2)

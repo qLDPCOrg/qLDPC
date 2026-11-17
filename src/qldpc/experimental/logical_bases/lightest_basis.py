@@ -33,13 +33,13 @@ def get_lightest_logical_basis(
     weights exactly, by repeatedly adding a lightest operator whose class is independent of the
     classes of those already chosen.
 
-    A step whose weight rises finds it with an exact distance search (see
-    :mod:`qldpc.codes.distance`), whose cost generally grows exponentially with that weight.  A step
-    that repeats the previous weight only confirms it with a search limited to that weight, which is
-    cheaper.  Each step then recovers an operator of that weight with many searches limited to that
-    weight.  Among operators of equal weight, the choice ignores how many qubits they share, which
-    :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops` measures.  Results are cached on
-    disk with :mod:`qldpc.cache` under the name ``"lightest_logical_basis_v1"``.
+    Each step first checks, with a search limited to the previous weight, whether that weight
+    recurs.  If it does not, an exact distance search (see :mod:`qldpc.codes.distance`) finds the
+    new weight, at a cost that generally grows exponentially with that weight.  Each step then
+    recovers an operator of its weight with many searches limited to that weight.  When several
+    operators have the lightest weight, the one chosen need not share few qubits with the others,
+    which :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops` measures.  Results are
+    cached on disk with :mod:`qldpc.cache` under the name ``"lightest_logical_basis_v1"``.
 
     Args:
         code: A binary CSS code, which may be a subsystem code.
@@ -65,10 +65,10 @@ def get_lightest_logical_basis(
 class LightestLogicalBasis:
     """A basis of logical operators of one Pauli type whose weights are as small as possible.
 
-    The weights of its operators do not decrease, and bound every basis of logical operators of the
-    same Pauli type and kind (dressed or bare) from below: the ``i``-th smallest weight of every
-    such basis is at least ``weights[i]``.  In particular, no such basis has a smaller maximum
-    weight or total weight.
+    Its operators are in nondecreasing order of weight, and their weights bound every basis of
+    logical operators of the same Pauli type and kind (dressed or bare) from below: the ``i``-th
+    smallest weight of every such basis is at least ``weights[i]``.  In particular, no such basis
+    has a smaller maximum weight or total weight.
 
     These bounds hold for each Pauli type separately.  The X-type and Z-type operators of a complete
     basis must also pair up, as :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
@@ -116,9 +116,10 @@ class LightestLogicalBasis:
 def _get_greedy_basis(
     space: npt.NDArray[np.uint8], trivial: npt.NDArray[np.uint8]
 ) -> npt.NDArray[np.uint8]:
-    """Lightest operators of span(space) with independent classes modulo span(trivial), a subspace.
+    """Lightest operators of span(space) with independent classes modulo span(trivial).
 
-    Both arguments are row-reduced, so that equal spaces give equal cache keys.
+    The rows of ``trivial`` lie in span(space).  Both arguments are row-reduced, so that equal
+    spaces give equal cache keys.
     """
     dimension = len(space) - len(trivial)
     chosen: list[npt.NDArray[np.uint8]] = []

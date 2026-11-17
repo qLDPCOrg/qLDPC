@@ -57,9 +57,9 @@ def evaluate_logical_ops(
     logical operators of that type only, with shape ``(k, n)``.
 
     For a subsystem code, these conditions apply to logical classes, since the gauge parts of
-    dressed operators can change whether they commute.  :meth:`qldpc.codes.CSSCode.set_logical_ops`
-    accepts only bare operators, which commute with every gauge operator.  Bare operators commute as
-    described exactly when their classes do.
+    dressed operators can change whether they commute.  To check a basis for
+    :meth:`qldpc.codes.CSSCode.set_logical_ops`, which accepts only bare operators, pass
+    ``logicals="bare"``.  Bare operators pair up physically exactly when their classes do.
 
     Args:
         code: A binary CSS code, which may be a subsystem code.

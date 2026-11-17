@@ -35,8 +35,14 @@ def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
     for pauli, metrics in paulis_and_metrics:
         ops = stabilizer_code.get_logical_ops(pauli).view(np.ndarray)
         np.testing.assert_array_equal(metrics.overlaps, ops.astype(int) @ ops.T.astype(int))
-        single = evaluate_logical_ops(stabilizer_code, scipy.sparse.csr_array(ops), pauli=pauli)
+        single = evaluate_logical_ops(stabilizer_code, pauli=pauli)
         np.testing.assert_array_equal(single.overlaps, metrics.overlaps)
+
+    # sparse input gives the same metrics
+    sparse_ops = scipy.sparse.csr_array(stabilizer_code.get_logical_ops().view(np.ndarray))
+    np.testing.assert_array_equal(
+        evaluate_logical_ops(stabilizer_code, sparse_ops)[0].overlaps, metrics_x.overlaps
+    )
 
     # a code without logical qubits has an empty basis
     code = codes.CSSCode([[1, 1]], [[1, 1]])
