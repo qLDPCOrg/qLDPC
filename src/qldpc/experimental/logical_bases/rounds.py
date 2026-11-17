@@ -152,7 +152,7 @@ class OptimizedLogicalRounds:
     def optimal(self) -> bool:
         """Whether the choice of operators of both Pauli types is proven optimal.
 
-        The choice is among the candidates of the classes of the given basis, as
+        The proof covers every choice of candidates in the classes of ``logical_ops``, as
         :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds` describes.
         """
         return self.x.optimal and self.z.optimal
@@ -178,8 +178,9 @@ class LogicalOpsRounds:
         lower_bound: A lower bound on the number of rounds of every choice of candidates in the
             classes of these operators, with candidates as
             :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds` defines them.
-        stop_reason: Why the search stopped.  ``"optimal"``: the choice is proven optimal, with the
-            fewest rounds, then the smallest largest load, then the smallest total weight.
+        stop_reason: Why the search stopped.  ``"optimal"``: the choice is proven optimal among
+            all choices of candidates in the classes of these operators.  It has the fewest rounds,
+            then the smallest largest load, then the smallest total weight.
             ``"incomplete_candidates"``: the sampling did not find every candidate, so a better
             choice may exist.  ``"time_limit"``: the candidates are complete, but the time limit ran
             out before the choice was proven optimal.  If the time limit runs out before any choice
@@ -198,7 +199,10 @@ class LogicalOpsRounds:
 
     @property
     def optimal(self) -> bool:
-        """Whether the choice of operators is proven optimal."""
+        """Whether the choice of operators is proven optimal.
+
+        The proof covers every choice of candidates in the classes of these operators.
+        """
         return self.stop_reason == "optimal"
 
 
