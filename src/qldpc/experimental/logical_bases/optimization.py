@@ -24,10 +24,12 @@ from .lightest_basis import LightestLogicalBasis, _get_min_weight_word, get_ligh
 # weight, so that they never have to resolve the weights of heavy classes, which are expensive.
 _PERTURBATION_SLACK = 2
 
-# The largest number of random moves in one perturbation, which applies at least two.
+# The largest number of random moves that one perturbation tries to apply.  With at least two
+# logical qubits, it tries to apply at least two.
 _MAX_PERTURBATION_MOVES = 6
 
-# The number of random moves that a perturbation tries, per logical qubit, for each move it applies.
+# A perturbation tries at most this many random moves, per logical qubit, for each move that it
+# tries to apply.
 _ATTEMPTS_PER_MOVE = 4
 
 ####################################################################################################
@@ -38,7 +40,8 @@ ClassObjective = Callable[[Sequence[int], Sequence[int]], Any]
 """A function of the weights of the X-type and Z-type operators of a basis; lower is better.
 
 Its values must be totally ordered, such as numbers or tuples of numbers, and it must be monotone:
-raising any one weight never lowers it.  The search relies on monotonicity to rule out moves from
+raising any one weight never lowers it.  It must also accept empty lists, for a code without logical
+qubits.  The search relies on monotonicity to rule out moves from
 lower bounds on weights, so a function that is not monotone can make it miss better bases.
 """
 
@@ -98,9 +101,10 @@ def optimize_logical_basis(
         patience: The number of rounds of perturbation and descent in a row without improvement
             after which the search stops.  With zero, the search stops after the first descent.
         max_searches: If given, a budget for the distance searches that the result's
-            ``searches`` counts.  The search always finishes finding its start, and checks the
-            budget between moves, so it can run a few more searches than the budget.  It then
-            returns the best basis found so far.
+            ``searches`` counts.  The search always finishes finding its start, and then checks the
+            budget between moves, so it can run more searches than the budget: all those that
+            finding the start needs, and a few more after that.  It then returns the best basis
+            found so far.
         seed: A seed for the random perturbations, which makes the search reproducible.
 
     Returns:
@@ -122,9 +126,9 @@ def optimize_logical_basis(
         else None
     )
 
-    search = _ClassSearch(code, function, logicals, max_searches)
+    search = _ClassSearch(code, function, logicals, max_searches, lower_bound)
     classes_x, classes_z, stop_reason = search.run(
-        lightest_x, lightest_z, lower_bound, patience, np.random.default_rng(seed)
+        lightest_x, lightest_z, patience, np.random.default_rng(seed)
     )
     logical_ops = search.get_logical_ops(classes_x, classes_z)
     return OptimizedLogicalBasis(logical_ops, lower_bound, stop_reason, search.searches)
@@ -243,8 +247,8 @@ class _ClassTable:
 
         Each operator of a lightest basis is a lightest operator outside the span of the classes of
         the operators before it, which contains no operator of its class, so it is a lightest
-        operator of its class.  The lightest weight also becomes the floor of this table.  Returns
-        the classes of the operators.
+        operator of its class.  The smallest weight in the basis also becomes ``floor``, a lower
+        bound on the weight of every class.  Returns the classes of the operators.
         """
         classes = [_from_bits(bits) for bits in self.sector.get_classes(lightest.logical_ops)]
         for c, operator in zip(classes, lightest.logical_ops, strict=True):
@@ -275,6 +279,7 @@ class _ClassSearch:
 
     The X-type classes ``classes_x`` and the Z-type classes ``classes_z`` of a basis are lists of
     ``k`` integers, with ``classes_x[i]`` and ``classes_z[j]`` pairing to 1 exactly when ``i == j``.
+    ``objective_bound`` is a lower bound on the objective of every basis, or None.
     """
 
     def __init__(
@@ -283,10 +288,11 @@ class _ClassSearch:
         objective: ClassObjective,
         logicals: LogicalOpsKind,
         max_searches: int | None,
+        objective_bound: Any = None,
     ) -> None:
         self.objective = objective
         self.max_searches = max_searches
-        self.lower_bound: Any = None
+        self.objective_bound = objective_bound
         self.table_x = _ClassTable(code, get_sector(code, Pauli.X, logicals))
         self.table_z = _ClassTable(code, get_sector(code, Pauli.Z, logicals))
 
@@ -304,14 +310,12 @@ class _ClassSearch:
         self,
         lightest_x: LightestLogicalBasis,
         lightest_z: LightestLogicalBasis,
-        lower_bound: Any,
         patience: int,
         rng: np.random.Generator,
     ) -> tuple[list[int], list[int], Literal["lower_bound", "patience", "max_searches"]]:
         """Search from the best start, and return the best classes and why the search stopped."""
         if self.dimension == 0:
             return [], [], "lower_bound"
-        self.lower_bound = lower_bound
 
         # descend from the best start
         best_x, best_z = self._descend(*self._get_start(lightest_x, lightest_z))
@@ -319,7 +323,11 @@ class _ClassSearch:
 
         # perturb the best basis and descend again, until rounds in a row stop improving it
         stale = 0
-        while not self._is_out_of_searches() and best_value != lower_bound and stale < patience:
+        while (
+            not self._is_out_of_searches()
+            and best_value != self.objective_bound
+            and stale < patience
+        ):
             classes_x, classes_z = self._descend(*self._perturb(best_x, best_z, rng))
             value = self._get_value(classes_x, classes_z)
             stale = 0 if value < best_value else stale + 1
@@ -327,7 +335,7 @@ class _ClassSearch:
                 best_x, best_z, best_value = classes_x, classes_z, value
 
         # report why the search stopped, preferring the proof of optimality
-        if best_value == lower_bound:
+        if best_value == self.objective_bound:
             return best_x, best_z, "lower_bound"
         stop_reason: Literal["patience", "max_searches"] = (
             "max_searches" if self._is_out_of_searches() else "patience"
@@ -385,7 +393,7 @@ class _ClassSearch:
     def _descend(self, classes_x: list[int], classes_z: list[int]) -> tuple[list[int], list[int]]:
         """Take improving moves, heaviest pairs first, until none improves or searches run out.
 
-        The descent also stops once it reaches the lower bound, which no move can improve.
+        The descent also stops once it reaches ``objective_bound``, which no move can improve.
         """
         classes_x, classes_z = list(classes_x), list(classes_z)
         improved = True
@@ -394,7 +402,7 @@ class _ClassSearch:
             weights_x = [self.table_x.weight(c) for c in classes_x]
             weights_z = [self.table_z.weight(c) for c in classes_z]
             value = self.objective(weights_x, weights_z)
-            if value == self.lower_bound:
+            if value == self.objective_bound:
                 break
             moves = sorted(
                 ((i, j) for i in range(self.dimension) for j in range(self.dimension) if i != j),

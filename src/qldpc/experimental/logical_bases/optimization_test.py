@@ -107,8 +107,10 @@ def test_subsystem_code(
 
 
 @pytest.mark.parametrize("function", [_max_weight, _total_weight])
-def test_local_optima(paired_code: codes.CSSCode, function: Callable[..., Any]) -> None:
-    """A descent ends at a basis that no move improves, by the brute-force class weights."""
+def test_local_optima(
+    paired_code: codes.CSSCode, function: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A descent takes only improving moves, and ends at a basis that no move improves."""
     result = optimize_logical_basis(paired_code, objective=function, patience=0, seed=0)
     k, n = paired_code.dimension, len(paired_code)
     classes_x = [_get_class(paired_code, Pauli.X, op) for op in result.logical_ops[:k, :n]]
@@ -116,12 +118,38 @@ def test_local_optima(paired_code: codes.CSSCode, function: Callable[..., Any]) 
     assert not _get_improving_moves(paired_code, function, classes_x, classes_z)
 
     # this descent from the code's own basis needs more than one move
-    code = codes.CSSCode([[1, 0, 1, 1, 0, 0]], [[1, 0, 1, 0, 0, 1], [0, 1, 1, 1, 1, 0]])
+    code = codes.CSSCode([[1, 0, 1, 1, 1, 1], [0, 1, 0, 1, 1, 1]], [[0, 1, 1, 0, 1, 0]])
     search = _ClassSearch(code, function, "dressed", None)
+    moves = []
+    improves = _ClassSearch._improves
+
+    def record_move(self: _ClassSearch, *args: Any) -> bool:
+        moves.append((args[3], args[4], improves(self, *args)))
+        return moves[-1][2]
+
+    monkeypatch.setattr(_ClassSearch, "_improves", record_move)
     descent_x, descent_z = search._descend([1, 2, 4], [1, 2, 4])
     bits_x = [_to_bits(c, 3) for c in descent_x]
     bits_z = [_to_bits(c, 3) for c in descent_z]
     assert not _get_improving_moves(code, function, bits_x, bits_z)
+
+    # replay the moves taken, each of which must lower the objective
+    weights_x = _get_class_weights(code, Pauli.X, "dressed")
+    weights_z = _get_class_weights(code, Pauli.Z, "dressed")
+    replay_x, replay_z = [1, 2, 4], [1, 2, 4]
+    taken = [(i, j) for i, j, taken in moves if taken]
+    assert len(taken) > 1
+    for i, j in taken:
+        value = function(
+            [weights_x[_to_bits(c, 3)] for c in replay_x],
+            [weights_z[_to_bits(c, 3)] for c in replay_z],
+        )
+        replay_x[i], replay_z[j] = replay_x[i] ^ replay_x[j], replay_z[j] ^ replay_z[i]
+        assert value > function(
+            [weights_x[_to_bits(c, 3)] for c in replay_x],
+            [weights_z[_to_bits(c, 3)] for c in replay_z],
+        )
+    assert (replay_x, replay_z) == (descent_x, descent_z)
 
 
 def test_perturbations_escape_local_optima() -> None:
@@ -245,29 +273,33 @@ def test_descent_stops_when_out_of_searches(
     paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A descent tries no move once the search has used up its budget of distance searches."""
-    search = _ClassSearch(paired_code, _max_weight, "dressed", None)
-    search._get_value([1, 2, 4], [1, 2, 4])
-    budget = search.searches + 1
-    search.max_searches = budget
     out_of_searches = []
     improves = _ClassSearch._improves
 
     def record_move(self: _ClassSearch, *args: Any) -> bool:
-        out_of_searches.append(self.searches >= budget)
+        out_of_searches.append(self.max_searches is not None and self.searches >= self.max_searches)
         return improves(self, *args)
 
     monkeypatch.setattr(_ClassSearch, "_improves", record_move)
-    search._descend([1, 2, 4], [1, 2, 4])
+    num_moves = []
+    for budgeted in [False, True]:
+        search = _ClassSearch(paired_code, _max_weight, "dressed", None)
+        search._get_value([1, 2, 4], [1, 2, 4])
+        if budgeted:
+            search.max_searches = search.searches + 1
+        out_of_searches.clear()
+        search._descend([1, 2, 4], [1, 2, 4])
+        num_moves.append(len(out_of_searches))
     assert out_of_searches and not any(out_of_searches)
+    assert num_moves[1] < num_moves[0]  # the budget cut the descent short
 
 
 def test_perturbation_stops_when_out_of_searches(paired_code: codes.CSSCode) -> None:
-    """A perturbation makes no move once the search has used up its budget of distance searches."""
-    search = _ClassSearch(paired_code, _max_weight, "dressed", None)
-    search._get_value([1, 2, 4], [1, 2, 4])
-    search.max_searches = search.searches
-    rng = np.random.default_rng(0)
-    assert search._perturb([1, 2, 4], [1, 2, 4], rng) == ([1, 2, 4], [1, 2, 4])
+    """A perturbation tries no move once the search has used up its budget of distance searches."""
+    unbudgeted = _record_perturbation(paired_code, budgeted=False)
+    budgeted = _record_perturbation(paired_code, budgeted=True)
+    assert budgeted and not any(budgeted)
+    assert len(budgeted) < len(unbudgeted)  # the budget cut the perturbation short
 
 
 @pytest.mark.parametrize("swap", [False, True])
@@ -324,6 +356,31 @@ def test_special_inputs() -> None:
         optimize_logical_basis(codes.FiveQubitCode())  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="'dressed' or 'bare'"):
         optimize_logical_basis(code, logicals="gauge")  # type: ignore[arg-type]
+
+
+def _record_perturbation(code: codes.CSSCode, budgeted: bool) -> list[bool]:
+    """Perturb the code's basis, and record before each random move whether a budget is used up.
+
+    The budget allows one search more than the weights of the code's basis need.
+    """
+    search = _ClassSearch(code, _max_weight, "dressed", None)
+    search._get_value([1, 2, 4], [1, 2, 4])
+    budget = search.searches + 1
+    if budgeted:
+        search.max_searches = budget
+
+    # pass random draws through, recording before each random move whether the budget is used up
+    out_of_searches = []
+    rng = np.random.default_rng(0)
+
+    def record_choice(*args: Any, **kwargs: Any) -> Any:
+        out_of_searches.append(search.searches >= budget)
+        return rng.choice(*args, **kwargs)
+
+    recorder = mock.Mock(wraps=rng)
+    recorder.choice.side_effect = record_choice
+    search._perturb([1, 2, 4], [1, 2, 4], recorder)
+    return out_of_searches
 
 
 def _get_lightest_bases(code: codes.CSSCode) -> tuple[LightestLogicalBasis, LightestLogicalBasis]:
