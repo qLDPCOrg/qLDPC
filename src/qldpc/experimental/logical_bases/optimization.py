@@ -80,10 +80,11 @@ def optimize_logical_basis(
 
     For the named objectives, ``"max_weight"`` and ``"total_weight"``, the weights of the lightest
     bases of the two Pauli types bound the objective from below.  The search stops once it reaches
-    this lower bound, which proves the basis optimal.  It also stops once ``patience`` rounds of
-    perturbation and descent in a row bring no improvement, or once it has used up its budget of
-    ``max_searches`` distance searches.  Pairing can force a basis to be heavier than the lightest
-    bases, so a basis that does not reach the lower bound may still be optimal.
+    this lower bound, which proves the basis optimal among complete bases of the kind that
+    ``logicals`` selects.  It also stops once ``patience`` rounds of perturbation and descent in a
+    row bring no improvement, or once it has used up its budget of ``max_searches`` distance
+    searches.  Pairing can force a basis to be heavier than the lightest bases, so a basis that does
+    not reach the lower bound may still be optimal.
 
     Each class weight comes from an exact distance search (see :mod:`qldpc.codes.distance`).  Most
     searches only ask whether a class has an operator of at most some weight, so their cost depends
@@ -145,14 +146,15 @@ class OptimizedLogicalBasis:
         logical_ops: The basis, with shape ``(2k, 2n)``, laid out as by
             :meth:`qldpc.codes.CSSCode.get_logical_ops`.
         lower_bound: The value of the objective for the lightest bases of the two Pauli types, which
-            no complete basis of the kind that ``logicals`` selects can beat.  For ``"max_weight"``
-            and ``"total_weight"``, it is a tuple, as ``objective`` in
-            :func:`~qldpc.experimental.logical_bases.optimize_logical_basis` describes.  It is None
-            for an objective given as a function, unless the code has no logical qubits.
+            no complete basis of the same kind, dressed or bare, as the ``logicals`` passed to
+            :func:`~qldpc.experimental.logical_bases.optimize_logical_basis` can beat.  For
+            ``"max_weight"`` and ``"total_weight"``, it is a tuple, as that function's ``objective``
+            describes.  It is None for an objective given as a function, unless the code has no
+            logical qubits.
         stop_reason: Why the search stopped.  ``"optimal"``: the search reached ``lower_bound``,
-            which proves the basis optimal for the objective among all complete bases of the kind
-            that ``logicals`` selects.  ``"patience"``: the search stopped improving.
-            ``"max_searches"``: the search used up its budget of distance searches.
+            which proves the basis optimal for the objective among all complete bases of that kind.
+            ``"patience"``: the search stopped improving.  ``"max_searches"``: the search used up
+            its budget of distance searches.
         searches: The number of distance searches run to find the weights of classes.  The searches
             that find the lightest bases and recover operators of minimum weight are not counted.
     """
@@ -164,10 +166,7 @@ class OptimizedLogicalBasis:
 
     @property
     def optimal(self) -> bool:
-        """Whether the basis is proven optimal, by reaching ``lower_bound``.
-
-        The proof covers all complete bases of the kind that ``logicals`` selects.
-        """
+        """Whether the basis is proven optimal, as ``stop_reason`` describes."""
         return self.stop_reason == "optimal"
 
     @property

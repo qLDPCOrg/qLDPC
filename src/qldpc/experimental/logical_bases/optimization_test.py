@@ -112,6 +112,18 @@ def test_subsystem_code(
         subsystem_code.set_logical_ops(result.logical_ops.astype(int))
 
 
+def test_optimum_of_kind() -> None:
+    """A bare basis proven optimal among bare bases can be heavier than the best dressed basis."""
+    # a [[5, 2]] subsystem code whose bare search reaches its lower bound
+    code = codes.CSSCode([[0, 1, 0, 0, 1], [1, 1, 0, 1, 1]], [[0, 0, 1, 1, 0], [0, 0, 0, 1, 0]])
+    result = optimize_logical_basis(code, logicals="bare")
+    assert result.optimal
+    metrics = evaluate_logical_ops(code, result.logical_ops, logicals="bare")
+    value = _max_weight(metrics.x.weights.tolist(), metrics.z.weights.tolist())
+    assert value == result.lower_bound == _get_brute_force_optimum(code, "bare", _max_weight)
+    assert _get_brute_force_optimum(code, "dressed", _max_weight) < value
+
+
 @pytest.mark.parametrize("function", [_max_weight, _total_weight])
 def test_local_optima(
     paired_code: codes.CSSCode, function: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
