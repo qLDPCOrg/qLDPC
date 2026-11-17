@@ -47,10 +47,11 @@ Start from a symptom
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
    * - A distance search by the Brouwer-Zimmermann method uses too many or too few cores, as when several processes run searches at once
-     - Set the environment variable ``QLDPC_NUM_THREADS`` before Python starts, which sets the default number of threads, and numba's own thread count too; or set :attr:`~SearchTuning.num_threads`.
-       Without ``QLDPC_NUM_THREADS``, the environment variable ``NUMBA_NUM_THREADS``, set before numba is imported, sets the default.
+     - Set the environment variable ``QLDPC_NUM_THREADS`` before Python starts, which sets the default number of threads, or set :attr:`~SearchTuning.num_threads`.
+       Without ``QLDPC_NUM_THREADS``, the environment variable ``NUMBA_NUM_THREADS`` sets the default.
        Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example with ``QLDPC_NUM_THREADS=1``.
        Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to its quota too.
+       The section `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        A Brouwer-Zimmermann distance search on several threads scans chunks :attr:`~SearchTuning.num_threads` times as large, so the wait grows with the number of threads.

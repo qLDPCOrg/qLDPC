@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import types
+import warnings
 from typing import Any
 
 import pytest
@@ -49,13 +50,16 @@ def test_values_other_than_positive_integers_are_rejected(value: str) -> None:
 
 
 def test_the_variable_sets_numba_thread_count_before_numba_is_imported() -> None:
-    """The variable sets NUMBA_NUM_THREADS, and warns if it replaces another value."""
-    environ = {"QLDPC_NUM_THREADS": "3"}
-    assert _num_threads.read_num_threads(environ, {}) == 3
-    assert environ["NUMBA_NUM_THREADS"] == "3"
+    """The variable sets NUMBA_NUM_THREADS, and warns only if it replaces another number."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        environ = {"QLDPC_NUM_THREADS": "3"}
+        assert _num_threads.read_num_threads(environ, {}) == 3
+        assert environ["NUMBA_NUM_THREADS"] == "3"
 
-    # The same value replaces nothing.
-    assert _num_threads.read_num_threads(environ, {}) == 3
+        # The same number replaces nothing, however it is written.
+        environ = {"QLDPC_NUM_THREADS": "3", "NUMBA_NUM_THREADS": "03"}
+        assert _num_threads.read_num_threads(environ, {}) == 3
 
     environ = {"QLDPC_NUM_THREADS": "3", "NUMBA_NUM_THREADS": "5"}
     with pytest.warns(RuntimeWarning, match="QLDPC_NUM_THREADS=3 replaces NUMBA_NUM_THREADS=5"):
@@ -70,14 +74,16 @@ def test_a_numba_imported_before_qldpc_keeps_its_count_with_a_warning() -> None:
     assert environ["NUMBA_NUM_THREADS"] == "5"
 
     # Numba's own count agrees with the variable, so there is nothing to warn about.
-    assert _num_threads.read_num_threads(environ, {"numba": _fake_numba(3)}) == 3
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _num_threads.read_num_threads(environ, {"numba": _fake_numba(3)}) == 3
 
 
 def test_imports_with_and_without_the_variable(monkeypatch: pytest.MonkeyPatch) -> None:
     """In new interpreters, searches use the variable if it is set, and NUMBA_NUM_THREADS if not.
 
     Each case reports the default number of threads of searches, numba's thread count, and the
-    warnings of the import.
+    warnings of the import.  The tests above check the other cases of the warnings.
     """
     monkeypatch.delenv("QLDPC_NUM_THREADS", raising=False)
     monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
@@ -87,12 +93,6 @@ def test_imports_with_and_without_the_variable(monkeypatch: pytest.MonkeyPatch) 
 
     assert report(NUMBA_NUM_THREADS="2") == [2, 2, []]
     assert report(QLDPC_NUM_THREADS="3") == [3, 3, []]
-    assert report(QLDPC_NUM_THREADS="3", NUMBA_NUM_THREADS="3") == [3, 3, []]
-    assert report(QLDPC_NUM_THREADS="3", NUMBA_NUM_THREADS="2") == [
-        3,
-        3,
-        ["QLDPC_NUM_THREADS=3 replaces NUMBA_NUM_THREADS=2"],
-    ]
     searches, numba_threads, (warning,) = report(
         "import numba", QLDPC_NUM_THREADS="3", NUMBA_NUM_THREADS="2"
     )

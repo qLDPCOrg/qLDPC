@@ -4,15 +4,19 @@
 
 qLDPC reads ``QLDPC_NUM_THREADS`` when it is imported, before any of its modules imports numba.
 If the variable is set, it must be a positive integer, and searches whose tuning leaves
-``num_threads`` at ``None`` use that many threads (see :mod:`qldpc.codes.distance._tuning`).  It
-also sets numba's thread count, which numba's own parallel code, such as that of galois, uses:
+``num_threads`` at ``None`` use that many threads (see :mod:`qldpc.codes.distance._tuning`).
+
+Numba never reads ``QLDPC_NUM_THREADS``; it reads its own thread count, which its parallel code,
+such as some of galois's, uses, from ``NUMBA_NUM_THREADS`` when numba is imported.  So the variable
+sets numba's count too only if qLDPC is imported before numba, and so before galois:
 
 - If numba has not been imported, qLDPC sets the environment variable ``NUMBA_NUM_THREADS`` to the
-  same value, from which numba reads its count when it is imported.  If ``NUMBA_NUM_THREADS`` held
-  another value, qLDPC warns that ``QLDPC_NUM_THREADS`` replaces it.
+  same value.  If ``NUMBA_NUM_THREADS`` held another number, qLDPC warns that
+  ``QLDPC_NUM_THREADS`` replaces it.
 - If numba has already been imported with another count, qLDPC warns that numba's parallel code
-  keeps that count.  ``numba.set_num_threads`` would change the count only for the calling thread,
-  so qLDPC does not call it.
+  keeps that count.  To give it the same count, import qLDPC before numba and galois, or also set
+  ``NUMBA_NUM_THREADS`` to the same value before Python starts.  ``numba.set_num_threads`` would
+  change the count only for the calling thread, so qLDPC does not call it.
 
 If the variable is not set, qLDPC changes nothing, and searches use numba's thread count,
 ``numba.config.NUMBA_NUM_THREADS``.
@@ -57,7 +61,7 @@ def read_num_threads(environ: MutableMapping[str, str], modules: Mapping[str, An
     numba = modules.get("numba")
     if numba is None:
         numba_value = environ.get(_NUMBA_VARIABLE)
-        if numba_value is not None and numba_value.strip() != str(num_threads):
+        if numba_value is not None and _as_count(numba_value) != num_threads:
             warnings.warn(
                 f"{NUM_THREADS_VARIABLE}={num_threads} replaces {_NUMBA_VARIABLE}={numba_value}",
                 RuntimeWarning,
@@ -68,12 +72,19 @@ def read_num_threads(environ: MutableMapping[str, str], modules: Mapping[str, An
         warnings.warn(
             f"numba was imported before qLDPC, with {numba.config.NUMBA_NUM_THREADS} threads, which "
             f"its parallel code, such as that of galois, keeps.  qLDPC's searches use "
-            f"{NUM_THREADS_VARIABLE}={num_threads} threads.  Set {NUM_THREADS_VARIABLE} before "
-            "numba is imported for numba to use it too.",
+            f"{NUM_THREADS_VARIABLE}={num_threads} threads.  For numba to use them too, import "
+            f"qLDPC before numba and galois, or also set {_NUMBA_VARIABLE}={num_threads} before "
+            "Python starts.",
             RuntimeWarning,
             stacklevel=2,
         )
     return num_threads
+
+
+def _as_count(value: str) -> int | None:
+    """A thread count as an integer, or None if the value is not a nonnegative integer."""
+    value = value.strip()
+    return int(value) if value.isascii() and value.isdigit() else None
 
 
 #: The number of threads of qLDPC's searches that ``QLDPC_NUM_THREADS`` set when qLDPC was

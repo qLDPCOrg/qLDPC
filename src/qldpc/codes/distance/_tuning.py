@@ -54,8 +54,8 @@ code of every route that the search may take.  In the thread or process that run
 record ``saved = dataclasses.asdict(_tuning.get_tuning())``, which ``use_tuning(**saved)`` restores.
 A saved ``num_threads`` of ``None`` restores the rule that chooses the number of threads, not the
 number, so record the environment variable ``QLDPC_NUM_THREADS`` and
-``numba.config.NUMBA_NUM_THREADS`` too.  Also record the version of qLDPC, or its
-commit and any changes to its source, which fix the defaults and the constants.
+``numba.config.NUMBA_NUM_THREADS`` too.  Also record the version of qLDPC, or its commit and any
+changes to its source, which fix the defaults and the constants.
 
 Fields can differ between two searches in one process, but the constants (``MAX_VALUE`` and the
 sizes of caches) are fixed when qLDPC is imported: change them by editing this module, and start a
@@ -408,19 +408,17 @@ class SearchTuning:
     #: set, which they split into work items, sharing one copy of its completion tables.  At least
     #: 1, and 1 scans on the calling thread alone.  ``None`` takes the value of the environment
     #: variable ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
-    #: ``numba.config.NUMBA_NUM_THREADS``, which numba reads, normally when it is imported, from the
-    #: environment variable ``NUMBA_NUM_THREADS`` or else from the CPUs available to the process.
-    #: Numba does not read the CPU quotas of containers, and ``numba.set_num_threads`` changes
-    #: neither value.  A search resolves ``None`` once, when it starts.  A layer of a set runs on
-    #: the calling thread alone unless it has at least three rows and more than
+    #: ``numba.config.NUMBA_NUM_THREADS``; the section "Threads" of the README of
+    #: ``qldpc/codes/distance`` says how to set either, and when ``QLDPC_NUM_THREADS`` also sets
+    #: numba's own count.  A search resolves ``None`` once, when it starts.  A layer of a set runs
+    #: on the calling thread alone unless it has at least three rows and more than
     #: ``num_threads * 2**information_set_batch_exponent`` supports (Section 4.5 of
     #: ``brouwer_zimmermann.md``).  Programs that run searches in several processes or threads at
-    #: once should cap it.  ``QLDPC_NUM_THREADS=1``, set before Python starts, reaches every worker,
-    #: and also caps numba's own parallel code, such as that of galois; ``NUMBA_NUM_THREADS=1``
-    #: alone still caps searches too.  ``use_tuning(num_threads=1)`` caps a worker only if entered
-    #: in the function that it runs, since new threads and spawned processes normally start with
-    #: the default tuning (see the module docstring).  Defaults to ``None``, chosen by hand: a
-    #: search uses the cores that numba counts unless its caller caps them.
+    #: once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before Python starts.
+    #: ``use_tuning(num_threads=1)`` caps a worker only if entered in the function that it runs,
+    #: since new threads and spawned processes normally start with the default tuning (see the
+    #: module docstring).  Defaults to ``None``, chosen by hand: a search uses the cores that numba
+    #: counts unless its caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
     #: A chunk of the scan of a count, by the BZ or brute-force method, visits at most this many

@@ -58,7 +58,9 @@ A flagged disagreement, or a proposed arm much slower than the current one where
 Before timing:
 
 - Time searches in new single-threaded processes, one at a time, as `sweep.py` and `constants.py` do, since completion tables save less when several searches run at once.
-  `sweep.py` sets `NUMBA_NUM_THREADS=1` and `QLDPC_NUM_THREADS=1` for its trials, and `trace.py` and `benchmark.py` set `num_threads` to 1, unless a `--tuning` of `trace.py` sets it; set `QLDPC_NUM_THREADS=1` when you run `trial.py` directly.
+  `sweep.py` sets `NUMBA_NUM_THREADS=1` and `QLDPC_NUM_THREADS=1` for its trials.
+  `trace.py` and `benchmark.py` set `num_threads` to 1, and `trace.py` refuses a `--tuning` that sets another value, since it counts the work of one thread.
+  Set `QLDPC_NUM_THREADS=1` when you run `trial.py` directly.
 - Do not edit `src/` while the scripts run, since each process imports it anew.
 
 ## Changing a default

@@ -4,8 +4,9 @@
 
 The script wraps functions of ``qldpc.codes.distance`` in this process only, warms up as
 ``trial.py`` does, and runs a ``distance``, ``hadamard``, ``count``, ``ccdistance``, or ``mcount``
-workload once under the given tuning, on one thread unless the tuning sets ``num_threads``.  It
-cannot trace ``ccount`` workloads, whose compiled setup calls the stages past the wrappers.  For a
+workload once under the given tuning, on one thread: it refuses a tuning that sets ``num_threads``
+to another value, since its counts of work see only the scans of one thread.  It cannot trace
+``ccount`` workloads, whose compiled setup calls the stages past the wrappers.  For a
 Brouwer-Zimmermann (BZ) search, it records each family of information sets, certificate, linear
 program, consideration of a switch to automorphism images, prediction of the cost of completion
 tables, comparison of a predicted cost with ``completion_bound_max_cost_percent``, and layer, and
@@ -125,7 +126,10 @@ def main() -> None:
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
     source = sweep.get_source_fingerprint()
-    with _tuning.use_tuning(**{"num_threads": 1} | json.loads(args.tuning)) as tuning:
+    changes = json.loads(args.tuning)
+    if changes.get("num_threads", 1) != 1:
+        raise ValueError("trace.py counts the work of one thread, so num_threads must be 1")
+    with _tuning.use_tuning(**changes | {"num_threads": 1}) as tuning:
         trial.warm_up(args.workload.split("/")[0])
         install_wrappers()
         EVENTS.clear()
