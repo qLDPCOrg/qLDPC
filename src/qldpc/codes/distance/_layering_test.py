@@ -9,7 +9,7 @@ from qldpc.conftest import check_import_layering
 # Layers from shared foundations (first) to public interfaces (last).  Add each new top-level module
 # or subpackage to one.
 _LAYERS = (
-    ("_binary",),
+    ("_binary", "_threads"),
     ("_tuning",),
     ("_information_sets", "_cosets", "min_weight_bounds"),
     ("_brouwer_zimmermann", "_connected_cluster", "_counting", "_brute_force"),

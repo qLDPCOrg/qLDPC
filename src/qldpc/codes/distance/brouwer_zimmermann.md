@@ -450,7 +450,7 @@ A search for the minimum weight of a coset skips at `h(ω)` too until it finds a
 
 #### When a search uses the tables
 
-A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), with tables only for an information set; in a basis of deficient rank, it counts pivot ones only for rows below its rank, as coset searches do.
+A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), or with `scan_set_item` on several threads ([Section 4.5](#45-behavior-spanning-files)), with tables only for an information set; in a basis of deficient rank, it counts pivot ones only for rows below its rank, as coset searches do.
 A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), and chooses tables as a distance search does (below) for each of its steps of two or more rows of an information set, with `_StepTables`.
 
 Tables cost memory, a build, and lookups, and save only the supports that they skip, so they pay on large layers where they skip many supports, but not on small layers or in easy searches.
@@ -555,6 +555,7 @@ Every caller of `get_overlapping_family` ([Section 4.4](#44-heuristics-and-cost-
 The distance search and `CosetLeaderSearch` scan with the compiled entry points of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which Numba compiles from one body, `_scan`, separately for each set of constant flags, so no flag costs a branch for each word:
 
 - `scan_set` scans one set of a distance search, with or without completion tables.
+- `scan_set_item` scans one work item of a layer of such a set, as `scan_set` does, on one of several threads ([Section 4.5](#45-behavior-spanning-files)).
 - `scan_coset_layer` and `scan_coset_layer_by_css_weight` scan one layer of one set in a coset search, and keep its lightest word.
 - `scan_coset_layer_by_tails` does so by the tails of the words ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and keeps the support of the lightest word.
 - `scan_coset_layer_by_tails_with_tables` also skips, in a layer of two or more rows, the completions whose bound reaches the lesser of a skip bound and the best weight so far.
@@ -657,6 +658,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion |
 | Batch of a compiled scan | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables ([Section 4.5](#45-behavior-spanning-files)) |
+| Work item of a layer, and the threads that scan it ([Section 4.5](#45-behavior-spanning-files)) | `_WorkItems` and `_SectorSearch._scan_set_on_threads` of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), `scan_set_item`, and `run_work_items` of [_threads.py](_threads.py); `num_threads` of a search |
 | Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
 | Completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), chosen by `select_completion_tables` and kept, with the index of their set, in `completion_tables` and `completion_tables_set` of a distance search, or in `CosetTails` of a coset search |
 
@@ -753,11 +755,24 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   `_get_nested_basis` in `core.py` makes the generators of a caller independent, with `get_independent_rows`, or with `get_nested_code_basis` when the caller gives `S`, for every BZ and brute-force search of `_search_generators` and `_search_checks`, including those of `search_by_cost`; `_search_css` calls `get_nested_code_basis` itself for its BZ searches and those of `search_by_cost`.
 - **Resumable layers.**
   A compiled scan of a distance search returns after at most `batch_size` supports, or supports and lookups together with completion tables, so that it stays responsive while it skips most supports, and successive batches reuse its `support` and `prefixes` arrays.
+  On several threads, each thread has its own arrays, and a chunk of each thread holds at most `batch_size` supports and lookups.
   Once the search bases that `advance` scans have completed a layer, it may raise `lower_bound` ([Section 2.5](#25-the-stopping-certificate)), but it increments `next_weight` only once every search basis has.
   Before a costly layer, `advance` may switch to an automorphism family ([Section 3.7](#37-images-of-an-information-set-under-automorphisms)), which sets `next_weight` to two and may raise `lower_bound`.
   If a scan stops at the cutoff or raises an exception, `advance` leaves `lower_bound` and `next_weight` as they were before that scan, but keeps any earlier switch.
   A later call restarts the layer from its first support, unless the search has finished, as it has after a stop at the cutoff.
   If `BrouwerZimmermannSearch.advance` raises, a witness that the interrupted scan found can stay out of the shared `U`, so build a new search to search again.
+- **Threads.**
+  A search scans a layer of a set on `num_threads` threads, which `BrouwerZimmermannSearch` resolves once from the tuning, if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports; otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
+  A **work item** is the set of supports of the layer whose first `k` rows are fixed, with `k = 1`, or `k = 2` if that leaves fewer than 32 items for each thread and `w ≥ 4`.
+  Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
+  The threads, the calling thread among them, claim the items in lexicographic order, in which the first are the largest, and scan each with `scan_set_item`, which Numba compiles without the global interpreter lock and stops at the end of its item.
+  They share one copy of the rows, labels, and tables of the set.
+  The threads scan one set at a time, in the order of the sets, so `advance` and its certificate are unchanged.
+  Each chunk starts from the shared `U`, and its thread lowers `U` under a lock after the chunk.
+  Every value of `U` is the weight of an eligible word, or the caller's upper bound, so a chunk that starts from a stale `U` only skips less.
+  After the layer, `U` is the least of its value before the layer and the weights of the eligible words of the layer, as on one thread, so every later decision, such as completion tables and the switch to an automorphism family, is that of one thread.
+  The thread that brings `U` to the cutoff stops the others after their chunks; the witness, and so the result of an early exit, can then depend on the timing of the threads, though its weight still lies between the distance and the cutoff.
+  An exception in any thread, such as a keyboard interrupt in the calling thread, stops the others after their chunks, and is raised again once all have returned.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

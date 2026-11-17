@@ -159,6 +159,74 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
                         )
 
 
+def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() -> None:
+    """Scans of the work items of a layer, in order, find and count what the scan of the layer does.
+
+    The items fix the first rows of the supports, as many as the layer allows, so they cover the
+    layer and keep the completions that tables skip within them.  The sets have full and partial
+    rank, and the scans run with and without tables, so they skip some completions.
+    """
+    rng = np.random.default_rng(7)
+    num_rows, weight = 8, 5
+    tails = (rng.random((num_rows, 40)) < 0.3).astype(np.uint8)
+    generators = pack_bits(tails)
+    labels = rng.integers(0, 2, (num_rows, 1), dtype=np.uint64)
+    no_tables = completion_bounds.NO_TABLES
+    tables = completion_bounds.CompletionTables.build(generators, 4)
+    for rank, set_tables, initial_best, batch_size in itertools.product(
+        (num_rows, 3), (no_tables, tables), (weight + 3, 1000), (1, 7)
+    ):
+        if rank < num_rows and set_tables is tables:
+            continue
+        arguments = (generators, labels, rank, generators.shape[1], 1)
+        table_arguments = (set_tables.tables, set_tables.offsets, set_tables.block_bits)
+
+        # Scan the layer.
+        support = np.zeros(weight, dtype=np.int64)
+        prefixes = np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64)
+        depth, expected_best, expected_counts = 0, initial_best, np.zeros(3, dtype=np.int64)
+        while depth >= 0:
+            expected_best, depth, *counts = affine_search.scan_set(
+                *arguments,
+                support,
+                prefixes,
+                depth,
+                expected_best,
+                -1,
+                batch_size,
+                *table_arguments,
+            )
+            expected_counts += counts
+        assert expected_counts[2] > 0 or set_tables is no_tables
+
+        # Scan the work items of the layer in order, each from its first support.
+        for length in range(1, weight - 1):
+            best, item_counts = initial_best, np.zeros(3, dtype=np.int64)
+            for fixed_rows in itertools.combinations(range(num_rows - weight + length), length):
+                item = np.array(fixed_rows, dtype=np.int64)
+                support[:length] = item
+                for row in range(length):
+                    prefixes[row + 1] = prefixes[row] ^ generators[item[row]]
+                support[length] = item[-1] + 1
+                depth = length
+                while depth >= 0:
+                    best, depth, *counts = affine_search.scan_set_item(
+                        *arguments,
+                        support,
+                        prefixes,
+                        depth,
+                        best,
+                        -1,
+                        batch_size,
+                        *table_arguments,
+                        item,
+                    )
+                    assert counts[0] + counts[1] <= batch_size
+                    item_counts += counts
+            assert best == expected_best
+            np.testing.assert_array_equal(item_counts, expected_counts)
+
+
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_coset_layer_scans_keep_the_first_lightest_word(
     css_weight: bool, pytestconfig: pytest.Config

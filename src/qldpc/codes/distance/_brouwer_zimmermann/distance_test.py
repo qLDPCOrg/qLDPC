@@ -7,10 +7,12 @@ from __future__ import annotations
 import dataclasses
 import functools
 import gc
+import itertools
 import math
+import threading
 import weakref
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, NamedTuple
 from unittest import mock
 
 import numpy as np
@@ -23,13 +25,14 @@ from qldpc._binary import get_independent_rows, row_reduce_binary
 from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
-from .. import _brute_force
+from .. import _brute_force, core
 from .._information_sets import basis_families, certificates, completion_bounds, matroid_partition
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from ..conftest import (
     MISSED_SET_CODE,
     CostlyStages,
     get_costly_basis,
+    get_golay_checks,
     get_random_css_code,
     get_random_full_rank_matrix,
     get_sector,
@@ -1510,3 +1513,209 @@ def test_searches_need_a_sector_or_an_upper_bound() -> None:
     with pytest.raises(ValueError, match="at least one sector or an upper bound"):
         bz.get_distance_brouwer_zimmermann([], cutoff=0)
     assert bz.get_distance_brouwer_zimmermann([], cutoff=0, upper_bound=3) == 3
+
+
+class ItemScan(NamedTuple):
+    """The thread of a scan of a work item, the fixed rows of the item, and its bytes of tables."""
+
+    thread: int
+    item: tuple[int, ...]
+    table_bytes: int
+
+
+@pytest.fixture
+def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
+    """Record each scan of a chunk of a work item, which only a layer split across threads runs."""
+    scans: list[ItemScan] = []
+    scan_set_item = affine_search.scan_set_item
+
+    def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        scans.append(ItemScan(threading.get_ident(), tuple(args[-1].tolist()), len(args[11])))
+        return scan_set_item(*args)
+
+    monkeypatch.setattr(affine_search, "scan_set_item", recording_scan)
+    return scans
+
+
+@pytest.fixture
+def small_batches(tune: Tune) -> None:
+    """Make small searches scan their layers of three or more rows on threads, if they have any.
+
+    Small batches open the gate of splitting a layer, and searches skip the costly stages of setup,
+    which would end them before such layers.
+    """
+    tune(
+        information_set_batch_exponent=3,
+        overlapping_minimum_work=MAX_VALUE,
+        partition_work_ratio=MAX_VALUE,
+    )
+
+
+@pytest.mark.usefixtures("small_batches")
+@pytest.mark.parametrize("num_threads", [2, 3, 8])
+def test_searches_on_threads_find_the_distances_that_one_thread_finds(
+    item_scans: list[ItemScan], num_threads: int
+) -> None:
+    """Searches that split layers across threads find the distances of searches on one thread.
+
+    The searches are of a classical code, the [24, 12, 8] Golay code; of the X sector, and of both
+    sectors, of the [[41, 1, 5]] surface code; of a [[25, 1, 4]] surface code with Hadamards on half
+    of its qubits, which is not CSS; and of the [[25, 1, 5]] Bacon-Shor code, a subsystem code (see
+    https://arxiv.org/abs/quant-ph/0506023).  On one thread, they scan no work items.
+    """
+    surface = qldpc.codes.SurfaceCode(5)
+    small_surface = qldpc.codes.SurfaceCode(4)
+    hadamard = small_surface.conjugated(range(len(small_surface) // 2)).matrix
+    method: qldpc.codes.DistanceMethod = "brouwer_zimmermann"
+    searches: list[tuple[int, Callable[[], object]]] = [
+        (
+            8,
+            functools.partial(core.get_distance_from_generators, get_golay_checks(), method=method),
+        ),
+        (
+            5,
+            functools.partial(
+                core.get_distance_css, surface.matrix_x, surface.matrix_z, Pauli.X, method=method
+            ),
+        ),
+        (
+            5,
+            functools.partial(
+                core.get_distance_css, surface.matrix_x, surface.matrix_z, method=method
+            ),
+        ),
+        (4, functools.partial(core.get_distance_pauli, hadamard, method=method)),
+        (
+            5,
+            functools.partial(
+                core.get_distance_pauli, qldpc.codes.BaconShorCode(5).matrix, method=method
+            ),
+        ),
+    ]
+    for expected, search in searches:
+        item_scans.clear()
+        with use_tuning(num_threads=1):
+            assert search() == expected
+        assert not item_scans
+        with use_tuning(num_threads=num_threads):
+            assert search() == expected
+        assert item_scans
+
+
+@pytest.mark.parametrize(
+    ("num_rows", "weight", "num_threads", "length"),
+    [(12, 3, 8, 1), (12, 5, 8, 2), (70, 4, 1, 1), (70, 4, 3, 2)],
+)
+def test_work_items_fix_the_first_rows_of_heads_in_lexicographic_order(
+    num_rows: int, weight: int, num_threads: int, length: int
+) -> None:
+    """The items of a layer fix one row, or two if one leaves fewer than 32 items for each thread.
+
+    Their fixed rows are those of the heads of the supports of the layer, which end before its last
+    row, in lexicographic order.
+    """
+    items = bz._WorkItems(num_rows, weight, num_threads)
+    heads = itertools.combinations(range(num_rows - 1), weight - 1)
+    expected = sorted({head[:length] for head in heads})
+    assert items.length == length and items.num_items == len(expected)
+    assert [tuple(items.get_item(index)) for index in range(items.num_items)] == expected
+
+
+@pytest.mark.usefixtures("switch_before_any_layer")
+@pytest.mark.parametrize("completion_tables", ["forced"], indirect=True)
+def test_searches_on_threads_advance_as_searches_on_one_thread(
+    tune: Tune,
+    completion_tables: CompletionRecord,
+    prepared: list[bz._SectorSearch],
+    item_scans: list[ItemScan],
+) -> None:
+    """After each layer, a search on threads has the bounds and best weight of one on one thread.
+
+    So the decisions that follow, such as the choice of completion tables and the switch to an
+    automorphism family, are those of one thread.  The search uses both.
+    """
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    sector = get_sector(code, Pauli.X)
+    histories = []
+    for num_threads in (1, 3):
+        prepared.clear()
+        tune(num_threads=num_threads, information_set_batch_exponent=4)
+        search = bz.BrouwerZimmermannSearch(
+            [sector], cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+        )
+        history = []
+        while not search.finished:
+            search.advance()
+            history.append(
+                [
+                    (each.next_weight, each.lower_bound, each.best, each.uses_automorphism_family)
+                    for each in prepared
+                ]
+            )
+        histories.append(history)
+    assert histories[0] == histories[1]
+    assert histories[0][-1][0][2:] == (8, True)
+    assert any(scan.table_bytes for scan in item_scans)
+
+
+@pytest.mark.usefixtures("small_batches", "switch_before_any_layer")
+@pytest.mark.parametrize(("cutoff", "num_threads"), [(8, 2), (9, 3), (8, 8)])
+def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
+    tune: Tune,
+    prepared: list[bz._SectorSearch],
+    item_scans: list[ItemScan],
+    cutoff: int,
+    num_threads: int,
+) -> None:
+    """A stop at the cutoff, in a layer split across threads, leaves the bounds of the layer.
+
+    The search returns the weight of a word between the distance, eight, and the cutoff.  It scans
+    one set of an automorphism family, whose best weight is ten before layer four, which holds the
+    first words of weight eight or nine.  The threads stop scanning soon after one reaches the
+    cutoff, long before they claim every item of the layer.
+    """
+    tune(num_threads=num_threads)
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    search = bz.BrouwerZimmermannSearch(
+        [get_sector(code, Pauli.X)], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
+    )
+    (sector_search,) = prepared
+    while not search.finished:
+        bounds = (sector_search.lower_bound, sector_search.next_weight)
+        num_scans = len(item_scans)
+        search.advance()
+    assert 8 <= search.best <= cutoff
+    assert sector_search.uses_automorphism_family and bounds[1] == 4
+    assert (sector_search.lower_bound, sector_search.next_weight) == bounds
+    items = {scan.item for scan in item_scans[num_scans:]}
+    assert 0 < len(items) < bz._WorkItems(sector_search.dimension, 4, num_threads).num_items // 2
+
+
+@pytest.mark.usefixtures("small_batches")
+def test_an_error_on_a_thread_stops_a_search_on_threads(
+    tune: Tune, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An error on a thread that scans work items ends the search with that error, on no threads.
+
+    The calling thread scans its first chunk only after the other thread has failed.
+    """
+    tune(num_threads=2)
+    calling_thread = threading.get_ident()
+    failed = threading.Event()
+    scan_set_item = affine_search.scan_set_item
+
+    def failing_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        if threading.get_ident() != calling_thread:
+            failed.set()
+            raise ValueError("failed")
+        # The scan from depth -1 before the threads start returns at once.
+        if args[7] >= 0:
+            failed.wait()
+        return scan_set_item(*args)
+
+    monkeypatch.setattr(affine_search, "scan_set_item", failing_scan)
+    threads = threading.active_count()
+    surface = qldpc.codes.SurfaceCode(5)
+    with pytest.raises(ValueError, match="failed"):
+        bz.get_distance_brouwer_zimmermann([get_sector(surface, Pauli.X)], cutoff=0)
+    assert threading.active_count() == threads

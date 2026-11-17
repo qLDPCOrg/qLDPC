@@ -3,9 +3,10 @@
 """Compiled scans of the layers of Brouwer-Zimmermann searches of binary spaces and their cosets.
 
 Each scan covers one layer ``w`` of one search basis: the sums of its offset and ``w`` of its rows.
-``scan_set`` serves the distance search, and the other scans the coset searches of
-``CosetLeaderSearch``.  Every scan runs one body, ``_scan``, which Numba compiles separately for
-each set of constant flags, so that no flag costs a branch for each word.  Sections cited in this
+``scan_set`` and ``scan_set_item``, which scans a part of a layer on one of several threads, serve
+the distance search, and the other scans the coset searches of ``CosetLeaderSearch``.  Every scan
+runs one body, ``_scan``, which Numba compiles separately for each set of constant flags, so that no
+flag costs a branch for each word.  Sections cited in this
 module are those of ``brouwer_zimmermann.md``, whose Section 4.1 lists the scans.
 """
 
@@ -77,10 +78,10 @@ def scan_set(
         The updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked
         up, and of supports skipped.
     """
-    # The scan weighs no X parts and records nothing, so placeholders fill those arguments.  The
-    # skip bound is the best weight at the start, which the best weight never exceeds, so the scan
-    # skips only completions that cannot lower the best weight.  Every row of an information set
-    # has a pivot, so its scan needs no rank.
+    # The scan weighs no X parts, records nothing, and stops at the end of no work item, so
+    # placeholders fill those arguments.  The skip bound is the best weight at the start, which the
+    # best weight never exceeds, so the scan skips only completions that cannot lower the best
+    # weight.  Every row of an information set has a pivot, so its scan needs no rank.
     if rank == generators.shape[0]:
         return _scan(
             generators,
@@ -101,6 +102,7 @@ def scan_set(
             prefixes[0],
             best,
             support,
+            support,
             pair_steps=True,
             deleted_pivots=True,
             test_labels=True,
@@ -109,6 +111,7 @@ def scan_set(
             chunked=True,
             ranked=False,
             record_support=False,
+            ends_with_item=False,
         )
     return _scan(
         generators,
@@ -129,6 +132,7 @@ def scan_set(
         prefixes[0],
         best,
         support,
+        support,
         pair_steps=True,
         deleted_pivots=True,
         test_labels=True,
@@ -137,6 +141,100 @@ def scan_set(
         chunked=True,
         ranked=True,
         record_support=False,
+        ends_with_item=False,
+    )
+
+
+@always_compiled(nogil=True)
+def scan_set_item(
+    generators: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    rank: int,
+    width: int,
+    label_width: int,
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+    depth: int,
+    best: int,
+    cutoff: int,
+    batch_size: int,
+    tables: npt.NDArray[np.uint8],
+    offsets: npt.NDArray[np.int64],
+    block_bits: int,
+    item: npt.NDArray[np.int64],
+) -> tuple[int, int, int, int, int]:
+    """Scan one chunk of a work item of a layer of one set, as ``scan_set`` scans the layer.
+
+    A work item is the set of supports of the layer whose first ``len(item)`` rows are ``item``,
+    with ``1 <= len(item) <= len(support) - 2``, so that the completions that tables skip lie in
+    the item of their prefix.  Start the item at ``depth = len(item)``, with ``support`` beginning
+    with ``item`` and then ``item[-1] + 1``, and ``prefixes[1 : len(item) + 1]`` holding the XORs of
+    its leading rows.  The scan reports the end of the item as that of the layer, with depth ``-1``.
+    It runs without Python's global interpreter lock, so that threads can scan the items of a layer
+    at once, each with its own ``support`` and ``prefixes``.  The other arguments and the results
+    are those of ``scan_set``.
+    """
+    # Placeholders fill the arguments that the scan does not read, as in scan_set.
+    if rank == generators.shape[0]:
+        return _scan(
+            generators,
+            labels,
+            rank,
+            width,
+            label_width,
+            support,
+            prefixes,
+            depth,
+            best,
+            cutoff,
+            batch_size,
+            tables,
+            offsets,
+            block_bits,
+            prefixes[0],
+            prefixes[0],
+            best,
+            support,
+            item,
+            pair_steps=True,
+            deleted_pivots=True,
+            test_labels=True,
+            record=False,
+            css_weight=False,
+            chunked=True,
+            ranked=False,
+            record_support=False,
+            ends_with_item=True,
+        )
+    return _scan(
+        generators,
+        labels,
+        rank,
+        width,
+        label_width,
+        support,
+        prefixes,
+        depth,
+        best,
+        cutoff,
+        batch_size,
+        tables,
+        offsets,
+        block_bits,
+        prefixes[0],
+        prefixes[0],
+        best,
+        support,
+        item,
+        pair_steps=True,
+        deleted_pivots=True,
+        test_labels=True,
+        record=False,
+        css_weight=False,
+        chunked=True,
+        ranked=True,
+        record_support=False,
+        ends_with_item=True,
     )
 
 
@@ -190,6 +288,7 @@ def scan_coset_layer(
         representative,
         0,
         support,
+        support,
         pair_steps=False,
         deleted_pivots=False,
         test_labels=False,
@@ -198,6 +297,7 @@ def scan_coset_layer(
         chunked=False,
         ranked=False,
         record_support=False,
+        ends_with_item=False,
     )
     return best, weighed
 
@@ -241,6 +341,7 @@ def scan_coset_layer_by_css_weight(
         representative,
         0,
         support,
+        support,
         pair_steps=False,
         deleted_pivots=False,
         test_labels=False,
@@ -249,6 +350,7 @@ def scan_coset_layer_by_css_weight(
         chunked=False,
         ranked=False,
         record_support=False,
+        ends_with_item=False,
     )
     return best, weighed
 
@@ -301,6 +403,7 @@ def scan_coset_layer_by_tails(
         prefixes[0],
         0,
         best_support,
+        support,
         pair_steps=False,
         deleted_pivots=True,
         test_labels=False,
@@ -309,6 +412,7 @@ def scan_coset_layer_by_tails(
         chunked=False,
         ranked=True,
         record_support=True,
+        ends_with_item=False,
     )
     return best, weighed
 
@@ -369,6 +473,7 @@ def scan_coset_layer_by_tails_with_tables(
         prefixes[0],
         skip_bound,
         best_support,
+        support,
         pair_steps=True,
         deleted_pivots=True,
         test_labels=False,
@@ -377,6 +482,7 @@ def scan_coset_layer_by_tails_with_tables(
         chunked=False,
         ranked=True,
         record_support=True,
+        ends_with_item=False,
     )
     return best, weighed, skipped
 
@@ -405,6 +511,7 @@ def _scan(
     representative: npt.NDArray[np.uint64],
     skip_bound: int,
     best_support: npt.NDArray[np.int64],
+    item: npt.NDArray[np.int64],
     pair_steps: bool,
     deleted_pivots: bool,
     test_labels: bool,
@@ -413,6 +520,7 @@ def _scan(
     chunked: bool,
     ranked: bool,
     record_support: bool,
+    ends_with_item: bool,
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of one search basis, starting from ``support``.
 
@@ -431,6 +539,8 @@ def _scan(
     - ``ranked``: with ``deleted_pivots``, count pivot ones only for rows below ``rank``, in words
       and in bounds of completions (Section 3.9, "Coset searches").
     - ``record_support``: copy the support of each lighter word into ``best_support``.
+    - ``ends_with_item``: with ``pair_steps``, end the layer once the first ``len(item)`` rows of
+      the head of a support differ from ``item`` (see ``scan_set_item``).
 
     Returns:
         Updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked up,
@@ -455,6 +565,10 @@ def _scan(
             depth = advance_support(head_rows, width, head, prefixes, depth)
             if depth < 0:
                 return best, depth, evaluated, lookups, skipped
+            if ends_with_item:
+                for selected in range(len(item)):
+                    if support[selected] != item[selected]:
+                        return best, -1, evaluated, lookups, skipped
             first = support[pair_depth]
 
             # Skip the completions from row ``first`` on if their bound reaches the lesser of the

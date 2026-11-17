@@ -18,8 +18,9 @@ What tuning can and cannot change:
 - Tuning never changes an exact distance, a distance limited by ``max_weight``, or a count of
   logical operators.
 - With an early exit (``cutoff`` of two or more), which nontrivial word at or below ``cutoff`` a
-  distance search finds depends on tuning, and its weight still lies between the distance and
-  ``cutoff`` (see :func:`~qldpc.codes.distance.get_distance_from_generators`).
+  distance search finds depends on tuning, and, on more than one thread, on the timing of the
+  threads.  Its weight still lies between the distance and ``cutoff`` (see
+  :func:`~qldpc.codes.distance.get_distance_from_generators`).
 - Under every tuning, a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` gives the same
   answer to whether a coset has a word of weight at most the query's maximum weight, and with the
   connected-cluster method the same lower bound.  The returned word, and with the Brouwer-Zimmermann
@@ -51,8 +52,9 @@ function that each worker runs.
 To time or reproduce a tuning, run each search in a new process, after a warm-up that compiles the
 code of every route that the search may take.  In the thread or process that runs the searches,
 record ``saved = dataclasses.asdict(_tuning.get_tuning())``, which ``use_tuning(**saved)`` restores.
-Also record the version of qLDPC, or its commit and any changes to its source, which fix the
-defaults and the constants.
+A saved ``num_threads`` of ``None`` restores the rule that chooses the number of threads, not the
+number, so record ``numba.config.NUMBA_NUM_THREADS`` too.  Also record the version of qLDPC, or its
+commit and any changes to its source, which fix the defaults and the constants.
 
 Fields can differ between two searches in one process, but the constants (``MAX_VALUE`` and the
 sizes of caches) are fixed when qLDPC is imported: change them by editing this module, and start a
@@ -86,13 +88,15 @@ Each default is in one of these classes, or was chosen by hand:
   restricts nothing.
 
 The sizes of caches, ``auto_brute_force_max_words``, ``auto_free_work``,
-``connected_cluster_state_evaluations``, ``coset_route_minimum_work``, and
-``macwilliams_shared_walk_rank`` were chosen by hand, and the comments of those fields say why.
+``connected_cluster_state_evaluations``, ``coset_route_minimum_work``,
+``macwilliams_shared_walk_rank``, and ``num_threads`` were chosen by hand, and the comments of those
+fields say why.
 
 Change a default only when its heuristic changes, or when a check shows that its assumption, such as
 the cost of a step, is off by more than a factor of about 3; only a maintainer changes a budget or a
 value chosen by hand.  Never change a default to gain a factor of two on particular codes.  The
-scripts of ``experiments/distance_tuning`` check the tuning and set no value: ``constants.py``
+scripts of ``experiments/distance_tuning`` check the tuning and set no value, apart from running
+searches on one thread: ``constants.py``
 checks the orders of magnitude that the heuristics assume, ``trace.py`` shows which decisions a
 search makes, and ``sweep.py`` catches gross regressions or bugs.  The README of that directory says
 how to run them.  They do not check the fields of the automatic choice of a method.
@@ -391,6 +395,19 @@ class SearchTuning:
     #: latency.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
+    #: The number of threads on which a distance search by the BZ method scans a costly layer of a
+    #: set, which they split into work items, sharing one copy of its completion tables.  At least
+    #: 1, and 1 scans on the calling thread alone.  ``None`` takes numba's thread count,
+    #: ``numba.config.NUMBA_NUM_THREADS``, which numba sets when it is imported, from the
+    #: environment variable ``NUMBA_NUM_THREADS`` or else from the CPUs available to the process;
+    #: numba does not read the CPU quotas of containers.  A search resolves ``None`` once, when it
+    #: starts.  A layer of a set runs on the calling thread alone unless it has at least three rows
+    #: and more than ``num_threads * 2**information_set_batch_exponent`` supports (Section 4.5 of
+    #: ``brouwer_zimmermann.md``).  Programs that run searches in several processes at once should
+    #: cap it, with ``NUMBA_NUM_THREADS=1`` or ``use_tuning(num_threads=1)``.  Defaults to ``None``,
+    #: chosen by hand: a search uses the cores that numba counts unless its caller caps them.
+    num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
+
     #: A chunk of the scan of a count, by the BZ or brute-force method, visits at most this many
     #: supports and lookups of completion tables, counted together, within one coefficient layer of
     #: one information set.  At least 1.  Defaults to 65,536, a budget of interrupt latency.
@@ -428,6 +445,8 @@ class SearchTuning:
         Compiled code specializes on the types of its arguments, so storing every integer as a
         Python integer keeps a tuning from compiling code again.
 
+        A field whose default is None also accepts None.
+
         Raises:
             TypeError: If a bool field is not a Python or NumPy bool, or a number field is a bool or
                 is not a number of the type of its default.
@@ -436,6 +455,8 @@ class SearchTuning:
         """
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
+            if value is None and field.default is None:
+                continue
             if isinstance(field.default, bool):
                 if not isinstance(value, bool | np.bool_):
                     raise TypeError(f"{field.name} must be a bool, not {value!r}")

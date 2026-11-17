@@ -46,6 +46,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
   The method name `"information_sets"` is an alias of `"brouwer_zimmermann"`, for distances and counts alike.
 - `_cosets.py` holds the parts that the coset searches of both methods share.
 - `_tuning.py` holds the settings of the searches.
+- `_threads.py` runs the work items of a search on several threads.
 - `_binary.py` holds the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
   The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
 
@@ -79,6 +80,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | Completion tables, which let a BZ scan skip the supports whose completions by two more rows are too heavy, and the choice of whether to build them | `_information_sets/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
 | The settings that a search reads when it starts (`SearchTuning` and `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
+| How a search runs its work items on threads, and its default number of threads | `_threads.py`; how the BZ distance search splits a layer into work items is in `_brouwer_zimmermann/distance.py` |
 | Binary input checks, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
 | Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
@@ -94,7 +96,7 @@ From the top:
 5. `_information_sets/`, `_cosets.py`, and `min_weight_bounds.py`, which the methods build on.
    The connected-cluster search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`.
 6. `_tuning.py`.
-7. `_binary.py`.
+7. `_binary.py` and `_threads.py`.
 
 A top-level module or subpackage imports only from lower levels, and a module also from its own subpackage.
 `_layering_test.py` checks this.
@@ -228,6 +230,17 @@ They are not arguments of public functions, whose arguments say what to compute 
 - The module docstring of `_tuning.py` says which results a tuning can change.
 - To force a route or exercise a value in a test, call the `tune` fixture of `src/qldpc/codes/conftest.py`, as in `tune(overlapping_minimum_work=0)`, rather than patching module attributes.
 - If the implementation cannot safely support a field's full range, narrow it in the field's metadata rather than adding code for unsupported values.
+  A field whose default is `None`, such as `num_threads`, also accepts `None`.
+
+### Threads
+
+A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann.md`).
+By default, `num_threads` is `None`, which takes numba's thread count, `numba.config.NUMBA_NUM_THREADS`.
+Numba sets this count when it is imported, from the environment variable `NUMBA_NUM_THREADS`, or else from the CPUs available to the process.
+It does not read the CPU quotas of containers.
+To keep searches on one core, set `NUMBA_NUM_THREADS=1` before numba is imported, or run them within `use_tuning(num_threads=1)`.
+Programs that run searches in several processes at once, such as pools of workers, should cap the count in this way, since each process would otherwise start a thread for each CPU.
+The other searches and counts run on one thread.
 
 ## Compiled code
 
@@ -238,6 +251,9 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
   They are compiled on first use and cached on disk, in a directory named by a hash of qLDPC's source, so the first run after an edit anywhere in qLDPC compiles again.
   A small helper that hot loops call, such as `advance_support`, is marked `@always_compiled(inline=True)`, so that compiled callers include its code rather than pay for a call.
 - `@compiled_on_request` marks parts of the set-up of searches, which run as plain Python unless a program calls `compile_search_setup()`.
+
+An entry point that several threads run at once, such as `scan_set_item` in `_brouwer_zimmermann/affine_search.py`, is marked `@always_compiled(nogil=True)`, so that its compiled code runs without Python's global interpreter lock.
+The docstring of `src/qldpc/_compilation.py` states the rule for using it.
 
 Numba looks up the functions that compiled code calls when compiling it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.
 Tests in `src/qldpc/_compiled_code_rules_test.py` check further rules, and the name of a failing test says which one was broken.

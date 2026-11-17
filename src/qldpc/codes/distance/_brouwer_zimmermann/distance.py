@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import math
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -21,6 +22,7 @@ import numpy.typing as npt
 
 from qldpc._binary import pack_bits
 
+from .. import _threads
 from .._binary import get_eligible_rows
 from .._information_sets import (
     automorphism_families,
@@ -37,6 +39,10 @@ _AutomorphismFamily = tuple[basis_families.BasisFamily, certificates.Certificate
 
 # A function that returns the automorphism family of a sector for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[[int], _AutomorphismFamily | None]
+
+# The fewest work items for each thread that a layer split across threads aims for, so that threads
+# that claim items in turn finish at about the same time (Section 4.5).
+_ITEMS_PER_THREAD = 32
 
 ####################################################################################################
 # search entry points
@@ -139,8 +145,10 @@ class BrouwerZimmermannSearch:
             self.best = upper_bound
             return
 
-        # Prepare a search of each sector, which setup may settle without searching.
+        # Prepare a search of each sector, which setup may settle without searching.  Every sector
+        # scans on the same number of threads.
         tuning = get_tuning() if tuning is None else tuning
+        num_threads = _threads.get_num_threads(tuning.num_threads)
         initial_upper_bounds = [
             _get_lightest_eligible_row_weight(basis, labels) for basis, labels in sectors
         ]
@@ -162,6 +170,7 @@ class BrouwerZimmermannSearch:
                 else get_disjoint_basis_families[index],
                 get_automorphisms=get_automorphisms,
                 tuning=tuning,
+                num_threads=num_threads,
             )
             if isinstance(prepared, int):
                 best = min(best, prepared)
@@ -236,7 +245,8 @@ class _SectorSearch:
     keeps the family in ``automorphism_family``, and its best weight at that time in
     ``declined_best`` (Section 3.7, "When a search uses an automorphism family").
     ``completion_tables`` keeps the tables last chosen, for the set ``completion_tables_set``, for
-    later layers of that set (Section 3.9, "When a search uses the tables").
+    later layers of that set (Section 3.9, "When a search uses the tables").  ``num_threads`` is the
+    number of threads on which the search scans a costly layer of a set (Section 4.5).
     """
 
     instance: affine_instance.AffineInstance
@@ -246,6 +256,7 @@ class _SectorSearch:
     best: int
     lower_bound: int
     next_weight: int = 1
+    num_threads: int = 1
     get_automorphism_family: _GetAutomorphismFamily | None = field(default=None, repr=False)
     uses_automorphism_family: bool = field(default=False, init=False)
     automorphism_family: _AutomorphismFamily | None = field(default=None, init=False, repr=False)
@@ -350,11 +361,17 @@ class _SectorSearch:
     def _scan_set(self, index: int, weight: int) -> bool:
         """Scan a layer of the set ``index``, with the completion tables that it chooses, if any.
 
-        The block of the set need not be an information set.  Returns False if the scan stopped at
-        the cutoff.
+        The block of the set need not be an information set.  A costly layer of three or more rows
+        is split across threads (Section 4.5).  Returns False if the scan stopped at the cutoff.
         """
         tables = self._select_completion_tables(index, weight)
         instance = self.instance
+        if (
+            self.num_threads > 1
+            and weight >= 3
+            and math.comb(self.dimension, weight) > self.num_threads * self.batch_size
+        ):
+            return self._scan_set_on_threads(index, weight, tables)
         support = np.zeros(weight, dtype=np.int64)
         prefixes = np.zeros((weight + 1, instance.generators.shape[2]), dtype=np.uint64)
 
@@ -380,6 +397,82 @@ class _SectorSearch:
             if self.best <= self.cutoff:
                 return False
         return True
+
+    def _scan_set_on_threads(
+        self, index: int, weight: int, tables: completion_bounds.CompletionTables
+    ) -> bool:
+        """Scan a layer of the set ``index`` on threads, as ``_scan_set`` scans it on one.
+
+        The threads claim the work items of the layer in order, and share the best weight, which
+        each lowers after each chunk of its scan.  So the best weight after the layer is the one
+        thread's (Section 4.5).  Returns False if the scan stopped at the cutoff.
+        """
+        instance = self.instance
+        generators = instance.generators[index]
+        set_arguments = (
+            generators,
+            instance.labels[index],
+            instance.ranks[index],
+            instance.widths[index],
+            instance.labels.shape[2],
+        )
+        table_arguments = (tables.tables, tables.offsets, tables.block_bits)
+        items = _WorkItems(self.dimension, weight, self.num_threads)
+        lock = threading.Lock()
+
+        def start_worker(stop: threading.Event) -> Callable[[int], None]:
+            """Give a thread its own support and prefixes, and return how it scans an item."""
+            support = np.zeros(weight, dtype=np.int64)
+            prefixes = np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64)
+
+            def scan_item(item_index: int) -> None:
+                """Scan a work item in chunks, until it ends or the stop event is set."""
+                # Start at the first support of the item: its fixed rows, then the next row.
+                item = items.get_item(item_index)
+                length = len(item)
+                support[:length] = item
+                for depth in range(length):
+                    np.bitwise_xor(
+                        prefixes[depth], generators[item[depth]], out=prefixes[depth + 1]
+                    )
+                support[length] = item[-1] + 1
+                depth = length
+
+                # Start each chunk from the shared best weight, and lower it after the chunk.
+                while depth >= 0 and not stop.is_set():
+                    best, depth, _, _, _ = affine_search.scan_set_item(
+                        *set_arguments,
+                        support,
+                        prefixes,
+                        depth,
+                        self.best,
+                        self._scan_cutoff,
+                        self.batch_size,
+                        *table_arguments,
+                        item,
+                    )
+                    if best < self.best:
+                        with lock:
+                            self.best = min(self.best, best)
+                        if self.best <= self.cutoff:
+                            stop.set()
+
+            return scan_item
+
+        # Compile the scan before the threads call it: a scan from depth -1 returns at once.
+        affine_search.scan_set_item(
+            *set_arguments,
+            np.zeros(weight, dtype=np.int64),
+            np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64),
+            -1,
+            self.best,
+            self._scan_cutoff,
+            self.batch_size,
+            *table_arguments,
+            items.get_item(0),
+        )
+        _threads.run_work_items(items.num_items, self.num_threads, start_worker)
+        return self.best > self.cutoff
 
     def _select_completion_tables(
         self, index: int, weight: int
@@ -452,6 +545,34 @@ class _SectorSearch:
         self.completion_tables = None
 
 
+class _WorkItems:
+    """The work items of a layer that threads scan: the supports whose first rows are fixed.
+
+    An item fixes the first ``length`` rows of its supports, one row, or two if that leaves fewer
+    than ``_ITEMS_PER_THREAD`` items for each thread and the layer has four or more rows.  So the
+    completions of a prefix that tables skip lie in its item, as ``affine_search.scan_set_item``
+    requires.  The items are numbered in lexicographic order, in which the first are the largest.
+    """
+
+    def __init__(self, num_rows: int, weight: int, num_threads: int) -> None:
+        few = num_rows - weight + 1 < _ITEMS_PER_THREAD * num_threads
+        self.length = 2 if few and weight >= 4 else 1
+
+        # The fixed rows of an item are combinations of the rows that leave room for the rest of a
+        # head, which ends before the last row.  Count the items whose first row is less than each.
+        num_values = num_rows - weight + self.length
+        self.num_items = math.comb(num_values, self.length)
+        self._starts = np.array(
+            [self.num_items - math.comb(num_values - row, self.length) for row in range(num_values)]
+        )
+
+    def get_item(self, index: int) -> npt.NDArray[np.int64]:
+        """The fixed rows of the item ``index``."""
+        first = int(np.searchsorted(self._starts, index, side="right")) - 1
+        rows = [first, first + 1 + index - int(self._starts[first])]
+        return np.array(rows[: self.length], dtype=np.int64)
+
+
 def _prepare_sector_search(
     basis: npt.NDArray[np.uint8],
     labels: npt.NDArray[np.uint8],
@@ -463,13 +584,15 @@ def _prepare_sector_search(
     get_disjoint_basis_family: Callable[[], basis_families.BasisFamily] | None = None,
     get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
     tuning: SearchTuning,
+    num_threads: int = 1,
 ) -> int | _SectorSearch:
     """Prepare the BZ search of one sector, or return its result if setup already settles it.
 
     The stages of ``basis_families`` run in order, and between them setup returns if the rows of the
     family bring the best weight to the cutoff, or if its certificate proves the best weight
     (Section 4.2).  ``get_disjoint_basis_family``, if given, returns the result of the first stage,
-    and ``get_automorphisms`` is as for ``get_distance_brouwer_zimmermann``.
+    and ``get_automorphisms`` is as for ``get_distance_brouwer_zimmermann``.  The search scans on
+    ``num_threads`` threads (Section 4.5).
     """
     dimension = len(basis)
     best = min(
@@ -572,6 +695,7 @@ def _prepare_sector_search(
         best=best,
         lower_bound=lower_bound,
         next_weight=completed_weight + 1,
+        num_threads=num_threads,
         get_automorphism_family=get_automorphism_family,
     )
 

@@ -46,6 +46,10 @@ Start from a symptom
        For its completion tables, lower :attr:`~SearchTuning.coset_completion_block_bits`, or :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each set of a family, or raise :attr:`~SearchTuning.coset_route_minimum_work`, so that fewer queries build extra families and tables.
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
+   * - A distance search by the Brouwer-Zimmermann method uses too many or too few cores, as when several processes run searches at once
+     - Set :attr:`~SearchTuning.num_threads`, or the environment variable ``NUMBA_NUM_THREADS`` before numba is imported, which sets its default.
+       Programs that run searches in several processes at once, such as pools of workers, should cap it, for example at 1.
+       Numba does not read the CPU quotas of containers, so set it there too.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
@@ -137,6 +141,10 @@ Routes and the names that control them
      -
    * - Distance searches by the Brouwer-Zimmermann method: time before a keyboard interrupt takes effect, and the overhead of returning to Python
      - :attr:`SearchTuning.information_set_batch_exponent`
+     -
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
+   * - Distance searches by the Brouwer-Zimmermann method: the threads that scan a costly layer of a set
+     - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
      - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
    * - Counts by the Brouwer-Zimmermann or brute-force method: time before a keyboard interrupt takes effect
