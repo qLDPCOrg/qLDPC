@@ -21,18 +21,16 @@ is the dual code of C.
 Local checks.  The checks at each vertex are the words of a spanning set of its local check space,
 which the argument ``local_checks`` of QTCode chooses:
 
-- "min_weight": a minimum-weight basis, whose i-th lightest word is as light as the i-th lightest
-  word of any basis of the space, for each i.
+- "min_weight" (the default): a minimum-weight basis, whose i-th lightest word is as light as the
+  i-th lightest word of any basis of the space, for each i.
 - "from_codes": the rows of ``G_A ⨂ G_B`` for X-type checks and of ``H_A ⨂ H_B`` for Z-type checks,
   where H and G are the parity check matrix and generator matrix that each local code carries
   (``code.matrix`` and ``code.generator``).  Rows of H or G that are linearly dependent give
   redundant checks.
-- "row_reduced": a basis in reduced row echelon form, which qLDPC used before "min_weight"
-  existed.
 
-Every choice spans the same local check space at every vertex, so it gives the same stabilizer
-group, number of qudits, and dimension.  The choices "min_weight" and "row_reduced" also give the
-same number of checks.
+Both choices span the same local check space at every vertex, so they give the same stabilizer
+group, number of qudits, and dimension.  Versions of qLDPC before these choices existed built a
+basis in reduced row echelon form, which also spans these spaces.
 
 The minimum-weight bases are tensor products of minimum-weight bases of the factors, such as
 ``{u_i ⨂ v_j}`` for minimum-weight bases {u_i} of C_A and {v_j} of C_B, which
@@ -65,8 +63,7 @@ import networkx as nx
 import numpy as np
 import numpy.typing as npt
 
-from qldpc import _deprecations, abstract
-from qldpc._utils import get_external_caller_stacklevel
+from qldpc import abstract
 from qldpc.math import get_min_weight_basis
 from qldpc.objects import (
     CayleyComplex,
@@ -79,7 +76,7 @@ from ..classical import (
 )
 from ..common import ClassicalCode, CSSCode, _get_scrambled_seed, _mark_read_only
 
-_LocalChecks = Literal["min_weight", "from_codes", "row_reduced"]
+_LocalChecks = Literal["min_weight", "from_codes"]
 
 # the most words that a local code or its dual may have for "min_weight" local checks
 _MAX_WORDS_FOR_MIN_WEIGHT_BASIS = 2**20
@@ -122,12 +119,11 @@ class QTCode(CSSCode):
     the local codes belongs to member i of ``members_a`` (members of A in increasing order), and
     likewise for B.  To label coordinates in another order, permute the columns of the local codes.
     The argument ``local_checks`` chooses the checks that span each local check space: a
-    minimum-weight basis ("min_weight"), products of the matrices that the local codes carry
-    ("from_codes"), or the basis in reduced row echelon form that qLDPC has used so far
-    ("row_reduced").  The module docstring describes these choices, and proves that "min_weight"
-    gives minimum-weight bases.  The choice can change the parity checks, but not the stabilizer
-    group.  Minimum-weight bases are exact, and are not chosen to minimize the number of checks that
-    act on each qudit.
+    minimum-weight basis ("min_weight", the default), or products of the matrices that the local
+    codes carry ("from_codes").  The module docstring describes these choices, and proves that
+    "min_weight" gives minimum-weight bases.  The choice can change the parity checks, but not the
+    stabilizer group.  Minimum-weight bases are exact, and are not chosen to minimize the number of
+    checks that act on each qudit.
 
     Two QTCodes are equal if they have the same generating data and the same parity checks.
     QTCode.save records the choice of local checks, and the generator matrices of the local codes.
@@ -155,8 +151,7 @@ class QTCode(CSSCode):
         field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
-        # FUTURE CHANGE: see qldpc._deprecations
-        local_checks: Literal["min_weight", "from_codes", "row_reduced"] | None = None,
+        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
     ) -> None:
         """Construct a quantum Tanner code.
 
@@ -172,14 +167,12 @@ class QTCode(CSSCode):
             field: The field of the local codes, if they are given as matrices.
             bipartite: Whether to build the code on the bipartite Cayley complex, rather than the
                 quadripartite one (see help(qldpc.objects.CayleyComplex)).
-            local_checks: The checks that span each local check space: "min_weight",
-                "from_codes", or "row_reduced" (see help(qldpc.codes.quantum.quantum_tanner)).
-                "min_weight" enumerates the words of each local code and of its dual, and raises a
-                ValueError if one has more than 2^20 words.  The default, None, currently selects
-                "row_reduced" with a FutureWarning, and will select "min_weight" in a future
-                release.
+            local_checks: The checks that span each local check space: "min_weight" (the default)
+                or "from_codes" (see help(qldpc.codes.quantum.quantum_tanner)).  "min_weight"
+                enumerates the words of each local code and of its dual, and raises a ValueError if
+                one has more than 2^20 words; pass "from_codes" for such local codes.
         """
-        local_checks = _resolve_local_checks(local_checks)
+        local_checks = _parse_local_checks(local_checks)
 
         # build the complex first, since it merges repeated members of the subsets
         self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
@@ -287,17 +280,14 @@ class QTCode(CSSCode):
         code_a: ClassicalCode,
         code_b: ClassicalCode,
         *,
-        # FUTURE CHANGE: see qldpc._deprecations
-        local_checks: Literal["min_weight", "from_codes", "row_reduced"] | None = None,
+        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
     ) -> tuple[TannerCode, TannerCode]:
         """Get the classical Tanner subcodes of a quantum Tanner code.
 
         The parity checks of the subcodes are the X-type and Z-type checks of the quantum Tanner
-        code.  The argument local_checks is as for QTCode, and its default, None, likewise currently
-        selects "row_reduced" with a FutureWarning, and will select "min_weight" in a future
-        release.
+        code.  The argument local_checks is as for QTCode.
         """
-        local_checks = _resolve_local_checks(local_checks)
+        local_checks = _parse_local_checks(local_checks)
         subgraph_x, subgraph_z = QTCode.get_subgraphs(cayplex)
         checks_x, checks_z = _get_local_check_spaces(code_a, code_b, local_checks)
         return TannerCode(subgraph_x, checks_x), TannerCode(subgraph_z, checks_z)
@@ -381,8 +371,7 @@ class QTCode(CSSCode):
         one_subset: bool = False,
         exclude_identity: bool = False,
         seed: int | None = None,
-        # FUTURE CHANGE: see qldpc._deprecations
-        local_checks: Literal["min_weight", "from_codes", "row_reduced"] | None = None,
+        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
     ) -> QTCode:
         """Construct a random quantum Tanner code from a base group and seed code(s).
 
@@ -393,8 +382,7 @@ class QTCode(CSSCode):
         similarly for B.  The double or quadruple covers built by CayleyComplex keep these vertices
         apart, so the code is still defined.  See help(qldpc.abstract.Group.random_symmetric_subset)
         for the sizes of subsets without the identity, and the error raised for other sizes.  The
-        argument local_checks is as for QTCode, and its default, None, likewise currently selects
-        "row_reduced" with a FutureWarning, and will select "min_weight" in a future release.
+        argument local_checks is as for QTCode.
         """
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else _get_dual_code(code_a), field)
@@ -468,16 +456,15 @@ class QTCode(CSSCode):
     def load(
         path: str,
         *,
-        # FUTURE CHANGE: see qldpc._deprecations
-        local_checks: Literal["min_weight", "from_codes", "row_reduced"] | None = None,
+        local_checks: Literal["min_weight", "from_codes"] | None = None,
     ) -> QTCode:
         """Load a QTCode from a file written by QTCode.save.
 
         The code chooses its local checks as the saved code did, unless the argument local_checks
-        (as for QTCode) says otherwise.  Files written by QTCode.save in earlier releases record no
-        choice of local checks, and no generator matrices of the local codes.  For such a file, the
-        default of local_checks, None, currently selects "row_reduced" with a FutureWarning, and
-        will select "min_weight" in a future release.
+        (as for QTCode) is given.  Files written by QTCode.save in earlier releases record no choice
+        of local checks, and no generator matrices of the local codes, and load with "min_weight".
+        Their codes had parity checks in reduced row echelon form, which span the same local check
+        spaces, so the loaded code has the same stabilizer group, but can have other parity checks.
         """
         if not os.path.isfile(path):
             raise ValueError(f"Path does not exist: {path}")
@@ -554,7 +541,12 @@ class QTCode(CSSCode):
             if local_checks is None:
                 local_checks = _parse_local_checks(lines[starts["local checks"]].split(":")[-1])
         return QTCode(
-            subset_a, subset_b, code_a, code_b, bipartite=bipartite, local_checks=local_checks
+            subset_a,
+            subset_b,
+            code_a,
+            code_b,
+            bipartite=bipartite,
+            local_checks="min_weight" if local_checks is None else local_checks,
         )
 
     @functools.cached_property
@@ -575,23 +567,6 @@ class QTCode(CSSCode):
                     local_view[index, position_a, position_b] = subgraph.nodes[face]["sort"]
             local_views.append(_mark_read_only(local_view))
         return local_views[0], local_views[1]
-
-
-def _resolve_local_checks(local_checks: _LocalChecks | None) -> _LocalChecks:
-    """Resolve the argument local_checks of QTCode, and warn about its future default if None."""
-    if local_checks is None:  # FUTURE CHANGE: see qldpc._deprecations
-        _deprecations.warn_future_change(
-            "QTCode builds its parity checks from row-reduced bases of its local check spaces by"
-            " default (local_checks='row_reduced').  In a future release, it will build them from"
-            " minimum-weight bases (local_checks='min_weight'), which give the same stabilizer group"
-            " with checks that are no heavier, and often lighter.  Minimum-weight bases need local"
-            " codes, and duals of local codes, with at most 2^20 words; for larger local codes, pass"
-            " local_checks='from_codes'.  Pass local_checks='min_weight' to use minimum-weight bases"
-            " now, or local_checks='row_reduced' to keep the current parity checks.",
-            stacklevel=get_external_caller_stacklevel(),
-        )
-        return "row_reduced"
-    return _parse_local_checks(local_checks)
 
 
 def _parse_local_checks(value: str) -> _LocalChecks:
@@ -621,12 +596,6 @@ def _get_local_check_spaces(
     Their parity checks span the local check spaces ``C_A ⨂ C_B`` and ``~C_A ⨂ ~C_B``, as the
     argument local_checks of QTCode chooses (see help(qldpc.codes.quantum.quantum_tanner)).
     """
-    if local_checks == "row_reduced":
-        return (
-            ~ClassicalCode.tensor_product(code_a, code_b),
-            ~ClassicalCode.tensor_product(~code_a, ~code_b),
-        )
-
     # spanning sets of the local codes C_A and C_B, and of their duals ~C_A and ~C_B
     factors_x = [code_a.generator, code_b.generator]
     factors_z = [code_a.matrix, code_b.matrix]
