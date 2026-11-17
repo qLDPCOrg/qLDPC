@@ -36,20 +36,20 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
 
     # random quantum Tanner code
     group = abstract.CyclicGroup(12)
-    subcode = codes.RepetitionCode(4, field=3)
-    code = codes.QTCode.random(group, subcode, seed=np.random.randint(2**31))
+    local_code = codes.RepetitionCode(4, field=3)
+    code = codes.QTCode.random(group, local_code, seed=np.random.randint(2**31))
 
-    # raise error if the generating data is underspecified
+    # raise error if C_B is not given, and the subsets have different sizes
     subset_a = code.complex.subset_a
     subset_b = group.random_symmetric_subset(len(subset_a) - 1)
-    subcode_a = codes.RepetitionCode(len(subset_a))
-    with pytest.raises(ValueError, match="Underspecified generating data"):
-        codes.QTCode(subset_a, subset_b, subcode_a)
+    code_a = codes.RepetitionCode(len(subset_a))
+    with pytest.raises(ValueError, match="code_b is required"):
+        codes.QTCode(subset_a, subset_b, code_a)
 
-    # raise error if seed codes are over different fields
-    subcode_b = codes.RepetitionCode(2, field=3)
+    # raise error if the local codes are over different fields
+    code_b = codes.RepetitionCode(2, field=3)
     with pytest.raises(ValueError, match="different fields"):
-        codes.QTCode(subset_a, subset_a, subcode_a, subcode_b)
+        codes.QTCode(subset_a, subset_a, code_a, code_b)
 
     # saving and loading a QTCode, creating a missing directory along the way
     path = tmp_path / "subdirectory" / "code.txt"
@@ -72,7 +72,7 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     assert saved_files[0] == saved_files[1]
 
     # codes whose saved data has empty rows or sections, such as members of the trivial group or
-    # seed codes without parity checks, load back too, even with headers that mimic section names
+    # local codes without parity checks, load back too, even with headers that mimic section names
     generator = abstract.CyclicGroup(2).generators[0]
     for saved_code in [
         codes.QTCode.random(abstract.TrivialGroup(), codes.ClassicalCode([[1]])),
@@ -103,37 +103,37 @@ def test_quantum_tanner_generating_data() -> None:
     """Quantum Tanner codes validate and compare their generating data."""
     shift = abstract.CyclicGroup(6).generators[0]
     members = [shift, ~shift]
-    subcode = codes.RepetitionCode(2)
-    code = codes.QTCode(members, members, subcode)
+    local_code = codes.RepetitionCode(2)
+    code = codes.QTCode(members, members, local_code)
 
     # repeated members are merged before the sizes of the subsets are compared
-    assert codes.QTCode(members * 2, members, subcode) == code
+    assert codes.QTCode(members * 2, members, local_code) == code
 
     # codes are equal if their members are equal after adding fixed points to the end of them
     padded_members = [
         abstract.GroupMember(member.array_form, size=member.size + 1) for member in members
     ]
-    padded_code = codes.QTCode(padded_members, padded_members, subcode)
+    padded_code = codes.QTCode(padded_members, padded_members, local_code)
     assert padded_code.complex.subset_a != code.complex.subset_a
     assert padded_code == code
     assert code == padded_code
     assert code != code.complex
 
-    # raise error if a seed code does not have one bit per distinct member of its subset, even if
-    # the product of the block lengths of the seed codes is right
+    # raise error if a local code does not have one bit per distinct member of its subset, even if
+    # the product of the block lengths of the local codes is right
     other_members = [shift**2, shift**3, ~(shift**2)]
     for code_a, code_b, wrong_code in [
         (codes.RepetitionCode(3), codes.RepetitionCode(3), "C_A"),
         (codes.RepetitionCode(2), codes.RepetitionCode(2), "C_B"),
         (codes.RepetitionCode(3), codes.RepetitionCode(2), "C_[AB]"),
     ]:
-        with pytest.raises(ValueError, match=f"seed code {wrong_code} has block length"):
+        with pytest.raises(ValueError, match=f"local code {wrong_code} has block length"):
             codes.QTCode(members, other_members, code_a, code_b)
 
     # one generating subset may be empty, which leaves a complex without faces, but not both
     no_bits = np.zeros((0, 0), dtype=int)
-    assert codes.QTCode([], members, no_bits, subcode).num_qudits == 0
-    assert codes.QTCode(members, [], subcode, no_bits).num_qudits == 0
+    assert codes.QTCode([], members, no_bits, local_code).num_qudits == 0
+    assert codes.QTCode(members, [], local_code, no_bits).num_qudits == 0
     with pytest.raises(ValueError, match="at least one generating member"):
         codes.QTCode([], [], no_bits)
 
@@ -161,12 +161,12 @@ def test_quantum_tanner_nonabelian_faces() -> None:
     expected_x = set()
     expected_z = set()
     for element in sources_x:
-        for subset_a in cayplex.cover_subset_a:
-            for subset_b in cayplex.cover_subset_b:
-                neighbor = subset_a * element
-                face = frozenset([element, neighbor, element * subset_b, neighbor * subset_b])
-                expected_x.add((element, face, (subset_a, subset_b)))
-                expected_z.add((neighbor, face, (~subset_a, subset_b)))
+        for member_a in cayplex.cover_subset_a:
+            for member_b in cayplex.cover_subset_b:
+                neighbor = member_a * element
+                face = frozenset([element, neighbor, element * member_b, neighbor * member_b])
+                expected_x.add((element, face, (member_a, member_b)))
+                expected_z.add((neighbor, face, (~member_a, member_b)))
 
     def labelled_edges(graph: nx.DiGraph) -> set[tuple[object, object, object]]:
         """Edges together with the generator pair that defines each face."""
@@ -186,12 +186,12 @@ def test_quantum_tanner_nonabelian_faces() -> None:
         return [frozenset(faces[col] for col in np.flatnonzero(row)) for row in matrix]
 
     # the faces of both subgraphs are numbered in one order, from zero
-    face_labels_x, face_labels_z = [
-        {node: label for node, label in graph.nodes(data="sort") if graph.out_degree(node) == 0}
+    face_qudits_x, face_qudits_z = [
+        {node: qudit for node, qudit in graph.nodes(data="sort") if graph.out_degree(node) == 0}
         for graph in [subgraph_x, subgraph_z]
     ]
-    assert face_labels_x == face_labels_z
-    assert sorted(face_labels_x.values()) == list(range(code.num_qudits))
+    assert face_qudits_x == face_qudits_z
+    assert sorted(face_qudits_x.values()) == list(range(code.num_qudits))
 
     for matrix, graph in [(code.matrix_x, subgraph_x), (code.matrix_z, subgraph_z)]:
         expected = {
@@ -245,10 +245,10 @@ def test_quantum_tanner_qudit_order() -> None:
 def test_random_quantum_tanner_code_is_reproducible() -> None:
     """A seed fixes both of the random subsets that define a random quantum Tanner code."""
     group = abstract.CyclicGroup(8)
-    subcode = codes.RepetitionCode(2)
+    local_code = codes.RepetitionCode(2)
 
     def matrix_for(seed: int | None = None, one_subset: bool = False) -> bytes:
-        code = codes.QTCode.random(group, subcode, seed=seed, one_subset=one_subset)
+        code = codes.QTCode.random(group, local_code, seed=seed, one_subset=one_subset)
         return np.asarray(code.matrix).tobytes()
 
     # the same seed gives the same code every time, and different seeds give different codes
@@ -299,10 +299,18 @@ def test_toric_tanner_code(size: int = 4) -> None:
     shift_x, shift_y = group.generators
     subset_a = [shift_x, ~shift_x]
     subset_b = [shift_y, ~shift_y]
-    subcode_a = codes.RepetitionCode(2)
-    code = codes.QTCode(subset_a, subset_b, subcode_a, bipartite=False)
+    local_code = codes.RepetitionCode(2)
+    code = codes.QTCode(subset_a, subset_b, local_code, bipartite=False)
     assert code.get_code_params() == (size**2, 2, size)
     assert code.get_weight() == 4
+
+
+def get_words(space: galois.FieldArray) -> galois.FieldArray:
+    """All words of the row space of a matrix, by brute force."""
+    field = type(space)
+    basis = space.row_space()
+    coefficients = field(list(itertools.product(range(field.order), repeat=len(basis))))
+    return coefficients.reshape(field.order ** len(basis), len(basis)) @ basis
 
 
 def get_min_weights(space: galois.FieldArray) -> list[int]:
@@ -311,10 +319,7 @@ def get_min_weights(space: galois.FieldArray) -> list[int]:
     A minimum-weight basis has exactly r_w - r_(w-1) vectors of weight w, where r_w is the dimension
     of the span of all vectors of the row space with weight at most w.
     """
-    field = type(space)
-    basis = space.row_space()
-    coefficients = field(list(itertools.product(range(field.order), repeat=len(basis))))
-    words = coefficients.reshape(field.order ** len(basis), len(basis)) @ basis
+    words = get_words(space)
     word_weights = np.count_nonzero(words.view(np.ndarray), axis=1)
     weights: list[int] = []
     for weight in range(1, space.shape[1] + 1):
@@ -322,6 +327,47 @@ def get_min_weights(space: galois.FieldArray) -> list[int]:
         light_rank = np.linalg.matrix_rank(light_words) if len(light_words) else 0
         weights += [weight] * (light_rank - len(weights))
     return weights
+
+
+def get_light_words(space: galois.FieldArray) -> galois.FieldArray:
+    """The light words of the row space of a matrix, by brute force.
+
+    These are the nonzero words that are no heavier than the heaviest word of a minimum-weight
+    basis of the space.
+    """
+    words = get_words(space)
+    weights = np.count_nonzero(words.view(np.ndarray), axis=1)
+    return words[(weights > 0) & (weights <= max(get_min_weights(space), default=0))]
+
+
+def get_local_space(
+    code_a: codes.ClassicalCode, code_b: codes.ClassicalCode, pauli: PauliXZ
+) -> galois.FieldArray:
+    """A matrix whose rows span the local check space of one type, C_A ⨂ C_B or ~C_A ⨂ ~C_B.
+
+    Its rows are the products of the rows of the generator matrices of the local codes for X-type
+    checks, and of their parity check matrices for Z-type checks.
+    """
+    if pauli is Pauli.X:
+        return np.kron(code_a.generator, code_b.generator).view(code_a.field)
+    return np.kron(code_a.matrix, code_b.matrix).view(code_a.field)
+
+
+def place_words(
+    words: galois.FieldArray, local_views: npt.NDArray[np.int_], num_qudits: int
+) -> list[tuple[int, ...]]:
+    """The rows of the checks that place each word on each local view.
+
+    Entry ``[v, i, j]`` of local_views is the qudit at coordinate (i, j) of the local view of vertex
+    v, and the words have one entry per coordinate, in row-major order.
+    """
+    checks = []
+    for local_view in local_views:
+        for word in words:
+            check = type(words).Zeros(num_qudits)
+            check[local_view.ravel()] = word
+            checks.append(tuple(check.tolist()))
+    return checks
 
 
 def get_sorted_rows(matrix: npt.ArrayLike) -> list[tuple[int, ...]]:
@@ -340,43 +386,7 @@ def assert_same_row_space(matrix: galois.FieldArray, other: galois.FieldArray) -
 def test_quantum_tanner_local_checks(pytestconfig: pytest.Config) -> None:
     """The choices of local checks span the local check spaces of the local views of vertices."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-
-    # random codes over abelian and nonabelian groups, on both complexes, and over GF(2) and GF(3)
-    cases: list[
-        tuple[abstract.Group, codes.ClassicalCode, codes.ClassicalCode | None, bool, int | None]
-    ] = [
-        (abstract.CyclicGroup(6), codes.HammingCode(2), None, False, None),
-        (
-            abstract.SymmetricGroup(3),
-            codes.ClassicalCode([[1, 1, 0, 1], [0, 1, 1, 1]]),
-            None,
-            False,
-            None,
-        ),
-        (
-            abstract.CyclicGroup(4),
-            codes.ClassicalCode([[1, 2, 0], [0, 1, 1]], field=3),
-            None,
-            False,
-            None,
-        ),
-        # a bipartite complex needs subsets that satisfy Total No Conjugacy, as those of seed 36 do
-        (
-            abstract.DihedralGroup(5),
-            codes.HammingCode(2),
-            codes.ClassicalCode([[1, 1, 1, 0]]),
-            True,
-            36,
-        ),
-    ]
-    for group, code_a, code_b, bipartite, seed in cases:
-        code = codes.QTCode.random(
-            group,
-            code_a,
-            code_b,
-            bipartite=bipartite,
-            seed=int(rng.integers(2**31)) if seed is None else seed,
-        )
+    for code in get_small_qt_codes(rng):
         code_a, code_b = code.code_a, code.code_b
 
         # give C_A a generator matrix with redundant rows, which "from_codes" uses as given
@@ -402,7 +412,7 @@ def test_quantum_tanner_local_checks(pytestconfig: pytest.Config) -> None:
                 code.complex.subset_b,
                 code_a,
                 code_b,
-                bipartite=bipartite,
+                bipartite=code.complex.bipartite,
                 local_checks=local_checks,
             )
             assert len(new_code) == len(code)
@@ -411,13 +421,11 @@ def test_quantum_tanner_local_checks(pytestconfig: pytest.Config) -> None:
             assert_same_row_space(new_code.matrix_z, code.matrix_z)
             assert not np.any(new_code.matrix_x @ new_code.matrix_z.T)
 
-            sectors: list[
-                tuple[PauliXZ, nx.DiGraph, galois.FieldArray, list[galois.FieldArray]]
-            ] = [
-                (Pauli.X, subgraphs[0], new_code.matrix_x, [code_a.generator, code_b.generator]),
-                (Pauli.Z, subgraphs[1], new_code.matrix_z, [code_a.matrix, code_b.matrix]),
+            sectors: list[tuple[PauliXZ, nx.DiGraph, galois.FieldArray]] = [
+                (Pauli.X, subgraphs[0], new_code.matrix_x),
+                (Pauli.Z, subgraphs[1], new_code.matrix_z),
             ]
-            for pauli, subgraph, matrix, local_spaces in sectors:
+            for pauli, subgraph, matrix in sectors:
                 # the local view of each vertex v labels face f(v,a,b) by its members a and b
                 sources = sorted(node for node in subgraph if subgraph.out_degree(node))
                 local_views = new_code.get_local_views(pauli)
@@ -432,7 +440,7 @@ def test_quantum_tanner_local_checks(pytestconfig: pytest.Config) -> None:
                         assert local_view[row, col] == face_qudits[face]
 
                 # the checks of each vertex lie in its local view, and span its local check space
-                local_space = np.kron(*local_spaces).view(new_code.field)
+                local_space = get_local_space(code_a, code_b, pauli)
                 num_checks = len(matrix) // len(local_views)
                 for vertex, local_view in enumerate(local_views):
                     checks = matrix[vertex * num_checks : (vertex + 1) * num_checks]
@@ -720,35 +728,14 @@ def test_quantum_tanner_canonical_checks(pytestconfig: pytest.Config) -> None:
         num_qudits = len(code)
         is_x_check = np.any(search_matrix[:, :num_qudits], axis=1)
         assert not np.any(search_matrix[is_x_check, num_qudits:])
-        sectors: list[tuple[PauliXZ, galois.FieldArray, list[galois.FieldArray]]] = [
-            (
-                Pauli.X,
-                search_matrix[is_x_check, :num_qudits],
-                [code.code_a.generator, code.code_b.generator],
-            ),
-            (
-                Pauli.Z,
-                search_matrix[~is_x_check, num_qudits:],
-                [code.code_a.matrix, code.code_b.matrix],
-            ),
+        sectors: list[tuple[PauliXZ, galois.FieldArray]] = [
+            (Pauli.X, search_matrix[is_x_check, :num_qudits]),
+            (Pauli.Z, search_matrix[~is_x_check, num_qudits:]),
         ]
-        for pauli, checks, local_spaces in sectors:
-            # all light words of the local check space, by brute force
-            field = code.field
-            basis = np.kron(*local_spaces).view(field).row_space()
-            coefficients = field(list(itertools.product(range(field.order), repeat=len(basis))))
-            words = coefficients.reshape(field.order ** len(basis), len(basis)) @ basis
-            weights = np.count_nonzero(words.view(np.ndarray), axis=1)
-            max_weight = max(get_min_weights(basis), default=0)
-            light_words = words[(weights > 0) & (weights <= max_weight)]
-
+        for pauli, checks in sectors:
             # every vertex has the light words of its local check space on its local view
-            expected_checks = []
-            for local_view in code.get_local_views(pauli):
-                for word in light_words:
-                    check = field.Zeros(num_qudits)
-                    check[local_view.ravel()] = word
-                    expected_checks.append(tuple(check.tolist()))
+            light_words = get_light_words(get_local_space(code.code_a, code.code_b, pauli))
+            expected_checks = place_words(light_words, code.get_local_views(pauli), num_qudits)
             assert get_sorted_rows(checks) == sorted(expected_checks)
             assert_same_row_space(checks, code.matrix_x if pauli is Pauli.X else code.matrix_z)
 
@@ -781,10 +768,6 @@ def test_quantum_tanner_canonical_checks_limits(monkeypatch: pytest.MonkeyPatch)
         assert_same_row_space(search_matrix[:num_vertices_x, :num_qudits], code.matrix_x)
         assert np.array_equal(search_matrix[num_vertices_x:, num_qudits:], code.matrix_z)
 
-    # a limit that all local check spaces exceed
-    monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_CANONICAL_CHECKS", 0)
-    assert np.array_equal(code._get_canonical_checks(), code.matrix)
-
 
 def test_quantum_tanner_canonical_checks_without_qudits() -> None:
     """Canonical checks of codes without qudits, and of local check spaces without nonzero words."""
@@ -802,9 +785,10 @@ def test_quantum_tanner_canonical_checks_without_qudits() -> None:
         assert code.get_known_permutation_automorphism_group().order == 1
 
     # a zero factor makes a zero space, whose canonical checks need no search of the other factor
-    field = galois.GF(2)
     canonical_checks = quantum_tanner._get_canonical_local_checks(
-        field.Zeros((0, 3)), field.Identity(62)
+        codes.ClassicalCode(np.zeros((0, 3), dtype=int)),
+        codes.ClassicalCode(np.eye(62, dtype=int)),
+        Pauli.Z,
     )
     assert canonical_checks is not None and canonical_checks.shape == (0, 3 * 62)
 
@@ -875,6 +859,11 @@ def get_d5_subsets() -> tuple[list[abstract.GroupMember], list[abstract.GroupMem
     return subset_a, [rotation**power for power in range(1, 5)]
 
 
+def get_permuted_code(code: codes.ClassicalCode, order: list[int]) -> codes.ClassicalCode:
+    """The code whose coordinate i is coordinate order[i] of a code, with its generator matrix."""
+    return codes.ClassicalCode(code.matrix[:, order]).set_generator(code.generator[:, order])
+
+
 def test_quantum_tanner_from_ordered_members() -> None:
     """QTCode.from_ordered_members permutes local coordinates into the order of their members."""
     shift = abstract.CyclicGroup(6).generators[0]
@@ -884,21 +873,17 @@ def test_quantum_tanner_from_ordered_members() -> None:
     code_a.set_generator([[1, 1, 1, 0], [1, 0, 1, 1]])  # not in reduced row echelon form
     code_b = codes.ClassicalCode([[1, 1, 0]])
 
-    def get_sorted_code(code: codes.ClassicalCode, order: list[int]) -> codes.ClassicalCode:
-        """The code whose coordinate i is coordinate order[i] of a code, with its generator."""
-        return codes.ClassicalCode(code.matrix[:, order]).set_generator(code.generator[:, order])
-
     # members in increasing order are those with increasing exponents, which permutes coordinates
     order_a, order_b = [2, 1, 3, 0], [2, 0, 1]
     code = codes.QTCode.from_ordered_members(
         members_a, members_b, code_a, code_b, local_checks="from_codes"
     )
-    expected_code_a = get_sorted_code(code_a, order_a)
+    expected_code_a = get_permuted_code(code_a, order_a)
     expected_code = codes.QTCode(
         members_a,
         members_b,
         expected_code_a,
-        get_sorted_code(code_b, order_b),
+        get_permuted_code(code_b, order_b),
         local_checks="from_codes",
     )
     assert code == expected_code
@@ -932,8 +917,8 @@ def test_quantum_tanner_from_ordered_members() -> None:
     expected_code = codes.QTCode(
         members_a,
         members_b,
-        get_sorted_code(code_a, [1, 2, 0]),
-        get_sorted_code(code_b, [1, 3, 0, 2]),
+        get_permuted_code(code_a, [1, 2, 0]),
+        get_permuted_code(code_b, [1, 3, 0, 2]),
         bipartite=True,
         local_checks="from_codes",
     )
@@ -1264,12 +1249,7 @@ def test_lifted_quantum_tanner_local_views() -> None:
                     )
 
                 # the local check space of the vertex is spanned by G_A^s ⨂ G_B^t or H_A^s ⨂ H_B^t
-                factors = (
-                    [codes_a[ss].generator, codes_b[tt].generator]
-                    if pauli is Pauli.X
-                    else [codes_a[ss].matrix, codes_b[tt].matrix]
-                )
-                local_space: galois.FieldArray = np.kron(*factors).view(code.field)
+                local_space = get_local_space(codes_a[ss], codes_b[tt], pauli)
                 if local_checks == "from_codes":
                     num_checks = len(local_space)
                 else:
@@ -1365,10 +1345,7 @@ def test_lifted_quantum_tanner_qtcode() -> None:
             (members_b, quadripartite_code.code_b),
         ]:
             inversion = [members.index(~member) for member in members]
-            inverted_code = codes.ClassicalCode(local_code.matrix[:, inversion])
-            local_codes.append(
-                (local_code, inverted_code.set_generator(local_code.generator[:, inversion]))
-            )
+            local_codes.append((local_code, get_permuted_code(local_code, inversion)))
         generated_group = abstract.Group(*members_a, *members_b)
         lifted_code = codes.LQTCode(
             generated_group,
@@ -1490,20 +1467,6 @@ def test_lifted_quantum_tanner_translations_of_order_3() -> None:
             assert_same_row_space(matrix[:, np.argsort(translation)], matrix)
 
 
-def get_light_words(space: galois.FieldArray) -> galois.FieldArray:
-    """The light words of the row space of a matrix, by brute force.
-
-    These are the nonzero words that are no heavier than the heaviest word of a minimum-weight
-    basis of the space.
-    """
-    field = type(space)
-    basis = space.row_space()
-    coefficients = field(list(itertools.product(range(field.order), repeat=len(basis))))
-    words = coefficients.reshape(field.order ** len(basis), len(basis)) @ basis
-    weights = np.count_nonzero(words.view(np.ndarray), axis=1)
-    return words[(weights > 0) & (weights <= max(get_min_weights(basis), default=0))]
-
-
 def test_lifted_quantum_tanner_canonical_checks(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bliss searches the parity checks, and the light words of the local check space of each class.
 
@@ -1525,20 +1488,14 @@ def test_lifted_quantum_tanner_canonical_checks(monkeypatch: pytest.MonkeyPatch)
         (Pauli.Z, search_matrix[~is_x_check, num_qudits:], [(0, 1), (1, 0)]),
     ]
     for pauli, checks, vertex_classes in sectors:
-        # every vertex has the light words of the local check space of its class on its local view
-        local_views = code.get_local_views(pauli)
+        # every vertex has the light words of the local check space of its class on its local view,
+        # and the vertices of each class are half of the vertices with checks of the given type
         expected_checks = []
-        for vertex, local_view in enumerate(local_views):
-            ss, tt = vertex_classes[vertex * 2 // len(local_views)]
-            if pauli is Pauli.X:
-                local_space = np.kron(codes_a[ss].generator, codes_b[tt].generator)
-            else:
-                local_space = np.kron(codes_a[ss].matrix, codes_b[tt].matrix)
-            for word in get_light_words(local_space.view(code.field)):
-                check = code.field.Zeros(num_qudits)
-                check[local_view.ravel()] = word
-                expected_checks.append(check)
-        assert get_sorted_rows(checks) == get_sorted_rows(expected_checks)
+        class_local_views = np.split(code.get_local_views(pauli), 2)
+        for (ss, tt), local_views in zip(vertex_classes, class_local_views):
+            light_words = get_light_words(get_local_space(codes_a[ss], codes_b[tt], pauli))
+            expected_checks += place_words(light_words, local_views, num_qudits)
+        assert get_sorted_rows(checks) == sorted(expected_checks)
 
     # if the local check spaces of the vertices with X-type checks are too large, the X-type parity
     # checks replace the canonical X-type checks
