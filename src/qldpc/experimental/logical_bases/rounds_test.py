@@ -33,9 +33,9 @@ _CHOICE_CHECKS = ([[1, 0, 1, 1, 1, 0, 0]], [[0, 1, 1, 1, 0, 0, 1], [1, 1, 0, 0, 
 # a [[6, 3]] code whose X-type operators need 3 rounds at minimum weight, and 2 with slack 2
 _SLACK_CHECKS = ([[1, 1, 1, 1, 0, 1]], [[1, 1, 0, 1, 1, 1], [0, 1, 1, 1, 1, 1]])
 
-# an [[8, 4]] code in which, if only single rows of the basis reduced on the column order are
-# listed, every X-type candidate of three classes contains one qubit; that bound of 3 rounds is
-# wrong, since a 2-round choice exists
+# an [[8, 4]] code in which, if only single rows of the basis reduced on the column-order
+# information set are listed, the X-type candidates listed for three classes all contain qubit 1,
+# which would wrongly bound the rounds below by 3, since a 2-round choice exists
 _SHARED_CHECKS = (
     [[1, 1, 0, 1, 1, 1, 0, 1], [1, 1, 1, 0, 0, 1, 0, 0]],
     [[0, 1, 0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 0, 0, 1]],
@@ -108,7 +108,10 @@ def test_time_limit() -> None:
 
 
 def test_time_limit_shared(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The time limit covers all solving, including retries, but not listing candidates."""
+    """The time limit covers all solving, including retries, but not listing candidates.
+
+    The X-type operators are solved first.
+    """
     # each reading of the clock takes one tick, and each count takes 50
     count, milp = rounds._count_candidates, scipy.optimize.milp
     now = [0.0]
@@ -183,12 +186,14 @@ def test_incomplete_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     k, n = code.dimension, len(code)
     ops = np.asarray(code.get_logical_ops(), dtype=int)
     ops[k, n:] = (ops[k, n:] + code.get_matrix(Pauli.Z)[0].view(np.ndarray)) % 2
+    class_words = _get_class_words(code, Pauli.Z, "dressed")[_get_class(code, Pauli.Z, ops[k, n:])]
+    assert ops[k, n:].sum() > min(int(word.sum()) for word in class_words)
     result = optimize_logical_rounds(code, ops)
     _check_result(code, ops, result, 0, "dressed")
 
 
 def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Random information sets find candidates that combine many rows of the column-order basis."""
+    """Random information sets find candidates that combine many rows on the column-order one."""
     monkeypatch.setattr(rounds, "_MAX_ROWS_PER_SAMPLE", 1)
     code = codes.CSSCode(*_CHOICE_CHECKS)
     trivial = code.get_matrix(Pauli.X).view(np.ndarray).astype(np.uint8)
@@ -199,7 +204,7 @@ def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_solver_failures() -> None:
-    """Solver failures are retried without presolve, and results that break constraints raise."""
+    """Solver failures are retried without presolve, and results that cannot be right raise."""
     code = codes.CSSCode(*_CHOICE_CHECKS)
     milp = scipy.optimize.milp
 
@@ -228,7 +233,7 @@ def test_solver_failures() -> None:
     infeasible = scipy.optimize.OptimizeResult(status=2, x=None, message="infeasible")
     with (
         mock.patch.object(scipy.optimize, "milp", return_value=infeasible),
-        pytest.raises(RuntimeError, match="no choice has k rounds"),
+        pytest.raises(RuntimeError, match="no choice has 4 rounds"),
     ):
         optimize_logical_rounds(code)
 

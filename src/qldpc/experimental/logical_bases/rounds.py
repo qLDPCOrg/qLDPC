@@ -33,9 +33,10 @@ from .evaluation import (
 )
 from .lightest_basis import _get_min_weight, _get_min_weight_word
 
-# Candidates are listed from information sets, that of the column order and then random ones, each
-# contributing the words that combine at most this many of its rows, until the list matches the
-# exact count or the samples run out.
+# Each class's candidates are listed from a basis of the class, reduced on information sets: first
+# the column-order information set, which reduction in column order finds, then random ones.  Each
+# contributes the words that combine at most _MAX_ROWS_PER_SAMPLE reduced rows, until the list
+# matches an exact count or _MAX_SAMPLES information sets have been used.
 _MAX_ROWS_PER_SAMPLE = 3
 _MAX_SAMPLES = 2000
 
@@ -66,9 +67,9 @@ def optimize_logical_rounds(
     complete when its length equals an exact count from
     :func:`qldpc.codes.distance.count_logical_ops_css`.  Then an integer program for each number of
     rounds, from a lower bound upward, is solved with ``scipy.optimize.milp`` until one has a
-    solution.  The choices that the solver returns are checked against the constraints, but its
-    proofs are trusted.  These are its proofs that fewer rounds are impossible, and that no choice
-    with as few rounds is better.  The result is optimal unless a list is incomplete or the time
+    solution.  The choices that the solver returns are checked against the constraints, but it is
+    trusted to prove that fewer rounds are impossible, and that no choice with as few rounds is
+    better.  The result is optimal unless a list is incomplete or the time
     limit runs out.  Counting, listing, and solving each generally take time exponential in the
     size of the code.
 
@@ -100,8 +101,8 @@ def optimize_logical_rounds(
         ValueError: If ``code`` is not binary, if ``logicals`` is invalid, if ``logical_ops`` is not
             a complete basis as :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
             describes, or if ``weight_slack`` or ``time_limit`` is negative.
-        RuntimeError: If the integer-program solver fails, or returns a result that cannot be
-            right, such as a choice that breaks its constraints.
+        RuntimeError: If the integer-program solver fails, returns a choice that breaks its
+            constraints, or claims that no choice has as many rounds as there are classes.
     """
     # check the arguments and the basis
     if weight_slack < 0 or (time_limit is not None and time_limit < 0):
@@ -242,7 +243,10 @@ def _choose_operators(
         if complete:
             lower_bound = num_rounds + 1
     if status == "infeasible":
-        raise RuntimeError("The integer-program solver claims that no choice has k rounds")
+        raise RuntimeError(
+            f"The integer program claims that no choice has {k} rounds, though one class per round"
+            " always works"
+        )
 
     # without a choice, use the lightest candidates, in greedily colored rounds
     if choice is None:
@@ -278,8 +282,7 @@ def _list_candidates(
         for size in range(1, _MAX_ROWS_PER_SAMPLE + 1)
     ]
 
-    # combine few rows of the basis reduced on the information set of the column order, then on
-    # random ones
+    # combine few rows of the basis reduced on the column-order information set, then on random ones
     found: dict[bytes, npt.NDArray[np.uint64]] = {}
     rng = np.random.default_rng(0)
     for sample in range(_MAX_SAMPLES):
@@ -407,8 +410,8 @@ def _solve_rounds(
             options["time_limit"] = max(time_limit - (time.monotonic() - start), 0)
         result = milp(options={**options, "presolve": False})
 
-    # statuses 0, 1, and 2 are optimal, a time or iteration limit (these programs set no iteration
-    # limit), and infeasible (or a malformed program, which these are not)
+    # statuses 0, 1, and 2 are optimal, a time limit, and infeasible; SciPy also uses 1 for an
+    # iteration limit and 2 for a malformed program, neither of which applies to these programs
     if result.status == 2:
         return "infeasible", None
     if result.status not in (0, 1):
