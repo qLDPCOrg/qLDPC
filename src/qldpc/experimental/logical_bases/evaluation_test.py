@@ -55,17 +55,26 @@ def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
 
 
 def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
-    """Matrices that are not bases of logical operators, or not paired, are rejected."""
+    """Matrices that are not bases of logical operators, or not paired, are rejected.
+
+    So is an invalid Pauli type.
+    """
     k, n = stabilizer_code.dimension, len(stabilizer_code)
     ops = stabilizer_code.get_logical_ops().view(np.ndarray).copy()
 
     with pytest.raises(ValueError, match="shape"):
         evaluate_logical_ops(stabilizer_code, ops[:, :n])
+
+    # without a logical qubit, the other checks would accept a row too many
+    with pytest.raises(ValueError):
+        evaluate_logical_ops(codes.CSSCode([[1, 1]], [[1, 1]]), np.zeros((1, 4), dtype=int))
     # a repeated row keeps the classes independent, so only the shape check rejects it
     with pytest.raises(ValueError, match="shape"):
         LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.X, np.vstack([ops[:k, :n], ops[:1, :n]]))
     with pytest.raises(ValueError, match="binary"):
         evaluate_logical_ops(stabilizer_code, 2 * ops)
+    with pytest.raises(ValueError):
+        LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.Y)  # type: ignore[arg-type]
     for row, other_half in [(0, slice(n, None)), (k, slice(None, n))]:
         mixed = ops.copy()
         mixed[row, other_half] = 1
