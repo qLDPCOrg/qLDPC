@@ -115,7 +115,11 @@ def pack_bits(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
 
 @always_compiled
 def unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.uint8]:
-    """Unpack binary rows with ``width`` columns from uint64 words, inverting ``pack_bits``."""
+    """Unpack binary rows with ``width`` columns from uint64 words, inverting ``pack_bits``.
+
+    Each row of ``packed`` must have at least ``ceil(width / 64)`` words; bits past ``width`` are
+    ignored.
+    """
     matrix = np.empty((len(packed), width), dtype=np.uint8)
     one = np.uint64(1)
     for row in range(len(packed)):
