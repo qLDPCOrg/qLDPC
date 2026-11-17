@@ -209,7 +209,7 @@ For a large code, finding the automorphisms, verifying them, and ordering their 
 So the search of each sector asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
 That field of `SearchTuning` in `_tuning.py` defaults to a round number of states assumed to cost about as much to visit as asking.
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
-The search predicts rather than counts because it can ask only between limits, each a single compiled call, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
+The search predicts rather than counts because it can ask only between limits, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
 A first limit that a `cutoff` sets above the weight divisor ([Section 3.6](#36-from-a-search-to-the-distance)) has no prediction, so the search asks before it.
 A first limit at the divisor, the cheapest ([Section 2](#2-what-the-cost-of-the-search-depends-on)), is treated as visiting no states, so the search asks before it only if `automorphism_minimum_states` is zero.
 Setting `automorphism_minimum_states` to `MAX_VALUE` turns asking off.
@@ -243,8 +243,10 @@ The lightest witness of any other sector, with `n` variables and divisor `d`, we
 A search that needs more limits than the sum of these over its sectors has a bug, and raises a `RuntimeError` rather than looping forever.
 
 **Interrupts.**
-Each weight limit runs in one compiled call, which a keyboard interrupt cannot stop.
+On one thread, each weight limit runs in one compiled call, which a keyboard interrupt cannot stop.
 An interrupt takes effect after that call, as a `KeyboardInterrupt` or a `SystemError` that it caused, so the wait can be as long as the last limit of a large search.
+A limit that runs on threads ([Section 3.11](#311-threads)) is one compiled call for each work item.
+An interrupt takes effect once the items that the threads are searching end, which can take long, since an item can hold much of the work of a limit.
 
 ### 3.7 Qubit codes that are not CSS
 
@@ -448,7 +450,53 @@ Estimates for qLDPC's search found that best-first variants would visit about 0.
 The reason is that they lose part of the forbidding of variables that are not viable, which depends on the limit.
 They would also keep millions of states in memory.
 On surface, toric, and color codes, whose searches take hundredths of a second, they would visit about 0.1 to 0.5 times as many states.
-Best-first variants would also replace the single compiled call per limit on which the predictions of [Section 3.5](#35-symmetries), `method="auto"`, and interrupts ([Section 3.6](#36-from-a-search-to-the-distance)) rely, so qLDPC does not use them.
+Best-first variants would also replace the depth-first search of each limit, on which the predictions of [Section 3.5](#35-symmetries), `method="auto"`, interrupts ([Section 3.6](#36-from-a-search-to-the-distance)), and the split of a limit across threads ([Section 3.11](#311-threads)) rely, so qLDPC does not use them.
+
+### 3.11 Threads
+
+A costly weight limit of a distance search runs on `num_threads` threads of `SearchTuning`, which share the read-only tables of the search; the section "Threads" of [README.md](README.md#threads) says how to set their number.
+The threads give the same witness and count of states as a search on one thread, so that the decisions that depend on them, such as when to ask for symmetries ([Section 3.5](#35-symmetries)), the growth of the states, and the switch of `method="auto"` (section "Choosing a method" of [README.md](README.md)), do not depend on the number of threads.
+
+**Work items.**
+The **frontier** at depth `F` is the set of the states with `F` symbols that the search enters, and the frontier at depth 0 is the set of roots.
+A **work item** is a state of the frontier with its subtree, and is named by its root and by the branch, counting from zero, that each state on its path takes.
+In DFS order, the items partition the states of at least `F` symbols, and the other states are **above** the frontier.
+
+**Replay.**
+A thread searches an item by replaying its path from the root: at each state of the path, it marks the earlier siblings of the next state as tried, and takes the next state.
+What the search has forbidden, blocked, and loaded at a state depends only on the state's path, its earlier siblings, and the forbidden symbols of the root, since the search undoes what a state forbade, blocked, and loaded on the overlap cuts ([Sections 3.4](#34-pruning) and [3.7](#37-qubit-codes-that-are-not-css)) when it leaves the state.
+Once the search leaves the subtree of an earlier sibling, the sibling's net effect is only that its symbol stays tried, even if the bound `b1` skipped its state.
+So the replay rebuilds the forbidden and blocked symbols, the restrictions, and the loads exactly as one thread has them, and the thread then searches the subtree of the item as one thread does, until it goes back above the frontier.
+
+**Choosing the frontier.**
+The search starts with the roots as items, and deepens the frontier one depth at a time while it has fewer than 32 items for each thread, so that the claims below can share the work among the threads.
+Each pass replays the current items, enters their states, which are then above the frontier, and lists their children rather than entering them.
+The deepening ends at the weight limit, or at a witness that a pass enters, after which no listed item comes in DFS order.
+It also ends once no state is deep enough, and then the passes have searched the whole limit.
+The search keeps the frontier with the most items, unless a pass enters a witness, when it keeps that pass's frontier.
+Each state above the final frontier is entered by one pass, so the passes cost about as much as those states and the paths of the items, and, if the search keeps a wider frontier than the last, also the states that the later passes entered.
+
+**Claims.**
+The threads claim ranges of items in DFS order, each about `1 / (2 num_threads)` of the weight of the items that no thread has claimed, so that the ranges shrink as the work ends (`run_work_items` of `_threads.py`).
+The subtrees of the roots shrink quickly in the order of their ranks, so the work of an item can differ from that of the next by orders of magnitude.
+So each item weighs one more than an even share, over the items of its root, of the states from that root in the last limit of the search without a witness, if that limit had the same roots.
+Without such a limit, as at the first limit after the search starts or takes symmetries, every item weighs the same, and the first claims can hold most of the work.
+The weights change only which thread searches an item, not the result.
+
+**Ordered commit.**
+A thread searches the items of a range one at a time.
+Once a thread finds a witness in an item, the threads skip the later items that have not started, and finish the earlier ones, whose witnesses would come first; an item that is already running ends on its own.
+The search returns the witness of the first item that has one, or else the witness that a pass entered, if any.
+It counts the states above the frontier before that witness in DFS order, the states of the earlier items, and the states of the item of the witness up to the witness, which is the count of one thread; without a witness, it counts every state.
+
+**When to split.**
+A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `num_threads * 2**information_set_batch_exponent` states, as many as the supports of a chunk of a BZ scan for each thread ([Section 4.5 of brouwer_zimmermann.md](brouwer_zimmermann.md#45-behavior-spanning-files)).
+A split costs far fewer states than the gate, which reuses the chunk size of BZ scans, so the gate is conservative: lowering `information_set_batch_exponent` lets smaller limits split.
+By the predictions of [Section 3.5](#35-symmetries), a first limit that a `cutoff` sets above the weight divisor runs on threads, and a first limit at the divisor does not.
+
+**Syndrome queries.**
+A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs on one thread.
+The batch queries of `CosetLeaderSearch` instead move the rest of a batch to threads, by syndromes, once their queries on the calling thread have visited `num_threads * 2**information_set_batch_exponent` states, and give the answers of one thread (section "The coset-leader search" of [README.md](README.md#the-coset-leader-search)).
 
 ## 4. Guide to the source code
 
@@ -472,6 +520,8 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
+| Weight limits on threads: the frontier, work items, replay, weighted claims, ordered commit, and when to split | `_search_on_threads`, `paths` and `frontier_depth` of `_search_supports`, `num_threads` and `split_minimum_states` of `SupportSearch`, and `run_work_items` of `_threads.py`; `num_threads` of `SearchTuning` in `_tuning.py` |
+| Batches of syndrome queries on threads | `_find_first_cluster_bound` and `_get_min_cluster_weights` of `CosetLeaderSearch` in `coset_leaders.py`, `ConnectedClusterCosetSearch._get_min_weight_bound_and_states` in `_connected_cluster/coset.py`, which counts the work of a query, and `run_blocks` of `_threads.py` |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
 | Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `summed_pairs` of `SupportSearch` and its `_find_vector_with_packed_syndrome`, which maps syndromes to them, its `witness_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
@@ -483,6 +533,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 Nonbinary codes, `logical_counts.py`, and `get_distance_from_generators` reject `method="connected_cluster"`: counting needs every word of a weight rather than one witness, and generators are not checks.
 Hypergraph product codes get their closed-form distances by searching the classical seed codes with the given method.
 `_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
+Threads run `_search_supports` at once, so it is compiled with `nogil=True`, and writes only to arrays that it allocates.
 
 ## 5. Correctness requirements
 
@@ -514,6 +565,18 @@ Changes to the search can use other bounds and orders, but must keep these requi
   A caller that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Keep the span of the checks of a coset query**, with an invertible map of the syndromes to the sparser checks, or the queries would search other cosets.
 - **Keep the span of the stabilizers of a subsystem code exactly** ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)): a smaller span would admit words that anticommute with a stabilizer, and a larger one would miss dressed logical operators; redundant rows need no map.
+- **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers of one thread, including the first index of a syndrome without an error within `max_weight`** ([Section 3.11](#311-threads)): replay the path of each work item exactly, run every item before the first with a witness in full, and count the states above the frontier once.
+  The decisions that depend on these counts would otherwise depend on the number of threads.
+  In `_connected_cluster/search_test.py`, `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread`, `test_distance_searches_on_threads_take_the_steps_of_one_thread`, and `test_each_support_is_visited_once_above_its_least_variable` compare limits on threads with one thread, including a witness above the frontier and in the first and last items.
+  `test_limits_on_threads_keep_the_first_witness_in_dfs_order` checks the first witness in either order of the threads, and `test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit` checks that a thread searches no later item of its range once an earlier item has a witness or an error.
+  In `coset_leaders_test.py`, `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` and `test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_first` compare the batches on threads with one thread.
+  - **Keep what the search has forbidden, blocked, and loaded at a state a function of the state's path and earlier siblings, so that replay rebuilds it** ([Section 3.11](#311-threads)).
+    A pruning rule may keep per-state data only if leaving the state undoes it, as `levels` and the loads of the overlap cuts do, and may add checks and known words only as tables built before the search, as the light sums of pairs of checks are ([Section 3.4](#34-pruning)).
+    It must not carry memos, learned constraints, or sets of states already seen from one state or root to another, and must keep the depth-first order of the search.
+    A change that breaks this, such as a best-first search ([Section 3.10](#310-techniques-not-used)), needs its own way to split a limit across threads.
+  - **Keep `_search_supports` writing only to arrays that it allocates**, and never to the tables of the search, since threads run it without the global interpreter lock.
+    The other code that threads run writes only its own entries of shared results, such as the counts of states of its items and the weights of its rows, or writes under a lock, as when it records a witness or a syndrome without an error in reach.
+    Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`).
 - **Return the exact minimum unless a cutoff permits an early exit**: the limits rise one divisor at a time, so that the first witness is a lightest one, and an early exit returns the weight of a known witness, an upper bound.
 
 ## References

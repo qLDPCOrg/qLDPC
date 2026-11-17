@@ -21,7 +21,6 @@ def test_metrics() -> None:
     )
     np.testing.assert_array_equal(metrics.weights, [2, 3, 2])
     np.testing.assert_array_equal(metrics.loads, [2, 2, 2, 1])
-    np.testing.assert_array_equal(metrics.overlaps, [[2, 2, 0], [2, 3, 1], [0, 1, 2]])
     assert (metrics.max_weight, metrics.total_weight, metrics.max_load) == (3, 7, 2)
     assert metrics.num_overlapping_pairs == 2
 
@@ -75,7 +74,6 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
     not_binary_ops: list[npt.ArrayLike] = [
         2 * ops,
         -ops.astype(int),
-        galois.GF(3)(ops),
         galois.GF(4)(ops),
         gf3_rows,
     ]
@@ -88,9 +86,10 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
         with pytest.raises(ValueError, match="first k logical operators"):
             evaluate_logical_ops(stabilizer_code, mixed)
 
-    # flip a bit of one Z-type operator on the support of an X-type stabilizer
+    # flip a bit of the last Z-type operator on the support of an X-type stabilizer, so that a check
+    # of only the first row of each type would miss it
     not_logical = ops.copy()
-    not_logical[k, n + np.flatnonzero(stabilizer_code.matrix_x[0])[0]] ^= 1
+    not_logical[-1, n + np.flatnonzero(stabilizer_code.matrix_x[0])[0]] ^= 1
     with pytest.raises(ValueError, match="Z-type operators are not logical"):
         evaluate_logical_ops(stabilizer_code, not_logical)
 

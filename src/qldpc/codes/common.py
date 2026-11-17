@@ -253,16 +253,21 @@ class AbstractCode(abc.ABC):
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
         """Are the two codes equivalent?
 
-        Do they have the same parity checks?
+        Two codes are equivalent if they are over the same field, and the rows of their parity check
+        matrices span the same space, even if their parity checks differ.  Codes that differ by a
+        permutation of their (qu)dits, which the literature also calls equivalent, need not be
+        equivalent in this sense.
         """
         return code_a.field is code_b.field and np.array_equal(
             code_a.canonicalized.matrix, code_b.canonicalized.matrix
         )
 
     def is_equiv_to(self, other: AbstractCode) -> bool:
-        """Are the two codes equivalent?
+        """Is this code equivalent to another, as the equiv method of its class decides?
 
-        Do they have the same parity checks?
+        By default, two codes are equivalent if they are over the same field, and the rows of their
+        parity check matrices span the same space, even if their parity checks differ (see
+        AbstractCode.equiv).
         """
         return self.equiv(self, other)
 
@@ -2882,9 +2887,10 @@ class QuditCode(AbstractCode):
           permutation that maps these rows onto themselves then maps the row space onto itself, so
           it preserves this code.
 
-        ``_found_qudit_automorphisms`` relies on these requirements: it verifies the permutations of
-        ``_get_qudit_automorphisms``, but not those that bliss finds.  Bliss searches each matrix,
-        so return few.
+        ``_found_qudit_automorphisms`` checks each qudit permutation that bliss finds in a matrix
+        other than the parity check matrix, as it checks the permutations of
+        ``_get_qudit_automorphisms``, and raises a ValueError if one does not map the row space of
+        the parity check matrix onto itself.  Bliss searches each matrix, so return few.
         """
         return (self.matrix,)
 
@@ -2896,17 +2902,22 @@ class QuditCode(AbstractCode):
         ``_get_automorphism_search_matrices``, which by default is the parity check matrix of this
         code.  It finds the automorphisms of the Tanner graph of the matrix, whose edges are colored
         by the Pauli operators of the checks.  Each automorphism permutes the checks and the qudits,
-        and leaves the matrix unchanged.  So its qudit permutation maps the row space of the matrix,
-        which is the row space of the parity check matrix, onto itself.
+        and leaves the matrix unchanged.  So its qudit permutation maps the row space of the matrix
+        onto itself, which for the parity check matrix means that it preserves this code.  The
+        permutations that bliss finds in other matrices are checked against the parity check matrix.
 
         The result holds these qudit permutations, followed by the generators from
         ``_get_qudit_automorphisms``, without repeats or the identity, in an array whose row ``i``
         maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no generators.
 
         Raises:
-            ValueError: If a generator from ``_get_qudit_automorphisms`` does not map the row space
-                of the parity check matrix onto itself.
+            ValueError: If a generator from ``_get_qudit_automorphisms``, or a permutation that
+                bliss finds in a matrix other than the parity check matrix, does not map the row
+                space of the parity check matrix onto itself.
         """
+        # check permutations against the parity check matrix, computing its rank at most once
+        get_rank = functools.cache(lambda: _get_rank(self.matrix))
+
         found = []
         if _bliss.is_installed():
             for search_matrix in self._get_automorphism_search_matrices():
@@ -2914,15 +2925,35 @@ class QuditCode(AbstractCode):
                 # values of X, Z, and Y on qubits are 1, 2, and 3
                 matrix = search_matrix.view(np.ndarray).astype(int)
                 paulis = matrix[:, : len(self)] + self.field.order * matrix[:, len(self) :]
-                if bliss_generators := _bliss.get_matrix_automorphism_generators(paulis):
-                    qudit_generators = np.array(bliss_generators, dtype=int)[:, len(paulis) :]
-                    found.append(qudit_generators - len(paulis))
+
+                # find the automorphisms of the Tanner graph, and keep their qudit permutations,
+                # which bliss numbers after the checks
+                bliss_generators = _bliss.get_matrix_automorphism_generators(paulis)
+                if not bliss_generators:
+                    continue
+                qudit_generators = np.array(bliss_generators, dtype=int)[:, len(paulis) :]
+                qudit_generators -= len(paulis)
+
+                # Permutations found in another matrix preserve the code only if that matrix spans
+                # the row space of the parity check matrix, so check them.  Matrices are compared by
+                # value, since a subclass can return the parity check matrix at any position.
+                if not np.array_equal(search_matrix, self.matrix):
+                    for generator in qudit_generators:
+                        if not _preserves_row_space(self.matrix, generator, len(self), get_rank()):
+                            raise ValueError(
+                                "A qudit permutation that bliss found in a matrix from"
+                                f" {type(self).__name__}._get_automorphism_search_matrices is not"
+                                " an automorphism of the code, so the rows of that matrix do not"
+                                " span the row space of the parity check matrix"
+                            )
+                found.append(qudit_generators)
         return _combine_automorphisms(
             found,
             self._get_qudit_automorphisms(),
             self.matrix,
             len(self),
             f"{type(self).__name__}._get_qudit_automorphisms",
+            get_rank,
         )
 
     def _sample_failure_and_discard_counts(
@@ -3292,7 +3323,9 @@ class CSSCode(QuditCode):
     def equiv(code_a: AbstractCode, code_b: AbstractCode) -> bool:
         """Are the two codes equivalent?
 
-        Do they have the same parity checks?
+        Two CSS codes are equivalent if they are over the same field, the rows of their X-type
+        parity check matrices span the same space, and so do the rows of their Z-type parity check
+        matrices.  Other codes are equivalent as AbstractCode.equiv decides.
         """
         if isinstance(code_a, CSSCode) and isinstance(code_b, CSSCode):
             return ClassicalCode.equiv(code_a.code_x, code_b.code_x) and ClassicalCode.equiv(
@@ -4664,13 +4697,17 @@ def _permute_qudits(
 
 
 def _preserves_row_space(
-    matrix: galois.FieldArray, permutation: npt.NDArray[np.int_], num_qudits: int
+    matrix: galois.FieldArray,
+    permutation: npt.NDArray[np.int_],
+    num_qudits: int,
+    rank: int | None = None,
 ) -> bool:
     """Does a permutation of the qudits map the row space of a matrix onto itself?
 
     The rows of the matrix are blocks of num_qudits columns each, which the permutation permutes
     alike.  The permutation maps the row space into itself exactly if the permuted rows add nothing
-    to its rank, and then onto itself.
+    to its rank, and then onto itself.  A caller that checks several permutations of one matrix can
+    compute the rank of the matrix once with _get_rank, and pass it.
     """
     if not np.array_equal(np.sort(permutation), np.arange(num_qudits)):
         return False
@@ -4678,12 +4715,17 @@ def _preserves_row_space(
         return True
     permuted = _permute_qudits(matrix, permutation, num_qudits).view(type(matrix))
     stacked = np.vstack([matrix, permuted]).view(type(matrix))
+    return bool(_get_rank(stacked) == (_get_rank(matrix) if rank is None else rank))
+
+
+def _get_rank(matrix: galois.FieldArray) -> int:
+    """The rank of a matrix over a finite field."""
+    if not matrix.size:
+        return 0
     if type(matrix) is galois.GF2:
         # packed binary arithmetic is much faster than galois for binary matrices
-        binary_rows = stacked.view(np.ndarray).astype(np.uint8)
-        rank = get_rank_packed(pack_bits(binary_rows[: len(matrix)]))
-        return bool(get_rank_packed(pack_bits(binary_rows)) == rank)
-    return bool(np.linalg.matrix_rank(stacked) == np.linalg.matrix_rank(matrix))
+        return int(get_rank_packed(pack_bits(matrix.view(np.ndarray).astype(np.uint8))))
+    return int(np.linalg.matrix_rank(matrix))
 
 
 def _is_row_reduced(matrix: npt.NDArray[np.int_]) -> bool:
@@ -4771,6 +4813,7 @@ def _combine_automorphisms(
     matrix: galois.FieldArray,
     num_coordinates: int,
     source: str,
+    get_rank: Callable[[], int] | None = None,
 ) -> npt.NDArray[np.int_] | None:
     """Combine the permutations that bliss found with those of a construction, verifying the latter.
 
@@ -4778,7 +4821,8 @@ def _combine_automorphisms(
     columns of the matrix alike (see ``_preserves_row_space``).  The result holds the found
     permutations, then the construction generators, without repeats or the identity, or None if
     there are none.  Raises a ValueError that names ``source`` if a construction generator does not
-    map the row space of the matrix onto itself.
+    map the row space of the matrix onto itself.  A caller that already computes the rank of the
+    matrix can pass a cached function that returns it, so that the rank is computed at most once.
     """
     generators = np.empty((0, num_coordinates), dtype=int)
     for permutations in found:
@@ -4786,8 +4830,9 @@ def _combine_automorphisms(
 
     # verify the permutations of the construction, which bliss does not provide
     if construction_generators is not None:
+        rank = get_rank() if get_rank is not None else _get_rank(matrix)
         for generator in construction_generators:
-            if not _preserves_row_space(matrix, np.asarray(generator), num_coordinates):
+            if not _preserves_row_space(matrix, np.asarray(generator), num_coordinates, rank):
                 raise ValueError(f"A permutation from {source} is not an automorphism of the code")
         generators = np.vstack([generators, construction_generators]).astype(int)
 

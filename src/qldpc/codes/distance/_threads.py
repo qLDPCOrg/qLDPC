@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run the work items of a search on several threads, which claim them in order.
+"""Run the work items of a search, or the blocks of a batch of queries, on several threads.
 
 A worker runs compiled code that releases Python's global interpreter lock (see the docstring of
 ``qldpc/_compilation.py``), so that the threads run at once.  Threads share the read-only inputs of
@@ -177,3 +177,83 @@ def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
             stop.set()
     if interrupt is not None:
         raise interrupt
+
+
+####################################################################################################
+# batches
+
+
+# The number of blocks for each thread into which ``run_blocks`` splits the rows that it moves to
+# threads.  More blocks balance the threads better at the end of a batch, and fewer blocks cost
+# fewer calls; the number changes no result.
+BLOCKS_PER_THREAD = 16
+
+# The work limit that lets ``run_rows`` of ``run_blocks`` run every row it is given.
+NO_WORK_LIMIT = (1 << 63) - 1
+
+# A function that runs rows ``start, ..., end - 1`` of a batch in order, given ``(start, end,
+# max_work)``, and stops after the first row that ends the batch, or after the row at which its
+# work in this call reaches ``max_work``.  The caller defines the units of work (see
+# ``run_blocks``).  It returns the index after the last row that it ran, and whether that row ends
+# the batch.
+RunRows = Callable[[int, int, int], tuple[int, bool]]
+
+
+def run_blocks(
+    num_rows: int, num_threads: int, split_work: int, start_worker: Callable[[], RunRows]
+) -> None:
+    """Run the rows ``0, ..., num_rows - 1`` of a batch, moving costly batches to threads.
+
+    Each worker calls ``start_worker`` once, so that it can allocate its own buffers, and runs rows
+    with the ``RunRows`` function that it returns.  The calling thread calls it once to start the
+    batch, and once more, as one of the workers, if the rest of the batch moves to threads, unless
+    another thread has already failed.  A row can end the batch, as the first row that fails a
+    test does; then no row after it need run.
+
+    The calling thread first runs the batch alone, in order, until its work reaches ``split_work``.
+    So a batch of cheap rows, or any batch on one thread, runs on the calling thread in one call of
+    ``run_rows``.  The work is the signal that the rest of the batch gains from threads, so each
+    caller defines it, in its own units, as work that threads run in parallel: work done without
+    Python's global interpreter lock, such as words that compiled code weighs, and none for rows
+    too cheap to gain, such as rows that spend much of their time holding the lock.  ``split_work``
+    should be enough such work to cost many times as much as starting the threads.  Elapsed time
+    would not serve: a long batch of cheap rows that hold the lock takes long, yet runs more slowly
+    on threads.  If rows remain after that, ``run_work_items`` runs them on ``num_threads``
+    threads, in about ``BLOCKS_PER_THREAD`` contiguous blocks for each thread, which they claim in
+    increasing order.  A block that ends the batch lowers a limit to itself, and the threads skip
+    every block after the limit, including the rest of a range that they have claimed.  The limit
+    only falls, and every row before it runs, so the first row that ends the batch is the one that
+    one thread would find, provided that the caller keeps the least such row.  Exceptions
+    propagate as in ``run_work_items``, and the threads stop within their ranges, except in the
+    narrow windows that its docstring describes.
+    """
+    if num_threads < 2:
+        start_worker()(0, num_rows, NO_WORK_LIMIT)
+        return
+    first, ends = start_worker()(0, num_rows, split_work)
+    if ends or first == num_rows:
+        return
+    block_size = -(-(num_rows - first) // (BLOCKS_PER_THREAD * num_threads))
+    num_blocks = -(-(num_rows - first) // block_size)
+    lock = threading.Lock()
+    limit = num_blocks
+
+    def start_ranges(stop: threading.Event) -> Callable[[int, int], None]:
+        """Return how a worker runs a range of blocks."""
+        run_rows = start_worker()
+
+        def run_range(start: int, end: int) -> None:
+            """Run the blocks of a range in order, up to the limit or until the event is set."""
+            nonlocal limit
+            for block in range(start, end):
+                if stop.is_set() or block > limit:
+                    return
+                row = first + block * block_size
+                _, ends = run_rows(row, min(num_rows, row + block_size), NO_WORK_LIMIT)
+                if ends:
+                    with lock:
+                        limit = min(limit, block)
+
+        return run_range
+
+    run_work_items(num_blocks, num_threads, start_ranges)

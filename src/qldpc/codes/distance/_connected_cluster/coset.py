@@ -133,11 +133,17 @@ class ConnectedClusterCosetSearch:
         A first limit above two suits callers to which any word within it gives the same answer.
         The class docstring states the lower bounds of the answers.
         """
+        return self._get_min_weight_bound_and_states(syndrome, max_weight, first_limit)[0]
+
+    def _get_min_weight_bound_and_states(
+        self, syndrome: int, max_weight: int, first_limit: int | None
+    ) -> tuple[MinWeightBound, int]:
+        """Run ``get_min_weight_bound``, and count the states that its searches visit."""
         # Look up a word of weight zero or one.
         word = self._singles.get(syndrome)
         if word is not None:
             weight = int(word != 0)
-            return MinWeightBound(weight <= max_weight, word, weight)
+            return MinWeightBound(weight <= max_weight, word, weight), 0
 
         # Map the syndrome to the sparser checks, which are independent, so the search keeps them
         # all, in order.  The map is invertible and the lookup answers the zero syndrome, so the
@@ -148,14 +154,16 @@ class ConnectedClusterCosetSearch:
         # The lookup leaves only cosets without a word below weight two, so search no limit below
         # two, and raise the lower bound above each limit within which the search finds no word.
         lower_bound = 2
+        num_states = 0
         first = max_weight if first_limit is None else min(first_limit, max_weight)
         for limit in range(max(2, first), max_weight + 1):
-            symbols = self._search._find_vector_with_packed_syndrome(packed_syndrome, limit)
+            symbols, states = self._search._find_vector_with_packed_syndrome(packed_syndrome, limit)
+            num_states += states
             if symbols is not None:
-                return MinWeightBound(True, self._get_word(symbols), lower_bound)
+                return MinWeightBound(True, self._get_word(symbols), lower_bound), num_states
             lower_bound = limit + 1
         representative = xor_selected(self._inverse_rows, syndrome)
-        return MinWeightBound(False, representative, lower_bound)
+        return MinWeightBound(False, representative, lower_bound), num_states
 
     def _get_word(self, symbols: npt.NDArray[np.int64]) -> int:
         """Pack symbols into a word, in which the values 0, 1, and 2 of a symbol are X, Z, and Y.

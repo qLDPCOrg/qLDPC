@@ -46,18 +46,20 @@ Start from a symptom
        For its completion tables, lower :attr:`~SearchTuning.coset_completion_block_bits`, or :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each set of a family, or raise :attr:`~SearchTuning.coset_route_minimum_work`, so that fewer queries build extra families and tables.
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
-   * - A distance search by the Brouwer-Zimmermann method uses too many or too few cores, as when several processes run searches at once
+   * - A distance search by the Brouwer-Zimmermann or connected-cluster method, or a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch`, uses too many or too few cores, as when several processes run searches at once
      - By default, a search uses one thread for each CPU that numba counts.
        Set the environment variable ``QLDPC_NUM_THREADS`` before Python starts, which sets the default number of threads, or set :attr:`~SearchTuning.num_threads`.
        Without ``QLDPC_NUM_THREADS``, the environment variable ``NUMBA_NUM_THREADS`` sets the default.
+       A :class:`~qldpc.codes.distance.CosetLeaderSearch` reads ``num_threads`` when it is built.
        Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example with ``QLDPC_NUM_THREADS=1``.
        Numba does not read the CPU quotas of containers, so in a container, set ``QLDPC_NUM_THREADS`` to the container's CPU quota rounded down, or to 1 if the quota is below 1.
        The section `Threads <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ of the guide to the distance package says when ``QLDPC_NUM_THREADS`` also sets numba's own thread count.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        A Brouwer-Zimmermann distance search on several threads scans chunks :attr:`~SearchTuning.num_threads` times as large, so the wait grows with the number of threads.
-       A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
-       ``method="auto"``, the default, runs one for the distances of quantum codes and the fault distances of circuits; pass ``method="brouwer_zimmermann"`` for prompt interrupts.
+       A connected-cluster weight limit that does not split across threads, its own or that of a coset query, takes an interrupt only after it ends.
+       ``method="auto"``, the default, runs a connected-cluster search for the distances of quantum codes and the fault distances of circuits; pass ``method="brouwer_zimmermann"`` to a distance function for prompt interrupts.
+       A connected-cluster limit that splits takes an interrupt once the work items that its threads are searching end, and a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch` by either method, once it has moved to threads, once the blocks that its threads are running end, which can take long.
    * - A cheap connected-cluster search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
        Searches ask for them before a first limit that ``cutoff`` sets, unless the field is ``MAX_VALUE``.
@@ -113,8 +115,8 @@ Routes and the names that control them
      - :attr:`SearchTuning.lp_minimum_work`, :attr:`SearchTuning.lp_dual_max_denominator`
      -
      - `Section 3.1 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#31-overlapping-search-bases>`__
-   * - Searching the images of one information set under permutation automorphisms
-     - :attr:`SearchTuning.automorphism_minimum_layer_work`
+   * - Searching the images of one information set under permutation automorphisms, or bounding with the images of the blocks of any family
+     - :attr:`SearchTuning.automorphism_minimum_layer_work`, :attr:`SearchTuning.automorphism_orbit_bounds`, :attr:`SearchTuning.lp_dual_max_denominator`
      -
      - `Section 3.7 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#37-images-of-an-information-set-under-automorphisms>`__
    * - Searching from one root for each orbit of the permutation automorphisms of a code, in connected-cluster searches
@@ -165,6 +167,14 @@ Routes and the names that control them
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
      - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
+   * - Batch queries of :class:`~qldpc.codes.distance.CosetLeaderSearch`: when a costly batch moves to threads, and how many
+     - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
+     -
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__ of ``brouwer_zimmermann.md``, and `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__ of ``connected_cluster.md`` ("Syndrome queries")
+   * - Distance searches by the connected-cluster method: the threads that search a costly weight limit
+     - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
+     -
+     - `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__
    * - Counts by the Brouwer-Zimmermann or brute-force method: time before a keyboard interrupt takes effect
      - :attr:`SearchTuning.scan_chunk_size`, :attr:`SearchTuning.scan_chunks_per_call`
      -

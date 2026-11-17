@@ -41,11 +41,15 @@ class Certificate:
     family order have completed it (Sections 2.5 and 3.1).  A set interrupted within a layer
     advances neither.  The bounds hold only for the eligible words of the family's sector that the
     family has not visited, and, in a search that skips completions by tables, only for those
-    lighter than its best weight (Sections 3.3 and 3.9).
+    lighter than its best weight (Sections 3.3 and 3.9).  A certificate of the images of blocks
+    under automorphisms, as of an automorphism family or with ``column_orbits``, holds only for
+    unvisited eligible words lighter than a best weight that every visited eligible word lowers,
+    as in a distance search; counts and coset searches must not use one (Section 3.7).
 
     Each bound is the occupancy of the sets (see ``get_step_lower_bounds``) divided by
     ``max_coverage``, rounded up, and then rounded up to a multiple of ``weight_divisor``; with
-    ``pivot_blocks``, it is the larger of that and the bound of ``get_lp_lower_bound``.
+    ``pivot_blocks``, it is the larger of that and the bound of ``get_lp_lower_bound``, which with
+    ``column_orbits`` covers the images of the blocks under a group of automorphisms too.
 
     Attributes:
         dimension: Number of rows of the searched basis.
@@ -58,6 +62,10 @@ class Certificate:
             linear programming, or none.
         lp_max_denominator: The largest denominator of the dual weights of the linear programs,
             which must be positive with ``pivot_blocks``.
+        column_orbits: For each column, the index of its orbit under a verified group of
+            automorphisms of the searched problem, or none.  These indices take effect only with
+            ``pivot_blocks``, and the linear program is then the program over orbits of Section 3.7,
+            which bounds by the images of the blocks under the group too.
     """
 
     dimension: int
@@ -66,6 +74,7 @@ class Certificate:
     max_coverage: int = 1
     pivot_blocks: tuple[tuple[int, ...], ...] = ()
     lp_max_denominator: int = 0
+    column_orbits: tuple[int, ...] = ()
 
     def lower_bound(self, completed_weight: int) -> int:
         """Bound the Hamming weight of unvisited eligible words after the given complete layers."""
@@ -83,7 +92,10 @@ class Certificate:
         step = (weight, num_completed)
         if step not in self._lp_lower_bounds:
             lp_bound = get_lp_lower_bound(
-                self.pivot_blocks, self._get_requirements(*step), self.lp_max_denominator
+                self.pivot_blocks,
+                self._get_requirements(*step),
+                self.lp_max_denominator,
+                self.column_orbits,
             )
             if lp_bound < NO_WORD_BOUND:
                 lp_bound += (-lp_bound) % self.weight_divisor
@@ -93,14 +105,19 @@ class Certificate:
     def certifies(self, weight: int, num_completed: int, upper_bound: int) -> bool:
         """Whether ``step_lower_bound(weight, num_completed)`` is at least ``upper_bound``.
 
-        This solves a linear program only if the coverage bound falls short and the feasible point
-        that sets each pivot column to the largest ``requirement / len(block)`` of its blocks does
-        not show the optimum to fall short too (Section 3.1).
+        This solves a linear program only if the coverage bound falls short and, without
+        ``column_orbits``, the feasible point that sets each pivot column to the largest
+        ``requirement / len(block)`` of its blocks does not show the optimum to fall short too
+        (Section 3.1).
         """
         if self._step_lower_bounds[weight, num_completed] >= upper_bound:
             return True
         if not self._solves_linear_programs:
             return False
+        if self.column_orbits:
+            # The feasible point below is feasible only for the program of Section 3.1, so it cannot
+            # show that the program over orbits falls short.
+            return self.step_lower_bound(weight, num_completed) >= upper_bound
         # No requirement exceeds its block, since a set that has completed the last layer makes the
         # coverage bound certify any upper bound.  Let the share of a block be
         # max(requirement, 0) / len(block).  The feasible point sets each pivot column to the
@@ -198,10 +215,11 @@ class Certificate:
     def _solves_linear_programs(self) -> bool:
         """Whether the certificate also solves linear programs.
 
-        It does exactly with pivot blocks and a maximum coverage above one.  With a coverage of one,
-        the blocks are disjoint, and the optimum is the coverage bound (Section 3.1).
+        It does exactly with pivot blocks, and either a maximum coverage above one or column
+        orbits.  With a coverage of one and no orbits, the blocks are disjoint, and the optimum is
+        the coverage bound (Section 3.1).
         """
-        return bool(self.pivot_blocks) and self.max_coverage != 1
+        return bool(self.pivot_blocks) and (self.max_coverage != 1 or bool(self.column_orbits))
 
     def _as_array_arguments(self) -> tuple[npt.NDArray[np.int64], int, int]:
         """The ranks, weight divisor, and maximum coverage that the array functions take."""
@@ -231,15 +249,21 @@ class Certificate:
 
 
 def get_lp_lower_bound(
-    pivot_blocks: Sequence[Sequence[int]], requirements: Sequence[int], max_denominator: int
+    pivot_blocks: Sequence[Sequence[int]],
+    requirements: Sequence[int],
+    max_denominator: int,
+    column_orbits: Sequence[int] = (),
 ) -> int:
     """Bound the weight of binary words with at least ``b_i`` ones in each block ``B_i``.
 
-    ``B_i`` is ``pivot_blocks[i]``, and ``b_i`` is ``requirements[i]``.  The bound is the ceiling of
-    the dual value of the linear program of Section 3.1 at the solver's dual weights, limited to
-    denominators of at most ``max_denominator``, and evaluated exactly as Section 3.1 describes.
-    Returns ``NO_WORD_BOUND`` if a requirement exceeds its block, since then no word meets it, and
-    zero if no requirement is positive or the solver fails.
+    ``B_i`` is ``pivot_blocks[i]``, and ``b_i`` is ``requirements[i]``.  With ``column_orbits``, the
+    index of the orbit of each column under a group of column permutations, the words also have at
+    least ``b_i`` ones in every image of ``B_i`` under the group.  The bound is the ceiling of the
+    dual value of the linear program of Section 3.1, or of the program over orbits of Section 3.7,
+    at the solver's dual weights, limited to denominators of at most ``max_denominator``, and
+    evaluated exactly as Section 3.1 describes.  Returns ``NO_WORD_BOUND`` if a requirement exceeds
+    its block, since then no word meets it, and zero if no requirement is positive or the solver
+    fails.
     """
     blocks = [
         list(block) for block, requirement in zip(pivot_blocks, requirements) if requirement > 0
@@ -253,15 +277,33 @@ def get_lp_lower_bound(
     # Import the solver only here, since importing qLDPC does not otherwise load it.
     import scipy.optimize
 
-    # Number the columns of the blocks, and solve the linear program in floating point.
-    columns = sorted({column for block in blocks for column in block})
-    index = {column: position for position, column in enumerate(columns)}
-    incidence = np.zeros((len(blocks), len(columns)))
+    # Group the columns into classes, with one variable each: the orbits, for the program of
+    # Section 3.7, or else the sets of columns that lie in the same blocks, which share a value in
+    # an optimal solution of the program of Section 3.1.  Each block counts its columns in each
+    # class.
+    if column_orbits:
+        classes = np.asarray(column_orbits, dtype=np.int64)
+        sizes = np.bincount(classes)
+    else:
+        columns = np.array(sorted({column for block in blocks for column in block}))
+        membership = np.zeros((columns[-1] + 1, len(blocks)), dtype=bool)
+        for row, block in enumerate(blocks):
+            membership[block, row] = True
+        _, inverse, sizes = np.unique(
+            membership[columns], axis=0, return_inverse=True, return_counts=True
+        )
+        classes = np.zeros(len(membership), dtype=np.int64)
+        classes[columns] = inverse.reshape(-1)
+    incidence = np.zeros((len(blocks), len(sizes)), dtype=np.int64)
     for row, block in enumerate(blocks):
-        incidence[row, [index[column] for column in block]] = 1
+        np.add.at(incidence[row], classes[block], 1)
+    used = np.flatnonzero(incidence.any(axis=0))
+    incidence, sizes = incidence[:, used], sizes[used]
+
+    # Solve the linear program over the classes in floating point.
     result = scipy.optimize.linprog(
-        np.ones(len(columns)),
-        A_ub=-incidence,
+        sizes.astype(float),
+        A_ub=-incidence.astype(float),
         b_ub=-np.array(positive, dtype=float),
         bounds=(0, 1),
         method="highs",
@@ -271,8 +313,8 @@ def get_lp_lower_bound(
 
     # Evaluate the dual value exactly, as an integer numerator over the common denominator of the
     # weights.  The solver gives the dual of each constraint ``-sum x >= -b`` as a nonpositive
-    # marginal.  Columns in the same set of blocks carry the same load, so each such set counts
-    # once, weighted by its number of columns.
+    # marginal.  Each class subtracts its dual term, ``max(0, sum_i count_i y_i - size)``, where
+    # ``count_i`` is the number of its columns in block ``i`` (Sections 3.1 and 3.7).
     weights = [
         max(
             Fraction(0),
@@ -285,10 +327,9 @@ def get_lp_lower_bound(
     value = sum(
         int(requirement) * numerator for requirement, numerator in zip(positive, numerators)
     )
-    patterns, counts = np.unique(incidence.astype(bool), axis=1, return_counts=True)
-    for pattern, count in zip(patterns.T, counts):
-        load = sum(numerator for numerator, member in zip(numerators, pattern) if member)
-        value -= int(count) * max(0, load - denominator)
+    for counts, size in zip(incidence.T, sizes):
+        load = sum(int(count) * numerator for count, numerator in zip(counts, numerators))
+        value -= max(0, load - int(size) * denominator)
     return max(0, -(-value // denominator))
 
 

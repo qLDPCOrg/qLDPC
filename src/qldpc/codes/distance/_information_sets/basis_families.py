@@ -88,13 +88,21 @@ class BasisFamily(NamedTuple):
         certificate = self.certificate
         if self.max_coverage == 1 or certificate.work(upper_bound) < lp_minimum_work:
             return certificate
-        pivot_blocks = tuple(
-            tuple(int(column) for column in pivots[:rank])
-            for pivots, rank in zip(self.pivots, self.ranks, strict=True)
-        )
         return dataclasses.replace(
-            certificate, pivot_blocks=pivot_blocks, lp_max_denominator=lp_max_denominator
+            certificate,
+            pivot_blocks=get_pivot_blocks(self.pivots, self.ranks),
+            lp_max_denominator=lp_max_denominator,
         )
+
+
+def get_pivot_blocks(
+    pivots: npt.NDArray[np.int64], ranks: npt.NDArray[np.int64]
+) -> tuple[tuple[int, ...], ...]:
+    """The pivot columns of each set of a family, from its pivots padded beyond each rank."""
+    return tuple(
+        tuple(int(column) for column in set_pivots[:rank])
+        for set_pivots, rank in zip(pivots, ranks, strict=True)
+    )
 
 
 ####################################################################################################

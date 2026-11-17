@@ -11,6 +11,7 @@ and invariants of the search.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import math
 import threading
@@ -33,9 +34,11 @@ from .._information_sets import (
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
 from . import affine_instance, affine_search
 
-# The automorphism family of a sector: a basis family of the one set that a search scans, and the
-# certificate of all of its images.
-_AutomorphismFamily = tuple[basis_families.BasisFamily, certificates.Certificate]
+# The automorphism family of a sector: a basis family of the one set that a search scans, the
+# certificate of all of its images, and the orbit of each column under the verified group.
+_AutomorphismFamily = tuple[
+    basis_families.BasisFamily, certificates.Certificate, npt.NDArray[np.int64]
+]
 
 # A function that returns the automorphism family of a sector for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[[int], _AutomorphismFamily | None]
@@ -188,8 +191,9 @@ class BrouwerZimmermannSearch:
     def get_next_layer_work(self) -> int:
         """The candidate/set evaluations of the layer that ``advance`` scans next, or zero if none.
 
-        This plans the layer as ``advance`` does, but leaves out a switch to an automorphism family,
-        after which the layer scans one set.
+        This plans the layer as ``advance`` does, but leaves out what ``advance`` may do first:
+        attach the bound of the images of the blocks, which can shorten the layer, and switch to an
+        automorphism family, after which the layer scans one set.
         """
         if self.finished:
             return 0
@@ -237,9 +241,12 @@ class _SectorSearch:
 
     ``instance`` holds the packed sets that the search scans, and the certificate of its family:
     those sets, or, if ``uses_automorphism_family``, every image of the one packed set under
-    automorphisms (Section 3.7).  No eligible word weighs less than ``min(lower_bound, best)``, and
-    the search has finished once ``lower_bound`` reaches ``best``.  ``lower_bound`` bounds only the
-    eligible words lighter than ``best`` (Section 3.9, "Certificates and contracts").
+    automorphisms.  Once the search gets automorphisms, and until it switches, the certificate of
+    its family also covers the images of its pivot blocks, unless
+    ``tuning.automorphism_orbit_bounds`` is off (Section 3.7).  No eligible word weighs less than
+    ``min(lower_bound, best)``, and the search has finished once ``lower_bound`` reaches ``best``.
+    ``lower_bound`` bounds only the eligible words lighter than ``best`` (Section 3.9, "Certificates
+    and contracts").
 
     ``get_automorphism_family``, if given, returns an automorphism family of the sector, or None.
     The search calls it at most once, and then sets it to None.  A search that declines to switch
@@ -308,9 +315,10 @@ class _SectorSearch:
         num_sets = len(certificate.ranks)
         num_scanned, num_completed = self._plan_layer()
 
-        # Before a costly layer, consider switching to an automorphism family (Section 3.7).  The
+        # Before a costly layer, use automorphisms: bound with the images of the blocks, which may
+        # finish the search, and consider switching to an automorphism family (Section 3.7).  The
         # layer work saturates at ``WORK_CAP``, as work estimates do, so that a threshold above it
-        # forbids the switch.
+        # forbids asking for automorphisms.
         layer_work = min(self.get_layer_work(), certificates.WORK_CAP)
         if (
             self._considers_automorphism_family
@@ -525,11 +533,13 @@ class _SectorSearch:
         return self.automorphism_family is not None and self.best < self.declined_best
 
     def _switch_to_automorphism_family(self) -> None:
-        """Scan one set and certify with its images from now on, if that predicts less work.
+        """Bound with the images of the blocks, and switch to the images of one set if that pays.
 
-        The first call gets the automorphism family, which the search keeps while it declines.
-        After a switch, the search scans the new set from layer two, and keeps its lower bound
-        (Section 3.7, "When a search uses an automorphism family").
+        The first call gets the automorphism family, which the search keeps while it declines, and
+        lets the current family certify with the images of its pivot blocks.  The search then
+        switches to scan one set and certify with its images, if that predicts less work.  After a
+        switch, the search scans the new set from layer two, and keeps its lower bound (Section 3.7,
+        "When a search uses an automorphism family").
         """
         if self.get_automorphism_family is not None:
             weight_divisor = self.instance.certificate.weight_divisor
@@ -540,8 +550,30 @@ class _SectorSearch:
 
         # The rows of the scanned set weigh as much as the layer-one words of every image, and may
         # lower the best weight before the estimate.
-        basis_family, certificate = self.automorphism_family
+        basis_family, certificate, orbits = self.automorphism_family
         self.best = _get_basis_family_upper_bound(basis_family, self.best)
+
+        # From now on, the family also certifies with the images of its pivot blocks under the
+        # automorphisms, which can finish the search without a switch (Section 3.7).
+        if self.tuning.automorphism_orbit_bounds and not self.instance.certificate.column_orbits:
+            self.instance = dataclasses.replace(
+                self.instance,
+                certificate=dataclasses.replace(
+                    self.instance.certificate,
+                    pivot_blocks=basis_families.get_pivot_blocks(
+                        self.instance.pivots, self.instance.ranks
+                    ),
+                    lp_max_denominator=self.tuning.lp_dual_max_denominator,
+                    column_orbits=tuple(int(orbit) for orbit in orbits),
+                ),
+            )
+            self.lower_bound = max(
+                self.lower_bound, self.instance.certificate.lower_bound(self.next_weight - 1)
+            )
+            if self.finished:
+                return
+
+        # Switch if the automorphism family predicts less work than the current family has left.
         work = automorphism_families.estimate_automorphism_family_work(certificate, self.best)
         if work >= self.instance.certificate.work(self.best, self.next_weight):
             self.declined_best = self.best
@@ -727,9 +759,9 @@ def _prepare_sector_search(
         get_automorphism_family=get_automorphism_family,
     )
 
-    # If setup has already asked for the automorphism family, consider the switch now: the rows
-    # and certificate of that family, if any, can lower the best weight or finish the search
-    # (Section 3.7).
+    # If setup has already asked for the automorphism family, use it now: its rows and certificate,
+    # and the images of the blocks of the current family, can lower the best weight or finish the
+    # search (Section 3.7).
     if get_automorphism_family is not None and get_automorphism_family.cache_info().currsize:
         search._switch_to_automorphism_family()
         if search.finished:
@@ -749,8 +781,8 @@ def _get_automorphism_family(
     ``weight_divisor`` divides the Hamming weight of every eligible word.
 
     Returns:
-        The family and certificate of ``automorphism_families.get_automorphism_family``, or None if
-        ``get_automorphisms`` returns None.
+        The family and certificate of ``automorphism_families.get_automorphism_family``, and the
+        orbit of each column under the group, or None if ``get_automorphisms`` returns None.
 
     Raises:
         ValueError: If a generator is not an automorphism of the sector.
@@ -759,8 +791,11 @@ def _get_automorphism_family(
     if automorphisms is None:
         return None
     automorphism_families.verify_automorphisms(basis, labels, automorphisms)
-    return automorphism_families.get_automorphism_family(
-        basis, labels, automorphisms, weight_divisor
+    return (
+        *automorphism_families.get_automorphism_family(
+            basis, labels, automorphisms, weight_divisor
+        ),
+        automorphism_families.get_orbits(automorphisms, basis.shape[1]),
     )
 
 
@@ -776,7 +811,7 @@ def _get_automorphism_family_work(
     automorphism_family = get_automorphism_family(weight_divisor)
     if automorphism_family is None:
         return certificates.WORK_CAP
-    _, certificate = automorphism_family
+    _, certificate, _ = automorphism_family
     return automorphism_families.estimate_automorphism_family_work(certificate, upper_bound)
 
 

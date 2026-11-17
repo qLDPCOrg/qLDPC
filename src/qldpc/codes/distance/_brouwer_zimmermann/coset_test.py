@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import inspect
 import itertools
+import threading
 from collections.abc import Sequence
 from math import comb
 from typing import Any
@@ -18,7 +20,7 @@ from qldpc import math
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 
 from ...conftest import Tune
-from .. import _cosets
+from .. import _cosets, _threads
 from .._binary import symplectic_to_hamming
 from .._information_sets import basis_families, completion_bounds
 from .._information_sets import certificates as certificates_module
@@ -631,12 +633,25 @@ def _assert_searches_by_tails_match_searches_of_words(
         while True:
             words = np.empty((2, tables.inverse.shape[1]), dtype=np.uint64)
             found = coset._find_first_not_within_max_weight(
-                packed_syndromes[start:], max_weight, words[0], *tables, None, scale
+                packed_syndromes[start:],
+                max_weight,
+                _threads.NO_WORK_LIMIT,
+                words[0],
+                *tables,
+                None,
+                scale,
             )
             found_by_tails = coset._find_first_not_within_max_weight(
-                packed_syndromes[start:], max_weight, words[1], *tables, tails, scale
+                packed_syndromes[start:],
+                max_weight,
+                _threads.NO_WORK_LIMIT,
+                words[1],
+                *tables,
+                tails,
+                scale,
             )
             assert found_by_tails[0] == found[0]
+            assert found_by_tails[2] == found[2] == (start + found[0] < len(packed_syndromes))
             if start + found[0] == len(packed_syndromes):
                 break
             if block_bits:
@@ -989,3 +1004,477 @@ def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
     table = coset._tabulate_css_singles(x_singles, z_singles, 6)
     assert table == {0: 0, 0b10: 0b0100, 0b01: 0b0001, 0b11: 0b0101}
     assert coset._tabulate_css_singles(x_singles, z_singles, 5) is None
+
+
+def _get_searches_with_minima(
+    tuning: coset._CosetTuning,
+) -> list[tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.int_]]]:
+    """Searches of each kind, by physical and CSS weight and of X or Z parts, with their minima.
+
+    The minima are the least weights of the words with each packed syndrome of a search.
+    """
+    states = [(ROUTED_PHYSICAL_STATES[0], False), (ROUTED_CSS_WEIGHT_STATE, True)]
+    searches = [
+        (
+            coset._get_pauli_search(coset._StabilizerKey(matrix), css_weight, tuning),
+            get_exhaustive_minima(matrix, css_weight),
+        )
+        for matrix, css_weight in states
+    ]
+    even_code = np.hstack([_SKIPPING_CODE, _SKIPPING_CODE.sum(axis=1, keepdims=True) % 2])
+    for code in (RANK_DEFICIENT_CODE, even_code.astype(np.uint8)):
+        checks = get_kernel(code)
+        searches.append(
+            (coset._get_classical_search(code, checks, tuning), _classical_minima(checks))
+        )
+    return searches
+
+
+def _get_batches(
+    minima: npt.NDArray[np.int_], max_weight: int, rng: np.random.Generator
+) -> list[npt.NDArray[np.int_]]:
+    """Batches of syndromes whose first coset without a word within ``max_weight`` varies.
+
+    The batches hold such a coset nowhere, first, last, or at several places, and one batch is
+    short.
+    """
+    within = np.flatnonzero(minima <= max_weight)
+    beyond = np.flatnonzero(minima > max_weight)
+    base = rng.choice(within, 100)
+    batches = [base, base[:3]]
+    if len(beyond):
+        for places in ([0], [-1], [33, 50, -1]):
+            batch = base.copy()
+            batch[places] = rng.choice(beyond, len(places))
+            batches.append(batch)
+    return batches
+
+
+def _get_rank_deficient_search() -> tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.int_]]:
+    """The classical search of ``RANK_DEFICIENT_CODE``, and the minima of its syndromes."""
+    tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    checks = get_kernel(RANK_DEFICIENT_CODE)
+    search = coset._get_classical_search(RANK_DEFICIENT_CODE, checks, tuning_fields)
+    return search, _classical_minima(checks)
+
+
+def _get_row(syndromes: npt.NDArray[np.uint64], batch: npt.NDArray[np.uint64]) -> int:
+    """The index in ``batch`` of the first row of ``syndromes``, a view of rows of ``batch``."""
+    return (syndromes.ctypes.data - batch.ctypes.data) // batch.strides[0]
+
+
+@pytest.mark.parametrize("num_threads", [2, 3, 8])
+@pytest.mark.parametrize("split_work", [0, 50])
+@pytest.mark.parametrize("tuning", [{}, {"coset_route_minimum_work": 0}], ids=["words", "tails"])
+def test_batches_on_threads_answer_as_on_one_thread(
+    num_threads: int,
+    split_work: int,
+    tuning: dict[str, int],
+    pytestconfig: pytest.Config,
+    tune: Tune,
+) -> None:
+    """Batch queries on threads return the index, bound, word, and weights of one thread.
+
+    The calling thread searches the first rows of a batch alone, until their work reaches
+    ``split_work``, and the threads search the rest in blocks, of one syndrome on eight threads.
+    """
+    tune(**tuning)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    options = {"num_threads": num_threads, "split_work": split_work}
+    for search, minima in _get_searches_with_minima(tuning_fields):
+        num_bits = search._num_syndrome_bits
+        for max_weight in range(int(minima.max()) + 1):
+            for syndromes in _get_batches(minima, max_weight, rng):
+                batch = split_syndromes_into_words(syndromes.tolist(), num_bits)
+                beyond = np.flatnonzero(minima[syndromes] > max_weight)
+                expected = search.find_first_not_within_max_weight(batch, max_weight)
+                assert expected[0] == (beyond[0] if len(beyond) else len(syndromes))
+                found = search.find_first_not_within_max_weight(batch, max_weight, **options)
+                assert found == expected
+                floors = rng.integers(max_weight + 1, size=len(syndromes))
+                weights = search.get_min_weights(batch, max_weight, floors)
+                assert np.array_equal(
+                    search.get_min_weights(batch, max_weight, floors, **options), weights
+                )
+
+
+@pytest.mark.parametrize(
+    ("query", "compiled_name"),
+    [
+        ("find_first_not_within_max_weight", "_find_first_not_within_max_weight"),
+        ("get_min_weights", "_find_min_weights"),
+    ],
+)
+def test_batches_within_the_split_work_run_on_the_calling_thread(
+    query: str, compiled_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch whose queries do less work than ``split_work`` runs in one call, on no thread."""
+    search, _ = _get_rank_deficient_search()
+    compiled = getattr(coset, compiled_name)
+    calls: list[int] = []
+
+    def record(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        calls.append(threading.get_ident())
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset, compiled_name, record)
+    batch = split_syndromes_into_words(list(range(32)) * 2, search._num_syndrome_bits)
+    floors = np.zeros(len(batch), dtype=np.int64)
+    arguments = (batch, 5) if query == "find_first_not_within_max_weight" else (batch, 5, floors)
+    getattr(search, query)(*arguments, num_threads=4, split_work=10**9)
+    assert calls == [threading.get_ident()]
+
+
+@pytest.mark.parametrize(
+    ("query", "compiled_name"),
+    [
+        ("find_first_not_within_max_weight", "_find_first_not_within_max_weight"),
+        ("get_min_weights", "_find_min_weights"),
+    ],
+)
+def test_errors_on_threads_propagate(
+    query: str, compiled_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception that a thread raises on a block reaches the caller once every thread ends."""
+    search, _ = _get_rank_deficient_search()
+    compiled = getattr(coset, compiled_name)
+    sentinel = 7
+
+    def fail_on_sentinel(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Raise an exception on a block that holds the sentinel syndrome, at row 40.
+
+        The calling thread first searches row 0 alone, in a call that starts at row 0.
+        """
+        start = _get_row(syndromes, batch)
+        if 0 < start <= 40 < start + len(syndromes):
+            raise ValueError("sentinel")
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset, compiled_name, fail_on_sentinel)
+    batch = split_syndromes_into_words([1] * 40 + [sentinel] + [1] * 40, search._num_syndrome_bits)
+    floors = np.zeros(len(batch), dtype=np.int64)
+    arguments = (batch, 3) if query == "find_first_not_within_max_weight" else (batch, 3, floors)
+    num_threads = threading.active_count()
+    with pytest.raises(ValueError, match="sentinel"):
+        getattr(search, query)(*arguments, num_threads=3, split_work=0)
+    assert threading.active_count() == num_threads
+
+
+def _get_two_heavy_cosets() -> tuple[coset.BrouwerZimmermannCosetSearch, npt.NDArray[np.uint64]]:
+    """A search, and a batch of 64 syndromes whose only heavy cosets are at rows 2 and 40.
+
+    A coset is heavy if it has no word within weight one.
+    """
+    search, minima = _get_rank_deficient_search()
+    light, heavy = int(np.flatnonzero(minima <= 1)[1]), np.flatnonzero(minima > 1)[:2].tolist()
+    rows = [light] * 64
+    rows[2], rows[40] = heavy
+    return search, split_syndromes_into_words(rows, search._num_syndrome_bits)
+
+
+def test_an_earlier_heavy_coset_that_ends_last_is_the_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first heavy coset of a batch is the answer even when a later one is found first.
+
+    On two threads, the block of the earlier heavy coset waits until a thread has searched the
+    block of the later one, and the answer is still that of one thread.
+    """
+    search, batch = _get_two_heavy_cosets()
+    expected = search.find_first_not_within_max_weight(batch, 1)
+    assert expected[0] == 2
+    later_done = threading.Event()
+    compiled = coset._find_first_not_within_max_weight
+
+    def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Hold the block of row 2 until the block of row 40 has returned."""
+        start = _get_row(syndromes, batch)
+        # The calling thread first searches row 0 alone, in a call that starts at row 0.
+        if 0 < start <= 2 < start + len(syndromes):
+            assert later_done.wait(10)
+        answer = compiled(syndromes, *args)
+        if 0 < start <= 40 < start + len(syndromes):
+            later_done.set()
+        return answer
+
+    monkeypatch.setattr(coset, "_find_first_not_within_max_weight", search_rows)
+    assert search.find_first_not_within_max_weight(batch, 1, num_threads=2, split_work=0) == (
+        expected
+    )
+    assert later_done.is_set()
+
+
+def test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first heavy coset is the answer when it is recorded before a later one is found.
+
+    On two threads, the block of row 40 starts before the block of row 2 is searched, and searches
+    only once the range of the thread that found row 2 has returned, after it recorded row 2.
+    """
+    search, batch = _get_two_heavy_cosets()
+    expected = search.find_first_not_within_max_weight(batch, 1)
+    started_40, recorded_2 = threading.Event(), threading.Event()
+    finders: list[int] = []
+    run_work_items = coset._threads.run_work_items
+    compiled = coset._find_first_not_within_max_weight
+
+    def run_and_watch_ranges(num_items: int, num_threads: int, start: Any) -> None:
+        """Run the work items, and note when the thread that searched row 2 ends its range."""
+
+        def start_worker(stop: threading.Event) -> Any:
+            run_range = start(stop)
+
+            def watched_range(first: int, end: int) -> None:
+                run_range(first, end)
+                if finders == [threading.get_ident()]:
+                    recorded_2.set()
+
+            return watched_range
+
+        run_work_items(num_items, num_threads, start_worker)
+
+    def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Hold row 2 until row 40 starts, and row 40 until row 2 is recorded."""
+        start = _get_row(syndromes, batch)
+        if 0 < start <= 2 < start + len(syndromes):
+            finders.append(threading.get_ident())
+            assert started_40.wait(10)
+        if 0 < start <= 40 < start + len(syndromes):
+            started_40.set()
+            assert recorded_2.wait(10)
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset._threads, "run_work_items", run_and_watch_ranges)
+    monkeypatch.setattr(coset, "_find_first_not_within_max_weight", search_rows)
+    assert search.find_first_not_within_max_weight(batch, 1, num_threads=2, split_work=0) == (
+        expected
+    )
+
+
+def test_the_word_of_an_earlier_heavy_coset_survives_a_later_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The word of the first heavy coset is its own, though another thread searches after it.
+
+    On two threads, the search of the block of row 2 returns, and its thread waits until the search
+    of the block of row 40 has returned before it records row 2.
+    """
+    search, batch = _get_two_heavy_cosets()
+    expected = search.find_first_not_within_max_weight(batch, 1)
+    returned_2, returned_40 = threading.Event(), threading.Event()
+    compiled = coset._find_first_not_within_max_weight
+
+    def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Hold the answer for row 2 until the search of row 40 has returned."""
+        start = _get_row(syndromes, batch)
+        if 0 < start <= 2 < start + len(syndromes):
+            answer = compiled(syndromes, *args)
+            returned_2.set()
+            assert returned_40.wait(10)
+            return answer
+        if 0 < start <= 40 < start + len(syndromes):
+            assert returned_2.wait(10)
+            answer = compiled(syndromes, *args)
+            returned_40.set()
+            return answer
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset, "_find_first_not_within_max_weight", search_rows)
+    assert search.find_first_not_within_max_weight(batch, 1, num_threads=2, split_work=0) == (
+        expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("query", "compiled_name"),
+    [
+        ("find_first_not_within_max_weight", "_find_first_not_within_max_weight"),
+        ("get_min_weights", "_find_min_weights"),
+    ],
+)
+def test_costly_batches_move_to_threads_once_their_work_reaches_the_split_work(
+    query: str, compiled_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch of costly queries moves to threads once their work reaches ``split_work``.
+
+    The 16 queries alone count 16 units, one less than ``split_work``; each also weighs words, so
+    the work reaches it before the batch ends.
+    """
+    search, minima = _get_rank_deficient_search()
+    max_weight = int(minima.max())
+    heaviest = int(np.flatnonzero(minima == max_weight)[0])
+    batch = split_syndromes_into_words([heaviest] * 16, search._num_syndrome_bits)
+    compiled = getattr(coset, compiled_name)
+    starts: list[int] = []
+
+    def record(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Record the row at which each call starts."""
+        starts.append(_get_row(syndromes, batch))
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset, compiled_name, record)
+    floors = np.zeros(len(batch), dtype=np.int64)
+    arguments = (
+        (batch, max_weight)
+        if query == "find_first_not_within_max_weight"
+        else (batch, max_weight, floors)
+    )
+    getattr(search, query)(*arguments, num_threads=2, split_work=len(batch) + 1)
+    assert starts[0] == 0
+    assert any(start > 0 for start in starts[1:])
+
+
+def test_copies_of_planning_buffers_share_nothing_and_start_from_the_first_step() -> None:
+    search, _ = _get_rank_deficient_search()
+    planning = search._get_route(3)[0].planning.copy()
+    planning[:, -1, :2] = (1, 2)
+    own_planning = coset._get_own_planning(planning)
+    assert not np.shares_memory(own_planning, planning)
+    assert (own_planning[:, -1, :2] == (0, 1)).all()
+    assert np.array_equal(own_planning[:, :-1], planning[:, :-1])
+    assert np.array_equal(own_planning[:, -1, 2:], planning[:, -1, 2:])
+
+
+def test_threads_skip_the_blocks_of_their_range_after_a_heavy_coset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The thread that finds a coset without a light word in a block searches no later block."""
+    search, minima = _get_rank_deficient_search()
+    light, heavy = int(np.flatnonzero(minima <= 1)[1]), int(np.flatnonzero(minima > 1)[0])
+    batch = split_syndromes_into_words([light, heavy] + [light] * 62, search._num_syndrome_bits)
+    calls: list[tuple[int, int]] = []
+    compiled = coset._find_first_not_within_max_weight
+
+    def record(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Record the first row of each block that a thread searches, and the thread."""
+        calls.append((_get_row(syndromes, batch), threading.get_ident()))
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset, "_find_first_not_within_max_weight", record)
+    index, bound = search.find_first_not_within_max_weight(batch, 1, num_threads=2, split_work=0)
+    assert index == 1 and bound is not None
+    # The calling thread searches row 0 alone first, and the threads take the rest in blocks.
+    assert calls[0] == (0, threading.get_ident())
+    (finder,) = [thread for row, thread in calls[1:] if row == 1]
+    assert [row for row, thread in calls[1:] if thread == finder] == [1]
+
+
+def test_each_worker_searches_with_its_own_copy_of_the_planning_buffer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The threads of a batch search with copies of the planning buffer, one for each worker.
+
+    On two threads, the block at row 1 waits until the other thread has started a block, so both
+    threads search.
+    """
+    search, _ = _get_rank_deficient_search()
+    batch = split_syndromes_into_words([1] * 64, search._num_syndrome_bits)
+    route_planning = search._get_route(1)[0].planning
+    calls: list[tuple[int, npt.NDArray[np.int64]]] = []
+    other_searched = threading.Event()
+    compiled = coset._find_first_not_within_max_weight
+
+    def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Record the thread and the planning buffer of each call, and hold the block at row 1."""
+        # The arguments after the syndromes start with max_weight, max_work, best, inverse,
+        # generators, pivots, and planning.
+        calls.append((threading.get_ident(), args[6]))
+        start = _get_row(syndromes, batch)
+        if start == 1:
+            assert other_searched.wait(10)
+        elif start > 1:
+            other_searched.set()
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset, "_find_first_not_within_max_weight", search_rows)
+    search.find_first_not_within_max_weight(batch, 1, num_threads=2, split_work=0)
+    assert len({thread for thread, _ in calls}) == 2
+    assert not any(np.shares_memory(planning, route_planning) for _, planning in calls)
+    for (thread, planning), (other, other_planning) in itertools.combinations(calls, 2):
+        assert thread == other or not np.shares_memory(planning, other_planning)
+
+
+def test_threads_stop_within_their_ranges_after_an_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A thread searches no more blocks of its range once another thread raises an exception.
+
+    On two threads, the first block waits until the threads stop, which happens once the other
+    thread has raised an exception on its first block.
+    """
+    search, _ = _get_rank_deficient_search()
+    batch = split_syndromes_into_words([1] * 64, search._num_syndrome_bits)
+    stops: list[threading.Event] = []
+    calls: list[tuple[int, int]] = []
+    run_work_items = coset._threads.run_work_items
+    compiled = coset._find_first_not_within_max_weight
+
+    def run_and_keep_the_stop_event(num_items: int, num_threads: int, start: Any) -> None:
+        """Run the work items, and keep the stop event that the threads share."""
+
+        def start_worker(stop: threading.Event) -> Any:
+            stops.append(stop)
+            return start(stop)
+
+        run_work_items(num_items, num_threads, start_worker)
+
+    def search_rows(syndromes: npt.NDArray[np.uint64], *args: Any) -> Any:
+        """Wait at the first block until the threads stop, and raise at any later block."""
+        row = _get_row(syndromes, batch)
+        calls.append((row, threading.get_ident()))
+        if row == 1:
+            assert stops[0].wait(10)
+        elif row > 1:
+            raise ValueError("a later block")
+        return compiled(syndromes, *args)
+
+    monkeypatch.setattr(coset._threads, "run_work_items", run_and_keep_the_stop_event)
+    monkeypatch.setattr(coset, "_find_first_not_within_max_weight", search_rows)
+    with pytest.raises(ValueError, match="a later block"):
+        search.find_first_not_within_max_weight(batch, 1, num_threads=2, split_work=0)
+    (waiter,) = [thread for row, thread in calls if row == 1]
+    assert [row for row, thread in calls if thread == waiter and row > 0] == [1]
+
+
+def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tune) -> None:
+    """Batches that run at once on threads of their own share a search, and answer as alone.
+
+    Each batch has its own maximum weight, and so its own stopping steps, which it caches in its
+    own copies of the planning buffer of its route, leaving the shared buffer as it was.
+    """
+    tune(coset_route_minimum_work=0)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
+    even_code = np.hstack([_SKIPPING_CODE, _SKIPPING_CODE.sum(axis=1, keepdims=True) % 2])
+    checks = get_kernel(even_code.astype(np.uint8))
+    search = coset._get_classical_search(even_code.astype(np.uint8), checks, tuning_fields)
+    max_weights = rng.integers(even_code.shape[1] + 1, size=64).tolist()
+    batches = [
+        split_syndromes_into_words(rng.integers(1 << len(checks), size=50).tolist(), len(checks))
+        for _ in max_weights
+    ]
+    floors = np.zeros(50, dtype=np.int64)
+    plannings = [search._get_route(max_weight)[0].planning for max_weight in set(max_weights)]
+    # Plant a cached step other than the first, so that a copy that shared memory with its buffer
+    # would change the buffer when it resets its own step to the first.
+    for planning in plannings:
+        planning[:, -1, :2] = (len(planning[0]) - 2, planning.shape[2] - 1)
+    cached_steps = [planning[:, -1].copy() for planning in plannings]
+
+    def query(index: int, num_threads: int) -> tuple[Any, ...]:
+        """Answer both batch queries of a batch."""
+        batch, max_weight = batches[index], max_weights[index]
+        options = {"num_threads": num_threads, "split_work": 0}
+        found = search.find_first_not_within_max_weight(batch, max_weight, **options)
+        weights = search.get_min_weights(batch, max_weight, floors, **options)
+        return found, weights.tolist()
+
+    expected = [query(index, 1) for index in range(len(batches))]
+    with concurrent.futures.ThreadPoolExecutor(4) as pool:
+        answers = list(pool.map(query, range(len(batches)), [2] * len(batches)))
+    assert answers == expected
+    # The batch queries cache stopping steps only in copies of the shared planning buffers.
+    for planning, steps in zip(plannings, cached_steps, strict=True):
+        assert np.array_equal(planning[:, -1], steps)

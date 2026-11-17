@@ -62,33 +62,45 @@ nonzero coefficient on v_j, so it has weight at least ``|v_j|``.  So
 spaces, but generating sets of the stabilizer group that combine checks at different vertices may be
 lighter.
 
-Canonical local checks.  With the optional pybliss package, bliss finds qudit permutations that map
-a set of checks onto itself (see QuditCode.get_known_permutation_automorphism_group).  QTCode and
-LQTCode have it search their canonical local checks, as well as their parity checks.  The canonical
-local checks of a vertex are the nonzero words of weight at most w_max of its local check space,
-placed on its local view, where w_max is the largest weight of a word in a minimum-weight basis of
-the space.  All minimum-weight bases of a space have the same weights, so w_max depends only on the
-space.  By the argument above, w_max for ``C_A ⨂ C_B`` is the product of the largest weights of
-words in minimum-weight bases of C_A and C_B, and likewise for ``~C_A ⨂ ~C_B``.
+Canonical local checks.  With the optional pybliss package, bliss finds qudit permutations that
+preserve a code (see QuditCode.get_known_permutation_automorphism_group), but only those that map a
+set of checks onto itself.  The parity checks of QTCode and LQTCode are one spanning set of each
+local check space, chosen by local_checks, so a permutation that preserves the code can map parity
+checks to other words of these spaces, and then bliss cannot find it among the parity checks.
+QTCode and LQTCode therefore also have bliss search their canonical local checks, which depend only
+on the local check spaces.
+
+The canonical local checks of a vertex are the nonzero words of weight at most w_max of its local
+check space, placed on its local view, where w_max is the largest weight of a word in a
+minimum-weight basis of the space.  All minimum-weight bases of a space have the same weights, so
+w_max depends only on the space.  By the argument above, w_max for ``C_A ⨂ C_B`` is the product of
+the largest weights of words in minimum-weight bases of C_A and C_B, and likewise for
+``~C_A ⨂ ~C_B``.
 
 - The canonical checks of a vertex include a minimum-weight basis of its local check space, so they
   span it, and the canonical checks of all vertices span the row spaces of matrix_x and matrix_z.
   So a permutation of the qudits that maps the set of canonical checks onto itself preserves the
   code.
-- Unlike the parity checks, the canonical checks depend only on the local check spaces, and not on
-  the choice of local checks.  Suppose that a permutation of the qudits maps the local view of each
-  vertex v to the local view of a vertex v' with checks of the same type, and maps the local check
-  space of v onto that of v'.  It preserves weights, so it maps the canonical checks of v onto those
-  of v', even if it does not map parity checks to parity checks.  So bliss can find such
-  permutations among the canonical checks.
+- Suppose that a permutation of the qudits maps the local view of each vertex v to the local view of
+  a vertex v' with checks of the same type, and maps the local check space of v onto that of v'.  It
+  preserves weights, so it maps the canonical checks of v onto those of v', even if it does not map
+  parity checks to parity checks.  So bliss can find such permutations among the canonical checks.
 
-Finding the canonical checks of a local check space enumerates its words, so QTCode and LQTCode have
-bliss search them only for local check spaces with few enough words and canonical checks (see their
-docstrings).
+Two caps bound the cost of the canonical checks, and the docstrings of QTCode and LQTCode give their
+values:
+
+- a cap on the number of words of a local check space, since finding its canonical checks
+  enumerates its words; and
+- a cap on the number of canonical checks per vertex, since the matrix that bliss searches has a row
+  for each canonical check at each vertex.
+
+For each type of checks, if a local check space of that type exceeds either cap, bliss searches the
+parity checks of that type in place of the canonical checks of that type.
 """
 
 from __future__ import annotations
 
+import abc
 import ast
 import functools
 import heapq
@@ -124,7 +136,8 @@ from ..common import (
     _preserves_row_space,
 )
 
-_LocalChecks = Literal["min_weight", "from_codes"]
+LocalChecks = Literal["min_weight", "from_codes"]
+"""The choices of the checks that span each local check space (see the module docstring)."""
 
 # the classes (s, t) of the vertices of an LQTCode with checks of each type, in the order of their
 # rows in matrix_x and matrix_z
@@ -143,11 +156,77 @@ _MAX_WORDS_FOR_MIN_WEIGHT_BASIS = 2**20
 _MAX_WORDS_FOR_CANONICAL_CHECKS = 2**20
 _MAX_CANONICAL_CHECKS_PER_VERTEX = 2**10
 
+# the number of words of a local check space that _get_canonical_local_checks enumerates at a time
+_WORDS_PER_CHUNK = 2**14
+
 ####################################################################################################
 # quantum Tanner codes
 
 
-class QTCode(CSSCode):
+class _SquareComplexCode(CSSCode):
+    """A CSS code on a square complex, whose checks at each vertex span a product of local codes.
+
+    The local check space of each vertex is the tensor product of two local codes, or of their
+    duals, read on the local view of the vertex (see help(qldpc.codes.quantum.quantum_tanner)).
+    This class finds the canonical local checks of the code from the blocks of vertices that
+    _get_vertex_blocks gives, and has bliss search them as well as the parity checks.
+    """
+
+    @abc.abstractmethod
+    def _get_vertex_blocks(
+        self, pauli: PauliXZ
+    ) -> list[tuple[ClassicalCode, ClassicalCode, npt.NDArray[np.int_]]]:
+        """The blocks of vertices with checks of one type, whose vertices share their local codes.
+
+        Each block is given by its local codes C_A and C_B, and by the local views of its vertices,
+        as an array whose entry ``[v, i, j]`` is the qudit at coordinate (i, j) of the local view of
+        its v-th vertex.  Each block of vertices gives a block of rows of matrix_x or matrix_z, and
+        the blocks are in the order of these rows.
+        """
+
+    def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+        """The parity checks of this code and its canonical local checks, for bliss to search.
+
+        Bliss can find more automorphisms among the canonical checks (see
+        help(qldpc.codes.quantum.quantum_tanner)), but it can also find automorphisms of the parity
+        checks that are not automorphisms of the canonical checks, such as when a local code is the
+        direct sum of codes on disjoint sets of coordinates.  So bliss searches both.
+        """
+        canonical_checks = self._get_canonical_checks()
+        if np.array_equal(canonical_checks, self.matrix):
+            return (self.matrix,)
+        return (self.matrix, canonical_checks)
+
+    def _get_canonical_checks(self) -> galois.FieldArray:
+        """The canonical local checks of this code, in the layout of its parity check matrix.
+
+        The module docstring defines the canonical local checks, and shows that they span the row
+        spaces of matrix_x and matrix_z.  For each type of checks, if a block of vertices with that
+        type has a local check space with more than _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more
+        than _MAX_CANONICAL_CHECKS_PER_VERTEX canonical checks at each vertex, the returned matrix
+        holds the parity checks of that type instead, which depend on the choice of local checks.
+        """
+        blocks = []
+        for pauli, parity_checks in zip(PAULIS_XZ, [self.matrix_x, self.matrix_z]):
+            checks = self._get_canonical_checks_of_type(pauli)
+            blocks.append(parity_checks if checks is None else checks)
+        return scipy.linalg.block_diag(*blocks).view(self.field)
+
+    def _get_canonical_checks_of_type(self, pauli: PauliXZ) -> galois.FieldArray | None:
+        """The canonical local checks of one type at all vertices, or None if there are too many."""
+        blocks = []
+        for code_a, code_b, local_views in self._get_vertex_blocks(pauli):
+            # find the canonical checks of one local view of the block, or give up
+            local_checks = _get_canonical_local_checks(code_a, code_b, pauli)
+            if local_checks is None:
+                return None
+
+            # place them on the local view of every vertex of the block
+            blocks.append(_place_local_checks(local_views, local_checks, len(self)))
+        return np.vstack(blocks).view(self.field)
+
+
+class QTCode(_SquareComplexCode):
     """Quantum Tanner code: a CSS code for qudits defined on the faces of a Cayley complex.
 
     A quantum Tanner code is defined by:
@@ -250,7 +329,7 @@ class QTCode(CSSCode):
         field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> None:
         """Construct a quantum Tanner code.
 
@@ -289,29 +368,27 @@ class QTCode(CSSCode):
         self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
 
         # read the local codes; C_B defaults to the dual of C_A if the subsets have equal sizes
-        code_a = ClassicalCode(code_a, field)
-        if code_b is not None:
-            code_b = ClassicalCode(code_b, field)
-        elif len(self.complex.subset_a) == len(self.complex.subset_b):
-            code_b = _get_dual_code(code_a)
-        else:
+        num_members_a, num_members_b = len(self.complex.subset_a), len(self.complex.subset_b)
+        if code_b is None and num_members_a != num_members_b:
             raise ValueError(
-                "Underspecified generating data for quantum Tanner code:\n"
-                "no seed code provided for one of the generating subsets"
+                "Underspecified generating data for quantum Tanner code: code_b is required when"
+                f" the subsets A and B have different numbers of distinct members ({num_members_a}"
+                f" and {num_members_b})"
             )
+        code_a, code_b = _read_local_codes(code_a, code_b, field)
 
         # check that the local codes share a field, and each have one coordinate per member of their
         # subset
         if field is None and code_a.field is not code_b.field:
-            raise ValueError("The sub-codes provided for this QTCode are over different fields")
+            raise ValueError("The local codes provided for this QTCode are over different fields")
         for name, code, subset in [
             ("A", code_a, self.complex.subset_a),
             ("B", code_b, self.complex.subset_b),
         ]:
             if len(code) != len(subset):
                 raise ValueError(
-                    f"The seed code C_{name} has block length {len(code)}, but the generating"
-                    f" subset {name} has {len(subset)} distinct members"
+                    f"The local code C_{name} has block length {len(code)}, but the subset {name}"
+                    f" has {len(subset)} distinct members"
                 )
 
         # place the local checks at every vertex of the complex
@@ -342,8 +419,7 @@ class QTCode(CSSCode):
         ]
         size = max(member.size for subset in subsets for member in subset)
         subset_a, subset_b, other_subset_a, other_subset_b = [
-            {abstract.GroupMember(member.array_form, size=size) for member in subset}
-            for subset in subsets
+            {_get_member_on_points(member, size) for member in subset} for subset in subsets
         ]
 
         # equal generating data can give different parity checks, depending on local_checks
@@ -387,7 +463,8 @@ class QTCode(CSSCode):
         Returns:
             A read-only integer array of shape ``(number of vertices, |A|, |B|)``.
         """
-        return self._local_views[Pauli.coerce_xz(pauli) is Pauli.Z]
+        # mark the cached array here, since deep copies and unpickling of a code make it writable
+        return _mark_read_only(self._local_views[Pauli.coerce_xz(pauli)])
 
     @staticmethod
     def get_subcodes(
@@ -395,7 +472,7 @@ class QTCode(CSSCode):
         code_a: ClassicalCode,
         code_b: ClassicalCode,
         *,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> tuple[TannerCode, TannerCode]:
         """Get the classical Tanner subcodes of a quantum Tanner code.
 
@@ -406,8 +483,16 @@ class QTCode(CSSCode):
         QTCode.
         """
         local_checks = _parse_local_checks(local_checks)
+        if local_checks == "min_weight":
+            _check_min_weight_sizes([code_a, code_b])
         subgraph_x, subgraph_z = QTCode.get_subgraphs(cayplex)
-        checks_x, checks_z = _get_local_check_spaces(code_a, code_b, local_checks)
+
+        # the subcodes in the sense of TannerCode: the classical codes whose parity checks are the
+        # local checks
+        checks_x, checks_z = (
+            ClassicalCode(_get_local_checks(code_a, code_b, pauli, local_checks))
+            for pauli in PAULIS_XZ
+        )
         return TannerCode(subgraph_x, checks_x), TannerCode(subgraph_z, checks_z)
 
     @staticmethod
@@ -488,7 +573,7 @@ class QTCode(CSSCode):
         field: int | type[galois.FieldArray] | None = None,
         *,
         bipartite: bool = False,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> QTCode:
         """Construct a quantum Tanner code whose local codes label coordinates by given members.
 
@@ -517,14 +602,13 @@ class QTCode(CSSCode):
                 that QTCode lists, such as lists of members that are not symmetric.
         """
         members_a, members_b = list(members_a), list(members_b)
-        code_a = ClassicalCode(code_a, field)
-        code_b = ClassicalCode(code_b, field) if code_b is not None else _get_dual_code(code_a)
+        code_a, code_b = _read_local_codes(code_a, code_b, field)
 
         # sort the members of each list, and the coordinates of its local code alike
         size = max((member.size for member in members_a + members_b), default=0)
         sorted_codes = []
         for name, members, code in [("a", members_a, code_a), ("b", members_b, code_b)]:
-            resized = [abstract.GroupMember(member.array_form, size=size) for member in members]
+            resized = [_get_member_on_points(member, size) for member in members]
             if len(set(resized)) != len(resized):
                 raise ValueError(
                     f"members_{name} repeats a member, but QTCode needs distinct members; use"
@@ -558,7 +642,7 @@ class QTCode(CSSCode):
         one_subset: bool = False,
         exclude_identity: bool = False,
         seed: int | None = None,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> QTCode:
         """Construct a random quantum Tanner code from a group and local codes.
 
@@ -598,8 +682,7 @@ class QTCode(CSSCode):
                   one_subset is True and C_B does not have one coordinate per member of A, or when
                   one_subset and bipartite are both True.
         """
-        code_a = ClassicalCode(code_a, field)
-        code_b = ClassicalCode(code_b if code_b is not None else _get_dual_code(code_a), field)
+        code_a, code_b = _read_local_codes(code_a, code_b, field)
         subset_a = group.random_symmetric_subset(
             code_a.num_bits, exclude_identity=exclude_identity, seed=seed
         )
@@ -670,7 +753,7 @@ class QTCode(CSSCode):
     def load(
         path: str,
         *,
-        local_checks: Literal["min_weight", "from_codes"] | None = None,
+        local_checks: LocalChecks | None = None,
     ) -> QTCode:
         """Load a QTCode from a file written by QTCode.save.
 
@@ -764,15 +847,15 @@ class QTCode(CSSCode):
         )
 
     @functools.cached_property
-    def _local_views(self) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]:
-        """The local views of the vertices with X-type checks, and of those with Z-type checks."""
+    def _local_views(self) -> dict[PauliXZ, npt.NDArray[np.int_]]:
+        """The local views of the vertices with checks of each type."""
         # cover members compare by their members of G first, so these orders agree with members_a/b
         members_a = sorted(self.complex.cover_subset_a)
         members_b = sorted(self.complex.cover_subset_b)
         positions_a = {member: index for index, member in enumerate(members_a)}
         positions_b = {member: index for index, member in enumerate(members_b)}
-        local_views = []
-        for subgraph in self.get_subgraphs(self.complex):
+        local_views = {}
+        for pauli, subgraph in zip(PAULIS_XZ, self.get_subgraphs(self.complex)):
             # TannerCode sorts the sources of a subgraph, which carry its checks, by the nodes
             # themselves, since they have no "sort" attribute
             sources = sorted(node for node in subgraph if subgraph.out_degree(node))
@@ -781,8 +864,14 @@ class QTCode(CSSCode):
                 for _, face, (member_a, member_b) in subgraph.out_edges(source, data="sort"):
                     position_a, position_b = positions_a[member_a], positions_b[member_b]
                     local_view[index, position_a, position_b] = subgraph.nodes[face]["sort"]
-            local_views.append(_mark_read_only(local_view))
-        return local_views[0], local_views[1]
+            local_views[pauli] = local_view
+        return local_views
+
+    def _get_vertex_blocks(
+        self, pauli: PauliXZ
+    ) -> list[tuple[ClassicalCode, ClassicalCode, npt.NDArray[np.int_]]]:
+        """The vertices with checks of one type, as one block, since they share C_A and C_B."""
+        return [(self.code_a, self.code_b, self.get_local_views(pauli))]
 
     def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of translations of the Cayley complex that preserve this code, or None.
@@ -836,7 +925,7 @@ class QTCode(CSSCode):
             (True, sorted(self.complex.cover_subset_a), self.code_a),
             (False, sorted(self.complex.cover_subset_b), self.code_b),
         ]:
-            for vertex, _ in _get_translations(vertices, members, [code], left=left):
+            for vertex, _ in _get_translation_generators(vertices, members, [code], left=left):
                 permutation = np.empty(len(self), dtype=int)
                 for face, qudit in faces.items():
                     image = frozenset(vertex * node if left else node * vertex for node in face)
@@ -844,47 +933,8 @@ class QTCode(CSSCode):
                 permutations.append(permutation)
         return np.array(permutations, dtype=int) if permutations else None
 
-    def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
-        """The parity checks of this code and its canonical local checks, for bliss to search.
 
-        Bliss can find more automorphisms among the canonical checks (see
-        help(qldpc.codes.quantum.quantum_tanner)), but it can also find automorphisms of the parity
-        checks that are not automorphisms of the canonical checks, such as when a local code is the
-        direct sum of codes on disjoint sets of coordinates.  So bliss searches both.
-        """
-        canonical_checks = self._get_canonical_checks()
-        if np.array_equal(canonical_checks, self.matrix):
-            return (self.matrix,)
-        return (self.matrix, canonical_checks)
-
-    def _get_canonical_checks(self) -> galois.FieldArray:
-        """The canonical local checks of this code, in the layout of its parity check matrix.
-
-        The module docstring defines the canonical local checks, and shows that they span the row
-        spaces of matrix_x and matrix_z.  If a local check space has more than
-        _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more than _MAX_CANONICAL_CHECKS_PER_VERTEX
-        canonical checks at each vertex, the returned matrix holds the parity checks of that type
-        instead, which depend on the choice of local checks.
-        """
-        blocks = []
-        sectors: list[tuple[PauliXZ, list[galois.FieldArray], galois.FieldArray]] = [
-            (Pauli.X, [self.code_a.generator, self.code_b.generator], self.matrix_x),
-            (Pauli.Z, [self.code_a.matrix, self.code_b.matrix], self.matrix_z),
-        ]
-        for pauli, factors, parity_checks in sectors:
-            # find the canonical checks of one local view, or fall back to the parity checks
-            canonical_checks = _get_canonical_local_checks(*factors)
-            if canonical_checks is None:
-                blocks.append(parity_checks)
-                continue
-
-            # place the canonical checks on the local view of every vertex
-            local_views = self.get_local_views(pauli)
-            blocks.append(_place_local_checks(local_views, canonical_checks, len(self)))
-        return scipy.linalg.block_diag(*blocks).view(self.field)
-
-
-class LQTCode(CSSCode):
+class LQTCode(_SquareComplexCode):
     """Lifted quantum Tanner code (not an LPCode): products of local codes, repeated over a group.
 
     A lifted quantum Tanner code is a CSS code defined by:
@@ -1034,7 +1084,7 @@ class LQTCode(CSSCode):
         *,
         code_a1: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
         code_b1: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None = None,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> None:
         """Construct a lifted quantum Tanner code.
 
@@ -1101,19 +1151,14 @@ class LQTCode(CSSCode):
             _check_min_weight_sizes(codes_a + codes_b)
 
         # place the local checks of each class of vertices on their local views
+        num_qudits = len(self.members_a) * len(self.members_b) * group.order
         matrices = []
         for pauli in PAULIS_XZ:
             blocks = [
                 _place_local_checks(
-                    self._class_local_views[vertex_class],
-                    _get_local_checks(
-                        *self._get_local_codes(vertex_class),
-                        pauli,
-                        min_weight=local_checks == "min_weight",
-                    ),
-                    len(self.members_a) * len(self.members_b) * group.order,
+                    local_views, _get_local_checks(code_a, code_b, pauli, local_checks), num_qudits
                 )
-                for vertex_class in _VERTEX_CLASSES[pauli]
+                for code_a, code_b, local_views in self._get_vertex_blocks(pauli)
             ]
             matrices.append(np.vstack(blocks).view(codes_a[0].field))
         super().__init__(matrices[0], matrices[1])
@@ -1130,7 +1175,7 @@ class LQTCode(CSSCode):
         code_0_prime: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         code_1_prime: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
         field: int | type[galois.FieldArray] | None = None,
-        local_checks: Literal["min_weight", "from_codes"] = "min_weight",
+        local_checks: LocalChecks = "min_weight",
     ) -> LQTCode:
         """The lifted quantum Tanner code of Eq. (2) of arXiv:2512.20532, in that paper's notation.
 
@@ -1265,23 +1310,28 @@ class LQTCode(CSSCode):
         local_views = {}
         for ss, tt in itertools.product(range(2), repeat=2):
             if ss:
-                vertex_positions = np.broadcast_to(shifts_a.T[:, :, None], (order, num_a, num_b))
+                square_positions = np.broadcast_to(shifts_a.T[:, :, None], (order, num_a, num_b))
             else:
-                vertex_positions = np.broadcast_to(
+                square_positions = np.broadcast_to(
                     np.arange(order)[:, None, None], (order, num_a, num_b)
                 )
             if tt:
-                vertex_positions = shifts_b[np.arange(num_b), vertex_positions]
-            local_views[ss, tt] = _mark_read_only(first_qudits + vertex_positions)
+                square_positions = shifts_b[np.arange(num_b), square_positions]
+            local_views[ss, tt] = first_qudits + square_positions
         return local_views
 
-    def _get_local_codes(
-        self, vertex_class: tuple[int, int]
-    ) -> tuple[ClassicalCode, ClassicalCode]:
-        """The local codes C_A^s and C_B^t of the vertices of a class (s, t)."""
-        code_a = [self.code_a0, self.code_a1][vertex_class[0]]
-        code_b = [self.code_b0, self.code_b1][vertex_class[1]]
-        return code_a, code_b
+    def _get_vertex_blocks(
+        self, pauli: PauliXZ
+    ) -> list[tuple[ClassicalCode, ClassicalCode, npt.NDArray[np.int_]]]:
+        """The blocks of vertices with checks of one type, which are the classes of these vertices.
+
+        The vertices of class (s, t) have the local codes C_A^s and C_B^t.
+        """
+        codes_a, codes_b = [self.code_a0, self.code_a1], [self.code_b0, self.code_b1]
+        return [
+            (codes_a[ss], codes_b[tt], self._class_local_views[ss, tt])
+            for ss, tt in _VERTEX_CLASSES[pauli]
+        ]
 
     def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of translations of the complex that preserve this code, or None.
@@ -1318,78 +1368,34 @@ class LQTCode(CSSCode):
         involution σ of the quadripartite complex of a QTCode), or that preserve the stabilizer
         group but not each local check space.
         """
-        members = self._members_of_group
-        positions = {member: position for position, member in enumerate(members)}
+        group_members = self._members_of_group
+        positions = {member: position for position, member in enumerate(group_members)}
         num_a, num_b = len(self.members_a), len(self.members_b)
         permutations = []
-        for left, translated_members, codes in [
+        for left, listed_members, codes in [
             (True, self.members_a, [self.code_a0, self.code_a1]),
             (False, self.members_b, [self.code_b0, self.code_b1]),
         ]:
-            for vertex, labels in _get_translations(members, translated_members, codes, left=left):
+            generators = _get_translation_generators(
+                group_members, listed_members, codes, left=left
+            )
+            for xx, permutation in generators:
                 # square (i, j, g) goes to square (π(i), j, xg) or (i, ρ(j), gx)
-                images = [positions[vertex * hh if left else hh * vertex] for hh in members]
-                labels_a = labels if left else range(num_a)
-                labels_b = range(num_b) if left else labels
-                squares = np.add.outer(np.array(labels_a, dtype=int) * num_b, list(labels_b))
-                permutations.append(np.add.outer(squares * len(members), images).ravel())
+                images_g = [positions[xx * hh if left else hh * xx] for hh in group_members]
+                images_a = permutation if left else range(num_a)
+                images_b = range(num_b) if left else permutation
+                squares = np.add.outer(np.array(images_a, dtype=int) * num_b, list(images_b))
+                permutations.append(np.add.outer(squares * len(group_members), images_g).ravel())
         return np.array(permutations, dtype=int) if permutations else None
 
-    def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
-        """The parity checks of this code and its canonical local checks, for bliss to search.
 
-        As for QTCode, bliss can find more automorphisms among the canonical checks (see
-        help(qldpc.codes.quantum.quantum_tanner)), but also automorphisms of the parity checks that
-        are not automorphisms of the canonical checks, so it searches both (see
-        QTCode._get_automorphism_search_matrices).
-        """
-        canonical_checks = self._get_canonical_checks()
-        if np.array_equal(canonical_checks, self.matrix):
-            return (self.matrix,)
-        return (self.matrix, canonical_checks)
-
-    def _get_canonical_checks(self) -> galois.FieldArray:
-        """The canonical local checks of this code, in the layout of its parity check matrix.
-
-        The module docstring defines the canonical local checks, and shows that they span the row
-        spaces of matrix_x and matrix_z.  Here the vertices of each class have their own local check
-        space.  For each type of checks, if either class of vertices with that type has a local
-        check space with more than _MAX_WORDS_FOR_CANONICAL_CHECKS words or
-        _MAX_CANONICAL_CHECKS_PER_VERTEX canonical checks per vertex, the returned matrix holds the
-        parity checks of that type instead, which depend on the choice of local checks.
-        """
-        blocks = []
-        for pauli, parity_checks in zip(PAULIS_XZ, [self.matrix_x, self.matrix_z]):
-            checks = self._get_canonical_checks_of_type(pauli)
-            blocks.append(parity_checks if checks is None else checks)
-        return scipy.linalg.block_diag(*blocks).view(self.field)
-
-    def _get_canonical_checks_of_type(self, pauli: PauliXZ) -> galois.FieldArray | None:
-        """The canonical local checks of one type at all vertices, or None if there are too many."""
-        blocks = []
-        for vertex_class in _VERTEX_CLASSES[pauli]:
-            # find the canonical checks of one local view of the class, or give up
-            code_a, code_b = self._get_local_codes(vertex_class)
-            if pauli is Pauli.X:
-                local_checks = _get_canonical_local_checks(code_a.generator, code_b.generator)
-            else:
-                local_checks = _get_canonical_local_checks(code_a.matrix, code_b.matrix)
-            if local_checks is None:
-                return None
-
-            # place them on the local view of every vertex of the class
-            local_views = self._class_local_views[vertex_class]
-            blocks.append(_place_local_checks(local_views, local_checks, len(self)))
-        return np.vstack(blocks).view(self.field)
-
-
-def _parse_local_checks(value: object) -> _LocalChecks:
+def _parse_local_checks(value: object) -> LocalChecks:
     """Read a choice of local checks, raising a ValueError if it is not one."""
-    for local_checks in get_args(_LocalChecks):
+    for local_checks in get_args(LocalChecks):
         if isinstance(value, str) and value.strip() == local_checks:
             return local_checks
     raise ValueError(
-        f"Unrecognized choice of local checks: {value!r} (expected one of {get_args(_LocalChecks)})"
+        f"Unrecognized choice of local checks: {value!r} (expected one of {get_args(LocalChecks)})"
     )
 
 
@@ -1401,6 +1407,17 @@ def _get_dual_code(code: ClassicalCode) -> ClassicalCode:
     checks would not use the parity check matrix that the code carries.
     """
     return ClassicalCode(code.generator).set_generator(code.matrix)
+
+
+def _read_local_codes(
+    code_a: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]],
+    code_b: ClassicalCode | npt.NDArray[np.int_] | Sequence[Sequence[int]] | None,
+    field: int | type[galois.FieldArray] | None,
+) -> tuple[ClassicalCode, ClassicalCode]:
+    """Read the local codes C_A and C_B of a QTCode, where C_B defaults to the dual of C_A."""
+    code_a = ClassicalCode(code_a, field)
+    code_b = ClassicalCode(code_b, field) if code_b is not None else _get_dual_code(code_a)
+    return code_a, code_b
 
 
 def _check_members_in_group(
@@ -1424,43 +1441,36 @@ def _get_member_on_points(member: abstract.GroupMember, num_points: int) -> abst
     )
 
 
-def _get_local_check_spaces(
-    code_a: ClassicalCode, code_b: ClassicalCode, local_checks: _LocalChecks
-) -> tuple[ClassicalCode, ClassicalCode]:
-    """Classical codes whose parity checks are the local X-type and Z-type checks of a QTCode.
+def _get_factor_matrices(
+    code_a: ClassicalCode, code_b: ClassicalCode, pauli: PauliXZ
+) -> tuple[galois.FieldArray, galois.FieldArray]:
+    """Matrices whose row spaces are the factors of the local check space of one type.
 
-    Their parity checks span the local check spaces ``C_A ⨂ C_B`` and ``~C_A ⨂ ~C_B``, as the
-    argument local_checks of QTCode chooses (see help(qldpc.codes.quantum.quantum_tanner)).
+    The local check space is ``C_A ⨂ C_B`` for X-type checks, and ``~C_A ⨂ ~C_B`` for Z-type checks.
+    Its factors are spanned by the generator matrices G_A and G_B that code_a and code_b carry, or
+    by their parity check matrices H_A and H_B.
     """
-    if local_checks == "min_weight":
-        _check_min_weight_sizes([code_a, code_b])
-    checks_x, checks_z = (
-        _get_local_checks(code_a, code_b, pauli, min_weight=local_checks == "min_weight")
-        for pauli in PAULIS_XZ
-    )
-    return ClassicalCode(checks_x), ClassicalCode(checks_z)
+    if pauli is Pauli.X:
+        return code_a.generator, code_b.generator
+    return code_a.matrix, code_b.matrix
 
 
 def _get_local_checks(
-    code_a: ClassicalCode, code_b: ClassicalCode, pauli: PauliXZ, *, min_weight: bool
+    code_a: ClassicalCode, code_b: ClassicalCode, pauli: PauliXZ, local_checks: LocalChecks
 ) -> galois.FieldArray:
     """The local checks of one type at a vertex whose local codes are code_a and code_b.
 
     The checks span the local check space ``C_A ⨂ C_B`` for X-type checks, or ``~C_A ⨂ ~C_B`` for
     Z-type checks, in the coordinates of a local view.  They are the products of minimum-weight
-    bases of the two factors if min_weight is True, and otherwise the rows of ``G_A ⨂ G_B`` or
-    ``H_A ⨂ H_B``, where G_A and H_A are the generator and parity check matrices that code_a
-    carries, and likewise for code_b (see help(qldpc.codes.quantum.quantum_tanner)).  Before asking
-    for minimum-weight bases, callers check the sizes of all local codes with
+    bases of the two factors if local_checks is "min_weight", and otherwise the rows of
+    ``G_A ⨂ G_B`` or ``H_A ⨂ H_B``, where G_A and H_A are the generator and parity check matrices
+    that code_a carries, and likewise for code_b (see help(qldpc.codes.quantum.quantum_tanner)).
+    Before asking for minimum-weight bases, callers check the sizes of all local codes with
     _check_min_weight_sizes, so that a request that cannot be met fails before any enumeration.
     """
-    # spanning sets of the factors of the space: the local codes, or their duals
-    if pauli is Pauli.X:
-        factors = [code_a.generator, code_b.generator]
-    else:
-        factors = [code_a.matrix, code_b.matrix]
-    if min_weight:
-        factors = [get_min_weight_basis(factor) for factor in factors]
+    factors = _get_factor_matrices(code_a, code_b, pauli)
+    if local_checks == "min_weight":
+        factors = (get_min_weight_basis(factors[0]), get_min_weight_basis(factors[1]))
     return np.kron(*factors).view(code_a.field)
 
 
@@ -1477,14 +1487,14 @@ def _check_min_weight_sizes(codes: Iterable[ClassicalCode]) -> None:
             if num_words > _MAX_WORDS_FOR_MIN_WEIGHT_BASIS:
                 raise ValueError(
                     f"Minimum-weight local checks enumerate the words of each local code and of its"
-                    f" dual, but a {space} has {num_words} words, more than 2^20.  Pass"
-                    " local_checks='from_codes' to build the checks from the matrices that the"
-                    " local codes carry."
+                    f" dual, but a {space} has {num_words} words, more than"
+                    f" {_MAX_WORDS_FOR_MIN_WEIGHT_BASIS}.  Pass local_checks='from_codes' to build"
+                    " the checks from the matrices that the local codes carry."
                 )
 
 
-def _get_translations(
-    vertices: Sequence[abstract.GroupMember],
+def _get_translation_generators(
+    candidates: Sequence[abstract.GroupMember],
     members: Sequence[abstract.GroupMember],
     codes: Sequence[ClassicalCode],
     *,
@@ -1492,16 +1502,16 @@ def _get_translations(
 ) -> list[tuple[abstract.GroupMember, tuple[int, ...]]]:
     """Generators of the group of members x whose translations from one side preserve a code.
 
-    A member x of vertices qualifies if conjugation by x, ``m -> x m x^-1`` for left translations or
+    A candidate x qualifies if conjugation by x, ``m -> x m x^-1`` for left translations or
     ``m -> x^-1 m x`` for right translations, permutes the list of members, and the induced
     permutation of positions, which matches repeated members in order, maps each code onto itself as
-    a permutation of its coordinates (see _get_conjugation_permutation).  The list vertices must
-    include the product of any two of its members that qualify.  The permutations of two members
-    compose as the members do, so the members that qualify then form a group, of which this function
-    returns generators.
+    a permutation of its coordinates (see _get_conjugation_permutation).  The candidates must
+    include the product of any two candidates that qualify.  The permutations of two candidates
+    compose as the candidates do, so the candidates that qualify then form a group, of which this
+    function returns generators.
 
     Args:
-        vertices: The members x of the group that may qualify, in increasing order, such as the
+        candidates: The members x of the group that may qualify, in increasing order, such as the
             vertices with X-type checks of a QTCode or the members of G for an LQTCode.
         members: The list of members whose positions label the coordinates of the codes.
         codes: The local codes whose coordinates the positions of the members label.
@@ -1511,11 +1521,11 @@ def _get_translations(
         Pairs of a generator x and the permutation π of positions by which conjugation by x maps the
         member at each position i to the member at position π(i).
     """
-    # find the vertices whose conjugation permutes the members and keeps the codes
+    # find the candidates whose conjugation permutes the members and keeps the codes
     preserves_codes: dict[tuple[int, ...], bool] = {}
     qualifying = []
-    for vertex in vertices:
-        permutation = _get_conjugation_permutation(vertex, members, left=left)
+    for candidate in candidates:
+        permutation = _get_conjugation_permutation(candidate, members, left=left)
         if permutation is None:
             continue
         if permutation not in preserves_codes:
@@ -1524,30 +1534,30 @@ def _get_translations(
                 for code in codes
             )
         if preserves_codes[permutation]:
-            qualifying.append((vertex, permutation))
+            qualifying.append((candidate, permutation))
 
-    # keep each qualifying vertex that those kept before it do not generate
+    # keep each qualifying candidate that those kept before it do not generate
     generators: list[tuple[abstract.GroupMember, tuple[int, ...]]] = []
-    for vertex, permutation in qualifying:
+    for candidate, permutation in qualifying:
         kept = [generator for generator, _ in generators]
-        if not vertex.is_Identity and not (kept and vertex in abstract.Group(*kept)):
-            generators.append((vertex, permutation))
-            if abstract.Group(*kept, vertex).order == len(qualifying):
+        if not candidate.is_Identity and not (kept and candidate in abstract.Group(*kept)):
+            generators.append((candidate, permutation))
+            if abstract.Group(*kept, candidate).order == len(qualifying):
                 break
     return generators
 
 
 def _get_conjugation_permutation(
-    vertex: abstract.GroupMember, members: Sequence[abstract.GroupMember], *, left: bool
+    conjugator: abstract.GroupMember, members: Sequence[abstract.GroupMember], *, left: bool
 ) -> tuple[int, ...] | None:
-    """The permutation of positions by which conjugation by a vertex permutes a list of members.
+    """The permutation of positions by which conjugation by a member x permutes a list of members.
 
-    Conjugation by x is ``m -> x m x^-1`` if left is True, and ``m -> x^-1 m x`` otherwise.  The
-    permutation π maps each position i to the position π(i) of the conjugate of the member at
-    position i.  It matches repeated members in order: the k-th occurrence of a member goes to the
-    k-th occurrence of its conjugate.  So the permutations of two vertices compose as the vertices
-    do.  The result is None if conjugation does not permute the list, which is to say if some member
-    and its conjugate occur different numbers of times.
+    Conjugation by the conjugator x is ``m -> x m x^-1`` if left is True, and ``m -> x^-1 m x``
+    otherwise.  The permutation π maps each position i to the position π(i) of the conjugate of the
+    member at position i.  It matches repeated members in order: the k-th occurrence of a member
+    goes to the k-th occurrence of its conjugate.  So the permutations of two conjugators compose as
+    the conjugators do.  The result is None if conjugation does not permute the list, which is to
+    say if some member and its conjugate occur different numbers of times.
     """
     # the positions at which each member occurs in the list, in increasing order
     positions: dict[abstract.GroupMember, list[int]] = {}
@@ -1557,7 +1567,10 @@ def _get_conjugation_permutation(
     # map the k-th occurrence of each member to the k-th occurrence of its conjugate
     permutation = [0] * len(members)
     for member, member_positions in positions.items():
-        conjugate = vertex * member * ~vertex if left else ~vertex * member * vertex
+        if left:
+            conjugate = conjugator * member * ~conjugator
+        else:
+            conjugate = ~conjugator * member * conjugator
         conjugate_positions = positions.get(conjugate, [])
         if len(conjugate_positions) != len(member_positions):
             return None
@@ -1567,19 +1580,21 @@ def _get_conjugation_permutation(
 
 
 def _get_canonical_local_checks(
-    factor_a: galois.FieldArray, factor_b: galois.FieldArray
+    code_a: ClassicalCode, code_b: ClassicalCode, pauli: PauliXZ
 ) -> galois.FieldArray | None:
-    """The canonical checks of the tensor product of the row spaces of two matrices, or None.
+    """The canonical checks of the local check space of one type, or None.
 
-    The canonical checks are the nonzero words of weight at most w_max of the space, where w_max is
-    the largest weight of a word in a minimum-weight basis of the space (see
-    help(qldpc.codes.quantum.quantum_tanner)).  The result is None if the space has more than
-    _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more than _MAX_CANONICAL_CHECKS_PER_VERTEX canonical
-    checks.
+    The local check space is ``C_A ⨂ C_B`` for X-type checks, and ``~C_A ⨂ ~C_B`` for Z-type checks,
+    where C_A and C_B are code_a and code_b.  Its canonical checks are its nonzero words of weight
+    at most w_max, where w_max is the largest weight of a word in a minimum-weight basis of the
+    space (see help(qldpc.codes.quantum.quantum_tanner)).  The result is None if the space has more
+    than _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more than _MAX_CANONICAL_CHECKS_PER_VERTEX
+    canonical checks.
     """
     # find a basis of the space, and give up if it has too many words to enumerate
-    field = type(factor_a)
-    basis = np.kron(factor_a.row_space(), factor_b.row_space()).view(field)
+    field = code_a.field
+    factors = _get_factor_matrices(code_a, code_b, pauli)
+    basis = np.kron(factors[0].row_space(), factors[1].row_space()).view(field)
     num_words = field.order ** len(basis)
     if num_words > _MAX_WORDS_FOR_CANONICAL_CHECKS:
         return None
@@ -1591,16 +1606,17 @@ def _get_canonical_local_checks(
     # many words as the space, since neither factor is zero, so this costs no more than the
     # enumeration below.
     max_weight = 1
-    for factor in [factor_a, factor_b]:
+    for factor in factors:
         weights = np.count_nonzero(get_min_weight_basis(factor).view(np.ndarray), axis=1)
         max_weight *= int(np.max(weights, initial=0))
 
-    # enumerate the words of the space in chunks, keeping the light ones
+    # Enumerate the words of the space in chunks, keeping the light ones.  This copies the
+    # enumeration of qldpc.math._iter_coefficients, which is private to qldpc.math.
     place_values = field.order ** np.arange(len(basis), dtype=np.int64)
     checks = [field.Zeros((0, basis.shape[1]))]
     num_checks = 0
-    for start in range(0, num_words, chunk_size := 2**14):
-        indices = np.arange(start, min(start + chunk_size, num_words), dtype=np.int64)
+    for start in range(0, num_words, _WORDS_PER_CHUNK):
+        indices = np.arange(start, min(start + _WORDS_PER_CHUNK, num_words), dtype=np.int64)
         words = field(indices[:, None] // place_values % field.order) @ basis
         weights = np.count_nonzero(words.view(np.ndarray), axis=1)
         checks.append(words[(weights > 0) & (weights <= max_weight)])
