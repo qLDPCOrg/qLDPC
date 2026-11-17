@@ -252,7 +252,7 @@ This method weighs errors by CSS weight only on CSS states (Section 3.8 of `conn
 The class docstring of `ConnectedClusterCosetSearch` states the lower bounds of its answers.
 `find_first_not_within_max_weight` and `get_min_weights` try increasing weight limits (`_get_batch_cluster_bound` and `_get_min_cluster_weight`), which can find light errors sooner than one search at `max_weight`.
 They move a costly batch to threads with `run_blocks` too, with the same split work, in which the work of a query is the number of states that its searches visit; a query that looks up its error does none.
-Their answers are those of one thread ([Threads](#threads)).
+Their answers are those of one thread (Section 3.11 of `connected_cluster.md`).
 For the CSS weight, the bound that `find_first_not_within_max_weight` returns holds an error for each part, and for a part within `max_weight`, that error can differ from the one that `get_min_weight_bound` gives.
 
 The table "Routes and the names that control them" of [Exact-search performance and tuning](../../../../docs/source/exact_search_tuning.rst) names the fields that configure the searches of `CosetLeaderSearch`.

@@ -18,9 +18,9 @@ What tuning can and cannot change:
 - Tuning never changes an exact distance, a distance limited by ``max_weight``, or a count of
   logical operators.
 - With an early exit (``cutoff`` of two or more), which nontrivial word at or below ``cutoff`` a
-  distance search finds depends on tuning, and, on more than one thread, on the timing of the
-  threads.  Its weight still lies between the distance and ``cutoff`` (see
-  :func:`~qldpc.codes.distance.get_distance_from_generators`).
+  distance search finds depends on tuning, and, for a Brouwer-Zimmermann search on more than one
+  thread, on the timing of the threads.  Its weight still lies between the distance and ``cutoff``
+  (see :func:`~qldpc.codes.distance.get_distance_from_generators`).
 - Under every tuning, a query of :class:`~qldpc.codes.distance.CosetLeaderSearch` gives the same
   answer to whether a coset has a word of weight at most the query's maximum weight, and with the
   connected-cluster method the same lower bound.  The returned word, and with the Brouwer-Zimmermann

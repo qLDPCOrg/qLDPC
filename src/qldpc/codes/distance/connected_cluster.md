@@ -565,7 +565,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
   A caller that raises its limit to each bound would silently get wrong weights from a bound above the minimum, so the tests compare the exact bounds with brute force.
 - **Keep the span of the checks of a coset query**, with an invertible map of the syndromes to the sparser checks, or the queries would search other cosets.
 - **Keep the span of the stabilizers of a subsystem code exactly** ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)): a smaller span would admit words that anticommute with a stabilizer, and a larger one would miss dressed logical operators; redundant rows need no map.
-- **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers, and least index, of one thread** ([Section 3.11](#311-threads)): replay the path of each work item exactly, run every item before the first with a witness in full, and count the states above the frontier once.
+- **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers of one thread, including the first index of a syndrome without an error within `max_weight`** ([Section 3.11](#311-threads)): replay the path of each work item exactly, run every item before the first with a witness in full, and count the states above the frontier once.
   The decisions that depend on these counts would otherwise depend on the number of threads.
   In `_connected_cluster/search_test.py`, `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread`, `test_distance_searches_on_threads_take_the_steps_of_one_thread`, and `test_each_support_is_visited_once_above_its_least_variable` compare limits on threads with one thread, including a witness above the frontier and in the first and last items.
   `test_limits_on_threads_keep_the_first_witness_in_dfs_order` checks the first witness in either order of the threads, and `test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit` checks that a thread searches no later item of its range once an earlier item has a witness or an error.
@@ -576,7 +576,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
     A change that breaks this, such as a best-first search ([Section 3.10](#310-techniques-not-used)), needs its own way to split a limit across threads.
   - **Keep `_search_supports` writing only to arrays that it allocates**, and never to the tables of the search, since threads run it without the global interpreter lock.
     The other code that threads run writes only its own entries of shared results, such as the counts of states of its items and the weights of its rows, or writes under a lock, as when it records a witness or a syndrome without an error in reach.
-    It calls no numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`).
+    Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`).
 - **Return the exact minimum unless a cutoff permits an early exit**: the limits rise one divisor at a time, so that the first witness is a lightest one, and an early exit returns the weight of a known witness, an upper bound.
 
 ## References
