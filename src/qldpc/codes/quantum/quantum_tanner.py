@@ -63,13 +63,13 @@ spaces, but generating sets of the stabilizer group that combine checks at diffe
 lighter.
 
 Canonical local checks.  With the optional pybliss package, bliss finds qudit permutations that map
-a set of checks onto itself (see QuditCode.get_known_automorphism_group).  QTCode and LQTCode have
-it search their canonical local checks, as well as their parity checks.  The canonical local
-checks of a vertex are the nonzero words of weight at most w_max of its local check space, placed on
-its local view, where w_max is the largest weight of a word in a minimum-weight basis of the space.
-All minimum-weight bases of a space have the same weights, so w_max depends only on the space.  By
-the argument above, w_max for ``C_A ⨂ C_B`` is the product of the largest weights of words in
-minimum-weight bases of C_A and C_B, and likewise for ``~C_A ⨂ ~C_B``.
+a set of checks onto itself (see QuditCode.get_known_permutation_automorphism_group).  QTCode and
+LQTCode have it search their canonical local checks, as well as their parity checks.  The canonical
+local checks of a vertex are the nonzero words of weight at most w_max of its local check space,
+placed on its local view, where w_max is the largest weight of a word in a minimum-weight basis of
+the space.  All minimum-weight bases of a space have the same weights, so w_max depends only on the
+space.  By the argument above, w_max for ``C_A ⨂ C_B`` is the product of the largest weights of
+words in minimum-weight bases of C_A and C_B, and likewise for ``~C_A ⨂ ~C_B``.
 
 - The canonical checks of a vertex include a minimum-weight basis of its local check space, so they
   span it, and the canonical checks of all vertices span the row spaces of matrix_x and matrix_z.
@@ -212,19 +212,19 @@ class QTCode(CSSCode):
     For lists of members that repeat or are not symmetric, four local codes, or a complex on all of
     a given group, use LQTCode, whose docstring also relates QTCodes to it.
 
-    Symmetries: QTCode.get_known_automorphism_group gives a group of qudit permutations that
-    preserve the code.  Its generators include translations of the Cayley complex.  Left translation
-    by a vertex x with X-type checks multiplies every vertex by x from the left.  It is included if
-    conjugation by x permutes A, and the induced permutation of the coordinates of C_A maps C_A onto
-    itself.  Right translation by x multiplies every vertex by x from the right.  It is included if
-    conjugation by x permutes B, and the induced permutation of the coordinates of C_B maps C_B onto
-    itself.  With the optional pybliss package, the generators also include the automorphisms that
-    bliss finds among the parity checks of the code, and among its canonical local checks (see
-    help(qldpc.codes.quantum.quantum_tanner)).  If the local check spaces of X-type or Z-type checks
-    have more than 2^20 words, or more than 2^10 canonical checks at each vertex, bliss searches no
-    canonical checks of that type.  The group can omit other symmetries, such as those from
-    automorphisms of the group G or from exchanging A and B.  It contains no ZX-dualities, which
-    exchange X-type and Z-type operators.
+    Symmetries: QTCode.get_known_permutation_automorphism_group gives a group of qudit permutations
+    that preserve the code.  Its generators include translations of the Cayley complex.  Left
+    translation by a vertex x with X-type checks multiplies every vertex by x from the left.  It is
+    included if conjugation by x permutes A, and the induced permutation of the coordinates of C_A
+    maps C_A onto itself.  Right translation by x multiplies every vertex by x from the right.  It
+    is included if conjugation by x permutes B, and the induced permutation of the coordinates of
+    C_B maps C_B onto itself.  With the optional pybliss package, the generators also include the
+    automorphisms that bliss finds among the parity checks of the code, and among its canonical
+    local checks (see help(qldpc.codes.quantum.quantum_tanner)).  If the local check spaces of
+    X-type or Z-type checks have more than 2^20 words, or more than 2^10 canonical checks at each
+    vertex, bliss searches no canonical checks of that type.  The group can omit other symmetries,
+    such as those from automorphisms of the group G or from exchanging A and B.  It contains no
+    ZX-dualities, which exchange X-type and Z-type operators.
 
     Notes:
 
@@ -990,13 +990,13 @@ class LQTCode(CSSCode):
     that qLDPC computes, which "from_codes" uses.  LQTCode.from_lrz builds a code from the data of
     arXiv:2512.20532, in that paper's notation.
 
-    Symmetries: LQTCode.get_known_automorphism_group gives a group of qudit permutations that
-    preserve the code.  Its generators include translations of the complex.  Left translation by a
-    member x of G maps each vertex (g, s, t) to (xg, s, t).  It is included if conjugation by x,
-    ``a -> x a x^-1``, permutes the list A, which is to say that the conjugate of each member occurs
-    in A as often as the member does.  Repeated members are matched in order: the k-th occurrence of
-    a member goes to the k-th occurrence of its conjugate, which gives a permutation π of the
-    positions in A.  The translation is included if, moreover, π maps C_A^0 and C_A^1 onto
+    Symmetries: LQTCode.get_known_permutation_automorphism_group gives a group of qudit permutations
+    that preserve the code.  Its generators include translations of the complex.  Left translation
+    by a member x of G maps each vertex (g, s, t) to (xg, s, t).  It is included if conjugation by
+    x, ``a -> x a x^-1``, permutes the list A, which is to say that the conjugate of each member
+    occurs in A as often as the member does.  Repeated members are matched in order: the k-th
+    occurrence of a member goes to the k-th occurrence of its conjugate, which gives a permutation π
+    of the positions in A.  The translation is included if, moreover, π maps C_A^0 and C_A^1 onto
     themselves as a permutation of coordinates.  Right translation by x maps each vertex (g, s, t)
     to (gx, s, t), and is included under the same conditions for the conjugation ``b -> x^-1 b x``
     of B, and for C_B^0 and C_B^1.  With the optional pybliss package, the generators also include

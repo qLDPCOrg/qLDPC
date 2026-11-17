@@ -95,7 +95,7 @@ class GALACode(CSSCode):
 
     If the group is abelian and its elements lift to permutation matrices, translating every block
     of qudits by the same group element maps the checks of each type onto themselves, so
-    GALACode.get_known_automorphism_group includes these translations.
+    GALACode.get_known_permutation_automorphism_group includes these translations.
 
     The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 
@@ -289,7 +289,8 @@ class MBCode(TBCode):
     checks, and preserves the weights of operators.
 
     Translating both blocks of qudits by the same monomial ``x^i y^j z^k ...`` maps the checks of
-    each type onto themselves, so MBCode.get_known_automorphism_group includes these translations.
+    each type onto themselves, so MBCode.get_known_permutation_automorphism_group includes these
+    translations.
     """
 
     poly_a: sympy.Poly
