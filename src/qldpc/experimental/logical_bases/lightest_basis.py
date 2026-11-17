@@ -137,7 +137,7 @@ def _get_lightest_ops(
     weights: list[int] = []
     for _ in range(dimension):
         excluded = np.vstack([trivial, *chosen])
-        # The weights do not decrease, so first check whether the previous weight recurs.
+        # the weights do not decrease, so first check whether the previous weight recurs
         if weights and _has_light_word(space, excluded, weights[-1]):
             weight = weights[-1]
         else:

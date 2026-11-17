@@ -43,7 +43,7 @@ def test_sectors(
             np.testing.assert_array_equal(sector.get_classes(reference_ops), np.eye(code.dimension))
             assert not np.any(sector.get_classes(sector.trivial))
 
-        # Every bare operator is a dressed operator, and every stabilizer is a gauge operator.
+        # every bare operator is a dressed operator, and every stabilizer is a gauge operator
         assert _rank(np.vstack([dressed.get_logical_space(), bare.get_logical_space()])) == _rank(
             dressed.get_logical_space()
         )

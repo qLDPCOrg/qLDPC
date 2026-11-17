@@ -18,7 +18,7 @@ from qldpc.objects import Pauli, PauliXZ
 from . import optimization
 from .evaluation import evaluate_logical_ops
 from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
-from .optimization import _ClassSearch, optimize_logical_basis
+from .optimization import OptimizedLogicalBasis, _ClassSearch, optimize_logical_basis
 
 # a [[7, 3]] code whose optimal complete basis is heavier than its lightest bases
 _PAIRED_CHECKS = (
@@ -271,17 +271,33 @@ def test_budget(paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch) -> 
 def test_searches_and_seed(paired_code: codes.CSSCode, pytestconfig: pytest.Config) -> None:
     """The number of searches is counted exactly, and a seed makes the search reproducible."""
     seed = pytestconfig.getoption("randomly_seed")
+    original_perturb = _ClassSearch._perturb
+
+    def run() -> tuple[OptimizedLogicalBasis, list[tuple[list[int], list[int]]]]:
+        """Search with the seed, and record the classes of every perturbation."""
+        recorded = []
+
+        def record(self: _ClassSearch, *args: Any) -> tuple[list[int], list[int]]:
+            recorded.append(original_perturb(self, *args))
+            return recorded[-1]
+
+        with mock.patch.object(_ClassSearch, "_perturb", record):
+            return optimize_logical_basis(paired_code, seed=seed), recorded
+
     with mock.patch.object(
         optimization,
         "get_distance_from_generators",
         side_effect=optimization.get_distance_from_generators,
     ) as search:
-        result = optimize_logical_basis(paired_code, seed=seed)
+        result, perturbed = run()
     assert result.searches == search.call_count
 
-    repeat = optimize_logical_basis(paired_code, seed=seed)
+    # a repeat with the same seed perturbs identically, and so finds the same basis with the same
+    # searches
+    repeat, repeat_perturbed = run()
     np.testing.assert_array_equal(repeat.logical_ops, result.logical_ops)
     assert repeat.searches == result.searches
+    assert perturbed and repeat_perturbed == perturbed
 
 
 @pytest.mark.parametrize("function", [_max_weight, _total_weight, _z_weight])
@@ -391,7 +407,7 @@ def test_start_by_max_weight() -> None:
 
 
 def test_special_inputs() -> None:
-    """A code without logical qubits has an empty optimal basis, and arguments are validated."""
+    """Edge cases: no logical qubits, invalid arguments, and incomparable objective values."""
     code = codes.CSSCode([[1, 1]], [[1, 1]])
     result = optimize_logical_basis(code, objective=_z_weight)
     assert result.logical_ops.shape == (0, 4)
@@ -404,6 +420,14 @@ def test_special_inputs() -> None:
         optimize_logical_basis(code, patience=-1)
     with pytest.raises(ValueError, match="nonnegative"):
         optimize_logical_basis(code, max_searches=-1)
+
+    # an objective whose values are None never reaches its lower bound, which is None for a
+    # function, so the basis is not reported optimal; only this [[6, 4]] code's own basis is within
+    # the first weight limit of the start search, and with no budget no move is tried, so no values
+    # compare
+    code = codes.CSSCode([[0, 1, 1, 1, 1, 1]], [[1, 0, 1, 1, 1, 1]])
+    result = optimize_logical_basis(code, objective=lambda *weights: None, max_searches=0)
+    assert result.stop_reason == "max_searches"
 
 
 def _record_descent(code: codes.CSSCode, budgeted: bool) -> list[bool]:

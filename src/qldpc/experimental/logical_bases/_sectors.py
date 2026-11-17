@@ -25,12 +25,12 @@ LogicalOpsKind = Literal["dressed", "bare"]
 class Sector:
     """The logical operators of one Pauli type of a binary CSS code.
 
-    The logical operators of this type are the words of ``ker(checks)``, and those in
-    ``span(trivial)`` act trivially on the logical qubits.  The rows of ``dual_ops`` are the code's
-    logical operators of the opposite type.  They are bare, so they commute with every row of
-    ``trivial``, and the logical class ``dual_ops @ op`` of an operator ``op`` is unchanged by
-    adding rows of ``trivial``.  The class of the code's own logical operator ``j`` of this type is
-    the ``j``-th unit vector.
+    The logical operators of this type are the words of ker(checks), and those in span(trivial) act
+    trivially on the logical qubits.  The rows of ``dual_ops`` are the code's logical operators of
+    the opposite type.  They are bare, so they commute with every row of ``trivial``, and the
+    logical class ``dual_ops @ op`` of an operator ``op`` is unchanged by adding rows of
+    ``trivial``.  The class of the code's own logical operator ``j`` of this type is the ``j``-th
+    unit vector.
 
     Attributes:
         pauli: The Pauli type of the operators.

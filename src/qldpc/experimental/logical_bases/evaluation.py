@@ -55,8 +55,9 @@ def evaluate_logical_ops(
     Raises:
         TypeError: If ``code`` is not a CSS code.
         ValueError: If ``code`` is not binary, or ``logicals`` is invalid.  Also if ``logical_ops``
-            has the wrong shape, has entries other than 0 and 1, is a ``galois`` array over a field
-            other than GF(2), or is not a basis as described above.
+            has the wrong shape, has entries other than 0 and 1, is, or is a list or tuple that
+            contains, a ``galois`` array over a field other than GF(2), or is not a basis as
+            described above.
     """
     sector_x = get_sector(code, Pauli.X, logicals)
     sector_z = get_sector(code, Pauli.Z, logicals)
@@ -150,9 +151,10 @@ class LogicalOpsMetrics:
         Raises:
             TypeError: If ``code`` is not a CSS code.
             ValueError: If ``code`` is not binary, or ``pauli`` or ``logicals`` is invalid.  Also if
-                ``logical_ops`` has the wrong shape, has entries other than 0 and 1, is a ``galois``
-                array over a field other than GF(2), does not consist of logical operators of this
-                type, or does not have independent logical classes.
+                ``logical_ops`` has the wrong shape, has entries other than 0 and 1, is, or is a
+                list or tuple that contains, a ``galois`` array over a field other than GF(2), does
+                not consist of logical operators of this type, or does not have independent logical
+                classes.
         """
         sector = get_sector(code, pauli, logicals)
         ops = code.get_logical_ops(pauli) if logical_ops is None else logical_ops
@@ -196,11 +198,13 @@ def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray
     """A plain uint8 array of logical operators, such as from a ``galois`` or SciPy sparse array.
 
     Raises:
-        ValueError: If ``ops`` does not have the given shape, has entries other than 0 and 1, or is
-            a ``galois`` array over a field other than GF(2).
+        ValueError: If ``ops`` does not have the given shape, has entries other than 0 and 1, or is,
+            or is a list or tuple that contains, a ``galois`` array over a field other than GF(2).
     """
-    if isinstance(ops, galois.FieldArray) and type(ops).order != 2:
-        raise ValueError(f"Logical operators must be binary, not over GF({type(ops).order})")
+    parts = ops if isinstance(ops, (list, tuple)) else [ops]
+    for part in parts:
+        if isinstance(part, galois.FieldArray) and type(part).order != 2:
+            raise ValueError(f"Logical operators must be binary, not over GF({type(part).order})")
     matrix = np.asarray(_as_dense(ops)).view(np.ndarray)
     if matrix.shape != shape:
         raise ValueError(f"Expected logical operators with shape {shape}, not {matrix.shape}")
