@@ -79,6 +79,9 @@ Each code is defined by two symmetric subsets of a group, that is, subsets close
 The search either enumerates these subsets or draws them with `codes.QTCode.random`, as described below.
 The sizes of the subsets are the block lengths of the two local codes, whose bits are labeled by the members of the subsets.
 See the docstrings of `codes.QTCode` and `objects.CayleyComplex` for the construction.
+The search builds the parity checks of its codes from minimum-weight bases of their local check spaces, as `codes.QTCode` does by default, and saved codes record this choice.
+Searches with earlier versions of qLDPC built row-reduced bases instead, whose stabilizer weights, recorded in the headers of saved codes, can be larger.
+`run_search.py` keeps the codes that a results directory already holds, and `collect_results.py` would mix their weights with new ones, so start new searches in a new results directory; `verify_codes.py` reports codes saved by earlier searches.
 
 The options of `run_search.py` choose the groups, the local codes, and the complex on which the codes live:
 
@@ -158,7 +161,7 @@ It draws 100 random samples for each of the other 33 choices, and saves 5,523 co
    The distance `d` is exact if `d_kind` is `exact`, and otherwise it is the smallest upper bound among the saved copies of the code.
    A row attributes a code to its first copy, which can belong to another group, other local codes, or a search with another choice of identity exclusion.
    Frequencies of parameters for a given group and local codes therefore come from the saved files rather than from rows of `codes.csv`.
-4. `verify_codes.py` checks that every saved code can be loaded, and that regenerating it from its file name reproduces it.
+4. `verify_codes.py` checks that every saved code can be loaded, that it records minimum-weight local checks, and that regenerating it from its file name reproduces it.
 
 ```bash
 python experiments/quantum_tanner/run_search.py --workers 8

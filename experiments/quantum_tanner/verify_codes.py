@@ -5,7 +5,8 @@
 
 This script regenerates every code saved by run_search.py from the specification and sample in its
 file name, and checks that the regenerated code equals the saved code.  It reports every code that
-fails this check, or cannot be loaded or regenerated, and exits with an error if there are any.
+fails this check, cannot be loaded or regenerated, or was saved before the search built
+minimum-weight local checks, and exits with an error if there are any.
 
 Example:
     python experiments/quantum_tanner/verify_codes.py
@@ -62,14 +63,29 @@ def parse_args() -> argparse.Namespace:
 def get_verification_problem(path: pathlib.Path) -> str | None:
     """Say why a saved quantum Tanner code fails verification, or return None if it passes.
 
-    A saved code passes if it can be loaded, and if regenerating it from its specification and
-    sample reproduces it.
+    A saved code passes if it can be loaded, if it records the minimum-weight local checks of the
+    search, and if regenerating it from its specification and sample reproduces it.  Files saved
+    before the search built minimum-weight local checks record no choice of local checks, and their
+    headers record the weights of other checks.
     """
     # load the saved code, which fails if its file is truncated or malformed
     try:
         saved_code = codes.QTCode.load(str(path))
     except (IndexError, SyntaxError, ValueError) as error:
         return f"Saved code cannot be loaded ({error!r})"
+
+    # the stabilizer weight in the header of the file belongs to the checks that the file records
+    choice = saved_codes.read_sections(path).get("local checks")
+    if choice is None:
+        return (
+            "Saved code records no choice of local checks, so an earlier search saved it, and the"
+            " weights in its header belong to row-reduced parity checks"
+        )
+    if choice != ["min_weight"]:
+        return (
+            f"Saved code records the local checks {choice}, not ['min_weight'], so the weights in"
+            " its header belong to other parity checks"
+        )
 
     # regenerate the code from its file name, and compare
     try:

@@ -359,9 +359,12 @@ The switch keeps both certificates: an eligible word lighter than `U` is unexami
 With the optional `pybliss` package, a binary quantum code finds the automorphisms of its Tanner graph, whose edges are colored by the Pauli operators of the checks.
 They permute the checks and leave their Paulis unchanged, so they preserve the stabilizers, gauge operators, and logical operators, and for a CSS code those of each sector.
 They form a subgroup of the automorphisms of the code, which suffices, since any group of automorphisms gives a sound certificate.
-Without `pybliss`, or if bliss finds none, code classes can supply generators through `_get_qudit_automorphisms`: `MBCode` and `PairPartitionCode` the translations of their groups, and `GALACode`, `LPCode`, and `SLPCode` those of the group of their group algebra, if it is abelian and its generators lift to permutation matrices.
+Code classes can also supply generators through `_get_qudit_automorphisms`: `MBCode` and `PairPartitionCode` the translations of their groups, and `GALACode`, `LPCode`, and `SLPCode` those of the group of their group algebra, if it is abelian and its generators lift to permutation matrices.
+Searches use these generators together with those that bliss finds.
+Bliss finds only automorphisms of the Tanner graph of the chosen checks, so it can miss the generators of a construction.
 A wrong generator would make the certificate unsound, so a search first checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
-Only distance searches use automorphisms, since a count of the words of a given weight ([Section 5](#5-correctness-requirements)) must visit every such word, not one per orbit.
+When a BZ distance search uses automorphisms, it certifies a bound from the images of one information set.
+The BZ count scan of [Section 3.11](#311-counting-logical-operators) does not use automorphisms: it counts each word individually and does not track orbit sizes.
 For a general Pauli problem, a permutation of qubits moves the three thirds of the coordinates of `T` ([Section 2.7](#27-pauli-weight-as-hamming-weight)) alike, and `T` commutes with it, so verifying the lifted permutation checks the original one.
 
 ### 3.8 Worked example
@@ -762,7 +765,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**
   The distance functions take automorphisms as an array or as a function, and pass them to their BZ searches as a function that calls the function of the caller at most once.
-  `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_found_qudit_automorphisms` of the code: the automorphisms that the code caches from bliss (`src/qldpc/external/_bliss.py`) or `_get_qudit_automorphisms`, so bliss runs at most once for a code.
+  `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_found_qudit_automorphisms` of the code: the automorphisms that the code caches from bliss (`src/qldpc/external/_bliss.py`) and from `_get_qudit_automorphisms`, verified, without repeats or the identity, so bliss runs at most once for a code.
   A search calls the function only at the points of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), and uses the generators only after `verify_automorphisms` accepts them; for a CSS code, they must map the row spaces of both parity-check matrices onto themselves.
   For a general Pauli problem, `_get_lifted_automorphisms` lifts them to the coordinates of `T`, except for Pauli strings that `get_distance_pauli` searches as a CSS code.
 

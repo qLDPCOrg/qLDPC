@@ -49,6 +49,10 @@ RESULTS_DIR = pathlib.Path(__file__).parent / "results"  # default directory of 
 CODES_NAME = "codes"  # subdirectory of the results directory that holds saved codes
 EXACT_DISTANCES_NAME = "exact_distances.csv"  # file of exact distances in the results directory
 
+# sections of saved codes that choose their parity checks, which files saved by earlier versions of
+# qldpc lack
+OPTIONAL_SECTION_NAMES = ["local checks", "code_a.generator", "code_b.generator"]
+
 # columns of the file of exact distances; see compute_distances.py
 EXACT_DISTANCE_FIELDS = ("code_key", "code_file", "status", "distance", "time_limit", "seconds")
 
@@ -136,9 +140,9 @@ class CodeSpec:
                     exclude_identity=self.exclude_identity,
                     seed=self.get_seed(index, attempt),
                 )
-            except ValueError:
-                # the only error expected here is a violation of the Total No Conjugacy condition
-                if not self.bipartite:
+            except ValueError as error:
+                # retry only for a violation of the Total No Conjugacy condition
+                if not self.bipartite or "Total No Conjugacy" not in str(error):
                     raise
         raise NoValidSubsetsError(
             f"No subsets satisfying Total No Conjugacy in {num_attempts} attempts: {sample_id}"
@@ -452,11 +456,20 @@ def get_code_key(path: pathlib.Path) -> str:
     """Get a key that identifies the generating data of the quantum Tanner code in a saved file.
 
     Two files have the same key if and only if they save the same subsets, local codes, field, and
-    choice of complex, and thereby the same code.  Different generating data can still give the same
-    code.  The key ignores the header of the file, and the choice of parity checks of each local
-    code, which can differ between equal codes with different identifiers.
+    choice of complex, and thereby the same stabilizer group, and so the same distance.  Different
+    generating data can still give the same stabilizer group.  The key ignores the header of the
+    file, and the choice of parity checks of each local code, which can differ between equal codes
+    with different identifiers.  It also ignores the sections that only choose the parity checks of
+    the quantum code, which files saved by earlier versions of qldpc lack.  So two QTCodes loaded
+    from files with the same key have the same parity checks if they both chose "min_weight", the
+    choice of this search, which depends only on the spaces that the key compares.  The choice
+    "from_codes" also depends on the matrices of the local codes, which the key ignores.
     """
-    sections = read_sections(path)
+    sections = {
+        name: lines
+        for name, lines in read_sections(path).items()
+        if name not in OPTIONAL_SECTION_NAMES
+    }
     field = galois.GF(int(sections["base field"][0]))
 
     def get_canonical_checks(rows: list[str]) -> list[str]:
@@ -487,13 +500,14 @@ def read_sections(path: pathlib.Path) -> dict[str, list[str]]:
 
     Returns the lines of each section, keyed by the name in the comment line that starts it.  A
     value on that comment line, such as that of "base field", is the first line of its section.
-    Raises a ValueError if a section is missing.
+    Raises a ValueError if a section is missing, other than one of OPTIONAL_SECTION_NAMES.
     """
     names = ["subset_a", "subset_b", "code_a.matrix", "code_b.matrix", "base field", "bipartite"]
     sections: dict[str, list[str]] = {}
     name = None
     for line in path.read_text().splitlines():
-        if line_name := next((name for name in names if line.startswith(f"# {name}:")), None):
+        all_names = names + OPTIONAL_SECTION_NAMES
+        if line_name := next((name for name in all_names if line.startswith(f"# {name}:")), None):
             name = line_name
             value = line.split(":", 1)[1].strip()
             sections[name] = [value] if value else []
