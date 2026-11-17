@@ -13,12 +13,7 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from . import lightest_basis
-from .lightest_basis import (
-    LightestLogicalBasis,
-    _get_min_weight,
-    _has_light_word,
-    get_lightest_logical_basis,
-)
+from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
 
 
 @pytest.mark.parametrize("pauli", [Pauli.X, Pauli.Z])
@@ -91,22 +86,14 @@ def test_lightest_basis_properties() -> None:
     np.testing.assert_array_equal(basis.metrics.loads, [2, 2, 1, 0])
     np.testing.assert_array_equal(basis.metrics.overlaps, [[2, 2], [2, 3]])
 
-    basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
+    code = codes.CSSCode([[1, 1]], [[1, 1]])
+    basis = get_lightest_logical_basis(code, Pauli.X)
     assert basis.logical_ops.shape == (0, 2)
     assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (0, 0, 0)
 
 
-def test_weight_queries() -> None:
-    """Weight queries find words outside the excluded span, and none when there are none."""
-    space = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
-    assert _get_min_weight(space, space[:1]) == 2
-    assert _has_light_word(space, space[:1], 2)
-    assert not _has_light_word(space, space[:1], 1)
-    assert not _has_light_word(space, space, 3)
-
-
 def _get_brute_force_weights(checks: npt.ArrayLike, trivial: npt.ArrayLike) -> list[int]:
-    """Greedy weights over all words of ker(checks), sorted by weight, modulo row(trivial)."""
+    """Greedy weights over all words of ker(checks), sorted by weight, modulo span(trivial)."""
     space = [_to_int(row) for row in galois.GF2(np.asarray(checks)).null_space()]
     words = []
     for combination in range(1, 2 ** len(space)):

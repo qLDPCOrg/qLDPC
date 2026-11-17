@@ -229,6 +229,16 @@ class SearchTuning:
     #: code, several million evaluations (Sections 3.7 and 4.4 of ``brouwer_zimmermann.md``).
     automorphism_minimum_layer_work: int = 5_000_000
 
+    # Fields of distance searches of CSS codes.
+
+    #: Whether a distance search of both sectors of a CSS code, by the BZ or the connected-cluster
+    #: method, or by ``"auto"`` unless it enumerates, looks for a qubit permutation that maps one
+    #: sector onto the other, and then searches one sector (section "Searching one sector of a CSS
+    #: code" of ``README.md``).  ``False`` skips the lookup, and the search stays exact.  Defaults
+    #: to ``True``, a switch; ``False`` is for comparisons, and for many cheap searches of large
+    #: codes, on which the lookup can cost more than it saves.
+    sector_maps: bool = True
+
     # Fields of the automatic choice of a method.
 
     #: ``method="auto"`` enumerates every word, as ``"brute_force"`` does, if the enumeration

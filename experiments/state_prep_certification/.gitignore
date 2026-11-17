@@ -1,0 +1,3 @@
+# the experiments' data, which lives outside qLDPC: a directory, or a symlink to one
+certification/circuit_data
+distances/code_data

@@ -29,13 +29,14 @@ Point out when a change would be easier to review as a sequence of smaller pull 
 ## Decisions and recommendations
 
 Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
+If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#standard-triage) by name, settle decisions as it describes.
 
 ## Working on a change
 
 1. While writing a change, run the drafting checks of the [validation commands](docs/source/contributing/index.rst#validation-commands).
 2. When the change is ready, run the review that [reviewing changes](docs/source/contributing/reviewing.rst) calls for, unless the change has passed that review or a full review of the whole change, and every revision since has been [local](docs/source/contributing/reviewing.rst#rounds) and evidently correct.
    If you work for a person who is not a maintainer, run one only if they ask, since maintainers review each pull request.
-   If the review does not pass, stop and report.
+   If the review does not pass, stop and report, unless the person you work for has explicitly waived it for the hand-off, as [handing off a change](#handing-off-a-change) describes.
 3. Run the [extended checks](docs/source/contributing/index.rst#validation-commands) only if the person you work for asks for them by name, or has said that they will be away while the change is completed.
    Fix each failure that the change causes, then return to step 2.
    Report any other failure, such as one that also occurs on the main branch, as an open decision.
@@ -47,10 +48,14 @@ Leave notebook runs and the GAP integration tests to CI.
 
 ## Handing off a change
 
-Only once a change has passed any review that step 2 calls for and is fully committed, including new files, hand it to the person you work for, who pushes it.
-For each of its pull requests, give in your message, not only in a file:
+Hand a pull request to the person you work for, who pushes it, only once the following conditions hold for its changes and for those of each pull request that it builds on and that has unpushed commits.
+Each of these changes is committed, new files included.
+Each has also passed any review that step 2 calls for, unless that person has explicitly waived that review for the hand-off; a request for the pull request or its information does not waive it.
+A hand-off claims that these conditions hold.
+For a pull request that you may not hand off because a review has not passed, give no push command, title, or description, and report the review as [reviewing changes](docs/source/contributing/reviewing.rst) describes.
+For each pull request that you hand off, give in your message, not only in a file:
 
-1. its review status, as [reviews](#reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, and each open decision;
+1. its review status, as [reviews](#reviews) describes, then each pre-existing problem that the review fixed, each fix left as a suggestion, each unreviewed revision, each decision that standard triage settled, and each open decision;
 2. one shell block that pushes the branch and then opens GitHub's page for a new pull request, as in:
 
    ```bash
@@ -63,7 +68,7 @@ For each of its pull requests, give in your message, not only in a file:
 3. the title, alone in a code block;
 4. the description, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst), in a `markdown` code block whose fence is longer than any fence inside it.
 
-A request for a pull request's information, even "in the standard format", asks for this list.
+A request for a pull request's information, even "in the standard format", asks for this list if the pull request may be handed off.
 If there are several pull requests, say whether they depend on each other and in which order they should merge.
 
 ## Protected files

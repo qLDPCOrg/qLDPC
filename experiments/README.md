@@ -30,6 +30,8 @@ Commands below are written relative to the repository root.
 
 Every experiment that saves results stores them in a `results/` directory beside its scripts, which Git ignores.
 Its scripts accept `--results-dir` to use another directory instead, such as a scratch directory for a quick trial run; pass the same `--results-dir` to all scripts of an experiment.
+The [code standard](../docs/source/contributing/standards/code.rst) says which data files an experiment may commit.
+To ignore a data directory that is a symlink, name it in `.gitignore` without a trailing slash, as the root `.gitignore` does for `results` and [`state_prep_certification/.gitignore`](state_prep_certification/.gitignore) does for its data.
 Each experiment in the table below holds a CSV summary in its results directory, together with the resumable intermediate data from which that summary is built:
 
 | Experiment | Intermediate data | CSV summary |

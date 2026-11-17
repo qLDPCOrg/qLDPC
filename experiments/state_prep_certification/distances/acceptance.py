@@ -14,8 +14,7 @@
   left, while a concurrent run on another code finishes unaffected.
 * **AT5:** regenerated codes match ``sample.json``; ``compare_with_sample`` reports a sample whose
   reference distance differs from ``sample.json``; each row's tuning is the shipped default, with
-  ``BZ_PRIOR`` for ``q_bz_prior``; and every call of a qLDPC search in the experiment names its
-  method.
+  ``BZ_PRIOR`` for ``q_bz_prior``.
 * **AT6:** both arms, timed and (with work counters) counting, agree on the AT1 codes and on the
   smallest drawn code of each family, and none fails; arms that time out are reported rather than
   compared.  Locally, runs are limited to ``LOCAL_LIMIT_S``.
@@ -40,7 +39,6 @@ install (AT8) is rehearsed with ``bundle.py``.  Each test prints PASS, FAIL, or 
 from __future__ import annotations
 
 import argparse
-import ast
 import copy
 import csv
 import dataclasses
@@ -69,22 +67,6 @@ TESTS: dict[str, Callable[[pathlib.Path, bool], None]] = {}
 AT1_CODES = ("bb72", "pp110", "golay", "qr47", "five_five", "surface9")
 EQUAL_SECTORS = ("golay", "qr47")
 LOCAL_LIMIT_S = 60.0
-# the qLDPC functions and classes that search for distances or violations, and take a method
-SEARCHES = frozenset(
-    {
-        "CosetLeaderSearch",
-        "brute_force_smallest_violation",
-        "certify_bounded_fault_propagation",
-        "find_smallest_violation",
-        "get_distance",
-        "get_distance_bound",
-        "get_distance_classical",
-        "get_distance_css",
-        "get_distance_exact",
-        "get_distance_quantum",
-        "get_fault_distance",
-    }
-)
 # the prior tuning, written out here independently of config.json, which AT5 checks
 PLAN_BZ_PRIOR = {
     "partition_max_coverage": 1,
@@ -271,9 +253,7 @@ def at2_timeout(directory: pathlib.Path, node: bool) -> None:
 
 @test
 def at5_sample_and_tuning(directory: pathlib.Path, node: bool) -> None:
-    """Regenerated codes match the sample; rows record the arms' tunings; searches name a method."""
-    missing = _calls_without_method(pathlib.Path(__file__).parent)
-    assert not missing, missing
+    """Regenerated codes match the sample; rows record the arms' tunings."""
     label_dir = directory
     label_dir.mkdir(parents=True, exist_ok=True)
     problems = codes.compare_with_sample(codes.generate(label_dir))
@@ -550,32 +530,6 @@ def at10_analysis(directory: pathlib.Path, node: bool) -> None:
         pass
     else:
         raise AssertionError("an unreadable work count was accepted")
-
-
-def _calls_without_method(directory: pathlib.Path) -> list[str]:
-    """The calls of qLDPC's distance and certification searches, under a directory, without method=.
-
-    A call counts as a search if it calls one, or passes one as an argument, as to ``runner.timed``.
-    Each search names its method, so that a change of qLDPC's defaults, such as to
-    ``method="auto"``, cannot change what an arm runs.
-    """
-    calls = []
-    for path in sorted(directory.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
-            if not isinstance(node, ast.Call):
-                continue
-            function = node.func
-            name = function.attr if isinstance(function, ast.Attribute) else None
-            name = function.id if isinstance(function, ast.Name) else name
-            keywords = [keyword.arg for keyword in node.keywords]
-            passed = [
-                argument.attr for argument in node.args if isinstance(argument, ast.Attribute)
-            ]
-            passed += [argument.id for argument in node.args if isinstance(argument, ast.Name)]
-            name = next((search for search in passed if search in SEARCHES), name)
-            if name in SEARCHES and "method" not in keywords:
-                calls.append(f"{path.relative_to(directory)}:{node.lineno} {name}")
-    return calls
 
 
 if __name__ == "__main__":

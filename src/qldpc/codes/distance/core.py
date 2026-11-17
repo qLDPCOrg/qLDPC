@@ -32,6 +32,7 @@ from ._brouwer_zimmermann.distance import get_distance_brouwer_zimmermann
 from ._brute_force import get_nested_distance_brute_force
 from ._connected_cluster.search import get_distance_connected_cluster
 from ._connected_cluster.sparse_checks import get_row_weights, get_sparser_rows
+from ._sector_maps import get_sector_map
 from ._tuning import SearchTuning, get_tuning
 
 DistanceMethod = Literal[
@@ -518,23 +519,34 @@ def _search_css(
 
     # Each type has one independent nontrivial logical operator for each logical qubit, so the X
     # type alone shows whether the code encodes any.
-    num_logical_x = (
-        gauge_x.shape[1]
-        - len(get_independent_rows(stabilizers_z))
-        - len(get_independent_rows(gauge_x))
-    )
-    if num_logical_x == 0:
+    basis_x = get_independent_rows(gauge_x)
+    if gauge_x.shape[1] - len(get_independent_rows(stabilizers_z)) == len(basis_x):
         return NO_DISTANCE
 
-    # "auto" enumerates the sectors if that is cheap, and searches them by the Brouwer-Zimmermann
-    # method if none excludes a nonzero word, as for a classical code.  Otherwise, it searches them
-    # by cost, with a connected-cluster search that may switch to the Brouwer-Zimmermann method.
+    # "auto" enumerates the sectors if that is cheap.
     tuning = get_tuning()
     if method == "auto":
         dimensions = [checks.shape[1] - len(get_independent_rows(checks)) for checks, _ in sectors]
         if is_cheap_to_enumerate(dimensions, gauge_x.shape[1], tuning):
             method = "brute_force"
-        elif not any(np.any(excluded) for _, excluded in sectors):
+
+    # A qubit permutation that maps the X sector onto the Z sector leaves only the X sector to
+    # search (section "Searching one sector of a CSS code" of README.md).  Brute force never looks,
+    # so that it searches each sector as given: it is meant for small codes and for independent
+    # checks of the other methods, and auto takes it only when enumerating is cheap.
+    if (
+        method != "brute_force"
+        and len(sectors) == 2
+        and tuning.sector_maps
+        and get_sector_map(gauge_x, gauge_z, basis_x) is not None
+    ):
+        paulis, sectors = paulis[:1], sectors[:1]
+
+    # Otherwise, "auto" searches the sectors by the Brouwer-Zimmermann method if none excludes a
+    # nonzero word, as for a classical code, and otherwise by cost, with a connected-cluster search
+    # that may switch to the Brouwer-Zimmermann method.
+    if method == "auto":
+        if not any(np.any(excluded) for _, excluded in sectors):
             method = "brouwer_zimmermann"
         else:
             return search_by_cost(

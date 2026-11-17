@@ -35,6 +35,7 @@ EXPERIMENTS_DIR = pathlib.Path(__file__).resolve().parents[1]
 # The experiments, by name, and the module of each plug-in.  ``selftest`` is the stand-in plug-in
 # with which ``common/selftest.py`` tests the shared code.
 PLUGINS = {
+    "certification": "experiments.state_prep_certification.certification.experiment",
     "distances": "experiments.state_prep_certification.distances.experiment",
     "selftest": "experiments.state_prep_certification.common.selftest_plugin",
 }

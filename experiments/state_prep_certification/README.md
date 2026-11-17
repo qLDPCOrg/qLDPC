@@ -5,6 +5,7 @@ Each experiment is a subdirectory that plugs into shared code at this level:
 
 | Experiment | What it measures | Inputs |
 | --- | --- | --- |
+| [`certification/`](certification/) | Exact certification of bounded fault propagation in published state preparation circuits: feasibility, listed faults against all accepted fault combinations, smallest counterexamples, and the cost of the two weight oracles | MQT QECC's shipped and synthesized circuits, Goto's and Chen et al.'s circuits, and weakened variants |
 | [`distances/`](distances/) | Exact code distances with qLDPC's extensions of the Brouwer-Zimmermann search on, against the same search configured with only the techniques that some public exact tool shares with it | Codes drawn by a fixed rule with fixed seeds, and named anchors |
 
 The experiments run only qLDPC and its Python dependencies, so that they can run on a Linux node without practical network access.
@@ -22,7 +23,7 @@ Times measured on a workstation are never used as results.
 
 ### Labels and results
 
-A run's label is the experiment's name and the first 12 hexadecimal digits of the SHA-256 of `pins.json`, the experiment's frozen input files, and the commit of this tree.
+A run's label is the experiment's name and the first 12 hexadecimal digits of the SHA-256 of `pins.json`, the experiment's frozen input files, such as its configuration and the data that fix its inputs, and the commit of this tree.
 Any change to them gives a new label, and so a new directory `results/<experiment>/<label>/`, which Git ignores.
 From a bundle, the label also covers the bundle's resolved requirements, so that it fixes the versions of the third-party packages too; the manifest records the installed versions.
 That directory holds the manifest of the machine and software, the task lists, GNU parallel's job logs, `runs.jsonl` with one row per run, the tail of each run's output in `logs/`, and the archive.
@@ -43,7 +44,9 @@ Pass 2 holds the repeats that each experiment's repeat policy asks for after pas
 
 ## Workflow
 
-On the workstation, with the experiment's inputs frozen and committed, build the bundle and note its checksum:
+Each experiment's data, such as its codes or circuits, lives outside qLDPC, in a directory that Git ignores and that may be a symlink, as the experiment's README says.
+On the workstation, make or link the experiment's data, and check it as its README says, such as with `circuits.py --check`.
+Then build the bundle, which carries the data, and note its checksum:
 
 ```bash
 python experiments/state_prep_certification/bundle.py EXPERIMENT --out /path/to/bundles

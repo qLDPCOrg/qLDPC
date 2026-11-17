@@ -5,7 +5,7 @@
     python codes.py --out DIR [--write-sample] [--check]
 
 **Families and sizes.**  Each family has endpoints n_lo and n_hi from its published source,
-recorded with their sources in ``endpoints.json``.  The four target lengths are
+recorded with their sources in ``code_data/endpoints.json``.  The four target lengths are
 n_j = n_lo (n_hi / n_lo)^(j / 3) for j = 0, ..., 3, and each target goes to the family's
 admissible parameters whose length is nearest in log n; ties go to the smaller n, then to the
 family's tie-break.  Targets that land on the same parameters merge, and the merge is reported.
@@ -27,10 +27,11 @@ independent source gives one.
 
 **Storage.**  Every code is stored as plain matrices, ``H_X`` and ``H_Z`` for a CSS code and
 ``H = [x | z]`` otherwise, in ``codes/<code_hash>.npz``, where ``code_hash`` is the SHA-256 of
-the stored arrays.  ``--write-sample`` writes ``sample.json`` beside this script, with the Git tree
-of the qLDPC source that generated it (``qldpc_src_tree``), and ``--check`` regenerates the codes
-and compares their ``COMPARED_FIELDS`` with it, among them the anchors' reference distances, which
-the analysis reads from ``sample.json``.
+the stored arrays.  ``--write-sample`` writes ``code_data/sample.json``, with the Git tree of the
+qLDPC source that generated it (``qldpc_src_tree``), and ``--check`` regenerates the codes and
+compares their ``COMPARED_FIELDS`` with it, among them the anchors' reference distances, which the
+analysis reads from ``sample.json``.  Git ignores ``code_data/``, which the offline bundle
+carries.
 
 The constructions of the families and of some anchors are vendored, with changes, from an earlier
 unpublished version of this experiment by its authors.
@@ -68,8 +69,10 @@ else:
     import workloads
 
 HERE = pathlib.Path(__file__).resolve().parent
-ENDPOINTS = HERE / "endpoints.json"
-SAMPLE = HERE / "sample.json"
+# the experiment's data, which Git ignores: the endpoints of each family and the frozen sample
+CODE_DATA = HERE / "code_data"
+ENDPOINTS = CODE_DATA / "endpoints.json"
+SAMPLE = CODE_DATA / "sample.json"
 # part of every draw's seed: changing it redraws every code and invalidates sample.json
 SEED_TAG = "ftsp-distances-1"
 # the fields of each code that ``--check`` and the node's ``prepare`` compare with ``sample.json``
