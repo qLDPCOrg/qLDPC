@@ -853,7 +853,7 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
             for generator in group.generators
         ],
         dtype=int,
-    ).reshape(-1, num_blocks * block_size)
+    ).reshape(len(group.generators), num_blocks * block_size)
 
 
 def _get_abelian_block_translations(
