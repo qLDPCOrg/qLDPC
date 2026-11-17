@@ -4,12 +4,13 @@
 
 from __future__ import annotations
 
-import concurrent.futures
+import math
 import threading
 from collections.abc import Callable, Iterator
 from typing import Any
 
 import numba
+import numpy as np
 import pytest
 
 from . import _threads
@@ -37,8 +38,8 @@ def test_the_number_of_threads_defaults_to_that_of_numba(monkeypatch: pytest.Mon
 def test_every_item_runs_once(num_threads: int) -> None:
     """Each item runs once, in ranges that each worker claims in increasing order.
 
-    Each of ``num_threads`` workers starts once, on the calling thread or on a thread of the pool.
-    The first range holds the share of the items that guided self-scheduling gives it.
+    Each of ``num_threads`` workers starts once, on the calling thread or on a new thread.  The
+    number of ranges grows only with the logarithm of the number of items.
     """
     num_items = 50
     claims: list[list[tuple[int, int]]] = []
@@ -55,7 +56,33 @@ def test_every_item_runs_once(num_threads: int) -> None:
     assert all(ranges == sorted(ranges) for ranges in claims)
     ranges = sorted(claimed for worker_ranges in claims for claimed in worker_ranges)
     assert [item for start, end in ranges for item in range(start, end)] == list(range(num_items))
-    assert ranges[0] == (0, num_items // (2 * num_threads))
+    assert len(ranges) <= 2 * num_threads * (1 + math.log(num_items))
+
+
+@pytest.mark.parametrize("num_threads", [1, 4])
+def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None:
+    """Each range holds about ``1 / (2 * num_threads)`` of the weight not yet claimed, or one item.
+
+    The items weigh as the supports of the items of layer seven of a set of 150 rows, which fix one
+    row each, so the first items weigh the most.
+    """
+    weights = np.array([math.comb(149 - row, 6) for row in range(144)], dtype=np.float64)
+    ranges: list[tuple[int, int]] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        return lambda start, end: ranges.append((start, end))
+
+    _threads.run_work_items(
+        len(weights), num_threads, start_worker, cumulative_weights=np.cumsum(weights)
+    )
+    ranges.sort()
+    assert ranges[-1][1] == len(weights)
+    for start, end in ranges:
+        target = weights[start:].sum() / (2 * num_threads)
+        assert end - start == 1 or weights[start : end - 1].sum() < target
+        assert weights[start:end].sum() >= 0.99 * target or end == len(weights)
+    first_start, first_end = ranges[0]
+    assert weights[first_start : first_end - 1].sum() < weights.sum() / (2 * num_threads)
 
 
 def test_no_items_run_on_the_calling_thread_alone() -> None:
@@ -116,35 +143,36 @@ def test_an_exception_stops_every_thread_and_is_raised_again(
 
 
 @pytest.mark.usefixtures("no_threads_left")
-def test_an_interrupt_before_the_calling_thread_works_stops_the_other_threads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A keyboard interrupt while threads start, as the second starts, stops the first.
+def test_an_interrupt_while_a_thread_starts_stops_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A keyboard interrupt as a new thread starts stops that thread, which claims nothing more.
 
-    The pool of threads raises the interrupt in place of a real one, which no test can time.  The
-    first thread waits for the stop event before it claims a range, so it claims none.
+    The start of the thread raises the interrupt once the thread has claimed its first range, in
+    place of a real one, which no test can time.  That range waits for the stop event, so the
+    thread claims no other range, and the calling thread claims none.
     """
-    submit = concurrent.futures.ThreadPoolExecutor.submit
-    first_started = threading.Event()
+    start = threading.Thread.start
+    claimed = threading.Event()
+    claims: list[tuple[int, int]] = []
     stopped: list[bool] = []
-    claimed: list[tuple[int, int]] = []
 
-    def interrupted_submit(pool: Any, *args: Any) -> Any:
-        if first_started.is_set():
+    def interrupted_start(thread: threading.Thread) -> None:
+        start(thread)
+        if thread.name == "qldpc-search":
+            assert claimed.wait(timeout=_TIMEOUT)
             raise KeyboardInterrupt
-        future = submit(pool, *args)
-        assert first_started.wait(timeout=_TIMEOUT)
-        return future
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        first_started.set()
-        stopped.append(stop.wait(timeout=_TIMEOUT))
-        return lambda start, end: claimed.append((start, end))
+        def run_range(start: int, end: int) -> None:
+            claims.append((start, end))
+            claimed.set()
+            stopped.append(stop.wait(timeout=_TIMEOUT))
 
-    monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "submit", interrupted_submit)
+        return run_range
+
+    monkeypatch.setattr(threading.Thread, "start", interrupted_start)
     with pytest.raises(KeyboardInterrupt):
         _threads.run_work_items(10, 3, start_worker)
-    assert stopped == [True] and not claimed
+    assert len(claims) == 1 and stopped == [True]
 
 
 @pytest.mark.usefixtures("no_threads_left")
@@ -155,17 +183,17 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
     """A keyboard interrupt while the calling thread waits for a working thread stops that thread.
 
     The other thread stops after its current chunk, and the interrupt is raised once it has
-    returned, also if another interrupt comes while the calling thread waits again.  The pool of
-    threads raises the interrupts as the calling thread starts to wait, in place of real ones.
+    returned, also if another interrupt comes while the calling thread waits again.  The wait for
+    the thread raises the interrupts as it starts, in place of real ones.
     """
-    shutdown = concurrent.futures.ThreadPoolExecutor.shutdown
+    join = threading.Thread.join
     interrupts: list[KeyboardInterrupt] = []
 
-    def interrupted_shutdown(pool: Any, *args: Any, **kwargs: Any) -> None:
-        if len(interrupts) < num_interrupts:
+    def interrupted_join(thread: threading.Thread, *args: Any, **kwargs: Any) -> None:
+        if thread.name == "qldpc-search" and len(interrupts) < num_interrupts:
             interrupts.append(KeyboardInterrupt())
             raise interrupts[-1]
-        shutdown(pool, *args, **kwargs)
+        join(thread, *args, **kwargs)
 
     calling_thread = threading.get_ident()
     working = threading.Event()
@@ -182,7 +210,7 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
 
         return run_range
 
-    monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "shutdown", interrupted_shutdown)
+    monkeypatch.setattr(threading.Thread, "join", interrupted_join)
     with pytest.raises(KeyboardInterrupt) as raised:
         _threads.run_work_items(2, 2, start_worker)
     assert stopped == [True]

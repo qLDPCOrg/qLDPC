@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import collections
 import dataclasses
 import functools
 import gc
@@ -1516,15 +1517,16 @@ def test_searches_need_a_sector_or_an_upper_bound() -> None:
 
 
 class ItemScan(NamedTuple):
-    """A scan of a chunk of work items: its thread, last item, bytes of tables, and counts.
+    """A scan of a chunk of work items: its thread, bytes of tables, counts, and whether it found.
 
-    The counts are those of supports weighed, of lookups, and of supports skipped.
+    The counts are those of supports weighed, of lookups, and of supports skipped.  ``lowered`` says
+    whether the chunk found a word lighter than the best weight that it started from.
     """
 
     thread: int
-    last_item: tuple[int, ...]
     table_bytes: int
     counts: tuple[int, int, int]
+    lowered: bool
 
 
 @pytest.fixture
@@ -1535,9 +1537,9 @@ def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
 
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
         result = scan_set_items(*args)
-        last_item = tuple(args[-1].tolist())
         counts = (int(result[2]), int(result[3]), int(result[4]))
-        scans.append(ItemScan(threading.get_ident(), last_item, len(args[11]), counts))
+        lowered = bool(result[0] < args[8])
+        scans.append(ItemScan(threading.get_ident(), len(args[11]), counts, lowered))
         return result
 
     monkeypatch.setattr(affine_search, "scan_set_items", recording_scan)
@@ -1609,23 +1611,58 @@ def test_searches_on_threads_find_the_distances_that_one_thread_finds(
         assert item_scans
 
 
+@pytest.mark.usefixtures("small_batches")
+def test_threads_find_the_lightest_words_of_layers_split_across_them(
+    item_scans: list[ItemScan],
+) -> None:
+    """Threads find the lightest words of searches whose lightest words lie in split layers.
+
+    The searches are of a random [50, 30] classical code, and of the X sector of a [[72, 4, 8]]
+    bivariate bicycle code, and they find the distances of searches on one thread.
+    """
+    random_code = get_random_full_rank_matrix(np.random.default_rng(1), 30, 50)
+    bicycle = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    method: qldpc.codes.DistanceMethod = "brouwer_zimmermann"
+    searches: list[tuple[int, Callable[[], object]]] = [
+        (5, functools.partial(core.get_distance_from_generators, random_code, method=method)),
+        (
+            8,
+            functools.partial(
+                core.get_distance_css, bicycle.matrix_x, bicycle.matrix_z, Pauli.X, method=method
+            ),
+        ),
+    ]
+    for expected, search in searches:
+        with use_tuning(num_threads=1):
+            assert search() == expected
+        item_scans.clear()
+        with use_tuning(num_threads=3):
+            assert search() == expected
+        assert any(scan.lowered for scan in item_scans)
+
+
 @pytest.mark.parametrize(
     ("num_rows", "weight", "num_threads", "length"),
-    [(12, 3, 8, 1), (12, 5, 8, 2), (70, 4, 1, 1), (40, 4, 4, 2)],
+    [(12, 3, 8, 1), (12, 5, 8, 2), (40, 3, 1, 1), (40, 4, 4, 2)],
 )
 def test_work_items_fix_the_first_rows_of_heads_in_lexicographic_order(
     num_rows: int, weight: int, num_threads: int, length: int
 ) -> None:
-    """The items of a layer fix one row, or two if one leaves fewer than 32 items for each thread.
+    """The items of a layer fix one row, or two if fixing one leaves fewer than 32 for each thread.
 
     Their fixed rows are those of the heads of the supports of the layer, which end before its last
-    row, in lexicographic order.
+    row, in lexicographic order.  Their weights count their supports.
     """
     items = bz._WorkItems(num_rows, weight, num_threads)
-    heads = itertools.combinations(range(num_rows - 1), weight - 1)
-    expected = sorted({head[:length] for head in heads})
+    supports = collections.Counter(
+        support[:length] for support in itertools.combinations(range(num_rows), weight)
+    )
+    expected = sorted(supports)
     assert items.length == length and items.num_items == len(expected)
     assert [tuple(items.get_item(index)) for index in range(items.num_items)] == expected
+    np.testing.assert_array_equal(
+        items.cumulative_weights, np.cumsum([supports[item] for item in expected])
+    )
 
 
 @pytest.mark.usefixtures("switch_before_any_layer")
@@ -1670,7 +1707,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
 def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     tune: Tune,
     prepared: list[bz._SectorSearch],
-    item_scans: list[ItemScan],
+    monkeypatch: pytest.MonkeyPatch,
     cutoff: int,
     num_threads: int,
 ) -> None:
@@ -1678,10 +1715,35 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
 
     The search returns the weight of a word between the distance, eight, and the cutoff.  It scans
     one set of an automorphism family, whose best weight is ten before layer four, which holds the
-    first words of weight eight or nine, in its first items.  The threads stop scanning soon after
-    one reaches the cutoff, before they claim the last item of the layer.
+    first words of weight eight or nine in its first items.  In that layer, each thread waits for
+    the stop event after its first range, so the threads claim only their first ranges, which hold
+    such a word, and then stop, before they claim the last item.
     """
     tune(num_threads=num_threads)
+    gated = False
+    ranges: list[tuple[int, int, int]] = []
+    run_work_items = bz._threads.run_work_items
+
+    def gated_run(
+        num_items: int,
+        threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **kwargs: Any,
+    ) -> None:
+        def gated_start(stop: threading.Event) -> Callable[[int, int], None]:
+            run_range = start_worker(stop)
+
+            def gated_range(start: int, end: int) -> None:
+                ranges.append((start, end, num_items))
+                run_range(start, end)
+                if gated:
+                    assert stop.wait(timeout=10)
+
+            return gated_range
+
+        run_work_items(num_items, threads, gated_start, **kwargs)
+
+    monkeypatch.setattr(bz._threads, "run_work_items", gated_run)
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     search = bz.BrouwerZimmermannSearch(
         [get_sector(code, Pauli.X)], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
@@ -1689,15 +1751,14 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     (sector_search,) = prepared
     while not search.finished:
         bounds = (sector_search.lower_bound, sector_search.next_weight)
-        num_scans = len(item_scans)
+        gated = bounds[1] == 4
+        ranges.clear()
         search.advance()
     assert 8 <= search.best <= cutoff
     assert sector_search.uses_automorphism_family and bounds[1] == 4
     assert (sector_search.lower_bound, sector_search.next_weight) == bounds
-    items = bz._WorkItems(sector_search.dimension, 4, num_threads)
-    last_item = tuple(items.get_item(items.num_items - 1).tolist())
-    assert item_scans[num_scans:]
-    assert max(scan.last_item for scan in item_scans[num_scans:]) < last_item
+    assert 0 < len(ranges) <= num_threads
+    assert all(end < num_items for _, end, num_items in ranges)
 
 
 @pytest.mark.usefixtures("small_batches")
@@ -1774,3 +1835,45 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
     with pytest.raises(ValueError, match="failed"):
         bz.get_distance_brouwer_zimmermann([get_sector(surface, Pauli.X)], cutoff=0)
     assert set(threading.enumerate()) <= threads
+
+
+@pytest.mark.usefixtures("small_batches")
+def test_layers_of_a_set_of_deficient_rank_are_exact_on_threads(
+    item_scans: list[ItemScan],
+) -> None:
+    """Threads scan the layers of a set whose block has deficient rank, and find the distance.
+
+    The set of rank at most three on eight rows is the whole family, so the search scans every
+    layer and finds the lightest word.  Its words weigh their packed rows plus a pivot one for
+    each of their rows below the rank, which a scan that took every row for a pivot row would
+    overcount.
+    """
+    generators = get_random_full_rank_matrix(np.random.default_rng(0), 8, 20)
+    family, certificate = _get_family(generators, [[0, 1, 2]])
+    search = bz._SectorSearch(
+        affine_instance.get_distance_instance(family, certificate),
+        cutoff=0,
+        batch_size=1,
+        tuning=TABLES_DISABLED,
+        best=generators.shape[1] + 1,
+        lower_bound=0,
+        num_threads=3,
+    )
+    while not search.finished:
+        search.advance()
+    assert search.best == qldpc.codes.distance.get_distance_from_generators(
+        generators, cutoff=0, method="brute_force"
+    )
+    assert any(scan.lowered for scan in item_scans)
+
+
+def test_searches_resolve_their_number_of_threads_once(
+    prepared: list[bz._SectorSearch], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A search under the default tuning keeps the thread count that numba had when it started."""
+    monkeypatch.setattr(bz._threads.numba.config, "NUMBA_NUM_THREADS", 3)
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    search = bz.BrouwerZimmermannSearch([get_sector(code, Pauli.X)], cutoff=0)
+    monkeypatch.setattr(bz._threads.numba.config, "NUMBA_NUM_THREADS", 5)
+    search.advance()
+    assert [each.num_threads for each in prepared] == [3]

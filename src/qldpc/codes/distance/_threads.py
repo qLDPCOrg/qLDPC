@@ -9,12 +9,14 @@ a search, such as its completion tables, rather than copy them, as processes wou
 
 from __future__ import annotations
 
-import concurrent.futures
+import contextlib
 import threading
 from collections.abc import Callable
 from typing import Protocol, cast
 
 import numba
+import numpy as np
+import numpy.typing as npt
 
 
 class _NumbaConfig(Protocol):
@@ -31,11 +33,11 @@ _numba_config = cast(_NumbaConfig, numba.config)
 
 
 def get_num_threads(num_threads: int | None) -> int:
-    """The number of threads of a search, or numba's thread count if ``num_threads`` is None.
+    """The number of threads of a search, or ``numba.config.NUMBA_NUM_THREADS`` if it is None.
 
-    Numba reads its thread count, ``numba.config.NUMBA_NUM_THREADS``, normally when it is imported,
-    from the environment variable ``NUMBA_NUM_THREADS``, or else from the CPUs available to the
-    process.
+    Numba reads ``numba.config.NUMBA_NUM_THREADS``, normally when it is imported, from the
+    environment variable ``NUMBA_NUM_THREADS``, or else from the CPUs available to the process.
+    ``numba.set_num_threads`` does not change it.
     """
     return _numba_config.NUMBA_NUM_THREADS if num_threads is None else num_threads
 
@@ -44,36 +46,49 @@ def run_work_items(
     num_items: int,
     num_threads: int,
     start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+    *,
+    cumulative_weights: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Run the work items ``0, ..., num_items - 1`` on up to ``num_threads`` threads.
 
-    The calling thread and ``min(num_threads, num_items) - 1`` other threads each call
+    The calling thread and ``min(num_threads, num_items) - 1`` new threads each call
     ``start_worker`` once with a shared stop event.  It returns the function that runs, on that
     thread, the items of a range ``start, ..., end - 1``, given as ``(start, end)``.  Each thread
     then claims the next range of items that no thread has claimed, in increasing order, and runs
-    it, until every item is claimed or the event is set.  A range holds the ``max(1, remaining //
-    (2 * num_threads))`` next items, for the ``remaining`` items that no thread has claimed, so
+    it, until every item is claimed or the event is set.  A function that runs a range should check
+    the event between chunks of its work, and may set it to stop every thread.
+
+    Ranges follow guided self-scheduling: a range holds the next items up to about
+    ``1 / (2 * num_threads)`` of the weight that no thread has claimed, and at least one item, so
     ranges shrink as the work ends, and the number of claims grows only with the logarithm of the
-    number of items.  A function that runs a range should check the event between chunks of its
-    work, and may set it to stop every thread.
+    number of items.  ``cumulative_weights``, if given, holds for each item the total weight of the
+    items up to it, which estimates their work; without it, every item weighs one.
 
     If a thread raises an exception, the event is set, and once every thread has returned, the
     exception is raised again: that of the calling thread, as at a keyboard interrupt, or else the
-    first that another thread raised.  An exception while the calling thread waits for the others,
-    such as a keyboard interrupt, also sets the event, and is raised again once they have returned.
+    first that another thread raised.  An exception while the calling thread starts or waits for
+    the others, such as a keyboard interrupt, also sets the event, and is raised again once they
+    have returned; no thread claims a range once the event is set.
     """
     stop = threading.Event()
     lock = threading.Lock()
     next_item = 0
     errors: list[BaseException] = []
     num_threads = max(1, min(num_threads, num_items))
+    if cumulative_weights is None:
+        cumulative_weights = np.arange(1, num_items + 1, dtype=np.float64)
 
     def claim() -> tuple[int, int]:
-        """Claim the next range of items, which is empty once every item is claimed."""
+        """Claim the next range of items, which is empty once every item is claimed or stopped."""
         nonlocal next_item
         with lock:
             start = next_item
-            next_item = min(num_items, start + max(1, (num_items - start) // (2 * num_threads)))
+            if stop.is_set() or start == num_items:
+                return start, start
+            claimed = cumulative_weights[start - 1] if start else 0.0
+            share = (cumulative_weights[-1] - claimed) / (2 * num_threads)
+            end = int(np.searchsorted(cumulative_weights, claimed + share)) + 1
+            next_item = min(num_items, max(start + 1, end))
             return start, next_item
 
     def work() -> None:
@@ -90,32 +105,43 @@ def run_work_items(
             stop.set()
             raise
 
-    # The calling thread works too, so that it takes keyboard interrupts while the others work.  The
-    # pool starts a thread for each submission, so it starts none for one thread.
-    pool = concurrent.futures.ThreadPoolExecutor(max(1, num_threads - 1))
+    def work_on_new_thread() -> None:
+        """Work, leaving any exception, which ``work`` records, to the calling thread."""
+        with contextlib.suppress(BaseException):
+            work()
+
+    # The calling thread works too, so that it takes keyboard interrupts while the others work.  A
+    # thread is listed before it starts, so that the cleanup joins it even if its start raises.
+    threads: list[threading.Thread] = []
     try:
         for _ in range(num_threads - 1):
-            pool.submit(work)
+            threads.append(threading.Thread(target=work_on_new_thread, name="qldpc-search"))
+            threads[-1].start()
         work()
     except BaseException:
+        # A second interrupt that arrives before the event is set ends this function without
+        # stopping the other threads; only a signal handler could prevent that, which a library
+        # should not install.
         stop.set()
-        _wait_for_threads(pool, stop)
+        _join(threads, stop)
         raise
-    _wait_for_threads(pool, stop)
+    _join(threads, stop)
     if errors:
         raise errors[0]
 
 
-def _wait_for_threads(pool: concurrent.futures.ThreadPoolExecutor, stop: threading.Event) -> None:
-    """Wait until the threads of a pool return.
+def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
+    """Wait until every thread in a list that has started returns.
 
     An exception while waiting, such as a keyboard interrupt, sets the stop event, and is raised
     again once the threads have returned.  The wait goes on through further exceptions, of which the
     last is raised.
     """
     try:
-        pool.shutdown()
+        for thread in threads:
+            if thread.ident is not None:
+                thread.join()
     except BaseException:
         stop.set()
-        _wait_for_threads(pool, stop)
+        _join(threads, stop)
         raise

@@ -78,7 +78,7 @@ def scan_set(
         The updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked
         up, and of supports skipped.
     """
-    # The scan weighs no X parts, records nothing, and stops at the end of no work items, so
+    # The scan weighs no X parts, records nothing, and does not end after a work item, so
     # placeholders fill those arguments.  The skip bound is the best weight at the start, which the
     # best weight never exceeds, so the scan skips only completions that cannot lower the best
     # weight.  Every row of an information set has a pivot, so its scan needs no rank.
@@ -153,8 +153,10 @@ def start_set_items(
 ) -> int:
     """Set ``support`` and ``prefixes`` to the first support of a work item, for ``scan_set_items``.
 
-    The support starts with the fixed rows of the item, ``first_item``, and then the next row, and
-    ``prefixes[1 : len(first_item) + 1]`` hold the XORs of its leading rows.
+    ``first_item`` holds the ``k`` fixed rows of a work item of the layer ``len(support)``, with
+    ``1 <= k <= len(support) - 2``, and ``prefixes[0]`` holds the offset of the words.  The support
+    starts with the fixed rows and then the next row, and ``prefixes[1 : k + 1]`` get the XORs of
+    the offset and its leading rows.
 
     Returns:
         The depth at which ``scan_set_items`` starts.
@@ -190,10 +192,10 @@ def scan_set_items(
     A work item is the set of supports of the layer whose first ``k`` rows are fixed, and the items
     of a range are consecutive in lexicographic order of their fixed rows.  With
     ``1 <= k <= len(support) - 2``, every completion that tables skip lies in the item of its
-    prefix, so the scans of the items of a layer weigh, look up, and skip what the scan of the
-    layer does.  Start the range with ``start_set_items`` at its first item.  The scan reports the
-    end of the range, once the first ``k`` rows of a support pass ``last_item``, as that of the
-    layer, with depth ``-1``.
+    prefix, so the scans of the items of a layer, when they run in order, carrying the best weight,
+    weigh, look up, and skip what the scan of the layer does.  Start the range with
+    ``start_set_items`` at its first item.  The scan returns depth ``-1`` at the end of the range,
+    once the first ``k`` rows of a support pass ``last_item``, as at the end of a layer.
 
     The scan runs without Python's global interpreter lock, so that threads can scan the ranges of
     a layer at once, each with its own ``support`` and ``prefixes``.  The other arguments and the

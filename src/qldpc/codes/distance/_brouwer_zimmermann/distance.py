@@ -40,8 +40,9 @@ _AutomorphismFamily = tuple[basis_families.BasisFamily, certificates.Certificate
 # A function that returns the automorphism family of a sector for a weight divisor, or None.
 _GetAutomorphismFamily = Callable[[int], _AutomorphismFamily | None]
 
-# The fewest work items for each thread that a layer split across threads aims for, so that threads
-# that claim items in turn finish at about the same time (Section 4.5).
+# The fewest work items for each thread that a layer split across threads aims for, so that the last
+# ranges of items, which guided self-scheduling makes small, are small enough for threads to finish
+# at about the same time (Section 4.5).
 _ITEMS_PER_THREAD = 32
 
 ####################################################################################################
@@ -403,10 +404,12 @@ class _SectorSearch:
     ) -> bool:
         """Scan a layer of the set ``index`` on threads, as ``_scan_set`` scans it on one.
 
-        The threads claim ranges of the work items of the layer in order, and share the best
-        weight.  Each thread scans in chunks of ``batch_size * num_threads`` supports and lookups,
-        and lowers the best weight after each chunk.  So the best weight after the layer is the same
-        as on one thread (Section 4.5).  Returns False if the scan stopped at the cutoff.
+        The threads claim ranges of the work items of the layer in order, weighted by their numbers
+        of supports.  Each thread scans in chunks of ``batch_size * num_threads`` supports and
+        lookups, and lowers the best weight after each chunk.  It starts each chunk from the best
+        weight so far, which skips more, but the best weight after the layer is the same as on one
+        thread whatever the chunks start from (Section 4.5).  Returns False if the scan stopped at
+        the cutoff.
         """
         instance = self.instance
         generators = instance.generators[index]
@@ -436,7 +439,8 @@ class _SectorSearch:
                 )
                 last_item = items.get_item(end - 1)
 
-                # Start each chunk from the shared best weight, and lower it after the chunk.
+                # Start each chunk from the best weight so far, which skips more, and lower it after
+                # the chunk.
                 while depth >= 0 and not stop.is_set():
                     best, depth, _, _, _ = affine_search.scan_set_items(
                         *set_arguments,
@@ -469,7 +473,12 @@ class _SectorSearch:
             *table_arguments,
             items.get_item(0),
         )
-        _threads.run_work_items(items.num_items, self.num_threads, start_worker)
+        _threads.run_work_items(
+            items.num_items,
+            self.num_threads,
+            start_worker,
+            cumulative_weights=items.cumulative_weights,
+        )
         return self.best > self.cutoff
 
     def _select_completion_tables(
@@ -546,10 +555,12 @@ class _SectorSearch:
 class _WorkItems:
     """The work items of a layer that threads scan: the supports whose first rows are fixed.
 
-    An item fixes the first ``length`` rows of its supports: one row, or two if one leaves fewer
-    than ``_ITEMS_PER_THREAD`` items for each thread and the layer has four or more rows.  So
-    ``length <= weight - 2``, as ``affine_search.scan_set_items`` requires.  The items are numbered
-    in lexicographic order, in which the first are the largest.
+    An item fixes the first ``length`` rows of its supports: one row, or two if fixing one row
+    leaves fewer than ``_ITEMS_PER_THREAD`` items for each thread and the layer has four or more
+    rows.  So ``length <= weight - 2``, as ``affine_search.scan_set_items`` requires.  The items are
+    numbered in lexicographic order, in which the first hold the most supports.
+    ``cumulative_weights`` holds, for each item, the number of supports of the items up to it, as
+    floats, which never overflow.
     """
 
     def __init__(self, num_rows: int, weight: int, num_threads: int) -> None:
@@ -563,6 +574,21 @@ class _WorkItems:
         self._starts = np.array(
             [self.num_items - math.comb(num_values - row, self.length) for row in range(num_values)]
         )
+
+        # An item whose last fixed row is ``last`` completes its supports with ``weight - length``
+        # of the ``num_rows - 1 - last`` later rows.
+        last_rows = (
+            np.arange(num_values)
+            if self.length == 1
+            else np.concatenate([np.arange(first + 1, num_values) for first in range(num_values)])
+        )
+        supports = np.array(
+            [
+                float(math.comb(num_rows - 1 - last, weight - self.length))
+                for last in range(num_values)
+            ]
+        )
+        self.cumulative_weights = np.cumsum(supports[last_rows])
 
     def get_item(self, index: int) -> npt.NDArray[np.int64]:
         """The fixed rows of the item ``index``."""
