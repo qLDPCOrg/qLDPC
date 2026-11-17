@@ -46,7 +46,7 @@ Start from a symptom
        For its completion tables, lower :attr:`~SearchTuning.coset_completion_block_bits`, or :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each set of a family, or raise :attr:`~SearchTuning.coset_route_minimum_work`, so that fewer queries build extra families and tables.
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
-   * - A distance search, or a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch`, by the Brouwer-Zimmermann method uses too many or too few cores, as when several processes run searches at once
+   * - A distance search by the Brouwer-Zimmermann or connected-cluster method, or a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch`, uses too many or too few cores, as when several processes run searches at once
      - By default, a search uses one thread for each CPU that numba counts.
        Set the environment variable ``QLDPC_NUM_THREADS`` before Python starts, which sets the default number of threads, or set :attr:`~SearchTuning.num_threads`.
        Without ``QLDPC_NUM_THREADS``, the environment variable ``NUMBA_NUM_THREADS`` sets the default.
@@ -57,7 +57,7 @@ Start from a symptom
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        A Brouwer-Zimmermann distance search on several threads scans chunks :attr:`~SearchTuning.num_threads` times as large, so the wait grows with the number of threads.
-       A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
+       A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that; a limit that it splits across threads takes an interrupt once the work items that its threads are searching end, which can take long.
        ``method="auto"``, the default, runs one for the distances of quantum codes and the fault distances of circuits; pass ``method="brouwer_zimmermann"`` for prompt interrupts.
    * - A cheap connected-cluster search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
@@ -166,10 +166,14 @@ Routes and the names that control them
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
      - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
-   * - Batch queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method: when a costly batch moves to threads, and how many
+   * - Batch queries of :class:`~qldpc.codes.distance.CosetLeaderSearch`: when a costly batch moves to threads, and how many
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
-     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__ of ``brouwer_zimmermann.md``, and `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__ of ``connected_cluster.md`` ("Syndrome queries")
+   * - Distance searches by the connected-cluster method: the threads that search a costly weight limit
+     - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
+     -
+     - `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__
    * - Counts by the Brouwer-Zimmermann or brute-force method: time before a keyboard interrupt takes effect
      - :attr:`SearchTuning.scan_chunk_size`, :attr:`SearchTuning.scan_chunks_per_call`
      -
