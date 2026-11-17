@@ -140,7 +140,8 @@ Exact distances of binary codes use an optimized `Brouwer-Zimmermann search <htt
 By default, ``method="auto"`` chooses a method for each search: exhaustive enumeration if it is cheap, the Brouwer-Zimmermann search for a classical code, and, for the checks of a quantum code or a circuit, a connected-cluster search that may switch to the Brouwer-Zimmermann search (see :data:`~qldpc.codes.distance.DistanceMethod`).
 All exact methods can take exponential time.
 :meth:`QuditCode.get_known_permutation_automorphism_group <qldpc.codes.common.QuditCode.get_known_permutation_automorphism_group>` returns the qudit permutations that a code knows to preserve it: those of its construction, such as the translations of a ``QTCode``, and, with the optional ``pybliss`` package, those that bliss finds.
-For binary quantum codes, the Brouwer-Zimmermann and connected-cluster searches can use these permutations to search less, and their heuristics decide whether a search asks for them.
+:meth:`ClassicalCode.get_known_permutation_automorphism_group <qldpc.codes.common.ClassicalCode.get_known_permutation_automorphism_group>` does the same for bits, such as the cyclic shifts of a ``CyclicCode``.
+For binary classical and quantum codes, the Brouwer-Zimmermann and connected-cluster searches can use these permutations to search less, and their heuristics decide whether a search asks for them.
 Brouwer-Zimmermann distance searches use as many threads as the environment variable ``QLDPC_NUM_THREADS`` says, or else ``numba.config.NUMBA_NUM_THREADS``, by default one for each CPU that numba counts.
 Callers that run searches in process pools or in their own threads should keep each search on one thread, as with ``QLDPC_NUM_THREADS=1`` set before Python starts.
 The `guide to the distance package <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#threads>`__ says when this variable also sets numba's own thread count.

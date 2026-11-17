@@ -1246,10 +1246,10 @@ def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.Monke
     code = codes.BCHCode(15, 7)
     assert (found := code._found_bit_automorphisms) is not None
     assert np.array_equal(found, shift_and_multiplier)
-    assert code.get_known_bit_automorphism_group().order == 15 * 4
+    assert code.get_known_permutation_automorphism_group().order == 15 * 4
     generic_code = codes.ClassicalCode(code.matrix)
     assert generic_code._found_bit_automorphisms is None
-    assert generic_code.get_known_bit_automorphism_group().order == 1
+    assert generic_code.get_known_permutation_automorphism_group().order == 1
     monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
     assert (found := codes.BCHCode(15, 7)._found_bit_automorphisms) is not None
@@ -1277,7 +1277,7 @@ def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
     with pytest.raises(ValueError, match="not an automorphism"):
-        CodeWithTransposition([[1, 0, 1]]).get_known_bit_automorphism_group()
+        CodeWithTransposition([[1, 0, 1]]).get_known_permutation_automorphism_group()
 
 
 @pytest.mark.parametrize("bliss", [False, True])
