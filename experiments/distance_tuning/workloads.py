@@ -23,6 +23,12 @@ A code name is one of:
 - ``sparse:<bits>:<dimension>:<row_weight>:<seed>``: a classical code of low distance, whose
   generator matrix has ``dimension`` rows of ``row_weight`` ones each, in random columns that
   NumPy's default generator draws from ``seed``;
+- ``bch:<bits>:<dimension>``: ``BCHCode(bits, dimension)``, a cyclic code whose parity checks are
+  only some shifts of its check polynomial, so that only its class knows its cyclic symmetry;
+- ``rm:<order>:<size>``: ``ReedMullerCode(order, size)``, whose class knows its affine symmetry;
+- ``qc:<lift>:<rows>:<cols>:<weight>:<seed>``: a quasi-cyclic classical code, whose parity check
+  matrix has ``rows`` x ``cols`` circulant blocks of size ``lift``, each with ``weight`` ones per
+  row at offsets that NumPy's default generator draws from ``seed``;
 - a path to a ``.cpm`` file (see ``parse_cpm``).
 
 A workload name is a kind, then a code name, then the arguments of the kind, separated by ``/``:
@@ -212,7 +218,32 @@ def get_code(name: str) -> codes.ClassicalCode | codes.CSSCode:
         for row in generator:
             row[rng.choice(bits, size=row_weight, replace=False)] = 1
         return codes.ClassicalCode.from_generator(generator)
+    if kind == "bch":
+        bits, dimension = map(int, args.split(":"))
+        return codes.BCHCode(bits, dimension)
+    if kind == "rm":
+        order, size = map(int, args.split(":"))
+        return codes.ReedMullerCode(order, size)
+    if kind == "qc":
+        lift, rows, cols, weight, seed = map(int, args.split(":"))
+        return get_quasi_cyclic_code(lift, rows, cols, weight, seed)
     raise ValueError(f"Unknown code {name!r}")
+
+
+def get_quasi_cyclic_code(
+    lift: int, rows: int, cols: int, weight: int, seed: int
+) -> codes.ClassicalCode:
+    """A classical code whose parity check matrix has random circulant blocks."""
+    rng = np.random.default_rng(seed)
+    blocks = []
+    for _ in range(rows):
+        block_row = []
+        for _ in range(cols):
+            first_row = np.zeros(lift, dtype=int)
+            first_row[rng.choice(lift, size=weight, replace=False)] = 1
+            block_row.append(np.array([np.roll(first_row, shift) for shift in range(lift)]))
+        blocks.append(block_row)
+    return codes.ClassicalCode(np.block(blocks))
 
 
 def get_published_parameters(name: str) -> tuple[int, int, int] | None:
