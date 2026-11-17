@@ -10,10 +10,12 @@ parallel lattice surgery, so a basis whose operators are light and overlap littl
 parallel logical operations.  This subpackage checks bases, complete or of one Pauli type, and
 measures the weights of their operators and the overlaps between operators of the same Pauli type.
 It also finds a lightest basis of each Pauli type, whose sorted weights bound those of every basis
-of that type and kind (dressed or bare), as ``LightestLogicalBasis`` describes.  It searches for
-complete bases with low weights, whose X-type and Z-type operators pair up as
-``evaluate_logical_ops`` describes.  Finally, it chooses an operator in each logical class of a
-basis, so that the chosen operators can be acted on in few parallel rounds.
+of that type and kind (dressed or bare), as
+:class:`~qldpc.experimental.logical_bases.LightestLogicalBasis` describes.  It searches for complete
+bases with low weights, whose X-type and Z-type operators pair up as
+:func:`~qldpc.experimental.logical_bases.evaluate_logical_ops` describes.  Finally, it chooses an
+operator in each logical class of a basis, so that the chosen operators can be acted on in few
+parallel rounds.
 
 Public API:
 
