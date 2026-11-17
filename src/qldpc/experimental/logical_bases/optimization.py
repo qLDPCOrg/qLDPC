@@ -149,22 +149,23 @@ class OptimizedLogicalBasis:
             as ``objective`` in :func:`~qldpc.experimental.logical_bases.optimize_logical_basis`
             describes.  It is None for an objective given as a function, unless the code has no
             logical qubits.
-        stop_reason: Why the search stopped: ``"lower_bound"`` if it reached the lower bound, which
-            proves the basis optimal, ``"patience"`` if it stopped improving, or ``"max_searches"``
-            if it used up its budget of distance searches.
+        stop_reason: Why the search stopped: ``"optimal"`` if it reached the lower bound, which
+            proves the basis optimal among all complete bases for the objective, ``"patience"`` if
+            it stopped improving, or ``"max_searches"`` if it used up its budget of distance
+            searches.
         searches: The number of distance searches run to find the weights of classes.  The searches
             that find the lightest bases and recover operators of minimum weight are not counted.
     """
 
     logical_ops: npt.NDArray[np.uint8]
     lower_bound: Any
-    stop_reason: Literal["lower_bound", "patience", "max_searches"]
+    stop_reason: Literal["optimal", "patience", "max_searches"]
     searches: int
 
     @property
     def optimal(self) -> bool:
-        """Whether the basis is proven optimal, by reaching the lower bound."""
-        return self.stop_reason == "lower_bound"
+        """Whether the basis is proven optimal among all complete bases, by reaching the bound."""
+        return self.stop_reason == "optimal"
 
     @property
     def metrics(self) -> LogicalBasisMetrics:
@@ -322,10 +323,10 @@ class _ClassSearch:
         lightest_z: LightestLogicalBasis,
         patience: int,
         rng: np.random.Generator,
-    ) -> tuple[list[int], list[int], Literal["lower_bound", "patience", "max_searches"]]:
+    ) -> tuple[list[int], list[int], Literal["optimal", "patience", "max_searches"]]:
         """Search from the best start, and return the best classes and why the search stopped."""
         if self.dimension == 0:
-            return [], [], "lower_bound"
+            return [], [], "optimal"
 
         # descend from the best start
         best_x, best_z = self._descend(*self._get_start(lightest_x, lightest_z))
@@ -345,7 +346,7 @@ class _ClassSearch:
 
         # report why the search stopped, preferring the proof of optimality
         if best_value == self.lower_bound:
-            return best_x, best_z, "lower_bound"
+            return best_x, best_z, "optimal"
         stop_reason: Literal["patience", "max_searches"] = (
             "max_searches" if self._is_out_of_searches() else "patience"
         )

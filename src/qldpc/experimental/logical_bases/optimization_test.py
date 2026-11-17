@@ -89,7 +89,7 @@ def test_certified_optimum() -> None:
     assert not improves.called  # the start meets the bound, so the descent tries no move
     assert not perturb.called
     assert result.optimal
-    assert result.stop_reason == "lower_bound"
+    assert result.stop_reason == "optimal"
     assert result.lower_bound == (2, 2, 2, 2)
     metrics = evaluate_logical_ops(code, result.logical_ops)
     assert (metrics.x.max_weight, metrics.z.max_weight) == (2, 2)

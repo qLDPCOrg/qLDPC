@@ -178,13 +178,13 @@ class LogicalOpsRounds:
         lower_bound: A lower bound on the number of rounds of every choice of candidates in the
             classes of these operators, with candidates as
             :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds` defines them.
-        stop_reason: Why the search stopped.  ``"optimal"``: the choice is proven optimal, with the
-            fewest rounds, then the smallest largest load, then the smallest total weight.
-            ``"incomplete_candidates"``: the sampling did not find every candidate, so a better
-            choice may exist.  ``"time_limit"``: the candidates are complete, but the time limit ran
-            out before the choice was proven optimal.  If the time limit runs out before any choice
-            is found, the lightest listed candidates are used, in rounds found by greedy coloring,
-            which may be many more rounds than needed.
+        stop_reason: Why the search stopped.  ``"optimal"``: the choice is proven optimal among the
+            candidates of these classes, with the fewest rounds, then the smallest largest load,
+            then the smallest total weight.  ``"incomplete_candidates"``: the sampling did not find
+            every candidate, so a better choice may exist.  ``"time_limit"``: the candidates are
+            complete, but the time limit ran out before the choice was proven optimal.  If the time
+            limit runs out before any choice is found, the lightest listed candidates are used, in
+            rounds found by greedy coloring, which may be many more rounds than needed.
     """
 
     rounds: npt.NDArray[np.int_]
