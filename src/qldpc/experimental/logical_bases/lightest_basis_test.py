@@ -91,9 +91,12 @@ def test_lightest_basis_properties() -> None:
     np.testing.assert_array_equal(basis.metrics.loads, [2, 2, 1, 0])
     np.testing.assert_array_equal(basis.metrics.overlaps, [[2, 2], [2, 3]])
 
-    basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
+    code = codes.CSSCode([[1, 1]], [[1, 1]])
+    basis = get_lightest_logical_basis(code, Pauli.X)
     assert basis.logical_ops.shape == (0, 2)
     assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (0, 0, 0)
+    with pytest.raises(ValueError):
+        get_lightest_logical_basis(code, Pauli.Y)  # type: ignore[arg-type]
 
 
 def test_weight_queries() -> None:

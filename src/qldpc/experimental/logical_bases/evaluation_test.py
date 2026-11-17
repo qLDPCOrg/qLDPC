@@ -66,6 +66,8 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
         LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.X, np.vstack([ops[:k, :n], ops[:1, :n]]))
     with pytest.raises(ValueError, match="binary"):
         evaluate_logical_ops(stabilizer_code, 2 * ops)
+    with pytest.raises(ValueError):
+        LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.Y)  # type: ignore[arg-type]
     for row, other_half in [(0, slice(n, None)), (k, slice(None, n))]:
         mixed = ops.copy()
         mixed[row, other_half] = 1

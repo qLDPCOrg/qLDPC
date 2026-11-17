@@ -77,9 +77,7 @@ def evaluate_logical_ops(
             "Logical X-type operator j must anticommute with logical Z-type operator j, and commute"
             " with all others"
         )
-    return LogicalBasisMetrics(
-        x=LogicalOpsMetrics._from_valid_ops(ops_x), z=LogicalOpsMetrics._from_valid_ops(ops_z)
-    )
+    return LogicalBasisMetrics._from_valid_ops(matrix)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -93,6 +91,15 @@ class LogicalBasisMetrics:
 
     x: LogicalOpsMetrics
     z: LogicalOpsMetrics
+
+    @classmethod
+    def _from_valid_ops(cls, logical_ops: npt.NDArray[np.uint8]) -> LogicalBasisMetrics:
+        """The metrics of a complete basis with shape ``(2k, 2n)``, without checking it."""
+        k, n = len(logical_ops) // 2, logical_ops.shape[1] // 2
+        return cls(
+            x=LogicalOpsMetrics._from_valid_ops(logical_ops[:k, :n]),
+            z=LogicalOpsMetrics._from_valid_ops(logical_ops[k:, n:]),
+        )
 
 
 @dataclasses.dataclass(frozen=True, eq=False)

@@ -17,7 +17,7 @@ from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
 from qldpc.objects import Pauli
 
 from ._sectors import LogicalOpsKind, Sector, _as_uint8, get_sector
-from .evaluation import LogicalBasisMetrics, LogicalOpsMetrics
+from .evaluation import LogicalBasisMetrics
 from .lightest_basis import LightestLogicalBasis, _get_min_weight_word, get_lightest_logical_basis
 
 # Perturbations of the iterated local search keep every class within this much of the best maximum
@@ -168,11 +168,7 @@ class OptimizedLogicalBasis:
         These are the metrics that :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
         returns for this basis.
         """
-        k, n = len(self.logical_ops) // 2, self.logical_ops.shape[1] // 2
-        ops_x, ops_z = self.logical_ops[:k, :n], self.logical_ops[k:, n:]
-        return LogicalBasisMetrics(
-            x=LogicalOpsMetrics._from_valid_ops(ops_x), z=LogicalOpsMetrics._from_valid_ops(ops_z)
-        )
+        return LogicalBasisMetrics._from_valid_ops(self.logical_ops)
 
 
 def _get_objective_function(
