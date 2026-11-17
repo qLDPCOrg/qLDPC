@@ -1517,14 +1517,16 @@ def test_searches_need_a_sector_or_an_upper_bound() -> None:
 
 
 class ItemScan(NamedTuple):
-    """A scan of a chunk of work items: its thread, bytes of tables, counts, and whether it found.
+    """A scan of a chunk of work items: its thread, bytes of tables, chunk size, counts, and finds.
 
-    The counts are those of supports weighed, of lookups, and of supports skipped.  ``lowered`` says
-    whether the chunk found a word lighter than the best weight that it started from.
+    The chunk size is the most supports and lookups that the chunk may scan, and the counts are
+    those of supports weighed, of lookups, and of supports skipped.  ``lowered`` says whether the
+    chunk found a word lighter than the best weight that it started from.
     """
 
     thread: int
     table_bytes: int
+    chunk_size: int
     counts: tuple[int, int, int]
     lowered: bool
 
@@ -1539,7 +1541,7 @@ def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
         result = scan_set_items(*args)
         counts = (int(result[2]), int(result[3]), int(result[4]))
         lowered = bool(result[0] < args[8])
-        scans.append(ItemScan(threading.get_ident(), len(args[11]), counts, lowered))
+        scans.append(ItemScan(threading.get_ident(), len(args[11]), args[10], counts, lowered))
         return result
 
     monkeypatch.setattr(affine_search, "scan_set_items", recording_scan)
@@ -1568,9 +1570,10 @@ def test_searches_on_threads_find_the_distances_that_one_thread_finds(
     """Searches that split layers across threads find the distances of searches on one thread.
 
     The searches are of a classical code, the [24, 12, 8] Golay code; of the X sector, and of both
-    sectors, of the [[41, 1, 5]] surface code; of a [[25, 1, 4]] surface code with Hadamards on half
-    of its qubits, which is not CSS; and of the [[25, 1, 5]] Bacon-Shor code, a subsystem code (see
-    https://arxiv.org/abs/quant-ph/0506023).  On one thread, they scan no work items.
+    sectors, of the [[25, 1, 5]] rotated surface code; of a [[16, 1, 4]] rotated surface code with
+    Hadamards on half of its qubits, which is not CSS; and of the [[25, 1, 5]] Bacon-Shor code, a
+    subsystem code (see https://arxiv.org/abs/quant-ph/0506023).  On one thread, they scan no work
+    items.
     """
     surface = qldpc.codes.SurfaceCode(5)
     small_surface = qldpc.codes.SurfaceCode(4)
@@ -1709,6 +1712,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
 def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     tune: Tune,
     prepared: list[bz._SectorSearch],
+    item_scans: list[ItemScan],
     monkeypatch: pytest.MonkeyPatch,
     cutoff: int,
     num_threads: int,
@@ -1719,12 +1723,15 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     one set of an automorphism family, whose best weight is ten before layer four.  In that layer,
     the item whose fixed rows are 0 and 13 holds a word of weight eight.  Ranges that start after
     that item wait for the stop event before they scan, so the threads stop before they claim the
-    last item.  The first range of the layer, sized by the weights of its items, holds about
-    ``1 / (2 * num_threads)`` of its supports: without its last item, less than that share.
+    last item, and they scan no chunk of those ranges.  The range of that item waits until another
+    thread holds such a range.  The ranges are sized by the weights of the items of the layer.
     """
     tune(num_threads=num_threads)
     gated = False
     ranges: list[tuple[int, int, int]] = []
+    late_scans: list[int] = []
+    later_claimed = threading.Event()
+    weights: list[npt.NDArray[np.float64]] = []
     run_work_items = bz._threads.run_work_items
     dimension, weight = 38, 4
     items = bz._WorkItems(dimension, weight, num_threads)
@@ -1742,12 +1749,23 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
 
             def gated_range(start: int, end: int) -> None:
                 ranges.append((start, end, num_items))
-                if gated and start > witness_index:
-                    assert stop.wait(timeout=10)
+                if not (gated and start > witness_index):
+                    # The range of the witness waits until another thread holds a later range.
+                    if gated and witness_index < end:
+                        assert later_claimed.wait(timeout=10)
+                    run_range(start, end)
+                    return
+                later_claimed.set()
+                assert stop.wait(timeout=10)
+                thread = threading.get_ident()
+                scans_before = sum(scan.thread == thread for scan in item_scans)
                 run_range(start, end)
+                late_scans.append(sum(scan.thread == thread for scan in item_scans) - scans_before)
 
             return gated_range
 
+        if gated:
+            weights.append(kwargs["cumulative_weights"])
         run_work_items(num_items, threads, gated_start, **kwargs)
 
     monkeypatch.setattr(bz._threads, "run_work_items", gated_run)
@@ -1766,12 +1784,9 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     assert (sector_search.lower_bound, sector_search.next_weight) == bounds
     assert sector_search.dimension == dimension and ranges[0][2] == items.num_items
     assert all(end < num_items for _, end, num_items in ranges)
-    first_end = min(end for start, end, _ in ranges if start == 0)
-    first_supports = sum(
-        math.comb(dimension - 1 - rows[-1], weight - len(rows))
-        for rows in item_rows[: first_end - 1]
-    )
-    assert first_supports < math.comb(dimension, weight) / (2 * num_threads)
+    assert late_scans and not any(late_scans)
+    (layer_weights,) = weights
+    np.testing.assert_array_equal(layer_weights, items.cumulative_weights)
 
 
 @pytest.mark.usefixtures("small_batches")
@@ -1813,6 +1828,9 @@ def test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does(
     assert item_scans
     assert totals[0][2] > 0 if tables else totals[0][1] == 0
     np.testing.assert_array_equal(totals[0], totals[1])
+
+    # On three threads, each scans chunks three times as large as a chunk on one thread.
+    assert {scan.chunk_size for scan in item_scans} == {3 << 3}
 
 
 @pytest.mark.usefixtures("small_batches")

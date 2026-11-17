@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections.abc import Sequence
+import threading
+from collections.abc import Callable, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -15,6 +16,7 @@ import pytest
 from qldpc._binary import pack_bits
 from qldpc._compilation import is_compilation_disabled
 
+from .. import _threads
 from .._information_sets import completion_bounds
 from . import affine_search
 
@@ -165,7 +167,9 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
 
     The items fix the first one to ``weight - 2`` rows of the supports, and the ranges hold one item
     or up to four.  The sets have full and partial rank, and the scans of the set of full rank also
-    run with tables, which skip some completions.
+    run with tables, which skip some completions.  Scans of the ranges on three threads at once,
+    from the best weight of the layer, which none of them lowers, count what the scan of the layer
+    from that weight does.
     """
     rng = np.random.default_rng(7)
     num_rows, weight = 8, 5
@@ -183,22 +187,11 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
         table_arguments = (set_tables.tables, set_tables.offsets, set_tables.block_bits)
 
         # Scan the layer.
+        scan_arguments = (*arguments, weight, batch_size, table_arguments)
+        expected_best, expected_counts = _scan_layer(*scan_arguments, initial_best)
+        assert expected_counts[2] > 0 or set_tables is no_tables
         support = np.zeros(weight, dtype=np.int64)
         prefixes = np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64)
-        depth, expected_best, expected_counts = 0, initial_best, np.zeros(3, dtype=np.int64)
-        while depth >= 0:
-            expected_best, depth, *counts = affine_search.scan_set(
-                *arguments,
-                support,
-                prefixes,
-                depth,
-                expected_best,
-                -1,
-                batch_size,
-                *table_arguments,
-            )
-            expected_counts += counts
-        assert expected_counts[2] > 0 or set_tables is no_tables
 
         # Scan the ranges of work items of the layer in order, each from its first support.
         for length, range_size in itertools.product(range(1, weight - 1), (1, 4)):
@@ -226,6 +219,11 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
                     item_counts += counts
             assert best == expected_best
             np.testing.assert_array_equal(item_counts, expected_counts)
+
+        # Scan the items that fix one row on threads, from the best weight of the layer.
+        _, final_counts = _scan_layer(*scan_arguments, expected_best)
+        thread_counts = _scan_items_on_threads(*scan_arguments, expected_best)
+        np.testing.assert_array_equal(thread_counts, final_counts)
 
 
 def test_scans_of_work_items_run_without_the_global_interpreter_lock() -> None:
@@ -541,3 +539,88 @@ def _get_completion_bound(
         )
         for start in range(0, tails.shape[1], block_bits)
     )
+
+
+def _scan_layer(
+    generators: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    rank: int,
+    width: int,
+    label_width: int,
+    weight: int,
+    batch_size: int,
+    table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
+    best: int,
+) -> tuple[int, npt.NDArray[np.int64]]:
+    """Scan a layer of a set with ``scan_set``, and return its best weight and its total counts."""
+    support = np.zeros(weight, dtype=np.int64)
+    prefixes = np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64)
+    depth, layer_counts = 0, np.zeros(3, dtype=np.int64)
+    while depth >= 0:
+        best, depth, *counts = affine_search.scan_set(
+            generators,
+            labels,
+            rank,
+            width,
+            label_width,
+            support,
+            prefixes,
+            depth,
+            best,
+            -1,
+            batch_size,
+            *table_arguments,
+        )
+        layer_counts += counts
+    return best, layer_counts
+
+
+def _scan_items_on_threads(
+    generators: npt.NDArray[np.uint64],
+    labels: npt.NDArray[np.uint64],
+    rank: int,
+    width: int,
+    label_width: int,
+    weight: int,
+    batch_size: int,
+    table_arguments: tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64], int],
+    best: int,
+) -> npt.NDArray[np.int64]:
+    """Scan the items of a layer that fix one row, on three threads, all from one best weight.
+
+    Returns the total counts of the scans.
+    """
+    num_rows = generators.shape[0]
+    items = [np.array([row], dtype=np.int64) for row in range(num_rows - weight + 1)]
+    lock = threading.Lock()
+    total_counts = np.zeros(3, dtype=np.int64)
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        support = np.zeros(weight, dtype=np.int64)
+        prefixes = np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64)
+
+        def scan_range(start: int, end: int) -> None:
+            depth = affine_search.start_set_items(generators, items[start], support, prefixes)
+            while depth >= 0:
+                _, depth, *counts = affine_search.scan_set_items(
+                    generators,
+                    labels,
+                    rank,
+                    width,
+                    label_width,
+                    support,
+                    prefixes,
+                    depth,
+                    best,
+                    -1,
+                    batch_size,
+                    *table_arguments,
+                    items[end - 1],
+                )
+                with lock:
+                    total_counts[:] += counts
+
+        return scan_range
+
+    _threads.run_work_items(len(items), 3, start_worker)
+    return total_counts

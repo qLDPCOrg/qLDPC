@@ -4,10 +4,10 @@
 
 from __future__ import annotations
 
+import functools
+import itertools
 import math
-import sys
 import threading
-import types
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -153,17 +153,12 @@ def test_an_exception_stops_every_thread_and_is_raised_again(
 
 
 @pytest.mark.usefixtures("no_threads_left")
-@pytest.mark.parametrize("joinable_late", [False, True])
-def test_an_interrupt_while_a_thread_starts_stops_it(
-    monkeypatch: pytest.MonkeyPatch, joinable_late: bool
-) -> None:
+def test_an_interrupt_while_a_thread_starts_stops_it(monkeypatch: pytest.MonkeyPatch) -> None:
     """A keyboard interrupt as a new thread starts stops that thread, which claims nothing more.
 
     The start of the thread raises the interrupt once the thread has claimed its first range, in
     place of a real one, which no test can time.  That range waits for the stop event, so the
-    thread claims no other range, and the calling thread claims none.  A thread can have an ident
-    a moment before it counts as started, and the cleanup then tries again to join it, as many
-    times as it takes, without recursion.
+    thread claims no other range, and the calling thread claims none.
     """
     start = threading.Thread.start
     claimed = threading.Event()
@@ -184,24 +179,124 @@ def test_an_interrupt_while_a_thread_starts_stops_it(
 
         return run_range
 
-    join = threading.Thread.join
-    joins: list[threading.Thread] = []
-
-    def late_join(thread: threading.Thread, *args: Any, **kwargs: Any) -> None:
-        joins.append(thread)
-        if len(joins) <= sys.getrecursionlimit():
-            raise RuntimeError("cannot join thread before it is started")
-        join(thread, *args, **kwargs)
-
     monkeypatch.setattr(threading.Thread, "start", interrupted_start)
-    if joinable_late:
-        monkeypatch.setattr(threading.Thread, "join", late_join)
-        monkeypatch.setattr(_threads, "time", types.SimpleNamespace(sleep=lambda seconds: None))
     with pytest.raises(KeyboardInterrupt):
         _threads.run_work_items(10, 3, start_worker)
     assert len(claims) == 1 and stopped == [True]
-    if joinable_late:
-        assert len(joins) >= 2
+
+
+def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A thread whose start is interrupted before the thread starts is skipped, and does no work.
+
+    The start raises the interrupt in place of a real one, and keeps the thread, which the test
+    then starts for real.  Its worker never starts, since the stop event is set by then.  The
+    search runs on a helper thread, so that a cleanup that waited for the kept thread would time
+    out rather than hang.
+    """
+    start = threading.Thread.start
+    kept: list[threading.Thread] = []
+    worker_starts = itertools.count()
+    raised: list[BaseException] = []
+
+    def interrupted_start(thread: threading.Thread) -> None:
+        if thread.name != "qldpc-search":
+            start(thread)
+            return
+        kept.append(thread)
+        raise KeyboardInterrupt
+
+    def search() -> None:
+        try:
+            # A worker counts its start, and would run no range.
+            _threads.run_work_items(
+                10, 2, lambda stop: functools.partial(print, next(worker_starts))
+            )
+        except BaseException as error:  # noqa: BLE001 - the test checks which error the search raised
+            raised.append(error)
+
+    monkeypatch.setattr(threading.Thread, "start", interrupted_start)
+    helper = threading.Thread(target=search, daemon=True)
+    helper.start()
+    helper.join(timeout=_TIMEOUT)
+    assert not helper.is_alive()
+    (error,) = raised
+    assert isinstance(error, KeyboardInterrupt)
+
+    (thread,) = kept
+    start(thread)
+    thread.join(timeout=_TIMEOUT)
+    assert not thread.is_alive() and next(worker_starts) == 0
+
+
+@pytest.mark.usefixtures("no_threads_left")
+def test_an_interrupt_as_the_cleanup_starts_stops_the_other_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyboard interrupt as the calling thread starts to wait for the others stops them too.
+
+    The wait raises the interrupt as it is entered, in place of a real one, and then waits.
+    """
+    join = _threads._join
+    interrupted: list[bool] = []
+
+    def interrupted_join(*args: Any) -> None:
+        if not interrupted:
+            interrupted.append(True)
+            raise KeyboardInterrupt
+        join(*args)
+
+    calling_thread = threading.get_ident()
+    working = threading.Event()
+    stopped: list[bool] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        def run_range(start: int, end: int) -> None:
+            # The calling thread runs out of work while the other thread works.
+            if threading.get_ident() == calling_thread:
+                assert working.wait(timeout=_TIMEOUT)
+                return
+            working.set()
+            stopped.append(stop.wait(timeout=_TIMEOUT))
+
+        return run_range
+
+    monkeypatch.setattr(_threads, "_join", interrupted_join)
+    with pytest.raises(KeyboardInterrupt):
+        _threads.run_work_items(2, 2, start_worker)
+    assert stopped == [True]
+
+
+@pytest.mark.usefixtures("no_threads_left")
+def test_the_first_error_of_the_other_threads_is_raised() -> None:
+    """When several other threads fail, the error of the first to fail is raised again."""
+    calling_thread = threading.get_ident()
+    started = threading.Barrier(3, timeout=_TIMEOUT)
+    order: list[int] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        def run_range(start: int, end: int) -> None:
+            started.wait()
+            if threading.get_ident() == calling_thread:
+                assert stop.wait(timeout=_TIMEOUT)
+                return
+            # The thread that gets here first fails first, and the other fails after its error is
+            # recorded.
+            with lock:
+                order.append(threading.get_ident())
+                first = len(order) == 1
+            if first:
+                raise ValueError("first")
+            # The stop event is set once the first error is recorded.
+            assert stop.wait(timeout=_TIMEOUT)
+            raise ValueError("second")
+
+        return run_range
+
+    lock = threading.Lock()
+    with pytest.raises(ValueError, match="first"):
+        _threads.run_work_items(3, 3, start_worker)
 
 
 @pytest.mark.usefixtures("no_threads_left")

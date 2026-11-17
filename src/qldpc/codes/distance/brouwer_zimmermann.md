@@ -771,7 +771,9 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   A later call restarts the layer from its first support, unless the search has finished, as it has after a stop at the cutoff.
   If `BrouwerZimmermannSearch.advance` raises, a witness that the interrupted scan found can stay out of the shared `U`, so build a new search to search again.
 - **Threads.**
-  A search scans a layer of a set on `num_threads` threads, which `BrouwerZimmermannSearch` resolves once from the tuning (the environment variable `QLDPC_NUM_THREADS`, or else `numba.config.NUMBA_NUM_THREADS`, when the field is `None`; README.md, "Threads"), if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports.
+  A search scans a layer of a set on `num_threads` threads if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports.
+  `BrouwerZimmermannSearch` resolves `num_threads` once from the tuning.
+  If the field is `None`, it takes the environment variable `QLDPC_NUM_THREADS`, or else `numba.config.NUMBA_NUM_THREADS` (README.md, "Threads").
   Otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
   A **work item** is the set of supports of the layer whose first `k` rows are fixed: `k = 1`, or `k = 2` if fixing one row leaves fewer than 32 items for each thread and `w ≥ 4`.
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
@@ -790,7 +792,7 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   The thread that brings `U` to the cutoff stops the others after their chunks.
   The witness, and so the result of an early exit, can then depend on the timing of the threads, though its weight still lies between the distance and the cutoff.
   An exception in any thread stops the others after their chunks, and so does one in the calling thread while it starts or waits for them, such as a keyboard interrupt.
-  The exception is raised again once all threads have returned.
+  The exception is raised again once all threads have returned, except in the narrow windows that only a signal handler could close (see `_threads.py`).
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**

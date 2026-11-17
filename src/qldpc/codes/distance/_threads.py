@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import threading
-import time
 from collections.abc import Callable
 from typing import Protocol, cast
 
@@ -31,8 +30,6 @@ class _NumbaConfig(Protocol):
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
 _numba_config = cast(_NumbaConfig, numba.config)
 
-# The message of the error that joining a thread raises before the thread counts as started.
-_NOT_STARTED = "cannot join thread before it is started"
 
 ####################################################################################################
 # threads
@@ -74,16 +71,20 @@ def run_work_items(
     about ``1 / (2 * num_threads)`` of the weight that no thread has claimed, so a heavy item can
     make a range overshoot that share, and ranges shrink as the work ends.  The claims number at
     most about ``2 * num_threads * ln(W / w) + 1``, for the total weight ``W`` and the weight ``w``
-    of the lightest item.  ``cumulative_weights``, if
-    given, holds for each item the total weight of the items up to it, which estimates their work;
-    without it, items count one each.
+    of the lightest item.  ``cumulative_weights``, if given, holds for each item the total weight of
+    the items up to it, which estimates their work; without it, items count one each.
+
+    The functions that run ranges must not call numba code compiled with ``parallel=True`` or
+    ``prange``, such as some of galois's: two threads that call it at once abort the process under
+    numba's default threading layer.
 
     If a thread raises an exception, the event is set, and once every thread has returned, the
     exception is raised again: that of the calling thread, as at a keyboard interrupt, or else the
     first that another thread raised.  An exception while the calling thread starts or waits for
     the others, such as a keyboard interrupt, also sets the event, and is raised again once every
-    thread whose start set its ``ident`` has returned; no thread claims a range once the event is
-    set.
+    thread that started has returned.  A thread whose start was interrupted before it counted as
+    started may still run, but it finds the event set and returns without starting its worker.  No
+    thread claims a range once the event is set.
     """
     stop = threading.Event()
     lock = threading.Lock()
@@ -128,48 +129,42 @@ def run_work_items(
             work()
 
     # The calling thread works too, so that it takes keyboard interrupts while the others work.  A
-    # thread is listed before it starts, so that the cleanup joins it if its start got far enough to
-    # set its ident, even if the start then raised.  A thread whose start is interrupted earlier may
-    # start late, but it finds the event set and returns without starting its worker.
+    # thread is listed before it starts, so that the cleanup joins it if it started, even if its
+    # start then raised.
     threads: list[threading.Thread] = []
     try:
         for _ in range(num_threads - 1):
             threads.append(threading.Thread(target=work_on_new_thread, name="qldpc-search"))
             threads[-1].start()
         work()
+        _join(threads, stop)
     except BaseException:
-        # A second interrupt that arrives before the event is set ends this function without
-        # stopping the other threads; only a signal handler could prevent that, which a library
-        # should not install.
+        # A second interrupt that arrives before the event is set, or as the cleanup starts, ends
+        # this function without stopping the other threads; only a signal handler could prevent
+        # that, which a library should not install.
         stop.set()
         _join(threads, stop)
         raise
-    _join(threads, stop)
     if errors:
         raise errors[0]
 
 
 def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
-    """Wait until every thread in a list whose start set its ``ident`` returns.
+    """Wait until every thread in a list that has started returns.
 
-    An exception while waiting, such as a keyboard interrupt, sets the stop event, and the wait goes
-    on.  The last such exception is raised once the threads have returned.
+    A thread that has not started is skipped: the stop event is set whenever its start was
+    interrupted, so it returns without starting its worker if it runs later.  An exception while
+    waiting, such as a keyboard interrupt, sets the stop event, and the wait goes on.  The last such
+    exception is raised once the threads have returned.
     """
     interrupt: BaseException | None = None
     for thread in threads:
-        delay = 0.0
         while True:
             try:
-                time.sleep(delay)
-                if thread.ident is not None:
+                if thread.is_alive():
                     thread.join()
                 break
             except BaseException as error:  # noqa: BLE001 - raised once the threads return
-                # A thread has an ident a moment before it counts as started, and joining it
-                # before then raises this error, so try again.
-                if isinstance(error, RuntimeError) and _NOT_STARTED in str(error):
-                    delay = 0.001
-                    continue
                 interrupt = error
                 stop.set()
     if interrupt is not None:

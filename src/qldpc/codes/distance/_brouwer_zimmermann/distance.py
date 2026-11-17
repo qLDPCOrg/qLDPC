@@ -461,7 +461,8 @@ class _SectorSearch:
 
             return scan_range
 
-        # Compile the scan before the threads call it: a scan from depth -1 returns at once.
+        # Compile the scan before the threads call it, so that the threads do not all wait behind
+        # numba's compiler lock while one compiles it.  A scan from depth -1 returns at once.
         affine_search.scan_set_items(
             *set_arguments,
             np.zeros(weight, dtype=np.int64),
