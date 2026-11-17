@@ -53,8 +53,8 @@ Where documentation belongs
   Put anything that people need in a guide or a standard, never only in ``AGENTS.md``.
 * Keep each page focused on one topic or task, and small enough to read whole; split a page that outgrows that.
 * Put explanations that span packages in the :doc:`library map </library_map>`, exact API behavior in docstrings, and executable workflows in ``examples/``.
-  Point references from the specific to the general: docstrings, comments, and guides that describe how an object can be extended, such as by a hook, do not name the classes or functions that extend it, though catalogs such as the library map may list them.
-  For example, the docstring of ``QuditCode.get_known_qudit_automorphism_group`` says that a code class can add checks in which to search for automorphisms, rather than naming ``QTCode``, whose docstring says which checks it adds.
+  Point references from the specific to the general: docstrings, comments, and guides that describe how an object can be extended, such as by a hook, explain it without relying on any extension, and do not list its extensions, though catalogs such as the library map may.
+  They may name an extension as an example.
 * In a package whose directory holds guides to it, such as ``codes/distance/``, only those guides give correctness arguments for its code, such as why a bound holds.
   Docstrings and comments in the package point to a guide's section rather than repeat its argument, and may state in a clause what that section proves.
 * Mention a measurement that bears on a choice in the code only when it is the reason for the choice: when the code would do otherwise without it, as when one way of building stim circuits is much faster than another.
