@@ -27,6 +27,18 @@ _PAIRED_CHECKS = (
 )
 
 
+# an [[8, 3]] code whose perturbation from its own basis rejects a draw before the budget runs out
+_REJECTING_CHECKS = (
+    [[1, 1, 1, 0, 0, 1, 0, 0]],
+    [
+        [1, 0, 0, 0, 1, 1, 1, 0],
+        [1, 1, 0, 1, 1, 0, 0, 1],
+        [0, 1, 1, 1, 1, 0, 0, 0],
+        [1, 0, 0, 1, 1, 1, 0, 0],
+    ],
+)
+
+
 @pytest.fixture
 def paired_code() -> codes.CSSCode:
     """A [[7, 3]] code whose optimal complete basis is heavier than its lightest bases."""
@@ -301,14 +313,17 @@ def test_descent_stops_when_out_of_searches(paired_code: codes.CSSCode) -> None:
     assert len(budgeted) < len(unbudgeted)  # the budget cut the descent short
 
 
-def test_perturbation_stops_when_out_of_searches(paired_code: codes.CSSCode) -> None:
-    """A perturbation tries no move once the search has used up its budget of distance searches.
+@pytest.mark.parametrize("checks", [_PAIRED_CHECKS, _REJECTING_CHECKS])
+def test_perturbation_stops_when_out_of_searches(checks: tuple[Any, Any]) -> None:
+    """A perturbation draws no move once the search has used up its budget of distance searches.
 
-    Each random move searches at most the two classes that it would change, so a perturbation that
-    checks the budget before each move runs at most one search more than its budget.
+    Each random draw searches at most the two classes that it would change, so a perturbation that
+    checks the budget before each draw runs at most one search more than its budget, even when it
+    rejects draws.
     """
-    unbudgeted, budget = _count_perturbation_searches(paired_code, budgeted=False)
-    budgeted, _ = _count_perturbation_searches(paired_code, budgeted=True)
+    code = codes.CSSCode(*checks)
+    unbudgeted, budget = _count_perturbation_searches(code, budgeted=False)
+    budgeted, _ = _count_perturbation_searches(code, budgeted=True)
     assert budgeted <= budget + 1
     assert unbudgeted > budget + 1  # without the budget, the perturbation runs further
 
