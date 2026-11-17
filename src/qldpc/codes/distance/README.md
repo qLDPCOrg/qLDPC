@@ -66,7 +66,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The routes of BZ coset searches: the family of information sets for each maximum weight, the gate that chooses it, and the routes by tails | `_brouwer_zimmermann/coset_routes.py` |
 | The connected-cluster search, of distances and of vectors with a given syndrome | `_connected_cluster/search.py` |
 | The connected-cluster coset searches of the coset-leader search | `_connected_cluster/coset.py` |
-| How the connected-cluster searches make their checks sparser with the same span | `_connected_cluster/sparse_checks.py` |
+| How the connected-cluster searches make their checks sparser with the same span, and find the light sums of pairs of checks and of known words that distance searches add | `_connected_cluster/sparse_checks.py` |
 | Exhaustive enumeration, which the `brute_force` method runs, with its packed symplectic weights | `_brute_force.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
@@ -104,7 +104,7 @@ Within a subpackage, the layering below is a convention.
 In `_information_sets/`, `basis_families` builds on `certificates` and `matroid_partition`, `automorphism_families` on `basis_families` and `certificates`, and `completion_bounds` on `certificates`.
 In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, and `coset` also on `coset_routes` and `coset_tables`.
 `coset_routes` builds on `coset_tables`, and both build on `affine_instance`.
-In `_connected_cluster/`, `coset` builds on `search` and `sparse_checks`, and in `_counting/`, `scan` on `local_cliffords`.
+In `_connected_cluster/`, `search` builds on `sparse_checks`, and `coset` on both, and in `_counting/`, `scan` on `local_cliffords`.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.

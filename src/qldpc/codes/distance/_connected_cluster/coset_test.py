@@ -22,7 +22,7 @@ from ..conftest import (
     get_syndrome,
 )
 from ..coset_leaders import CosetLeaderSearch
-from . import coset, search
+from . import coset, search, sparse_checks
 
 
 def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
@@ -43,6 +43,37 @@ def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
     with use_tuning(max_sparsifying_rounds=5, sparsifying_rounds_without_improvement=2):
         CosetLeaderSearch(get_graph_state(2, [(0, 1)], phase=True), method="connected_cluster")
     assert calls == [(5, 2)]
+
+
+def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The coset searches of ``CosetLeaderSearch`` search their sparser checks without pair sums.
+
+    The checks of a repetition code have light sums of pairs, which distance searches would add,
+    but queries search only the checks themselves (Sections 3.4 and 3.8 of
+    ``connected_cluster.md``).
+    """
+    num_checks: list[int] = []
+    search_supports = search._search_supports
+    signature = inspect.signature(search_supports)
+
+    def record(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+        num_checks.append(len(signature.bind(*args, **kwargs).arguments["check_starts"]) - 1)
+        return search_supports(*args, **kwargs)
+
+    monkeypatch.setattr(search, "_search_supports", record)
+    repetition = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=np.uint8)
+    coset_search = coset.ConnectedClusterCosetSearch(
+        repetition,
+        symplectic=False,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=True,
+    )
+    assert len(sparse_checks.get_light_pair_sums(coset_search.checks, symplectic=False)[0])
+    # The syndrome of the first and last checks has no word of weight one, so the query searches.
+    assert coset_search.get_min_weight_bound(0b101, 2).within_max_weight
+    assert num_checks == [len(coset_search.checks)]
 
 
 @pytest.mark.parametrize(

@@ -70,3 +70,56 @@ def test_rounds_stop_once_they_leave_the_weight_unchanged() -> None:
         )
         assert np.array_equal(rows, matrix)
         assert np.array_equal(transform, np.eye(len(matrix)))
+
+
+def test_light_pair_sums_match_a_direct_choice(pytestconfig: pytest.Config) -> None:
+    """``get_light_pair_sums`` takes the light new sums lightest first, within the weight budget.
+
+    A direct choice weighs the sum of every pair of rows, keeps the distinct ones that are not zero,
+    no heavier than the heavier row of the pair, and not a row, and takes them lightest first, ties
+    by pair, while their total weight stays within that of the rows.  Random matrices with repeated
+    rows, and qubit rows weighed by qubits, exercise the duplicates and the values of Paulis.  Three
+    fixed cases sit at the bounds.  In the first, the 6 sums of pairs weigh 2 each, 12 in all, as
+    much as the rows, so all are taken.  In the second, the 10 sums weigh 2 each, and the 7 taken
+    leave 1 of the 15 of the rows, one less than the next sum.  In the third, XXI and IZZ share a
+    qubit, as light sums must, but their sum XYZ weighs one more than either.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    cases = []
+    for symplectic, _ in itertools.product((False, True), range(40)):
+        num_rows, num_variables = rng.integers(0, 9), rng.integers(1, 9)
+        width = 2 * num_variables if symplectic else num_variables
+        rows = (rng.random((num_rows, width)) < rng.uniform(0.2, 0.8)).astype(np.uint8)
+        if num_rows > 2:
+            rows[1] = rows[0]
+        cases.append((rows, symplectic))
+    fixed_cases = [
+        (np.hstack([np.ones((4, 2), dtype=np.uint8), np.eye(4, dtype=np.uint8)]), False),
+        (np.hstack([np.ones((5, 2), dtype=np.uint8), np.eye(5, dtype=np.uint8)]), False),
+        (np.array([[1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1]], dtype=np.uint8), True),
+    ]
+
+    num_sums = []
+    for rows, symplectic in cases + fixed_cases:
+        weights = sparse_checks.get_row_weights(rows, symplectic=symplectic)
+        candidates = []
+        for first, second in itertools.combinations(range(len(rows)), 2):
+            row_sum = rows[first] ^ rows[second]
+            weight = sparse_checks.get_row_weights(row_sum[None], symplectic=symplectic)[0]
+            if 0 < weight <= max(weights[first], weights[second]):
+                candidates.append((weight, first, second))
+        known = {row.tobytes() for row in rows}
+        budget, expected = weights.sum(), []
+        for weight, first, second in sorted(candidates):
+            row_sum = (rows[first] ^ rows[second]).tobytes()
+            if row_sum not in known and weight <= budget:
+                known.add(row_sum)
+                expected.append((first, second))
+                budget -= weight
+
+        sums, pairs = sparse_checks.get_light_pair_sums(rows, symplectic=symplectic)
+        assert pairs.tolist() == [list(pair) for pair in expected]
+        assert np.array_equal(sums, rows[pairs[:, 0]] ^ rows[pairs[:, 1]])
+        assert sums.shape == (len(expected), rows.shape[1])
+        num_sums.append(len(expected))
+    assert num_sums[-3:] == [6, 7, 0]
