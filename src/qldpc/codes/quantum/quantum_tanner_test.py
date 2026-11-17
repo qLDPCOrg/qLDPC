@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import copy
 import itertools
 import pathlib
+import pickle
 import random
 import re
 import unittest.mock
@@ -603,6 +605,20 @@ def test_quantum_tanner_without_checks() -> None:
     assert code.get_local_views(Pauli.X).shape == (len(code) // 2, 2, 2)
     with pytest.raises(ValueError, match=r"Expected Pauli\.X or Pauli\.Z"):
         code.get_local_views(Pauli.Y)  # type: ignore[arg-type]
+
+
+def test_quantum_tanner_local_views_of_copies() -> None:
+    """The local views of a copy of a QTCode are read-only, as those of the code are."""
+    shift = abstract.CyclicGroup(4).generators[0]
+    code = codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2))
+
+    # read the views first, so that the copy carries the cached arrays
+    for pauli in PAULIS_XZ:
+        assert not code.get_local_views(pauli).flags.writeable
+    unpickled_code = pickle.loads(pickle.dumps(code))  # noqa: S301 - trusted in-memory round trip
+    for copied_code in [copy.deepcopy(code), unpickled_code]:
+        for pauli in PAULIS_XZ:
+            assert not copied_code.get_local_views(pauli).flags.writeable
 
 
 def get_small_qt_codes(rng: np.random.Generator) -> list[codes.QTCode]:

@@ -388,7 +388,8 @@ class QTCode(CSSCode):
         Returns:
             A read-only integer array of shape ``(number of vertices, |A|, |B|)``.
         """
-        return self._local_views[Pauli.coerce_xz(pauli) is Pauli.Z]
+        # mark the cached array here, since deep copies and unpickling of a code make it writable
+        return _mark_read_only(self._local_views[Pauli.coerce_xz(pauli) is Pauli.Z])
 
     @staticmethod
     def get_subcodes(
@@ -782,7 +783,7 @@ class QTCode(CSSCode):
                 for _, face, (member_a, member_b) in subgraph.out_edges(source, data="sort"):
                     position_a, position_b = positions_a[member_a], positions_b[member_b]
                     local_view[index, position_a, position_b] = subgraph.nodes[face]["sort"]
-            local_views.append(_mark_read_only(local_view))
+            local_views.append(local_view)
         return local_views[0], local_views[1]
 
     def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
