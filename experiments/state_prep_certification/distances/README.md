@@ -25,7 +25,8 @@ The connected-cluster (CC) search is not compared here: the certification experi
 - the families of `FAMILIES` in `codes.py`, each at sizes from published endpoints by geometric spacing, with a fixed number of codes per size (see the docstring of `codes.py`);
 - the named anchors of `ANCHORS` in `codes.py`, most with a reference distance.
 
-[`endpoints.json`](endpoints.json) records each family's endpoints with its source, and [`sample.json`](sample.json) fixes the name, parameters, seed, and hashes of every code and anchor.
+`code_data/endpoints.json` records each family's endpoints with its source, and `code_data/sample.json` fixes the name, parameters, seed, and hashes of every code and anchor.
+Git ignores `code_data/`, which lives with the experiment's other data outside qLDPC, and which the offline bundle carries.
 The node regenerates the codes and stops on any difference in the codes from the sample.
 Each size has 4 target codes and at most 100 draws.
 A size with fewer structurally valid draws keeps fewer codes and is reported as a shortfall, such as a bivariate bicycle size where every draw has k = 0.
@@ -47,4 +48,4 @@ On the node, `node.sh distances --approved-cpu-hours H` runs the experiment, as 
 
 The constructions of the families, the 6.6.6 color codes, and the quadratic-residue codes are adapted from an earlier unpublished version of this experiment by its authors.
 Pair-partition arrays and several anchors come from [`experiments/distance_tuning/workloads.py`](../../distance_tuning/workloads.py), whose instances come from Lee et al. and Okada and Kasai.
-`endpoints.json` cites the sources of the size endpoints, and `codes.py` cites those of the anchors.
+`code_data/endpoints.json` cites the sources of the size endpoints, and `codes.py` cites those of the anchors.
