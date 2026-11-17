@@ -91,6 +91,8 @@ class ConnectedClusterCosetSearch:
             automorphism_minimum_states=_tuning.MAX_VALUE,
             restrict_viable_symbols=restrict_viable_symbols,
             stabilizer_overlap_cuts=stabilizer_overlap_cuts,
+            # Sums of pairs of checks made queries slower (Section 3.8 of connected_cluster.md).
+            pair_sum_checks=False,
         )
         # For ``rows``, word ``j`` of ``get_unit_syndrome_words`` has a syndrome of only bit ``j``,
         # so the words of the set bits of a syndrome sum to a representative of its coset.
