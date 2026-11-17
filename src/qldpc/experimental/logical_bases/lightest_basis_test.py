@@ -85,7 +85,10 @@ def test_exact_searches_only_at_new_weights(
 
 
 def test_lightest_basis_properties() -> None:
-    """Summary values follow from the operators, including for codes without logical qubits."""
+    """Summary values follow from the operators, including for codes without logical qubits.
+
+    An invalid Pauli type is rejected.
+    """
     basis = LightestLogicalBasis(np.array([[1, 1, 0, 0], [1, 1, 1, 0]], dtype=np.uint8))
     assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 5, 2)
     np.testing.assert_array_equal(basis.metrics.loads, [2, 2, 1, 0])

@@ -353,15 +353,8 @@ def test_special_inputs() -> None:
 
 
 def _record_descent(code: codes.CSSCode, budgeted: bool) -> list[bool]:
-    """Descend from the code's basis, and record before each move whether a budget is used up.
-
-    The budget allows one search more than the weights of the code's basis need.
-    """
-    search = _ClassSearch(code, _max_weight, "dressed", None)
-    search._get_value([1, 2, 4], [1, 2, 4])
-    budget = search.searches + 1
-    if budgeted:
-        search.max_searches = budget
+    """Descend from the code's basis, and record before each move whether a budget is used up."""
+    search, budget = _get_search_with_budget(code, budgeted)
 
     # pass moves through, recording before each one whether the budget is used up
     out_of_searches = []
@@ -377,17 +370,24 @@ def _record_descent(code: codes.CSSCode, budgeted: bool) -> list[bool]:
 
 
 def _count_perturbation_searches(code: codes.CSSCode, budgeted: bool) -> tuple[int, int]:
-    """Perturb the code's basis, and return the number of searches run, and a budget.
+    """Perturb the code's basis, and return the total number of searches run, and a budget."""
+    search, budget = _get_search_with_budget(code, budgeted)
+    search._perturb([1, 2, 4], [1, 2, 4], np.random.default_rng(0))
+    return search.searches, budget
 
-    The budget allows one search more than the weights of the code's basis need.
+
+def _get_search_with_budget(code: codes.CSSCode, budgeted: bool) -> tuple[_ClassSearch, int]:
+    """A search that knows the weights of the code's basis, and a budget for it.
+
+    The budget allows one search more than finding those weights took, and the search has it only if
+    ``budgeted``.
     """
     search = _ClassSearch(code, _max_weight, "dressed", None)
     search._get_value([1, 2, 4], [1, 2, 4])
     budget = search.searches + 1
     if budgeted:
         search.max_searches = budget
-    search._perturb([1, 2, 4], [1, 2, 4], np.random.default_rng(0))
-    return search.searches, budget
+    return search, budget
 
 
 def _get_lightest_bases(code: codes.CSSCode) -> tuple[LightestLogicalBasis, LightestLogicalBasis]:
