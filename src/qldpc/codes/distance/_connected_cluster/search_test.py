@@ -358,6 +358,21 @@ def test_each_root_finds_the_lightest_witnesses_that_it_roots(
         assert witness is None or (min(witness) == root and is_witness(problem, witness))
 
 
+def get_ranked_cut_problem() -> tuple[
+    npt.NDArray[np.uint8], npt.NDArray[np.uint8], npt.NDArray[np.int_]
+]:
+    """Checks, excluded rows, and an automorphism whose ranks change which roots the cuts let in.
+
+    See ``test_overlap_cuts_follow_the_ranks_of_symmetries``.
+    """
+    checks = np.array([[0, 0, 0, 0, 1, 0, 0, 0], [1, 1, 1, 1, 0, 1, 1, 1]], dtype=np.uint8)
+    excluded = np.array(
+        [[0, 0, 1, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0]],
+        dtype=np.uint8,
+    )
+    return checks, excluded, np.array([5, 2, 3, 1, 4, 7, 6, 0])
+
+
 def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
     """With symmetries, the cuts leave out the variable of each word that ranks lowest.
 
@@ -366,12 +381,7 @@ def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
     in a lightest witness that passes every cut under these ranks (Sections 3.4 and 3.5 of
     ``connected_cluster.md``).  Under cuts by index, another root would find one.
     """
-    automorphism = np.array([5, 2, 3, 1, 4, 7, 6, 0])
-    checks = np.array([[0, 0, 0, 0, 1, 0, 0, 0], [1, 1, 1, 1, 0, 1, 1, 1]], dtype=np.uint8)
-    excluded = np.array(
-        [[0, 0, 1, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0]],
-        dtype=np.uint8,
-    )
+    checks, excluded, automorphism = get_ranked_cut_problem()
     num_variables = len(automorphism)
     orbits = np.arange(num_variables)
     for variable in range(num_variables):
@@ -397,8 +407,11 @@ def test_overlap_cuts_follow_the_ranks_of_symmetries() -> None:
         } & set(roots)
     assert expected["ranks"] and expected["ranks"] != expected["indices"]
 
-    for root in roots:
+    # The cuts follow the ranks also in a search that cut by index at an earlier weight limit.
+    for root, earlier_limit in itertools.product(roots, [False, True]):
         search = get_search(checks, excluded)
+        if earlier_limit:
+            assert search.find_witness(distance - 1) is None
         search._use_automorphisms(automorphism[None])
         search._roots = np.array([root])
         witness = search.find_witness(distance)
@@ -526,6 +539,53 @@ def test_query_overlap_words_cut_queries_but_not_witnesses() -> None:
     witness = search.find_witness(3)
     assert witness is not None and witness.tolist() == [0, 1, 2]
     assert query_symbols(search) == [2]
+
+
+def test_queries_cut_under_the_current_ranks_and_only_read_the_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Queries cut under the ranks of symmetries learned late, and tabulate no cuts themselves.
+
+    The checks are the Z-type checks of the rotated surface code of distance 3, whose X-type checks
+    are the excluded rows and the query words, and the symmetry is its turn by half a circle.  A
+    search that tabulated the cuts of its queries before it learns the symmetry answers every query
+    as a search that learns it first, with a vector within the limit exactly if there is one.  The
+    ranks of the symmetry move the variables that some cuts leave out, so that if the first search
+    kept its earlier cuts, it would return other vectors for some syndromes, such as the support
+    {3} rather than {2, 4} for the syndrome 0010.  After ``use_query_overlap_words``, and after the
+    symmetry, queries tabulate no cuts.
+    """
+    tabulated: list[object] = []
+    get_overlap_cuts = cs._get_overlap_cuts
+
+    def record(*args: Any) -> Any:
+        tabulated.append(args)
+        return get_overlap_cuts(*args)
+
+    monkeypatch.setattr(cs, "_get_overlap_cuts", record)
+    code = codes.SurfaceCode(3)
+    checks = code.matrix_z.view(np.ndarray).astype(np.uint8)
+    words = code.matrix_x.view(np.ndarray).astype(np.uint8)
+    turn = np.arange(9)[::-1].copy()
+    early = get_search(checks, words)
+    early.use_query_overlap_words(words)
+    early._use_automorphisms(turn[None])
+    late = get_search(checks, words)
+    late._use_automorphisms(turn[None])
+    late.use_query_overlap_words(words)
+    num_tabulated = len(tabulated)
+
+    vectors = np.array(list(itertools.product([0, 1], repeat=9)), dtype=np.uint8)
+    for syndrome in itertools.product([0, 1], repeat=len(checks)):
+        weights = vectors[np.all(vectors @ checks.T % 2 == syndrome, axis=1)].sum(axis=1)
+        answers = [search.find_vector_with_syndrome(syndrome, 2) for search in (early, late)]
+        symbols = [None if answer is None else answer.tolist() for answer in answers]
+        assert symbols[0] == symbols[1]
+        assert (answers[0] is None) == (weights.min() > 2)
+        if answers[0] is not None:
+            vector = get_vector(answers[0], 9, False)
+            assert np.array_equal(checks @ vector % 2, syndrome) and vector.sum() <= 2
+    assert len(tabulated) == num_tabulated
 
 
 def test_query_overlap_words_must_satisfy_the_checks_and_need_the_switch() -> None:
@@ -778,7 +838,7 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
             packed,
             True,
             restrict_viable_symbols,
-            *search._cuts,
+            *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
         )
         assert not len(support)
         num_states[restrict_viable_symbols] = int(np.sum(item_states))
@@ -1261,6 +1321,22 @@ def test_degenerate_checks() -> None:
     assert witness is not None and is_witness((checks, excluded), witness)
 
 
+def test_distinct_rows_are_found_as_numpy_finds_them(pytestconfig: pytest.Config) -> None:
+    """``_get_unique_rows`` gives the first copies and positions of ``np.unique``, in its order.
+
+    Widths around a multiple of 8 test the packing of rows into bytes.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for width in [1, 7, 8, 9, 70]:
+        matrix = rng.integers(2, size=(12, width), dtype=np.uint8)
+        matrix[5] = matrix[0]
+        _, first_rows, positions = np.unique(matrix, axis=0, return_index=True, return_inverse=True)
+        assert [array.tolist() for array in cs._get_unique_rows(matrix)] == [
+            first_rows.tolist(),
+            positions.ravel().tolist(),
+        ]
+
+
 def record_thread_counts(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     """Record the number of threads of each call of ``run_work_items``, which still runs."""
     calls: list[int] = []
@@ -1326,6 +1402,94 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
             )
         assert all(result == results[0] for result in results)
     assert set(calls) == {3, 8}
+
+
+def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each limit cuts with the tables of its current ranks, which it tabulates before its threads.
+
+    A wrapper of ``_get_overlap_cuts`` records the ranks and the tables of each tabulation, and a
+    wrapper of ``_search_supports`` checks that each call gets the latest of them, the same objects,
+    and so never tables of ranks from before a symmetry.  The searches of two problems learn their
+    symmetries at a later limit, and tabulate their cuts again at the start of that limit:
+
+    - The problem of ``test_overlap_cuts_follow_the_ranks_of_symmetries`` learns its permutation at
+      its third limit, at which the new tables give the witness of a search that learns it first,
+      [0, 5], where the tables of its ranks by index would give [0, 1].
+    - The Golay code learns its cyclic shifts once it predicts 1000 states, at its sixth limit.  On
+      four threads, with a split gate that splits every limit, its limits end in the frontier
+      passes on the calling thread, except the fifth and the seventh, which run on threads, one
+      under each table of cuts.  It finds the witnesses, and visits the states, of one thread.
+
+    A limit tabulates its cuts before it calls ``_search_on_threads``, so no tabulation can happen
+    while threads run.  The test checks this as well.
+    """
+    events: list[str] = []
+    tabulations: list[tuple[npt.NDArray[np.int64], tuple[npt.NDArray[np.int64], ...]]] = []
+    get_overlap_cuts = cs._get_overlap_cuts
+    search_supports = cs._search_supports
+    run_work_items = cs._threads.run_work_items
+
+    def record_cuts(words: Any, ranks: npt.NDArray[np.int64], symplectic: bool) -> Any:
+        events.append("cuts")
+        tables = get_overlap_cuts(words, ranks, symplectic)
+        tabulations.append((ranks, tables))
+        return tables
+
+    def check_cuts(*args: Any) -> Any:
+        ranks, tables = tabulations[-1]
+        # Argument 7 is the ranks, and the last six are the tables of the cuts.
+        assert args[7] is ranks
+        assert all(passed is table for passed, table in zip(args[-6:], tables, strict=True))
+        return search_supports(*args)
+
+    def record_threads(*args: Any, **kwargs: Any) -> None:
+        events.append("start")
+        run_work_items(*args, **kwargs)
+        events.append("end")
+
+    monkeypatch.setattr(cs, "_get_overlap_cuts", record_cuts)
+    monkeypatch.setattr(cs, "_search_supports", check_cuts)
+    monkeypatch.setattr(cs._threads, "run_work_items", record_threads)
+
+    # The 8-variable problem learns its permutation at its first limit, or at its third.
+    checks, excluded, automorphism = get_ranked_cut_problem()
+    witnesses = []
+    for minimum_states in (0, 1):
+        search = get_search(
+            checks,
+            excluded,
+            get_automorphisms=lambda: automorphism[None],
+            automorphism_minimum_states=minimum_states,
+        )
+        witnesses.append([search.find_witness(max_weight) for max_weight in (1, 2, 3)])
+    assert len(tabulations) == 3
+    symbols = [[None if w is None else w.tolist() for w in limits] for limits in witnesses]
+    assert symbols[1] == [None, [0, 1], [0, 5]] and symbols[0][2] == [0, 5]
+
+    # The Golay code learns its shifts at its sixth limit, on one thread and on four.
+    results = []
+    for num_threads in (1, 4):
+        events.clear()
+        search = get_search(
+            *get_golay_problem(),
+            get_automorphisms=lambda: np.roll(np.arange(23), -1)[None],
+            automorphism_minimum_states=1000,
+            num_threads=num_threads,
+            split_minimum_states=-1,
+        )
+        golay_witnesses = [search.find_witness(max_weight) for max_weight in range(1, 8)]
+        results.append(
+            ([None if w is None else w.tolist() for w in golay_witnesses], search.num_states)
+        )
+        assert len(search._roots) == 1
+        assert events.count("cuts") == 2
+    assert results[0] == results[1] and results[0][0][-1] is not None
+    starts = [index for index, event in enumerate(events) if event == "start"]
+    cuts = [index for index, event in enumerate(events) if event == "cuts"]
+    assert cuts[0] < starts[0] < cuts[1] < starts[-1]
+    assert all(events[start + 1] == "end" for start in starts)
 
 
 @pytest.mark.parametrize("cutoff", [0, 6])
@@ -1628,7 +1792,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
             cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
             True,
             True,
-            *search._cuts,
+            *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
         )
         return sorted(support.tolist())
 
@@ -1671,7 +1835,7 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
                     packed,
                     memoize,
                     True,
-                    *search._cuts,
+                    *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
                 )
                 for memoize in (False, True)
             ]

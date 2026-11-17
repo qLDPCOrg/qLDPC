@@ -78,6 +78,39 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
     assert num_checks == [len(coset_search.checks)]
 
 
+def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A coset search tabulates the overlap cuts of its queries before its first query.
+
+    It does so even before ``use_query_overlap_words`` gives it words, so that its queries only read
+    the search.
+    """
+    tabulated: list[object] = []
+    get_overlap_cuts = search._get_overlap_cuts
+
+    def record(*args: Any) -> Any:
+        tabulated.append(args)
+        return get_overlap_cuts(*args)
+
+    monkeypatch.setattr(search, "_get_overlap_cuts", record)
+    repetition = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=np.uint8)
+    coset_search = coset.ConnectedClusterCosetSearch(
+        repetition,
+        symplectic=False,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=True,
+    )
+    for words in ([], [[1, 1, 1, 1]]):
+        if words:
+            coset_search.use_query_overlap_words(words)
+        num_tabulated = len(tabulated)
+        assert num_tabulated
+        for syndrome in (0b101, 0b111, 0b100):
+            assert coset_search.get_min_weight_bound(syndrome, 2).within_max_weight
+        assert len(tabulated) == num_tabulated
+
+
 @pytest.mark.parametrize(
     ("changes", "expected"), [({}, True), ({"restrict_viable_symbols": False}, False)]
 )

@@ -98,6 +98,8 @@ class ConnectedClusterCosetSearch:
             # Sums of pairs of checks made queries slower (Section 3.8 of connected_cluster.md).
             pair_sum_checks=False,
         )
+        # Tabulate the cuts of queries now, so that queries only read the search.
+        self._search._tabulate_query_cuts()
         # For ``rows``, word ``j`` of ``get_unit_syndrome_words`` has a syndrome of only bit ``j``,
         # so the words of the set bits of a syndrome sum to a representative of its coset.
         syndrome_rows = swap_pauli_halves(rows) if symplectic else rows

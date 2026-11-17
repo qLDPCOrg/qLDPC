@@ -46,7 +46,9 @@ def get_matrix_isomorphism(
     An isomorphism from an ``m × n`` matrix ``A`` to a matrix ``B`` of the same shape is a
     permutation ``p`` of ``range(m + n)`` that maps rows to rows and columns to columns, such that
     ``A[i, j] == B[p[i], p[m + j] - m]`` for every row ``i`` and column ``j``.  Bliss finds it by
-    comparing the canonical forms of the colored graphs of ``get_matrix_automorphism_generators``.
+    comparing the canonical forms of the colored graphs of ``get_matrix_automorphism_generators``,
+    or, if the nonzero entries of each row of both matrices are equal, of smaller graphs that color
+    each row by its value and join it to the columns of its nonzero entries.
 
     References:
 
@@ -56,13 +58,25 @@ def get_matrix_isomorphism(
     matrix_a, matrix_b = np.asarray(matrix_a), np.asarray(matrix_b)
     if matrix_a.shape != matrix_b.shape:
         return None
-    values = np.unique(
-        np.concatenate([matrix[np.nonzero(matrix)] for matrix in (matrix_a, matrix_b)])
-    )
+    matrices = (matrix_a, matrix_b)
 
     # Each graph is relabeled into its canonical form, so equal canonical forms give an isomorphism
-    # that relabels the first graph canonically and then undoes the relabeling of the second.
-    graphs = [_get_matrix_graph(pybliss, matrix, values) for matrix in (matrix_a, matrix_b)]
+    # that relabels the first graph canonically and then undoes the relabeling of the second.  An
+    # isomorphism maps each row to a row with the same nonzero entries, so if every row of both
+    # matrices has one nonzero value, colors of rows can stand in for the vertices of the entries.
+    row_values = [matrix.max(axis=1, initial=0) for matrix in matrices]
+    if all(
+        np.all((matrix == 0) | (matrix == matrix_values[:, None]))
+        for matrix, matrix_values in zip(matrices, row_values)
+    ):
+        values = np.unique(np.concatenate(row_values))
+        graphs = [
+            _get_row_colored_graph(pybliss, matrix, np.searchsorted(values, matrix_values))
+            for matrix, matrix_values in zip(matrices, row_values)
+        ]
+    else:
+        values = np.unique(np.concatenate([matrix[np.nonzero(matrix)] for matrix in matrices]))
+        graphs = [_get_matrix_graph(pybliss, matrix, values) for matrix in matrices]
     labelings = [
         np.asarray(graph.get_permutation_to_canonical_form(pybliss.Stats())) for graph in graphs
     ]
@@ -97,8 +111,37 @@ def _get_matrix_graph(
     )
     edges = np.concatenate(
         [np.column_stack([rows, entries]), np.column_stack([entries, num_rows + cols])]
-    ).astype(np.int32)
-    return pybliss.graph_from_numpy(colors.size, edges, colors)
+    )
+    return _build_graph(pybliss, colors, edges)
+
+
+def _get_row_colored_graph(
+    pybliss: types.ModuleType, matrix: npt.NDArray[np.int_], row_colors: npt.NDArray[np.int_]
+) -> Any:
+    """The colored graph of a matrix whose rows are colored, as by the values of their entries.
+
+    The graph has a vertex for every row and column, and an edge for every nonzero entry.  Row ``i``
+    has the color ``1 + row_colors[i]``, and the columns have the color zero.
+    """
+    rows, cols = np.nonzero(matrix)
+    colors = np.concatenate([1 + row_colors, np.zeros(matrix.shape[1], dtype=int)])
+    return _build_graph(pybliss, colors, np.column_stack([rows, len(matrix) + cols]))
+
+
+def _build_graph(
+    pybliss: types.ModuleType, colors: npt.NDArray[np.int_], edges: npt.NDArray[np.int_]
+) -> Any:
+    """A pybliss graph with the given vertex colors and edges, each a row of two vertices.
+
+    This builds the graph that ``pybliss.graph_from_numpy`` builds, from Python integers, which
+    pybliss takes about 3 times faster than the NumPy integers that ``graph_from_numpy`` passes.
+    """
+    graph = pybliss.Graph(len(colors))
+    for vertex, neighbor in edges.tolist():
+        graph.add_edge(vertex, neighbor)
+    for vertex, color in enumerate(colors.tolist()):
+        graph.change_color(vertex, color)
+    return graph
 
 
 def _get_pybliss() -> types.ModuleType:
