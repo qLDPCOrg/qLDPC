@@ -17,7 +17,7 @@ import numpy.typing as npt
 from qldpc._binary import pack_bits, popcount_word, unpack_bits
 from qldpc._compilation import always_compiled
 
-from .. import _tuning
+from .. import _threads, _tuning
 from .._binary import swap_pauli_halves, symplectic_to_hamming
 from .._cosets import (
     get_unit_syndrome_words,
@@ -128,35 +128,57 @@ class BrouwerZimmermannCosetSearch:
         tables, tails = self._get_route(max_weight)
         best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
         packed_syndrome = int_to_words(syndrome, max(1, (self._num_syndrome_bits + 63) // 64))
-        lower_bound = _search_coset(packed_syndrome, max_weight, best, *tables, tails, self.scale)
+        lower_bound, _ = _search_coset(
+            packed_syndrome, max_weight, best, *tables, tails, self.scale
+        )
         # A search that finds a light enough word returns zero, but every word of the coset weighs
         # at least two, since the coset has no word of weight at most one.
         return MinWeightBound(lower_bound <= max_weight, self.unembed(best), max(2, lower_bound))
 
     def find_first_not_within_max_weight(
-        self, syndromes: npt.NDArray[np.uint64], max_weight: int
+        self,
+        syndromes: npt.NDArray[np.uint64],
+        max_weight: int,
+        *,
+        num_threads: int = 1,
+        split_work: int = 0,
     ) -> tuple[int, MinWeightBound | None]:
         """Find the first syndrome whose coset has no word of weight at most ``max_weight``.
 
         The syndromes are packed as for ``CosetLeaderSearch.find_first_not_within_max_weight``, and
-        the search takes the route of the maximum weight once for all of them.
+        the search takes the route of the maximum weight once for all of them.  On more than one
+        thread, the calling thread searches the batch alone until its queries have done
+        ``split_work`` work, about one unit for each query and each word that it weighs, and
+        ``num_threads`` threads then search the rest of it (``_threads.run_blocks``; Section 4.5).
+        The result is the same on any number of threads.
 
         Returns:
             The index of the first such syndrome and a ``MinWeightBound`` whose representative is
-            the lightest word that the search weighed; or the number of syndromes and None if there
-            is none.
+            the lightest word that the search of that syndrome weighed; or the number of syndromes
+            and None if there is none.
         """
         tables, tails = self._get_route(max_weight)
-        best = np.empty(tables.inverse.shape[1], dtype=np.uint64)
-        index, lower_bound = _find_first_not_within_max_weight(
-            syndromes, max_weight, best, *tables, tails, self.scale
+        index, lower_bound, best = _find_first_on_threads(
+            np.ascontiguousarray(syndromes),
+            max_weight,
+            tables,
+            tails,
+            self.scale,
+            num_threads,
+            split_work,
         )
-        if index == len(syndromes):
+        if best is None:
             return index, None
-        return index, MinWeightBound(False, self.unembed(best), int(lower_bound))
+        return index, MinWeightBound(False, self.unembed(best), lower_bound)
 
     def get_min_weights(
-        self, syndromes: npt.NDArray[np.uint64], max_weight: int, floors: npt.NDArray[np.int64]
+        self,
+        syndromes: npt.NDArray[np.uint64],
+        max_weight: int,
+        floors: npt.NDArray[np.int64],
+        *,
+        num_threads: int = 1,
+        split_work: int = 0,
     ) -> npt.NDArray[np.int64]:
         """Find the minimum weight of the coset of each syndrome, if it is at most ``max_weight``.
 
@@ -164,7 +186,9 @@ class BrouwerZimmermannCosetSearch:
         search of a syndrome also ends at a word of weight at most its floor in ``floors``, which
         must be at most ``max_weight``.  For ``n`` qubits, the search takes the route of
         ``min(max_weight, n)`` once, since no coset has a minimum weight above ``n`` (Section 3.10).
-        It looks up no words of weight at most one, which its first layers find.
+        It looks up no words of weight at most one, which its first layers find.  A batch moves to
+        ``num_threads`` threads as in ``find_first_not_within_max_weight``, and each weight is the
+        same on any number of threads.
 
         Returns:
             For each syndrome, the weight of a word of its coset of weight at most its floor if
@@ -173,7 +197,16 @@ class BrouwerZimmermannCosetSearch:
         """
         max_weight = min(max_weight, self._num_qubits)
         tables, tails = self._get_route(max_weight)
-        return _find_min_weights(syndromes, max_weight, floors, *tables, tails, self.scale)
+        return _find_min_weights_on_threads(
+            np.ascontiguousarray(syndromes),
+            max_weight,
+            np.ascontiguousarray(floors),
+            tables,
+            tails,
+            self.scale,
+            num_threads,
+            split_work,
+        )
 
     def unembed(self, embedded_word: npt.NDArray[np.uint64]) -> int:
         """Convert a packed embedded word into a word, without the columns that the embedding adds.
@@ -456,13 +489,113 @@ def _tabulate_css_singles(
 
 
 ####################################################################################################
+# batches on threads
+
+
+def _find_first_on_threads(
+    syndromes: npt.NDArray[np.uint64],
+    max_weight: int,
+    tables: CosetSearchTables,
+    tails: TailFields | None,
+    scale: int,
+    num_threads: int,
+    split_work: int,
+) -> tuple[int, int, npt.NDArray[np.uint64] | None]:
+    """``_find_first_not_within_max_weight`` on a batch, run by ``_threads.run_blocks``.
+
+    Each worker searches its rows with its own buffer for the lightest word and its own copy of the
+    planning buffer (see ``_get_own_planning``).  A syndrome whose coset has no word within
+    ``max_weight`` ends the batch, so the least index found is that of one thread.
+
+    Returns:
+        The index of the first such syndrome, the lower bound of ``_search_coset`` for it, and the
+        lightest word of its search; or the number of syndromes, zero, and None if there is none.
+    """
+    # Each entry holds the index of a syndrome, its lower bound, and the lightest word of its query.
+    found: list[tuple[int, int, npt.NDArray[np.uint64]]] = []
+    width = tables.inverse.shape[1]
+
+    def start_worker() -> _threads.RunRows:
+        """Give a worker its own buffers, and return how it searches rows."""
+        best = np.empty(width, dtype=np.uint64)
+        own_tables = tables._replace(planning=_get_own_planning(tables.planning))
+
+        def search_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
+            """Search rows in order, and record the first without a light enough word."""
+            index, lower_bound, ends = _find_first_not_within_max_weight(
+                syndromes[start:end], max_weight, max_work, best, *own_tables, tails, scale
+            )
+            if not ends:
+                return start + index, False
+            found.append((start + index, int(lower_bound), best.copy()))
+            return start + index + 1, True
+
+        return search_rows
+
+    _threads.run_blocks(len(syndromes), num_threads, split_work, start_worker)
+    if not found:
+        return len(syndromes), 0, None
+    return min(found, key=lambda entry: entry[0])
+
+
+def _find_min_weights_on_threads(
+    syndromes: npt.NDArray[np.uint64],
+    max_weight: int,
+    floors: npt.NDArray[np.int64],
+    tables: CosetSearchTables,
+    tails: TailFields | None,
+    scale: int,
+    num_threads: int,
+    split_work: int,
+) -> npt.NDArray[np.int64]:
+    """``_find_min_weights`` on a batch, run by ``_threads.run_blocks``.
+
+    Each weight depends only on its syndrome, its floor, and the route, so the weights are those of
+    one thread.  Each call of ``_find_min_weights`` has its own buffer for the lightest word, and
+    writes only its own rows of the weights.
+    """
+    weights = np.empty(len(syndromes), dtype=np.int64)
+
+    def search_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
+        """Search rows in order, and write their weights."""
+        num_done = _find_min_weights(
+            syndromes[start:end],
+            max_weight,
+            floors[start:end],
+            max_work,
+            weights[start:end],
+            *tables,
+            tails,
+            scale,
+        )
+        return start + num_done, False
+
+    _threads.run_blocks(len(syndromes), num_threads, split_work, lambda: search_rows)
+    return weights
+
+
+def _get_own_planning(planning: PlanningBuffer) -> PlanningBuffer:
+    """A copy of a planning buffer whose cached stopping steps are the initial step ``(0, 1)``.
+
+    ``_find_first_not_within_max_weight`` caches stopping steps in its planning buffer, and runs
+    without the global interpreter lock, so no two of its calls that run at once may share one.
+    Resetting the cached steps of the copy makes it independent of what another thread writes to
+    the original while it is copied (Section 4.1).  The copy holds a few small tables.
+    """
+    own_planning = planning.copy()
+    own_planning[:, -1, :2] = (0, 1)
+    return own_planning
+
+
+####################################################################################################
 # compiled coset search
 
 
-@always_compiled
+@always_compiled(nogil=True)
 def _find_first_not_within_max_weight(
     syndromes: npt.NDArray[np.uint64],
     max_weight: int,
+    max_work: int,
     best: npt.NDArray[np.uint64],
     inverse: npt.NDArray[np.uint64],
     generators: npt.NDArray[np.uint64],
@@ -471,15 +604,20 @@ def _find_first_not_within_max_weight(
     x_mask: npt.NDArray[np.uint64],
     tails: TailFields | None,
     scale: int,
-) -> tuple[int, int]:
-    """Search the coset of each syndrome in turn with ``_search_coset``.
+) -> tuple[int, int, bool]:
+    """Search the coset of each syndrome in turn with ``_search_coset``, within a budget of work.
 
-    Return the index of the first syndrome whose coset has no word within ``max_weight``, and the
-    lower bound that ``_search_coset`` returns for it, with the lightest word that it weighed left
-    in ``best``; or the number of syndromes and zero if there is none.
+    The work of a query is one, plus the number of words that it weighs after the word of its
+    syndrome.  Return the index of the first syndrome whose coset has no word within
+    ``max_weight``, the lower bound that ``_search_coset`` returns for it, and True, with the
+    lightest word that it weighed left in ``best``.  Otherwise return the number of syndromes
+    searched, zero, and False: all of them, or those up to the first at which the work of this call
+    reaches ``max_work``.  Threads run it at once, so no two calls that run at once
+    may share ``best`` or ``planning``, whose cached stopping steps it writes (Section 4.1).
     """
+    work = 0
     for index in range(len(syndromes)):
-        lower_bound = _search_coset(
+        lower_bound, weighed = _search_coset(
             syndromes[index],
             max_weight,
             best,
@@ -492,8 +630,11 @@ def _find_first_not_within_max_weight(
             scale,
         )
         if lower_bound > max_weight:
-            return index, lower_bound
-    return len(syndromes), 0
+            return index, lower_bound, True
+        work += 1 + weighed
+        if work >= max_work:
+            return index + 1, 0, False
+    return len(syndromes), 0, False
 
 
 @always_compiled(inline=True)
@@ -508,7 +649,7 @@ def _search_coset(
     x_mask: npt.NDArray[np.uint64],
     tails: TailFields | None,
     scale: int,
-) -> int:
+) -> tuple[int, int]:
     """Search the coset of a syndrome for a word of weight at most ``max_weight``.
 
     Machine word ``j`` of ``packed_syndrome`` holds bits ``64 j`` and up of the syndrome.  The
@@ -526,17 +667,18 @@ def _search_coset(
     Returns:
         A lower bound on the weight of every word in the coset: zero if ``best``, which holds the
         lightest word that the search weighed, is within ``max_weight``, and otherwise a bound
-        above ``max_weight`` (see ``_search_from_syndrome_word``).
+        above ``max_weight`` (see ``_search_from_syndrome_word``).  Also the number of words that
+        it weighed after the word of the syndrome, which measures its work.
     """
     best_weight, parity = _get_syndrome_word(packed_syndrome, best, inverse, x_mask, scale)
     if best_weight <= max_weight:
-        return 0
+        return 0, 0
     table = get_planning_table(planning, parity)
     stop_layer, stop_num_completed, stop_bound = get_stopping_step(table, max_weight)
     # A search whose buffer has a table for each parity reads that of the parity of its coset, but
     # only a search of Hamming weights passes the parity on, for its skip bound and its bound after
     # a skip.
-    lower_bound, _, _ = _search_from_syndrome_word(
+    lower_bound, weighed, _ = _search_from_syndrome_word(
         packed_syndrome,
         max_weight,
         stop_layer,
@@ -551,7 +693,7 @@ def _search_coset(
         scale,
         parity if scale != 0 and len(planning) == 2 else -1,
     )
-    return lower_bound
+    return lower_bound, weighed
 
 
 @always_compiled
@@ -587,8 +729,9 @@ def _search_from_syndrome_word(
         zero if the search finds a word within ``max_weight``; otherwise, if it skipped a word, the
         least weight beyond ``max_weight`` that a word of the coset can have; and otherwise the
         lesser of the weight of the lightest word that it weighed and the bound of the stopping
-        step.  Also the numbers of words weighed after the word of the syndrome and of supports
-        skipped, which only tests read.
+        step.  Also the number of words weighed after the word of the syndrome, which measures
+        the work of the query for ``split_work``, and the number of supports skipped, which only
+        tests read.
     """
     # Reduce the word of the syndrome to the offset of each set, or, by tails, find the rank of each
     # set and the tail of its offset.
@@ -708,11 +851,13 @@ def _search_from_syndrome_word(
     return lower_bound, weighed, skipped
 
 
-@always_compiled
+@always_compiled(nogil=True)
 def _find_min_weights(
     syndromes: npt.NDArray[np.uint64],
     max_weight: int,
     floors: npt.NDArray[np.int64],
+    max_work: int,
+    weights: npt.NDArray[np.int64],
     inverse: npt.NDArray[np.uint64],
     generators: npt.NDArray[np.uint64],
     pivots: npt.NDArray[np.int64],
@@ -720,16 +865,20 @@ def _find_min_weights(
     x_mask: npt.NDArray[np.uint64],
     tails: TailFields | None,
     scale: int,
-) -> npt.NDArray[np.int64]:
+) -> int:
     """Search the coset of each syndrome in turn with ``_search_coset_for_min_weight``.
 
-    The arguments are those of ``_find_first_not_within_max_weight``, without ``best``, and with the
-    floor of each syndrome in ``floors``.
+    The arguments are those of ``_find_first_not_within_max_weight``, without ``best``, with the
+    floor of each syndrome in ``floors``, and with ``weights``, into whose row ``i`` the search
+    writes the weight of syndrome ``i``.  Returns the number of syndromes searched: all of them, or
+    those up to the first at which the work of this call reaches ``max_work``.  Each call has its
+    own ``best``, writes only ``weights``, and caches no stopping steps, so calls that run at once
+    may share every argument but ``weights``.
     """
-    weights = np.empty(len(syndromes), dtype=np.int64)
+    work = 0
     best = np.empty(inverse.shape[1], dtype=np.uint64)
     for index in range(len(syndromes)):
-        weight, _, _ = _search_coset_for_min_weight(
+        weight, weighed, _ = _search_coset_for_min_weight(
             syndromes[index],
             max_weight,
             floors[index],
@@ -743,7 +892,10 @@ def _find_min_weights(
             scale,
         )
         weights[index] = weight
-    return weights
+        work += 1 + weighed
+        if work >= max_work:
+            return index + 1
+    return len(syndromes)
 
 
 @always_compiled(inline=True)
@@ -772,8 +924,9 @@ def _search_coset_for_min_weight(
 
     Returns:
         ``U`` when the search stops: the lesser of the minimum weight of the coset and
-        ``max_weight + 1``, unless ``U`` is at most ``floor``.  Also the numbers of words weighed
-        after the word of the syndrome and of supports skipped, which only tests read.
+        ``max_weight + 1``, unless ``U`` is at most ``floor``.  Also the number of words weighed
+        after the word of the syndrome, which measures the work of the search for ``split_work``,
+        and the number of supports skipped, which only tests read.
     """
     # Start from the word of the syndrome, which ends the search if it is within the floor, and
     # reduce it as ``_search_from_syndrome_word`` does.

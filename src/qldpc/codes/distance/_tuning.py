@@ -25,7 +25,7 @@ What tuning can and cannot change:
   answer to whether a coset has a word of weight at most the query's maximum weight, and with the
   connected-cluster method the same lower bound.  The returned word, and with the Brouwer-Zimmermann
   (BZ) method the query's lower bound, can depend on tuning, within the contract of
-  :class:`~qldpc.codes.distance.MinWeightBound`.
+  :class:`~qldpc.codes.distance.MinWeightBound`, but not on ``num_threads``.
 - Codes and logical-operator counters remember their results, and some caches last for the whole
   process, so a later search under another tuning may reuse results rather than search again.
 
@@ -420,25 +420,31 @@ class SearchTuning:
     #: A distance search by the BZ method scans at most ``2**information_set_batch_exponent``
     #: supports and lookups of completion tables, counted together, in one call of compiled code,
     #: which keyboard interrupts cannot stop; on several threads, each thread scans ``num_threads``
-    #: times as many in one call.  At most 62.  Defaults to 15, a budget of interrupt latency on
-    #: one thread, which grows with the number of threads.
+    #: times as many in one call.  A BZ batch query of ``CosetLeaderSearch`` on several threads
+    #: moves the rest of its batch to them once its queries on the calling thread have done
+    #: ``num_threads * 2**information_set_batch_exponent`` units of work, one unit for each query
+    #: and one for each word that it weighs.  At most 62.  Defaults to 15, a budget of interrupt
+    #: latency on one thread, which grows with the number of threads.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: The number of threads on which a distance search by the BZ method scans a costly layer of a
-    #: set, which they split into work items, sharing one copy of its completion tables.  At least
-    #: 1, and 1 scans on the calling thread alone.  ``None`` takes the value of the environment
+    #: set, which they split into work items, sharing one copy of its completion tables, and on
+    #: which the BZ batch queries of ``CosetLeaderSearch`` search the blocks of a batch.  At least
+    #: 1, and 1 runs on the calling thread alone.  ``None`` takes the value of the environment
     #: variable ``QLDPC_NUM_THREADS`` when qLDPC was imported, if it was set, and otherwise
     #: ``numba.config.NUMBA_NUM_THREADS``; the section "Threads" of the README of
     #: ``qldpc/codes/distance`` says how to set either, and when ``QLDPC_NUM_THREADS`` also sets
-    #: numba's own count.  A search resolves ``None`` once, when it starts.  A layer of a set runs
-    #: on the calling thread alone unless it has at least three rows and more than
-    #: ``num_threads * 2**information_set_batch_exponent`` supports (Section 4.5 of
-    #: ``brouwer_zimmermann.md``).  Programs that run searches in several processes or threads at
-    #: once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before Python starts.
-    #: ``use_tuning(num_threads=1)`` caps a worker only if entered in the function that it runs,
-    #: since new threads and spawned processes normally start with the default tuning (see the
-    #: module docstring).  Defaults to ``None``, chosen by hand: a search uses the cores that numba
-    #: counts unless its caller caps them.
+    #: numba's own count.  A distance search resolves ``None`` once, when it starts, and a
+    #: ``CosetLeaderSearch`` when it is built.  A layer of a set runs on the calling thread alone
+    #: unless it has at least three rows and more than
+    #: ``num_threads * 2**information_set_batch_exponent`` supports, and a batch until its queries
+    #: have done as many units of work, in the units that ``information_set_batch_exponent``
+    #: defines (Section 4.5 of ``brouwer_zimmermann.md``).  Programs that run searches in several
+    #: processes or threads at once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before
+    #: Python starts.  ``use_tuning(num_threads=1)`` caps a worker only if entered in the function
+    #: that it runs, since new threads and spawned processes normally start with the default tuning
+    #: (see the module docstring).  Defaults to ``None``, chosen by hand: a search uses the cores
+    #: that numba counts unless its caller caps them.
     num_threads: int | None = dataclasses.field(default=None, metadata={"minimum": 1})
 
     #: A chunk of the scan of a count, by the BZ or brute-force method, visits at most this many

@@ -8,7 +8,7 @@ import functools
 import itertools
 import math
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
 import numba
@@ -424,3 +424,140 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
         _threads.run_work_items(2, 2, start_worker)
     assert stopped == [True]
     assert raised.value is interrupts[-1]
+
+
+class _Rows:
+    """Rows of a batch for ``run_blocks``, each of work one, which record how they run.
+
+    ``calls`` lists each call of a worker as ``(start, end, max_work, thread)``, and ``rows`` each
+    row that runs.  A row in ``ending_rows`` ends the batch, and ``before_row`` runs before a row.
+    """
+
+    def __init__(
+        self, ending_rows: Sequence[int] = (), before_row: Callable[[int], None] | None = None
+    ) -> None:
+        self.ending_rows = set(ending_rows)
+        self.before_row = before_row
+        self.calls: list[tuple[int, int, int, int]] = []
+        self.rows: list[int] = []
+        self.workers: list[int] = []
+        self.lock = threading.Lock()
+
+    def start_worker(self) -> _threads.RunRows:
+        """Record the worker, and return how it runs rows."""
+        self.workers.append(threading.get_ident())
+
+        def run_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
+            with self.lock:
+                self.calls.append((start, end, max_work, threading.get_ident()))
+            for row in range(start, end):
+                if self.before_row is not None:
+                    self.before_row(row)
+                with self.lock:
+                    self.rows.append(row)
+                if row in self.ending_rows:
+                    return row + 1, True
+                # Each row adds one to the work of the call.
+                if row + 1 - start >= max_work:
+                    return row + 1, False
+            return end, False
+
+        return run_rows
+
+
+@pytest.mark.parametrize("num_rows", [0, 1000])
+def test_batches_on_one_thread_run_in_one_call_on_the_calling_thread(num_rows: int) -> None:
+    rows = _Rows()
+    _threads.run_blocks(num_rows, 1, 0, rows.start_worker)
+    assert rows.calls == [(0, num_rows, _threads.NO_WORK_LIMIT, threading.get_ident())]
+
+
+@pytest.mark.parametrize("ending_rows", [[], [500]])
+def test_batches_within_the_split_work_run_in_one_call_on_the_calling_thread(
+    ending_rows: list[int],
+) -> None:
+    """A batch that ends, or whose work stays below the split work, starts no thread."""
+    rows = _Rows(ending_rows)
+    _threads.run_blocks(1000, 4, 10**6 if not ending_rows else 900, rows.start_worker)
+    split_work = rows.calls[0][2]
+    assert rows.calls == [(0, 1000, split_work, threading.get_ident())]
+    assert rows.workers == [threading.get_ident()]
+
+
+@pytest.mark.parametrize(
+    ("num_rows", "num_threads", "split_work"), [(100, 2, 50), (1000, 3, 10), (333, 8, 0)]
+)
+def test_costly_batches_move_the_rest_to_threads_in_contiguous_blocks(
+    num_rows: int, num_threads: int, split_work: int, no_threads_left: None
+) -> None:
+    """The calling thread runs rows until their work reaches the split work, and threads the rest.
+
+    The rest of the batch runs in contiguous blocks that partition it, each in one call.
+    """
+    rows = _Rows()
+    _threads.run_blocks(num_rows, num_threads, split_work, rows.start_worker)
+    first = max(1, split_work)
+    assert rows.calls[0] == (0, num_rows, split_work, threading.get_ident())
+    blocks = sorted((start, end) for start, end, _, _ in rows.calls[1:])
+    assert blocks[0][0] == first and blocks[-1][1] == num_rows
+    assert all(end == start for (_, end), (start, _) in itertools.pairwise(blocks))
+    assert all(start < end for start, end in blocks)
+    assert {max_work for _, _, max_work, _ in rows.calls[1:]} == {_threads.NO_WORK_LIMIT}
+    assert sorted(rows.rows) == list(range(num_rows))
+    assert len(rows.workers) == 1 + num_threads
+
+
+@pytest.mark.parametrize("ending_rows", [[1], [6], [6, 21], [32]])
+def test_blocks_after_the_first_that_ends_a_batch_are_skipped_by_its_thread(
+    ending_rows: list[int], no_threads_left: None
+) -> None:
+    """Every row up to the first that ends the batch runs, and its thread runs no later row."""
+    rows = _Rows(ending_rows)
+    _threads.run_blocks(33, 2, 0, rows.start_worker)
+    first = ending_rows[0]
+    assert set(range(first + 1)) <= set(rows.rows)
+    (finder, start_of_first) = next(
+        (thread, start) for start, end, _, thread in rows.calls[1:] if start <= first < end
+    )
+    assert max(start for start, _, _, thread in rows.calls[1:] if thread == finder) == (
+        start_of_first
+    )
+
+
+def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit(
+    no_threads_left: None,
+) -> None:
+    """A block that ends a batch after a later one did still ends it, and later blocks stop.
+
+    The block of row 6 waits until the block of row 21 has ended the batch.  Then every row up to 6
+    runs, and no block between them starts after that.
+    """
+    later_ended = threading.Event()
+    events: list[tuple[str, int]] = []
+
+    def before_row(row: int) -> None:
+        if row == 6:
+            assert later_ended.wait(_TIMEOUT)
+
+    class _LoggedRows(_Rows):
+        def start_worker(self) -> _threads.RunRows:
+            run_rows = super().start_worker()
+
+            def logged(start: int, end: int, max_work: int) -> tuple[int, bool]:
+                with self.lock:
+                    events.append(("start", start))
+                answer = run_rows(start, end, max_work)
+                with self.lock:
+                    events.append(("end", start))
+                if start <= 21 < end and start > 0:
+                    later_ended.set()
+                return answer
+
+            return logged
+
+    rows = _LoggedRows([6, 21], before_row)
+    _threads.run_blocks(33, 2, 0, rows.start_worker)
+    assert set(range(7)) <= set(rows.rows)
+    (block_of_6,) = [start for start, end, _, _ in rows.calls[1:] if start <= 6 < end]
+    after = events[events.index(("end", block_of_6)) + 1 :]
+    assert not [start for kind, start in after if kind == "start" and start > 6]

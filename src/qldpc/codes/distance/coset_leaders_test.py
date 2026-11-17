@@ -8,6 +8,7 @@ import itertools
 from collections.abc import Sequence
 from typing import Any, cast, get_args
 
+import numba
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -17,6 +18,9 @@ import stim
 from qldpc._binary import unpack_bits
 
 from ..conftest import Tune
+from . import _threads
+from ._brouwer_zimmermann.coset import BrouwerZimmermannCosetSearch
+from ._tuning import use_tuning
 from .conftest import (
     ROUTED_CSS_WEIGHT_STATE,
     ROUTED_PHYSICAL_STATES,
@@ -730,3 +734,109 @@ def test_connected_cluster_batches_read_syndromes_of_several_words(
     for max_weight in range(4):
         found = _find_each_not_within_max_weight(oracle, matrix, words, max_weight)
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
+
+
+@pytest.mark.parametrize("num_threads", [2, 3, 8])
+@pytest.mark.parametrize("tuning", [{}, {"coset_route_minimum_work": 0}], ids=["words", "tails"])
+def test_batches_on_threads_answer_as_on_one_thread(
+    num_threads: int, tuning: dict[str, int], pytestconfig: pytest.Config, tune: Tune
+) -> None:
+    """Batch queries on threads answer as on one thread, on CSS states part by part.
+
+    With ``information_set_batch_exponent=0``, a batch moves to threads once its queries on the
+    calling thread have done ``num_threads`` units of work.
+    """
+    tune(**tuning)
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    cases = [
+        (ROUTED_PHYSICAL_STATES[0], False),
+        (ROUTED_CSS_WEIGHT_STATE, True),
+        (get_random_css_state(6, 3, rng), True),
+        (get_random_css_state(6, 2, rng), False),
+    ]
+    for matrix, css_weight in cases:
+        num_qubits = len(matrix)
+        minima = get_exhaustive_minima(matrix, css_weight)
+        syndromes = rng.integers(1 << num_qubits, size=100)
+        batch = split_syndromes_into_words(syndromes.tolist(), num_qubits)
+        with use_tuning(num_threads=1):
+            serial = CosetLeaderSearch(matrix, css_weight=css_weight)
+        with use_tuning(num_threads=num_threads, information_set_batch_exponent=0):
+            threaded = CosetLeaderSearch(matrix, css_weight=css_weight)
+        for max_weight in range(num_qubits + 1):
+            found = _find_each_not_within_max_weight(threaded, matrix, batch, max_weight)
+            assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
+            for start in [0, *found]:
+                assert threaded.find_first_not_within_max_weight(
+                    batch[start:], max_weight
+                ) == serial.find_first_not_within_max_weight(batch[start:], max_weight)
+            weights = threaded.get_min_weights(batch, max_weight)
+            assert np.array_equal(weights, serial.get_min_weights(batch, max_weight))
+            assert np.array_equal(weights, np.minimum(minima[syndromes], max_weight + 1))
+
+
+def _record_thread_options(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
+    """Record the name, threads, and split work of each batch query of a BZ coset search."""
+    calls: list[tuple[str, int, int]] = []
+    for name in ("find_first_not_within_max_weight", "get_min_weights"):
+        query = getattr(BrouwerZimmermannCosetSearch, name)
+
+        def record(
+            self: Any, *args: Any, name: str = name, query: Any = query, **options: Any
+        ) -> Any:
+            calls.append((name, options["num_threads"], options["split_work"]))
+            return query(self, *args, **options)
+
+        monkeypatch.setattr(BrouwerZimmermannCosetSearch, name, record)
+    return calls
+
+
+def test_searches_take_their_number_of_threads_when_they_are_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A search passes the threads of the tuning with which it was built to every batch query.
+
+    Its split work grows with ``information_set_batch_exponent``, up to ``NO_WORK_LIMIT``.
+    """
+    calls = _record_thread_options(monkeypatch)
+    matrix = ROUTED_PHYSICAL_STATES[0]
+    batch = split_syndromes_into_words(list(range(32)), len(matrix))
+    for num_threads, exponent in [(3, 4), (3, 5), (16, 62)]:
+        with use_tuning(num_threads=num_threads, information_set_batch_exponent=exponent):
+            oracle = CosetLeaderSearch(matrix)
+        with use_tuning(num_threads=1):
+            oracle.get_min_weights(batch, 2)
+    assert [threads for _, threads, _ in calls] == [3, 3, 16]
+    split_work = [work for _, _, work in calls]
+    assert split_work[0] < split_work[1]
+    assert split_work[2] == _threads.NO_WORK_LIMIT
+    monkeypatch.setattr(_threads._num_threads, "NUM_THREADS", None)
+    monkeypatch.setattr(numba.config, "NUMBA_NUM_THREADS", 4)
+    with use_tuning(num_threads=None):
+        oracle = CosetLeaderSearch(matrix)
+    oracle.find_first_not_within_max_weight(batch, len(matrix))
+    assert calls[3][:2] == ("find_first_not_within_max_weight", 4)
+
+
+def test_both_passes_of_css_states_take_the_threads_of_the_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """For the CSS weight on a CSS state, the X and Z passes of batch queries take its threads.
+
+    Every pass takes the threads and the split work that a search of Pauli errors takes.
+    """
+    calls = _record_thread_options(monkeypatch)
+    matrix = get_stabilizer_matrix(
+        ("XXXX___", "XX__XX_", "X_X_X_X", "ZZZZ___", "ZZ__ZZ_", "Z_Z_Z_Z", "ZZZZZZZ")
+    )
+    batch = split_syndromes_into_words(list(range(1 << len(matrix))), len(matrix))
+    with use_tuning(num_threads=3):
+        CosetLeaderSearch(matrix).get_min_weights(batch, 2)
+        oracle = CosetLeaderSearch(matrix, css_weight=True)
+    (single,) = calls
+    oracle.get_min_weights(batch, 2)
+    assert [name for name, _, _ in calls[1:]] == ["get_min_weights"] * 2
+    oracle.find_first_not_within_max_weight(batch, 3)
+    assert [name for name, _, _ in calls[3:]] == ["find_first_not_within_max_weight"] * 2
+    assert {(threads, work) for _, threads, work in calls} == {(single[1], single[2])}
+    assert single[1] == 3
