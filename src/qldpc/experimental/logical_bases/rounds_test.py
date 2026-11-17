@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for choosing the operators of a basis to act on them in few parallel rounds."""
+"""Unit tests for choosing logical operators, one per class of a basis, for parallel rounds."""
 
 import itertools
+import types
 from typing import Any, Literal
 from unittest import mock
 
@@ -17,7 +18,14 @@ from qldpc.objects import Pauli, PauliXZ
 
 from . import rounds
 from .evaluation import evaluate_logical_ops
-from .rounds import _count_candidates, _list_candidates, optimize_logical_rounds
+from .rounds import (
+    LogicalOpsRounds,
+    OptimizedLogicalRounds,
+    _check_choice,
+    _count_candidates,
+    _list_candidates,
+    optimize_logical_rounds,
+)
 
 # a [[7, 4]] code whose choice of X-type operators at minimum weight needs 2 to 4 rounds
 _CHOICE_CHECKS = ([[1, 0, 1, 1, 1, 0, 0]], [[0, 1, 1, 1, 0, 0, 1], [1, 1, 0, 0, 1, 1, 0]])
@@ -25,8 +33,8 @@ _CHOICE_CHECKS = ([[1, 0, 1, 1, 1, 0, 0]], [[0, 1, 1, 1, 0, 0, 1], [1, 1, 0, 0, 
 # a [[6, 3]] code whose X-type operators need 3 rounds at minimum weight, and 2 with slack 2
 _SLACK_CHECKS = ([[1, 1, 1, 1, 0, 1]], [[1, 1, 0, 1, 1, 1], [0, 1, 1, 1, 1, 1]])
 
-# an [[8, 4]] code whose X-type candidates, if only those of the first information set are listed,
-# all share qubits that the candidates of a 2-round choice avoid
+# an [[8, 4]] code whose X-type candidates of the first information set all share qubits; the
+# candidates of a 2-round choice avoid those qubits
 _SHARED_CHECKS = (
     [[1, 1, 0, 1, 1, 1, 0, 1], [1, 1, 1, 0, 0, 1, 0, 0]],
     [[0, 1, 0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 0, 0, 1]],
@@ -38,10 +46,26 @@ _LOAD_CHECKS = (
     [[0, 0, 0, 0, 1, 1, 1, 1], [1, 0, 1, 1, 0, 0, 1, 0]],
 )
 
+# a [[5, 3]] code whose lightest X-type choice at slack 2 does not have the smallest largest load
+_ORDER_CHECKS = ([[1, 1, 1, 1, 1]], [[0, 1, 1, 1, 1]])
+
+# a [[10, 6]] code with an integer program that HiGHS (in SciPy 1.18) fails to solve with presolve
+_PRESOLVE_CHECKS = (
+    [[1, 0, 1, 0, 1, 1, 1, 0, 0, 0], [1, 1, 0, 1, 0, 0, 0, 0, 0, 1]],
+    [[0, 0, 0, 1, 0, 1, 1, 0, 0, 1], [1, 1, 1, 0, 0, 1, 1, 0, 1, 0]],
+)
+
 
 @pytest.mark.parametrize(
     "checks, weight_slack",
-    [(_CHOICE_CHECKS, 0), (_SLACK_CHECKS, 0), (_SLACK_CHECKS, 2), (_LOAD_CHECKS, 0)],
+    [
+        (_CHOICE_CHECKS, 0),
+        (_SLACK_CHECKS, 0),
+        (_SLACK_CHECKS, 2),
+        (_LOAD_CHECKS, 0),
+        (_ORDER_CHECKS, 2),
+        (_PRESOLVE_CHECKS, 2),
+    ],
 )
 def test_optimum(checks: tuple[Any, Any], weight_slack: int) -> None:
     """The chosen operators are optimal, by brute force over every choice of operators."""
@@ -55,8 +79,11 @@ def test_optimum(checks: tuple[Any, Any], weight_slack: int) -> None:
 def test_subsystem_code(
     subsystem_code: codes.CSSCode, logicals: Literal["dressed", "bare"]
 ) -> None:
-    """Dressed and bare operators of a subsystem code are chosen optimally."""
-    ops = subsystem_code.get_logical_ops()
+    """Operators of a subsystem code are chosen optimally, in the classes of the given basis."""
+    k = subsystem_code.dimension
+    ops = np.asarray(subsystem_code.get_logical_ops(), dtype=int)
+    ops[0] = (ops[0] + ops[1]) % 2
+    ops[k + 1] = (ops[k + 1] + ops[k]) % 2
     result = optimize_logical_rounds(subsystem_code, ops, weight_slack=2, logicals=logicals)
     _check_result(subsystem_code, ops, result, 2, logicals)
     assert result.optimal
@@ -85,6 +112,34 @@ def test_time_limit() -> None:
     assert result.x.stop_reason == "time_limit"
 
 
+def test_time_limit_shared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The time limit covers solving for both Pauli types together, but not listing candidates."""
+    now = [0.0]
+
+    def tick() -> float:
+        now[0] += 1
+        return now[0]
+
+    def slow_count(*args: Any) -> int:
+        now[0] += 50
+        return count(*args)
+
+    def recorded_milp(*args: Any, **kwargs: Any) -> Any:
+        limits.append(kwargs["options"]["time_limit"])
+        return milp(*args, **kwargs)
+
+    # each reading of the clock takes one tick, and each count takes 50
+    count, milp = rounds._count_candidates, scipy.optimize.milp
+    limits: list[float] = []
+    monkeypatch.setattr(rounds, "time", types.SimpleNamespace(monotonic=tick))
+    monkeypatch.setattr(rounds, "_count_candidates", slow_count)
+    with mock.patch.object(scipy.optimize, "milp", recorded_milp):
+        result = optimize_logical_rounds(codes.CSSCode(*_CHOICE_CHECKS), time_limit=100)
+    assert result.optimal
+    assert len(limits) > 2 and limits[0] == 100
+    assert all(0 < limit - next_limit < 50 for limit, next_limit in itertools.pairwise(limits))
+
+
 def test_incomplete_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     """If sampling misses candidates, the result is valid but not claimed to be optimal."""
     monkeypatch.setattr(rounds, "_MAX_ROWS_PER_SAMPLE", 1)
@@ -99,6 +154,17 @@ def test_incomplete_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
     best = _get_best(code, code.get_logical_ops(), Pauli.X, 0, "dressed")
     assert result.x.lower_bound <= best[0]
 
+    # missing candidates are reported even if the time limit also runs out
+    out_of_time = scipy.optimize.OptimizeResult(status=1, x=None, message="time limit")
+    with mock.patch.object(scipy.optimize, "milp", return_value=out_of_time):
+        result = optimize_logical_rounds(code)
+    assert result.x.stop_reason == "incomplete_candidates"
+
+    # a class with no candidate found still gets one of minimum weight
+    code = codes.CSSCode([[1, 1, 0, 1, 1, 0]], [[1, 0, 1, 1, 0, 0]])
+    result = optimize_logical_rounds(code)
+    _check_result(code, code.get_logical_ops(), result, 0, "dressed")
+
 
 def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
     """Random information sets find candidates that combine many rows of the first one."""
@@ -112,9 +178,19 @@ def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_solver_failures() -> None:
-    """Solver results that break the constraints, or report failure, raise errors."""
+    """Solver failures are retried without presolve, and results that break constraints raise."""
     code = codes.CSSCode(*_CHOICE_CHECKS)
     milp = scipy.optimize.milp
+
+    def failing_presolve(*args: Any, **kwargs: Any) -> Any:
+        if kwargs["options"].get("presolve", True):
+            return scipy.optimize.OptimizeResult(status=4, x=None, message="error")
+        return milp(*args, **kwargs)
+
+    with mock.patch.object(scipy.optimize, "milp", failing_presolve):
+        result = optimize_logical_rounds(code, time_limit=100)
+    _check_result(code, code.get_logical_ops(), result, 0, "dressed")
+    assert result.optimal
 
     def broken_milp(*args: Any, **kwargs: Any) -> Any:
         solution = milp(*args, **kwargs)
@@ -134,6 +210,18 @@ def test_solver_failures() -> None:
         pytest.raises(RuntimeError, match="failed"),
     ):
         optimize_logical_rounds(code)
+
+
+def test_check_choice() -> None:
+    """A choice must take one candidate per class, and keep the operators of a round disjoint."""
+    candidates = [[np.array([1, 1, 0]), np.array([0, 0, 1])], [np.array([0, 1, 1])]]
+    chosen, rounds_of_ops = _check_choice(candidates, [(1, 0, 1), (0, 0, 0)])
+    np.testing.assert_array_equal(chosen, [[1, 1, 0], [0, 1, 1]])
+    np.testing.assert_array_equal(rounds_of_ops, [0, 1])
+    with pytest.raises(RuntimeError, match="breaks its constraints"):
+        _check_choice(candidates, [(0, 0, 0), (1, 0, 0)])
+    with pytest.raises(RuntimeError, match="breaks its constraints"):
+        _check_choice(candidates, [(0, 0, 0), (0, 1, 1)])
 
 
 def test_candidates() -> None:
@@ -161,6 +249,16 @@ def test_special_inputs() -> None:
     assert (result.x.num_rounds, result.x.lower_bound) == (0, 0)
     assert result.optimal
     assert result.metrics.x.weights.shape == (0,)
+
+    # the result is optimal only if the choices of both Pauli types are
+    x_rounds = LogicalOpsRounds(np.zeros(1, dtype=int), 1, "optimal")
+    z_rounds = LogicalOpsRounds(np.zeros(1, dtype=int), 1, "time_limit")
+    assert not OptimizedLogicalRounds(np.zeros((2, 2), dtype=np.uint8), x_rounds, z_rounds).optimal
+
+    # a slack beyond the number of qubits allows every operator of each class
+    code = codes.SteaneCode()
+    result = optimize_logical_rounds(code, weight_slack=7)
+    _check_result(code, code.get_logical_ops(), result, 7, "dressed")
 
     with pytest.raises(ValueError, match="nonnegative"):
         optimize_logical_rounds(code, weight_slack=-1)
@@ -242,7 +340,7 @@ def _get_best(
 
 
 def _get_value(ops: npt.NDArray[np.int_]) -> tuple[int, int, int]:
-    """The rounds (by brute-force colouring), the largest load, and the total weight."""
+    """The rounds (by brute-force coloring), the largest load, and the total weight."""
     k = len(ops)
     overlap = ops @ ops.T > 0
     num_rounds = next(
