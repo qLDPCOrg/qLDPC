@@ -26,12 +26,12 @@ def limit_numba_threads() -> None:
 
     galois runs some kernels (such as matrix multiplication) in Numba's parallel mode, which by
     default starts one thread per CPU in every process.  Tests run in many concurrent processes and
-    mostly multiply small matrices, so those threads only oversubscribe the CPU.  qLDPC's exact
-    searches take their default number of threads from ``QLDPC_NUM_THREADS`` if it is set, so that
-    defaults to the same number.
+    mostly multiply small matrices, so those threads only oversubscribe the CPU.  qLDPC's searches
+    that run on threads take their default number of threads from ``QLDPC_NUM_THREADS`` if it is
+    set, and otherwise from Numba, so a caller's ``QLDPC_NUM_THREADS`` also sets Numba's default
+    here, and both default to one.
     """
-    os.environ.setdefault("NUMBA_NUM_THREADS", "1")
-    os.environ.setdefault("QLDPC_NUM_THREADS", os.environ["NUMBA_NUM_THREADS"])
+    os.environ.setdefault("NUMBA_NUM_THREADS", os.environ.get("QLDPC_NUM_THREADS", "1"))
 
 
 if __name__ == "__main__":
