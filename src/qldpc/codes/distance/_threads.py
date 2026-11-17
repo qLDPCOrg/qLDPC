@@ -82,10 +82,10 @@ def run_work_items(
     exception is raised again: that of the calling thread, as at a keyboard interrupt, or else the
     first that another thread raised.  An exception while the calling thread starts or waits for
     the others, such as a keyboard interrupt, also sets the event, and is raised again once every
-    thread that started has returned, except in narrow windows that a further interrupt can open
-    (see the comment in the code).  A thread whose start was interrupted before it counted as
-    started may still run, but it finds the event set and returns without starting its worker.  No
-    thread claims a range once the event is set.
+    thread that started has returned, except in narrow windows in which a further interrupt can end
+    this function while threads still run (see the comment in the code).  A thread whose start was
+    interrupted before it counted as started may still run, but it finds the event set and returns
+    without starting its worker.  No thread claims a range once the event is set.
     """
     stop = threading.Event()
     lock = threading.Lock()
@@ -142,10 +142,11 @@ def run_work_items(
     except BaseException:
         # A further interrupt can end this function before every thread that started has returned,
         # in narrow windows that only a signal handler could close, which a library should not
-        # install.  One that arrives before the event is set, or as the second wait for the threads
-        # starts, leaves them running.  One that arrives while the wait handles an earlier exception
-        # leaves them running too, but the event is set by then, so no thread starts a new range or
-        # chunk.
+        # install.  One that arrives here, before the event is set, leaves the threads running until
+        # the layer ends.  One that arrives as the wait below starts, or while it handles an earlier
+        # exception, leaves them running only until their chunks end, since the event is set by
+        # then.  An interrupt while the first wait, in the try, handles an exception is safe, since
+        # this handler waits again.
         stop.set()
         _join(threads, stop)
         raise
@@ -160,7 +161,7 @@ def _join(threads: list[threading.Thread], stop: threading.Event) -> None:
     interrupted, so it returns without starting its worker if it runs later.  An exception while
     waiting, such as a keyboard interrupt, sets the stop event, and the wait goes on.  The last such
     exception is raised once the threads have returned, unless a further exception arrives while
-    this handles one (see the comment in ``run_work_items``).
+    this handles one; the comment in ``run_work_items`` says when that leaves threads running.
     """
     interrupt: BaseException | None = None
     index = 0

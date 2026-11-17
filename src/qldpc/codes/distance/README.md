@@ -283,10 +283,11 @@ Numba's parallel code, such as some of galois's, uses numba's own count, which n
 So `QLDPC_NUM_THREADS` sets numba's count too only if qLDPC is imported before numba, and so before galois: qLDPC then sets `NUMBA_NUM_THREADS` to the same value.
 If numba was imported first with another count, qLDPC warns that numba keeps it; to avoid that, also set `NUMBA_NUM_THREADS` to the same value before Python starts.
 The docstring of `src/qldpc/_num_threads.py` gives the other warnings.
-Numba does not read the CPU quotas of containers.
+Numba does not read the CPU quotas of containers, so in a container, set `QLDPC_NUM_THREADS` to its CPU quota.
 `numba.set_num_threads` changes only the count of the calling thread's numba parallel code, not `QLDPC_NUM_THREADS` or `numba.config.NUMBA_NUM_THREADS`, nor the threads of searches.
 `NUMBA_NUM_THREADS` alone still sets the count of searches when `QLDPC_NUM_THREADS` is not set.
 To keep searches on one core, set `QLDPC_NUM_THREADS=1` before Python starts, which reaches every thread and worker process, or run them within `use_tuning(num_threads=1)`.
+`QLDPC_NUM_THREADS=1` sets the threads of qLDPC's searches and, if qLDPC is imported first, of numba's parallel code, while BLAS threads follow `OMP_NUM_THREADS` and `OPENBLAS_NUM_THREADS`, as the runners of the experiments set them.
 New threads and spawned processes normally start with the default tuning (see the module docstring of `_tuning.py`), so a program that runs searches in a pool of workers must enter `use_tuning` in the function that each worker runs.
 Programs that run searches in several processes or threads at once should cap the count in one of these ways, since each search would otherwise start a thread for each CPU.
 Other searches and counts run on one thread, except the BZ distance search that a count may run first to find its default weight.

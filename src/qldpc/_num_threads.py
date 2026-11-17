@@ -17,8 +17,8 @@ sets numba's count too only if qLDPC is imported before numba, and so before gal
   keeps that count.  To give it the same count, import qLDPC before numba and galois, or also set
   ``NUMBA_NUM_THREADS`` to the same value before Python starts.  ``numba.set_num_threads`` would
   change the count of numba's parallel code only for the calling thread, so qLDPC does not call
-  it.  It changes neither ``QLDPC_NUM_THREADS`` nor ``numba.config.NUMBA_NUM_THREADS``, nor the
-  threads of qLDPC's searches.
+  it.  ``numba.set_num_threads`` changes neither ``QLDPC_NUM_THREADS`` nor
+  ``numba.config.NUMBA_NUM_THREADS``, nor the threads of qLDPC's searches.
 
 If the variable is not set, qLDPC changes nothing, and searches use numba's thread count,
 ``numba.config.NUMBA_NUM_THREADS``.

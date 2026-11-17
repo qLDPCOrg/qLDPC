@@ -98,8 +98,9 @@ def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None
 def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
     """A range holds at least one item, even when its share of the weight is lost to rounding.
 
-    After the first item, a quarter of the three units of weight left falls below the spacing of
-    floats near ``8e15``, so the share adds nothing to the weight claimed so far.
+    The threads are capped at the four items.  After the first item, an eighth of the three units of
+    weight left falls below half the spacing of floats near ``8e15``, so the share adds nothing to
+    the weight claimed so far.
     """
     claimed: list[int] = []
 
@@ -107,7 +108,7 @@ def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
         return lambda start, end: claimed.extend(range(start, end))
 
     cumulative_weights = 8e15 + np.arange(4, dtype=np.float64)
-    _threads.run_work_items(4, 16, start_worker, cumulative_weights=cumulative_weights)
+    _threads.run_work_items(4, 4, start_worker, cumulative_weights=cumulative_weights)
     assert sorted(claimed) == [0, 1, 2, 3]
 
 
@@ -383,24 +384,25 @@ def test_another_error_while_the_calling_thread_waits_stops_the_other_threads(
 
 
 @pytest.mark.usefixtures("no_threads_left")
-@pytest.mark.parametrize("num_interrupts", [1, 2])
+@pytest.mark.parametrize(("method", "num_interrupts"), [("join", 1), ("join", 2), ("is_alive", 1)])
 def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
-    monkeypatch: pytest.MonkeyPatch, num_interrupts: int
+    monkeypatch: pytest.MonkeyPatch, method: str, num_interrupts: int
 ) -> None:
     """A keyboard interrupt while the calling thread waits for a working thread stops that thread.
 
     The other thread stops after its current chunk, and the interrupt is raised once it has
     returned, also if another interrupt comes while the calling thread waits again.  The wait for
-    the thread raises the interrupts as it starts, in place of real ones.
+    the thread, or its check of whether the thread is alive, raises the interrupts as it starts,
+    in place of real ones.
     """
-    join = threading.Thread.join
+    original = getattr(threading.Thread, method)
     interrupts: list[KeyboardInterrupt] = []
 
-    def interrupted_join(thread: threading.Thread, *args: Any, **kwargs: Any) -> None:
+    def interrupted(thread: threading.Thread, *args: Any, **kwargs: Any) -> Any:
         if thread.name == "qldpc-search" and len(interrupts) < num_interrupts:
             interrupts.append(KeyboardInterrupt())
             raise interrupts[-1]
-        join(thread, *args, **kwargs)
+        return original(thread, *args, **kwargs)
 
     calling_thread = threading.get_ident()
     working = threading.Event()
@@ -417,7 +419,7 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
 
         return run_range
 
-    monkeypatch.setattr(threading.Thread, "join", interrupted_join)
+    monkeypatch.setattr(threading.Thread, method, interrupted)
     with pytest.raises(KeyboardInterrupt) as raised:
         _threads.run_work_items(2, 2, start_worker)
     assert stopped == [True]

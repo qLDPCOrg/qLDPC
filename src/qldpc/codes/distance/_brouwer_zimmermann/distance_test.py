@@ -1648,7 +1648,7 @@ def test_threads_find_the_lightest_words_of_layers_split_across_them(
 
 @pytest.mark.parametrize(
     ("num_rows", "weight", "num_threads", "length"),
-    [(12, 3, 8, 1), (12, 5, 8, 2), (40, 3, 1, 1), (40, 4, 1, 1), (40, 4, 4, 2)],
+    [(12, 3, 8, 1), (12, 5, 8, 2), (40, 3, 1, 1), (70, 4, 1, 1), (40, 4, 4, 2)],
 )
 def test_work_items_fix_the_first_rows_of_supports_in_lexicographic_order(
     num_rows: int, weight: int, num_threads: int, length: int
