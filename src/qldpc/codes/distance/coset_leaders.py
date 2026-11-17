@@ -19,7 +19,7 @@ import numpy.typing as npt
 from qldpc._binary import get_kernel, pack_bits, row_reduce_binary
 from qldpc._compilation import always_compiled
 
-from ._binary import as_binary_matrix, as_integer, swap_pauli_halves
+from ._binary import as_binary_matrix, as_integer, multiply_binary, swap_pauli_halves
 from ._brouwer_zimmermann.coset import (
     BrouwerZimmermannCosetSearch,
     get_css_searches,
@@ -145,10 +145,12 @@ class CosetLeaderSearch:
         # reduced rows depend only on the stabilizer group, so they key the cache of BZ searches.
         x_combinations, z_combinations = combinations
         x_rows, x_transform, _ = row_reduce_binary(
-            (x_combinations @ matrix[:, :n]) % 2, np.eye(len(x_combinations), dtype=np.uint8)
+            multiply_binary(x_combinations, matrix[:, :n]),
+            np.eye(len(x_combinations), dtype=np.uint8),
         )
         z_rows, z_transform, _ = row_reduce_binary(
-            (z_combinations @ matrix[:, n:]) % 2, np.eye(len(z_combinations), dtype=np.uint8)
+            multiply_binary(z_combinations, matrix[:, n:]),
+            np.eye(len(z_combinations), dtype=np.uint8),
         )
         assert x_transform is not None and z_transform is not None
         if coset_search_method == "connected_cluster":
@@ -167,8 +169,8 @@ class CosetLeaderSearch:
         # Row ``j`` of ``x_syndrome_map`` selects the given stabilizers whose product is the pure-Z
         # stabilizer with Z part ``z_rows[j]``, so the map takes the syndrome of an error to that of
         # its X part (README.md, "The coset-leader search"), and likewise for Z.
-        x_syndrome_map = (z_transform @ z_combinations) % 2
-        z_syndrome_map = (x_transform @ x_combinations) % 2
+        x_syndrome_map = multiply_binary(z_transform, z_combinations)
+        z_syndrome_map = multiply_binary(x_transform, x_combinations)
         self._map_columns = (
             pack_bits(np.ascontiguousarray(x_syndrome_map.T)),
             pack_bits(np.ascontiguousarray(z_syndrome_map.T)),
@@ -506,7 +508,7 @@ def _as_state_stabilizers(stabilizers: npt.ArrayLike) -> npt.NDArray[np.uint8]:
 
     # Swapping the halves of the stabilizers turns their symplectic products into dot products.
     checks = swap_pauli_halves(matrix)
-    if np.any((checks @ matrix.T) % 2):
+    if np.any(multiply_binary(checks, matrix.T)):
         raise ValueError(
             "The stabilizers must commute, unlike the gauge generators of a subsystem code: pass the"
             " stabilizers of a state, such as a state of the code with its gauge and logical qubits"
