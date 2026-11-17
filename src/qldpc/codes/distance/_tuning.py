@@ -391,8 +391,8 @@ class SearchTuning:
 
     #: A distance search by the BZ method scans at most ``2**information_set_batch_exponent``
     #: supports and lookups of completion tables, counted together, in one call of compiled code,
-    #: which keyboard interrupts cannot stop.  At most 62.  Defaults to 15, a budget of interrupt
-    #: latency.
+    #: which keyboard interrupts cannot stop; on several threads, each thread scans ``num_threads``
+    #: times as many in one call.  At most 62.  Defaults to 15, a budget of interrupt latency.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: The number of threads on which a distance search by the BZ method scans a costly layer of a

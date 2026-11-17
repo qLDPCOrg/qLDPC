@@ -404,7 +404,8 @@ class _SectorSearch:
         """Scan a layer of the set ``index`` on threads, as ``_scan_set`` scans it on one.
 
         The threads claim the work items of the layer in order, and share the best weight, which
-        each lowers after each chunk of its scan.  So the best weight after the layer is the one
+        each lowers after each chunk of its scan, of ``batch_size * num_threads`` supports and
+        lookups.  So the best weight after the layer is the one
         thread's (Section 4.5).  Returns False if the scan stopped at the cutoff.
         """
         instance = self.instance
@@ -419,6 +420,9 @@ class _SectorSearch:
         table_arguments = (tables.tables, tables.offsets, tables.block_bits)
         items = _WorkItems(self.dimension, weight, self.num_threads)
         lock = threading.Lock()
+        # Each thread holds the global interpreter lock between its chunks, so chunks that grow with
+        # the number of threads keep the share of time under the lock about constant.
+        chunk_size = self.batch_size * self.num_threads
 
         def start_worker(stop: threading.Event) -> Callable[[int], None]:
             """Give a thread its own support and prefixes, and return how it scans an item."""
@@ -447,7 +451,7 @@ class _SectorSearch:
                         depth,
                         self.best,
                         self._scan_cutoff,
-                        self.batch_size,
+                        chunk_size,
                         *table_arguments,
                         item,
                     )
@@ -467,7 +471,7 @@ class _SectorSearch:
             -1,
             self.best,
             self._scan_cutoff,
-            self.batch_size,
+            chunk_size,
             *table_arguments,
             items.get_item(0),
         )
