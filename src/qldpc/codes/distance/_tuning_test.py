@@ -17,6 +17,7 @@ import sys
 from fractions import Fraction
 from typing import Any
 
+import numba
 import numpy as np
 import pytest
 from sympy.abc import x, y
@@ -429,3 +430,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     with _tuning.use_tuning(information_set_batch_exponent=5, num_threads=3) as tuning:
         bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
     assert seen["search"] and all(search == (1 << 5, 3, tuning) for search in seen["search"])
+
+    # Under the default tuning, a search scans on numba's thread count.
+    seen["search"].clear()
+    monkeypatch.setattr(numba.config, "NUMBA_NUM_THREADS", 3)
+    bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
+    assert seen["search"] and all(search[1] == 3 for search in seen["search"])

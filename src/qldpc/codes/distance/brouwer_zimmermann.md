@@ -450,7 +450,7 @@ A search for the minimum weight of a coset skips at `h(ω)` too until it finds a
 
 #### When a search uses the tables
 
-A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), or with `scan_set_item` on several threads ([Section 4.5](#45-behavior-spanning-files)), with tables only for an information set; in a basis of deficient rank, it counts pivot ones only for rows below its rank, as coset searches do.
+A distance search scans each search basis of a layer by itself with `scan_set` of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), or with `scan_set_items` on several threads ([Section 4.5](#45-behavior-spanning-files)), with tables only for an information set; in a basis of deficient rank, it counts pivot ones only for rows below its rank, as coset searches do.
 A count scans with its own kernels in [_counting/scan.py](_counting/scan.py), and chooses tables as a distance search does (below) for each of its steps of two or more rows of an information set, with `_StepTables`.
 
 Tables cost memory, a build, and lookups, and save only the supports that they skip, so they pay on large layers where they skip many supports, but not on small layers or in easy searches.
@@ -555,7 +555,8 @@ Every caller of `get_overlapping_family` ([Section 4.4](#44-heuristics-and-cost-
 The distance search and `CosetLeaderSearch` scan with the compiled entry points of [_brouwer_zimmermann/affine_search.py](_brouwer_zimmermann/affine_search.py), which Numba compiles from one body, `_scan`, separately for each set of constant flags, so no flag costs a branch for each word:
 
 - `scan_set` scans one set of a distance search, with or without completion tables.
-- `scan_set_item` scans one work item of a layer of such a set, as `scan_set` does, on one of several threads ([Section 4.5](#45-behavior-spanning-files)).
+- `scan_set_items` scans a range of work items of a layer of such a set, as `scan_set` does, on one of several threads, from the first support that `start_set_items` sets ([Section 4.5](#45-behavior-spanning-files)).
+  The distance search runs the ranges through `run_work_items` of [_threads.py](_threads.py).
 - `scan_coset_layer` and `scan_coset_layer_by_css_weight` scan one layer of one set in a coset search, and keep its lightest word.
 - `scan_coset_layer_by_tails` does so by the tails of the words ([Section 3.5](#35-packed-enumeration-with-pivot-column-deletion)), and keeps the support of the lightest word.
 - `scan_coset_layer_by_tails_with_tables` also skips, in a layer of two or more rows, the completions whose bound reaches the lesser of a skip bound and the best weight so far.
@@ -658,7 +659,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Packed generators | `generators` of the `AffineInstance` of a distance search: `uint64` words, after deleting pivot columns. `widths` counts the valid words for each search basis. |
 | Packed labels | `labels` of the `AffineInstance` of a distance search: `uint64` quotient-label words, without pivot-column deletion |
 | Batch of a compiled scan | `batch_size`, equal to `1 << information_set_batch_exponent` supports, or supports and lookups together in a scan with completion tables, and `num_threads` times as many on threads ([Section 4.5](#45-behavior-spanning-files)) |
-| Work item of a layer, and the threads that scan it ([Section 4.5](#45-behavior-spanning-files)) | `_WorkItems` and `_SectorSearch._scan_set_on_threads` of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), `scan_set_item`, and `run_work_items` of [_threads.py](_threads.py); `num_threads` of a search |
+| Work item of a layer, and the threads that scan it ([Section 4.5](#45-behavior-spanning-files)) | `_WorkItems` and `_SectorSearch._scan_set_on_threads` of [_brouwer_zimmermann/distance.py](_brouwer_zimmermann/distance.py), `start_set_items` and `scan_set_items`, and `run_work_items` of [_threads.py](_threads.py); `num_threads` of a search |
 | Candidate/set evaluation | The unit of the work of `plan_steps`, which `Certificate.work` counts |
 | Completion tables ([Section 3.9](#39-skipping-completions-by-completion-tables)) | `CompletionTables` of [_information_sets/completion_bounds.py](_information_sets/completion_bounds.py), chosen by `select_completion_tables` and kept, with the index of their set, in `completion_tables` and `completion_tables_set` of a distance search, or in `CosetTails` of a coset search |
 
@@ -763,17 +764,23 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   A later call restarts the layer from its first support, unless the search has finished, as it has after a stop at the cutoff.
   If `BrouwerZimmermannSearch.advance` raises, a witness that the interrupted scan found can stay out of the shared `U`, so build a new search to search again.
 - **Threads.**
-  A search scans a layer of a set on `num_threads` threads, which `BrouwerZimmermannSearch` resolves once from the tuning, if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports; otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
-  A **work item** is the set of supports of the layer whose first `k` rows are fixed, with `k = 1`, or `k = 2` if that leaves fewer than 32 items for each thread and `w ≥ 4`.
+  A search scans a layer of a set on `num_threads` threads, which `BrouwerZimmermannSearch` resolves once from the tuning, if the layer has `w ≥ 3` rows and more than `num_threads * batch_size` supports.
+  Otherwise, and always on one thread, it scans the layer on the calling thread with `scan_set`.
+  A **work item** is the set of supports of the layer whose first `k` rows are fixed: `k = 1`, or `k = 2` if one leaves fewer than 32 items for each thread and `w ≥ 4`.
   Since `k ≤ w - 2`, every completion of a prefix that completion tables skip ([Section 3.9](#39-skipping-completions-by-completion-tables)) lies in the item of the prefix, so the items partition the supports that a scan of the layer weighs or skips.
-  The threads, the calling thread among them, claim the items in lexicographic order, in which the first are the largest, and scan each with `scan_set_item`, which Numba compiles without the global interpreter lock and stops at the end of its item.
-  They share one copy of the rows, labels, and tables of the set.
-  The threads scan one set at a time, in the order of the sets, so `advance` and its certificate are unchanged.
+  The items are numbered in lexicographic order, in which the first are the largest.
+  The threads, the calling thread among them, claim ranges of consecutive items by guided self-scheduling: each range holds `max(1, m // (2 * num_threads))` of the `m` items that no thread has claimed, so the ranges shrink toward the end of the layer, which balances the threads, and the claims grow only with the logarithm of the number of items.
+  A thread scans its range with `scan_set_items`, which Numba compiles without the global interpreter lock, and which stops once a support passes the last item of the range.
+  The threads share one copy of the rows, labels, and tables of the set.
+  They scan one set at a time, in the order of the sets, so `advance` and its certificate are unchanged.
   Each chunk starts from the shared `U`, and its thread lowers `U` under a lock after the chunk.
   Every value of `U` is the weight of an eligible word, or the caller's upper bound, so a chunk that starts from a stale `U` only skips less.
-  After the layer, `U` is the least of its value before the layer and the weights of the eligible words of the layer, as on one thread, so every later decision, such as completion tables and the switch to an automorphism family, is that of one thread.
-  The thread that brings `U` to the cutoff stops the others after their chunks; the witness, and so the result of an early exit, can then depend on the timing of the threads, though its weight still lies between the distance and the cutoff.
-  An exception in any thread, such as a keyboard interrupt in the calling thread, stops the others after their chunks, and is raised again once all have returned.
+  After the layer, `U` is the least of its value before the layer and the weights of the eligible words of the layer, as on one thread.
+  So every later decision, such as completion tables and the switch to an automorphism family, is that of one thread.
+  The thread that brings `U` to the cutoff stops the others after their chunks.
+  The witness, and so the result of an early exit, can then depend on the timing of the threads, though its weight still lies between the distance and the cutoff.
+  An exception in any thread stops the others after their chunks, and so does one in the calling thread while it waits for them, such as a keyboard interrupt.
+  The exception is raised again once all threads have returned.
 - **CSS sectors.**
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**
@@ -817,8 +824,8 @@ These tests check the requirements, against exhaustive enumeration where they ca
 - [_information_sets/basis_families_test.py](_information_sets/basis_families_test.py): `test_family_certificates` and `test_overlapping_family_certificates`, certificates with rank-deficient blocks, parity, and overlaps.
 - [_information_sets/automorphism_families_test.py](_information_sets/automorphism_families_test.py): `test_automorphism_families_certify_like_the_family_of_all_images`.
 - [_information_sets/completion_bounds_test.py](_information_sets/completion_bounds_test.py): `test_bounds_are_exact_relaxations`, completion bounds against enumerated completions.
-- [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py): `test_brouwer_zimmermann_sector_certificates`, joint searches with distinct sector certificates; `test_automorphism_family_searches_scan_every_layer_they_certify` and `test_automorphism_family_searches_scan_their_new_set_from_layer_two`, distances that skipping a layer would miss; `test_searches_ask_for_automorphisms_only_before_costly_layers`; and `test_completion_tables_keep_distances_exact`.
-- [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py): `test_scan_of_one_information_set`, which weighs or skips each support once, and `test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound`, including rank deficiency three.
+- [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py): `test_brouwer_zimmermann_sector_certificates`, joint searches with distinct sector certificates; `test_automorphism_family_searches_scan_every_layer_they_certify` and `test_automorphism_family_searches_scan_their_new_set_from_layer_two`, distances that skipping a layer would miss; `test_searches_ask_for_automorphisms_only_before_costly_layers`; `test_completion_tables_keep_distances_exact`; and, for searches on threads, `test_searches_on_threads_find_the_distances_that_one_thread_finds`, `test_searches_on_threads_advance_as_searches_on_one_thread`, `test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does`, and `test_searches_on_threads_stop_at_the_cutoff_within_a_layer`.
+- [_brouwer_zimmermann/affine_search_test.py](_brouwer_zimmermann/affine_search_test.py): `test_scan_of_one_information_set`, which weighs or skips each support once, `test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer`, which checks that the ranges of work items cover a layer, and `test_coset_tail_scans_with_tables_skip_only_completions_that_reach_the_skip_bound`, including rank deficiency three.
 - [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py): `test_searches_by_tails_answer_as_searches_of_whole_words`, the words, skips, and bounds `R` of queries with tables; `test_min_weights_of_cosets_match_brute_force`; `test_min_weight_searches_above_max_weight_examine_as_queries`; and `test_answers_do_not_depend_on_earlier_queries`.
 - [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py): the tables that routes by tails ask for and keep, also when threads choose routes at once.
 - [coset_leaders_test.py](coset_leaders_test.py): `test_min_weights_match_exhaustive_minima`.

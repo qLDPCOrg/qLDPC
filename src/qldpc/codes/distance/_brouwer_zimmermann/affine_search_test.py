@@ -13,6 +13,7 @@ import numpy.typing as npt
 import pytest
 
 from qldpc._binary import pack_bits
+from qldpc._compilation import is_compilation_disabled
 
 from .._information_sets import completion_bounds
 from . import affine_search
@@ -160,11 +161,11 @@ def test_scan_of_one_information_set(pytestconfig: pytest.Config) -> None:
 
 
 def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() -> None:
-    """Scans of the work items of a layer, in order, find and count what the scan of the layer does.
+    """Scans of ranges of the work items of a layer, in order, find and count what its scan does.
 
-    The items fix the first rows of the supports, as many as the layer allows, so they cover the
-    layer and keep the completions that tables skip within them.  The sets have full and partial
-    rank, and the scans run with and without tables, so they skip some completions.
+    The items fix the first one to ``weight - 2`` rows of the supports, and the ranges hold one item
+    or up to four.  The sets have full and partial rank, and the scans of the set of full rank also
+    run with tables, which skip some completions.
     """
     rng = np.random.default_rng(7)
     num_rows, weight = 8, 5
@@ -199,18 +200,18 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
             expected_counts += counts
         assert expected_counts[2] > 0 or set_tables is no_tables
 
-        # Scan the work items of the layer in order, each from its first support.
-        for length in range(1, weight - 1):
+        # Scan the ranges of work items of the layer in order, each from its first support.
+        for length, range_size in itertools.product(range(1, weight - 1), (1, 4)):
+            items = [
+                np.array(rows, dtype=np.int64)
+                for rows in itertools.combinations(range(num_rows - weight + length), length)
+            ]
             best, item_counts = initial_best, np.zeros(3, dtype=np.int64)
-            for fixed_rows in itertools.combinations(range(num_rows - weight + length), length):
-                item = np.array(fixed_rows, dtype=np.int64)
-                support[:length] = item
-                for row in range(length):
-                    prefixes[row + 1] = prefixes[row] ^ generators[item[row]]
-                support[length] = item[-1] + 1
-                depth = length
+            for start in range(0, len(items), range_size):
+                last_item = items[min(start + range_size, len(items)) - 1]
+                depth = affine_search.start_set_items(generators, items[start], support, prefixes)
                 while depth >= 0:
-                    best, depth, *counts = affine_search.scan_set_item(
+                    best, depth, *counts = affine_search.scan_set_items(
                         *arguments,
                         support,
                         prefixes,
@@ -219,12 +220,17 @@ def test_scans_of_the_work_items_of_a_layer_add_up_to_the_scan_of_the_layer() ->
                         -1,
                         batch_size,
                         *table_arguments,
-                        item,
+                        last_item,
                     )
                     assert counts[0] + counts[1] <= batch_size
                     item_counts += counts
             assert best == expected_best
             np.testing.assert_array_equal(item_counts, expected_counts)
+
+
+def test_scans_of_work_items_run_without_the_global_interpreter_lock() -> None:
+    """Threads can run the compiled scans of work items at once, unless they run as plain Python."""
+    assert is_compilation_disabled() or affine_search.scan_set_items.targetoptions["nogil"]
 
 
 @pytest.mark.parametrize("css_weight", [False, True])

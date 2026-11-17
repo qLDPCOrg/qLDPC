@@ -30,7 +30,7 @@ from .._information_sets import (
     certificates,
     completion_bounds,
 )
-from .._tuning import SearchTuning, get_tuning
+from .._tuning import MAX_VALUE, SearchTuning, get_tuning
 from . import affine_instance, affine_search
 
 # The automorphism family of a sector: a basis family of the one set that a search scans, and the
@@ -403,10 +403,10 @@ class _SectorSearch:
     ) -> bool:
         """Scan a layer of the set ``index`` on threads, as ``_scan_set`` scans it on one.
 
-        The threads claim the work items of the layer in order, and share the best weight, which
-        each lowers after each chunk of its scan, of ``batch_size * num_threads`` supports and
-        lookups.  So the best weight after the layer is the one
-        thread's (Section 4.5).  Returns False if the scan stopped at the cutoff.
+        The threads claim ranges of the work items of the layer in order, and share the best
+        weight.  Each thread scans in chunks of ``batch_size * num_threads`` supports and lookups,
+        and lowers the best weight after each chunk.  So the best weight after the layer is the same
+        as on one thread (Section 4.5).  Returns False if the scan stopped at the cutoff.
         """
         instance = self.instance
         generators = instance.generators[index]
@@ -422,29 +422,23 @@ class _SectorSearch:
         lock = threading.Lock()
         # Each thread holds the global interpreter lock between its chunks, so chunks that grow with
         # the number of threads keep the share of time under the lock about constant.
-        chunk_size = self.batch_size * self.num_threads
+        chunk_size = min(self.batch_size * self.num_threads, MAX_VALUE)
 
-        def start_worker(stop: threading.Event) -> Callable[[int], None]:
-            """Give a thread its own support and prefixes, and return how it scans an item."""
+        def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+            """Give a thread its own support and prefixes, and return how it scans a range."""
             support = np.zeros(weight, dtype=np.int64)
             prefixes = np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64)
 
-            def scan_item(item_index: int) -> None:
-                """Scan a work item in chunks, until it ends or the stop event is set."""
-                # Start at the first support of the item: its fixed rows, then the next row.
-                item = items.get_item(item_index)
-                length = len(item)
-                support[:length] = item
-                for depth in range(length):
-                    np.bitwise_xor(
-                        prefixes[depth], generators[item[depth]], out=prefixes[depth + 1]
-                    )
-                support[length] = item[-1] + 1
-                depth = length
+            def scan_range(start: int, end: int) -> None:
+                """Scan the items ``start, ..., end - 1`` in chunks, until done or stopped."""
+                depth = affine_search.start_set_items(
+                    generators, items.get_item(start), support, prefixes
+                )
+                last_item = items.get_item(end - 1)
 
                 # Start each chunk from the shared best weight, and lower it after the chunk.
                 while depth >= 0 and not stop.is_set():
-                    best, depth, _, _, _ = affine_search.scan_set_item(
+                    best, depth, _, _, _ = affine_search.scan_set_items(
                         *set_arguments,
                         support,
                         prefixes,
@@ -453,7 +447,7 @@ class _SectorSearch:
                         self._scan_cutoff,
                         chunk_size,
                         *table_arguments,
-                        item,
+                        last_item,
                     )
                     if best < self.best:
                         with lock:
@@ -461,10 +455,10 @@ class _SectorSearch:
                         if self.best <= self.cutoff:
                             stop.set()
 
-            return scan_item
+            return scan_range
 
         # Compile the scan before the threads call it: a scan from depth -1 returns at once.
-        affine_search.scan_set_item(
+        affine_search.scan_set_items(
             *set_arguments,
             np.zeros(weight, dtype=np.int64),
             np.zeros((weight + 1, generators.shape[1]), dtype=np.uint64),
@@ -552,10 +546,10 @@ class _SectorSearch:
 class _WorkItems:
     """The work items of a layer that threads scan: the supports whose first rows are fixed.
 
-    An item fixes the first ``length`` rows of its supports, one row, or two if that leaves fewer
-    than ``_ITEMS_PER_THREAD`` items for each thread and the layer has four or more rows.  So the
-    completions of a prefix that tables skip lie in its item, as ``affine_search.scan_set_item``
-    requires.  The items are numbered in lexicographic order, in which the first are the largest.
+    An item fixes the first ``length`` rows of its supports: one row, or two if one leaves fewer
+    than ``_ITEMS_PER_THREAD`` items for each thread and the layer has four or more rows.  So
+    ``length <= weight - 2``, as ``affine_search.scan_set_items`` requires.  The items are numbered
+    in lexicographic order, in which the first are the largest.
     """
 
     def __init__(self, num_rows: int, weight: int, num_threads: int) -> None:

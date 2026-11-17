@@ -1516,24 +1516,31 @@ def test_searches_need_a_sector_or_an_upper_bound() -> None:
 
 
 class ItemScan(NamedTuple):
-    """The thread of a scan of a work item, the fixed rows of the item, and its bytes of tables."""
+    """A scan of a chunk of work items: its thread, last item, bytes of tables, and counts.
+
+    The counts are those of supports weighed, of lookups, and of supports skipped.
+    """
 
     thread: int
-    item: tuple[int, ...]
+    last_item: tuple[int, ...]
     table_bytes: int
+    counts: tuple[int, int, int]
 
 
 @pytest.fixture
 def item_scans(monkeypatch: pytest.MonkeyPatch) -> list[ItemScan]:
-    """Record each scan of a chunk of a work item, which only a layer split across threads runs."""
+    """Record each scan of a chunk of work items, which only a layer split across threads runs."""
     scans: list[ItemScan] = []
-    scan_set_item = affine_search.scan_set_item
+    scan_set_items = affine_search.scan_set_items
 
     def recording_scan(*args: Any) -> tuple[int, int, int, int, int]:
-        scans.append(ItemScan(threading.get_ident(), tuple(args[-1].tolist()), len(args[11])))
-        return scan_set_item(*args)
+        result = scan_set_items(*args)
+        last_item = tuple(args[-1].tolist())
+        counts = (int(result[2]), int(result[3]), int(result[4]))
+        scans.append(ItemScan(threading.get_ident(), last_item, len(args[11]), counts))
+        return result
 
-    monkeypatch.setattr(affine_search, "scan_set_item", recording_scan)
+    monkeypatch.setattr(affine_search, "scan_set_items", recording_scan)
     return scans
 
 
@@ -1604,7 +1611,7 @@ def test_searches_on_threads_find_the_distances_that_one_thread_finds(
 
 @pytest.mark.parametrize(
     ("num_rows", "weight", "num_threads", "length"),
-    [(12, 3, 8, 1), (12, 5, 8, 2), (70, 4, 1, 1), (70, 4, 3, 2)],
+    [(12, 3, 8, 1), (12, 5, 8, 2), (70, 4, 1, 1), (40, 4, 4, 2)],
 )
 def test_work_items_fix_the_first_rows_of_heads_in_lexicographic_order(
     num_rows: int, weight: int, num_threads: int, length: int
@@ -1667,12 +1674,12 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     cutoff: int,
     num_threads: int,
 ) -> None:
-    """A stop at the cutoff, in a layer split across threads, leaves the bounds of the layer.
+    """A stop at the cutoff, in a layer split across threads, leaves the bounds as before the layer.
 
     The search returns the weight of a word between the distance, eight, and the cutoff.  It scans
     one set of an automorphism family, whose best weight is ten before layer four, which holds the
-    first words of weight eight or nine.  The threads stop scanning soon after one reaches the
-    cutoff, long before they claim every item of the layer.
+    first words of weight eight or nine, in its first items.  The threads stop scanning soon after
+    one reaches the cutoff, before they claim the last item of the layer.
     """
     tune(num_threads=num_threads)
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
@@ -1687,39 +1694,83 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     assert 8 <= search.best <= cutoff
     assert sector_search.uses_automorphism_family and bounds[1] == 4
     assert (sector_search.lower_bound, sector_search.next_weight) == bounds
-    items = {scan.item for scan in item_scans[num_scans:]}
-    assert 0 < len(items) < bz._WorkItems(sector_search.dimension, 4, num_threads).num_items // 2
+    items = bz._WorkItems(sector_search.dimension, 4, num_threads)
+    last_item = tuple(items.get_item(items.num_items - 1).tolist())
+    assert item_scans[num_scans:]
+    assert max(scan.last_item for scan in item_scans[num_scans:]) < last_item
+
+
+@pytest.mark.usefixtures("small_batches")
+@pytest.mark.parametrize("tables", [False, True])
+def test_scans_on_threads_weigh_look_up_and_skip_what_one_thread_does(
+    tune: Tune, item_scans: list[ItemScan], monkeypatch: pytest.MonkeyPatch, tables: bool
+) -> None:
+    """The scans of work items count, in total, the supports and lookups of a scan on one thread.
+
+    The search starts at its distance, eight, which it never lowers, so every chunk on any thread
+    starts from the same best weight.  With tables in every layer, the scans skip completions.
+    """
+    if tables:
+        tune(
+            completion_bound_minimum_layer_work=0,
+            completion_bound_max_cost_percent=MAX_VALUE,
+            completion_bound_block_bits=8,
+            completion_bound_samples=DEFAULT_TUNING.completion_bound_min_samples,
+        )
+    totals: list[npt.NDArray[np.int64]] = []
+    scan_set = affine_search.scan_set
+
+    def counting_scan(*args: Any) -> tuple[int, int, int, int, int]:
+        result = scan_set(*args)
+        totals[-1] += result[2:]
+        return result
+
+    monkeypatch.setattr(affine_search, "scan_set", counting_scan)
+    code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
+    for num_threads in (1, 3):
+        item_scans.clear()
+        totals.append(np.zeros(3, dtype=np.int64))
+        tune(num_threads=num_threads)
+        assert (
+            bz.get_distance_brouwer_zimmermann([get_sector(code, Pauli.X)], cutoff=0, upper_bound=8)
+            == 8
+        )
+        totals[-1] += np.sum([scan.counts for scan in item_scans], axis=0, dtype=np.int64)
+    assert item_scans
+    assert totals[0][2] > 0 if tables else totals[0][1] == 0
+    np.testing.assert_array_equal(totals[0], totals[1])
 
 
 @pytest.mark.usefixtures("small_batches")
 def test_an_error_on_a_thread_stops_a_search_on_threads(
     tune: Tune, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An error on a thread that scans work items ends the search with that error, on no threads.
+    """An error on a thread that scans work items ends the search with that error.
 
-    The other thread fails only once the calling thread has started to scan an item, and the
-    calling thread scans its chunk only after the other thread has failed.  Each holds one item,
-    and the layer has more, so neither can run out of items or see the stop event first.
+    No thread of the search is left running.  The other thread fails only once the calling thread
+    has started to scan, and the calling thread scans its chunk only after the other thread has
+    failed.  Each holds one range of items, and the layer has more, so neither can run out of items
+    or see the stop event first.
     """
     tune(num_threads=2)
     calling_thread = threading.get_ident()
     scanning, failed = threading.Event(), threading.Event()
-    scan_set_item = affine_search.scan_set_item
+    scan_set_items = affine_search.scan_set_items
 
     def failing_scan(*args: Any) -> tuple[int, int, int, int, int]:
         if threading.get_ident() != calling_thread:
-            scanning.wait()
+            assert scanning.wait(timeout=10)
             failed.set()
             raise ValueError("failed")
         # The scan from depth -1 before the threads start returns at once.
         if args[7] >= 0:
             scanning.set()
-            failed.wait()
-        return scan_set_item(*args)
+            assert failed.wait(timeout=10)
+        return scan_set_items(*args)
 
-    monkeypatch.setattr(affine_search, "scan_set_item", failing_scan)
-    threads = threading.active_count()
+    monkeypatch.setattr(affine_search, "scan_set_items", failing_scan)
+    threads = set(threading.enumerate())
     surface = qldpc.codes.SurfaceCode(5)
     with pytest.raises(ValueError, match="failed"):
         bz.get_distance_brouwer_zimmermann([get_sector(surface, Pauli.X)], cutoff=0)
-    assert threading.active_count() == threads
+    assert set(threading.enumerate()) <= threads

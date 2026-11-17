@@ -33,8 +33,9 @@ _numba_config = cast(_NumbaConfig, numba.config)
 def get_num_threads(num_threads: int | None) -> int:
     """The number of threads of a search, or numba's thread count if ``num_threads`` is None.
 
-    Numba sets its thread count, ``numba.config.NUMBA_NUM_THREADS``, when it is imported, from the
-    environment variable ``NUMBA_NUM_THREADS``, or else from the CPUs available to the process.
+    Numba reads its thread count, ``numba.config.NUMBA_NUM_THREADS``, normally when it is imported,
+    from the environment variable ``NUMBA_NUM_THREADS``, or else from the CPUs available to the
+    process.
     """
     return _numba_config.NUMBA_NUM_THREADS if num_threads is None else num_threads
 
@@ -42,51 +43,79 @@ def get_num_threads(num_threads: int | None) -> int:
 def run_work_items(
     num_items: int,
     num_threads: int,
-    start_worker: Callable[[threading.Event], Callable[[int], None]],
+    start_worker: Callable[[threading.Event], Callable[[int, int], None]],
 ) -> None:
     """Run the work items ``0, ..., num_items - 1`` on up to ``num_threads`` threads.
 
     The calling thread and ``min(num_threads, num_items) - 1`` other threads each call
-    ``start_worker`` once with a shared stop event, which returns the function that runs an item on
-    that thread.  Each thread then claims the next item that no thread has claimed, in increasing
-    order, and runs it, until every item is claimed or the event is set.  A function that runs an
-    item should check the event between chunks of its work, and may set it to stop every thread.
+    ``start_worker`` once with a shared stop event.  It returns the function that runs, on that
+    thread, the items of a range ``start, ..., end - 1``, given as ``(start, end)``.  Each thread
+    then claims the next range of items that no thread has claimed, in increasing order, and runs
+    it, until every item is claimed or the event is set.  A range holds the ``max(1, remaining //
+    (2 * num_threads))`` next items, for the ``remaining`` items that no thread has claimed, so
+    ranges shrink as the work ends, and the number of claims grows only with the logarithm of the
+    number of items.  A function that runs a range should check the event between chunks of its
+    work, and may set it to stop every thread.
 
-    If a thread raises an exception, as the calling thread does at a keyboard interrupt, the event
-    is set.  Once every thread has returned, the first exception is raised again.
+    If a thread raises an exception, the event is set, and once every thread has returned, the
+    exception is raised again: that of the calling thread, as at a keyboard interrupt, or else the
+    first that another thread raised.  An exception while the calling thread waits for the others,
+    such as a keyboard interrupt, also sets the event, and is raised again once they have returned.
     """
     stop = threading.Event()
     lock = threading.Lock()
     next_item = 0
     errors: list[BaseException] = []
+    num_threads = max(1, min(num_threads, num_items))
+
+    def claim() -> tuple[int, int]:
+        """Claim the next range of items, which is empty once every item is claimed."""
+        nonlocal next_item
+        with lock:
+            start = next_item
+            next_item = min(num_items, start + max(1, (num_items - start) // (2 * num_threads)))
+            return start, next_item
 
     def work() -> None:
-        """Claim and run items until none is left or the event is set, and record any exception."""
-        nonlocal next_item
+        """Claim and run ranges until no item is left or the event is set."""
         try:
-            run_item = start_worker(stop)
+            run_range = start_worker(stop)
             while not stop.is_set():
-                with lock:
-                    item, next_item = next_item, next_item + 1
-                if item >= num_items:
+                start, end = claim()
+                if start == end:
                     return
-                run_item(item)
-        except BaseException as error:  # noqa: BLE001 - raised again once every thread returns
+                run_range(start, end)
+        except BaseException as error:
             errors.append(error)
             stop.set()
+            raise
 
     # The calling thread works too, so that it takes keyboard interrupts while the others work.  The
     # pool starts a thread for each submission, so it starts none for one thread.
-    num_threads = max(1, min(num_threads, num_items))
     pool = concurrent.futures.ThreadPoolExecutor(max(1, num_threads - 1))
     try:
         for _ in range(num_threads - 1):
             pool.submit(work)
         work()
-    except BaseException as error:  # noqa: BLE001 - raised again once every thread returns
-        errors.append(error)
+    except BaseException:
         stop.set()
-    finally:
-        pool.shutdown()
+        _wait_for_threads(pool, stop)
+        raise
+    _wait_for_threads(pool, stop)
     if errors:
         raise errors[0]
+
+
+def _wait_for_threads(pool: concurrent.futures.ThreadPoolExecutor, stop: threading.Event) -> None:
+    """Wait until the threads of a pool return.
+
+    An exception while waiting, such as a keyboard interrupt, sets the stop event, and is raised
+    again once the threads have returned.  The wait goes on through further exceptions, of which the
+    last is raised.
+    """
+    try:
+        pool.shutdown()
+    except BaseException:
+        stop.set()
+        _wait_for_threads(pool, stop)
+        raise

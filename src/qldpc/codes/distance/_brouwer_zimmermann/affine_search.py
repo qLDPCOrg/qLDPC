@@ -3,11 +3,11 @@
 """Compiled scans of the layers of Brouwer-Zimmermann searches of binary spaces and their cosets.
 
 Each scan covers one layer ``w`` of one search basis: the sums of its offset and ``w`` of its rows.
-``scan_set`` and ``scan_set_item``, which scans a part of a layer on one of several threads, serve
+``scan_set`` and ``scan_set_items``, which scans a part of a layer on one of several threads, serve
 the distance search, and the other scans the coset searches of ``CosetLeaderSearch``.  Every scan
 runs one body, ``_scan``, which Numba compiles separately for each set of constant flags, so that no
-flag costs a branch for each word.  Sections cited in this
-module are those of ``brouwer_zimmermann.md``, whose Section 4.1 lists the scans.
+flag costs a branch for each word.  Sections cited in this module are those of
+``brouwer_zimmermann.md``, whose Section 4.1 lists the scans.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def scan_set(
         The updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked
         up, and of supports skipped.
     """
-    # The scan weighs no X parts, records nothing, and stops at the end of no work item, so
+    # The scan weighs no X parts, records nothing, and stops at the end of no work items, so
     # placeholders fill those arguments.  The skip bound is the best weight at the start, which the
     # best weight never exceeds, so the scan skips only completions that cannot lower the best
     # weight.  Every row of an information set has a pivot, so its scan needs no rank.
@@ -111,7 +111,7 @@ def scan_set(
             chunked=True,
             ranked=False,
             record_support=False,
-            ends_with_item=False,
+            ends_after_item=False,
         )
     return _scan(
         generators,
@@ -141,12 +141,34 @@ def scan_set(
         chunked=True,
         ranked=True,
         record_support=False,
-        ends_with_item=False,
+        ends_after_item=False,
     )
 
 
+def start_set_items(
+    generators: npt.NDArray[np.uint64],
+    first_item: npt.NDArray[np.int64],
+    support: npt.NDArray[np.int64],
+    prefixes: npt.NDArray[np.uint64],
+) -> int:
+    """Set ``support`` and ``prefixes`` to the first support of a work item, for ``scan_set_items``.
+
+    The support starts with the fixed rows of the item, ``first_item``, and then the next row, and
+    ``prefixes[1 : len(first_item) + 1]`` hold the XORs of its leading rows.
+
+    Returns:
+        The depth at which ``scan_set_items`` starts.
+    """
+    length = len(first_item)
+    support[:length] = first_item
+    support[length] = first_item[-1] + 1
+    for depth in range(length):
+        np.bitwise_xor(prefixes[depth], generators[first_item[depth]], out=prefixes[depth + 1])
+    return length
+
+
 @always_compiled(nogil=True)
-def scan_set_item(
+def scan_set_items(
     generators: npt.NDArray[np.uint64],
     labels: npt.NDArray[np.uint64],
     rank: int,
@@ -161,18 +183,21 @@ def scan_set_item(
     tables: npt.NDArray[np.uint8],
     offsets: npt.NDArray[np.int64],
     block_bits: int,
-    item: npt.NDArray[np.int64],
+    last_item: npt.NDArray[np.int64],
 ) -> tuple[int, int, int, int, int]:
-    """Scan one chunk of a work item of a layer of one set, as ``scan_set`` scans the layer.
+    """Scan one chunk of a range of work items of a layer of one set, as ``scan_set`` scans it.
 
-    A work item is the set of supports of the layer whose first ``len(item)`` rows are ``item``,
-    with ``1 <= len(item) <= len(support) - 2``, so that the completions that tables skip lie in
-    the item of their prefix.  Start the item at ``depth = len(item)``, with ``support`` beginning
-    with ``item`` and then ``item[-1] + 1``, and ``prefixes[1 : len(item) + 1]`` holding the XORs of
-    its leading rows.  The scan reports the end of the item as that of the layer, with depth ``-1``.
-    It runs without Python's global interpreter lock, so that threads can scan the items of a layer
-    at once, each with its own ``support`` and ``prefixes``.  The other arguments and the results
-    are those of ``scan_set``.
+    A work item is the set of supports of the layer whose first ``k`` rows are fixed, and the items
+    of a range are consecutive in lexicographic order of their fixed rows.  With
+    ``1 <= k <= len(support) - 2``, every completion that tables skip lies in the item of its
+    prefix, so the scans of the items of a layer weigh, look up, and skip what the scan of the
+    layer does.  Start the range with ``start_set_items`` at its first item.  The scan reports the
+    end of the range, once the first ``k`` rows of a support pass ``last_item``, as that of the
+    layer, with depth ``-1``.
+
+    The scan runs without Python's global interpreter lock, so that threads can scan the ranges of
+    a layer at once, each with its own ``support`` and ``prefixes``.  The other arguments and the
+    results are those of ``scan_set``.
     """
     # Placeholders fill the arguments that the scan does not read, as in scan_set.
     if rank == generators.shape[0]:
@@ -195,7 +220,7 @@ def scan_set_item(
             prefixes[0],
             best,
             support,
-            item,
+            last_item,
             pair_steps=True,
             deleted_pivots=True,
             test_labels=True,
@@ -204,7 +229,7 @@ def scan_set_item(
             chunked=True,
             ranked=False,
             record_support=False,
-            ends_with_item=True,
+            ends_after_item=True,
         )
     return _scan(
         generators,
@@ -225,7 +250,7 @@ def scan_set_item(
         prefixes[0],
         best,
         support,
-        item,
+        last_item,
         pair_steps=True,
         deleted_pivots=True,
         test_labels=True,
@@ -234,7 +259,7 @@ def scan_set_item(
         chunked=True,
         ranked=True,
         record_support=False,
-        ends_with_item=True,
+        ends_after_item=True,
     )
 
 
@@ -297,7 +322,7 @@ def scan_coset_layer(
         chunked=False,
         ranked=False,
         record_support=False,
-        ends_with_item=False,
+        ends_after_item=False,
     )
     return best, weighed
 
@@ -350,7 +375,7 @@ def scan_coset_layer_by_css_weight(
         chunked=False,
         ranked=False,
         record_support=False,
-        ends_with_item=False,
+        ends_after_item=False,
     )
     return best, weighed
 
@@ -412,7 +437,7 @@ def scan_coset_layer_by_tails(
         chunked=False,
         ranked=True,
         record_support=True,
-        ends_with_item=False,
+        ends_after_item=False,
     )
     return best, weighed
 
@@ -482,7 +507,7 @@ def scan_coset_layer_by_tails_with_tables(
         chunked=False,
         ranked=True,
         record_support=True,
-        ends_with_item=False,
+        ends_after_item=False,
     )
     return best, weighed, skipped
 
@@ -511,7 +536,7 @@ def _scan(
     representative: npt.NDArray[np.uint64],
     skip_bound: int,
     best_support: npt.NDArray[np.int64],
-    item: npt.NDArray[np.int64],
+    last_item: npt.NDArray[np.int64],
     pair_steps: bool,
     deleted_pivots: bool,
     test_labels: bool,
@@ -520,7 +545,7 @@ def _scan(
     chunked: bool,
     ranked: bool,
     record_support: bool,
-    ends_with_item: bool,
+    ends_after_item: bool,
 ) -> tuple[int, int, int, int, int]:
     """Scan the supports of a layer of one search basis, starting from ``support``.
 
@@ -539,8 +564,9 @@ def _scan(
     - ``ranked``: with ``deleted_pivots``, count pivot ones only for rows below ``rank``, in words
       and in bounds of completions (Section 3.9, "Coset searches").
     - ``record_support``: copy the support of each lighter word into ``best_support``.
-    - ``ends_with_item``: with ``pair_steps``, end the layer once the first ``len(item)`` rows of
-      the head of a support differ from ``item`` (see ``scan_set_item``).
+    - ``ends_after_item``: with ``pair_steps``, end the layer once the first ``len(last_item)``
+      rows of the head of a support pass ``last_item`` in lexicographic order (see
+      ``scan_set_items``).
 
     Returns:
         Updated ``best`` and ``depth``, and the numbers of supports weighed, of bounds looked up,
@@ -565,10 +591,12 @@ def _scan(
             depth = advance_support(head_rows, width, head, prefixes, depth)
             if depth < 0:
                 return best, depth, evaluated, lookups, skipped
-            if ends_with_item:
-                for selected in range(len(item)):
-                    if support[selected] != item[selected]:
-                        return best, -1, evaluated, lookups, skipped
+            if ends_after_item:
+                for selected in range(len(last_item)):
+                    if support[selected] != last_item[selected]:
+                        if support[selected] > last_item[selected]:
+                            return best, -1, evaluated, lookups, skipped
+                        break
             first = support[pair_depth]
 
             # Skip the completions from row ``first`` on if their bound reaches the lesser of the
