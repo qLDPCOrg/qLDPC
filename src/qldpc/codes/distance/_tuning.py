@@ -96,10 +96,10 @@ Change a default only when its heuristic changes, or when a check shows that its
 the cost of a step, is off by more than a factor of about 3; only a maintainer changes a budget or a
 value chosen by hand.  Never change a default to gain a factor of two on particular codes.  The
 scripts of ``experiments/distance_tuning`` check the tuning and set no value, apart from running
-searches on one thread: ``constants.py``
-checks the orders of magnitude that the heuristics assume, ``trace.py`` shows which decisions a
-search makes, and ``sweep.py`` catches gross regressions or bugs.  The README of that directory says
-how to run them.  They do not check the fields of the automatic choice of a method.
+searches on one thread: ``constants.py`` checks the orders of magnitude that the heuristics assume,
+``trace.py`` shows which decisions a search makes, and ``sweep.py`` catches gross regressions or
+bugs.  The README of that directory says how to run them.  They do not check the fields of the
+automatic choice of a method.
 """
 
 from __future__ import annotations
@@ -392,7 +392,8 @@ class SearchTuning:
     #: A distance search by the BZ method scans at most ``2**information_set_batch_exponent``
     #: supports and lookups of completion tables, counted together, in one call of compiled code,
     #: which keyboard interrupts cannot stop; on several threads, each thread scans ``num_threads``
-    #: times as many in one call.  At most 62.  Defaults to 15, a budget of interrupt latency.
+    #: times as many in one call.  At most 62.  Defaults to 15, a budget of interrupt latency on
+    #: one thread, which grows with the number of threads.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: The number of threads on which a distance search by the BZ method scans a costly layer of a

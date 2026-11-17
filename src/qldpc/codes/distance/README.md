@@ -145,7 +145,7 @@ Since `U` is the weight of a nontrivial word or the caller's upper bound, a sear
 When the connected-cluster search switches, a BZ search of the same sectors, in the same order, replaces it, and takes nothing from it but `U`.
 For Pauli strings, that BZ search searches their images under `symplectic_to_hamming` (Section 2.7 of `brouwer_zimmermann.md`) and halves the weight that it finds.
 The tuning of the probe changes only its family of information sets and their certificate, which no result depends on.
-Which method runs can still change which word an early exit at `cutoff` finds.
+Which method runs can still change which word an early exit at `cutoff` finds, and so can the timing of the threads of a BZ search on several threads.
 
 The estimates are crude.
 The connected-cluster search predicts the states of a limit by `SupportSearch._predict_states` until two successive limits without a witness have visited states from the same number of roots.
@@ -218,7 +218,8 @@ They are not arguments of public functions, whose arguments say what to compute 
   `BrouwerZimmermannSearch` and `ConnectedClusterSearch`, which `get_distance_brouwer_zimmermann` and `get_distance_connected_cluster` build, read it only if their callers pass none.
   A cache that outlives a search is keyed by the values that it depends on, as the fields of `_CosetTuning` in `_brouwer_zimmermann/coset.py` key the cached searches of `CosetLeaderSearch`.
 - Only a value that qLDPC fixes before any search starts, such as the size of a cache, which `functools.lru_cache` fixes at import, is a constant in `_tuning.py`, read as `_tuning.NAME`.
-  Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators, which make results reproducible rather than tune anything, stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
+  Constants fixed by the algorithm or by native integer widths, such as `WORK_CAP`, and the seeds of random generators stay in the modules that use them, except `MAX_VALUE`, the largest value of an integer field.
+  The seeds make results reproducible rather than tune anything, though an early exit of a BZ search on several threads can still depend on the timing of its threads.
 - Each field and constant has its own `#:` comment directly above it, for Sphinx to render, with no colon on its first line, since Sphinx reads text before such a colon as a type.
   A field's comment says what the field controls, with its unit and special values, and the class and rule of its default, as the "Retuning" section of the module docstring defines them, or why a field in no class has its default; where a guide section or a cost model explains its heuristic, the comment points there.
   A constant's comment says what it controls; the "Retuning" section says how the sizes of caches were chosen.
@@ -236,11 +237,11 @@ They are not arguments of public functions, whose arguments say what to compute 
 
 A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann.md`).
 By default, `num_threads` is `None`, which takes numba's thread count, `numba.config.NUMBA_NUM_THREADS`.
-Numba sets this count when it is imported, from the environment variable `NUMBA_NUM_THREADS`, or else from the CPUs available to the process.
+Numba reads this count from the environment variable `NUMBA_NUM_THREADS`, normally when it is imported, or else from the CPUs available to the process.
 It does not read the CPU quotas of containers.
 To keep searches on one core, set `NUMBA_NUM_THREADS=1` before numba is imported, or run them within `use_tuning(num_threads=1)`.
-Programs that run searches in several processes at once, such as pools of workers, should cap the count in this way, since each process would otherwise start a thread for each CPU.
-The other searches and counts run on one thread.
+Programs that run searches in several processes or threads at once, such as pools of workers, should cap the count in this way, since each search would otherwise start a thread for each CPU.
+Other searches and counts run on one thread, except the BZ distance search that a count may run first to find its default weight.
 
 ## Compiled code
 
@@ -252,7 +253,7 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
   A small helper that hot loops call, such as `advance_support`, is marked `@always_compiled(inline=True)`, so that compiled callers include its code rather than pay for a call.
 - `@compiled_on_request` marks parts of the set-up of searches, which run as plain Python unless a program calls `compile_search_setup()`.
 
-An entry point that several threads run at once, such as `scan_set_item` in `_brouwer_zimmermann/affine_search.py`, is marked `@always_compiled(nogil=True)`, so that its compiled code runs without Python's global interpreter lock.
+An entry point that several threads run at once, such as `scan_set_items` in `_brouwer_zimmermann/affine_search.py`, is marked `@always_compiled(nogil=True)`, so that its compiled code runs without Python's global interpreter lock.
 The docstring of `src/qldpc/_compilation.py` states the rule for using it.
 
 Numba looks up the functions that compiled code calls when compiling it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.

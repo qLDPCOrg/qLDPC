@@ -47,11 +47,12 @@ Start from a symptom
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
    * - A distance search by the Brouwer-Zimmermann method uses too many or too few cores, as when several processes run searches at once
-     - Set :attr:`~SearchTuning.num_threads`, or the environment variable ``NUMBA_NUM_THREADS`` before numba is imported, which sets its default.
-       Programs that run searches in several processes at once, such as pools of workers, should cap it, for example at 1.
-       Numba does not read the CPU quotas of containers, so set it there too.
+     - Set :attr:`~SearchTuning.num_threads`, or the environment variable ``NUMBA_NUM_THREADS`` before numba is imported, which sets the default number of threads.
+       Programs that run searches in several processes or threads at once, such as pools of workers, should cap it, for example at 1.
+       Numba does not read the CPU quotas of containers, so in a container, set ``NUMBA_NUM_THREADS`` to its quota too.
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
+       A Brouwer-Zimmermann distance search on several threads scans chunks :attr:`~SearchTuning.num_threads` times as large, so the wait grows with the number of threads.
        A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that.
        ``method="auto"``, the default, runs one for the distances of quantum codes and the fault distances of circuits; pass ``method="brouwer_zimmermann"`` for prompt interrupts.
    * - A cheap connected-cluster search spends its time finding automorphisms

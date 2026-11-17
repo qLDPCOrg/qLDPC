@@ -51,7 +51,9 @@ DistanceMethod = Literal[
   ``"brute_force"`` and ``"brouwer_zimmermann"``, and coset searches, such as those of
   :class:`~qldpc.codes.distance.CosetLeaderSearch`, take ``"brouwer_zimmermann"``.  Every method
   gives the same result unless the search exits early.  Which method runs, and so which weight an
-  early exit at a ``cutoff`` returns, can depend on the tuning and on the version of qLDPC.
+  early exit at a ``cutoff`` returns, can depend on the tuning and on the version of qLDPC.  For a
+  ``"brouwer_zimmermann"`` search on more than one thread, that weight can also depend on the
+  timing of the threads.
 - ``"brouwer_zimmermann"`` and its alias ``"information_sets"``: the
   `Brouwer-Zimmermann algorithm
   <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md>`_,
@@ -181,12 +183,13 @@ def get_distance_from_generators(
     Returns:
         The minimum weight of a nontrivial word.  Once the lightest nontrivial word found weighs at
         most ``cutoff``, the search stops early and returns its weight, an upper bound on the
-        distance in ``[distance, cutoff]``.  With the default ``cutoff=1``, the result is always
-        exact, since a nontrivial word weighs at least one; pass ``cutoff=0`` to make that
-        explicit.  If ``max_weight`` is given, the result is the smaller of this value and
-        ``max_weight + 1``, so ``max_weight + 1`` means that every nontrivial word is heavier than
-        ``max_weight``.  Inputs without nontrivial words give ``NO_DISTANCE`` (see
-        :class:`NoDistance`), whatever ``cutoff`` and ``max_weight`` are.
+        distance in ``[distance, cutoff]``.  Which such word it finds can depend on the method, the
+        tuning, and, for a Brouwer-Zimmermann search on several threads, the timing of the threads.
+        With the default ``cutoff=1``, the result is always exact, since a nontrivial word weighs at
+        least one; pass ``cutoff=0`` to make that explicit.  If ``max_weight`` is given, the result
+        is the smaller of this value and ``max_weight + 1``, so ``max_weight + 1`` means that every
+        nontrivial word is heavier than ``max_weight``.  Inputs without nontrivial words give
+        ``NO_DISTANCE`` (see :class:`NoDistance`), whatever ``cutoff`` and ``max_weight`` are.
 
     Raises:
         TypeError: If ``max_weight`` is not an integer, or is a bool, or if ``generators`` or
