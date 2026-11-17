@@ -142,11 +142,11 @@ def run_work_items(
     except BaseException:
         # A further interrupt can end this function before every thread that started has returned,
         # in narrow windows that only a signal handler could close, which a library should not
-        # install.  One that arrives here, before the event is set, leaves the threads running until
-        # the layer ends.  One that arrives as the wait below starts, or while it handles an earlier
-        # exception, leaves them running only until their chunks end, since the event is set by
-        # then.  An interrupt while the first wait, in the try, handles an exception is safe, since
-        # this handler waits again.
+        # install.  One that arrives here while the event is not yet set leaves the threads running
+        # until every item is claimed and run.  One that arrives as the wait below starts, or while
+        # it handles an earlier exception, leaves them running only until their chunks end, since
+        # the event is set by then.  An interrupt while the first wait, in the try, handles an
+        # exception is safe, since this handler waits again.
         stop.set()
         _join(threads, stop)
         raise

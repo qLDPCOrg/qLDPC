@@ -98,7 +98,7 @@ def test_ranges_hold_shares_of_the_weight_of_the_items(num_threads: int) -> None
 def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
     """A range holds at least one item, even when its share of the weight is lost to rounding.
 
-    The threads are capped at the four items.  After the first item, an eighth of the three units of
+    Four threads share the four items.  After the first item, an eighth of the three units of
     weight left falls below half the spacing of floats near ``8e15``, so the share adds nothing to
     the weight claimed so far.
     """
@@ -384,7 +384,7 @@ def test_another_error_while_the_calling_thread_waits_stops_the_other_threads(
 
 
 @pytest.mark.usefixtures("no_threads_left")
-@pytest.mark.parametrize(("method", "num_interrupts"), [("join", 1), ("join", 2), ("is_alive", 1)])
+@pytest.mark.parametrize(("method", "num_interrupts"), [("join", 1), ("join", 2), ("is_alive", 2)])
 def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
     monkeypatch: pytest.MonkeyPatch, method: str, num_interrupts: int
 ) -> None:
