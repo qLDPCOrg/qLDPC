@@ -48,18 +48,18 @@ def test_lightest_basis(
             subsystem_code.get_stabilizer_ops(pauli),
         ),
     ]
-    weights = []
+    weights: list[npt.NDArray[np.int_]] = []
     for code, logicals, checks, trivial in cases:
         basis = get_lightest_logical_basis(code, pauli, logicals=logicals)
-        assert list(basis.weights) == _get_brute_force_weights(checks, trivial)
+        assert basis.weights.tolist() == _get_brute_force_weights(checks, trivial)
         metrics = evaluate_logical_ops(code, basis.logical_ops, pauli=pauli, logicals=logicals)
-        assert tuple(metrics.weights) == basis.weights
+        np.testing.assert_array_equal(metrics.weights, basis.weights)
         weights.append(basis.weights)
 
     # the dressed operators of this subsystem code are lighter than its bare operators
     dressed, bare = weights[1:]
-    assert dressed != bare
-    assert all(dressed_weight <= bare_weight for dressed_weight, bare_weight in zip(dressed, bare))
+    assert np.any(dressed != bare)
+    assert np.all(dressed <= bare)
 
 
 def test_exact_searches_only_at_new_weights(
@@ -76,16 +76,17 @@ def test_exact_searches_only_at_new_weights(
     monkeypatch.setattr(lightest_basis, "_get_min_weight", record_min_weight)
     basis = get_lightest_logical_basis(stabilizer_code, Pauli.X)
     assert len(set(basis.weights)) < len(basis.weights)
-    assert exact_weights == sorted(set(basis.weights))
+    assert exact_weights == sorted(set(basis.weights.tolist()))
 
 
 def test_lightest_basis_properties() -> None:
     """Summary values follow from the weights, including for codes without logical qubits."""
-    basis = LightestLogicalBasis((3, 3, 3), np.zeros((3, 4), dtype=np.uint8))
+    basis = LightestLogicalBasis(
+        np.array([[1, 1, 1, 0], [0, 1, 1, 1], [1, 0, 1, 1]], dtype=np.uint8)
+    )
     assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 9, 3)
 
     basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
-    assert basis.weights == ()
     assert basis.logical_ops.shape == (0, 2)
     assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (0, 0, 0)
 

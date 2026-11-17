@@ -53,7 +53,7 @@ class Sector:
         """The number of logical qubits."""
         return len(self.dual_ops)
 
-    def get_space(self) -> npt.NDArray[np.uint8]:
+    def get_logical_space(self) -> npt.NDArray[np.uint8]:
         """Rows that span every logical operator of this type, trivial or not."""
         return get_kernel(self.checks)
 

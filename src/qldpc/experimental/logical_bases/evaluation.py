@@ -58,8 +58,8 @@ def evaluate_logical_ops(
 
     For a subsystem code, these conditions apply to logical classes, since the gauge parts of
     dressed operators can change whether they commute.  :meth:`qldpc.codes.CSSCode.set_logical_ops`
-    requires a complete basis to pair up physically, so give it bare operators, which pair up
-    physically exactly when their classes do.
+    accepts only bare operators, which commute with every gauge operator.  Bare operators commute as
+    described exactly when their classes do.
 
     Args:
         code: A binary CSS code, which may be a subsystem code.
@@ -74,9 +74,9 @@ def evaluate_logical_ops(
 
     Raises:
         TypeError: If ``code`` is not a CSS code.
-        ValueError: If ``code`` is not binary, or ``logicals`` is invalid.  Also if ``logical_ops``
-            has the wrong shape, has entries other than 0 and 1, or is not a basis as described
-            above.
+        ValueError: If ``code`` is not binary, or ``pauli`` or ``logicals`` is invalid.  Also if
+            ``logical_ops`` has the wrong shape, has entries other than 0 and 1, or is not a basis
+            as described above.
     """
     if pauli is not None:
         sector = get_sector(code, pauli, logicals)
@@ -116,15 +116,18 @@ class LogicalOpsMetrics:
     time, so low loads and few overlapping pairs make for more parallel logical operations.
 
     Attributes:
-        weights: The weight of each operator.
         loads: The number of operators that act on each qubit.
         overlaps: The number of qubits that each pair of operators share, as a symmetric matrix
-            whose diagonal holds the weights.
+            whose diagonal holds the weights of the operators.
     """
 
-    weights: npt.NDArray[np.int_]
     loads: npt.NDArray[np.int_]
     overlaps: npt.NDArray[np.int_]
+
+    @property
+    def weights(self) -> npt.NDArray[np.int_]:
+        """The weight of each operator."""
+        return np.diag(self.overlaps).copy()
 
     @property
     def max_weight(self) -> int:
@@ -150,7 +153,7 @@ class LogicalOpsMetrics:
     def _from_ops(cls, ops: npt.NDArray[np.uint8]) -> LogicalOpsMetrics:
         """The metrics of the rows of a binary matrix, without checking that they are logical."""
         matrix = ops.astype(np.int_)
-        return cls(matrix.sum(axis=1), matrix.sum(axis=0), matrix @ matrix.T)
+        return cls(matrix.sum(axis=0), matrix @ matrix.T)
 
 
 def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray[np.uint8]:

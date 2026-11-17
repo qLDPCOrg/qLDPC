@@ -33,7 +33,7 @@ def test_sectors(
         bare = get_sector(code, pauli, "bare")
         for sector in [dressed, bare]:
             assert (sector.num_qubits, sector.dimension) == (len(code), code.dimension)
-            space = sector.get_space()
+            space = sector.get_logical_space()
             assert not np.any(sector.checks.astype(int) @ space.T.astype(int) % 2)
             assert _rank(space) == _rank(sector.trivial) + code.dimension
             assert _rank(np.vstack([space, sector.trivial])) == _rank(space)
@@ -42,14 +42,14 @@ def test_sectors(
             assert not np.any(sector.get_classes(sector.trivial))
 
         # Every bare operator is a dressed operator, and every stabilizer is a gauge operator.
-        assert _rank(np.vstack([dressed.get_space(), bare.get_space()])) == _rank(
-            dressed.get_space()
+        assert _rank(np.vstack([dressed.get_logical_space(), bare.get_logical_space()])) == _rank(
+            dressed.get_logical_space()
         )
         assert _rank(np.vstack([dressed.trivial, bare.trivial])) == _rank(dressed.trivial)
         if code.is_subsystem_code:
-            assert _rank(bare.get_space()) < _rank(dressed.get_space())
+            assert _rank(bare.get_logical_space()) < _rank(dressed.get_logical_space())
         else:
-            assert _rank(bare.get_space()) == _rank(dressed.get_space())
+            assert _rank(bare.get_logical_space()) == _rank(dressed.get_logical_space())
 
 
 def _rank(matrix: npt.NDArray[np.uint8]) -> int:

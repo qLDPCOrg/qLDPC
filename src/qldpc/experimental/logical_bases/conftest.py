@@ -9,12 +9,13 @@ from qldpc import codes
 
 @pytest.fixture
 def stabilizer_code() -> codes.CSSCode:
-    """A [[10, 5]] stabilizer code whose lightest bases have several distinct weights."""
+    """A [[10, 5]] code with a redundant X-type check, and lightest bases of mixed weights."""
     return codes.CSSCode(
         [
             [1, 1, 0, 1, 0, 1, 1, 0, 1, 0],
             [0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
             [0, 1, 1, 0, 0, 0, 0, 1, 0, 1],
+            [1, 1, 1, 1, 0, 1, 1, 0, 1, 1],
         ],
         [[1, 1, 0, 0, 1, 0, 1, 1, 1, 0], [1, 1, 0, 1, 1, 1, 0, 1, 0, 0]],
     )
