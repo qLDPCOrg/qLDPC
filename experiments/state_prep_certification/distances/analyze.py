@@ -74,7 +74,7 @@ def main() -> None:
     final, problems = store.final_rows(label_dir)
     for problem in problems:
         print(f"note: {problem}")
-    sample = json.loads((pathlib.Path(__file__).with_name("sample.json")).read_text())
+    sample = json.loads((pathlib.Path(__file__).parent / "code_data" / "sample.json").read_text())
     expected = list(tasks.load_tasks(label_dir, pass2=False).values())
     missing = [key for key in tasks.load_tasks(label_dir) if key not in final]
     if missing:
