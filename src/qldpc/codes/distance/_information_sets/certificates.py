@@ -102,10 +102,11 @@ class Certificate:
         if not self._solves_linear_programs:
             return False
         # No requirement exceeds its block, since a set that has completed the last layer makes the
-        # coverage bound certify any upper bound.  Each pivot column takes the largest share
-        # requirement / len(block) of its blocks, which is that of the first block that holds it in
-        # decreasing order of shares, so the point's value sums each share times the number of
-        # columns that its block holds first.
+        # coverage bound certify any upper bound.  Let the share of a block be
+        # max(requirement, 0) / len(block).  The feasible point sets each pivot column to the
+        # largest share of its blocks, which is the share of the first block that holds the column
+        # when the blocks are sorted by decreasing share.  So its value is the sum of each share
+        # times the number of columns that its block holds first.
         requirements = self._get_requirements(weight, num_completed)
         shares = [
             Fraction(max(requirement, 0), len(block))
@@ -268,10 +269,10 @@ def get_lp_lower_bound(
     if result.status != 0:
         return 0
 
-    # Evaluate the dual value exactly, in integer multiples of the common denominator of the
+    # Evaluate the dual value exactly, as an integer numerator over the common denominator of the
     # weights.  The solver gives the dual of each constraint ``-sum x >= -b`` as a nonpositive
-    # marginal.  Columns in the same blocks carry the same load, so each pattern of blocks counts
-    # once, times its number of columns.
+    # marginal.  Columns in the same set of blocks carry the same load, so each such set counts
+    # once, weighted by its number of columns.
     weights = [
         max(
             Fraction(0),

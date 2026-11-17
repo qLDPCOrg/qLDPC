@@ -1152,6 +1152,12 @@ def test_canonicalized_code_is_its_own_canonical_form() -> None:
         assert canonicalized.canonicalized is canonicalized
 
 
+def test_canonical_forms_over_extension_fields_of_two() -> None:
+    """Over GF(4), which has characteristic two, a row that is twice another is dependent."""
+    code = codes.ClassicalCode(galois.GF(4)([[1, 2, 3], [2, 3, 1]]))
+    assert len(code.canonicalized.matrix) == 1 and code.dimension == 2
+
+
 def test_gauge_ops_recompute() -> None:
     """Gauge operators are recomputed on request, rather than read from the cache."""
     code = codes.BaconShorCode(3)

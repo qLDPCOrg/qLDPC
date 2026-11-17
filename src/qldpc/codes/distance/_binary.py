@@ -146,11 +146,11 @@ def get_nested_code_basis(
         and the scans of ``_brouwer_zimmermann/affine_search.py`` read labels with no columns as
         excluding nothing.
     """
-    stabilizer_basis = get_independent_rows(stabilizers)
+    reduced_stabilizers, _, stabilizer_pivots = row_reduce_binary(stabilizers)
+    stabilizer_basis = reduced_stabilizers[: len(stabilizer_pivots)]
 
     # Reduce the logical operators modulo the stabilizers by clearing the stabilizer pivots, which
     # leaves the rows of the reduced row echelon stabilizer basis unchanged.
-    stabilizer_pivots = np.argmax(stabilizer_basis, axis=1)
     reduced, _, _ = row_reduce_binary(
         np.vstack([stabilizer_basis, logical_ops]), columns=stabilizer_pivots
     )
