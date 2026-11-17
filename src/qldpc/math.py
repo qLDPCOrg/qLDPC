@@ -5,14 +5,13 @@
 from __future__ import annotations
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import TypeVar
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.sparse
-import scipy.special
 import stim
 
 DenseIntegerArray = galois.FieldArray | npt.NDArray[np.int_]
@@ -29,6 +28,8 @@ DenseIntegerArrayType = TypeVar("DenseIntegerArrayType", galois.FieldArray, npt.
 @functools.cache
 def log_choose(n: int, k: int) -> float:
     """Natural logarithm of ``(n choose k) = n! / ( k! * (n-k)! )``."""
+    import scipy.special  # imported on first use, to keep "import qldpc" fast
+
     return (
         scipy.special.gammaln(n + 1)
         - scipy.special.gammaln(k + 1)
@@ -63,7 +64,7 @@ def resolve_field(field: int | type[galois.FieldArray] | None) -> type[galois.Fi
 def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
     """Convert an integer array that represents a Pauli string into a stim.PauliString.
 
-    The (first, second) half the array indicates the support of (X, Z) Paulis.
+    The (first, second) half of the array indicates the support of (X, Z) Paulis.
     """
     support_xz = np.array(op, dtype=int).reshape(2, -1)
     paulis = {(0, 0): "I", (1, 0): "X", (0, 1): "Z", (1, 1): "Y"}
@@ -73,7 +74,7 @@ def op_to_string(op: npt.NDArray[np.int_]) -> stim.PauliString:
 def string_to_op(string: stim.PauliString, num_qubits: int | None = None) -> npt.NDArray[np.int_]:
     """Convert a stim.PauliString into an integer array, inverting qldpc.math.op_to_string.
 
-    The (first, second) half the array indicates the support of (X, Z) Paulis.
+    The (first, second) half of the array indicates the support of (X, Z) Paulis.
     """
     num_qubits = num_qubits or len(string)
     string = stim.PauliString(string)  # copy: avoid mutating the caller's input via *=
@@ -90,8 +91,9 @@ def symplectic_conjugate(vectors: DenseIntegerArrayType) -> DenseIntegerArrayTyp
     ``⟨P,Q⟩_s = P_x @ Q_z - P_z @ Q_x = P @ symplectic_conjugate(Q)``.
     """
     _require_symplectic_length(vectors)
-    conjugated_vectors = vectors.copy().reshape(-1, 2, vectors.shape[-1] // 2)[:, ::-1, :]
-    conjugated_vectors[:, 1, :] *= -1
+    xz_shape = (*vectors.shape[:-1], 2, vectors.shape[-1] // 2)
+    conjugated_vectors = vectors.copy().reshape(xz_shape)[..., ::-1, :]
+    conjugated_vectors[..., 1, :] *= -1
     return conjugated_vectors.reshape(vectors.shape).view(type(vectors))
 
 
@@ -102,10 +104,12 @@ def symplectic_weight(vectors: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
     Returns one weight per input vector (a 0-dimensional array for a single vector).
     """
     _require_symplectic_length(vectors)
-    vectors_xz = vectors.reshape(-1, 2, vectors.shape[-1] // 2)
-    vectors_x = np.asarray(vectors_xz[:, 0, :], dtype=int)
-    vectors_z = np.asarray(vectors_xz[:, 1, :], dtype=int)
-    return np.count_nonzero(vectors_x | vectors_z, axis=-1).reshape(vectors.shape[:-1])
+    xz_shape = (*vectors.shape[:-1], 2, vectors.shape[-1] // 2)
+    vectors_xz = vectors.reshape(xz_shape)
+    vectors_x = np.asarray(vectors_xz[..., 0, :], dtype=int)
+    vectors_z = np.asarray(vectors_xz[..., 1, :], dtype=int)
+    # count_nonzero returns a scalar rather than an array for a single vector
+    return np.asarray(np.count_nonzero(vectors_x | vectors_z, axis=-1))
 
 
 def _require_symplectic_length(vectors: npt.NDArray[np.int_]) -> None:
@@ -313,6 +317,83 @@ def symplectic_gram_schmidt(
 
     hyperbolic = field(firsts + partners) if firsts else field.Zeros((0, dimension))
     return hyperbolic, field(radical) if radical else field.Zeros((0, dimension))
+
+
+def get_min_weight_basis(vectors: galois.FieldArray) -> galois.FieldArray:
+    """A minimum-weight basis of the space spanned by vectors over a finite field.
+
+    The weight of a vector is its number of nonzero entries.  A basis of a space has minimum weight
+    if, for each i, its i-th lightest vector is as light as the i-th lightest vector of any basis of
+    the space.  This function finds such a basis with the greedy algorithm, which is exact for the
+    independent sets of any matroid, such as the linearly independent sets of vectors in a space
+    (https://doi.org/10.1007/BF01584082): it considers the vectors of the space in order of weight,
+    and keeps each one that is independent of those kept before it.
+
+    The search enumerates all q^r vectors of the space, for a field of order q and a space of
+    dimension r, so its time grows as q^r.  It enumerates them in chunks, so its memory stays
+    bounded.
+
+    Args:
+        vectors: Vectors over a finite field, as the rows of a matrix.  They may be linearly
+            dependent.
+
+    Returns:
+        A minimum-weight basis of the row space of the vectors, as the rows of a matrix over the
+        same field, in order of weight.  The basis is deterministic: vectors of equal weight are
+        kept in the order in which the search enumerates them.
+
+    Raises:
+        ValueError: If the space has 2^62 or more vectors, which this search cannot enumerate.
+    """
+    field = type(vectors)
+    reduced_basis = vectors.row_space()
+    dimension, length = reduced_basis.shape
+    if field.order**dimension >= 2**62:
+        raise ValueError(
+            f"A minimum-weight basis of a space of dimension {dimension} over GF({field.order}) has"
+            " too many vectors to enumerate"
+        )
+
+    # Enumerate the vectors of the space, and keep, for each weight, linearly independent vectors of
+    # that weight that span all vectors of that weight.
+    spanning_vectors: dict[int, galois.FieldArray] = {}
+    for coefficients in _iter_coefficients(field.order, dimension):
+        words = field(coefficients) @ reduced_basis
+        weights = np.count_nonzero(words.view(np.ndarray), axis=1)
+        for weight in np.unique(weights[weights > 0]).tolist():
+            candidates = words[weights == weight]
+            if weight in spanning_vectors:
+                candidates = np.vstack([spanning_vectors[weight], candidates]).view(field)
+            spanning_vectors[weight] = _get_independent_rows(candidates)
+
+    # add the vectors of each weight in turn, keeping those independent of those kept before them
+    basis = field.Zeros((0, length))
+    for weight in sorted(spanning_vectors):
+        basis = _get_independent_rows(np.vstack([basis, spanning_vectors[weight]]).view(field))
+        if len(basis) == dimension:
+            break
+    return basis
+
+
+def _get_independent_rows(matrix: galois.FieldArray) -> galois.FieldArray:
+    """The rows of a matrix that are linearly independent of the rows above them."""
+    pivots = first_nonzero_cols(matrix.T.row_reduce())
+    return matrix[pivots[pivots < len(matrix)]]
+
+
+def _iter_coefficients(
+    order: int, num_coefficients: int, chunk_size: int = 2**14
+) -> Iterator[npt.NDArray[np.int64]]:
+    """Iterate over all vectors of coefficients in {0, ..., order - 1}, in chunks of rows.
+
+    Row k of the concatenated chunks holds the digits of k in base ``order``, least significant
+    first.
+    """
+    num_vectors = order**num_coefficients
+    place_values = order ** np.arange(num_coefficients, dtype=np.int64)
+    for start in range(0, num_vectors, chunk_size):
+        indices = np.arange(start, min(start + chunk_size, num_vectors), dtype=np.int64)
+        yield indices[:, None] // place_values % order
 
 
 def _orthonormalize_char_2(words: list[galois.FieldArray]) -> list[galois.FieldArray] | None:

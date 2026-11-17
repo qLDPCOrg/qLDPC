@@ -7,9 +7,10 @@ from __future__ import annotations
 import collections
 import itertools
 from collections.abc import Collection, Iterable, Sequence
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import scipy
@@ -17,7 +18,6 @@ import sympy
 
 import qldpc
 from qldpc import abstract
-from qldpc._utils import networkx as nx
 from qldpc.objects import (
     ChainComplex,
     Node,
@@ -34,8 +34,8 @@ from ..classical import (
     RingCode,
     SimplexCode,
 )
-from ..common import ClassicalCode, CSSCode
-from ..distance import DistanceMethod
+from ..common import ClassicalCode, CSSCode, _mark_read_only
+from ..distance import NO_DISTANCE, DistanceMethod, NoDistance
 
 ####################################################################################################
 # hypergraph product codes and their variants
@@ -96,6 +96,18 @@ class HGPCode(CSSCode):
 
     The latter construction is less intuitive, but more efficient.
 
+    The parity check matrices of the hypergraph product code are::
+
+        matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]
+        matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]
+
+    Here ``H1`` and ``H2`` are the parity check matrices of ``code_a`` and ``code_b``, and
+    ``I[m/n][1/2]`` are identity matrices, with ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
+
+    A minus sign in one sector of matrix_x or matrix_z is necessary to satisfy CSS code requirements
+    with nonbinary fields.  The placement of this sign is chosen for consistency with the tensor
+    product of chain complexes.
+
     References:
 
     - https://errorcorrectionzoo.org/c/hypergraph_product
@@ -124,20 +136,7 @@ class HGPCode(CSSCode):
         *,
         set_logicals: bool = True,
     ) -> None:
-        """Hypergraph product of two classical codes, as in arXiv:0903.0566.
-
-        The parity check matrices of the hypergraph product code are:
-
-        ``matrix_x = [ H1 ⨂ In2, Im1 ⨂ H2.T]``
-        ``matrix_z = [-In1 ⨂ H2, H1.T ⨂ Im2]``
-
-        Here ``(H1, H2) == (matrix_a, matrix_b)``, and ``I[m/n][1/2]`` are identity matrices, with
-        ``(m1, n1) = H1.shape`` and ``(m2, n2) = H2.shape``.
-
-        A minus sign in one sector of matrix_x or matrix_z is necessary to satisfy CSS code
-        requirements with nonbinary fields.  The placement of this sign is chosen for consistency
-        with the tensor product of chain complexes.
-        """
+        """Hypergraph product of two classical codes, as in arXiv:0903.0566."""
         if code_b is None:
             code_b = code_a
         self.code_a = ClassicalCode(code_a, field)
@@ -148,9 +147,11 @@ class HGPCode(CSSCode):
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.code_a.matrix, self.code_b.matrix)
 
         # identify the number of qudits in each sector
-        self.sector_size = np.outer(
-            [self.code_a.num_bits, self.code_a.num_checks],
-            [self.code_b.num_bits, self.code_b.num_checks],
+        self.sector_size = _mark_read_only(
+            np.outer(
+                [self.code_a.num_bits, self.code_a.num_checks],
+                [self.code_b.num_bits, self.code_b.num_checks],
+            )
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
@@ -242,7 +243,11 @@ class HGPCode(CSSCode):
     def get_matrix_product(
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
-        """Hypergraph product of two parity check matrices."""
+        """Hypergraph product of two parity check matrices.
+
+        Matrices over different rings or fields raise a ValueError.
+        """
+        _check_same_ring(matrix_a, matrix_b)
         _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
 
         # construct the nontrivial blocks of the final parity check matrices
@@ -374,7 +379,9 @@ class HGPCode(CSSCode):
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
         return logical_ops_x.view(field), logical_ops_z.view(field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
+    def _get_distance_exact(
+        self, pauli: PauliXZ | None, *, method: DistanceMethod
+    ) -> int | Literal[NoDistance.NAN]:
         """Exact distance calculation for hypergraph product codes.
 
         These calculations are based on arXiv:2308.15520, but additionally allow for the separate
@@ -397,21 +404,27 @@ class HGPCode(CSSCode):
 
         if pauli is Pauli.X:
             transpose_a = ClassicalCode(self.code_a.matrix.T)
-            dist_a = transpose_a.get_distance(method=method) if dependent_b else np.nan
-            dist_b = self.code_b.get_distance(method=method) if self.code_a.dimension else np.nan
+            dist_a = transpose_a.get_distance(method=method) if dependent_b else NO_DISTANCE
+            dist_b = (
+                self.code_b.get_distance(method=method) if self.code_a.dimension else NO_DISTANCE
+            )
         else:
             assert pauli is Pauli.Z
-            dist_a = self.code_a.get_distance(method=method) if self.code_b.dimension else np.nan
+            dist_a = (
+                self.code_a.get_distance(method=method) if self.code_b.dimension else NO_DISTANCE
+            )
             transpose_b = ClassicalCode(self.code_b.matrix.T)
-            dist_b = transpose_b.get_distance(method=method) if dependent_a else np.nan
+            dist_b = transpose_b.get_distance(method=method) if dependent_a else NO_DISTANCE
 
-        return dist_a if np.isnan(dist_b) else dist_b if np.isnan(dist_a) else min(dist_a, dist_b)
+        distances = [distance for distance in (dist_a, dist_b) if distance is not NO_DISTANCE]
+        return min(distances, default=NO_DISTANCE)
 
 
 class CHGPCode(HGPCode):
     """Cyclic hypergraph product code, called a CxC code in arXiv:2511.09683.
 
-    A CHGPCode is a hypergraph product of classical CyclicCodes.
+    A CHGPCode is a hypergraph product of classical CyclicCodes.  If given only one block length or
+    one polynomial, a CHGPCode uses it for both CyclicCodes.
 
     References:
 
@@ -425,10 +438,7 @@ class CHGPCode(HGPCode):
         poly_b: sympy.Basic | None = None,
         field: int | type[galois.FieldArray] | None = None,
     ) -> None:
-        """Construct a CHGPCode from two classical block lengths and two univariate polynomials.
-
-        If provided only one block length or one polynomial, use it for both underlying CyclicCodes.
-        """
+        """Construct a CHGPCode from two classical block lengths and two univariate polynomials."""
         if isinstance(dims, Iterable):
             bits_a, bits_b = dims
         else:
@@ -441,7 +451,8 @@ class CHGPCode(HGPCode):
 class CRCode(HGPCode):
     """Repeated cyclic hypergraph product code, called a CxR code in arXiv:2511.09683.
 
-    A CRCode is a hypergraph product of a CyclicCode and a RingCode.
+    A CRCode is a hypergraph product of a CyclicCode and a RingCode.  The block length of the
+    RingCode used in the hypergraph product is set to the distance of the CyclicCode.
 
     References:
 
@@ -451,14 +462,10 @@ class CRCode(HGPCode):
     def __init__(
         self, bits: int, poly: sympy.Basic, field: int | type[galois.FieldArray] | None = None
     ) -> None:
-        """Construct a CRCode from the block length and univariate polynomial of a CyclicCode.
-
-        The block length of the RingCode used in the hypergraph product is set to the distance of
-        the CyclicCode.
-        """
+        """Construct a CRCode from the block length and univariate polynomial of a CyclicCode."""
         cyclic_code = CyclicCode(bits, poly, field)
         distance = cyclic_code.get_distance()
-        if np.isnan(distance):
+        if distance is NO_DISTANCE:
             raise ValueError(
                 "Cannot construct a CRCode from a cyclic code without a defined distance"
             )
@@ -475,7 +482,8 @@ class SHPCode(CSSCode):
     for the underlying classical codes.
 
     If the classical generating codes of an SHPCode have code parameters ``[n1, k1, d1]`` and
-    ``[n2, k2, d2]``, the SHPCode has parameters ``[n1 n2, k1 k2, min(d1, d2)]``.
+    ``[n2, k2, d2]``, the SHPCode has parameters ``[n1 n2, k1 k2, min(d1, d2)]``, where the distance
+    is dressed: its logical operators may be multiplied by gauge operators.
 
     References:
 
@@ -521,7 +529,11 @@ class SHPCode(CSSCode):
     def get_matrix_product(
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
-        """Subsystem hypergraph product of two parity check matrices."""
+        """Subsystem hypergraph product of two parity check matrices.
+
+        Matrices over different rings or fields raise a ValueError.
+        """
+        _check_same_ring(matrix_a, matrix_b)
         _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
         matrix_x = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
         matrix_z = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
@@ -550,7 +562,9 @@ class SHPCode(CSSCode):
         logical_ops_z = np.kron(generator_a, pivots_b)
         return logical_ops_x.view(field), logical_ops_z.view(field)
 
-    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
+    def _get_distance_exact(
+        self, pauli: PauliXZ | None, *, method: DistanceMethod
+    ) -> int | Literal[NoDistance.NAN]:
         """Exact distance calculation for subsystem hypergraph product codes."""
         match pauli:
             case Pauli.X:
@@ -616,6 +630,17 @@ class SHYPSCode(SHPCode):
         super().__init__(code_x, code_z, set_logicals=set_logicals)
 
         self._dimension = dim_x * dim_z
+
+
+def _check_same_ring(matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray) -> None:
+    """Raise a ValueError if two RingArrays, or two field arrays, are over different rings."""
+    same_ring = True
+    if isinstance(matrix_a, abstract.RingArray) and isinstance(matrix_b, abstract.RingArray):
+        same_ring = matrix_a.ring == matrix_b.ring
+    elif isinstance(matrix_a, galois.FieldArray) and isinstance(matrix_b, galois.FieldArray):
+        same_ring = type(matrix_a) is type(matrix_b)
+    if not same_ring:
+        raise ValueError("Cannot take a product of matrices over different rings")
 
 
 ####################################################################################################

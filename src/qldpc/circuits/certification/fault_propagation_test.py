@@ -7,8 +7,9 @@ from __future__ import annotations
 import functools
 import itertools
 import operator
+import typing
 from collections.abc import Collection, Sequence
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -16,7 +17,7 @@ import pytest
 import stim
 
 from qldpc import circuits
-from qldpc.codes.distance._search.coset_leader_search import MinWeightBound
+from qldpc.codes.distance import DistanceMethod, MinWeightBound
 
 from . import fault_propagation
 
@@ -99,9 +100,10 @@ def _assert_valid_counterexample(
 def _assert_matches_brute_force(certificate: circuits.BoundedFaultPropagationCertificate) -> None:
     """Check a certificate against brute force over the accepted faults of its DEM.
 
-    A smallest violating accepted fault is irreducible, and an irreducible accepted fault has at
-    most one more error mechanism than there are post-selection detectors, so checking every
-    accepted fault up to that fault weight decides the certificate.
+    It checks the faults of fault weight at most the number of post-selection detectors plus one,
+    which suffices by "Irreducible accepted faults suffice" and "Irreducible accepted faults have
+    fault weight at most `rank(P) + 1`" in ``fault_propagation.md``, since ``P`` has one row per
+    post-selection detector.
     """
     detectors = _primitive_fault_detectors(certificate)
     selected = set(certificate.post_selection_detectors)
@@ -141,12 +143,10 @@ def test_counterexample_lists_indices_in_increasing_order() -> None:
 def test_ghz_preparation_matches_brute_force_over_primitive_faults(
     num_qubits: int, css_weight: bool
 ) -> None:
-    """Fanning out a GHZ state certifies for three qubits but not for four.
-
-    X on a set of GHZ qubits is equivalent to X on the complement, so only a two-qubit X error on
-    four qubits has no equivalent error of lower Pauli weight.  Without post-selection,
-    ``max_weight`` does not change the result.
-    """
+    """A fanned-out GHZ state certifies for three qubits but not four, for any ``max_weight``."""
+    # Nothing is post-selected, so ``max_weight`` does not matter.  X on a set of GHZ qubits is
+    # equivalent to X on the complement, so only a two-qubit X error on four qubits has residual
+    # weight two.
     circuit = stim.Circuit("H 0")
     for target in range(1, num_qubits):
         circuit.append("CX", [0, target])
@@ -273,11 +273,8 @@ def test_exclusive_errors_count_as_separate_primitive_faults() -> None:
 
 
 def test_tags_do_not_change_primitive_fault_signatures() -> None:
-    """The flags and syndrome of an error mechanism come from its targets, not from its tag.
-
-    Stim escapes "]" and line feeds in tags, but writes other line breaks, such as a form feed, as
-    they are.
-    """
+    """The flags and syndrome of an error mechanism come from its targets, not from its tag."""
+    # Stim escapes "]" and line feeds in tags, but not other line breaks, such as a form feed.
     circuit = stim.Circuit("R 0 1 2")
     targets = [stim.target_x(0), stim.target_x(2)]
     circuit.append("CORRELATED_ERROR", targets, 0.1, tag="a]b) D1 (")
@@ -358,10 +355,7 @@ def test_circuit_without_error_mechanisms_certifies() -> None:
 
 
 def test_post_selection_can_accept_a_damaging_fault() -> None:
-    """Two primitive faults that each flip the detector do not fire it together.
-
-    Their fault is accepted and damages four outputs.
-    """
+    """Two primitive faults that each fire the detector pass together, and damage four outputs."""
     circuit = stim.Circuit("""
         I 0 1 2 3 4
         CORRELATED_ERROR(0.01) X0 X1 X4
@@ -499,10 +493,7 @@ def test_error_mechanism_descriptions_name_measurements_and_loops() -> None:
 
 
 def test_flagged_circuit_with_permuted_signed_outputs() -> None:
-    """Many flags, a signed Y stabilizer, and permuted outputs.
-
-    The counterexample's ``fault_indices`` index the error instructions of the DEM.
-    """
+    """With many flags, a signed Y stabilizer, and permuted outputs, only a damaging fault fails."""
     for damaging in (False, True):
         circuit = stim.Circuit()
         circuit.append("I", range(9))
@@ -524,6 +515,7 @@ def test_flagged_circuit_with_permuted_signed_outputs() -> None:
         assert any(ss.sign == -1 for ss in result.state_stabilizers)
         assert result.certified != damaging
         if damaging:
+            # The counterexample's fault_indices index the error instructions of the DEM.
             _assert_valid_counterexample(result, circuit)
 
 
@@ -566,6 +558,60 @@ def test_steane_preparation_meets_css_weight_but_not_physical_weight() -> None:
         candidate[qubit] = pauli
         syndrome = tuple(int(not candidate.commutes(ss)) for ss in stabilizers)
         assert syndrome != failure.output_syndrome
+
+
+def test_the_connected_cluster_method_finds_the_same_fault() -> None:
+    """The connected-cluster search finds the fault that the default search finds."""
+    # Two primitive faults that each fire the detector pass only together, so the search must
+    # combine them.
+    circuit = stim.Circuit("""
+        I 0 1 2 3 4
+        CORRELATED_ERROR(0.01) X0 X1 X4
+        CORRELATED_ERROR(0.01) X2 X3 X4
+        M 4
+        DETECTOR rec[-1]
+    """)
+    default, alias, result = (
+        circuits.certify_bounded_fault_propagation(
+            circuit, output_qubits=[0, 1, 2, 3], post_select=[0], css_weight=False, method=method
+        )
+        for method in ("brouwer_zimmermann", "information_sets", "connected_cluster")
+    )
+    assert alias == default
+    _assert_valid_counterexample(result, circuit)
+    assert default.counterexample is not None and result.counterexample is not None
+    assert result.counterexample.fault_indices == default.counterexample.fault_indices == (0, 1)
+    assert (
+        result.counterexample.residual_weight_lower_bound == result.counterexample.fault_weight + 1
+    )
+
+    # The +1 eigenstate of Y is not CSS, so the connected-cluster search cannot weigh its errors by
+    # CSS weight, but the default search, also under its alias, can.  This shows that ``method``
+    # reaches the coset searches.
+    y_state = stim.Circuit("H 0\nS 0")
+    with pytest.raises(ValueError, match="only on CSS states"):
+        circuits.certify_bounded_fault_propagation(
+            y_state, css_weight=True, method="connected_cluster"
+        )
+    assert circuits.certify_bounded_fault_propagation(
+        y_state, css_weight=True, method="information_sets"
+    ).certified
+
+
+def test_every_distance_method_but_brute_force_searches_residual_weights() -> None:
+    """The method check accepts every exact-distance method but brute force, and no other method."""
+    for method in typing.get_args(DistanceMethod):
+        if method == "brute_force":
+            with pytest.raises(ValueError, match="no search of residual weights"):
+                fault_propagation._check_coset_search_method(method)
+        else:
+            fault_propagation._check_coset_search_method(method)
+    unknown: Any = "gap"
+    with pytest.raises(ValueError, match="Unknown distance method"):
+        fault_propagation._check_coset_search_method(unknown)
+    # The method is checked before the circuit, which has no unmeasured qubit.
+    with pytest.raises(ValueError, match="no search of residual weights"):
+        circuits.certify_bounded_fault_propagation(stim.Circuit("M 0"), method="brute_force")
 
 
 def test_added_flags_match_explicit_flag_detectors() -> None:

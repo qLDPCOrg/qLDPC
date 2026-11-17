@@ -18,12 +18,12 @@ Code constructions
 * Add a linked literature reference and document the field, subsystem, distance, and validation assumptions in the class docstring.
 * Add co-located tests with independent invariants: rank-derived dimension, CSS orthogonality, symplectic commutation, row-space identities, known small distances, or exact cross-family equivalence.
   Do not validate construction-supplied or cached parameters by reading those same values back.
-* If the construction of a binary quantum code comes with a group of qubit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` to return generators of that group.
-  Exact distance searches use them to search less when the optional ``pybliss`` package does not find such permutations.
-  ``MBCode._get_qudit_automorphisms`` is an example, which uses ``_get_block_translations`` for a group that translates every block of qudits at once.
-  For codes built from lifts of a group algebra, ``_get_abelian_block_translations`` returns these translations if the group is abelian and its generators lift to permutation matrices, and None otherwise.
-  Prove in the docstring that each generator maps the row space of the parity check matrix onto itself, and test it.
-  For a CSS code, a generator does so if it maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.
+* If the construction of a quantum code comes with a group of qudit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` to return generators of that group.
+  ``QuditCode.get_known_qudit_automorphism_group`` returns the group that they generate together with the permutations that the optional ``pybliss`` package finds, and for binary codes, the Brouwer-Zimmermann and connected-cluster searches of exact distances use the same permutations.
+  ``MBCode._get_qudit_automorphisms`` is an example.
+  Prove that each generator maps the row space of the parity check matrix onto itself, and test that it does.
+  For a CSS code, prove this for the row spaces of both ``matrix_x`` and ``matrix_z``.
+  Give the proof in the docstring of the override or of a function that it calls, directly or through other functions, unless the :ref:`writing standard <writing-documentation>` puts the proof in a guide.
 
 .. _implementation-algebra:
 
@@ -34,7 +34,7 @@ Algebra and code state
 * Invalidate or transfer cached values deliberately.
 * Preserve concrete ``galois.FieldArray`` types when copying or transforming code data.
   Do not coerce extension-field values with ``% field.order``.
-* Reject incompatible group rings in NumPy operations, including arrays supplied through keyword arguments such as ``out=``.
+* Reject incompatible rings in NumPy operations, including arrays supplied through keyword arguments such as ``out=``.
 * Use ``qldpc.math.symplectic_conjugate`` rather than duplicating sign and half-order conventions.
 * Do not route nonbinary codes through the binary-only ``codes/distance/`` routines.
 * Preserve stabilizer-based syndrome construction in subsystem decoding, and include a focused subsystem regression test when changing that path.
@@ -51,7 +51,6 @@ Circuits
 * Preserve memory-circuit detector-coordinate semantics; a monotone check index must not be interpreted as time.
 * Noise-model operation immunity and qubit immunity are separate controls; preserve both.
 * Encode T gates and other π/4 rotations in Clifford+T tools as ``RotatedPauliString`` documents, following tsim.
-* State computational limitations in the relevant function or class docstring.
 * In a circuit workflow, such as a memory experiment, keep matrix, qubit-role, measurement-record, detector-record, and Stim-circuit bookkeeping in sync.
   Test noiseless detector determinism and observable behavior before adding noise.
   Exercise repeated rounds and seam behavior; a locally valid circuit fragment can still become wrong when initialization, QEC cycles, and readout are joined.

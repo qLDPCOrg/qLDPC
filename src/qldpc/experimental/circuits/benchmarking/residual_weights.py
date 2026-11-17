@@ -35,11 +35,12 @@ from qldpc import math as qldpc_math
 from qldpc.circuits._post_selection import get_flag_detectors, get_selected_detectors, is_integer
 from qldpc.circuits.bookkeeping import DetectorRecord
 from qldpc.circuits.certification.fault_propagation import (
+    _check_coset_search_method,
     _get_primitive_fault_signatures,
     _get_unmeasured_qubits,
     _is_css_state,
 )
-from qldpc.codes.distance._search.coset_leader_search import CosetLeaderSearch
+from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod
 from qldpc.objects import Pauli, PauliXZ, PauliXZLike
 
 from .consumer_profiles import ConsumerProfile
@@ -314,6 +315,7 @@ def estimate_residual_weight_histogram(
     max_fault_weight: int | None = None,
     max_exact_faults: int = 10**6,
     seed: int | None = None,
+    method: DistanceMethod = "brouwer_zimmermann",
 ) -> ResidualWeightHistogram:
     """Estimate the residual weights of the faults of a noisy Clifford state-preparation circuit.
 
@@ -323,7 +325,10 @@ def estimate_residual_weight_histogram(
     mechanisms.  A fault leaves a Pauli error, its output error, on the output qubits that hold the
     prepared state.  The residual weight of the fault is the smallest Pauli weight of its output
     error after multiplying it by any stabilizer of the prepared state, where the Pauli weight of a
-    Pauli error is either its CSS weight ``max(|x|, |z|)`` or its physical weight.
+    Pauli error is either its CSS weight ``max(|x|, |z|)`` or its physical weight.  If the prepared
+    state is a state of a subsystem code whose gauge the circuit fixes, an error that changes only
+    the gauge counts toward the residual weight, so the estimates are conservative (as in
+    ``certify_bounded_fault_propagation``).
 
     For a CSS state, the residual weight of one Pauli type, chosen by ``pauli``, is the smallest
     weight of the X-type (or Z-type) part of the output error after multiplying it by any X-type (or
@@ -347,7 +352,7 @@ def estimate_residual_weight_histogram(
     For the CSS weight, or the residual weight of one Pauli type, of a CSS state on at most 64
     qubits, two tables of the syndromes of light X-type and Z-type Pauli errors give it by a
     meet-in-the-middle lookup.  Otherwise, the slower exact search of
-    ``certify_bounded_fault_propagation`` gives it.
+    ``certify_bounded_fault_propagation``, by ``method``, gives it.
 
     Args:
         circuit: A noisy Stim Clifford circuit starting in Stim's all-zero state.
@@ -385,6 +390,11 @@ def estimate_residual_weight_histogram(
         max_exact_faults: Fault weights with at most this many faults (and every smaller fault
             weight) are computed exactly rather than sampled.  Default: ``10**6``.
         seed: A seed for the random number generator.  Default: None, for fresh randomness.
+        method: The exact search of residual weights where the tables do not apply:
+            ``"brouwer_zimmermann"``, its alias ``"information_sets"``, or ``"connected_cluster"``
+            (see :class:`~qldpc.codes.distance.CosetLeaderSearch`); ``"auto"`` takes
+            ``"brouwer_zimmermann"`` here.  With the same ``seed``, the methods give the same
+            histogram.  Default: ``"brouwer_zimmermann"``.
 
     Returns:
         A ``ResidualWeightHistogram``.
@@ -396,9 +406,12 @@ def estimate_residual_weight_histogram(
         ValueError: If an integer argument is out of range, if ``output_qubits`` or ``post_select``
             is invalid, if ``pauli`` does not identify X or Z, if the output qubits do not end in
             a definite stabilizer state, if component scoring is requested for a non-CSS state, if
-            the circuit has an error instruction with probability one, or if Stim cannot convert the
-            circuit to a detector error model.
+            the circuit has an error instruction with probability one, if Stim cannot convert the
+            circuit to a detector error model, if ``method`` is unknown or ``"brute_force"``, or if
+            ``method`` is ``"connected_cluster"`` and errors on a state that is not CSS are weighed
+            by their CSS weight.
     """
+    _check_coset_search_method(method)
     max_residual_weight = _check_integer(max_residual_weight, "max_residual_weight", 0)
     num_samples = _check_integer(num_samples, "num_samples", 0)
     max_exact_faults = _check_integer(max_exact_faults, "max_exact_faults", 0)
@@ -415,6 +428,7 @@ def estimate_residual_weight_histogram(
         css_weight=css_weight,
         pauli=pauli,
         max_residual_weight=max_residual_weight,
+        method=method,
     )
 
     probabilities_by_fault_weight, truncated_probability = _get_fault_weight_probabilities(
@@ -504,6 +518,7 @@ def _get_mechanisms(
     css_weight: bool | None,
     pauli: PauliXZ | None,
     max_residual_weight: int,
+    method: DistanceMethod,
 ) -> tuple[_Mechanisms, _ResidualWeightOracle, bool]:
     """Get the error mechanisms of a circuit, and an oracle for the residual weights of syndromes.
 
@@ -516,7 +531,7 @@ def _get_mechanisms(
         raise ValueError("The output qubits must end in a definite pure stabilizer state")
     matrix = np.array([qldpc_math.string_to_op(op) for op in stabilizers], dtype=np.uint8)
     css_weight = _is_css_state(matrix) if css_weight is None else css_weight
-    setup = _ResidualWeightSetup(matrix, css_weight, pauli, max_residual_weight)
+    setup = _ResidualWeightSetup(matrix, css_weight, pauli, max_residual_weight, method=method)
 
     _, dem, flags, syndromes = _get_primitive_fault_signatures(
         full_circuit, setup.stabilizers, qubits, selected
@@ -897,9 +912,13 @@ class _ResidualWeightSetup:
         css_weight: Whether whole errors are weighed by their CSS weight or physical weight.
         pauli: The Pauli component to score, or None for whole errors.
         max_residual_weight: The largest residual weight to resolve.
+        method: The method of the coset-leader search, used where ``_CSSWeightTables`` does not
+            apply.
 
     Raises:
-        ValueError: If ``pauli`` is given and the state is not a CSS state.
+        ValueError: If ``pauli`` is given and the state is not a CSS state, or if the method is
+            ``"connected_cluster"`` and errors on a state that is not CSS are weighed by their CSS
+            weight.
     """
 
     def __init__(
@@ -908,6 +927,8 @@ class _ResidualWeightSetup:
         css_weight: bool,
         pauli: PauliXZ | None,
         max_residual_weight: int,
+        *,
+        method: DistanceMethod = "brouwer_zimmermann",
     ) -> None:
         """Choose the stabilizer generators and the residual-weight oracle."""
         num_qubits = stabilizers.shape[1] // 2
@@ -920,23 +941,30 @@ class _ResidualWeightSetup:
         self.oracle: _ResidualWeightOracle
         self.syndrome_mask = (1 << num_qubits) - 1
         self._cache: dict[bytes, int] = {}
+        # Whole errors take a coset search of the given stabilizers, unless they are weighed by CSS
+        # weight on a CSS state of at most 64 qubits.  The X-type and Z-type supports of a CSS state
+        # give tables for those errors and for one Pauli type, or, for one Pauli type above that
+        # size, a coset search of the supports, by the CSS weight of that type.
         if not is_css or (pauli is None and not (css_weight and num_qubits <= _MAX_TABLE_QUBITS)):
             self.matrix = stabilizers
-            self.oracle = _CosetSearchWeights(stabilizers, css_weight, max_residual_weight)
-            return
-
-        x_supports, z_supports = _get_css_supports(stabilizers)
-        self.matrix = np.zeros_like(stabilizers)
-        self.matrix[: len(x_supports), :num_qubits] = x_supports
-        self.matrix[len(x_supports) :, num_qubits:] = z_supports
-        if pauli is Pauli.X:
-            self.syndrome_mask ^= (1 << len(x_supports)) - 1
-        elif pauli is Pauli.Z:
-            self.syndrome_mask = (1 << len(x_supports)) - 1
-        if num_qubits <= _MAX_TABLE_QUBITS:
-            self.oracle = _CSSWeightTables(x_supports, z_supports, max_residual_weight)
         else:
-            self.oracle = _CosetSearchWeights(self.matrix, True, max_residual_weight)
+            x_supports, z_supports = _get_css_supports(stabilizers)
+            self.matrix = np.zeros_like(stabilizers)
+            self.matrix[: len(x_supports), :num_qubits] = x_supports
+            self.matrix[len(x_supports) :, num_qubits:] = z_supports
+            if pauli is Pauli.X:
+                self.syndrome_mask ^= (1 << len(x_supports)) - 1
+            elif pauli is Pauli.Z:
+                self.syndrome_mask = (1 << len(x_supports)) - 1
+            if num_qubits <= _MAX_TABLE_QUBITS:
+                self.oracle = _CSSWeightTables(x_supports, z_supports, max_residual_weight)
+                return
+        self.oracle = _CosetSearchWeights(
+            self.matrix,
+            css_weight or pauli is not None,
+            max_residual_weight,
+            method=method,
+        )
 
     @property
     def stabilizers(self) -> list[stim.PauliString]:
@@ -1009,17 +1037,35 @@ class _CSSWeightTables:
 class _CosetSearchWeights:
     """Exact residual weights of the syndromes of any stabilizer state, by a coset search.
 
-    This uses the exact minimum-weight search of ``certify_bounded_fault_propagation``, which is
-    slower than ``_CSSWeightTables`` but works for any stabilizer state and either Pauli weight.
+    This uses ``CosetLeaderSearch``, the exact minimum-weight oracle of
+    ``certify_bounded_fault_propagation``, by the given method.  The oracle finds the residual
+    weight of each syndrome, up to the largest that the histogram resolves, by searching each coset
+    once.  It searches one coset for each syndrome, or, for the CSS weight on a CSS state, the coset
+    of the X part and, if that part is within the largest weight, the coset of the Z part.  It is
+    slower than ``_CSSWeightTables``, but works for any stabilizer state and either Pauli weight,
+    except that the connected-cluster method weighs errors by CSS weight only on CSS states.
     """
 
     def __init__(
-        self, stabilizers: npt.NDArray[np.uint8], css_weight: bool, max_residual_weight: int
+        self,
+        stabilizers: npt.NDArray[np.uint8],
+        css_weight: bool,
+        max_residual_weight: int,
+        *,
+        method: DistanceMethod,
     ) -> None:
         """Prepare the search for the given stabilizer generators, one row per generator."""
         self.max_residual_weight = max_residual_weight
-        self.num_key_words = (len(stabilizers) + 63) // 64
-        self._search = CosetLeaderSearch(stabilizers, css_weight=css_weight)
+        self._search = CosetLeaderSearch(stabilizers, css_weight=css_weight, method=method)
+
+    @property
+    def num_key_words(self) -> int:
+        """The number of 64-bit machine words in a packed syndrome.
+
+        A syndrome has a bit for each stabilizer, and the search takes as many stabilizers as
+        qubits.
+        """
+        return (self._search.num_qubits + 63) // 64
 
     def get_key_words(self, syndrome: int) -> list[int]:
         """Split a syndrome into machine words, least significant first."""
@@ -1027,18 +1073,8 @@ class _CosetSearchWeights:
 
     def get_weights(self, keys: npt.NDArray[np.uint64]) -> npt.NDArray[np.intp]:
         """Residual weights of packed syndromes, capped at ``max_residual_weight + 1``."""
-        weights = np.zeros(len(keys), dtype=np.intp)
-        for row, words in enumerate(keys):
-            syndrome = sum(int(word) << (64 * index) for index, word in enumerate(words))
-            # raise the weight to each new lower bound until a Pauli error that light exists
-            weight = 0
-            while weight <= self.max_residual_weight:
-                bound = self._search.get_min_weight_bound(syndrome, weight)
-                if bound.within_max_weight:
-                    break
-                weight = max(weight + 1, bound.lower_bound)
-            weights[row] = min(weight, self.max_residual_weight + 1)
-        return weights
+        weights = self._search.get_min_weights(keys, self.max_residual_weight)
+        return weights.astype(np.intp, copy=False)
 
 
 def _get_css_supports(

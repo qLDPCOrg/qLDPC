@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared pytest fixtures and test helpers for qLDPC package tests."""
+"""Shared pytest fixtures, hooks, and test helpers for qLDPC package tests."""
 
 from __future__ import annotations
 
+import ast
 import builtins
 import functools
 import importlib
@@ -16,10 +17,11 @@ import sys
 import types
 from collections.abc import Iterator, Mapping, Sequence
 
+import galois
 import grimp
 import pytest
 
-from qldpc import abstract, external
+from qldpc import _compilation, abstract, external
 
 # A comment that lets an import break the layering rule of check_import_layering.
 _LAYERING_EXCEPTION = re.compile(r"#\s*layering-exception:\s*\S")
@@ -32,11 +34,14 @@ def run_python(
 
     The child interpreter receives this interpreter's import path as its PYTHONPATH, so that it
     imports the same qLDPC sources rather than whatever qldpc its environment happens to resolve.
+    The child does not inherit ``QLDPC_DISABLE_COMPILATION`` or ``PYTHONOPTIMIZE``, so that it
+    compiles qLDPC's functions as a user's interpreter does and runs the assertions in ``code``.
+    ``env`` can still set these variables, and the child inherits ``NUMBA_DISABLE_JIT``.
 
     Args:
         code: The code to run, passed to the interpreter with -c.
         *options: Interpreter options that precede -c, such as "-W", "error".
-        env: Environment variables to set in the child, in addition to this process's environment.
+        env: Environment variables to set in the child, in addition to the ones that it inherits.
         timeout: The number of seconds after which to abort the child.  Default: 600.
 
     Returns:
@@ -46,11 +51,14 @@ def run_python(
         AssertionError: If the child exits with a nonzero return code, showing its standard error.
     """
     import_path = os.pathsep.join(path for path in sys.path if path)
+    environment = {**os.environ, "PYTHONPATH": import_path}
+    environment.pop(_compilation.DISABLE_COMPILATION_VARIABLE, None)
+    environment.pop("PYTHONOPTIMIZE", None)
     result = subprocess.run(
         [sys.executable, *options, "-c", code],
         capture_output=True,
         check=False,
-        env={**os.environ, "PYTHONPATH": import_path, **(env or {})},
+        env={**environment, **(env or {})},
         text=True,
         timeout=timeout,
     )
@@ -98,51 +106,77 @@ def block_clipboard(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pyperclip.copy", lambda text: None)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def vary_default_transformer_seed(pytestconfig: pytest.Config) -> Iterator[None]:
+    """Build seedless Wedderburn-Artin decompositions from the seed of the test run.
+
+    GroupRing.get_transformer uses a fixed seed by default, so without this fixture, tests would
+    exercise only one decomposition of each ring.
+    """
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        seed = pytestconfig.getoption("randomly_seed", default=0)
+        monkeypatch.setattr(abstract.rings, "_DEFAULT_TRANSFORMER_SEED", seed)
+        yield
+
+
 @pytest.fixture(scope="session")
-def ring_cyclic3_gf2(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_cyclic3_gf2() -> abstract.GroupRing:
     """Construct a small ring with a pre-built Wedderburn-Artin transformer."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=2)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_cyclic3_gf4(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_cyclic3_gf4() -> abstract.GroupRing:
     """Construct a ring over a non-prime field with a pre-built Wedderburn-Artin transformer."""
     ring = abstract.GroupRing(abstract.CyclicGroup(3), field=4)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_dihedral3_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_dihedral3_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a pre-built Wedderburn-Artin transformer."""
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_cyclic5_gf2(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_cyclic5_gf2() -> abstract.GroupRing:
     """Construct a ring with a degree-4 field-extension component (over a prime field)."""
     ring = abstract.GroupRing(abstract.CyclicGroup(5), field=2)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_alternating4_gf5(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_alternating4_gf5() -> abstract.GroupRing:
     """Construct a non-commutative ring with a size-3 matrix component."""
     ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
     return ring
 
 
 @pytest.fixture(scope="session")
-def ring_dihedral5_gf3(pytestconfig: pytest.Config) -> abstract.GroupRing:
+def ring_dihedral5_gf3() -> abstract.GroupRing:
     """Construct a ring with a matrix component over a field extension (size 2, degree 2)."""
     ring = abstract.GroupRing(abstract.DihedralGroup(5), field=3)
-    ring.get_transformer(seed=pytestconfig.getoption("randomly_seed"))
+    ring.get_transformer()
+    return ring
+
+
+@pytest.fixture(scope="session")
+def ring_dihedral7_gf9() -> abstract.GroupRing:
+    """Construct a ring over a field whose irreducible polynomial is not the default one.
+
+    In GF(9) with the irreducible polynomial x^2 + 1, the element x is not primitive.  This ring has
+    a matrix component over a field extension (size 2, degree 3).
+    """
+    field = galois.GF(9, irreducible_poly="x^2 + 1")
+    ring = abstract.GroupRing(abstract.DihedralGroup(7), field=field)
+    ring.get_transformer()
     return ring
 
 
@@ -164,7 +198,14 @@ def rings_to_test(
 @pytest.fixture(
     name="wa_ring",
     scope="session",
-    params=["cyclic3_gf4", "dihedral3_gf5", "cyclic5_gf2", "alternating4_gf5", "dihedral5_gf3"],
+    params=[
+        "cyclic3_gf4",
+        "dihedral3_gf5",
+        "cyclic5_gf2",
+        "alternating4_gf5",
+        "dihedral5_gf3",
+        "dihedral7_gf9",
+    ],
 )
 def wedderburn_artin_rings_to_test(
     request: pytest.FixtureRequest,
@@ -173,13 +214,15 @@ def wedderburn_artin_rings_to_test(
     ring_cyclic5_gf2: abstract.GroupRing,
     ring_alternating4_gf5: abstract.GroupRing,
     ring_dihedral5_gf3: abstract.GroupRing,
+    ring_dihedral7_gf9: abstract.GroupRing,
 ) -> abstract.GroupRing:
     """Retrieve a ring for exercising the Wedderburn-Artin machinery.
 
     These rings jointly cover a commutative field extension (cyclic3_gf4), matrix components of size
     2 and 3 (dihedral3_gf5, alternating4_gf5), a degree-4 field-extension component (cyclic5_gf2),
-    and a matrix component that is itself over a field extension -- size 2 and degree 2, i.e. 2x2
-    matrices over GF(9) (dihedral5_gf3).
+    a matrix component that is itself over a field extension -- size 2 and degree 2, i.e. 2x2
+    matrices over GF(9) (dihedral5_gf3), and a field whose irreducible polynomial is not the default
+    one (dihedral7_gf9).
     """
     match request.param:
         case "cyclic3_gf4":
@@ -192,7 +235,170 @@ def wedderburn_artin_rings_to_test(
             return ring_alternating4_gf5
         case "dihedral5_gf3":
             return ring_dihedral5_gf3
+        case "dihedral7_gf9":
+            return ring_dihedral7_gf9
     raise ValueError(f"Invalid fixture name: {request.param}")  # pragma: no cover
+
+
+####################################################################################################
+# compiled runs
+
+# The decorators of qldpc._compilation that make numba compile a function.
+_COMPILING_DECORATORS = frozenset({"always_compiled", "compiled_on_request"})
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add the options of the compiled runs (see docs/source/contributing/index.rst)."""
+    # Explicit defaults let pytest set these options when it loads this file after reading the
+    # command line, as in a run of ``pytest src``.
+    parser.addoption(
+        "--compiled-module-tests",
+        action="store_true",
+        default=False,
+        help="Collect, from the directories given, only the test files of the modules that define"
+        " compiled functions.",
+    )
+    parser.addoption(
+        "--compile-search-setup",
+        action="store_true",
+        default=False,
+        help="Switch the set-up code of distance and count searches to compiled code before every"
+        " test, as qldpc.codes.distance.compile_search_setup() does, but compile each function"
+        " when it is first called.",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Refuse the options of the compiled runs while compilation is disabled."""
+    options = [
+        option
+        for option in ("--compiled-module-tests", "--compile-search-setup")
+        if config.getoption(option)
+    ]
+    if options and _compilation.is_compilation_disabled():
+        raise pytest.UsageError(
+            f"Compilation is disabled, but it is needed by {' and '.join(options)}.  Unset"
+            " QLDPC_DISABLE_COMPILATION and NUMBA_DISABLE_JIT."
+        )
+
+
+def pytest_ignore_collect(collection_path: pathlib.Path, config: pytest.Config) -> bool | None:
+    """With ``--compiled-module-tests``, skip each test file whose module has no compiled function.
+
+    The module of a test file ``x_test.py`` is ``x.py`` beside it.  Whatever this returns, pytest
+    collects a test file named on the command line if no directory named there contains it.
+    """
+    if config.getoption("--compiled-module-tests") and collection_path.name.endswith("_test.py"):
+        module = collection_path.with_name(collection_path.name.removesuffix("_test.py") + ".py")
+        if not _defines_compiled_functions(module):
+            return True
+    return None
+
+
+def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]:
+    """The functions of a module that numba compiles, by the name of the decorator that marks them.
+
+    The decorators are ``always_compiled`` and ``compiled_on_request``, however they are imported,
+    as in ``@always_compiled``, ``@_compilation.always_compiled(inline=True)``, or a name that
+    ``from ... import ... as`` gives them.
+    """
+    # Map each name under which the module imports a decorator to the decorator's name.
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            aliases |= {
+                alias.asname or alias.name: alias.name
+                for alias in node.names
+                if alias.name in _COMPILING_DECORATORS
+            }
+
+    # Find the functions with each decorator.
+    functions: dict[str, list[ast.FunctionDef]] = {name: [] for name in _COMPILING_DECORATORS}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            for decorator in node.decorator_list:
+                if isinstance(decorator, ast.Call):  # a decorator with options
+                    decorator = decorator.func
+                name = (
+                    decorator.attr
+                    if isinstance(decorator, ast.Attribute)
+                    else aliases.get(getattr(decorator, "id", ""))
+                )
+                if name in functions:
+                    functions[name].append(node)
+    return functions
+
+
+def _defines_compiled_functions(path: pathlib.Path) -> bool:
+    """Whether a module exists and has a function with a decorator of compiled code.
+
+    The decorators are ``always_compiled`` and ``compiled_on_request`` (see get_compiled_functions).
+    """
+    if not path.is_file():
+        return False
+    return any(get_compiled_functions(ast.parse(path.read_text(encoding="utf-8"))).values())
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """With ``--compile-search-setup``, switch the set-up code of searches to compiled code.
+
+    Unlike ``compile_search_setup``, this does not compile the code up front: each function is
+    compiled when a test first calls it, and kept for the rest of the process.  So each test process
+    compiles only the functions that its tests call, which shortens the run.  The tests of
+    ``compile_search_setup`` check its compilation up front.  Fixtures such as
+    ``plain_search_setup`` of the distance tests may switch the code back to plain Python for one
+    test, so this hook switches it to compiled code before every test, ahead of the test's fixtures.
+    """
+    if item.config.getoption("--compile-search-setup"):
+        _compilation.set_on_request_functions_compiled(True)
+
+
+####################################################################################################
+# cache clearing between test files
+
+# If this environment variable is "1", qLDPC's functools caches are emptied after each test file
+# (see pytest_runtest_teardown).  The coverage check sets it.
+CLEAR_CACHES_VARIABLE = "QLDPC_CLEAR_CACHES"
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> Iterator[None]:
+    """Empty qLDPC's functools caches after each test file if QLDPC_CLEAR_CACHES is "1".
+
+    The coverage check runs several test files in each process.  A cache that one test file fills
+    could keep lines from running in a later test file, which would then fail coverage falsely.  As
+    the outermost wrapper of the hook, this empties the caches after every other implementation of
+    the hook has run, including those that tear down fixtures.  It applies to the test files under
+    the directory of this conftest.py file.
+    """
+    result = yield
+    if os.environ.get(CLEAR_CACHES_VARIABLE) == "1" and (
+        nextitem is None or nextitem.path != item.path
+    ):
+        _clear_caches()
+    return result
+
+
+def _clear_caches() -> None:
+    """Empty every functools cache of a function or method of a module of qLDPC."""
+    for name, module in list(sys.modules.items()):
+        if module is None or name.partition(".")[0] != "qldpc":
+            continue
+        for value in list(vars(module).values()):
+            # Modules hold no cache.  Looking up a missing attribute of one could run its
+            # __getattr__, such as one that warns of a deprecated name or finishes a lazy import.
+            if isinstance(value, types.ModuleType):
+                continue
+            candidates = [value]
+            if isinstance(value, type) and value.__module__ == name:
+                candidates += [
+                    getattr(member, "__func__", member) for member in vars(value).values()
+                ]
+            for candidate in candidates:
+                cache_clear = getattr(candidate, "cache_clear", None)
+                if callable(cache_clear):
+                    cache_clear()
 
 
 ####################################################################################################
@@ -222,7 +428,7 @@ def check_import_layering(package: str, layers: Sequence[Sequence[str]]) -> None
     """
     graph = _get_import_graph()
     sources = _get_source_files(package)
-    config = f"_LAYERS in {_get_display_path(sources[package].with_name('layering_test.py'))}"
+    config = f"_LAYERS in {_get_display_path(sources[package].with_name('_layering_test.py'))}"
     listed = [unit for layer in layers for unit in layer]
     layer_index = {unit: index for index, layer in enumerate(layers) for unit in layer}
     units = {_get_unit(package, module) for module in graph.find_children(package)}

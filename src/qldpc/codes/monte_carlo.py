@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, overload
 
 import numpy as np
 import numpy.typing as npt
-import scipy.special
 
 from qldpc import _deprecations, math
 
@@ -166,7 +165,7 @@ class ErrorRateFunc:
 
     @property
     def infidelities(self) -> npt.NDArray[np.floating]:
-        """Mean infidelity at each error weight: the failure rate among its kept samples.
+        """Mean infidelity at each error weight, that is, the failure rate among its kept samples.
 
         This is the observed failure rate.  The posterior whose variance infidelity_variances
         reports sits above it, by 1/(2n + 2) at a weight with n kept samples and no observed
@@ -326,6 +325,8 @@ class ErrorRateFunc:
 
             ``sum_(j=k+1)^(n) (n choose j) p**j (1-p)**(n-j) = I_p(k + 1, n - k)``.
         """
+        import scipy.special  # imported on first use, to keep "import qldpc" fast
+
         if self.max_error_weight >= self.num_error_locations:
             # no error is heavier than the number of error locations, so nothing is truncated.  The
             # closed form cannot be relied on to say so, because its second parameter is zero here:

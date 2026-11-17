@@ -147,7 +147,8 @@ def test_tagged_root_names_are_importable() -> None:
     namespace: dict[str, object] = {}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
-        exec(f"from qldpc.decoders import {', '.join(names)}", namespace)  # noqa: S102
+        statement = f"from qldpc.decoders import {', '.join(names)}"
+        exec(statement, namespace)  # noqa: S102 - trusted import statement
     assert set(names) <= namespace.keys()
 
 
@@ -155,7 +156,7 @@ def test_root_star_import() -> None:
     """A star import of the package root resolves every name in its __all__, without warning."""
     namespace: dict[str, object] = {}
     # a star import is only valid at module level, so execute it in a fresh namespace
-    exec("from qldpc.decoders import *", namespace)  # noqa: S102
+    exec("from qldpc.decoders import *", namespace)  # noqa: S102 - trusted import statement
     assert set(qldpc.decoders.__all__) <= namespace.keys()
 
 

@@ -79,8 +79,10 @@ def test_factories_pickle() -> None:
     matrix_factory = from_matrix(functools.partial(ErrorLookupDecoder, max_weight=1))
     dem_factory = from_dem(functools.partial(ObservableLookupDecoder, max_weight=1))
 
-    restored_matrix_factory = pickle.loads(pickle.dumps(matrix_factory))  # noqa: S301
-    restored_dem_factory = pickle.loads(pickle.dumps(dem_factory))  # noqa: S301
+    restored_matrix_factory, restored_dem_factory = (
+        pickle.loads(pickle.dumps(factory))  # noqa: S301 - trusted in-memory round trip
+        for factory in (matrix_factory, dem_factory)
+    )
     assert isinstance(restored_matrix_factory, MatrixDecoderFactory)
     assert isinstance(restored_dem_factory, DEMDecoderFactory)
     assert restored_matrix_factory.build(matrix).decode(np.array([1])).shape == (2,)

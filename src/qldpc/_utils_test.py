@@ -2,54 +2,9 @@
 
 """Unit tests for _utils.py."""
 
-import importlib
-import pathlib
-import sys
-import uuid
-from types import FunctionType, ModuleType
+from types import FunctionType
 
-import pytest
-
-from qldpc._utils import (
-    _lazy_import,
-    format_docstring,
-    get_external_caller_stacklevel,
-)
-
-
-def test_lazy_import() -> None:
-    """A lazily imported module is only executed on first attribute access."""
-    name = "colorsys"  # a small stdlib module not otherwise imported by the test suite
-    sys.modules.pop(name, None)
-
-    module = _lazy_import(name)  # uncached path
-    assert isinstance(module, ModuleType)
-    assert callable(module.rgb_to_hls)  # force the deferred execution
-
-    assert _lazy_import(name) is module  # cached path returns the same module
-
-
-def test_lazy_import_failure(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A failed lazy import cannot leave behind a usable partial module."""
-    name = f"broken_lazy_module_{uuid.uuid4().hex}"
-    module_path = tmp_path / f"{name}.py"
-    module_path.write_text('value = 1\nraise RuntimeError("broken install")\n')
-    monkeypatch.syspath_prepend(str(tmp_path))
-
-    module = _lazy_import(name)
-    for _ in range(2):
-        with pytest.raises(RuntimeError, match="broken install"):
-            _ = module.value
-        assert name not in sys.modules
-
-    module_path.write_text("value = 2\n")
-    importlib.invalidate_caches()
-    assert module.value == 2
-    assert _lazy_import(name) is module
-    sys.modules.pop(name, None)
-
-    with pytest.raises(ModuleNotFoundError, match="No module named"):
-        _lazy_import(f"missing_{name}")
+from qldpc._utils import format_docstring, get_external_caller_stacklevel
 
 
 def test_format_docstring() -> None:

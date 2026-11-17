@@ -45,8 +45,8 @@ Exports, documentation, and tests
 
 * Export the backend class at its qualified ``custom`` or ``external`` package path.
 * If you add a public specification helper, export it from ``qldpc.decoders`` and add it to ``__all__``.
-* Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder reference </decoders/reference>`: AutoAPI hides generated helpers because it cannot inspect their signatures statically.
-  ``src/qldpc/decoders/construction/specs_test.py`` checks the signature, written documentation, and reference entry of every generated helper that ``qldpc.decoders`` exports.
+* Add its ``.. autofunction:: qldpc.decoders.<name>`` entry to the :doc:`decoder reference </decoders/reference>`, since AutoAPI hides generated helpers, whose signatures it cannot read statically.
+  ``src/qldpc/decoders/construction/specs_test.py`` checks for the entry.
 * Add :ref:`backend notes <backend-notes>` to the decoder reference only for what a docstring cannot carry, such as installation outside PyPI or behavior across workflows.
 * Add co-located ``*_test.py`` tests that independently check ``H @ inferred_error == syndrome``, observable predictions against DEM targets, unsupported inputs, erasure width, and batch shapes as applicable.
 * Test pickling if the decoder is used by Sinter.
@@ -64,7 +64,6 @@ These requirements apply when changing how qLDPC builds, coerces, or resolves de
 
 * Coerce user-supplied error decoders with ``_as_error_decoder`` from ``decoders/protocols.py`` inside ``qldpc.decoders``, or ``build_error_decoder`` from ``decoders/_resolution.py`` outside it, and call ``decode_errors``.
 * Reject prebuilt decoders with ``reject_prebuilt_decoder`` from ``decoders/_resolution.py`` when a method constructs the matrix that it decodes.
-* Keep the import layers of ``qldpc.decoders`` that ``_LAYERS`` in ``decoders/layering_test.py`` lists, and add a new top-level module or subpackage to a layer there; the :doc:`code standard <code>` describes the rule and its exceptions.
 * Keep ``build_error_decoder`` specific to error decoders.
   Dispatch on explicit capabilities such as ``compile_decoder_for_dem``, ``decode_observables``, and ``ErrorDecoder``, never on output length.
 * In code-capacity callers under ``qldpc.codes``, resolve decoder inputs with ``get_code_capacity_decoder`` from ``codes/_code_capacity.py``.

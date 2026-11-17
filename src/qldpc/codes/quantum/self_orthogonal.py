@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import galois
 import numpy as np
 import scipy
@@ -17,7 +19,7 @@ from ..classical import (
     ReedMullerCode,
 )
 from ..common import CSSCode
-from ..distance import DistanceMethod
+from ..distance import DistanceMethod, NoDistance
 
 ####################################################################################################
 # self-orthogonal CSS codes
@@ -127,7 +129,9 @@ class QuantumReedMullerCode(CSSCode):
                 + f"Provided: (r, m) = ({order}, {size})"
             )
 
-    def _get_distance_exact(self, pauli: PauliXZ | None, *, method: DistanceMethod) -> int | float:
+    def _get_distance_exact(
+        self, pauli: PauliXZ | None, *, method: DistanceMethod
+    ) -> int | Literal[NoDistance.NAN]:
         """Closed-form distance of CSS(RM(r, m), RM(r, m)) codes: 2**(r + 1)."""
         return 2 ** (self._order + 1)
 

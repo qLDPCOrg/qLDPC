@@ -8,6 +8,7 @@ import importlib
 import inspect
 import unittest.mock
 import warnings
+from typing import Any
 
 import galois
 import networkx as nx
@@ -69,7 +70,8 @@ def test_deprecated_names() -> None:
             warnings.simplefilter("ignore", DeprecationWarning)
             module = importlib.import_module(module_name)
             namespace: dict[str, object] = {}
-            exec(f"from {module_name} import {', '.join(sorted(names))}", namespace)  # noqa: S102
+            statement = f"from {module_name} import {', '.join(sorted(names))}"
+            exec(statement, namespace)  # noqa: S102 - trusted import statement
         assert names <= namespace.keys()
         assert not names & set(getattr(module, "__all__", ()))
     with pytest.raises(AttributeError, match=r"module 'qldpc\.decoders' has no attribute 'Other'"):
@@ -94,11 +96,11 @@ def test_star_imports_do_not_warn() -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             # a star import is only valid at module level, so execute it in a fresh namespace
-            exec(f"from {module_name} import *", {})  # noqa: S102
+            exec(f"from {module_name} import *", {})  # noqa: S102 - trusted import statement
 
 
 def test_deprecated_methods() -> None:
-    """Deprecated methods warn and delegate to their replacements."""
+    """Deprecated methods warn, and return what they returned before."""
     classical_code = codes.RepetitionCode(3)
     qudit_code = codes.QuditCode(codes.FiveQubitCode())
     css_code = codes.SteaneCode()
@@ -110,6 +112,8 @@ def test_deprecated_methods() -> None:
         (bb_code, "modular_inverse", (((1, 1), (0, 1)), 1, 0), (1, 2), "BBCode"),
         (qudit_code, "get_dual_subsystem_code", (), qudit_code.dual(), "QuditCode"),
         (qudit_code, "conjugate", (), qudit_code.conjugated(), "QuditCode"),
+        (css_code, "reduce_logical_op", ("X", 0), css_code, "SteaneCode"),
+        (css_code, "reduce_logical_ops", (), css_code, "SteaneCode"),
         (css_code, "conjugate", (), css_code.conjugated().to_css(), "SteaneCode"),
     ]
     for code, method_name, args, expected, class_name in cases:
@@ -126,6 +130,31 @@ def test_deprecated_methods() -> None:
     assert puncture.__module__ == codes.ClassicalCode.__module__
     assert puncture.__qualname__ == "ClassicalCode.puncture"
     assert str(inspect.signature(puncture)).startswith("(self, bits")
+
+
+def test_deprecated_reduce_logical_ops() -> None:
+    """The deprecated reduction of logical operators stores the operators that a decoder finds."""
+    # the first code starts with a heavy X-type operator at index 0, the second with a heavy Z-type
+    # operator at index 1
+    for dist, code in [(4, codes.ToricCode(4)), (3, codes.ToricCode(3, rotated=False))]:
+        reduce_logical_ops = code.reduce_logical_ops  # type: ignore[attr-defined]
+        with pytest.warns(DeprecationWarning, match="reduce_logical_ops is DEPRECATED"):
+            reduce_logical_ops(decoder=decoders.lookup(max_weight=dist))
+        assert np.all(np.count_nonzero(code.get_logical_ops().view(np.ndarray), axis=1) == dist)
+    reduce_logical_op = code.reduce_logical_op  # type: ignore[attr-defined]
+
+    # an invalid index, a failed decoding, and a removed decoder argument raise errors
+    for reduce, error, message in [
+        (lambda: reduce_logical_op("X", 2), ValueError, "logical_index must lie in"),
+        (
+            lambda: reduce_logical_op("X", 0, decoder=decoders.lookup(max_weight=0)),
+            ValueError,
+            "failed to infer",
+        ),
+        (lambda: reduce_logical_ops(static_decoder=None), TypeError, "static_decoder"),
+    ]:
+        with pytest.warns(DeprecationWarning), pytest.raises(error, match=message):
+            reduce()
 
 
 def test_deprecated_tanner_graph_methods() -> None:
@@ -171,6 +200,16 @@ def test_deprecated_guf_decoder_code() -> None:
         assert caught[0].filename == __file__
 
 
+def test_deprecated_group_ring_is_abelian() -> None:
+    """The deprecated is_abelian of a group algebra warns, and says if the ring is commutative."""
+    for group, expected in [(abstract.CyclicGroup(3), True), (abstract.SymmetricGroup(3), False)]:
+        ring = abstract.GroupRing(group)
+        with pytest.warns(DeprecationWarning, match="GroupRing.is_abelian is DEPRECATED") as caught:
+            assert ring.is_abelian is expected  # type: ignore[attr-defined]
+        assert caught[0].filename == __file__
+    assert not hasattr(abstract.MatrixRing(np.eye(2, dtype=int)), "is_abelian")
+
+
 def test_deprecated_get_distance_bound() -> None:
     """The deprecated QDistRnd distance bound sends GAP the same commands as the code methods."""
     stabilizer_code, css_code = codes.FiveQubitCode(), codes.SurfaceCode(2)
@@ -187,8 +226,197 @@ def test_deprecated_get_distance_bound() -> None:
             code.forget_distance()
             assert get_bound() == _deprecations.core.get_distance_bound(code) == 3
             assert get_output.call_args_list[-2] == get_output.call_args_list[-1]
-        with pytest.raises(ValueError, match="non-CSS subsystem codes"):
+        with pytest.raises(ValueError, match="subsystem code from its symplectic checks"):
             _deprecations.core.get_distance_bound(subsystem_code)
+
+
+def test_deprecated_distance_functions() -> None:
+    """The deprecated distance functions warn at their caller, and give the distances they gave.
+
+    get_distance_quantum read its rows as symplectic unless homogeneous was True: as Pauli strings,
+    the rows [1, 0, 1, 0] and [0, 1, 0, 1] are Y on one qubit and Y on the other, at distance 1,
+    whereas as binary words they are at distance 2.
+    """
+    generator = np.asarray(codes.HammingCode(3).generator)
+    searches = [
+        (
+            lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
+                generator.astype(object)
+            ),
+            3,
+        ),
+        (
+            lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
+                generator, method="brute_force", max_weight=1
+            ),
+            2,
+        ),
+        (
+            lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
+                generator[:1], generator[1:], homogeneous=True, max_weight=1
+            ),
+            2,
+        ),
+        (
+            lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
+                [[1, 0, 1, 0]], [[0, 1, 0, 1]]
+            ),
+            1,
+        ),
+    ]
+    for search, distance in searches:
+        with pytest.warns(
+            DeprecationWarning, match="use qldpc.codes.distance.get_distance_from_gen"
+        ):
+            assert search() == distance
+
+    # Both functions pass on their method, which defaults to "auto".
+    get_distance_classical: Any = codes.get_distance_classical  # type: ignore[attr-defined]
+    get_distance_quantum: Any = codes.get_distance_quantum  # type: ignore[attr-defined]
+    for search in (
+        lambda: get_distance_classical(generator, method="connected_cluster"),
+        lambda: get_distance_quantum(
+            generator[:1], generator[1:], homogeneous=True, method="connected_cluster"
+        ),
+    ):
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="from_checks"):
+            search()
+    with unittest.mock.patch.object(
+        codes.distance,
+        "get_distance_from_generators",
+        wraps=codes.distance.get_distance_from_generators,
+    ) as get_distance:
+        for search in (
+            lambda: get_distance_classical(generator),
+            lambda: get_distance_quantum(generator[:1], generator[1:], homogeneous=True),
+        ):
+            with pytest.warns(DeprecationWarning):
+                assert search() == 3
+            assert get_distance.call_args.kwargs["method"] == "auto"
+
+    # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
+    # arguments.
+    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="stabilizers"):
+        get_distance_quantum(generator[:1], None, homogeneous=True)
+    nonbinary = [[2] + [0] * 6]
+    for logical_ops, stabilizers, name in (
+        (nonbinary, generator[1:], "logical_ops"),
+        (generator[:1], nonbinary, "stabilizers"),
+    ):
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match=name):
+            get_distance_quantum(logical_ops, stabilizers, homogeneous=True)
+
+    # The block_size argument gives the batch exponents that it gave before it was deprecated:
+    # exhaustive enumeration took it as its exponent, and scans of information sets took at most
+    # it, clamped to the range of the fields.
+    from qldpc.codes.distance import _tuning
+
+    with _tuning.use_tuning(information_set_batch_exponent=10) as active_tuning:
+        with _deprecations.core._use_block_size(None):
+            assert _tuning.get_tuning() is active_tuning
+        for block_size, batches in (
+            (4, (4, 4)),
+            (12, (12, 10)),
+            (100, (62, 10)),
+            (-3, (0, 0)),
+            (True, (1, 1)),
+        ):
+            with pytest.warns(DeprecationWarning, match="Exact-search performance and tuning"):
+                context = _deprecations.core._use_block_size(block_size)
+            with context:
+                tuning = _tuning.get_tuning()
+            assert (
+                tuning.enumeration_batch_exponent,
+                tuning.information_set_batch_exponent,
+            ) == batches
+
+    # The functions search with those batches, and warn at their caller about both deprecations.
+    # Rows that record the active batch exponent when the search reads them show the batches, since
+    # nothing else observable does.  The search reads the rows last, after any checks of them.
+    exponents: list[int] = []
+
+    class RecordingRows:
+        def __init__(self, rows: Any) -> None:
+            self.rows = rows
+
+        def __array__(self, dtype: Any = None, copy: Any = None) -> Any:
+            exponents.append(_tuning.get_tuning().enumeration_batch_exponent)
+            return np.asarray(self.rows, dtype=dtype)
+
+    for search in (
+        lambda: get_distance_classical(RecordingRows(generator), block_size=2),
+        lambda: get_distance_quantum(
+            RecordingRows(generator[:1]), generator[1:], homogeneous=True, block_size=2
+        ),
+    ):
+        exponents.clear()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            assert search() == 3
+        assert exponents[-1:] == [2]
+        assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
+
+
+def test_deprecated_get_primitive_central_idempotents() -> None:
+    """The deprecated function gives the primitive central idempotents of a GAP group."""
+    from qldpc.external import _groups
+
+    get_idempotents = _deprecations.core.get_primitive_central_idempotents
+    group = abstract.DihedralGroup(3)
+    ring = abstract.GroupRing(group, 5)
+    with pytest.warns(DeprecationWarning, match="GroupRing.get_primitive_central_idempotents"):
+        idempotents = get_idempotents(group.to_gap_group(), 5)
+    members = [
+        abstract.RingMember(
+            ring,
+            *(
+                (coefficient, abstract.GroupMember([list(cycle) for cycle in cycles if cycle]))
+                for coefficient, cycles in terms
+            ),
+        )
+        for terms in idempotents
+    ]
+    assert members == list(ring.get_primitive_central_idempotents())
+
+    # groups of permutations are read directly, also with spaces, brackets, and products of cycles
+    klein_group = abstract.Group(
+        abstract.GroupMember([[0, 1], [2, 3]]), abstract.GroupMember([[0, 2], [1, 3]])
+    )
+    klein_ring = abstract.GroupRing(klein_group, 3)
+    klein_vectors = sorted(
+        pci.to_vector().tolist() for pci in klein_ring.get_primitive_central_idempotents()
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with unittest.mock.patch.object(_groups, "get_generators", side_effect=AssertionError):
+            assert get_idempotents("Group([(1, 2, 3), (1, 3)])", 5) == idempotents
+            assert get_idempotents("Group(())", 3) == [((1, ((),)),)]
+            klein_idempotents = get_idempotents("Group((1,2)(3,4),(1,3)(2,4))", 3)
+
+            # these are the idempotents of GF(2)[C3] that GAP computed before #795
+            gap_idempotents = [
+                ((1, ((),)), (1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+                ((1, ((0, 1, 2),)), (1, ((0, 2, 1),))),
+            ]
+            assert set(get_idempotents("Group((1,2,3))", 2)) == set(gap_idempotents)
+        members = [
+            abstract.RingMember(
+                klein_ring,
+                *(
+                    (coefficient, abstract.GroupMember([list(cycle) for cycle in cycles if cycle]))
+                    for coefficient, cycles in terms
+                ),
+            )
+            for terms in klein_idempotents
+        ]
+        assert sorted(member.to_vector().tolist() for member in members) == klein_vectors
+
+        # other expressions, including groups without generators, are resolved by name
+        with unittest.mock.patch.object(_groups, "get_generators", return_value=[]):
+            assert get_idempotents("Group([])", 3) == [((1, ((),)),)]
+        generators = [[(0, 1, 2)], [(0, 2)]]
+        with unittest.mock.patch.object(_groups, "get_generators", return_value=generators):
+            assert get_idempotents("DihedralGroup(6)", 5) == idempotents
 
 
 def test_deprecated_small_group_methods() -> None:

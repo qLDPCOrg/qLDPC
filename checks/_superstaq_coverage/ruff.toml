@@ -1,0 +1,4 @@
+# qLDPC's settings, except that qLDPC's lint rules skip the copies of checks-superstaq modules, which
+# follow upstream's style (see README.md).
+extend = "../../pyproject.toml"
+lint.per-file-ignores = { "coverage_.py" = ["ALL"], "_coverage_contexts.py" = ["ALL"] }

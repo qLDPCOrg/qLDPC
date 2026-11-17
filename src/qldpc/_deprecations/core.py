@@ -21,7 +21,7 @@ is served as an attribute of its package, as in ``from package import submodule`
 Registry targets are lazy "module:attribute" strings, and this module imports no qLDPC subpackage
 at import time, so that every module can import it without an import cycle.  Deprecated methods are
 defined at the bottom of this module, and attached to their classes by install_deprecated_methods,
-which qldpc/__init__.py calls once all subpackages are imported.
+which qldpc/__init__.py calls once the subpackages that define those classes are imported.
 Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
 raising defunct(...).
 
@@ -35,11 +35,14 @@ docs/source/contributing/standards/deprecations.rst describes the steps of a fut
 
 from __future__ import annotations
 
+import contextlib
 import importlib
+import operator
+import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, SupportsIndex, TypeVar
 
 import stim
 
@@ -55,9 +58,10 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
     from qldpc.abstract.groups import NestedSequence
-    from qldpc.codes import QuditCode
+    from qldpc.codes import CSSCode, DistanceMethod, NoDistance, QuditCode
+    from qldpc.decoders import DeferredErrorDecoderInput
     from qldpc.decoders.dems import ErrorMechanism
-    from qldpc.objects import TannerGraph
+    from qldpc.objects import PauliXZLike, TannerGraph
 
 # the type of physical error rates that qldpc.codes.monte_carlo.ErrorRateFunc formerly accepted
 OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
@@ -109,17 +113,12 @@ ALIASES: dict[str, dict[str, str]] = {
     "qldpc.codes": {
         "QCCode": "qldpc.codes.quantum:MBCode",
         "code_capacity": "qldpc.codes._code_capacity",
-        "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
-        ),
-        "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
+        "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.distance": {
-        "get_distance_css_brouwer_zimmermann": (
-            "qldpc.codes.distance.core:_get_distance_css_brouwer_zimmermann"
-        ),
-        "validate_distance_backend": "qldpc.codes.distance.core:_validate_distance_backend",
+        "DistanceBackend": "qldpc.codes:DistanceBackend",
+        "validate_distance_backend": "qldpc.codes.common:_validate_distance_backend",
         "validate_distance_method": "qldpc.codes.distance.core:_validate_distance_method",
     },
     "qldpc.codes.monte_carlo": {
@@ -231,6 +230,14 @@ ALIASES: dict[str, dict[str, str]] = {
 # Deprecated functions, which are served without warning when accessed, because they warn when
 # called instead.
 SILENT_ALIASES: dict[str, dict[str, str]] = {
+    "qldpc.codes": {
+        "get_distance_classical": "qldpc._deprecations.core:get_distance_classical",
+        "get_distance_quantum": "qldpc._deprecations.core:get_distance_quantum",
+    },
+    "qldpc.codes.distance": {
+        "get_distance_classical": "qldpc._deprecations.core:get_distance_classical",
+        "get_distance_quantum": "qldpc._deprecations.core:get_distance_quantum",
+    },
     "qldpc.decoders": {
         "decode": "qldpc._deprecations.decoders:decode",
         "decode_observables": "qldpc._deprecations.decoders:decode_observables",
@@ -245,6 +252,12 @@ SILENT_ALIASES: dict[str, dict[str, str]] = {
         "get_decoder_rbp": "qldpc._deprecations.decoders:get_decoder_rbp",
         "get_error_decoder": "qldpc._deprecations.decoders:get_error_decoder",
         "get_observable_decoder": "qldpc._deprecations.decoders:get_observable_decoder",
+    },
+    # removed functions of the deprecated qldpc.external.groups, which now refers to this module
+    "qldpc.external._groups": {
+        "get_primitive_central_idempotents": (
+            "qldpc._deprecations.core:get_primitive_central_idempotents"
+        ),
     },
 }
 
@@ -366,16 +379,158 @@ def get_distance_bound(
     )
 
 
+def get_distance_classical(
+    generators: npt.ArrayLike,
+    *,
+    cutoff: int = 1,
+    block_size: int | None = None,
+    method: DistanceMethod = "auto",
+    max_weight: SupportsIndex | None = None,
+) -> int | Literal[NoDistance.NAN]:
+    """Deprecated: the distance of a classical linear binary code, from its generator matrix.
+
+    This function was formerly qldpc.codes.get_distance_classical.
+    """
+    from qldpc.codes.distance import get_distance_from_generators
+
+    warn_deprecated(
+        "get_distance_classical is deprecated; use"
+        " qldpc.codes.distance.get_distance_from_generators instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    with _use_block_size(block_size):
+        return get_distance_from_generators(
+            generators, cutoff=cutoff, method=method, max_weight=max_weight
+        )
+
+
+def get_distance_quantum(
+    logical_ops: npt.ArrayLike,
+    stabilizers: npt.ArrayLike,
+    *,
+    cutoff: int = 1,
+    block_size: int | None = None,
+    homogeneous: bool = False,
+    method: DistanceMethod = "auto",
+    max_weight: SupportsIndex | None = None,
+) -> int | Literal[NoDistance.NAN]:
+    """Deprecated: the distance of a binary quantum code from its logical operators and stabilizers.
+
+    This function was formerly qldpc.codes.get_distance_quantum.  Its rows are symplectic unless
+    ``homogeneous`` is True.
+    """
+    from qldpc.codes.distance import get_distance_from_generators
+    from qldpc.codes.distance._binary import as_binary_matrix_pair
+
+    warn_deprecated(
+        "get_distance_quantum is deprecated; use"
+        " qldpc.codes.distance.get_distance_from_generators(logical_ops, stabilizers,"
+        " symplectic=not homogeneous) instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    with _use_block_size(block_size):
+        # Check the rows here, so that errors name the arguments of this function.  This also
+        # rejects None as the stabilizers, which get_distance_from_generators would read as no
+        # excluded rows.
+        as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
+        return get_distance_from_generators(
+            logical_ops,
+            stabilizers,
+            symplectic=not homogeneous,
+            cutoff=cutoff,
+            method=method,
+            max_weight=max_weight,
+        )
+
+
+def get_primitive_central_idempotents(
+    group: str, field: int
+) -> list[tuple[tuple[int, tuple[tuple[int, ...], ...]], ...]]:
+    """Deprecated: primitive central idempotents of a group algebra over a finite field.
+
+    This function was formerly qldpc.external.groups.get_primitive_central_idempotents.  Use
+    GroupRing.get_primitive_central_idempotents instead.  The group is a GAP expression.  A group of
+    permutations, such as ``"Group((1,2,3),(1,3))"``, is read directly, and other expressions are
+    resolved as by Group.from_name, which may run GAP, access the network, or prompt for input.
+    Each idempotent is a tuple of terms (coefficient, permutation), where the coefficient is an
+    element of galois.GF(field) cast to an integer, and the permutation is in cyclic form with
+    0-indexed points.  The identity permutation is ``((),)``.
+    """
+    from qldpc import abstract
+    from qldpc.external import _groups
+
+    warn_deprecated(
+        "get_primitive_central_idempotents is deprecated; use"
+        " GroupRing.get_primitive_central_idempotents instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    # read a GAP group of permutations directly, and resolve other expressions as Group.from_name
+    # does
+    group = "".join(group.split())
+    permutation_pattern = r"(?:\(\d+(?:,\d+)*\))+|\(\)"
+    permutations_pattern = rf"(?:{permutation_pattern})(?:,(?:{permutation_pattern}))*"
+    match = re.fullmatch(
+        rf"Group\((?:\[({permutations_pattern})\]|({permutations_pattern}))\)", group
+    )
+    if match:
+        permutations = re.findall(permutation_pattern, match.group(1) or match.group(2))
+        generators = _groups._parse_gap_permutations("\n".join(permutations))
+    else:
+        generators = _groups.get_generators(group)
+    ring = abstract.GroupRing(
+        abstract.Group(*(abstract.GroupMember(cycles) for cycles in generators)), field
+    )
+    return [
+        tuple(
+            (int(coefficient), tuple(map(tuple, member.cyclic_form)) or ((),))
+            for coefficient, member in idempotent
+            if coefficient
+        )
+        for idempotent in ring.get_primitive_central_idempotents()
+    ]
+
+
+def _use_block_size(block_size: int | None) -> contextlib.AbstractContextManager[object]:
+    """Warn about a deprecated block_size argument, if given, and return a context that applies it.
+
+    Within the context, the active tuning has the batch exponents that block_size gave before it was
+    deprecated: exhaustive enumeration took it as the exponent of its batches, and scans of
+    information sets took at most it.  As before, any integer, including a bool, is accepted, and an
+    exponent outside the range of the fields is clamped to it, which changes no batch of exhaustive
+    enumeration.  This function warns when it is called, not when its context is entered, since a
+    warning from inside a ``contextlib`` context manager would point to ``contextlib`` rather than
+    to the caller.
+    """
+    if block_size is None:
+        return contextlib.nullcontext()
+    from qldpc.codes.distance import _tuning
+
+    warn_deprecated(
+        "The block_size argument of exact distance searches is deprecated and will be removed in a"
+        " future release.  It changes only the speed and memory use of a search.  To tune"
+        " searches, see the documentation page 'Exact-search performance and tuning'",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    exponent = max(0, min(operator.index(block_size), 62))
+    return _tuning.use_tuning(
+        enumeration_batch_exponent=exponent,
+        information_set_batch_exponent=min(
+            exponent, _tuning.get_tuning().information_set_batch_exponent
+        ),
+    )
+
+
 ####################################################################################################
 # deprecated methods
 
 
 def install_deprecated_methods() -> None:
     """Attach deprecated methods to their classes."""
-    from qldpc.abstract import SmallGroup, TrivialGroup
+    from qldpc.abstract import GroupRing, SmallGroup, TrivialGroup
     from qldpc.codes import AbstractCode, BBCode, ClassicalCode, CSSCode, QuditCode
     from qldpc.decoders.custom import DirectDecoder, GUFDecoder
     from qldpc.decoders.dems import DetectorErrorModelArrays
+    from qldpc.objects import PAULIS_XZ, Pauli
 
     _attach_tanner_graph_methods(ClassicalCode, symplectic=False)
     _attach_tanner_graph_methods(QuditCode, symplectic=True)
@@ -493,6 +648,15 @@ def install_deprecated_methods() -> None:
         )
         return DetectorErrorModelArrays.get_merged_error_mechanisms(errors)
 
+    @_deprecated_method(GroupRing, attribute=True)
+    def is_abelian(self: GroupRing) -> bool:
+        """Deprecated alias for GroupRing.is_commutative."""
+        warn_deprecated(
+            "GroupRing.is_abelian is DEPRECATED; use GroupRing.is_commutative instead",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        return self.is_commutative
+
     @_deprecated_method(GUFDecoder, attribute=True)
     def code(self: GUFDecoder) -> AbstractCode:
         """Deprecated code whose parity check matrix this decoder decodes."""
@@ -501,6 +665,43 @@ def install_deprecated_methods() -> None:
             stacklevel=get_external_caller_stacklevel(),
         )
         return QuditCode(self._matrix) if self.symplectic else ClassicalCode(self._matrix)
+
+    @_deprecated_method(CSSCode)
+    def reduce_logical_op(
+        self: CSSCode,
+        pauli: PauliXZLike,
+        logical_index: int,
+        *,
+        decoder: DeferredErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> CSSCode:
+        """Deprecated method that tries to reduce the weight of a logical operator."""
+        warn_deprecated(
+            f"{type(self).__name__}.reduce_logical_op is DEPRECATED, since it does not reliably"
+            " reduce weight, and will be removed in a future release",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        _reduce_logical_op(self, pauli, logical_index, decoder, decoder_kwargs)
+        return self
+
+    @_deprecated_method(CSSCode)
+    def reduce_logical_ops(
+        self: CSSCode,
+        pauli: PauliXZLike | None = None,
+        *,
+        decoder: DeferredErrorDecoderInput = None,
+        **decoder_kwargs: Any,
+    ) -> CSSCode:
+        """Deprecated method that tries to reduce the weights of logical operators."""
+        warn_deprecated(
+            f"{type(self).__name__}.reduce_logical_ops is DEPRECATED, since it does not reliably"
+            " reduce weight, and will be removed in a future release",
+            stacklevel=get_external_caller_stacklevel(),
+        )
+        for pauli_xz in PAULIS_XZ if pauli is None else [Pauli.coerce_xz(pauli)]:
+            for logical_index in range(self.dimension):
+                _reduce_logical_op(self, pauli_xz, logical_index, decoder, decoder_kwargs)
+        return self
 
 
 def _attach_tanner_graph_methods(cls: type, *, symplectic: bool) -> None:
@@ -531,6 +732,60 @@ def _attach_tanner_graph_methods(cls: type, *, symplectic: bool) -> None:
         )
         field = getattr(graph, "field", galois.GF2)
         return TannerGraph(graph, field=field, symplectic=symplectic).to_matrix()
+
+
+def _reduce_logical_op(
+    code: CSSCode,
+    pauli: PauliXZLike,
+    logical_index: int,
+    decoder: DeferredErrorDecoderInput,
+    decoder_kwargs: dict[str, Any],
+) -> None:
+    """Replace a logical operator of a CSS code by one that a decoder finds.
+
+    The new operator has a trivial syndrome, and commutes with every logical operator except the
+    dual of the one that it replaces.
+    """
+    import numpy as np
+
+    from qldpc.codes.common import _DECODING_FAILURE_MESSAGE, _decode
+    from qldpc.decoders._resolution import build_error_decoder, reject_prebuilt_decoder
+    from qldpc.objects import Pauli
+
+    from .decoders import merge_legacy_decoder_args
+
+    pauli = Pauli.coerce_xz(pauli)
+    if not 0 <= logical_index < code.dimension:
+        raise ValueError(
+            f"logical_index must lie in range({code.dimension}) (provided: {logical_index})"
+        )
+    reject_prebuilt_decoder(
+        decoder,
+        "logical operators are found by decoding an internal effective check matrix that stacks"
+        " the checks and dual logical operators of the code",
+    )
+
+    # effective check matrix = parity checks and dual-pauli logical operators
+    check_code = code.get_code(pauli.swap_xz())
+    dual_logical_ops = code.get_logical_ops(pauli.swap_xz())
+    effective_check_matrix = np.vstack([check_code.matrix, dual_logical_ops]).view(code.field)
+
+    # enforce that the new logical operator commutes with everything except its dual
+    effective_syndrome = code.field.Zeros(check_code.num_checks + code.dimension)
+    effective_syndrome[check_code.num_checks + logical_index] = 1
+
+    if decoder_kwargs:
+        decoder = merge_legacy_decoder_args(effective_check_matrix, decoder, decoder_kwargs)
+    error_decoder = build_error_decoder(effective_check_matrix, decoder=decoder)
+    candidate_logical_op = _decode(error_decoder, effective_check_matrix, effective_syndrome)
+    if candidate_logical_op is None:
+        raise ValueError(_DECODING_FAILURE_MESSAGE)
+
+    # cached logical operators are read-only, so replace them by an updated copy
+    logical_ops = code.get_logical_ops().copy()
+    blocks = np.reshape(logical_ops, (2, code.dimension, 2, len(code)), copy=False)
+    blocks[pauli, logical_index, pauli, :] = candidate_logical_op
+    code._logical_ops = logical_ops
 
 
 def _deprecated_method(

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Abstract algebra: groups, group rings, ring-valued arrays, and linear algebra over rings."""
+"""Abstract algebra: groups, finite rings, ring-valued arrays, and linear algebra over rings."""
 
 from typing import TYPE_CHECKING
 
@@ -31,19 +31,18 @@ from .groups import (
 )
 from .linalg import (
     block_diag,
-    get_howell_dual,
     kron,
     matmul,
 )
-from .monomials import (
-    get_coefficient_and_exponents,
-    iter_monomial_terms,
+from .matrix_rings import (
+    MatrixRing,
 )
 from .ring_array import (
     RingArray,
 )
 from .rings import (
     GroupRing,
+    Ring,
     RingMember,
 )
 from .wedderburn_artin import (
@@ -64,9 +63,11 @@ __all__ = [
     "Group",
     "GroupMember",
     "GroupRing",
+    "MatrixRing",
     "ProjectiveGeneralLinearGroup",
     "ProjectiveSpecialLinearGroup",
     "QuaternionGroup",
+    "Ring",
     "RingArray",
     "RingMember",
     "SmallGroup",
@@ -77,9 +78,6 @@ __all__ = [
     "WedderburnArtinTransformer",
     "WreathProductGroup",
     "block_diag",
-    "get_coefficient_and_exponents",
-    "get_howell_dual",
-    "iter_monomial_terms",
     "kron",
     "matmul",
 ]

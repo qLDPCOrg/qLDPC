@@ -8,10 +8,9 @@ import dataclasses
 from collections.abc import Sequence
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
-
-from qldpc._utils import networkx as nx
 
 from .paulis import Pauli, QuditPauli
 

@@ -20,6 +20,7 @@ import stim
 from ldpc import bplsd_decoder
 
 from qldpc import decoders
+from qldpc.decoders.conftest import get_type_checking_class_docstrings
 from qldpc.decoders.external import ldpc as ldpc_integration
 from qldpc.decoders.external.ldpc import (
     _get_decoder_bf,
@@ -125,7 +126,8 @@ def test_ldpc_protocol_adapters() -> None:
         assert isinstance(decoder, decoders.DetailedErrorDecoder)
         detailed = decoder.decode_errors_detailed(np.array([1, 0], dtype=int))
         assert np.array_equal(detailed.error, decoder.decode(np.array([1, 0], dtype=int)))
-        assert pickle.loads(pickle.dumps(adapter_type)) is adapter_type  # noqa: S301
+        pickled = pickle.dumps(adapter_type)
+        assert pickle.loads(pickled) is adapter_type  # noqa: S301 - trusted in-memory round trip
 
     class NumpyScalarDiagnostics(ldpc_integration._DetailedLdpcDecoderMixin):
         converge = np.bool_(True)
@@ -152,6 +154,14 @@ def test_ldpc_protocol_adapters() -> None:
     assert second.diagnostics["ldpc.iterations"] == 1
     assert np.array_equal(second_ratios, decoder.log_prob_ratios)
     assert np.array_equal(first_ratios, [1, 0])
+
+
+def test_ldpc_protocol_adapter_declarations() -> None:
+    """AutoAPI documents each adapter class from its declaration, with its runtime docstring."""
+    assert get_type_checking_class_docstrings(ldpc_integration) == {
+        name: inspect.getdoc(getattr(ldpc_integration, name))
+        for name in ldpc_integration._BACKEND_CLASS_NAMES
+    }
 
 
 def test_ldpc_protocol_adapters_are_created_once(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -2,9 +2,7 @@
 
 """Local Clifford gates of a deformed counter: their packed matrices, and their action on rows.
 
-A gate acts on at most 64 target qubits.  ``get_local_matrices`` validates the matrix for X
-supports, and returns it with the matrix for Z supports, both packed into words.  ``apply_local``
-applies a packed matrix to the target columns of binary rows.
+A gate acts on at most 64 target qubits, so each row of its matrix packs into one word.
 """
 
 from __future__ import annotations
@@ -17,6 +15,8 @@ import numpy.typing as npt
 from qldpc._binary import get_inverse, pack_bits, popcount_word
 from qldpc._compilation import always_compiled
 
+from .. import _tuning
+
 ####################################################################################################
 # local Cliffords
 
@@ -25,9 +25,8 @@ from qldpc._compilation import always_compiled
 # Clifford acts by [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]] on both.
 CNOT = (np.array([1, 3], dtype=np.uint64), np.array([3, 2], dtype=np.uint64))
 SWEL = (np.array([7, 11, 13, 14], dtype=np.uint64),) * 2
-# Like the cached matrices of other gates, these are shared, so they are read-only.  Numba gives
-# read-only arrays a type of their own, so every local matrix then has the same type, and code that
-# is compiled for one gate serves all of them.
+# These matrices are shared, as are the cached matrices of other gates, so they are read-only.
+# Numba gives read-only arrays a type of their own, so code compiled for one gate serves all.
 for _matrix in (*CNOT, *SWEL):
     _matrix.setflags(write=False)
 
@@ -44,15 +43,15 @@ def get_local_matrices(
     return _get_cached_local_matrices(size, order, local.shape, local.dtype.str, local.tobytes())
 
 
-@functools.lru_cache(maxsize=1024)
+@functools.lru_cache(maxsize=_tuning.LOCAL_CLIFFORD_CACHE_SIZE)
 def _get_cached_local_matrices(
     size: int, order: int | None, shape: tuple[int, ...], dtype: str, data: bytes
 ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:
-    """Validate and pack ``matrix_x`` given by its bytes, and the matrix for Z supports.
+    """Validate and pack ``matrix_x``, given by its bytes, and the matrix for Z supports.
 
-    Searches apply the same local Cliffords repeatedly, so results are cached.  The key identifies
-    the input completely, including its shape and field, so invalid input never matches a cached
-    entry.  Results are read-only so that callers cannot alter the cache.
+    Searches reuse gates, so results are cached.  The key identifies the input completely, including
+    its shape and field, so invalid input never matches a cached entry.  Results are read-only, so
+    that callers cannot alter the cache.
     """
     if order is not None and order != 2:
         raise ValueError("Local Clifford matrices must be binary")
@@ -85,7 +84,6 @@ def _get_dual_local_matrix(matrix_x: npt.NDArray[np.uint8]) -> npt.NDArray[np.ui
 
 def _pack_local(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
     """Pack each row of a local matrix into one word, whose bit j is column j."""
-    # There are at most 64 targets, so each row fits in a single word.
     return pack_bits(matrix)[:, 0]
 
 
@@ -99,8 +97,8 @@ def apply_local(
 ) -> npt.NDArray[np.uint8]:
     """Apply a packed local matrix to the target columns of a copy of the given rows.
 
-    Column ``positions[i]`` of a row becomes the parity of ``local[i]`` and the word whose bit ``j``
-    is the row's entry at ``positions[j]``.
+    Column ``positions[i]`` of a row becomes the parity of ``local[i] & word``, where bit ``j`` of
+    ``word`` is the entry of the row at ``positions[j]``.
     """
     result = rows.copy()
     for row in range(rows.shape[0]):

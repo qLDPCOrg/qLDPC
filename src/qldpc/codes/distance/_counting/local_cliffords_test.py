@@ -11,8 +11,8 @@ import pytest
 
 from . import local_cliffords
 
-# The CNOT, with its control first, acts on X supports by this matrix, and on Z supports by its
-# inverse transpose.  The SWEL-preserving Clifford acts by the second matrix on both.
+# The matrices by which the CNOT, with its control first, and the SWEL-preserving Clifford act on X
+# supports.
 CNOT_MATRIX = [[1, 0], [1, 1]]
 SWEL_MATRIX = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
 
@@ -44,7 +44,7 @@ def test_the_local_matrices_are_a_matrix_and_its_inverse_transpose(
 
 
 def test_the_local_matrix_may_be_any_array_of_zeros_and_ones() -> None:
-    """Lists, integer, object and GF(2) arrays give the same packed matrices."""
+    """Lists, integer, object, and GF(2) arrays give the same packed matrices."""
     expected = local_cliffords.get_local_matrices(CNOT_MATRIX, 2)
     objects = np.array(CNOT_MATRIX, dtype=object)
     for matrix in (np.array(CNOT_MATRIX), objects, galois.GF(2)(CNOT_MATRIX)):
@@ -71,12 +71,8 @@ def test_invalid_local_matrices_are_rejected() -> None:
             local_cliffords.get_local_matrices(invalid, 2)
 
 
-@pytest.mark.parametrize("compiled", [True, False])
-def test_apply_local_maps_the_target_columns_by_the_matrix(
-    pytestconfig: pytest.Config, compiled: bool
-) -> None:
+def test_apply_local_maps_the_target_columns_by_the_matrix(pytestconfig: pytest.Config) -> None:
     """The target entries of every row are multiplied by the matrix, and other columns are kept."""
-    apply = local_cliffords.apply_local if compiled else local_cliffords.apply_local.py_func
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     positions = np.array([1, 4, 7], dtype=np.int64)
     matrix = np.array([[1, 1, 0], [0, 1, 1], [1, 1, 1]])
@@ -87,7 +83,7 @@ def test_apply_local_maps_the_target_columns_by_the_matrix(
     expected = rows.copy()
     expected[:, positions] = rows[:, positions] @ matrix.T % 2
     local_x, _ = local_cliffords.get_local_matrices(matrix, 3)
-    np.testing.assert_array_equal(apply(rows, positions, local_x), expected)
+    np.testing.assert_array_equal(local_cliffords.apply_local(rows, positions, local_x), expected)
     np.testing.assert_array_equal(rows, original)
 
 

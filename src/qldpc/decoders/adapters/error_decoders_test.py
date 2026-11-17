@@ -43,7 +43,8 @@ def test_errors_to_observables_decoder() -> None:
     assert result.observable_flips.tolist() == [1, 0, 1]
     assert result.erasure
     assert result.diagnostics == {"fixed": 1}
-    assert type(pickle.loads(pickle.dumps(detailed))) is type(detailed)  # noqa: S301
+    restored = pickle.loads(pickle.dumps(detailed))  # noqa: S301 - trusted in-memory round trip
+    assert type(restored) is type(detailed)
 
 
 def test_expanded_error_decoder() -> None:

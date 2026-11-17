@@ -15,7 +15,7 @@ import pytest
 
 from qldpc import codes
 from qldpc.codes.distance import _tuning
-from qldpc.codes.distance._search import automorphism_families
+from qldpc.codes.distance._information_sets import automorphism_families
 from qldpc.objects import Pauli
 
 # Changes fields of the active search tuning until the end of a test (see the tune fixture).
@@ -103,5 +103,5 @@ def assert_valid_translations(
             permuted = np.zeros_like(matrix)
             permuted[:, translation] = matrix
             assert {row.tobytes() for row in permuted} == {row.tobytes() for row in matrix}
-    orbits = automorphism_families._get_orbits(translations, len(code))
+    orbits = automorphism_families.get_orbits(translations, len(code))
     assert (np.bincount(orbits) == group_order).all()

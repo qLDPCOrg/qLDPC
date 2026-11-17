@@ -1,0 +1,45 @@
+{
+ "limits": {
+  "cert_s": 1800,
+  "margin_s": 600,
+  "prune_s": 3600,
+  "shadow_s": 3600,
+  "count_s": 1800,
+  "ground_truth_s": 600,
+  "post_s": 600,
+  "startup_cap_s": 120,
+  "grace_s": 30
+ },
+ "mem_cap_gib": 8,
+ "prune": {
+  "acceptance_shots": 1000000,
+  "sensitivity_inputs": ["dsynth190.bb72.naive"]
+ },
+ "repeats": {
+  "below_s": 60,
+  "count": 2,
+  "limit_factor": 10,
+  "limit_floor_s": 600
+ },
+ "noise": {
+  "model": "qldpc.circuits.DepolarizingNoiseModel",
+  "p": 0.001
+ },
+ "accepted_dp_max_entries": 4194304,
+ "ground_truth": {
+  "max_qubits": 15,
+  "max_combinations": 10000000
+ },
+ "brute_force": {
+  "max_combinations": 1000000000,
+  "batch_size": 4096,
+  "max_distinct_syndromes": 16777216
+ },
+ "workstation_sources": {
+  "mqt_qecc_repository": "https://github.com/munich-quantum-toolkit/qecc",
+  "mqt_qecc_commit": "99d09d135daaf1b0344ffd9764427f5842f210b9",
+  "mqt_qecc_archive_sha256": "a693d07595f1a6f5f7e801fc6e8b45b1fc4ee3030223a4ec64e6424d6fef93d5",
+  "vftqecc_repository": "https://github.com/vftqc/vftqecc",
+  "vftqecc_commit": "acafa3cdc3d00429990dde7b6730c3833c472754"
+ }
+}

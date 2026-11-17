@@ -63,8 +63,11 @@ def row_reduce_binary(
     if len(columns) and (columns.min() < 0 or columns.max() >= width):
         raise IndexError("Row-reduction columns are out of range")
     tags = np.empty((len(matrix), 0), dtype=np.uint8) if labels is None else labels
+    # Pack C-ordered arrays, so that inputs in any memory layout share compiled specializations.
     rows, packed_tags, pivots = row_reduce_packed(
-        pack_bits(matrix), pack_bits(tags), columns.astype(np.int64)
+        pack_bits(np.ascontiguousarray(matrix)),
+        pack_bits(np.ascontiguousarray(tags)),
+        columns.astype(np.int64),
     )
     reduced_tags = None if labels is None else unpack_bits(packed_tags, tags.shape[1])
     return unpack_bits(rows, width), reduced_tags, pivots.astype(int)
@@ -112,12 +115,20 @@ def pack_bits(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint64]:
 
 @always_compiled
 def unpack_bits(packed: npt.NDArray[np.uint64], width: int) -> npt.NDArray[np.uint8]:
-    """Unpack binary rows with ``width`` columns from uint64 words, inverting ``pack_bits``."""
+    """Unpack binary rows with ``width`` columns from uint64 words, inverting ``pack_bits``.
+
+    Each row of ``packed`` must have at least ``ceil(width / 64)`` words; bits past ``width`` are
+    ignored.
+    """
     matrix = np.empty((len(packed), width), dtype=np.uint8)
     one = np.uint64(1)
     for row in range(len(packed)):
-        for column in range(width):
-            matrix[row, column] = (packed[row, column // 64] >> np.uint64(column % 64)) & one
+        for word in range((width + 63) // 64):
+            # Load each word once, rather than once per bit.
+            value = packed[row, word]
+            start = 64 * word
+            for bit in range(min(64, width - start)):
+                matrix[row, start + bit] = (value >> np.uint64(bit)) & one
     return matrix
 
 
@@ -162,6 +173,53 @@ def row_reduce_packed(
         pivots[rank] = column
         rank += 1
     return words, tags, pivots[:rank]
+
+
+@always_compiled
+def multiply_packed(
+    left: npt.NDArray[np.uint64], right: npt.NDArray[np.uint64]
+) -> npt.NDArray[np.uint64]:
+    """Multiply packed binary matrices over GF(2) by the Method of Four Russians.
+
+    Row ``i`` of the product is the sum of the rows ``j`` of ``right`` for which bit ``j`` of row
+    ``i`` of ``left`` is set.  The rows of ``left`` must have at least ``ceil(len(right) / 64)``
+    words, and their bits past ``len(right)`` are ignored.  For each group of up to 8 consecutive
+    rows of ``right``, the method tabulates the sums of all subsets of the group, and then adds to
+    row ``i`` of the product the entry that the group's bits of row ``i`` of ``left`` select.  One
+    addition of packed rows thus replaces up to 8, and the table costs at most 255 additions per
+    group, a cost that pays off when ``left`` has many rows.  This is the basic product
+    of the M4RI library ("M4RM"), without its further optimizations: M. Albrecht, G. Bard, and W.
+    Hart, "Algorithm 898: Efficient multiplication of dense matrices over GF(2)",
+    https://arxiv.org/abs/0811.1714.
+
+    Raises:
+        ValueError: If the rows of ``left`` have too few words.
+    """
+    num_inner, num_words = right.shape
+    if 64 * left.shape[1] < num_inner:
+        raise ValueError("The left rows need a word for every 64 rows of the right matrix")
+    product = np.zeros((len(left), num_words), dtype=np.uint64)
+    table = np.zeros((256, num_words), dtype=np.uint64)
+    for start in range(0, num_inner, 8):
+        group_size = min(8, num_inner - start)
+
+        # Tabulate the sum of each subset of the group, as the sum of a smaller subset and a row.
+        for subset in range(1, 1 << group_size):
+            row = start + trailing_zeros_word(np.uint64(subset))
+            smaller = subset & (subset - 1)
+            for word in range(num_words):
+                table[subset, word] = table[smaller, word] ^ right[row, word]
+
+        # Add to each row of the product the sum of the rows that its bits in the group select.
+        # The group starts at a multiple of 8, so its bits lie in one word of ``left``.
+        word_index, shift = start // 64, np.uint64(start % 64)
+        mask = np.uint64((1 << group_size) - 1)
+        for product_row in range(len(left)):
+            selection = (left[product_row, word_index] >> shift) & mask
+            if selection:
+                for word in range(num_words):
+                    product[product_row, word] ^= table[selection, word]
+    return product
 
 
 @always_compiled

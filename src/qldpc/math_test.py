@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import galois
 import numpy as np
 import pytest
@@ -57,7 +59,7 @@ def test_vectors() -> None:
         qldpc.math.symplectic_weight(np.zeros(3, dtype=int))
 
 
-def test_symplectic_conjugate_identity() -> None:
+def test_symplectic_conjugate_identity(pytestconfig: pytest.Config) -> None:
     """The symplectic inner product satisfies ``<P, Q>_s = P @ symplectic_conjugate(Q)``.
 
     Anchors the identity documented on ``symplectic_conjugate``, including the ``-1`` on the Z
@@ -65,14 +67,44 @@ def test_symplectic_conjugate_identity() -> None:
     """
     num_qubits = 6
     # GF(3)/GF(5) exercise the -1 on the Z sector, which is invisible over GF(2) (where -1 == 1).
+    seed = pytestconfig.getoption("randomly_seed")
     for field in [galois.GF(2), galois.GF(3), galois.GF(5)]:
-        vectors_p = field(np.random.randint(field.order, size=(4, 2 * num_qubits)))
-        vectors_q = field(np.random.randint(field.order, size=(7, 2 * num_qubits)))
+        vectors_p = field.Random((4, 2 * num_qubits), seed=seed)
+        vectors_q = field.Random((7, 2 * num_qubits), seed=seed + 1)
         p_x, p_z = vectors_p[:, :num_qubits], vectors_p[:, num_qubits:]
         q_x, q_z = vectors_q[:, :num_qubits], vectors_q[:, num_qubits:]
         expected = p_x @ q_z.T - p_z @ q_x.T
         actual = vectors_p @ qldpc.math.symplectic_conjugate(vectors_q).T
         assert np.array_equal(actual, expected)
+
+
+def test_symplectic_shapes() -> None:
+    """Symplectic conjugates keep the shape of their input, and weights drop its last axis.
+
+    This holds for a vector, a stack of vectors, and arrays with no entries.
+    """
+    # a single vector has a 0-dimensional array of weights
+    vector = np.array([1, 2, 3, 0], dtype=int)
+    conjugate = np.array([3, 0, -1, -2], dtype=int)
+    assert np.array_equal(qldpc.math.symplectic_conjugate(vector), conjugate)
+    weight = qldpc.math.symplectic_weight(vector)
+    assert isinstance(weight, np.ndarray) and weight.shape == () and weight == 2
+
+    # a stack of different vectors keeps each result with its vector
+    other_vector = np.array([0, 1, 0, 0], dtype=int)
+    other_conjugate = np.array([0, 0, 0, -1], dtype=int)
+    stack = np.array([[vector], [other_vector]])
+    assert np.array_equal(qldpc.math.symplectic_conjugate(stack), [[conjugate], [other_conjugate]])
+    assert np.array_equal(qldpc.math.symplectic_weight(stack), [[2], [1]])
+
+    # arrays with no entries keep their field, and have zero weights
+    field = galois.GF(3)
+    for shape in [(0,), (0, 0), (3, 0), (0, 4)]:
+        vectors = field.Zeros(shape)
+        conjugates = qldpc.math.symplectic_conjugate(vectors)
+        assert isinstance(conjugates, field) and conjugates.shape == shape
+        weights = qldpc.math.symplectic_weight(vectors)
+        assert weights.shape == shape[:-1] and not np.any(weights)
 
 
 def test_nonzero_cols() -> None:
@@ -160,6 +192,70 @@ def test_orthonormal_basis() -> None:
     basis = qldpc.math.get_orthonormal_basis(vectors)
     assert basis is not None and basis.shape == (2, 2)
     assert np.array_equal(basis @ basis.T, galois.GF(3).Identity(2))
+
+
+def test_min_weight_basis(pytestconfig: pytest.Config) -> None:
+    """Minimum-weight bases agree with brute force over all vectors of small spaces."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+
+    def assert_min_weight_basis(vectors: galois.FieldArray) -> None:
+        """The basis spans the space, and has as many vectors of weight <= w as possible for each w.
+
+        No basis has more than r_w vectors of weight at most w, where r_w is the dimension of the
+        span of all vectors of weight at most w, and a basis with exactly r_w such vectors for every
+        w has minimum weight.
+        """
+        field = type(vectors)
+        basis = qldpc.math.get_min_weight_basis(vectors)
+        rank = np.linalg.matrix_rank(vectors) if vectors.size else 0
+        assert type(basis) is field
+        assert basis.shape == (rank, vectors.shape[1])
+        if rank:
+            assert (
+                np.linalg.matrix_rank(np.vstack([vectors, basis]))
+                == rank
+                == np.linalg.matrix_rank(basis)
+            )
+
+        # enumerate the space by brute force, and count its vectors by weight
+        row_space = vectors.row_space()
+        dimension = len(row_space)
+        coefficients = field(list(itertools.product(range(field.order), repeat=dimension)))
+        words = coefficients.reshape(field.order**dimension, dimension) @ row_space
+        word_weights = np.count_nonzero(words.view(np.ndarray), axis=1)
+        basis_weights = np.count_nonzero(basis.view(np.ndarray), axis=1)
+        assert np.array_equal(basis_weights, np.sort(basis_weights))
+        for weight in range(1, vectors.shape[1] + 1):
+            light_words = words[(word_weights > 0) & (word_weights <= weight)]
+            light_rank = np.linalg.matrix_rank(light_words) if len(light_words) else 0
+            assert np.count_nonzero(basis_weights <= weight) == light_rank
+
+    # spaces with dependent spanning vectors, over prime and extension fields; the largest space
+    # has more vectors than the search enumerates at once
+    for field, num_rows, num_cols in [
+        (galois.GF(2), 8, 9),
+        (galois.GF(3), 4, 6),
+        (galois.GF(4), 3, 5),
+    ]:
+        vectors = field.Random((num_rows, num_cols), seed=int(rng.integers(2**31)))
+        assert_min_weight_basis(np.vstack([vectors, vectors[:1] + vectors[1:2]]).view(field))
+    vectors = galois.GF(2).Random((15, 3), seed=int(rng.integers(2**31)))
+    assert_min_weight_basis(np.hstack([galois.GF(2).Identity(15), vectors]).view(galois.GF(2)))
+
+    # spaces of dimension zero, and vectors of length zero
+    for shape in [(0, 4), (2, 3), (3, 0)]:
+        assert_min_weight_basis(galois.GF(2).Zeros(shape))
+
+    # the basis is deterministic: the lightest vectors, in order of weight and then of enumeration
+    vectors = galois.GF(2)([[1, 0, 1, 1, 0, 0], [0, 1, 1, 0, 1, 0], [1, 1, 0, 0, 0, 1]])
+    assert np.array_equal(
+        qldpc.math.get_min_weight_basis(vectors),
+        [[0, 1, 1, 0, 1, 0], [1, 1, 0, 0, 0, 1], [0, 0, 0, 1, 1, 1]],
+    )
+
+    # spaces with too many vectors to enumerate
+    with pytest.raises(ValueError, match="too many vectors"):
+        qldpc.math.get_min_weight_basis(galois.GF(2).Identity(62))
 
 
 def test_symplectic_gram_schmidt() -> None:

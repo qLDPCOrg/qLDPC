@@ -15,7 +15,7 @@ import sympy
 
 from qldpc import abstract
 
-from ..common import CSSCode
+from ..common import CSSCode, _mark_read_only
 from .two_block import _get_block_translations
 
 ####################################################################################################
@@ -59,8 +59,9 @@ class PairPartitionCode(CSSCode):
     qubits (see PairPartitionCode.is_mixed_distinct).
 
     Translating every block column of qubits by the same cyclic shift maps the checks of each type
-    onto themselves.  Exact distance searches use these translations to search less if the optional
-    pybliss package is not installed, or finds no symmetries of the code.
+    onto themselves.  The Brouwer-Zimmermann and connected-cluster searches of exact distances use
+    these translations, together with any symmetries of the code that the optional pybliss package
+    finds, to search less.
 
     PairPartitionCode does not record a code distance.  The ``[[276, 98, 14]]`` code below has
     ``(J, L, P) = (4, 12, 23)``, and is instance ``qc_276_98_14`` in the repository of
@@ -121,8 +122,8 @@ class PairPartitionCode(CSSCode):
         if lift_size < 1:
             raise ValueError(f"The lift size must be positive (got {lift_size})")
         self.lift_size = lift_size
-        self.exponents_x = self._validate_exponents(exponents_x, "X") % lift_size
-        self.exponents_z = self._validate_exponents(exponents_z, "Z") % lift_size
+        self.exponents_x = _mark_read_only(self._validate_exponents(exponents_x, "X") % lift_size)
+        self.exponents_z = _mark_read_only(self._validate_exponents(exponents_z, "Z") % lift_size)
         if self.exponents_x.shape != self.exponents_z.shape:
             raise ValueError(
                 "The X-type and Z-type exponent arrays of a PairPartitionCode must have the same"

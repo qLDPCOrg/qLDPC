@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+import copy
 import functools
+import inspect
 import itertools
+import pickle
 import random
 import unittest.mock
 import warnings
@@ -23,6 +26,7 @@ import sympy.abc
 
 from qldpc import abstract, codes, decoders, external, math
 from qldpc.codes import _code_capacity, common
+from qldpc.codes.distance import DistanceMethod, get_distance_css
 from qldpc.objects import PAULIS_XZ, Pauli, PauliXZ
 
 from .conftest import Tune, assert_valid_subgraphs
@@ -47,6 +51,11 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     code = codes.ClassicalCode.random(5, 3, field=3, seed=np.random.randint(2**31))
     assert "GF(3)" in str(code)
+
+    # random codes without checks, or without bits, would all have unchecked bits or trivial checks
+    for bits, checks in [(4, 0), (0, 2)]:
+        with pytest.raises(ValueError, match="needs both bits and checks"):
+            codes.ClassicalCode.random(bits, checks)
 
     code = codes.RepetitionCode(2, field=3)
     assert len(code) == 2
@@ -79,10 +88,11 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
 
     # puncture and shorten a code
     for field in [2, 3]:
-        code = codes.ClassicalCode.random(6, 4, field=field)
-        bits_to_remove = np.random.choice(range(len(code)), size=2, replace=False)
-        bits_to_keep = [bit for bit in range(len(code)) if bit not in bits_to_remove]
-        code._matrix[:2, bits_to_remove] = 1  # ensure we have nontrivial row-reduction to do
+        matrix = codes.ClassicalCode.random(6, 4, field=field).matrix.copy()
+        bits_to_remove = np.random.choice(range(matrix.shape[1]), size=2, replace=False)
+        bits_to_keep = [bit for bit in range(matrix.shape[1]) if bit not in bits_to_remove]
+        matrix[:2, bits_to_remove] = 1  # ensure we have nontrivial row-reduction to do
+        code = codes.ClassicalCode(matrix)
         punctured_code = code.punctured(bits_to_remove)
         assert punctured_code.is_equiv_to(
             codes.ClassicalCode.from_generator(code.generator[:, bits_to_keep])
@@ -133,6 +143,69 @@ def test_field_array_construction() -> None:
         codes.ClassicalCode(galois.GF(3)([[2]]), field=2)
     with pytest.raises(ValueError, match="canonical prime-subfield embeddings"):
         codes.ClassicalCode(galois.GF(4)([[0, 1, 2, 3]]), field=16)
+
+    # Listed rows, whose field NumPy drops, follow the same rules, and never set the field of a
+    # code, which is GF(2) by default.
+    assert codes.ClassicalCode(list(binary_matrix), field=4).field is galois.GF(4)
+    for matrix, field in [(galois.GF(3)([[1, 1, 0]]), None), (galois.GF(4)([[0, 1, 2, 3]]), 16)]:
+        with pytest.raises(ValueError, match=r"rows of the matrix are over GF"):
+            codes.ClassicalCode(list(matrix), field=field)
+
+
+def test_codes_protect_their_arrays() -> None:
+    """Codes copy arrays that they are given, and their stored arrays and graphs are read-only."""
+    for matrix in (np.array([[1, 1, 0], [0, 1, 1]]), galois.GF(2)([[1, 1, 0], [0, 1, 1]])):
+        code = codes.ClassicalCode(matrix)
+        matrix[0, 0] = 0
+        assert code.matrix[0, 0] == 1
+
+    # setters copy their input too
+    qudit_code, classical_code = codes.FiveQubitCode(), codes.RepetitionCode(2)
+    logical_ops, generator = qudit_code.get_logical_ops().copy(), classical_code.generator.copy()
+    qudit_code.set_logical_ops(logical_ops)
+    classical_code.set_generator(generator)
+    logical_ops[:] = generator[:] = 0
+    assert np.any(qudit_code.get_logical_ops()) and np.any(classical_code.generator)
+
+    # Writing into an array that a code stores raises, also after copying or pickling the code.
+    # Subsystem codes cache their stabilizer and gauge operators, so use one.
+    subsystem_code = codes.SHPCode(codes.RepetitionCode(2))
+    for array in (
+        codes.RepetitionCode(2).matrix,
+        subsystem_code.matrix,
+        subsystem_code.code_x.generator,
+        subsystem_code.get_logical_ops(),
+        subsystem_code.get_stabilizer_ops(),
+        subsystem_code.get_gauge_ops(),
+        codes.HGPCode(codes.RepetitionCode(2)).sector_size,
+        copy.deepcopy(codes.RepetitionCode(2)).matrix,
+        # this pickle holds the CSSCode.matrix cached above, which unpickling must mark again
+        pickle.loads(pickle.dumps(subsystem_code)).matrix,  # noqa: S301 - trusted round trip
+    ):
+        with pytest.raises(ValueError, match="read-only"):
+            array[0, 0] = 0
+
+    # the cached Tanner graphs of classical and quantum codes are frozen
+    for graph in (codes.RepetitionCode(2).graph, subsystem_code.graph):
+        with pytest.raises(nx.NetworkXError, match="Frozen"):
+            graph.add_edge(0, 1)
+
+
+def test_check_matrix_shapes() -> None:
+    """Code constructors handle empty, boolean, and malformed matrices.
+
+    A CSS code can have no checks of one type, empty and boolean matrices build codes over fields of
+    any order, and a matrix must be two-dimensional.
+    """
+    checks = galois.GF(3)([[1, 2, 0], [0, 1, 1]])
+    assert codes.CSSCode([], checks) == codes.CSSCode.classical(checks, Pauli.Z)
+    assert codes.CSSCode(checks, ()) == codes.CSSCode.classical(checks, Pauli.X)
+    for matrix in (np.zeros((0, 3), dtype=int), np.ones((1, 3), dtype=bool)):
+        assert np.array_equal(codes.ClassicalCode(matrix, field=257).matrix, matrix)
+    not_two_dimensional: list[Any] = [[], galois.GF(2).Zeros((1, 1, 3))]
+    for matrix in not_two_dimensional:
+        with pytest.raises(ValueError, match="must be two-dimensional"):
+            codes.ClassicalCode(matrix)
 
 
 def test_named_codes(order: int = 2) -> None:
@@ -205,8 +278,8 @@ def test_distance_classical(bits: int = 3) -> None:
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     random_vector = np.random.randint(2, size=len(trivial_code))
     assert trivial_code.dimension == 0
-    assert np.isnan(trivial_code.get_distance_exact())
-    assert np.isnan(trivial_code.get_distance_bound())
+    assert trivial_code.get_distance_exact() is codes.NO_DISTANCE
+    assert trivial_code.get_distance_bound() is codes.NO_DISTANCE
     assert (
         np.count_nonzero(random_vector)
         == trivial_code.get_distance_exact(vector=random_vector)
@@ -217,6 +290,11 @@ def test_distance_classical(bits: int = 3) -> None:
     rep_code = codes.RepetitionCode(bits, field=3)
     rep_code.forget_distance()
     assert rep_code.get_distance_exact(cutoff=bits) == rep_code.get_distance_exact() == bits
+    trinary_vector = np.array([1] * (bits - 1) + [2])
+    assert (
+        rep_code.get_distance_exact(vector=trinary_vector)
+        == bits - np.bincount(trinary_vector).max()
+    )
 
 
 def test_distance_bound_of_self_orthogonal_code() -> None:
@@ -270,9 +348,8 @@ def test_automorphism(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     ):
         codes.RepetitionCode(2).get_automorphism_group()
 
-    # otherwise, check that automorphisms do indeed preserve the code space this pytest.warns block
-    # intentionally wraps a loop of warning-emitting calls
-    with (  # noqa: PT031
+    # otherwise, check that automorphisms do indeed preserve the code space
+    with (  # noqa: PT031 - wraps several calls that warn
         unittest.mock.patch("qldpc.external.gap.is_callable", return_value=True),
         unittest.mock.patch("qldpc.external.gap.require_package", return_value=True),
         unittest.mock.patch(
@@ -457,6 +534,13 @@ def test_qubit_code(num_qubits: int = 5, num_checks: int = 3) -> None:
         assert get_random_qudit_code(num_qubits, num_checks, field=3).num_qubits
 
 
+def test_weight_without_checks() -> None:
+    """A code without parity checks has weight 0."""
+    assert codes.ClassicalCode(np.zeros((0, 3), dtype=int)).get_weight() == 0
+    no_checks = np.zeros((0, 3), dtype=int)
+    assert codes.CSSCode(no_checks, no_checks).get_weight() == 0
+
+
 def test_qudit_codes() -> None:
     """Miscellaneous qudit code tests and coverage."""
     code = codes.FiveQubitCode()
@@ -539,7 +623,6 @@ def test_distance_qudit() -> None:
     code: codes.QuditCode
 
     code = codes.FiveQubitCode()
-    code._is_subsystem_code = True  # test that this does not break anything
 
     # cover calls to the known code exact distance
     assert code.get_code_params() == (5, 1, 3)
@@ -580,8 +663,17 @@ def test_distance_qudit() -> None:
     ):
         assert code.get_distance(bound=True) == -1
 
+    # A subsystem code is bounded as a CSS code, here with a decoder, if X-type and Z-type operators
+    # generate its gauge group, even if its checks mix X and Z.  Here the Z parts of the checks are
+    # proportional over GF(3), but not over the reals or GF(2).  Options that GAP does not recognize
+    # are still rejected.
+    with unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False):
+        assert codes.QuditCode([[1, 2, 2, 1], [0, 0, 1, 2]], field=3).get_distance_bound() == 1
+        with pytest.raises(ValueError, match="not recognized by GAP/QDistRnd"):
+            codes.QuditCode([[1, 2, 2, 1], [0, 0, 1, 2]], field=3).get_distance_bound(test=True)
+
     # the distance of dimension-0 codes is undefined
-    assert np.isnan(codes.QuditCode([[0, 1]]).get_distance())
+    assert codes.QuditCode([[0, 1]]).get_distance() is codes.NO_DISTANCE
 
     # fallback pythonic brute-force distance calculation
     code = codes.QuditCode(codes.SurfaceCode(2, field=3).matrix)
@@ -589,6 +681,19 @@ def test_distance_qudit() -> None:
         assert code.get_distance_exact(cutoff=len(code)) <= len(code)
     with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
         assert code.get_distance_exact() == 2
+
+    # Gauge operators dress the logical operators of nonbinary subsystem codes too: here the gauge
+    # generators leave no stabilizers, so X on one qudit, which is not an X-type gauge operator, is
+    # a dressed logical operator.  The bare logical X operators, the multiples of (1, 2, 2), have
+    # weight 3.
+    css_code = codes.CSSCode([[0, 1, 1], [1, 1, 0]], [[1, 0, 1], [1, 1, 0]], field=3)
+    assert css_code.is_subsystem_code
+    for get_distance in (
+        lambda: css_code.get_distance_exact(Pauli.X),
+        lambda: codes.QuditCode(css_code.matrix).get_distance_exact(),
+    ):
+        with pytest.warns(UserWarning, match=r"may take a \(very\) long time"):
+            assert get_distance() == 1
 
 
 def test_distance_bound_memory() -> None:
@@ -668,13 +773,28 @@ def test_exact_code_distance_method_api() -> None:
     qudit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
     css_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     for kernel, get_distance in (
-        ("get_distance_classical", lambda: classical_code.get_distance(method="brute_force")),
-        ("_get_distance_quantum", lambda: qudit_code.get_distance(method="brute_force")),
-        ("get_distance_quantum", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
+        ("get_distance_from_generators", lambda: classical_code.get_distance(method="brute_force")),
+        ("get_distance_pauli", lambda: qudit_code.get_distance(method="brute_force")),
+        ("get_distance_css", lambda: css_code.get_distance(Pauli.X, method="brute_force")),
     ):
-        with unittest.mock.patch(f"qldpc.codes.common.{kernel}", return_value=3) as mock_kernel:
+        with unittest.mock.patch.object(common, kernel, wraps=getattr(common, kernel)) as search:
             assert get_distance() == 3
-        assert mock_kernel.call_args.kwargs["method"] == "brute_force"
+        assert search.call_args.kwargs["method"] == "brute_force"
+
+    # Without a method, get_distance and get_distance_exact forward "auto", the default.
+    for kernel, get_distance in (
+        ("get_distance_from_generators", classical_code.get_distance),
+        ("get_distance_from_generators", classical_code.get_distance_exact),
+        ("get_distance_pauli", qudit_code.get_distance),
+        ("get_distance_pauli", qudit_code.get_distance_exact),
+        ("get_distance_css", functools.partial(css_code.get_distance, Pauli.X)),
+        ("get_distance_css", functools.partial(css_code.get_distance_exact, Pauli.X)),
+    ):
+        for code in (classical_code, qudit_code, css_code):
+            code.forget_distance()
+        with unittest.mock.patch.object(common, kernel, wraps=getattr(common, kernel)) as search:
+            assert get_distance() == 3
+        assert search.call_args.kwargs["method"] == "auto"
 
     redundant_code = codes.ClassicalCode([[1, 1, 1]]).set_generator(
         [[1, 1, 0], [0, 1, 1], [1, 0, 1]]
@@ -688,11 +808,115 @@ def test_exact_code_distance_method_api() -> None:
     # The "information_sets" alias selects the joint Brouwer-Zimmermann search of a CSS code.
     hgp_code = codes.HGPCode(codes.RepetitionCode(3), codes.RepetitionCode(4))
     css_code = codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z)
-    with unittest.mock.patch(
-        "qldpc.codes.common._get_distance_css_brouwer_zimmermann", return_value=3
-    ) as mock_joint_distance:
+    with unittest.mock.patch.object(
+        common, "get_distance_css", wraps=common.get_distance_css
+    ) as joint_search:
         assert css_code.get_distance_exact(method="information_sets") == 3
-    mock_joint_distance.assert_called_once()
+    joint_search.assert_called_once()
+    arguments = (
+        inspect.signature(get_distance_css)
+        .bind(*joint_search.call_args.args, **joint_search.call_args.kwargs)
+        .arguments
+    )
+    assert arguments["pauli"] is None and arguments["method"] == "brouwer_zimmermann"
+
+
+def test_connected_cluster_method_is_only_for_binary_codes() -> None:
+    """Nonbinary codes reject the connected-cluster method, also when they only bound distances."""
+    # a generic CSS code, unlike a product code, has no closed form that rejects the method first
+    hgp_code = codes.HGPCode(codes.RepetitionCode(3, field=3))
+    for code in (
+        codes.RepetitionCode(3, field=3),
+        codes.FiveQuditCode(3),
+        codes.CSSCode(hgp_code.matrix_x, hgp_code.matrix_z),
+    ):
+        with pytest.raises(ValueError, match="only for binary codes"):
+            code.get_distance(bound=1, method="connected_cluster")
+        with pytest.raises(ValueError, match="only for binary codes"):
+            code.get_distance_exact(method="connected_cluster")
+
+
+def test_connected_cluster_distances_of_classical_codes() -> None:
+    """Classical codes search their parity checks, and vector distances search a coset.
+
+    The tests of the search itself compare many codes with enumeration.
+    """
+    # an exact distance is remembered, and a result within a cutoff is an upper bound, which is not
+    code = codes.ClassicalCode(codes.HammingCode(3).matrix)
+    assert code.get_distance(method="connected_cluster") == 3
+    assert code.get_distance_if_known() == 3
+    code = codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]])
+    with unittest.mock.patch.object(
+        common,
+        "get_distance_from_checks",
+        autospec=True,
+        side_effect=common.get_distance_from_checks,
+    ) as search:
+        assert 2 <= code.get_distance_exact(cutoff=3, method="connected_cluster") <= 3
+    assert search.call_args.kwargs["cutoff"] == 3
+    assert code.get_distance_if_known() is None
+
+    # the code words of this code are 00000, 11100, 00011, and 11111, so the vector 00101 is at
+    # distance 2 from them, and 01100 at distance 1; a result above a cutoff is exact
+    for vector, expected in [((0, 0, 1, 0, 1), 2), ((0, 1, 1, 0, 0), 1)]:
+        for cutoff in range(4):
+            distance = code.get_distance_exact(
+                vector=vector, cutoff=cutoff, method="connected_cluster"
+            )
+            assert distance == expected or expected <= distance <= cutoff
+
+
+def test_connected_cluster_distances_of_qubit_codes() -> None:
+    """Qubit codes that are not CSS search their stabilizers.
+
+    The tests of the search itself compare many codes with enumeration, and
+    ``test_distances_verify_automorphisms`` searches a subsystem code.
+    """
+    # the five-qubit code has distance 3, which a cutoff can bound without remembering it
+    five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
+    with unittest.mock.patch.object(
+        common, "get_distance_pauli", autospec=True, side_effect=common.get_distance_pauli
+    ) as search:
+        assert 3 <= five_qubit_code.get_distance_exact(cutoff=5, method="connected_cluster") <= 5
+    assert search.call_args.kwargs["cutoff"] == 5
+    assert five_qubit_code.get_distance_if_known() is None
+    assert five_qubit_code.get_distance(method="connected_cluster") == 3
+    assert five_qubit_code.get_distance_if_known() == 3
+
+
+def test_connected_cluster_distances_of_css_codes() -> None:
+    """Sector distances, joint distances, and their caches have their known values."""
+    # the sectors of this code have distances 3 and 2, and a known sector distance bounds the search
+    # of the other sector
+    checks_x = [[1, 1, 1, 1, 1, 1, 1], [1, 0, 1, 1, 1, 0, 0]]
+    checks_z = [[1, 1, 0, 1, 0, 0, 1], [1, 1, 1, 0, 0, 1, 0], [1, 0, 1, 1, 1, 0, 0]]
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.X, method="connected_cluster") == 3
+    assert code.get_distance_exact(cutoff=0, method="connected_cluster") == 2
+    assert code.get_distance_if_known() == 2 and code.get_distance_if_known(Pauli.Z) is None
+    assert code.get_distance_exact(Pauli.Z, method="connected_cluster") == 2
+
+    # once the lighter sector is known, the joint search is bounded by it
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.Z, method="connected_cluster") == 2
+    assert code.get_distance_exact(cutoff=0, method="connected_cluster") == 2
+
+    # an exit at a cutoff returns an upper bound, which is not remembered
+    code = codes.CSSCode(checks_x, checks_z)
+    with unittest.mock.patch.object(
+        common, "get_distance_css", autospec=True, side_effect=common.get_distance_css
+    ) as search:
+        assert 2 <= code.get_distance_exact(cutoff=7, method="connected_cluster") <= 7
+    assert search.call_args.kwargs["cutoff"] == 7
+    assert code.get_distance_if_known() is None
+
+    # a generic copy of the [[9, 1, 3]] Bacon-Shor code, which knows no distance of its own,
+    # searches its dressed logical operators
+    bacon_shor_code = codes.BaconShorCode(3)
+    generic_bacon_shor_code = codes.CSSCode(
+        bacon_shor_code.matrix_x, bacon_shor_code.matrix_z, is_subsystem_code=True
+    )
+    assert generic_bacon_shor_code.get_distance_exact(Pauli.X, method="connected_cluster") == 3
 
 
 def test_css_joint_distance_cache() -> None:
@@ -729,6 +953,13 @@ def test_css_joint_distance_cache() -> None:
     assert code.get_distance_exact(Pauli.Z, cutoff=0, method="brute_force") == 2
     assert code.get_distance_exact(cutoff=0) == 2
 
+    # a known sector within the cutoff ends the joint search before it starts
+    code = codes.CSSCode(checks_x, checks_z)
+    assert code.get_distance_exact(Pauli.Z, cutoff=0, method="brute_force") == 2
+    with unittest.mock.patch.object(common, "get_distance_css") as search:
+        assert code.get_distance_exact(cutoff=2) == 2
+    search.assert_not_called()
+
     # the gauge operators of a subsystem code dress its logical operators.  Here the X-type gauge
     # group is every even-weight X string and there are no stabilizers, so a single-qubit X operator
     # is a dressed logical operator, although every bare logical X operator has weight 3.
@@ -737,13 +968,14 @@ def test_css_joint_distance_cache() -> None:
     assert subsystem_code.get_distance_exact(Pauli.X) == 1
 
 
-def test_automorphisms_from_bliss_or_construction(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Codes find their automorphisms with bliss if it is installed, and otherwise ask the code.
+def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codes combine the automorphisms that bliss finds, if it is installed, with their own.
 
     The bliss search is mocked here, and checked against the real package in its own tests.
     """
     poly_x = sympy.abc.x
     translations = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)._get_qudit_automorphisms()
+    assert translations is not None
 
     # without pybliss, or if bliss finds nothing, codes return the automorphisms of their family
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
@@ -770,6 +1002,129 @@ def test_automorphisms_from_bliss_or_construction(monkeypatch: pytest.MonkeyPatc
     assert (found := five_qubit_code._found_qudit_automorphisms) is not None
     assert found.tolist() == [shift]
 
+    # The generators that bliss finds come first, followed by those of the code, without repeats or
+    # the identity.  The translations of a bivariate bicycle code over Z_2 x Z_2 have two
+    # generators.  The mocked bliss search finds one of them, their product, and the identity, each
+    # of which permutes the checks of this code as it permutes the qudits.
+    x, y = sympy.abc.x, sympy.abc.y
+    code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
+    bb_translations = code._get_qudit_automorphisms()
+    assert bb_translations is not None and len(bb_translations) == 2
+    num_checks = len(code.matrix)
+    product = bb_translations[0][bb_translations[1]]
+    bliss_generators = [product, bb_translations[0], np.arange(len(code))]
+    monkeypatch.setattr(
+        common._bliss,
+        "get_matrix_automorphism_generators",
+        lambda *_: [list(qudits) + list(num_checks + qudits) for qudits in bliss_generators],
+    )
+    assert (found := code._found_qudit_automorphisms) is not None
+    assert found.tolist() == [product.tolist(), *bb_translations.tolist()]
+
+
+def test_automorphism_search_matrices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bliss searches each set of checks that a code chooses, which by default is its parity checks.
+
+    The mocked bliss search finds one translation of a bivariate bicycle code among its parity
+    checks, and the other translation among its parity checks repeated twice.  Each translation
+    permutes the checks of each copy of the parity checks as it permutes the qudits.
+    """
+    x, y = sympy.abc.x, sympy.abc.y
+    bb_code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
+    translations = bb_code._get_qudit_automorphisms()
+    assert translations is not None and len(translations) == 2
+    num_checks, num_qudits = bb_code.matrix.shape[0], len(bb_code)
+
+    class CodeWithRepeatedChecks(codes.QuditCode):
+        """A code that has bliss search its parity checks, and its parity checks repeated twice."""
+
+        def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+            return (self.matrix, np.vstack([self.matrix, self.matrix]).view(self.field))
+
+    searched_matrices: list[npt.NDArray[np.int_]] = []
+
+    def search(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
+        """Record the matrix that bliss is asked to search, and find one translation."""
+        searched_matrices.append(matrix)
+        num_copies = len(matrix) // num_checks
+        translation = translations[num_copies - 1]
+        checks = [copy * num_checks + translation for copy in range(num_copies)]
+        return [np.concatenate([*checks, len(matrix) + translation]).tolist()]
+
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
+    monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", search)
+    matrix = bb_code.matrix.view(np.ndarray)
+    paulis = matrix[:, :num_qudits] + 2 * matrix[:, num_qudits:]
+
+    assert (found := codes.QuditCode(bb_code.matrix)._found_qudit_automorphisms) is not None
+    assert found.tolist() == translations[:1].tolist()
+    assert [searched.tolist() for searched in searched_matrices] == [paulis.tolist()]
+
+    searched_matrices.clear()
+    assert (found := CodeWithRepeatedChecks(bb_code.matrix)._found_qudit_automorphisms) is not None
+    assert sorted(found.tolist()) == sorted(translations.tolist())
+    assert sorted(searched.tolist() for searched in searched_matrices) == sorted(
+        [paulis.tolist(), np.vstack([paulis, paulis]).tolist()]
+    )
+
+
+def test_known_qudit_automorphism_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codes give the group generated by the qudit permutations that they know, once verified."""
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
+
+    # the translations of a bivariate bicycle code over Z_2 x Z_2 generate a group of order 4
+    x, y = sympy.abc.x, sympy.abc.y
+    bb_code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
+    assert bb_code.get_known_qudit_automorphism_group().order == 4
+
+    # a code that knows no permutations has a trivial group, which acts on its qudits
+    group = codes.CSSCode(bb_code.matrix_x, bb_code.matrix_z).get_known_qudit_automorphism_group()
+    assert group.order == 1
+    assert group.identity.array_form == list(range(len(bb_code)))
+
+    class CodeWithAutomorphisms(codes.QuditCode):
+        """A code that claims the given qudit permutations as its automorphisms."""
+
+        automorphisms: npt.NDArray[np.int_]
+
+        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+            return self.automorphisms
+
+    # every permutation of its qudits preserves a code without parity checks
+    code = CodeWithAutomorphisms(np.zeros((0, 6), dtype=int))
+    code.automorphisms = np.array([[1, 2, 0]])
+    assert code.get_known_qudit_automorphism_group().order == 3
+
+    # The permutations of a construction are verified.  The qutrit code with the single X-type check
+    # X_0 X_1^2 is preserved by swapping qudits 0 and 1, which maps the check to its square, but not
+    # by swapping qudits 1 and 2.  Rows that are not permutations are rejected too.
+    qutrit_check = [[1, 2, 0, 0, 0, 0]]
+    code = CodeWithAutomorphisms(qutrit_check, 3)
+    code.automorphisms = np.array([[1, 0, 2]])
+    assert code.get_known_qudit_automorphism_group().order == 2
+    for matrix, field, automorphisms in [
+        (qutrit_check, 3, [[0, 2, 1]]),
+        (codes.FiveQubitCode().matrix, 2, [[0, 0, 2, 3, 4]]),
+    ]:
+        code = CodeWithAutomorphisms(matrix, field)
+        code.automorphisms = np.array(automorphisms)
+        with pytest.raises(ValueError, match="not an automorphism"):
+            code.get_known_qudit_automorphism_group()
+
+    # the permutations of a construction are verified even if bliss finds others
+    num_checks = len(codes.FiveQubitCode().matrix)
+    shift = [1, 2, 3, 4, 0]
+    monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
+    monkeypatch.setattr(
+        common._bliss,
+        "get_matrix_automorphism_generators",
+        lambda *_: [list(range(num_checks)) + [num_checks + qubit for qubit in shift]],
+    )
+    code = CodeWithAutomorphisms(codes.FiveQubitCode().matrix)
+    code.automorphisms = np.array([[1, 0, 2, 3, 4]])
+    with pytest.raises(ValueError, match="not an automorphism"):
+        code.get_known_qudit_automorphism_group()
+
 
 def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> None:
     """Exact distances use the qudit automorphisms of a code only after verifying them.
@@ -795,22 +1150,27 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
             return self.automorphisms
 
     def get_css_distance(
-        automorphisms: npt.NDArray[np.int_], pauli: PauliXZ | None = None
+        automorphisms: npt.NDArray[np.int_],
+        pauli: PauliXZ | None = None,
+        method: DistanceMethod = "brouwer_zimmermann",
     ) -> int | float:
         code = CSSCodeWithAutomorphisms(bb_code.matrix_x, bb_code.matrix_z)
         code.automorphisms = automorphisms
-        return code.get_distance_exact(pauli)
+        return code.get_distance_exact(pauli, method=method)
 
     def get_qudit_distance(
-        matrix: npt.NDArray[np.int_], automorphisms: npt.NDArray[np.int_], **options: Any
+        matrix: npt.NDArray[np.int_],
+        automorphisms: npt.NDArray[np.int_],
+        method: DistanceMethod = "brouwer_zimmermann",
+        **options: Any,
     ) -> int | float:
         code = QuditCodeWithAutomorphisms(matrix, **options)
         code.automorphisms = automorphisms
-        return code.get_distance_exact()
+        return code.get_distance_exact(method=method)
 
     # use the automorphisms of the code's family before the first layer of these quick searches
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
-    tune(automorphism_minimum_layer_work=0)
+    tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     translations = bb_code._get_qudit_automorphisms()
@@ -818,7 +1178,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     row_swap = np.arange(16).reshape(4, 4)[[1, 0, 2, 3]].ravel()
     cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
         (get_css_distance, translations, 6),
-        (functools.partial(get_css_distance, pauli=Pauli.X), translations, 6),
+        (functools.partial(get_css_distance, method="connected_cluster"), translations, 6),
         (
             functools.partial(get_qudit_distance, bb_code.conjugated(range(36, 72)).matrix),
             translations,
@@ -826,6 +1186,19 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
         ),
         (
             functools.partial(get_qudit_distance, bacon_shor_matrix, is_subsystem_code=True),
+            row_swap[None],
+            4,
+        ),
+    ]
+    # the connected-cluster search verifies the automorphisms of qubit codes too
+    cases += [
+        (
+            functools.partial(
+                get_qudit_distance,
+                bacon_shor_matrix,
+                method="connected_cluster",
+                is_subsystem_code=True,
+            ),
             row_swap[None],
             4,
         ),
@@ -853,7 +1226,7 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> No
     for matrix in (bb_code.matrix, bb_code.conjugated(range(36, 72)).matrix):
         code = codes.QuditCode(np.hstack([matrix[:, shuffle], matrix[:, len(bb_code) + shuffle]]))
         assert code._found_qudit_automorphisms is not None
-        assert code.get_distance_exact() == 6
+        assert code.get_distance_exact(method="brouwer_zimmermann") == 6
 
 
 @pytest.mark.parametrize("field", [2, 3])
@@ -894,11 +1267,29 @@ def test_pauli_stabilizer_ops_respect_canonicalized() -> None:
         assert np.array_equal(stabilizers, stabilizers.row_reduce()[: len(stabilizers)])
 
 
+def test_is_row_reduced() -> None:
+    """Row-reduced matrices have increasing pivots equal to 1, each alone in its column."""
+    assert common._is_row_reduced(np.array([[1, 1, 0], [0, 0, 1]]))
+    assert not common._is_row_reduced(np.array([[0, 1], [1, 0]]))
+    assert not common._is_row_reduced(np.array([[1, 1], [0, 1]]))
+    assert not common._is_row_reduced(np.array([[1, 0], [0, 0]]))
+    assert not common._is_row_reduced(np.array([[2, 0]]))
+
+
 def test_canonicalized_code_is_its_own_canonical_form() -> None:
     """Canonicalizing a canonicalized code returns the same code object."""
     for code in [codes.HammingCode(3), codes.FiveQubitCode(), codes.SteaneCode()]:
         canonicalized = code.canonicalized
         assert canonicalized.canonicalized is canonicalized
+
+
+def test_canonical_forms_over_extension_fields_of_gf2() -> None:
+    """GF(4) has characteristic two, like GF(2), but canonical forms over it use galois.
+
+    The row ``[2, 3, 1]`` is ``[1, 2, 3]`` times the element ``2``, so it is dependent.
+    """
+    code = codes.ClassicalCode(galois.GF(4)([[1, 2, 3], [2, 3, 1]]))
+    assert len(code.canonicalized.matrix) == 1 and code.dimension == 2
 
 
 def test_gauge_ops_recompute() -> None:
@@ -915,8 +1306,6 @@ def test_non_css_operator_layout_and_argument_validation() -> None:
         codes.FiveQubitCode().get_logical_ops(symplectic=False)
     with pytest.raises(ValueError, match="is_subsystem_code=False contradicts"):
         codes.QuditCode(codes.BaconShorCode(3), is_subsystem_code=False)
-    with pytest.raises(ValueError, match="logical_index must lie in"):
-        codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 1)
     with pytest.raises(ValueError, match="pauli_bias must have three entries"):
         codes.SurfaceCode(3).get_logical_error_rate_func(10, pauli_bias=(1, 1))
 
@@ -938,6 +1327,31 @@ def test_subsystem_code_hint() -> None:
 
     # a qutrit check commutes with itself, although its non-symplectic square is nonzero
     assert not codes.QuditCode([[1, 1]], field=3, is_subsystem_code=False).is_subsystem_code
+
+    # A stabilizer code hinted as a subsystem code has no gauge qudits and the same distances.
+    # QuditCode.get_distance_bound bounds a hinted CSS code as a CSSCode, here with a decoder, and
+    # rejects a hinted code that is not CSS before it looks for GAP.
+    steane_code = codes.SteaneCode()
+    hinted_css_code = codes.CSSCode(
+        steane_code.matrix_x, steane_code.matrix_z, is_subsystem_code=True
+    )
+    assert hinted_css_code.gauge_dimension == 0
+    assert hinted_css_code.get_distance_exact() == 3
+    hinted_qudit_code = codes.QuditCode(steane_code.matrix, is_subsystem_code=True)
+    with (
+        unittest.mock.patch("qldpc.external.sqetch.is_installed", return_value=False),
+        unittest.mock.patch("qldpc.external.gap.is_callable", return_value=False),
+    ):
+        assert hinted_qudit_code.get_distance_bound(1) == 3
+    assert hinted_qudit_code.gauge_dimension == 0
+    assert hinted_qudit_code.get_distance_exact() == 3
+    hinted_noncss_code = codes.QuditCode(codes.FiveQubitCode().matrix, is_subsystem_code=True)
+    with (
+        unittest.mock.patch("qldpc.external.gap.is_callable", side_effect=AssertionError),
+        unittest.mock.patch("qldpc.external.gap.is_installed", side_effect=AssertionError),
+        pytest.raises(ValueError, match="gauge group is not CSS"),
+    ):
+        hinted_noncss_code.get_distance_bound(1)
 
 
 def test_from_qldpc_challenge_id() -> None:
@@ -1415,7 +1829,7 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
     assert code.num_checks_x == code_x.num_checks
     assert code.num_checks_z == code_z.num_checks
     assert code.num_checks == code.num_checks_x + code.num_checks_z
-    assert code == codes.CSSCode(code.code_x, code.code_z)
+    assert code == codes.CSSCode(code.get_code("X"), code.get_code(Pauli.Z))
 
     # equivalence to QuditCode with the same parity check matrix
     assert code.is_equiv_to(codes.QuditCode(code.matrix))
@@ -1525,23 +1939,18 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
             stabs = code.get_stabilizer_ops(pauli.swap_xz())
             assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
-    # successfully construct and reduce logical operators in a code with "over-complete" checks
+    # a code with "over-complete" checks has the expected parameters
     dist = 4
     code = codes.ToricCode(dist, rotated=True)
     assert code.canonicalized.num_checks < code.num_checks
     assert code.get_code_params() == (dist**2, 2, dist)
-    code.reduce_logical_ops()
-    logical_ops_x = code.get_logical_ops(Pauli.X)
-    logical_ops_z = code.get_logical_ops(Pauli.Z, symplectic=True)
-    assert not np.any(np.count_nonzero(logical_ops_x.view(np.ndarray), axis=1) < dist)
-    assert not np.any(np.count_nonzero(logical_ops_z.view(np.ndarray), axis=1) < dist)
 
 
 def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
 
-    # a bare CSSCode has no specialized exact-distance method, so it falls back to brute force
+    # a bare CSSCode has no specialized exact-distance method, so it runs the generic exact search
     bare_code = codes.QuditCode(codes.SteaneCode().matrix).to_css()
     assert bare_code.get_distance_exact() == 3
 
@@ -1579,8 +1988,32 @@ def test_distance_css() -> None:
     trivial_code = codes.ClassicalCode([[1, 0], [1, 1]])
     code = codes.HGPCode(trivial_code)
     assert code.dimension == 0
-    assert np.isnan(code.get_distance(bound=True))
-    assert np.isnan(code.get_distance(bound=False))
+    assert code.get_distance(bound=True) is codes.NO_DISTANCE
+    assert code.get_distance(bound=False) is codes.NO_DISTANCE
+    with unittest.mock.patch("qldpc.codes.common.build_error_decoder", side_effect=AssertionError):
+        assert code.get_distance_bound_with_decoder(Pauli.X) is codes.NO_DISTANCE
+
+
+def test_decoder_distance_bounds_of_subsystem_codes_are_dressed() -> None:
+    """The decoder bounds the distance of a subsystem code by dressed logical operators.
+
+    The only stabilizer of this subsystem code is Z on its last qubit, so X or Z on one of its first
+    three qubits is a dressed logical operator, although every bare logical operator has weight 3.
+    """
+    code = codes.CSSCode([[0, 1, 1, 0], [1, 1, 0, 0]], [[1, 0, 1, 0], [1, 1, 0, 0], [0, 0, 0, 1]])
+    for pauli in PAULIS_XZ:
+        assert code.get_distance_bound(10, pauli=pauli, backend="decoder") == 1
+
+
+def test_decoder_distance_bounds_exclude_gauge_operators() -> None:
+    """Gauge operators lighter than the distance of a subsystem code do not bound it.
+
+    The X-type gauge generators of the 2x3 Bacon-Shor code have weight 2 and commute with its
+    stabilizers, but they are not logical operators, and its X-distance is 3.  Its Z-distance is 2.
+    """
+    code = codes.BaconShorCode(2, 3)
+    assert code.get_distance_bound_with_decoder(Pauli.X) == 3
+    assert code.get_distance_bound_with_decoder(Pauli.Z) == 2
 
 
 def test_css_decoder_distance_bound_skips_gap_probe() -> None:
@@ -1738,12 +2171,8 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
         code.get_distance_bound(decoder=decoder)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
         code.get_distance_bound_with_decoder(Pauli.X, decoder=decoder)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="prebuilt decoder cannot be passed as decoder="):
-        code.reduce_logical_ops(decoder=decoder)  # type: ignore[arg-type]
 
     # the static_decoder argument has been removed, in favor of decoder=
-    with pytest.raises(TypeError, match="static_decoder argument has been removed"):
-        code.reduce_logical_ops(static_decoder=decoder)
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
         code.get_distance_bound(static_decoder=decoder)
     with pytest.raises(TypeError, match="static_decoder argument has been removed"):
@@ -1766,7 +2195,6 @@ def test_prebuilt_decoders_rejected_for_internal_matrices() -> None:
 
     # decoder specifications are used to build a decoder for each internal matrix
     assert code.get_distance_bound(decoder=decoders.lookup(max_weight=3)) == 3
-    assert code.reduce_logical_ops(decoder=decoders.lookup(max_weight=3))
 
 
 def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
@@ -1794,8 +2222,6 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
     code = codes.SurfaceCode(3)
     code.forget_distance()
     assert code.get_distance_bound(decoder=erasing_decoder) == 3
-    code.reduce_logical_ops(decoder=erasing_decoder)
-    assert all(np.count_nonzero(op) == 3 for op in code.get_logical_ops().view(np.ndarray))
 
     # a trial whose decoding fails moves on to another problem
     for _ in range(20):
@@ -1818,7 +2244,6 @@ def test_decoding_failures_and_erasure_in_decoder_searches() -> None:
             ),
             1,
         ),
-        (lambda: codes.SurfaceCode(3).reduce_logical_op(Pauli.X, 0, decoder=failing_decoder), 1),
     ]:
         with count_decodings() as decode, pytest.raises(ValueError, match="failed to infer"):
             search()
@@ -2016,12 +2441,24 @@ def test_css_distance_bound_backend_selection() -> None:
 
 
 def test_distance_backend_validation() -> None:
-    """Reject sqetch and decoder selectors for non-CSS codes."""
+    """Unknown backends raise, and sqetch and decoder need CSS checks and pass options on."""
+    bounded_codes: list[codes.ClassicalCode | codes.QuditCode] = [
+        codes.RepetitionCode(3),
+        codes.FiveQubitCode(),
+        codes.SteaneCode(),
+    ]
+    for code in bounded_codes:
+        with pytest.raises(ValueError, match="Unknown distance backend"):
+            code.get_distance_bound(backend="other")  # type: ignore[arg-type]
+
     code = codes.FiveQubitCode()
     code.forget_distance()
-    for backend in ["sqetch", "decoder"]:
-        with pytest.raises(ValueError, match="only available for CSSCode"):
-            code.get_distance_bound(backend=backend)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="generate a CSS group"):
+        code.get_distance_bound(backend="decoder")
+    css_checks_code = codes.QuditCode(codes.SteaneCode().matrix)
+    with pytest.raises(ValueError, match="not recognized by sqetch"):
+        css_checks_code.get_distance_bound(backend="sqetch", bogus=1)
+    assert css_checks_code.get_distance_bound(backend="decoder") == 3
 
 
 def test_css_deformations() -> None:

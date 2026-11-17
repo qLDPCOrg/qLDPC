@@ -10,7 +10,6 @@ Public API and private code
 * A name is public if it is broadly useful to researchers and engineers, and private if it is plumbing that makes qLDPC work.
   Where a name is used, such as in other modules or in notebooks, does not decide this.
 * Plain names defined in public modules (no underscore anywhere in the import path) are public API.
-  Keep them working, and retire a released public name through a tested shim rather than breaking its import (see :doc:`deprecations`).
 * ``src/qldpc/__init__.py`` exports subpackages, and each subpackage's ``__all__`` lists the public names that it re-exports.
   Re-export only what typical users reach for, leave specialized public tools at their module path, give each public object one canonical public path, and put utilities that several packages share in a neutral top-level module such as ``qldpc.math``.
   Preserve public import paths when moving implementation code.
@@ -18,9 +17,10 @@ Public API and private code
   Each top-level module, such as ``qldpc.math``, is its own scope.
 * Private modules, with an underscore anywhere in their import path, exist only for plumbing shared across subpackages or for a substantial standalone topic.
   Name them by topic, never ``_common``, ``_util``, ``_helpers``, or ``_misc``, and use plain names for what other modules use.
-* ``qldpc/_utils.py`` holds Python-level plumbing only: lazy imports, warning stack levels, and docstring formatting.
+  A private subpackage is imported only from within its parent package, even elsewhere in its top-level subpackage, apart from tests and ``conftest.py`` files.
+* ``qldpc/_utils.py`` holds Python-level plumbing only: warning stack levels and docstring formatting.
 * Public objects are defined in public modules; never re-export a private module's object as public API.
-* Everything under ``src/qldpc/experimental/`` is unstable, can change without a deprecation period, and is exempt from these private-name rules.
+* Everything under ``src/qldpc/experimental/`` is unstable, can change without a deprecation period, and is exempt from these private-name rules, as are the research scripts in ``experiments/``.
 
 Code style and organization
 ---------------------------
@@ -35,13 +35,19 @@ Code style and organization
   Private constants and types may sit near the imports.
 * Within a class, put public methods first (for decoders, the decode methods) and private helper methods after them.
 * Do not copy transient project history, machine-specific paths, or local-session instructions into any committed file, including code, tests, configuration, and documentation.
-* Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compilation_test.py`` enforces its rules.
-* ``src/qldpc/code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
-* The top-level modules and subpackages of ``qldpc.circuits`` and ``qldpc.decoders`` import each other in layers: each imports only from itself and from lower layers, and never from the root of its package.
-  ``_LAYERS`` in the package's ``layering_test.py`` lists the layers and is the only place to update when adding a top-level module or subpackage; changes inside a subpackage need no edits.
-  Imports in functions and under ``TYPE_CHECKING`` count; tests and ``conftest.py`` files may import from any layer.
-  To keep an import that breaks the layers, end its line (for an import that spans several lines, its first line) with ``# layering-exception: <reason>``; the check fails if such a comment is no longer needed.
-  To layer another package, add a ``layering_test.py`` to its directory that calls ``check_import_layering`` from ``src/qldpc/conftest.py``.
+* An experiment in ``experiments/`` commits no data files, such as sampled codes, circuits, tables from the literature, or results, and no checksums of data generated for it in any file.
+  Data files worth keeping live in a separate data repository, and the experiment uses them from a directory that Git ignores.
+  Its Python code may still define what it runs.
+  It may also hold small tables that others published, such as reference distances, but not data generated for it, such as sampled codes or results.
+  An experiment that reproduces a published paper, such as an arXiv preprint, may also commit the paper's small, final data in one subdirectory, such as ``experiments/code_annealing/paper_data/``.
+  Its configuration files hold only its settings, which may pin a public source that it fetches or draws from, other than the data repository.
+* Numba code uses ``always_compiled`` or ``compiled_on_request`` from ``qldpc/_compilation.py``, never ``njit(cache=True)``; that module's docstring says which to use, and ``_compiled_code_rules_test.py`` enforces its rules.
+* ``src/qldpc/_code_style_test.py`` checks license headers, section headers, and the order of plain and underscore names.
+* Give each feature that users or other packages use one home.
+  The home is a module or subpackage that is named for the feature and holds its entry points, such as ``qldpc.codes.distance`` for exact distances of binary codes.
+  Code elsewhere that offers the feature, such as a method of a code class, calls into its home rather than reimplementing it.
+* In each package that has a ``_layering_test.py``, such as ``qldpc.circuits``, ``qldpc.codes.distance``, and ``qldpc.decoders``, the top-level modules and subpackages import each other in layers, as ``check_import_layering`` in ``src/qldpc/conftest.py`` describes and enforces.
+  Add each new top-level module or subpackage to a layer in the package's ``_LAYERS``, and layer another package by adding a ``_layering_test.py`` that calls ``check_import_layering``.
 * Do not weaken a failure with ``noqa``, ``type: ignore``, or coverage exclusions unless the exceptional condition is real and documented.
 
 .. _simplicity-and-clarity:

@@ -23,19 +23,11 @@ from .common import (
     AbstractCode,
     ClassicalCode,
     CSSCode,
+    DistanceBackend,
     ErrorRateFunc,
     QuditCode,
 )
-from .distance import (
-    CSSLogicalCounter,
-    CSSLogicalCounts,
-    DistanceBackend,
-    DistanceMethod,
-    LogicalCountMethod,
-    count_logical_ops_css,
-    get_distance_classical,
-    get_distance_quantum,
-)
+from .distance import NO_DISTANCE, DistanceMethod, NoDistance
 from .quantum import (
     BaconShorCode,
     BBCode,
@@ -53,6 +45,7 @@ from .quantum import (
     HGPCode,
     IcebergCode,
     LPCode,
+    LQTCode,
     ManyHypercubeCode,
     MBCode,
     PairPartitionCode,
@@ -74,6 +67,7 @@ from .quantum import (
 )
 
 __all__ = [
+    "NO_DISTANCE",
     "AbstractCode",
     "BBCode",
     "BCHCode",
@@ -84,8 +78,6 @@ __all__ = [
     "CHGPCode",
     "CRCode",
     "CSSCode",
-    "CSSLogicalCounter",
-    "CSSLogicalCounts",
     "ClassicalCode",
     "CyclicCode",
     "DistanceBackend",
@@ -103,9 +95,10 @@ __all__ = [
     "HammingCode",
     "IcebergCode",
     "LPCode",
-    "LogicalCountMethod",
+    "LQTCode",
     "MBCode",
     "ManyHypercubeCode",
+    "NoDistance",
     "PairPartitionCode",
     "QTCode",
     "QuantumGolayCode",
@@ -129,9 +122,6 @@ __all__ = [
     "ToricCode",
     "TrivialCode",
     "TwoGrossCode",
-    "count_logical_ops_css",
-    "get_distance_classical",
-    "get_distance_quantum",
 ]
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations

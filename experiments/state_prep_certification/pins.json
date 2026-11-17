@@ -1,0 +1,33 @@
+{
+ "qldpc_commit": null,
+ "qldpc_commit_note": "The qLDPC commit whose src/ and pyproject.toml the bundle carries, unchanged, and whose wheel it installs. null means not pinned: bundle.py then builds only a trial bundle (--unfrozen), which run_node.py refuses on the node without --allow-unfrozen.",
+ "interfaces": {
+  "bz_disjoint_route": "SearchTuning.partition_max_coverage = 1",
+  "work_counters": null
+ },
+ "python": {
+  "version": "3.12.16",
+  "standalone_release": "20261110",
+  "standalone_asset": "cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
+  "standalone_url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16%2B20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
+  "standalone_sha256": "c2f87d4b4e8db3abddb0f116c6ccfc503d0cbdbb9ee8faacddad1b679ec12e99"
+ },
+ "platform": {
+  "uv_python_platform": "x86_64-manylinux_2_28",
+  "wheel_platforms": [
+   "manylinux_2_28_x86_64",
+   "manylinux2014_x86_64"
+  ],
+  "min_glibc": "2.28"
+ },
+ "gnu_parallel": {
+  "version": "20261022",
+  "url": "https://ftp.gnu.org/gnu/parallel/parallel-20261022.tar.bz2",
+  "sha256": "4fb0d2d4d14a4ef6448c788cb2bcfde9fbe00b8d4bdc637a7e4c08f8c5453a55",
+  "license": "GPL-3.0-or-later"
+ },
+ "qldpc_extras": [
+  "bliss"
+ ],
+ "interfaces_note": "The qLDPC interfaces beyond the public API that the experiments rely on, by role, for the record of a run; null for one that the pinned commit lacks, such as opt-in work counters."
+}

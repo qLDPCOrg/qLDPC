@@ -11,17 +11,18 @@ import math
 from collections.abc import Sequence
 
 import galois
+import networkx as nx
 import numpy as np
 import numpy.typing as npt
 import sympy
 
 from qldpc import abstract
-from qldpc._utils import networkx as nx
+from qldpc.abstract.monomials import get_coefficient_and_exponents, iter_monomial_terms
 from qldpc.objects import (
     Node,
 )
 
-from ..common import ClassicalCode, CSSCode
+from ..common import ClassicalCode, CSSCode, _mark_read_only
 
 ####################################################################################################
 # two-block codes
@@ -88,9 +89,13 @@ class GALACode(CSSCode):
     The first J block rows of each parent matrix are the active rows that define the parity checks
     of the code.  The remaining rows are latent rows and do not define stabilizers.
 
-    Each generator is a RingMember and may therefore be either a monomial, representing one group
-    element, or a polynomial sum of group elements.  GALA codes are currently supported only over
-    GF(2).
+    Each generator is a member of the group algebra, so it may be either a monomial, representing
+    one group element, or a polynomial sum of group elements.  GALA codes are currently supported
+    only over GF(2).
+
+    If the group is abelian and its elements lift to permutation matrices, translating every block
+    of qudits by the same group element maps the checks of each type onto themselves, so
+    GALACode.get_known_qudit_automorphism_group includes these translations.
 
     The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 
@@ -158,10 +163,14 @@ class GALACode(CSSCode):
         self.num_blocks = 2 * len(self.generators_f)
         self.num_active_rows = num_active_rows
 
-        self.matrix_f = self._get_block_circulant(self.generators_f)
-        self.matrix_g = self._get_block_circulant(self.generators_g)
-        self.parent_matrix_x = abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
-        self.parent_matrix_z = abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+        self.matrix_f = _mark_read_only(self._get_block_circulant(self.generators_f))
+        self.matrix_g = _mark_read_only(self._get_block_circulant(self.generators_g))
+        self.parent_matrix_x = _mark_read_only(
+            abstract.RingArray(np.hstack([self.matrix_f, self.matrix_g]))
+        )
+        self.parent_matrix_z = _mark_read_only(
+            abstract.RingArray(np.hstack([self.matrix_g.T, self.matrix_f.T]))
+        )
 
         # lift only active block rows so inactive GALA checks are not added to the code
         active_matrix_x = abstract.RingArray(self.parent_matrix_x[: self.num_active_rows])
@@ -203,8 +212,10 @@ class GALACode(CSSCode):
         if not all(isinstance(generator, abstract.RingMember) for generator in generators):
             raise ValueError("GALA generators must be RingMember objects")
         ring = generators[0].ring
-        if any(generator.ring != ring for generator in generators[1:]):
-            raise ValueError("All GALA generators must belong to the same group ring")
+        if not isinstance(ring, abstract.GroupRing) or any(
+            generator.ring != ring for generator in generators[1:]
+        ):
+            raise ValueError("GALA generators must all be members of the same group algebra")
         if ring.field.order != 2:
             raise ValueError("GALA codes are currently supported only over GF(2)")
 
@@ -276,6 +287,10 @@ class MBCode(TBCode):
     The X-distance and Z-distance of a multivariate bicycle code are equal.  Swapping the two
     blocks, inverting group elements, and negating one block maps the X-type checks onto the Z-type
     checks, and preserves the weights of operators.
+
+    Translating both blocks of qudits by the same monomial ``x^i y^j z^k ...`` maps the checks of
+    each type onto themselves, so MBCode.get_known_qudit_automorphism_group includes these
+    translations.
     """
 
     poly_a: sympy.Poly
@@ -359,8 +374,8 @@ class MBCode(TBCode):
         assert len(orders) == len(self.symbols)
 
         coefficients: dict[sympy.Expr, galois.FieldArray] = {}
-        for term in abstract.iter_monomial_terms(poly):
-            _, _exponents = abstract.get_coefficient_and_exponents(term)
+        for term in iter_monomial_terms(poly):
+            _, _exponents = get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
             monomial = sympy.prod(
                 symbol ** (exponents.get(symbol, 0) % order)
@@ -386,8 +401,8 @@ class MBCode(TBCode):
 
         # shift the exponents of one simplified monomial term at a time
         new_poly: sympy.Expr = sympy.Integer(0)
-        for term in abstract.iter_monomial_terms(self.get_simplified_form(poly, orders)):
-            coeff, _exponents = abstract.get_coefficient_and_exponents(term)
+        for term in iter_monomial_terms(self.get_simplified_form(poly, orders)):
+            coeff, _exponents = get_coefficient_and_exponents(term)
             exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
 
             new_term = sympy.Integer(coeff)
@@ -439,8 +454,8 @@ class MBCode(TBCode):
             )
 
         # build matrices for each term in A and B, transposed to match the lift in __init__
-        terms_a = abstract.iter_monomial_terms(self.poly_a)
-        terms_b = abstract.iter_monomial_terms(self.poly_b)
+        terms_a = iter_monomial_terms(self.poly_a)
+        terms_b = iter_monomial_terms(self.poly_b)
         matrices_a = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_a]
         matrices_b = [self.ring.eval(term, self.symbol_gens).lift().T for term in terms_b]
 
@@ -683,8 +698,8 @@ class BBCode(MBCode):
             return []
 
         # identify individual monomials (terms without their coefficients) in the polynomials
-        monomials_a = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_a)]
-        monomials_b = [term.as_coeff_Mul()[1] for term in abstract.iter_monomial_terms(self.poly_b)]
+        monomials_a = [term.as_coeff_Mul()[1] for term in iter_monomial_terms(self.poly_a)]
+        monomials_b = [term.as_coeff_Mul()[1] for term in iter_monomial_terms(self.poly_b)]
 
         # identify collections of monomials that can be combined to obtain a toric layout
         toric_params = []
@@ -732,9 +747,15 @@ class BBCode(MBCode):
         return toric_layout_generating_data
 
     def as_exponent_vector(self, monomial: sympy.Mul) -> tuple[int, int]:
-        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``."""
-        _, _exponents = abstract.get_coefficient_and_exponents(monomial)
+        """Express the given monomial as a vector of exponents, as in ``x**3/y**2 -> (3, -2)``.
+
+        Raise a ValueError unless the monomial is an integer times a product of integer powers of
+        the symbols of this code.  The integer is ignored.
+        """
+        _, _exponents = get_coefficient_and_exponents(monomial)
         exponents = dict(_exponents)  # convert into a dictionary, {symbol: exponent}
+        if not exponents.keys() <= set(self.symbols):
+            raise ValueError(f"{monomial} is not a monomial in the symbols {self.symbols}")
         return (exponents.get(self.symbols[0], 0), exponents.get(self.symbols[1], 0))
 
     def change_poly_basis(
@@ -835,11 +856,12 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
     offsets = block_size * np.arange(num_blocks)[:, None]
     return np.array(
         [
-            (np.argmax(group.lift(generator), axis=0) + offsets).ravel()
+            # the argmax of a field array is a field array, which cannot add integer offsets
+            (np.argmax(group.lift(generator).view(np.ndarray), axis=0) + offsets).ravel()
             for generator in group.generators
         ],
         dtype=int,
-    ).reshape(-1, num_blocks * block_size)
+    ).reshape(len(group.generators), num_blocks * block_size)
 
 
 def _get_abelian_block_translations(
@@ -864,7 +886,8 @@ def _get_abelian_block_translations(
     if not group.is_abelian:
         return None
     for generator in group.generators:
-        lift = group.lift(generator)
+        # read the entries of a lift as integers, since sums over a finite field would be modular
+        lift = group.lift(generator).view(np.ndarray)
         is_permutation = (
             np.isin(lift, (0, 1)).all()
             and (lift.sum(axis=0) == 1).all()

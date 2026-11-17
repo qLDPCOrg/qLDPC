@@ -1,91 +1,124 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared fixtures and helpers for exact-distance, binary-algebra, BZ, and count tests."""
+"""Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
 import itertools
-from collections.abc import Iterator
+from collections.abc import Iterable, Sequence
 from typing import Any, NamedTuple
 
 import galois
 import numpy as np
 import numpy.typing as npt
 import pytest
+import stim
 
-from qldpc import _compilation, codes
-from qldpc._binary import get_independent_rows, get_kernel
+from qldpc import _compilation, codes, math
+from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
 from qldpc.objects import Pauli, PauliXZ
 
-from ..conftest import Tune
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
-from ._search import automorphism_families, coset_leader_search, information_sets
-from .core import DistanceMethod
+from ._information_sets import basis_families, certificates
+from .coset_leaders import CosetLeaderSearch
 
 
 @pytest.fixture
-def force_information_sets(tune: Tune) -> None:
-    """Route Brouwer-Zimmermann searches through information sets instead of exhaustive search."""
-    tune(allow_enumeration_by_size=False, allow_enumeration_by_work=False)
+def plain_search_setup() -> None:
+    """Run the set-up code of searches as plain Python, even with ``--compile-search-setup``.
+
+    A test needs this if it replaces a function that compiled-on-request code calls, since compiled
+    callers would not call the replacement, or if it compares the plain set-up code with its
+    compiled version.  This fixture sets every compiled-on-request function back to plain Python,
+    which undoes an earlier replacement of one, so a fixture that replaces one must request this
+    fixture, which then runs first.
+    """
+    _compilation.set_on_request_functions_compiled(False)
 
 
 class CostlyStages(NamedTuple):
     """The results of the costly stages of searches, which the costly_stages fixture records."""
 
-    partitioned_families: list[information_sets.BasisFamily]
-    search_certificates: list[information_sets.Certificate]
+    partitioned_families: list[basis_families.BasisFamily]
+    search_certificates: list[certificates.Certificate]
 
 
 @pytest.fixture
 def costly_stages(monkeypatch: pytest.MonkeyPatch) -> CostlyStages:
     """Record the families of matroid partitioning and the certificates that searches choose.
 
-    A family with sets and a maximum coverage above one shows that a search took a partitioned
-    family, and a certificate with pivot blocks shows that a search used linear programming.
+    A family with sets shows that a search took a partitioned family, and a certificate with pivot
+    blocks shows that a search used linear programming.
     """
     stages = CostlyStages([], [])
-    get_partitioned_family = information_sets.get_partitioned_family
-    get_search_certificate = information_sets.BasisFamily.get_search_certificate
+    get_partitioned_family = basis_families.get_partitioned_family
+    get_search_certificate = basis_families.BasisFamily.get_search_certificate
 
-    def record_family(*args: Any, **kwargs: Any) -> information_sets.BasisFamily:
+    def record_family(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
         family = get_partitioned_family(*args, **kwargs)
         stages.partitioned_families.append(family)
         return family
 
     def record_certificate(
-        basis_family: information_sets.BasisFamily, *args: Any, **kwargs: Any
-    ) -> information_sets.Certificate:
+        basis_family: basis_families.BasisFamily, *args: Any, **kwargs: Any
+    ) -> certificates.Certificate:
         certificate = get_search_certificate(basis_family, *args, **kwargs)
         stages.search_certificates.append(certificate)
         return certificate
 
-    monkeypatch.setattr(information_sets, "get_partitioned_family", record_family)
-    monkeypatch.setattr(information_sets.BasisFamily, "get_search_certificate", record_certificate)
+    monkeypatch.setattr(basis_families, "get_partitioned_family", record_family)
+    monkeypatch.setattr(basis_families.BasisFamily, "get_search_certificate", record_certificate)
     return stages
 
 
-@pytest.fixture(params=["python", "compiled"])
-def compilation_mode(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[None]:
-    """Run the compiled functions of the distance searches as plain Python, or compiled.
+def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
+    """The binary matrix with the given rows of digits."""
+    return np.array([[int(bit) for bit in row] for row in rows], dtype=np.uint8)
 
-    In the plain Python mode, the compiled-on-request functions, and the always-compiled functions
-    that the basis family stages, the automorphism families, and the coset-leader search define,
-    run as Python, which coverage can trace.  The compiled mode compiles the compiled-on-request
-    functions once per session, and restores plain Python afterwards.
-    """
-    if request.param == "python":
-        for module in (automorphism_families, information_sets, coset_leader_search):
-            for name, function in list(vars(module).items()):
-                if hasattr(function, "py_func") and function.py_func.__module__ == module.__name__:
-                    monkeypatch.setattr(module, name, function.py_func)
-        yield
-    else:
-        _compilation.set_on_request_functions_compiled(True)
-        try:
-            yield
-        finally:
-            _compilation.set_on_request_functions_compiled(False)
+
+# Codes whose greedy disjoint packings, in natural column order, leave room for the other families
+# that coset searches can take (Section 4.4 of ``brouwer_zimmermann.md``):
+#
+# - EVEN_ROUTES_CODE has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so its rows
+#   are even.  Its greedy packing has ranks three and two, but its columns hold two disjoint
+#   information sets.
+# - TWO_FAMILIES_CODE, a random [10, 6] code, has a greedy packing of ranks six and three, a
+#   disjoint family of ranks six and four, and a family of three overlapping information sets, and
+#   queries take each family at some maximum weights.
+# - OVERLAPPING_ROUTES_CODE, a random [14, 8] code, has a greedy packing of ranks eight and six that
+#   uses every column.  Three overlapping information sets do less work than the greedy packing for
+#   some queries only, so its overlapping family depends on the weight at which it is built, and
+#   changes some answers.
+EVEN_ROUTES_CODE = get_binary_matrix(["100111", "010111", "001001"])
+TWO_FAMILIES_CODE = get_binary_matrix(
+    ["1001010111", "0110001011", "0101111010", "0010111100", "0010100000", "0000100110"]
+)
+OVERLAPPING_ROUTES_CODE = get_binary_matrix(
+    [
+        "01111100111010",
+        "00010010000010",
+        "00010001001101",
+        "11000101110011",
+        "10111001110101",
+        "01000001111111",
+        "00101110110101",
+        "11001001110111",
+    ]
+)
+
+# A [15, 6, 4] code whose last nine columns have even weight on the first four rows.  A greedy
+# packing of its columns in natural order takes the first six, and leaves a partial set of rank
+# five, but the columns hold two disjoint information sets, which matroid partitioning with coverage
+# one finds (Section 4.4 of ``brouwer_zimmermann.md``).
+MISSED_SET_CODE = get_binary_matrix(
+    [
+        "100000111011011",
+        "010000110000010",
+        "001000101001100",
+        "000100100010101",
+        "000010010110101",
+        "000001111110101",
+    ]
+)
 
 
 def get_random_full_rank_matrix(
@@ -114,13 +147,7 @@ def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
 # helpers for the tests of logical-operator counts
 
 Counts = lc.CSSLogicalCounts
-METHODS: tuple[DistanceMethod, ...] = ("brouwer_zimmermann", "brute_force")
-
-
-def get_counter(checks_x: npt.ArrayLike, checks_z: npt.ArrayLike) -> lc.CSSLogicalCounter:
-    """A counter for the CSS code with the given binary checks."""
-    code = codes.CSSCode(np.asarray(checks_x, dtype=int), np.asarray(checks_z, dtype=int))
-    return lc.CSSLogicalCounter(code)
+METHODS: tuple[lc.LogicalCountMethod, ...] = ("brouwer_zimmermann", "brute_force")
 
 
 def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
@@ -131,7 +158,7 @@ def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
 def append_frozen_qubits(
     checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Append qubits fixed in |0> by a Z check each; no logical of minimum weight touches them."""
+    """Append qubits fixed in |0> by a Z check each.  No logical of minimum weight touches them."""
     x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
     extra = width - x.shape[1]
     padded_x = np.pad(x, ((0, 0), (0, extra)))
@@ -151,7 +178,34 @@ def get_random_css_code(
     return codes.CSSCode(checks_x.astype(int), checks_z.astype(int))
 
 
-def get_sector_problem(
+def get_costly_basis() -> npt.NDArray[np.uint8]:
+    """A basis of a [21, 8, 6] code whose search reaches matroid partitioning at low thresholds."""
+    return get_binary_matrix(
+        [
+            "100000010110010010011",
+            "010000010100101111100",
+            "001000000111011111100",
+            "000100010101000101010",
+            "000010010110000011000",
+            "000001010011000111011",
+            "000000110001110101011",
+            "000000001110001010110",
+        ]
+    )
+
+
+def get_golay_checks() -> npt.NDArray[np.uint8]:
+    """A basis of the dual of the cyclic [23, 12, 7] Golay code, which contains its dual.
+
+    As checks and as excluded rows, it gives a sector of the [[23, 1, 7]] CSS code of the Golay
+    code, which cyclic shifts preserve.
+    """
+    generator = np.zeros(23, dtype=np.uint8)
+    generator[[0, 1, 5, 6, 7, 9, 11]] = 1
+    return get_kernel(np.array([np.roll(generator, shift) for shift in range(12)]))
+
+
+def get_sector(
     code: codes.CSSCode, pauli: PauliXZ
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """The adapted basis and quotient labels of one sector of a binary CSS code."""
@@ -221,3 +275,134 @@ def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: An
 # {2,4}, {0,3} and {1,3}.  The Z word {2,4} also supports the X stabilizer {2,4}, so in total there
 # are 2 + 3 + 1 = 6 logical Pauli operators of weight two.
 HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
+
+
+####################################################################################################
+# helpers for the tests of coset-leader searches
+
+
+def get_stabilizer_matrix(generators: Sequence[stim.PauliString | str]) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] with the given Pauli strings as rows."""
+    return np.array(
+        [np.concatenate(stim.PauliString(gg).to_numpy()) for gg in generators], dtype=np.uint8
+    )
+
+
+def get_graph_state(
+    num_qubits: int, edges: Sequence[tuple[int, int]], phase: bool = False
+) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of a graph state, with S gates on every qubit if ``phase``.
+
+    Generator j acts as X (or Y) on qubit j, so the X parts of the generators form the identity.
+    """
+    circuit = stim.Circuit()
+    circuit.append("H", range(num_qubits))
+    for edge in edges:
+        circuit.append("CZ", edge)
+    if phase:
+        circuit.append("S", range(num_qubits))
+    return get_stabilizer_matrix(stim.Tableau.from_circuit(circuit).to_stabilizers())
+
+
+def get_pauli_weight(pauli: int, num_qubits: int, css_weight: bool) -> int:
+    """Weight of a packed Pauli, with X in the low bits and Z in the next block."""
+    x, z = pauli & ((1 << num_qubits) - 1), pauli >> num_qubits
+    return (x | z).bit_count() if not css_weight else max(x.bit_count(), z.bit_count())
+
+
+def get_syndrome(matrix: npt.NDArray[np.uint8], pauli: int) -> int:
+    """Syndrome of a packed Pauli: its symplectic product with each row of the stabilizer matrix."""
+    bits = np.array([(pauli >> jj) & 1 for jj in range(matrix.shape[1])])
+    products = matrix @ math.symplectic_conjugate(bits) % 2
+    return sum(int(bit) << jj for jj, bit in enumerate(products))
+
+
+def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.NDArray[np.uint64]:
+    """Split packed syndromes of ``num_bits`` bits into rows of 64-bit words.
+
+    Bit ``k`` of word ``j`` of a row is bit ``64 j + k`` of its syndrome.
+    """
+    width = (num_bits + 63) // 64
+    words = [[(syndrome >> (64 * jj)) % 2**64 for jj in range(width)] for syndrome in syndromes]
+    return np.array(words, dtype=np.uint64).reshape(len(syndromes), width)
+
+
+# Graph states whose costly queries of Pauli errors take a maximum disjoint family that beats the
+# greedy packing (Section 4.4 of ``brouwer_zimmermann.md``).  By physical weight, the family has
+# more information sets on the first of ROUTED_PHYSICAL_STATES, and a larger partial set on the
+# second, where it returns other errors than the greedy packing for some classes without an error
+# within the maximum weight.  By CSS weight, it has a larger partial set on ROUTED_CSS_WEIGHT_STATE.
+ROUTED_PHYSICAL_STATES = (
+    get_graph_state(5, [(0, 3), (1, 2), (1, 3), (1, 4)], phase=True),
+    get_graph_state(5, [(0, 4), (2, 3)]),
+)
+
+ROUTED_CSS_WEIGHT_STATE = get_graph_state(5, [(0, 1), (0, 4), (1, 4)])
+
+
+def get_random_css_state(
+    num_qubits: int, num_x_stabilizers: int, rng: np.random.Generator
+) -> npt.NDArray[np.uint8]:
+    """Stabilizer matrix [X|Z] of a random CSS state, with generators that mix pure-X and pure-Z.
+
+    The X parts of the pure-X stabilizers are random independent rows, and the Z parts of the pure-Z
+    stabilizers span their null space.
+    """
+    while True:
+        x_rows = rng.integers(2, size=(num_x_stabilizers, num_qubits), dtype=np.uint8)
+        if len(row_reduce_binary(x_rows)[2]) == num_x_stabilizers:
+            break
+    pure = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
+    pure[:num_x_stabilizers, :num_qubits] = x_rows
+    pure[num_x_stabilizers:, num_qubits:] = get_kernel(x_rows)
+    return scramble(pure, rng)
+
+
+def scramble(matrix: npt.NDArray[np.uint8], rng: np.random.Generator) -> npt.NDArray[np.uint8]:
+    """Random invertible combinations of the rows of a stabilizer matrix, which keep its group."""
+    size = len(matrix)
+    upper = np.triu(rng.integers(2, size=(size, size), dtype=np.uint8), 1) + np.eye(
+        size, dtype=np.uint8
+    )
+    return (upper[rng.permutation(size)] @ matrix) % 2
+
+
+def get_exhaustive_minima(matrix: npt.NDArray[np.uint8], css_weight: bool) -> npt.NDArray[np.int_]:
+    """The smallest CSS (or physical) weight of a Pauli error with each packed syndrome."""
+    n = len(matrix)
+    errors = (np.arange(1 << (2 * n))[:, None] >> np.arange(2 * n)) & 1
+    checks = math.symplectic_conjugate(matrix.astype(int))
+    syndromes = (errors @ checks.T % 2) @ (1 << np.arange(n))
+    x, z = errors[:, :n], errors[:, n:]
+    weights = np.maximum(x.sum(axis=1), z.sum(axis=1)) if css_weight else (x | z).sum(axis=1)
+    minima = np.full(1 << n, 2 * n + 1)
+    np.minimum.at(minima, syndromes, weights)
+    return minima
+
+
+# A code whose disjoint information sets have ranks five and four.
+RANK_DEFICIENT_CODE = np.array(
+    [
+        [0, 0, 1, 1, 0, 1, 1, 1, 0, 0],
+        [0, 0, 1, 1, 0, 0, 1, 1, 1, 1],
+        [1, 0, 1, 1, 0, 1, 0, 1, 1, 0],
+        [0, 1, 1, 0, 1, 1, 0, 1, 0, 1],
+        [1, 0, 1, 1, 0, 1, 1, 1, 0, 1],
+    ],
+    dtype=np.uint8,
+)
+
+
+def assert_exact_answers(
+    oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
+) -> None:
+    """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
+    num_qubits = len(matrix)
+    minima = get_exhaustive_minima(matrix, css_weight)
+    for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
+        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        weight = get_pauli_weight(bound.representative, num_qubits, css_weight)
+        assert bound.within_max_weight == (minima[syndrome] <= max_weight)
+        assert get_syndrome(matrix, bound.representative) == syndrome
+        assert bound.lower_bound <= minima[syndrome] <= weight
+        assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
