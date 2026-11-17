@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Literal, overload
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -13,7 +13,7 @@ import numpy.typing as npt
 from qldpc import codes
 from qldpc._binary import get_independent_rows
 from qldpc.codes.distance._binary import _as_dense
-from qldpc.objects import Pauli, PauliXZLike
+from qldpc.objects import Pauli
 
 from ._sectors import Sector, get_sector
 
@@ -21,40 +21,18 @@ from ._sectors import Sector, get_sector
 # evaluation
 
 
-@overload
 def evaluate_logical_ops(
     code: codes.CSSCode,
     logical_ops: npt.ArrayLike | None = None,
     *,
-    pauli: None = None,
     logicals: Literal["dressed", "bare"] = "dressed",
-) -> LogicalBasisMetrics: ...
+) -> LogicalBasisMetrics:
+    """Check a complete basis of logical operators of a CSS code, and measure its overlaps.
 
-
-@overload
-def evaluate_logical_ops(
-    code: codes.CSSCode,
-    logical_ops: npt.ArrayLike | None = None,
-    *,
-    pauli: PauliXZLike,
-    logicals: Literal["dressed", "bare"] = "dressed",
-) -> LogicalOpsMetrics: ...
-
-
-def evaluate_logical_ops(
-    code: codes.CSSCode,
-    logical_ops: npt.ArrayLike | None = None,
-    *,
-    pauli: PauliXZLike | None = None,
-    logicals: Literal["dressed", "bare"] = "dressed",
-) -> LogicalBasisMetrics | LogicalOpsMetrics:
-    """Check a basis of logical operators of a CSS code, and measure its weights and overlaps.
-
-    Without ``pauli``, ``logical_ops`` is a complete basis with shape ``(2k, 2n)``, laid out as by
+    A complete basis has shape ``(2k, 2n)``, laid out as by
     :meth:`qldpc.codes.CSSCode.get_logical_ops`: the first ``k`` rows are X-type operators and the
     last ``k`` rows are Z-type operators, with X-type operator ``j`` anticommuting with Z-type
-    operator ``j`` and commuting with all others.  With ``pauli``, ``logical_ops`` is a basis of
-    logical operators of that type only, with shape ``(k, n)``.
+    operator ``j`` and commuting with all others.
 
     For a subsystem code, these conditions apply to logical classes, since the gauge parts of
     dressed operators can change whether they commute.  To check a basis for
@@ -64,28 +42,19 @@ def evaluate_logical_ops(
     Args:
         code: A binary CSS code, which may be a subsystem code.
         logical_ops: The basis to evaluate.  Defaults to the code's own logical operators.
-        pauli: If given, evaluate a basis of logical operators of this type only.
         logicals: For a subsystem code, ``"dressed"`` (the default) accepts logical operators that
             commute with the stabilizers, while ``"bare"`` requires them to commute with every gauge
             operator.  The two are the same for a stabilizer code.
 
     Returns:
-        The metrics of the X-type and Z-type operators of a complete basis, or the metrics of the
-        operators of the requested type.
+        The metrics of the X-type and Z-type operators.
 
     Raises:
         TypeError: If ``code`` is not a CSS code.
-        ValueError: If ``code`` is not binary, or ``pauli`` or ``logicals`` is invalid.  Also if
-            ``logical_ops`` has the wrong shape, has entries other than 0 and 1, or is not a basis
-            as described above.
+        ValueError: If ``code`` is not binary, or ``logicals`` is invalid.  Also if ``logical_ops``
+            has the wrong shape, has entries other than 0 and 1, or is not a basis as described
+            above.
     """
-    if pauli is not None:
-        sector = get_sector(code, pauli, logicals)
-        ops = code.get_logical_ops(pauli) if logical_ops is None else logical_ops
-        matrix = _as_binary_matrix(ops, (sector.dimension, sector.num_qubits))
-        _get_valid_classes(sector, matrix)
-        return LogicalOpsMetrics._from_ops(matrix)
-
     sector_x = get_sector(code, Pauli.X, logicals)
     sector_z = get_sector(code, Pauli.Z, logicals)
     k, n = sector_x.dimension, sector_x.num_qubits

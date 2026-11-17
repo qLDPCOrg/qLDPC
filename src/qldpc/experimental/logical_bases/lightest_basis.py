@@ -17,6 +17,7 @@ from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
 from qldpc.objects import PauliXZLike
 
 from ._sectors import get_sector
+from .evaluation import LogicalOpsMetrics
 
 ####################################################################################################
 # lightest bases
@@ -85,6 +86,11 @@ class LightestLogicalBasis:
     def weights(self) -> npt.NDArray[np.int_]:
         """The weight of each operator, in nondecreasing order."""
         return self.logical_ops.astype(np.int_).sum(axis=1)
+
+    @property
+    def metrics(self) -> LogicalOpsMetrics:
+        """The metrics of the operators: their weights, loads, and overlaps."""
+        return LogicalOpsMetrics._from_ops(self.logical_ops)
 
     @property
     def max_weight(self) -> int:

@@ -26,11 +26,10 @@ def test_metrics() -> None:
 
 
 def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
-    """By default, the code's own basis is evaluated, complete or one Pauli type at a time."""
+    """By default, the code's own complete basis is evaluated, one Pauli type in each attribute."""
     metrics = evaluate_logical_ops(stabilizer_code)
-    assert not np.array_equal(
-        metrics.x.overlaps, metrics.z.overlaps
-    )  # so that swapping x and z would fail
+    # the two Pauli types differ, so that swapping x and z would fail
+    assert not np.array_equal(metrics.x.overlaps, metrics.z.overlaps)
     paulis_and_metrics: list[tuple[PauliXZ, LogicalOpsMetrics]] = [
         (Pauli.X, metrics.x),
         (Pauli.Z, metrics.z),
@@ -38,8 +37,6 @@ def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
     for pauli, metrics_of_type in paulis_and_metrics:
         ops = stabilizer_code.get_logical_ops(pauli).view(np.ndarray)
         np.testing.assert_array_equal(metrics_of_type.overlaps, ops.astype(int) @ ops.T.astype(int))
-        single = evaluate_logical_ops(stabilizer_code, pauli=pauli)
-        np.testing.assert_array_equal(single.overlaps, metrics_of_type.overlaps)
 
     # sparse input gives the same metrics
     sparse_ops = scipy.sparse.csr_array(stabilizer_code.get_logical_ops().view(np.ndarray))
@@ -49,8 +46,8 @@ def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
 
     # a code without logical qubits has an empty basis
     code = codes.CSSCode([[1, 1]], [[1, 1]])
-    assert evaluate_logical_ops(code).x.weights.shape == (0,)
-    assert evaluate_logical_ops(code, pauli=Pauli.Z).max_weight == 0
+    metrics = evaluate_logical_ops(code)
+    assert metrics.x.weights.shape == metrics.z.weights.shape == (0,)
 
 
 def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
@@ -74,16 +71,15 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
     with pytest.raises(ValueError, match="Z-type operators are not logical"):
         evaluate_logical_ops(stabilizer_code, not_logical)
 
-    # the rows stay independent, but two of them now have the same class
-    dependent = ops[:k, :n].copy()
-    dependent[1] = dependent[0] ^ stabilizer_code.matrix_x.view(np.ndarray)[0]
-    with pytest.raises(ValueError, match="independent"):
-        evaluate_logical_ops(stabilizer_code, dependent, pauli=Pauli.X)
+    # the rows stay independent, but two X-type operators now have the same class
+    dependent = ops.copy()
+    dependent[1, :n] = dependent[0, :n] ^ stabilizer_code.matrix_x.view(np.ndarray)[0]
+    with pytest.raises(ValueError, match="X-type operators do not have independent"):
+        evaluate_logical_ops(stabilizer_code, dependent)
 
     # each half is still a basis, but X-type operator 0 now anticommutes with Z-type operator 1
     unpaired = ops.copy()
     unpaired[0] ^= unpaired[1]
-    evaluate_logical_ops(stabilizer_code, unpaired[:k, :n], pauli=Pauli.X)
     with pytest.raises(ValueError, match="anticommute"):
         evaluate_logical_ops(stabilizer_code, unpaired)
 
@@ -103,6 +99,3 @@ def test_evaluate_dressed_ops(subsystem_code: codes.CSSCode) -> None:
     evaluate_logical_ops(subsystem_code, ops)
     with pytest.raises(ValueError, match="not logical operators"):
         evaluate_logical_ops(subsystem_code, ops, logicals="bare")
-    ops_x = ops[: subsystem_code.dimension, :n]
-    with pytest.raises(ValueError, match="not logical operators"):
-        evaluate_logical_ops(subsystem_code, ops_x, pauli=Pauli.X, logicals="bare")

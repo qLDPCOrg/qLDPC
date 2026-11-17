@@ -13,7 +13,6 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from . import lightest_basis
-from .evaluation import evaluate_logical_ops
 from .lightest_basis import (
     LightestLogicalBasis,
     _get_min_weight,
@@ -52,8 +51,14 @@ def test_lightest_basis(
     for code, logicals, checks, trivial in cases:
         basis = get_lightest_logical_basis(code, pauli, logicals=logicals)
         assert basis.weights.tolist() == _get_brute_force_weights(checks, trivial)
-        metrics = evaluate_logical_ops(code, basis.logical_ops, pauli=pauli, logicals=logicals)
-        np.testing.assert_array_equal(metrics.weights, basis.weights)
+
+        # the operators are logical, and independent modulo the trivial operators
+        ops = basis.logical_ops.astype(int)
+        assert not np.any(np.asarray(checks, dtype=int) @ ops.T % 2)
+        trivial_rank = _get_rank(trivial)
+        assert _get_rank(np.vstack([np.asarray(trivial, dtype=int), ops])) == trivial_rank + len(
+            ops
+        )
         weights.append(basis.weights)
 
     # the dressed operators of this subsystem code are lighter than its bare operators
@@ -81,8 +86,10 @@ def test_exact_searches_only_at_new_weights(
 
 def test_lightest_basis_properties() -> None:
     """Summary values follow from the weights, including for codes without logical qubits."""
-    basis = LightestLogicalBasis(np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8))
+    basis = LightestLogicalBasis(np.array([[1, 1, 1, 0], [1, 1, 0, 1]], dtype=np.uint8))
     assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 6, 2)
+    np.testing.assert_array_equal(basis.metrics.loads, [2, 2, 1, 1])
+    np.testing.assert_array_equal(basis.metrics.overlaps, [[3, 2], [2, 3]])
 
     basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
     assert basis.logical_ops.shape == (0, 2)
@@ -96,6 +103,12 @@ def test_weight_queries() -> None:
     assert _has_light_word(space, space[:1], 2)
     assert not _has_light_word(space, space[:1], 1)
     assert not _has_light_word(space, space, 3)
+
+
+def _get_rank(matrix: npt.ArrayLike) -> int:
+    """The rank of a binary matrix over GF(2)."""
+    array = np.asarray(matrix, dtype=int)
+    return int(np.linalg.matrix_rank(galois.GF2(array))) if array.size else 0
 
 
 def _get_brute_force_weights(checks: npt.ArrayLike, trivial: npt.ArrayLike) -> list[int]:
