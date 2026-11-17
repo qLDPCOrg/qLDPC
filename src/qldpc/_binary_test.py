@@ -103,6 +103,8 @@ def test_multiply_packed() -> None:
     product = binary.multiply_packed(binary.pack_bits(left), binary.pack_bits(right))
     expected = left[:, :70].astype(int) @ right % 2
     np.testing.assert_array_equal(binary.unpack_bits(product, 9), expected)
+    with pytest.raises(ValueError, match="word for every 64 rows"):
+        binary.multiply_packed(binary.pack_bits(left[:, :64]), binary.pack_bits(right))
 
 
 def test_get_inverse() -> None:

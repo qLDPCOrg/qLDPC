@@ -174,15 +174,22 @@ def multiply_packed(
     """Multiply packed binary matrices over GF(2) by the Method of Four Russians.
 
     Row ``i`` of the product is the sum of the rows ``j`` of ``right`` for which bit ``j`` of row
-    ``i`` of ``left`` is set, so ``left`` must have a word for every 64 rows of ``right``, and its
-    bits beyond them are ignored.  For each group of 8 consecutive rows of ``right``, the method
-    tabulates the sums of all 256 subsets of the group, and then adds to each row of the product the
-    entry that its 8 bits in the group select.  One addition of packed rows thus replaces up to 8,
-    and the table costs 255 additions per group, which pay off when ``left`` has many rows.  This is
-    the product of the M4RI library: M. Albrecht, G. Bard, and W. Hart, "Algorithm 898: Efficient
-    multiplication of dense matrices over GF(2)", https://arxiv.org/abs/0811.1714.
+    ``i`` of ``left`` is set.  The rows of ``left`` must have at least ``ceil(len(right) / 64)``
+    words, and their bits past ``len(right)`` are ignored.  For each group of up to 8 consecutive
+    rows of ``right``, the method tabulates the sums of all subsets of the group, and then adds to
+    each row of the product the table entry that the bits of the matching row of ``left`` in the
+    group select.  One addition of packed rows thus replaces up to 8, and the table costs at most
+    255 additions per group, which pay off when ``left`` has many rows.  This is the basic product
+    of the M4RI library ("M4RM"), without its further optimizations: M. Albrecht, G. Bard, and W.
+    Hart, "Algorithm 898: Efficient multiplication of dense matrices over GF(2)",
+    https://arxiv.org/abs/0811.1714.
+
+    Raises:
+        ValueError: If the rows of ``left`` have too few words.
     """
     num_inner, num_words = right.shape
+    if 64 * left.shape[1] < num_inner:
+        raise ValueError("The left rows need a word for every 64 rows of the right matrix")
     product = np.zeros((len(left), num_words), dtype=np.uint64)
     table = np.zeros((256, num_words), dtype=np.uint64)
     for start in range(0, num_inner, 8):
@@ -199,11 +206,11 @@ def multiply_packed(
         # The group starts at a multiple of 8, so its bits lie in one word of ``left``.
         word_index, shift = start // 64, np.uint64(start % 64)
         mask = np.uint64((1 << size) - 1)
-        for index in range(len(left)):
-            subset = (left[index, word_index] >> shift) & mask
-            if subset:
+        for product_row in range(len(left)):
+            selection = (left[product_row, word_index] >> shift) & mask
+            if selection:
                 for word in range(num_words):
-                    product[index, word] ^= table[subset, word]
+                    product[product_row, word] ^= table[selection, word]
     return product
 
 

@@ -15,7 +15,7 @@ import scipy.sparse
 import sympy
 
 import qldpc
-from qldpc._binary import get_independent_rows
+from qldpc._binary import get_independent_rows, multiply_packed
 
 from . import _binary as binary
 
@@ -133,12 +133,22 @@ def test_distance_requires_binary_input() -> None:
     )
 
 
-@pytest.mark.parametrize("shape", [(5, 70, 4), (512, 9, 512)])
-def test_binary_products(shape: tuple[int, int, int]) -> None:
+@pytest.mark.parametrize("shape, four_russians", [((5, 70, 4), False), ((1024, 9, 1024), True)])
+def test_binary_products(
+    shape: tuple[int, int, int], four_russians: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Binary products match products of integers, reduced modulo two.
 
     The small product is computed in floats, and the large one by the Method of Four Russians.
+    Matrices whose inner dimensions differ cannot be multiplied by either.
     """
+    calls: list[object] = []
+
+    def record(*args: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
+        calls.append(args)
+        return multiply_packed(*args)
+
+    monkeypatch.setattr(binary, "multiply_packed", record)
     num_rows, num_inner, num_cols = shape
     rng = np.random.default_rng(0)
     left = rng.integers(2, size=(num_rows, num_inner), dtype=np.uint8)
@@ -146,6 +156,9 @@ def test_binary_products(shape: tuple[int, int, int]) -> None:
     product = binary.multiply_binary(left, right)
     assert product.dtype == np.uint8
     np.testing.assert_array_equal(product, left.astype(int) @ right.astype(int) % 2)
+    assert len(calls) == four_russians
+    with pytest.raises(ValueError, match="Cannot multiply"):
+        binary.multiply_binary(left, right[1:])
 
 
 def test_symplectic_to_hamming_doubles_weights() -> None:

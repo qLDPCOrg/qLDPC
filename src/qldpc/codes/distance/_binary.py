@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Binary input checks, nested bases, stabilizers, and the symplectic map for distance searches.
+"""Binary input checks, products, nested bases, stabilizers, and the symplectic map for searches.
 
 The generic bit-packed linear algebra over GF(2) that the searches use is in ``qldpc._binary``.
 """
@@ -26,10 +26,9 @@ from qldpc._binary import (
 )
 
 # Products with at least this many rows and columns use the Method of Four Russians, whose tables
-# pay off only over many rows.  The size keeps either BLAS library from losing much: with fewer rows
-# or columns, float32 BLAS through Apple's Accelerate can be several times faster; with at least
-# this many, the Four Russians are usually faster with either library, by several times with
-# OpenBLAS.
+# pay off only over many rows.  Below this size, float32 BLAS through Apple's Accelerate can be
+# several times faster.  At or above it, the Method of Four Russians is usually faster under both
+# Accelerate and OpenBLAS, by several times under OpenBLAS.
 _MIN_FOUR_RUSSIANS_SIZE = 512
 
 ####################################################################################################
@@ -191,20 +190,29 @@ def get_eligible_rows(labels: npt.NDArray[np.uint8]) -> npt.NDArray[np.bool_]:
 def multiply_binary(
     left: npt.NDArray[np.uint8], right: npt.NDArray[np.uint8]
 ) -> npt.NDArray[np.uint8]:
-    """The product of two binary matrices over GF(2).
+    """The product over GF(2) of two matrices of zeros and ones, as a uint8 array.
 
     A product with at least ``_MIN_FOUR_RUSSIANS_SIZE`` rows and columns adds packed rows by the
     Method of Four Russians (see ``multiply_packed``).  A smaller one multiplies the matrices in
     float32 through BLAS, which is exact while their inner dimension is below ``2**24``, and faster
     than in integers.
+
+    Raises:
+        ValueError: If ``left`` has a different number of columns than ``right`` has rows.
     """
+    if left.shape[1] != len(right):
+        raise ValueError(
+            f"Cannot multiply a matrix with {left.shape[1]} columns by one with {len(right)} rows"
+        )
     if min(len(left), right.shape[1]) >= _MIN_FOUR_RUSSIANS_SIZE:
+        # Pack C-ordered arrays, so that inputs in any memory layout share compiled specializations.
         packed = multiply_packed(
             pack_bits(np.ascontiguousarray(left)), pack_bits(np.ascontiguousarray(right))
         )
         return unpack_bits(packed, right.shape[1])
     assert left.shape[1] < 2**24
-    # Reduce the exact integer products modulo two in integers, which is much faster than in floats.
+    # The float32 entries are exact integers, which reduce modulo two several times faster as int32
+    # than as floats.
     product = left.astype(np.float32) @ right.astype(np.float32)
     return (product.astype(np.int32) & 1).astype(np.uint8)
 
