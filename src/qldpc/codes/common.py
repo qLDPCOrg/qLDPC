@@ -2224,9 +2224,9 @@ class QuditCode(AbstractCode):
         The group can be a proper subgroup of the group of all qudit permutations that preserve the
         code.  Bliss finds only permutations that map a set of checks that it searches onto itself,
         so it can miss permutations of the construction, and the group can depend on the sets of
-        checks that bliss searches and on whether pybliss is installed.  The group also omits
-        automorphisms that act on each qudit, such as by local Clifford operations, as well as
-        permuting the qudits.
+        checks that bliss searches and on whether pybliss is installed.  Its members only permute
+        qudits, so it omits automorphisms that also apply an operation to some qudits, such as a
+        local Clifford operation.
 
         Returns:
             A group of permutations of the qudits ``range(len(self))``, in which a member p maps
@@ -2766,11 +2766,10 @@ class QuditCode(AbstractCode):
         Subclasses whose construction comes with such a group return an array of its generators.
         Row ``i`` of the array maps qudit ``j`` to qudit ``row[j]``.  Each generator maps the row
         space of the parity check matrix onto itself.  For a CSS code, a generator does so if it
-        maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.
-        :meth:`get_known_automorphism_group` returns the group that these generators generate
-        together with the permutations that bliss finds (see ``_found_qudit_automorphisms``), and
-        the Brouwer-Zimmermann and connected-cluster searches of exact distances use the same
-        permutations.
+        maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  Together with
+        the permutations that bliss finds (see ``_found_qudit_automorphisms``), these generators
+        generate the group of :meth:`get_known_automorphism_group`.  Exact distance searches of
+        binary codes can use the same permutations to search less.
         """
         return None
 

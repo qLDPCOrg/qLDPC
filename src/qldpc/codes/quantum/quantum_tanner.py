@@ -63,8 +63,8 @@ spaces, but generating sets of the stabilizer group that combine checks at diffe
 lighter.
 
 Canonical local checks.  With the optional pybliss package, bliss finds qudit permutations that map
-a set of checks onto itself (see QuditCode.get_known_automorphism_group).  QTCode and LQTCode
-have it search their canonical local checks, as well as their parity checks.  The canonical local
+a set of checks onto itself (see QuditCode.get_known_automorphism_group).  QTCode and LQTCode have
+it search their canonical local checks, as well as their parity checks.  The canonical local
 checks of a vertex are the nonzero words of weight at most w_max of its local check space, placed on
 its local view, where w_max is the largest weight of a word in a minimum-weight basis of the space.
 All minimum-weight bases of a space have the same weights, so w_max depends only on the space.  By

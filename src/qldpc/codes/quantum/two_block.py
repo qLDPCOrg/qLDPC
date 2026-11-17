@@ -289,8 +289,7 @@ class MBCode(TBCode):
     checks, and preserves the weights of operators.
 
     Translating both blocks of qudits by the same monomial ``x^i y^j z^k ...`` maps the checks of
-    each type onto themselves, so MBCode.get_known_automorphism_group includes these
-    translations.
+    each type onto themselves, so MBCode.get_known_automorphism_group includes these translations.
     """
 
     poly_a: sympy.Poly

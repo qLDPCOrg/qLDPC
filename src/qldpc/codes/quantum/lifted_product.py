@@ -294,9 +294,9 @@ class SLPCode(CSSCode):
     That is, the SLPCode is to the SHPCode what the LPCode is to the HGPCode.  See
     help(qldpc.codes.LPCode) for additional information.  The ring of an SLPCode must satisfy
     requirements 1 and 2 of an LPCode.  ``set_logicals`` is as for :class:`LPCode`.  As for an
-    LPCode, SLPCode.get_known_automorphism_group includes the translations of every block of
-    qudits by the same group member if the ring is the group algebra of an abelian group whose
-    members lift to permutation matrices.
+    LPCode, SLPCode.get_known_automorphism_group includes the translations of every block of qudits
+    by the same group member if the ring is the group algebra of an abelian group whose members lift
+    to permutation matrices.
 
     As an example, the SLPCode in example 1 on page 6 of https://arxiv.org/pdf/2404.18302v1 can be
     constructed by::
