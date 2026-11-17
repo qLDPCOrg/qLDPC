@@ -2209,9 +2209,11 @@ class QuditCode(AbstractCode):
 
         - with the optional pybliss package (``pip install 'qldpc[bliss]'``), automorphisms of the
           Tanner graph of the parity checks, in which each edge is colored by the Pauli operator of
-          its check on its qudit, and likewise of other sets of checks that span the same space, if
-          the class of the code chooses any, as QTCode does (see help(qldpc.codes.QTCode)); and
-        - permutations that the construction of the code provides, if any, such as the translations
+          its check on its qudit;
+        - with pybliss, automorphisms of the Tanner graphs of other sets of checks that span the
+          same space, if the class of this code supplies any, such as the canonical local checks of
+          a QTCode; and
+        - permutations that the construction of this code provides, if any, such as the translations
           of a group-algebra code.
 
         Each of these permutations maps the row space of the parity check matrix onto itself, so it
@@ -2771,12 +2773,24 @@ class QuditCode(AbstractCode):
     def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
         """Sets of checks, whose Tanner graphs bliss searches for automorphisms of this code.
 
-        Each matrix holds checks in the layout of the parity check matrix, and spans its row space.
-        A permutation of the qudits that maps the set of rows of one of these matrices onto itself
-        therefore maps the row space onto itself, so it preserves this code.  By default, the only
-        matrix is the parity check matrix.  A subclass can let bliss find more automorphisms by
-        adding a spanning set of checks that other automorphisms map onto itself.  Bliss searches
-        each matrix, so subclasses should return few.
+        By default, the only matrix is the parity check matrix.  Bliss finds only qudit permutations
+        that map the rows of a matrix onto themselves.  An automorphism of this code maps the row
+        space of the parity check matrix onto itself, but it can map parity checks to other words of
+        that space, and then bliss cannot find it among the parity checks.  A subclass can let bliss
+        find such automorphisms by adding a set of checks that the structure of the code determines,
+        rather than a choice of basis, such as the canonical local checks of a QTCode.
+
+        Each matrix must meet two requirements:
+
+        - It has as many columns as the parity check matrix, in the same layout, so that each of its
+          rows is a check.
+        - Its rows span the row space of the parity check matrix, no more and no less.  A qudit
+          permutation that maps these rows onto themselves then maps the row space onto itself, so
+          it preserves this code.
+
+        ``_found_qudit_automorphisms`` relies on these requirements: it verifies the permutations of
+        ``_get_qudit_automorphisms``, but not those that bliss finds.  Bliss searches each matrix,
+        so return few.
         """
         return (self.matrix,)
 

@@ -93,6 +93,10 @@ class GALACode(CSSCode):
     one group element, or a polynomial sum of group elements.  GALA codes are currently supported
     only over GF(2).
 
+    If the group is abelian and its elements lift to permutation matrices, translating every block
+    of qudits by the same group element maps the checks of each type onto themselves, so
+    GALACode.get_known_qudit_automorphism_group includes these translations.
+
     The compact self-dual [[132, 30, 12]] code from arXiv:2608.07431 can be constructed by::
 
         from qldpc import abstract, codes
@@ -283,6 +287,10 @@ class MBCode(TBCode):
     The X-distance and Z-distance of a multivariate bicycle code are equal.  Swapping the two
     blocks, inverting group elements, and negating one block maps the X-type checks onto the Z-type
     checks, and preserves the weights of operators.
+
+    Translating both blocks of qudits by the same monomial ``x^i y^j z^k ...`` maps the checks of
+    each type onto themselves, so MBCode.get_known_qudit_automorphism_group includes these
+    translations.
     """
 
     poly_a: sympy.Poly
