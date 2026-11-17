@@ -38,7 +38,7 @@ _ATTEMPTS_PER_MOVE = 4
 # optimization
 
 
-ClassObjective = Callable[[Sequence[int], Sequence[int]], Any]
+WeightObjective = Callable[[Sequence[int], Sequence[int]], Any]
 """A function of the weights of the X-type and Z-type operators of a basis; lower is better.
 
 Its values must be totally ordered, such as numbers or tuples of numbers, and it must be monotone:
@@ -51,7 +51,7 @@ function must also accept empty lists, for a code without logical qubits.
 def optimize_logical_basis(
     code: codes.CSSCode,
     *,
-    objective: Literal["max_weight", "total_weight"] | ClassObjective = "max_weight",
+    objective: Literal["max_weight", "total_weight"] | WeightObjective = "max_weight",
     logicals: Literal["dressed", "bare"] = "dressed",
     patience: int = 20,
     max_searches: int | None = None,
@@ -96,7 +96,7 @@ def optimize_logical_basis(
             weights in decreasing order.  ``"total_weight"`` minimizes the total weight, and breaks
             ties as ``"max_weight"`` does; its value is a tuple of the total followed by those
             weights.  A function of the lists of the weights of the X-type and Z-type operators sets
-            another objective (see :data:`ClassObjective`).  Unless the code has no logical qubits,
+            another objective (see :data:`WeightObjective`).  Unless the code has no logical qubits,
             such a function has no lower bound, so the search never proves a basis optimal.
         logicals: For a subsystem code, ``"dressed"`` (the default) uses logical operators that
             commute with the stabilizers, while ``"bare"`` uses those that commute with every gauge
@@ -177,8 +177,8 @@ class OptimizedLogicalBasis:
 
 
 def _get_objective_function(
-    objective: Literal["max_weight", "total_weight"] | ClassObjective,
-) -> ClassObjective:
+    objective: Literal["max_weight", "total_weight"] | WeightObjective,
+) -> WeightObjective:
     """The objective as a function of the lists of weights of X-type and Z-type operators."""
     if callable(objective):
         return objective
@@ -295,7 +295,7 @@ class _ClassSearch:
     def __init__(
         self,
         code: codes.CSSCode,
-        objective: ClassObjective,
+        objective: WeightObjective,
         logicals: LogicalOpsKind,
         max_searches: int | None,
         lower_bound: Any = None,
