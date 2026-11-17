@@ -783,7 +783,7 @@ def test_quantum_tanner_canonical_checks_without_qudits() -> None:
         assert len(code) == 0
         assert code._get_canonical_checks().shape == (0, 0)
         assert code._get_qudit_automorphisms() is None
-        assert code.get_known_qudit_automorphism_group().order == 1
+        assert code.get_known_permutation_automorphism_group().order == 1
 
     # a zero factor makes a zero space, whose canonical checks need no search of the other factor
     field = galois.GF(2)
@@ -815,8 +815,8 @@ def test_quantum_tanner_symmetries() -> None:
     # plain codes, which know no symmetries of a construction, give the groups that bliss finds
     pytest.importorskip("pybliss")
     for matrix, order in [(search_matrix, 1152), (code.matrix, 48)]:
-        assert codes.QuditCode(matrix).get_known_qudit_automorphism_group().order == order
-    assert code.get_known_qudit_automorphism_group().order == 1152
+        assert codes.QuditCode(matrix).get_known_permutation_automorphism_group().order == order
+    assert code.get_known_permutation_automorphism_group().order == 1152
 
 
 def test_quantum_tanner_symmetries_of_parity_checks() -> None:
@@ -840,10 +840,10 @@ def test_quantum_tanner_symmetries_of_parity_checks() -> None:
     canonical_checks_code = codes.QuditCode(code._get_canonical_checks())
     parity_checks_group = codes.CSSCode(
         code.matrix_x, code.matrix_z
-    ).get_known_qudit_automorphism_group()
-    assert canonical_checks_code.get_known_qudit_automorphism_group().order == 8
+    ).get_known_permutation_automorphism_group()
+    assert canonical_checks_code.get_known_permutation_automorphism_group().order == 8
     assert parity_checks_group.order == 800
-    group = code.get_known_qudit_automorphism_group()
+    group = code.get_known_permutation_automorphism_group()
     assert all(member in group for member in parity_checks_group.generators)
 
 
@@ -1604,7 +1604,7 @@ def test_lifted_quantum_tanner_generating_data() -> None:
         for pauli in PAULIS_XZ:
             assert code.get_local_views(pauli).shape == (8, len(members_a), len(members_b))
         assert code._get_canonical_checks().shape == (0, 0)
-        assert code.get_known_qudit_automorphism_group().order == 1
+        assert code.get_known_permutation_automorphism_group().order == 1
 
     # invalid generating data
     swap = abstract.GroupMember([1, 0])

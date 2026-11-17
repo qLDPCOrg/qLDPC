@@ -823,11 +823,13 @@ class ClassicalCode(AbstractCode):
         code._name = name
         return code
 
-    def get_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
-        """Get the automorphism group of this code.
+    def get_permutation_automorphism_group(self, *, with_magma: bool = False) -> abstract.Group:
+        """Get the permutation automorphism group of this code.
 
-        The automorphism group of a classical linear code is the group of permutations of bits that
-        preserve the code space.
+        The permutation automorphism group of a classical linear code is the group of permutations
+        of bits that preserve the code space.  For a binary code, it is the automorphism group of
+        the code.  For a nonbinary code, it is a subgroup of the automorphism group, which also
+        contains maps that multiply bits by nonzero field elements.
 
         This computation may run GAP, install GAP packages, access GroupNames.org, or prompt on
         standard input, or with ``with_magma=True`` prompt for MAGMA output on standard input; see
@@ -837,26 +839,28 @@ class ClassicalCode(AbstractCode):
         if with_magma:
             rows, cols = self.canonicalized.matrix.shape
             magma_matrix = f"Matrix(GF({self.field.order}), {rows}, {cols}, {matrix_str})"
-            magma_group = f"AutomorphismGroup(LinearCode({magma_matrix}));"
+            # MAGMA's AutomorphismGroup of a nonbinary code is its monomial automorphism group,
+            # which acts on n * (q - 1) points, so ask for its PermutationGroup, on n points
+            magma_group = f"PermutationGroup(LinearCode({magma_matrix}));"
             return abstract.Group.from_name(magma_group, from_magma=True)
 
         warning = (
-            "Attempting to compute an automorphism group with GAP, which may take a long time."
-            "  If this calculation takes too long, try computing the automorphism group with MAGMA"
-            ' by passing the argument "with_magma=True" to the method that needs to compute the'
-            " automorphism group."
+            "Attempting to compute a permutation automorphism group with GAP, which may take a long"
+            " time.  If this calculation takes too long, try computing the group with MAGMA by"
+            ' passing the argument "with_magma=True" to the method that needs to compute the group.'
         )
 
         code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
 
         def get_group(gap_function: str) -> abstract.Group:
-            """Compute the automorphism group of this code with a GAP/GUAVA function."""
+            """Compute the permutation automorphism group of this code with a GAP/GUAVA function."""
             return abstract.Group.from_name(
                 f"{gap_function}({code_str})", warning_to_raise_if_calling_gap=warning
             )
 
-        # For a binary code, try GAP/GUAVA's AutomorphismGroup method, and fall back to its
-        # PermutationAutomorphismGroup method if GAP fails to compute that group.
+        # For a binary code, the automorphism group is the permutation automorphism group, so try
+        # GAP/GUAVA's AutomorphismGroup method, which handles only binary codes, and fall back to
+        # its PermutationAutomorphismGroup method if GAP fails to compute that group.
         if self.field is galois.GF2:
             try:
                 return get_group("AutomorphismGroup")
@@ -870,11 +874,12 @@ class ClassicalCode(AbstractCode):
         An automorphism of an ``m × n`` parity check matrix ``H`` is a permutation ``p`` of the
         ``m`` checks and ``n`` bits (in that order) that leaves ``H`` invariant, in the sense that
         ``H[p_checks][:, p_bits] == H`` for ``p_checks = p.array_form[:m]`` and
-        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the automorphism group of a code
-        (see :meth:`get_automorphism_group`), the automorphism group of a parity check matrix
-        depends on the choice of parity checks.  Its members are symmetries of this code, which
-        :class:`~qldpc.codes.quantum.balanced_product.BPCode` uses to construct balanced product
-        codes.  Computing this group requires the optional ``pybliss`` package, which can be
+        ``p_bits = [bit - m for bit in p.array_form[m:]]``.  Unlike the permutation automorphism
+        group of a code (see :meth:`get_permutation_automorphism_group`), the automorphism group of
+        a parity check matrix depends on the choice of parity checks.  The bit permutations of its
+        members are permutation automorphisms of this code, and
+        :class:`~qldpc.codes.quantum.balanced_product.BPCode` uses its members to construct balanced
+        product codes.  Computing this group requires the optional ``pybliss`` package, which can be
         installed with ``pip install 'qldpc[bliss]'``.
         """
         generators = _bliss.get_matrix_automorphism_generators(self.matrix)
@@ -2202,7 +2207,7 @@ class QuditCode(AbstractCode):
         self._distance_bound = min(best_bound, bound)
         return self._distance_bound
 
-    def get_known_qudit_automorphism_group(self) -> abstract.Group:
+    def get_known_permutation_automorphism_group(self) -> abstract.Group:
         """Get a group of qudit permutations that preserve this code.
 
         The group is generated by the qudit permutations that this code knows:
@@ -2764,21 +2769,23 @@ class QuditCode(AbstractCode):
         Subclasses whose construction comes with such a group return an array of its generators.
         Row ``i`` of the array maps qudit ``j`` to qudit ``row[j]``.  Each generator maps the row
         space of the parity check matrix onto itself.  For a CSS code, a generator does so if it
-        maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  The
-        Brouwer-Zimmermann and connected-cluster searches of exact distances use these generators
-        together with those that bliss finds (see ``_found_qudit_automorphisms``).
+        maps the row spaces of both ``matrix_x`` and ``matrix_z`` onto themselves.  Together with
+        the permutations that bliss finds (see ``_found_qudit_automorphisms``), these generators
+        generate the group of :meth:`get_known_permutation_automorphism_group`.  Exact distance
+        searches of binary codes can use the same permutations to search less.
         """
         return None
 
     def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
-        """Sets of checks, whose Tanner graphs bliss searches for automorphisms of this code.
+        """Sets of checks, whose Tanner graphs bliss searches for permutation automorphisms.
 
         By default, the only matrix is the parity check matrix.  Bliss finds only qudit permutations
-        that map the rows of a matrix onto themselves.  An automorphism of this code maps the row
-        space of the parity check matrix onto itself, but it can map parity checks to other words of
-        that space, and then bliss cannot find it among the parity checks.  A subclass can let bliss
-        find such automorphisms by adding a set of checks that the structure of the code determines,
-        rather than a choice of basis, such as the canonical local checks of a QTCode.
+        that map the rows of a matrix onto themselves.  A permutation automorphism of this code maps
+        the row space of the parity check matrix onto itself, but it can map parity checks to other
+        words of that space, and then bliss cannot find it among the parity checks.  A subclass can
+        let bliss find such permutation automorphisms by adding a set of checks that the structure
+        of the code determines, rather than a choice of basis, such as the canonical local checks of
+        a QTCode.
 
         Each matrix must meet two requirements:
 
@@ -4434,10 +4441,10 @@ class CSSCode(QuditCode):
     ) -> int | Literal[NoDistance.NAN]:
         """The X-distance or the Z-distance of this code over GF(2), or the smaller of the two.
 
-        Brouwer-Zimmermann and connected-cluster searches use the automorphisms of this code.
-        ``upper_bound``, if given, is the weight of a known logical operator of the other type,
-        which ends the search if it is at most ``cutoff``, and otherwise limits it.  A result at or
-        below ``cutoff`` can be an upper bound.
+        Brouwer-Zimmermann and connected-cluster searches can use the permutation automorphisms that
+        this code knows.  ``upper_bound``, if given, is the weight of a known logical operator of
+        the other type, which ends the search if it is at most ``cutoff``, and otherwise limits it.
+        A result at or below ``cutoff`` can be an upper bound.
         """
         if upper_bound is not None and upper_bound <= cutoff:
             return upper_bound
