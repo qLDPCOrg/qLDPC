@@ -1287,8 +1287,9 @@ def test_classical_distances_use_automorphisms(
 ) -> None:
     """Exact distances of binary classical codes use their bit automorphisms, which they verify.
 
-    Each distance by the Brouwer-Zimmermann and connected-cluster methods asks for automorphisms
-    once, and matches brute force.  Distances from a vector use no automorphisms.
+    Each distance by the Brouwer-Zimmermann and connected-cluster methods passes its search the
+    permutations of get_known_permutation_automorphism_group, asks the class for them once, and
+    matches brute force.  Distances from a vector use no automorphisms.
     """
     if bliss:
         pytest.importorskip("pybliss")
@@ -1307,22 +1308,36 @@ def test_classical_distances_use_automorphisms(
         # with bliss, the generic code with shuffled bits finds the symmetries of its checks
         lambda: codes.ClassicalCode(cyclic_code.matrix[:, shuffle]),
     ]
+    methods: list[DistanceMethod] = ["brouwer_zimmermann", "connected_cluster"]
+    function_names = ["get_distance_from_generators", "get_distance_from_checks"]
     for build in code_builders:
         expected = build().get_distance_exact(method="brute_force")
-        methods: list[DistanceMethod] = ["brouwer_zimmermann", "connected_cluster"]
-        for method in methods:
+        for method, function_name in zip(methods, function_names, strict=True):
             code = build()
-            with unittest.mock.patch.object(
-                type(code),
-                "_get_bit_automorphisms",
-                autospec=True,
-                side_effect=type(code)._get_bit_automorphisms,
-            ) as get_automorphisms:
+            function = getattr(common, function_name)
+            with (
+                unittest.mock.patch.object(
+                    type(code),
+                    "_get_bit_automorphisms",
+                    autospec=True,
+                    side_effect=type(code)._get_bit_automorphisms,
+                ) as get_automorphisms,
+                unittest.mock.patch.object(
+                    common, function_name, autospec=True, side_effect=function
+                ) as search,
+            ):
                 assert code.get_distance_exact(method=method) == expected
             get_automorphisms.assert_called_once()
-        assert (build()._found_bit_automorphisms is not None) == (
-            bliss or type(build()) is not codes.ClassicalCode
-        )
+            # the search gets the generators of the known group, which bliss finds for a code
+            # without a class that supplies them
+            generators = search.call_args.kwargs["automorphisms"]()
+            known_group = code.get_known_permutation_automorphism_group()
+            assert generators is not None or known_group.order == 1
+            if generators is not None:
+                group = abstract.Group(*map(abstract.GroupMember, generators.tolist()))
+                assert group.equiv(known_group)
+            if type(code) is codes.ClassicalCode:
+                assert (generators is not None) == bliss
 
     # a wrong permutation of a class makes the search raise an error
     class CodeWithTransposition(codes.ClassicalCode):
@@ -1335,25 +1350,18 @@ def test_classical_distances_use_automorphisms(
         with pytest.raises(ValueError, match="not an automorphism"):
             CodeWithTransposition(cyclic_code.matrix).get_distance_exact(method=method)
 
-    # distances from a vector use no automorphisms, which need not preserve its coset
+    # distances from a vector use no automorphisms, which need not preserve its coset: searches
+    # from this heavy vector ask for automorphisms, and raise an error if they get the code's
     vector = np.zeros(21, dtype=int)
-    vector[:3] = 1
-    for method, function_name in zip(
-        methods, ["get_distance_from_generators", "get_distance_from_checks"], strict=True
-    ):
+    vector[np.random.default_rng(0).choice(21, size=11, replace=False)] = 1
+    words = cyclic_code.generator.view(np.ndarray)
+    brute_force = min(
+        np.count_nonzero((np.array(coefficients) @ words + vector) % 2)
+        for coefficients in itertools.product([0, 1], repeat=len(words))
+    )
+    for method in methods:
         code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
-        function = getattr(common, function_name)
-        with unittest.mock.patch.object(
-            common, function_name, autospec=True, side_effect=function
-        ) as search:
-            distance = code.get_distance_exact(vector=vector, method=method)
-        assert "automorphisms" not in search.call_args.kwargs
-        words = cyclic_code.generator.view(np.ndarray)
-        brute_force = min(
-            np.count_nonzero((np.array(coefficients) @ words + vector) % 2)
-            for coefficients in itertools.product([0, 1], repeat=len(words))
-        )
-        assert distance == brute_force
+        assert code.get_distance_exact(vector=vector, method=method) == brute_force
 
 
 @pytest.mark.parametrize("field", [2, 3])

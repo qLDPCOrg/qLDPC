@@ -218,8 +218,7 @@ class ExtendedHammingCode(ClassicalCode):
         the origin.  The rows of the parity check matrix span the evaluations, at these points, of
         the affine functions of ``F_2^m``.  An affine map of ``F_2^m`` composes with affine
         functions to give affine functions, so its permutation of the bits maps the row space onto
-        itself.
-        ``_get_point_permutations`` gives generators of the group of these maps.
+        itself.  ``_get_point_permutations`` gives generators of the group of these maps.
         """
         return _get_point_permutations(len(self._matrix) - 1, affine=True)
 
@@ -254,26 +253,6 @@ class ReedMullerCode(ClassicalCode):
         self._dimension = len(generator)
         self._distance = 2 ** (size - order)
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
-        """Generators of the affine group of ``F_2^m``, which permutes the bits of this code.
-
-        The recursion of ``get_generator`` builds ``RM(r, m)`` from words ``(u, u + v)`` for ``u``
-        in ``RM(r, m - 1)`` and ``v`` in ``RM(r - 1, m - 1)``, which evaluate a polynomial
-        ``f(x) = g(x') + x_top h(x')`` of degree at most ``r`` at the points ``x = (x', x_top)`` of
-        ``F_2^m``.  So bit ``j`` is the point written in binary as ``j``, with ``x_top`` the
-        highest bit.  An affine map of ``F_2^m`` maps a polynomial of degree at most ``r`` to
-        another, so it maps ``RM(r, m)`` onto itself, and also its dual, whose generators are the
-        parity checks of this code.  ``_get_point_permutations`` gives generators of the
-        group of these maps.
-
-        Over a field of characteristic 2, this code is spanned by the binary words of ``RM(r, m)``,
-        so the same permutations preserve it.  Over another field, the span of these words need not
-        hold the sums modulo 2 that the argument above uses, so this method returns None.
-        """
-        if self.field.characteristic != 2:
-            return None
-        return _get_point_permutations(self.size, affine=True)
-
     @property
     def size(self) -> int:
         """The size parameter of this code."""
@@ -298,6 +277,27 @@ class ReedMullerCode(ClassicalCode):
         mat_b = ReedMullerCode.get_generator(order - 1, size - 1)
         mat_z = np.zeros_like(mat_b)
         return np.block([[mat_a, mat_a], [mat_z, mat_b]]).astype(int)
+
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of the affine group of ``F_2^m``, which permutes the bits of this code.
+
+        The recursion of ``get_generator`` builds ``RM(r, m)`` from words ``(u, u + v)`` for ``u``
+        in ``RM(r, m - 1)`` and ``v`` in ``RM(r - 1, m - 1)``, which evaluate a polynomial
+        ``f(x) = g(x') + x_top h(x')`` of degree at most ``r`` at the points ``x = (x', x_top)`` of
+        ``F_2^m``.  So bit ``j`` is the point written in binary as ``j``, with ``x_top`` the
+        highest bit.  An affine map of ``F_2^m`` maps a polynomial of degree at most ``r`` to
+        another, so it maps ``RM(r, m)`` onto itself, and also its dual, whose generators are the
+        parity checks of this code.  ``_get_point_permutations`` gives generators of the group of
+        these maps.
+
+        Over any field, this code is spanned by the rows of ``get_generator``.  In characteristic 2,
+        that span holds their sums modulo 2, which are the binary words of ``RM(r, m)``, so the
+        same permutations preserve it.  Over another field it need not hold them, so this method
+        returns None.
+        """
+        if self.field.characteristic != 2:
+            return None
+        return _get_point_permutations(self.size, affine=True)
 
     @staticmethod
     def _assert_valid_params(order: int, size: int) -> None:
@@ -421,16 +421,6 @@ class SimplexCode(ClassicalCode):
         self._dimension = dim
         self._distance = field.order ** (dim - 1)
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
-        """The cyclic shift and the Frobenius multiplier of a binary simplex code, or None.
-
-        The cyclic presentation of a binary simplex code (see ``get_defining_polynomial``) is a
-        cyclic code (see ``_get_cyclic_automorphisms``).  Nonbinary simplex codes return None.
-        """
-        if self.field is not galois.GF2:
-            return None
-        return _get_cyclic_automorphisms(len(self), 2)
-
     @staticmethod
     def get_defining_polynomial(
         dim: int, field: int | type[galois.FieldArray] | None = None
@@ -481,6 +471,16 @@ class SimplexCode(ClassicalCode):
         raise ValueError(
             "Suitable primitive polynomial not found.  This should not be possible."
         )  # pragma: no cover
+
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """The cyclic shift and the Frobenius multiplier of a binary simplex code, or None.
+
+        The cyclic presentation of a binary simplex code (see ``get_defining_polynomial``) is a
+        cyclic code (see ``_get_cyclic_automorphisms``).  Nonbinary simplex codes return None.
+        """
+        if self.field is not galois.GF2:
+            return None
+        return _get_cyclic_automorphisms(len(self), 2)
 
 
 class TannerCode(ClassicalCode):

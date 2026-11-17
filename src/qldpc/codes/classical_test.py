@@ -75,6 +75,7 @@ def test_bit_automorphisms_of_classes() -> None:
         (codes.CyclicCode(6, 1 + x), 6),
         (codes.GolayCode(), 23 * 11),
         (codes.BCHCode(15, 7), 15 * 4),
+        (codes.BCHCode(8, 4, field=3), 8 * 2),
         (codes.SimplexCode(3), 7 * 3),
         (codes.HammingCode(2), 6),
         (codes.HammingCode(3), 168),

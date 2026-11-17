@@ -934,47 +934,6 @@ class ClassicalCode(AbstractCode):
             *[abstract.GroupMember(generator.tolist()) for generator in generators]
         )
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
-        """Generators of a group of bit permutations that preserve this code, if known.
-
-        Subclasses whose construction comes with such a group return an array of its generators.
-        Row ``i`` of the array maps bit ``j`` to bit ``row[j]``.  Each generator maps the row space
-        of the parity check matrix onto itself.  Together with the permutations that bliss finds
-        (see ``_found_bit_automorphisms``), these generators generate the group of
-        :meth:`get_known_permutation_automorphism_group`.  Exact distance searches of binary codes
-        can use the same permutations to search less.
-        """
-        return None
-
-    @functools.cached_property
-    def _found_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
-        """Generators of a group of bit permutations that preserve this code, or None.
-
-        With the optional pybliss package, bliss finds the automorphisms of the parity check matrix,
-        each of which permutes the checks and the bits and leaves the matrix unchanged.  So its bit
-        permutation maps the row space of the parity check matrix onto itself.
-
-        The result holds these bit permutations, followed by the generators from
-        ``_get_bit_automorphisms``, without repeats or the identity, in an array whose row ``i``
-        maps bit ``j`` to bit ``row[j]``.  The result is None if there are no generators.
-
-        Raises:
-            ValueError: If a generator from ``_get_bit_automorphisms`` does not map the row space of
-                the parity check matrix onto itself.
-        """
-        found = []
-        if _bliss.is_installed():
-            matrix = self.matrix.view(np.ndarray).astype(int)
-            if bliss_generators := _bliss.get_matrix_automorphism_generators(matrix):
-                found.append(np.array(bliss_generators, dtype=int)[:, len(matrix) :] - len(matrix))
-        return _combine_automorphisms(
-            found,
-            self._get_bit_automorphisms(),
-            self.matrix,
-            len(self),
-            f"{type(self).__name__}._get_bit_automorphisms",
-        )
-
     @staticmethod
     def stack(codes: Sequence[ClassicalCode]) -> ClassicalCode:
         """Stack the given classical codes.
@@ -1154,6 +1113,47 @@ class ClassicalCode(AbstractCode):
             len(self),
             max_error_rate,
             min_error_weight,
+        )
+
+    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of a group of bit permutations that preserve this code, if known.
+
+        Subclasses whose construction comes with such a group return an array of its generators.
+        Row ``i`` of the array maps bit ``j`` to bit ``row[j]``.  Each generator maps the row space
+        of the parity check matrix onto itself.  Together with the permutations that bliss finds
+        (see ``_found_bit_automorphisms``), these generators generate the group of
+        :meth:`get_known_permutation_automorphism_group`.  Exact distance searches of binary codes
+        can use the same permutations to search less.
+        """
+        return None
+
+    @functools.cached_property
+    def _found_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+        """Generators of a group of bit permutations that preserve this code, or None.
+
+        With the optional pybliss package, bliss finds the automorphisms of the parity check matrix,
+        each of which permutes the checks and the bits and leaves the matrix unchanged.  So its bit
+        permutation maps the row space of the parity check matrix onto itself.
+
+        The result holds these bit permutations, followed by the generators from
+        ``_get_bit_automorphisms``, without repeats or the identity, in an array whose row ``i``
+        maps bit ``j`` to bit ``row[j]``.  The result is None if there are no generators.
+
+        Raises:
+            ValueError: If a generator from ``_get_bit_automorphisms`` does not map the row space of
+                the parity check matrix onto itself.
+        """
+        found = []
+        if _bliss.is_installed():
+            matrix = self.matrix.view(np.ndarray).astype(int)
+            if bliss_generators := _bliss.get_matrix_automorphism_generators(matrix):
+                found.append(np.array(bliss_generators, dtype=int)[:, len(matrix) :] - len(matrix))
+        return _combine_automorphisms(
+            found,
+            self._get_bit_automorphisms(),
+            self.matrix,
+            len(self),
+            f"{type(self).__name__}._get_bit_automorphisms",
         )
 
     def _sample_failure_and_discard_counts(
@@ -4663,36 +4663,6 @@ def _permute_qudits(
     return matrix.reshape(-1, num_qudits)[:, permutation].reshape(matrix.shape)
 
 
-def _combine_automorphisms(
-    found: Sequence[npt.NDArray[np.int_]],
-    construction_generators: npt.NDArray[np.int_] | None,
-    matrix: galois.FieldArray,
-    num_qudits: int,
-    source: str,
-) -> npt.NDArray[np.int_] | None:
-    """Combine the permutations that bliss found with those of a construction, after verifying them.
-
-    The result holds the found permutations, then the construction generators, without repeats or
-    the identity, or None if there are none.  Raises a ValueError that names ``source`` if a
-    construction generator does not map the row space of the matrix onto itself.
-    """
-    generators = np.empty((0, num_qudits), dtype=int)
-    for permutations in found:
-        generators = np.vstack([generators, permutations])
-
-    # verify the permutations of the construction, which bliss does not provide
-    if construction_generators is not None:
-        for generator in construction_generators:
-            if not _preserves_row_space(matrix, np.asarray(generator), num_qudits):
-                raise ValueError(f"A permutation from {source} is not an automorphism of the code")
-        generators = np.vstack([generators, construction_generators]).astype(int)
-
-    # drop the identity and repeated generators, keeping the others in order
-    generators = generators[np.any(generators != np.arange(num_qudits), axis=1)]
-    indices = np.sort(np.unique(generators, axis=0, return_index=True)[1])
-    return generators[indices] if len(indices) else None
-
-
 def _preserves_row_space(
     matrix: galois.FieldArray, permutation: npt.NDArray[np.int_], num_qudits: int
 ) -> bool:
@@ -4793,6 +4763,36 @@ def _require_symplectic(symplectic: bool) -> None:
 
 ####################################################################################################
 # helper methods
+
+
+def _combine_automorphisms(
+    found: Sequence[npt.NDArray[np.int_]],
+    construction_generators: npt.NDArray[np.int_] | None,
+    matrix: galois.FieldArray,
+    num_coordinates: int,
+    source: str,
+) -> npt.NDArray[np.int_] | None:
+    """Combine the permutations that bliss found with those of a construction, verifying the latter.
+
+    The result holds the found permutations, then the construction generators, without repeats or
+    the identity, or None if there are none.  Raises a ValueError that names ``source`` if a
+    construction generator does not map the row space of the matrix onto itself.
+    """
+    generators = np.empty((0, num_coordinates), dtype=int)
+    for permutations in found:
+        generators = np.vstack([generators, permutations])
+
+    # verify the permutations of the construction, which bliss does not provide
+    if construction_generators is not None:
+        for generator in construction_generators:
+            if not _preserves_row_space(matrix, np.asarray(generator), num_coordinates):
+                raise ValueError(f"A permutation from {source} is not an automorphism of the code")
+        generators = np.vstack([generators, construction_generators]).astype(int)
+
+    # drop the identity and repeated generators, keeping the others in order
+    generators = generators[np.any(generators != np.arange(num_coordinates), axis=1)]
+    indices = np.sort(np.unique(generators, axis=0, return_index=True)[1])
+    return generators[indices] if len(indices) else None
 
 
 def _mark_read_only(array: _ArrayT) -> _ArrayT:
