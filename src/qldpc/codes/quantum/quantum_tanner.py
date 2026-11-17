@@ -2,60 +2,89 @@
 
 """Quantum Tanner codes.
 
-A quantum Tanner code (QTCode) is a CSS code built from two symmetric subsets A and B of a group,
+A quantum Tanner code (QTCode) is a CSS code built from two symmetric subsets A and B of a group G,
 and two classical local codes C_A and C_B, with one coordinate per member of A and of B,
-respectively.  Its qudits are the faces ``f(g,a,b) = {g, ag, gb, agb}`` of a left-right Cayley
-complex built from A and B, and its parity checks sit at the vertices of the complex: X-type checks
-at the corners g of the faces, and Z-type checks at the corners ag (see help(QTCode)).
+respectively.  Its qudits are the faces of a left-right Cayley complex built from A and B, and its
+parity checks sit at the vertices of the complex.  The vertices are members of a cover of G, and
+fall into classes: four classes in the quadripartite complex, which is the default, or two classes
+in the bipartite complex (see help(qldpc.objects.CayleyComplex)).  For each vertex g with X-type
+checks, a in A, and b in B, the complex has a face ``f(g,a,b) = {g, ag, gb, agb}``, whose corners g
+and agb have X-type checks, and whose corners ag and gb have Z-type checks (see help(QTCode)).
 
-A lifted quantum Tanner code (LQTCode) is built in the same way from an explicit group G,
-ordered lists A and B of members of G that may repeat, and four classical local codes, two for each
-list.  It is the code of Eq. (2) of https://arxiv.org/abs/2512.20532, in other notation (see
-LQTCode.from_lrz), and the qudits of an LQTCode are the squares of a left-right Cayley
-complex on all of G.  A quadripartite QTCode has the qudits and stabilizer group of an LQTCode,
-or of a direct summand of an LQTCode if the complex of the LQTCode is disconnected.  A
-bipartite QTCode is the quotient, by an involution, of an LQTCode or of a direct summand of an
-LQTCode.  Under these correspondences, the parity checks of the two codes agree only for some
-choices of local checks (see help(LQTCode)).
+A lifted quantum Tanner code (LQTCode) is built in the same way from an explicit group G, ordered
+lists A and B of members of G that may repeat, and four classical local codes, two for each list.
+The qudits of an LQTCode are the faces, which it calls squares, of a quadripartite complex with all
+of G in each class of vertices.  An LQTCode is the code of Eq. (2) of
+https://arxiv.org/abs/2512.20532, in other notation (see LQTCode.from_lrz).  A quadripartite QTCode
+has the qudits and stabilizer group of an LQTCode, or of a direct summand of an LQTCode if the
+complex of the LQTCode is disconnected.  A bipartite QTCode is the quotient, by an involution, of an
+LQTCode or of a direct summand of an LQTCode.  Under these correspondences, the parity checks of the
+two codes agree only for some choices of local checks (see help(LQTCode)).
 
-Local views.  The faces at a vertex of a QTCode are labeled by pairs (a, b) of members of A and B,
-and each pair labels one face.  At a vertex g with X-type checks, face ``f(g,a,b)`` has the label
-(a, b).  At a vertex ag with Z-type checks, the same face has the label (a^-1, b), since it is
-``f(ag,a^-1,b)``.  Coordinate (i, j) of the local view of a vertex is the face whose label is
-``(members_a[i], members_b[j])``, where ``members_a`` and ``members_b`` list the members of A and B
-in increasing order.  So the local view of a vertex is an ``|A| x |B|`` array of qudits
-(QTCode.get_local_views).  In the coordinates of their local views, the X-type checks at a vertex
-span the local check space ``C_A ⨂ C_B``, and the Z-type checks span ``~C_A ⨂ ~C_B``, where ``~C``
-is the dual code of C.  LQTCode labels faces, which it calls squares, by positions in A and B
-instead (see help(LQTCode)).
+Local views.  Write ``f(v,a,b) = {v, av, vb, avb}`` for any vertex v.  Every face at a vertex v of a
+QTCode is ``f(v,a,b)`` for exactly one pair (a, b) of members of A and B, which is the label of the
+face at v.  So the face ``f(g,a,b)`` has the label (a, b) at its corner g, and the label (a^-1, b)
+at its corner ag, since it is ``f(ag,a^-1,b)``.  Coordinate (i, j) of the local view of a vertex is
+the face whose label is ``(members_a[i], members_b[j])``, where ``members_a`` and ``members_b`` list
+the members of A and B in increasing order.  So the local view of a vertex is an ``|A| x |B|`` array
+of qudits (QTCode.get_local_views).  In the coordinates of their local views, the X-type checks at a
+vertex span the local check space ``C_A ⨂ C_B``, and the Z-type checks span ``~C_A ⨂ ~C_B``, where
+``~C`` is the dual code of C.  LQTCode labels squares by positions in A and B instead (see
+help(LQTCode)).
 
-Local checks.  The checks at each vertex are the words of a spanning set of its local check space,
-which the argument ``local_checks`` of QTCode and LQTCode chooses:
+Local checks.  The checks at each vertex are the words of a spanning set of its local check space.
+The argument ``local_checks`` of QTCode and LQTCode chooses this set:
 
-- "min_weight" (the default): a minimum-weight basis, whose i-th lightest word is as light as the
-  i-th lightest word of any basis of the space, for each i.
-- "from_codes": the rows of ``G_A ⨂ G_B`` for X-type checks and of ``H_A ⨂ H_B`` for Z-type checks,
-  where H and G are the parity check matrix and generator matrix that each local code carries
-  (``code.matrix`` and ``code.generator``).  Rows of H or G that are linearly dependent give
-  redundant checks.
+- "min_weight" (the default): a minimum-weight basis, whose i-th lightest word is no heavier than
+  the i-th lightest word of any basis of the space, for each i.
+- "from_codes": the rows of ``G_A ⨂ G_B`` for X-type checks, and of ``H_A ⨂ H_B`` for Z-type checks.
+  Here H_A and G_A are the parity check matrix and generator matrix that C_A carries
+  (``code.matrix`` and ``code.generator``), and likewise for C_B.  Rows of these matrices that are
+  linearly dependent give redundant checks.
 
 Both choices span the same local check space at every vertex, so they give the same stabilizer
 group, number of qudits, and dimension.
 
-The minimum-weight bases are tensor products of minimum-weight bases of the factors, such as
-``{u_i ⨂ v_j}`` for minimum-weight bases {u_i} of C_A and {v_j} of C_B, which
-qldpc.math.get_min_weight_basis finds.  Such a product is a minimum-weight basis of ``C_A ⨂ C_B``,
-as follows.  Write ``|x|`` for the weight of a word x.  A basis {u_i} of a space is a minimum-weight
-basis iff every word ``x = sum_i c_i u_i`` has ``|x| >= |u_i|`` whenever ``c_i != 0``.  (If
-``|x| < |u_i|``, replacing u_i by x gives a lighter basis.  Conversely, the condition says that the
-words of the basis of weight at most w span all words of weight at most w, for every w, so no basis
-has more words of weight at most w.)  Now let ``X = sum_ij c_ij u_i ⨂ v_j``, and read X as a
-matrix whose row r is ``sum_j x_j[r] v_j``, where ``x_j = sum_i c_ij u_i``.  Fix indices i and j
-with ``c_ij != 0``.  Then ``|x_j| >= |u_i|``, since x_j has the coefficient c_ij on u_i, and each
-of the ``|x_j|`` rows r with ``x_j[r] != 0`` has a nonzero coefficient on v_j, so it has weight at
-least ``|v_j|``.  So ``|X| >= |u_i| |v_j| = |u_i ⨂ v_j|``, and ``{u_i ⨂ v_j}`` is a minimum-weight
-basis.  The checks are minimum-weight bases of the local check spaces, but generating sets of the
-stabilizer group that combine checks at different vertices may be lighter.
+The "min_weight" checks that span ``C_A ⨂ C_B`` are the products ``u_i ⨂ v_j`` of minimum-weight
+bases {u_i} of C_A and {v_j} of C_B, which qldpc.math.get_min_weight_basis finds for each factor,
+and likewise for ``~C_A ⨂ ~C_B``.  These products form a minimum-weight basis of the space, as
+follows.  Write ``|x|`` for the weight of a word x.  A basis {w_k} of a space is a minimum-weight
+basis iff every word ``x = sum_k c_k w_k`` has ``|x| >= |w_k|`` whenever ``c_k != 0``.  This
+condition is necessary: if ``|x| < |w_k|`` for some ``c_k != 0``, replacing w_k by x gives a lighter
+basis.  It is also sufficient, since it says that the words of the basis of weight at most m span
+all words of weight at most m, for every m, so no basis has more words of weight at most m.  Now let
+``y = sum_ij c_ij u_i ⨂ v_j``, and read y as a matrix whose row r is ``sum_j x_j[r] v_j``, where
+``x_j = sum_i c_ij u_i``.  Fix indices i and j with ``c_ij != 0``.  Then ``|x_j| >= |u_i|``, since
+x_j has the coefficient c_ij on u_i.  Each of the ``|x_j|`` rows r with ``x_j[r] != 0`` has a
+nonzero coefficient on v_j, so it has weight at least ``|v_j|``.  So
+``|y| >= |u_i| |v_j| = |u_i ⨂ v_j|`` whenever ``c_ij != 0``, and by the condition above,
+``{u_i ⨂ v_j}`` is a minimum-weight basis.  The checks are minimum-weight bases of the local check
+spaces, but generating sets of the stabilizer group that combine checks at different vertices may be
+lighter.
+
+Canonical local checks.  With the optional pybliss package, bliss finds qudit permutations that map
+a set of checks onto itself (see QuditCode.get_known_qudit_automorphism_group).  QTCode and LQTCode
+have it search their canonical local checks, as well as their parity checks.  The canonical local
+checks of a vertex are the nonzero words of weight at most w_max of its local check space, placed on
+its local view, where w_max is the largest weight of a word in a minimum-weight basis of the space.
+All minimum-weight bases of a space have the same weights, so w_max depends only on the space.  By
+the argument above, w_max for ``C_A ⨂ C_B`` is the product of the largest weights of words in
+minimum-weight bases of C_A and C_B, and likewise for ``~C_A ⨂ ~C_B``.
+
+- The canonical checks of a vertex include a minimum-weight basis of its local check space, so they
+  span it, and the canonical checks of all vertices span the row spaces of matrix_x and matrix_z.
+  So a permutation of the qudits that maps the set of canonical checks onto itself preserves the
+  code.
+- Unlike the parity checks, the canonical checks depend only on the local check spaces, and not on
+  the choice of local checks.  Suppose that a permutation of the qudits maps the local view of each
+  vertex v to the local view of a vertex v' with checks of the same type, and maps the local check
+  space of v onto that of v'.  It preserves weights, so it maps the canonical checks of v onto those
+  of v', even if it does not map parity checks to parity checks.  So bliss can find such
+  permutations among the canonical checks.
+
+Finding the canonical checks of a local check space enumerates its words, so QTCode and LQTCode have
+bliss search them only for local check spaces with few enough words and canonical checks (see their
+docstrings).
 """
 
 from __future__ import annotations
@@ -97,7 +126,8 @@ from ..common import (
 
 _LocalChecks = Literal["min_weight", "from_codes"]
 
-# the classes (s, t) of the vertices of an LQTCode with checks of each type, in order
+# the classes (s, t) of the vertices of an LQTCode with checks of each type, in the order of their
+# rows in matrix_x and matrix_z
 _VERTEX_CLASSES: dict[PauliXZ, tuple[tuple[int, int], ...]] = {
     Pauli.X: ((0, 0), (1, 1)),
     Pauli.Z: ((0, 1), (1, 0)),
@@ -106,10 +136,10 @@ _VERTEX_CLASSES: dict[PauliXZ, tuple[tuple[int, int], ...]] = {
 # the most words that a local code or its dual may have for "min_weight" local checks
 _MAX_WORDS_FOR_MIN_WEIGHT_BASIS = 2**20
 
-# The most words in a local check space of a QTCode, and the most canonical checks at each vertex,
-# for which bliss searches the canonical checks of that type.  The first limit bounds the time to
-# enumerate words.  The second bounds the size of the matrix that bliss searches, which has a row
-# for each canonical check at each vertex.
+# The most words in a local check space, and the most canonical local checks at each vertex, for
+# which a QTCode or an LQTCode has bliss search its canonical checks of a type, as well as its
+# parity checks.  The first limit bounds the time to enumerate words.  The second bounds the size of
+# the matrix that bliss searches, which has a row for each canonical check at each vertex.
 _MAX_WORDS_FOR_CANONICAL_CHECKS = 2**20
 _MAX_CANONICAL_CHECKS_PER_VERTEX = 2**10
 
@@ -120,13 +150,23 @@ _MAX_CANONICAL_CHECKS_PER_VERTEX = 2**10
 class QTCode(CSSCode):
     """Quantum Tanner code: a CSS code for qudits defined on the faces of a Cayley complex.
 
-    Altogether, a quantum Tanner code is defined by:
+    A quantum Tanner code is defined by:
 
-    - two symmetric (self-inverse) subsets A and B of a group G, not both empty, and
-    - two classical codes ``C_A`` and ``C_B``, respectively with block lengths ``|A|`` and ``|B|``.
+    - two symmetric subsets A and B of a group G, which hold the inverse of each of their members
+      and are not both empty, and
+    - two classical local codes C_A and C_B, with block lengths ``|A|`` and ``|B|``, respectively.
 
-    The qudits of a quantum Tanner code live on the faces of a Cayley complex built out of A and B.
-    Each face of the Cayley complex looks like:
+    The qudits of a quantum Tanner code are the faces of a left-right Cayley complex built from A
+    and B.  The vertices of the complex are members of a cover of G, on which members of A act from
+    the left and members of B from the right (see help(qldpc.objects.CayleyComplex)).  By default,
+    the complex is quadripartite: each vertex has a class (s, t) in {0,1} x {0,1}, multiplying a
+    vertex by a member of A flips s, and multiplying it by a member of B flips t.  Vertices of
+    classes (0, 0) and (1, 1) carry X-type checks, and those of classes (1, 0) and (0, 1) carry
+    Z-type checks.  If bipartite is True, the complex is bipartite: each vertex has a class s in
+    {0,1}, multiplying a vertex by a member of A or of B flips s, and vertices of class 0 carry
+    X-type checks.  Either way, QTCode keeps only the connected component of the complex that
+    contains the identity, whose class is (0, 0) or 0.  For each vertex g with X-type checks, a in
+    A, and b in B, the complex has a face ``f(g,a,b) = {g, ag, gb, agb}``::
 
          g ―――――――――― gb
 
@@ -134,27 +174,38 @@ class QTCode(CSSCode):
 
         ag ――――――――― agb
 
-    where (g,a,b) is an element of (G,A,B), and ``f(g,a,b) = {g, ag, gb, agb}``.  We define two
-    (directed) subgraphs on the Cayley complex:
+    The corners g and agb of the face carry X-type checks, and its corners ag and gb carry Z-type
+    checks.  Each face is ``f(g,a,b)`` for two triples (g, a, b), one for each of its corners with
+    X-type checks, so the code has ``|A| |B| / 2`` qudits for each vertex with X-type checks.
 
-    - subgraph_x with edges ``( g, f(g,a,b))``, and
-    - subgraph_z with edges ``(ag, f(g,a,b))``.
+    The X-type checks at each vertex span the local check space ``C_A ⨂ C_B``, and the Z-type checks
+    span ``~C_A ⨂ ~C_B``, where ``~C`` is the dual code of C.  These spaces are read in the
+    coordinates of the local view of the vertex, an ``|A| x |B|`` array of the faces at the vertex
+    (see QTCode.get_local_views and help(qldpc.codes.quantum.quantum_tanner)).  Coordinate i of C_A
+    belongs to member i of members_a, which lists the members of A in increasing order.  Likewise,
+    coordinate j of C_B belongs to member j of members_b.  QTCode.from_ordered_members takes local
+    codes whose coordinates follow another order of the members.
 
-    The X-type parity checks of a quantum Tanner code are then given by the classical Tanner code on
-    subgraph_x with subcode ``~(C_A ⨂ C_B)``, where ``~C`` is the dual code to C.  Z-type parity
-    checks are similarly given by the classical Tanner code on subgraph_z with subcode
-    ``~(~C_A ⨂ ~C_B)``.
+    The argument local_checks chooses the checks that span each local check space: a minimum-weight
+    basis ("min_weight", the default), or products of the rows of the matrices that the local codes
+    carry ("from_codes").  The module docstring describes these choices, and proves that
+    "min_weight" gives minimum-weight bases.  The choice can change the parity checks, but not the
+    stabilizer group.  The "min_weight" checks at each vertex are as light as any basis of its local
+    check space, though generating sets of the stabilizer group that combine checks at different
+    vertices can be lighter.  The "min_weight" checks are also not chosen to minimize the number of
+    checks that act on each qudit.
 
-    The parity checks at each vertex span the local check space ``C_A ⨂ C_B`` (X-type) or
-    ``~C_A ⨂ ~C_B`` (Z-type), in the coordinates of the local view of the vertex.  Coordinate i of
-    the local codes belongs to member i of ``members_a`` (members of A in increasing order), and
-    likewise for B, and QTCode.from_ordered_members labels coordinates in another order.  The
-    argument ``local_checks`` chooses the checks that span each local check space: a minimum-weight
-    basis ("min_weight", the default), or products of the matrices that the local codes carry
-    ("from_codes").  The module docstring describes these choices, and proves that "min_weight"
-    gives minimum-weight bases.  The choice can change the parity checks, but not the stabilizer
-    group.  Minimum-weight bases are exact, and are not chosen to minimize the number of checks that
-    act on each qudit.
+    QTCode is a CSS stabilizer code over the field of its local codes, which can be any finite
+    field.  Its X-type and Z-type checks commute: the local views of two vertices with checks of
+    different types share either no faces, or exactly one row of each local view, or exactly one
+    column of each, where words of a local code meet words of its dual (help(LQTCode) gives the
+    argument in detail).  QTCode records no distance.  The constructor merges repeated members of A
+    and B.  It checks that A and B are symmetric and not both empty, that the local codes are over
+    one field and have one coordinate per member of their subsets, and, for the bipartite complex,
+    that A and B satisfy the Total No Conjugacy condition (see help(qldpc.objects.CayleyComplex)).
+    With "min_weight" local checks, it enumerates the words of each local code and of its dual,
+    which takes time exponential in their dimensions, so it checks that each of them has at most
+    2^20 words.
 
     Two QTCodes are equal if they have the same generating data and the same parity checks.
     QTCode.save records the choice of local checks, and the generator matrices of the local codes.
@@ -162,27 +213,23 @@ class QTCode(CSSCode):
     a given group, use LQTCode, whose docstring also relates QTCodes to it.
 
     Symmetries: QTCode.get_known_qudit_automorphism_group gives a group of qudit permutations that
-    preserve the code.  Its generators include translations of the Cayley complex.  Left
-    translation by a vertex x with X-type checks multiplies every vertex by x from the left; it is
-    included if conjugation by x permutes A, and the induced permutation of the coordinates of C_A
-    maps C_A onto itself.  Right translation by x multiplies every vertex by x from the right; it is
-    included if conjugation by x permutes B, and the induced permutation of the coordinates of C_B
-    maps C_B onto itself.  With the optional pybliss package, the generators also include the
-    automorphisms that bliss finds among the parity checks of the code, and among its canonical
-    local checks: the nonzero words of each local check space that are no heavier than the heaviest
-    word of a minimum-weight basis of the space, at every vertex.  Unlike the parity checks, the
-    canonical checks do not depend on the choice of local_checks.  A permutation of the qudits that
-    maps the local views of vertices with checks of each type to local views of vertices with checks
-    of the same type, and their local check spaces onto each other, maps the canonical checks onto
-    themselves, so bliss can find a much larger group from them.  If the local check spaces of
-    X-type or Z-type checks have more than 2^20 words, or more than 2^10 canonical checks at each
-    vertex, the canonical checks of that type are replaced by its parity checks.  The group can
-    omit other symmetries, such as those from automorphisms of the group G or from exchanging A and
-    B.  It contains no ZX-dualities, which exchange X-type and Z-type operators.
+    preserve the code.  Its generators include translations of the Cayley complex.  Left translation
+    by a vertex x with X-type checks multiplies every vertex by x from the left.  It is included if
+    conjugation by x permutes A, and the induced permutation of the coordinates of C_A maps C_A onto
+    itself.  Right translation by x multiplies every vertex by x from the right.  It is included if
+    conjugation by x permutes B, and the induced permutation of the coordinates of C_B maps C_B onto
+    itself.  With the optional pybliss package, the generators also include the automorphisms that
+    bliss finds among the parity checks of the code, and among its canonical local checks (see
+    help(qldpc.codes.quantum.quantum_tanner)).  If the local check spaces of X-type or Z-type checks
+    have more than 2^20 words, or more than 2^10 canonical checks at each vertex, bliss searches no
+    canonical checks of that type.  The group can omit other symmetries, such as those from
+    automorphisms of the group G or from exchanging A and B.  It contains no ZX-dualities, which
+    exchange X-type and Z-type operators.
 
     Notes:
 
-    - "Good" quantum Tanner code: projective special linear group and random classical codes.
+    - Asymptotically good families of quantum Tanner codes use projective special linear groups and
+      random local codes (arXiv:2202.13641).
 
     References:
 
@@ -210,24 +257,38 @@ class QTCode(CSSCode):
         Args:
             subset_a: The members of the symmetric subset A of a group.  Repeated members are
                 merged.
-            subset_b: The members of the symmetric subset B of the same group.
+            subset_b: The members of the symmetric subset B of the same group.  Repeated members are
+                merged.
             code_a: The local code C_A, or its parity check matrix, with one coordinate per member
                 of A.
             code_b: The local code C_B, or its parity check matrix, with one coordinate per member
-                of B.
-                By default, ``~C_A``, whose generator matrix is the parity check matrix of C_A.
+                of B.  By default, ``~C_A``, whose generator matrix is the parity check matrix of
+                C_A, if A and B have equally many members.
             field: The field of the local codes, if they are given as matrices.
             bipartite: Whether to build the code on the bipartite Cayley complex, rather than the
-                quadripartite one (see help(qldpc.objects.CayleyComplex)).
-            local_checks: The checks that span each local check space: "min_weight" (the default)
-                or "from_codes" (see help(qldpc.codes.quantum.quantum_tanner)).  "min_weight"
-                enumerates the words of each local code and of its dual, and raises a ValueError if
-                one has more than 2^20 words; pass "from_codes" for such local codes.
+                quadripartite one.
+            local_checks: The checks that span each local check space: "min_weight" (the default) or
+                "from_codes" (see help(qldpc.codes.quantum.quantum_tanner)).  Pass "from_codes" for
+                local codes that have too many words for "min_weight".
+
+        Raises:
+            ValueError: If any of the following holds:
+
+                - A or B is not symmetric, or both are empty.
+                - bipartite is True, and A and B do not satisfy the Total No Conjugacy condition.
+                - code_b is not given, and A and B have different numbers of members.
+                - The local codes are over different fields, or not over the given field.
+                - A local code does not have one coordinate per member of its subset.
+                - local_checks is not a choice of local checks.
+                - local_checks is "min_weight", and a local code or its dual has more than 2^20
+                  words.
         """
         local_checks = _parse_local_checks(local_checks)
 
         # build the complex first, since it merges repeated members of the subsets
         self.complex = CayleyComplex(subset_a, subset_b, bipartite=bipartite)
+
+        # read the local codes; C_B defaults to the dual of C_A if the subsets have equal sizes
         code_a = ClassicalCode(code_a, field)
         if code_b is not None:
             code_b = ClassicalCode(code_b, field)
@@ -239,6 +300,8 @@ class QTCode(CSSCode):
                 "no seed code provided for one of the generating subsets"
             )
 
+        # check that the local codes share a field, and each have one coordinate per member of their
+        # subset
         if field is None and code_a.field is not code_b.field:
             raise ValueError("The sub-codes provided for this QTCode are over different fields")
         for name, code, subset in [
@@ -251,12 +314,13 @@ class QTCode(CSSCode):
                     f" subset {name} has {len(subset)} distinct members"
                 )
 
+        # place the local checks at every vertex of the complex
         self.code_a = code_a
         self.code_b = code_b
         self._local_checks = local_checks
         code_x, code_z = self.get_subcodes(self.complex, code_a, code_b, local_checks=local_checks)
         super().__init__(code_x, code_z, field)
-        self._is_subsystem_code = False  # known by construction
+        self._is_subsystem_code = False  # the checks commute (see help(QTCode))
 
     def __eq__(self, other: object) -> bool:
         if not (
@@ -294,8 +358,7 @@ class QTCode(CSSCode):
     def members_a(self) -> tuple[abstract.GroupMember, ...]:
         """The members of the subset A, in increasing order.
 
-        Member i labels coordinate i of the local codes on the A side (see
-        help(qldpc.codes.quantum.quantum_tanner)).
+        Member i labels coordinate i of C_A (see help(qldpc.codes.quantum.quantum_tanner)).
         """
         return tuple(sorted(self.complex.subset_a))
 
@@ -303,8 +366,7 @@ class QTCode(CSSCode):
     def members_b(self) -> tuple[abstract.GroupMember, ...]:
         """The members of the subset B, in increasing order.
 
-        Member j labels coordinate j of the local codes on the B side (see
-        help(qldpc.codes.quantum.quantum_tanner)).
+        Member j labels coordinate j of C_B (see help(qldpc.codes.quantum.quantum_tanner)).
         """
         return tuple(sorted(self.complex.subset_b))
 
@@ -315,7 +377,8 @@ class QTCode(CSSCode):
         view of the v-th vertex with checks of the given type: the face whose label at that vertex
         is ``(members_a[i], members_b[j])`` (see help(qldpc.codes.quantum.quantum_tanner)).  The
         checks of each vertex are consecutive rows of ``matrix_x`` or ``matrix_z``, and the vertices
-        appear in the order of these rows.
+        appear in the order of these rows.  Every vertex has the same number k of checks, so the
+        checks of the v-th vertex are the rows ``v k`` to ``v k + k - 1``.
 
         Args:
             pauli: Pauli.X for the vertices with X-type checks, or Pauli.Z for those with Z-type
@@ -336,8 +399,11 @@ class QTCode(CSSCode):
     ) -> tuple[TannerCode, TannerCode]:
         """Get the classical Tanner subcodes of a quantum Tanner code.
 
-        The parity checks of the subcodes are the X-type and Z-type checks of the quantum Tanner
-        code.  The argument local_checks is as for QTCode.
+        Return the classical Tanner codes on subgraph_x and subgraph_z (see QTCode.get_subgraphs),
+        whose parity checks are the X-type and Z-type checks of the quantum Tanner code.  Each
+        places the local checks of its type at every source, so its subcode, in the sense of
+        TannerCode, is ``~(C_A ⨂ C_B)`` or ``~(~C_A ⨂ ~C_B)``.  The argument local_checks is as for
+        QTCode.
         """
         local_checks = _parse_local_checks(local_checks)
         subgraph_x, subgraph_z = QTCode.get_subgraphs(cayplex)
@@ -348,31 +414,32 @@ class QTCode(CSSCode):
     def get_subgraphs(cayplex: CayleyComplex) -> tuple[nx.DiGraph, nx.DiGraph]:
         """Build the subgraphs of the inner (classical) Tanner codes for a quantum Tanner code.
 
-        These subgraphs are defined using the faces of a Cayley complex.  Each face looks like:
+        The vertices of the complex are members of a cover of the group.  Each member a of A acts on
+        the cover as its image, (a,1,0) in the quadripartite complex or (a,1) in the bipartite
+        complex, and each member b of B as (b,0,1) or (b,1) (see CayleyComplex.cover_subset_a and
+        CayleyComplex.cover_subset_b).  Below, a and b stand for these images.  The vertices with
+        X-type checks are the identity and the vertices that it reaches through steps ``g -> agb``
+        (see help(QTCode)).  For each vertex g with X-type checks, a in A, and b in B, the complex
+        has a face ``f(g,a,b) = {g, ag, gb, agb}``::
 
-         g ―――――――――― gb
+             g ―――――――――― gb
 
-         |  f(g,a,b)  |
+             |  f(g,a,b)  |
 
-        ag ――――――――― agb
+            ag ――――――――― agb
 
-        where ``f(g,a,b) = {g, ag, gb, agb}``.  Specifically, the (directed) subgraphs are:
+        The (directed) subgraphs are:
 
-        - subgraph_x with edges ``( g, f(g,a,b))``, and
-        - subgraph_z with edges ``(ag, f(g,a,b))``.
+        - subgraph_x, with an edge ``(g, f(g,a,b))`` for each such triple (g, a, b), and
+        - subgraph_z, with an edge ``(ag, f(g,a,b))`` for each such triple (g, a, b).
 
-        Classical Tanner codes on these subgraphs are used to construct a quantum Tanner code.
-
-        As a matter of practice, defining classical Tanner codes on subgraph_x and subgraph_z
-        requires choosing an ordering on the edges incident to every source node of these graphs.
-        If the group G is equipped with a total order, a natural ordering of edges incident to every
-        source node is induced by assigning the label (a, b) to edge ``(g, f(g,a,b))``.  Consistency
-        then requires that edge ``(ag, f(g,a,b))`` has label ``(a^-1, b)``, as verified by defining
-        ``g' = ag`` and checking that ``f(g,a,b) = f(g',a^-1,b)``.
-
-        Each face also has a "sort" attribute, which numbers the faces in the order in which they
-        are found.  This fixes the order of the bits of the classical Tanner codes, and so of the
-        qudits of the quantum Tanner code.
+        Each edge has a "sort" attribute, which is the label of the face at the source of the edge:
+        (a, b) for the edge ``(g, f(g,a,b))``, and ``(a^-1, b)`` for the edge ``(ag, f(g,a,b))``,
+        since ``f(g,a,b) = f(ag,a^-1,b)``.  Classical Tanner codes on these subgraphs order the
+        edges at each source by their labels, with members in increasing order, as in
+        QTCode.members_a and QTCode.members_b.  Each face also has a "sort" attribute, which numbers
+        the faces in the order in which they are found.  This fixes the order of the bits of the
+        classical Tanner codes, and so of the qudits of the quantum Tanner code.
         """
         # sort the subsets by the total order on the group, which fixes the order in which faces are
         # added below, and thereby the qudit that each face of the Cayley complex is identified with
@@ -446,7 +513,8 @@ class QTCode(CSSCode):
 
         Raises:
             ValueError: If a list of members repeats a member (LQTCode allows repeats), or if a
-                local code does not have one coordinate per member of its list.
+                local code does not have one coordinate per member of its list.  Also in the cases
+                that QTCode lists, such as lists of members that are not symmetric.
         """
         members_a, members_b = list(members_a), list(members_b)
         code_a = ClassicalCode(code_a, field)
@@ -492,16 +560,43 @@ class QTCode(CSSCode):
         seed: int | None = None,
         local_checks: Literal["min_weight", "from_codes"] = "min_weight",
     ) -> QTCode:
-        """Construct a random quantum Tanner code from a base group and seed code(s).
+        """Construct a random quantum Tanner code from a group and local codes.
 
-        If only one code C is provided, use its dual ~C for the second code.  If exclude_identity is
-        True, the random subsets exclude the identity element e of the group, as the generating sets
-        of Cayley graphs usually do.  If A contains the identity, the faces
-        ``f(g,e,b) = {g, eg, gb, egb}`` have vertices g and eg that are the same group member, and
-        similarly for B.  The double or quadruple covers built by CayleyComplex keep these vertices
-        apart, so the code is still defined.  See help(qldpc.abstract.Group.random_symmetric_subset)
-        for the sizes of subsets without the identity, and the error raised for other sizes.  The
-        argument local_checks is as for QTCode.
+        Unless exclude_identity is True, the random subsets A and B can contain the identity element
+        e of the group.  Then the faces ``f(g,e,b) = {g, eg, gb, egb}`` have vertices g and eg that
+        are the same member of the group, and similarly for B.  The double or quadruple covers built
+        by CayleyComplex keep these vertices apart, so the code is still defined on the
+        quadripartite complex, or on the bipartite complex if A and B do not both contain e.
+
+        Args:
+            group: The group from which to draw the random symmetric subsets A and B.
+            code_a: The local code C_A, or its parity check matrix.  A has one member per coordinate
+                of C_A.
+            code_b: The local code C_B, or its parity check matrix.  B has one member per coordinate
+                of C_B.  By default, ``~C_A``, whose generator matrix is the parity check matrix of
+                C_A.
+            field: The field of the local codes, if they are given as matrices.
+            bipartite: Whether to build the code on the bipartite Cayley complex, as for QTCode.
+            one_subset: If True, draw only A, and use it as B as well, which needs local codes of
+                the same length.  A = B never satisfies the Total No Conjugacy condition, since
+                ``a e = e a``, so one_subset=True with bipartite=True always raises a ValueError.
+            exclude_identity: If True, the random subsets exclude the identity element of the group,
+                as the generating sets of Cayley graphs usually do.  See
+                help(qldpc.abstract.Group.random_symmetric_subset) for the sizes of subsets without
+                the identity.
+            seed: A seed for the random subsets, from which the construction is reproducible.
+            local_checks: The choice of local checks, as for QTCode.
+
+        Raises:
+            ValueError: If any of the following holds:
+
+                - A local code has length 0.
+                - The group has no symmetric subset whose size is the length of C_A, or of C_B
+                  unless one_subset is True, without the identity if exclude_identity is True (see
+                  help(qldpc.abstract.Group.random_symmetric_subset)).
+                - QTCode raises a ValueError for the subsets and local codes, such as when
+                  one_subset is True and C_B does not have one coordinate per member of A, or when
+                  one_subset and bipartite are both True.
         """
         code_a = ClassicalCode(code_a, field)
         code_b = ClassicalCode(code_b if code_b is not None else _get_dual_code(code_a), field)
@@ -671,13 +766,15 @@ class QTCode(CSSCode):
     @functools.cached_property
     def _local_views(self) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]:
         """The local views of the vertices with X-type checks, and of those with Z-type checks."""
+        # cover members compare by their members of G first, so these orders agree with members_a/b
         members_a = sorted(self.complex.cover_subset_a)
         members_b = sorted(self.complex.cover_subset_b)
         positions_a = {member: index for index, member in enumerate(members_a)}
         positions_b = {member: index for index, member in enumerate(members_b)}
         local_views = []
         for subgraph in self.get_subgraphs(self.complex):
-            # TannerCode orders the sources of a subgraph, which carry checks, by the sources alone
+            # TannerCode sorts the sources of a subgraph, which carry its checks, by the nodes
+            # themselves, since they have no "sort" attribute
             sources = sorted(node for node in subgraph if subgraph.out_degree(node))
             local_view = np.zeros((len(sources), len(positions_a), len(positions_b)), dtype=int)
             for index, source in enumerate(sources):
@@ -692,14 +789,14 @@ class QTCode(CSSCode):
 
         Here A and B are the cover subsets of the complex, whose vertices are members of the cover
         group (see help(qldpc.objects.CayleyComplex)), and V is the set of vertices.  Let x be a
-        vertex with X-type checks, such that conjugation by x permutes A, mapping member i of A to
-        member π(i) in increasing order, and such that π, as a permutation of coordinates, maps C_A
-        onto itself.  Then left translation by x, which maps each vertex v to xv, preserves this
-        code:
+        vertex with X-type checks such that conjugation by x permutes A.  Number the members of A in
+        increasing order, let π map each number i to the number of the conjugate of member i, and
+        suppose that π, as a permutation of coordinates, maps C_A onto itself.  Then left
+        translation by x, which maps each vertex v to xv, preserves this code:
 
         - It maps V onto itself.  The vertices are the products uw of a member u of the group <A>
           generated by A and a member w of <B>, since left and right multiplications commute.  So
-          x = u'w' for some such u' and w', and since conjugation by x maps <A> onto itself,
+          ``x = u'w'`` for some such u' and w', and since conjugation by x maps <A> onto itself,
           ``xV = x<A><B> = <A>x<B> = <A>u'w'<B> = V``.
         - It maps vertices with X-type checks to vertices with X-type checks.  The cover group
           assigns each member a class in Z_2 (bipartite complex) or Z_2 x Z_2 (quadripartite
@@ -721,7 +818,7 @@ class QTCode(CSSCode):
         satisfy the conditions form a group, since their products satisfy them, and this method
         returns qudit permutations of generators of the two groups.  In a quadripartite complex, the
         group of left translations includes translation by the central member (e,1,1) of the cover
-        group, if it is a vertex.
+        group, where e is the identity of the group G, if (e,1,1) is a vertex.
 
         These conditions are sufficient, not necessary.  The translations omit other symmetries,
         such as those from automorphisms of the group, from exchanging A and B, or from permutations
@@ -732,7 +829,8 @@ class QTCode(CSSCode):
         faces = {face: qudit for face, qudit in subgraph_x.nodes(data="sort") if qudit is not None}
         vertices = sorted(node for node in subgraph_x if subgraph_x.out_degree(node))
 
-        # find generators of the left and right translations, and permute the faces by each
+        # Find generators of the left and right translations, and permute the faces by each.  Cover
+        # members compare by their members of G first, so these orders are those of members_a/b.
         permutations = []
         for left, members, code in [
             (True, sorted(self.complex.cover_subset_a), self.code_a),
@@ -749,10 +847,10 @@ class QTCode(CSSCode):
     def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
         """The parity checks of this code and its canonical local checks, for bliss to search.
 
-        Bliss can find more automorphisms among the canonical checks (see _get_canonical_checks),
-        but it can also find automorphisms among the parity checks that do not map the canonical
-        checks onto themselves, such as when a local code is the direct sum of codes on disjoint
-        sets of coordinates.  So bliss searches both.
+        Bliss can find more automorphisms among the canonical checks (see
+        help(qldpc.codes.quantum.quantum_tanner)), but it can also find automorphisms of the parity
+        checks that are not automorphisms of the canonical checks, such as when a local code is the
+        direct sum of codes on disjoint sets of coordinates.  So bliss searches both.
         """
         canonical_checks = self._get_canonical_checks()
         if np.array_equal(canonical_checks, self.matrix):
@@ -762,27 +860,11 @@ class QTCode(CSSCode):
     def _get_canonical_checks(self) -> galois.FieldArray:
         """The canonical local checks of this code, in the layout of its parity check matrix.
 
-        At each vertex, the canonical local checks are the nonzero words of its local check space
-        whose weight is at most w*, the largest weight of a word in a minimum-weight basis of the
-        space (all such bases have the same weights), on the local view of the vertex.  For the
-        space ``C_A ⨂ C_B``, w* is the product of the largest weights of words in minimum-weight
-        bases of C_A and C_B, since tensor products of minimum-weight bases are minimum-weight bases
-        (see help(qldpc.codes.quantum.quantum_tanner)), and likewise for ``~C_A ⨂ ~C_B``.
-
-        - The canonical checks of a vertex include a minimum-weight basis of its local check space,
-          so they span it, and the canonical checks of all vertices span the row spaces of matrix_x
-          and matrix_z.  So a permutation of the qudits that maps the set of canonical checks onto
-          itself preserves this code.
-        - Unlike the parity checks, the canonical checks depend only on the local check spaces.  A
-          permutation of coordinates that maps one local check space onto another, of checks of the
-          same type, preserves weights, so it maps canonical checks to canonical checks.  So bliss
-          can find automorphisms that map local views to local views of the same type without
-          mapping parity checks to parity checks.
-
-        Finding the canonical checks takes time proportional to the number of words of each local
-        check space.  If a local check space has more than 2^20 words, or more than 2^10 canonical
-        checks at each vertex, the matrix holds the parity checks of that type instead, which depend
-        on the choice of local checks.
+        The module docstring defines the canonical local checks, and shows that they span the row
+        spaces of matrix_x and matrix_z.  If a local check space has more than
+        _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more than _MAX_CANONICAL_CHECKS_PER_VERTEX
+        canonical checks at each vertex, the returned matrix holds the parity checks of that type
+        instead, which depend on the choice of local checks.
         """
         blocks = []
         sectors: list[tuple[PauliXZ, list[galois.FieldArray], galois.FieldArray]] = [
@@ -803,9 +885,9 @@ class QTCode(CSSCode):
 
 
 class LQTCode(CSSCode):
-    """Lifted quantum Tanner code: a quantum Tanner code that lifts local codes (not an LPCode).
+    """Lifted quantum Tanner code (not an LPCode): products of local codes, repeated over a group.
 
-    A lifted quantum Tanner code is defined by:
+    A lifted quantum Tanner code is a CSS code defined by:
 
     - a finite group G, given explicitly;
     - ordered lists ``A = (a_0, ..., a_{m-1})`` and ``B = (b_0, ..., b_{n-1})`` of members of G,
@@ -814,9 +896,10 @@ class LQTCode(CSSCode):
     - classical local codes C_A^0 and C_A^1 of length m, and C_B^0 and C_B^1 of length n, over one
       finite field.
 
-    Complex and qudits.  The vertices of the complex are the triples (g, s, t) in G x {0,1} x {0,1},
-    and (s, t) is the class of a vertex.  The squares of the complex are the triples (i, j, g) for
-    i < m, j < n, and g in G, and the corners of square (i, j, g) are:
+    Complex and qudits.  The code is built on a quadripartite square complex, whose vertices are the
+    triples (g, s, t) in G x {0,1} x {0,1}, and (s, t) is the class of a vertex.  The squares of the
+    complex are the triples (i, j, g) for ``i < m``, ``j < n``, and g in G, and the corners of
+    square (i, j, g) are::
 
            (g, 0, 0) ――――――――――――― (g b_j, 0, 1)
 
@@ -827,41 +910,41 @@ class LQTCode(CSSCode):
     Here products such as ``a_i g`` are products of qLDPC group members (``a_i * g``).  The square
     has the label (i, j) at each of its corners.  So a vertex (h, s, t) is a corner of exactly one
     square with each label (i, j), namely ``(i, j, a_i^-s h b_j^-t)``, which sits at coordinate
-    (i, j) of the m x n local view of the vertex (see LQTCode.get_local_views).  Since squares
-    are labeled by positions in A and B, rather than by members, members can repeat.  The qudits of
-    the code are the squares, and qudit (i, j, g) has the index ``(i n + j) |G| + r(g)``, where r(g)
-    is the position of g among the members of G in increasing order.
+    (i, j) of the m x n local view of the vertex (see LQTCode.get_local_views).  Since squares are
+    labeled by positions in A and B, rather than by members, members can repeat.  The qudits of the
+    code are the squares, and qudit (i, j, g) has the index ``(i n + j) |G| + r(g)``, where r(g) is
+    the position of g among the members of G in increasing order.
 
     Checks.  A vertex of class (s, t) uses the local codes C_A^s and C_B^t, in the coordinates of
     its local view.  The vertices with s = t carry X-type checks that span the local check space
     ``C_A^s ⨂ C_B^t``, and those with s != t carry Z-type checks that span ``~C_A^s ⨂ ~C_B^t``,
     where ``~C`` is the dual code of C.  The argument local_checks chooses the checks of each
     vertex: "min_weight" chooses a minimum-weight basis of its local check space, and "from_codes"
-    the rows of ``G_A^s ⨂ G_B^t`` (X-type) or ``H_A^s ⨂ H_B^t`` (Z-type), where H = code.matrix and
-    G = code.generator are the parity check matrix and generator matrix that each local code carries
-    (see help(qldpc.codes.quantum.quantum_tanner)).  The rows of matrix_x are the checks of the
-    vertices of class (0, 0) and then (1, 1), and the rows of matrix_z those of the vertices of
-    class (0, 1) and then (1, 0).  Within each class, vertices (g, s, t) are ordered by increasing
-    g, and the checks of each vertex are consecutive rows.
+    the rows of ``G_A^s ⨂ G_B^t`` (X-type) or ``H_A^s ⨂ H_B^t`` (Z-type).  Here H_A^s and G_A^s are
+    the parity check matrix and generator matrix that C_A^s carries (``code.matrix`` and
+    ``code.generator``), and likewise for C_B^t (see help(qldpc.codes.quantum.quantum_tanner)).  The
+    rows of matrix_x are the checks of the vertices of class (0, 0) and then (1, 1), and the rows of
+    matrix_z those of the vertices of class (0, 1) and then (1, 0).  Within each class, vertices
+    (g, s, t) are ordered by increasing g, and the checks of each vertex are consecutive rows.
 
     Commutation.  The checks commute over any finite field.  An X-type vertex (h, s, s) and a Z-type
-    vertex (h', s, 1-s) share the A-class s.  Square (i, j, g) is at coordinate (i, j) of both of
-    their local views if ``g = a_i^-s h b_j^-s = a_i^-s h' b_j^(s-1)``, which is to say if
-    ``h' = h b_j^(1-2s)``, a condition on j alone.  Let J be the set of positions j of B with
-    ``b_j = (h^-1 h')^(1-2s)``; if this member repeats in B, then J has several positions.  The two
-    local views overlap on all rows i of the columns j in J.  On this overlap, a word ``x ⨂ y`` of
-    the X-type space, with x in C_A^s, and a word ``u ⨂ w`` of the Z-type space, with u in ~C_A^s,
-    have the inner product ``(x · u) (sum_{j in J} y_j w_j) = 0``, and linearity extends this to
-    all words of the two spaces.  Likewise, an X-type vertex (h, s, s) and a Z-type vertex
-    (h', 1-s, s) share the B-class s, and their local views overlap on all columns of the rows i
-    with ``h' = a_i^(1-2s) h``, where the inner product factors through C_B^s and its dual.  So
-    ``matrix_x @ matrix_z.T = 0``.
+    vertex (h', s, 1-s) share the first entry s of their classes.  Square (i, j, g) is at coordinate
+    (i, j) of both of their local views if ``g = a_i^-s h b_j^-s = a_i^-s h' b_j^(s-1)``, which is
+    to say if ``h' = h b_j^(1-2s)``, a condition on j alone.  Let J be the set of positions j of B
+    with ``b_j = (h^-1 h')^(1-2s)``; if this member repeats in B, then J has several positions.  The
+    two local views overlap on all rows i of the columns j in J.  On this overlap, a word ``x ⨂ y``
+    of the X-type space, with x in C_A^s, and a word ``u ⨂ w`` of the Z-type space, with u in
+    ~C_A^s, have the inner product ``(x · u) (sum_{j in J} y_j w_j) = 0``, and linearity extends
+    this to all words of the two spaces.  Likewise, an X-type vertex (h, s, s) and a Z-type vertex
+    (h', 1-s, s) share the second entry s of their classes, and their local views overlap on all
+    columns of the rows i with ``h' = a_i^(1-2s) h``, where the inner product factors through C_B^s
+    and its dual.  So ``matrix_x @ matrix_z.T = 0``.
 
     Relation to QTCode.  Let A and B be symmetric sets of distinct members of a group, listed in
     increasing order as by QTCode.members_a and QTCode.members_b, and let G be the group that they
-    generate.  Let ι_A be the permutation of positions in A that maps each member to its inverse,
-    and let ``C∘ι_A`` be the code whose coordinate i is coordinate ι_A(i) of a code C, and likewise
-    for B.
+    generate, with identity e.  Let ι_A be the permutation of positions in A that maps each member
+    to its inverse, and let ``C∘ι_A`` be the code whose coordinate i is coordinate ι_A(i) of a code
+    C, and likewise for B.
 
     - The quadripartite ``QTCode(A, B, C_A, C_B)`` has a face ``f(g,a,b) = {g, ag, gb, agb}`` for
       each vertex g of class (0, 0) of its complex, with the labels (a, b), (a^-1, b), (a, b^-1),
@@ -869,60 +952,60 @@ class LQTCode(CSSCode):
       the square (i, j, g) with ``a = a_i`` and ``b = b_j``, so in the labels of squares, the local
       check spaces of QTCode are those of the local codes ``C_A^0 = C_A``, ``C_A^1 = C_A∘ι_A``,
       ``C_B^0 = C_B``, and ``C_B^1 = C_B∘ι_B``.  QTCode keeps only the connected component of the
-      complex that contains the identity, whereas an LQTCode on a disconnected complex is the
-      direct sum of the codes on its components.  So if the complex is connected, the QTCode and
-      the LQTCode with these local codes have the same qudits, up to their order, and the same
+      complex that contains the identity, whereas an LQTCode on a disconnected complex is the direct
+      sum of the codes on its components.  So if the complex is connected, the QTCode and the
+      LQTCode with these local codes have the same qudits, up to their order, and the same
       stabilizer group.
-    - The bipartite QTCode, whose subsets satisfy the Total No Conjugacy condition (TNC), is a
-      quotient of the quadripartite complex.  The involution ``σ: (g, s, t) -> (g, 1-s, 1-t)`` maps
-      square (i, j, g) to square ``(ι_A(i), ι_B(j), a_i g b_j)``, and since ``C^1 = C^0∘ι``, it maps
-      the local check space of each vertex onto that of its image.  It changes the class of every
-      vertex, and fixes square (i, j, g) only if ``a_i g b_j = g``, which TNC excludes.  The
-      quotient by σ is the bipartite complex of QTCode, whose vertex (g, 0) has X-type checks and is
-      the orbit of (g, 0, 0) and (g, 1, 1), and whose vertex (g, 1) is the orbit of (g, 1, 0) and
-      (g, 0, 1).  Let K be the component of the quadripartite complex that contains (e, 0, 0).  If σ
-      maps K onto itself, the bipartite QTCode is the quotient of the quadripartite QTCode by σ.
-      Otherwise, the quotient maps K isomorphically onto the component of the bipartite complex that
-      contains (e, 0), and the bipartite QTCode has the qudits, up to their order, and the
-      stabilizer group of the quadripartite QTCode.
+    - The bipartite complex of a QTCode, whose subsets satisfy the Total No Conjugacy condition
+      (TNC), is a quotient of the quadripartite complex.  The involution
+      ``σ: (g, s, t) -> (g, 1-s, 1-t)`` maps square (i, j, g) to square
+      ``(ι_A(i), ι_B(j), a_i g b_j)``, and since ``C^1 = C^0∘ι``, it maps the local check space of
+      each vertex onto that of its image.  It changes the class of every vertex, and fixes square
+      (i, j, g) only if ``a_i g b_j = g``, which TNC excludes.  The quotient by σ is the bipartite
+      complex of QTCode, whose vertex (g, 0) has X-type checks and is the orbit of (g, 0, 0) and
+      (g, 1, 1), and whose vertex (g, 1) is the orbit of (g, 1, 0) and (g, 0, 1).  Let K be the
+      component of the quadripartite complex that contains (e, 0, 0).  If σ maps K onto itself, the
+      bipartite QTCode is the quotient of the quadripartite QTCode by σ.  Otherwise, the quotient
+      maps K isomorphically onto the component of the bipartite complex that contains (e, 0), and
+      the bipartite QTCode has the qudits, up to their order, and the stabilizer group of the
+      quadripartite QTCode.
 
     These relations are between stabilizer groups.  The parity checks correspond as well, up to the
     order of qudits and checks, if both codes use local_checks="from_codes", and C_A^1 and C_B^1
     carry the matrices of C_A and C_B with permuted columns, as
-    ``ClassicalCode(H[:, ι_A]).set_generator(G[:, ι_A])`` does for the parity check matrix H and
-    generator matrix G of C_A.  Otherwise the parity checks can differ.  For example, with
-    "min_weight" they can differ because minimum-weight bases depend on the order of coordinates.
+    ``ClassicalCode(H_A[:, ι_A]).set_generator(G_A[:, ι_A])`` does for the parity check matrix H_A
+    and generator matrix G_A of C_A.  Otherwise the parity checks can differ.  For example, with
+    "min_weight" they can differ because the minimum-weight basis that qLDPC picks can depend on the
+    order of coordinates.
 
-    LQTCode is a CSS stabilizer code.  It records no distance, and infers none.  The
-    constructor checks that the members of A and B are members of G, that the local codes have
-    lengths m and n, and that they are over one field, which can be any finite field (the codes of
-    arXiv:2512.20532 are binary).  The choice "min_weight" enumerates the words of each local code
-    and of its dual, which takes time exponential in their dimensions, and raises a ValueError if
-    one of them has more than 2^20 words.  Its checks are exact minimum-weight bases of the local
-    check spaces, and are not chosen to minimize the number of checks that act on each qudit.  The
-    choice "from_codes" gives exactly the products of the rows of the matrices that the local codes
-    carry, including redundant checks if the rows of a matrix are linearly dependent.  A local code
-    given as a parity check matrix carries a generator matrix that qLDPC computes.
-    LQTCode.from_lrz builds a code from the data of arXiv:2512.20532, in that paper's notation.
+    LQTCode is a CSS stabilizer code.  It records no distance.  The constructor checks that the
+    members of A and B are members of G, that the local codes have lengths m and n, and that they
+    are over one field, which can be any finite field (the codes of arXiv:2512.20532 are binary).
+    With "min_weight" local checks, it enumerates the words of each local code and of its dual,
+    which takes time exponential in their dimensions, so it checks that each of them has at most
+    2^20 words.  The "min_weight" checks at each vertex are as light as any basis of its local check
+    space, though generating sets of the stabilizer group that combine checks at different vertices
+    can be lighter.  The "min_weight" checks are also not chosen to minimize the number of checks
+    that act on each qudit.  A local code given as a parity check matrix carries a generator matrix
+    that qLDPC computes, which "from_codes" uses.  LQTCode.from_lrz builds a code from the data of
+    arXiv:2512.20532, in that paper's notation.
 
-    Symmetries: LQTCode.get_known_qudit_automorphism_group gives a group of qudit permutations
-    that preserve the code.  Its generators include translations of the complex.  Left translation
-    by a member x of G maps each vertex (g, s, t) to (xg, s, t).  It is included if conjugation by
-    x, ``a -> x a x^-1``, permutes the list A, which is to say that the conjugate of each member
-    occurs in A as often as the member does.  Repeated members are matched in order: the k-th
-    occurrence of a member goes to the k-th occurrence of its conjugate, which gives a permutation π
-    of the positions in A.  The translation is included if, moreover, π maps C_A^0 and C_A^1 onto
+    Symmetries: LQTCode.get_known_qudit_automorphism_group gives a group of qudit permutations that
+    preserve the code.  Its generators include translations of the complex.  Left translation by a
+    member x of G maps each vertex (g, s, t) to (xg, s, t).  It is included if conjugation by x,
+    ``a -> x a x^-1``, permutes the list A, which is to say that the conjugate of each member occurs
+    in A as often as the member does.  Repeated members are matched in order: the k-th occurrence of
+    a member goes to the k-th occurrence of its conjugate, which gives a permutation π of the
+    positions in A.  The translation is included if, moreover, π maps C_A^0 and C_A^1 onto
     themselves as a permutation of coordinates.  Right translation by x maps each vertex (g, s, t)
     to (gx, s, t), and is included under the same conditions for the conjugation ``b -> x^-1 b x``
     of B, and for C_B^0 and C_B^1.  With the optional pybliss package, the generators also include
     the automorphisms that bliss finds among the parity checks of the code, and among its canonical
-    local checks, as for QTCode (see help(QTCode)): the nonzero words of the local check space of
-    each vertex that are no heavier than the heaviest word of a minimum-weight basis of the space.
-    If the local check spaces of a class of vertices with X-type or Z-type checks have more than
-    2^20 words, or more than 2^10 canonical checks at each vertex, the canonical checks of that type
-    are replaced by its parity checks.  The group can omit other symmetries, such as those from
-    automorphisms of G or from exchanging A and B.  It contains no ZX-dualities, which exchange
-    X-type and Z-type operators.
+    local checks (see help(qldpc.codes.quantum.quantum_tanner)).  For each type of checks, if either
+    class of vertices with that type has a local check space with more than 2^20 words or 2^10
+    canonical checks per vertex, bliss searches no canonical checks of that type.  The group can
+    omit other symmetries, such as those from automorphisms of G or from exchanging A and B.  It
+    contains no ZX-dualities, which exchange X-type and Z-type operators.
 
     References:
 
@@ -957,10 +1040,10 @@ class LQTCode(CSSCode):
 
         Args:
             group: The group G.
-            members_a: The members a_i of G, in order.  Members may repeat.  The attribute
-                members_a holds them on as many points as G acts on.
-            members_b: The members b_j of G, in order.  Members may repeat.  The attribute
-                members_b holds them on as many points as G acts on.
+            members_a: The members a_i of G, in order.  Members may repeat.  The attribute members_a
+                holds them on as many points as G acts on.
+            members_b: The members b_j of G, in order.  Members may repeat.  The attribute members_b
+                holds them on as many points as G acts on.
             code_a0: The local code C_A^0, or its parity check matrix, with one coordinate per
                 position i in members_a.
             code_b0: The local code C_B^0, or its parity check matrix, with one coordinate per
@@ -968,18 +1051,22 @@ class LQTCode(CSSCode):
             field: The field of the local codes, if they are given as matrices.
             code_a1: The local code C_A^1, or its parity check matrix.  By default, C_A^0.
             code_b1: The local code C_B^1, or its parity check matrix.  By default, C_B^0.
-            local_checks: The checks that span each local check space: "min_weight" (the default)
-                or "from_codes" (see help(LQTCode)).
+            local_checks: The checks that span each local check space: "min_weight" (the default) or
+                "from_codes" (see help(LQTCode)).
 
         Raises:
-            ValueError: If a member of A or B is not a member of G, a local code does not have one
-                coordinate per position in its list, the local codes are over different fields, or
-                local_checks is not a choice of local checks.  Also if local_checks is "min_weight"
-                and a local code or its dual has more than 2^20 words.
+            ValueError: If any of the following holds:
+
+                - A member of A or B is not a member of G.
+                - A local code does not have one coordinate per position in its list.
+                - The local codes are over different fields, or not over the given field.
+                - local_checks is not a choice of local checks.
+                - local_checks is "min_weight", and a local code or its dual has more than 2^20
+                  words.
         """
         local_checks = _parse_local_checks(local_checks)
 
-        # read the local codes, whose class-1 codes default to the class-0 codes
+        # read the local codes; C_A^1 and C_B^1 default to C_A^0 and C_B^0
         codes_a = [
             ClassicalCode(code, field)
             for code in [code_a0, code_a0 if code_a1 is None else code_a1]
@@ -1005,6 +1092,7 @@ class LQTCode(CSSCode):
                     )
             lists.append(tuple(_get_member_on_points(member, group.degree) for member in members))
 
+        # save the generating data, and check that "min_weight" can enumerate the local codes
         self.group = group
         self.members_a, self.members_b = lists
         self.code_a0, self.code_a1 = codes_a
@@ -1048,9 +1136,10 @@ class LQTCode(CSSCode):
 
         That paper builds a code from a group G, ordered lists ``A = (a_1, ..., a_{n_A})`` and
         ``B = (b_1, ..., b_{n_B})`` of members of G, and binary codes C_0 and C_1 of length n_A and
-        C'_0 and C'_1 of length n_B, whose parity check matrices H_s and H'_t and generator
-        matrices G_s and G'_t it fixes.  Its qubits are the triples (i, j, g), in the order of the
-        index ``(i n_B + j) |G| + r(g)`` of LQTCode, and its parity check matrices are
+        C'_0 and C'_1 of length n_B, whose parity check matrices H_s and H'_t and generator matrices
+        G_s and G'_t it fixes.  Below, as in LQTCode, positions i in A and j in B count from 0, so
+        a_i is the paper's a_{i+1}.  The qubits of the paper are the triples (i, j, g), in the order
+        of the index ``(i n_B + j) |G| + r(g)`` of LQTCode, and its parity check matrices are
 
             ``H_X = [H_0 ⨂ G'_0 ⨂ I; (H_1 ⨂ G'_1 ⨂ I) L_A R_B]``, and
             ``H_Z = [(G_0 ⨂ H'_1 ⨂ I) R_B; (G_1 ⨂ H'_0 ⨂ I) L_A]``,
@@ -1065,20 +1154,24 @@ class LQTCode(CSSCode):
         - ``(i, j, a_i g)``, with words of ``C_1 ⨂ ~C'_0`` (Z-type).
 
         These are the local views of the vertices (g, s, t) of classes (0, 0), (1, 1), (0, 1), and
-        (1, 0) of the LQTCode with members ``a_i^-1`` in place of a_i, members b_j, and local
-        codes ``C_A^s = ~C_s`` and ``C_B^t = C'_t``, whose local check spaces are the same products.
-        This method returns that LQTCode.  It builds each code ``~C_s`` with the matrices of
-        C_s exchanged: its parity check matrix is G_s, and its generator matrix is H_s.  So with
+        (1, 0) of the LQTCode with members ``a_i^-1`` in place of a_i, members b_j, and local codes
+        ``C_A^s = ~C_s`` and ``C_B^t = C'_t``, whose local check spaces are the same products.  This
+        method returns that LQTCode.  It builds each code ``~C_s`` with the matrices of C_s
+        exchanged: its parity check matrix is G_s, and its generator matrix is H_s.  So with
         local_checks="from_codes", the X-type checks at the vertices of class (s, s) are the rows of
         ``H_s ⨂ G'_s``, and the Z-type checks at the vertices of class (s, t) are the rows of
-        ``G_s ⨂ H'_t``.  These are the rows of H_X and H_Z, up to their order, if the codes carry
-        the matrices H and G of the paper: H as code.matrix, and G as code.generator, which
-        ClassicalCode.set_generator sets.  A code given as a parity check matrix H carries a
-        generator matrix that qLDPC computes, so its checks have the same row space as those of
-        the paper, but can differ from them.
+        ``G_s ⨂ H'_t``.  These are the rows of H_X and H_Z, up to their order, if each code carries
+        the matrices of the paper: its parity check matrix as code.matrix, and its generator matrix
+        as code.generator, which ClassicalCode.set_generator sets.  For a code given only as a
+        parity check matrix, qLDPC computes a generator matrix, so the checks of the returned code
+        span the same spaces as those of the paper, but can differ from them.  The published check
+        matrices of its [[144, 12, 11]] code order the qubits by g first: qubit (i, j, g) is the
+        published qubit ``36 h + 6 i + j``, where h is the number that the files give g (they number
+        the members of Z_2 × Z_2 from 0 to 3 under bitwise XOR).  So a comparison with those files
+        needs a relabeling of the qubits.
 
-        The paper's codes are binary.  Over other finite fields, this method builds the
-        LQTCode in the same way.
+        The paper's codes are binary.  Over other finite fields, this method builds the LQTCode in
+        the same way.
 
         Args:
             group: The group G.
@@ -1094,8 +1187,11 @@ class LQTCode(CSSCode):
         Raises:
             ValueError: As for LQTCode.
         """
+        # check the members of A before inverting them, so that an error names a member as given
         members_a = list(members_a)
         _check_members_in_group(group, members_a, "members_a")
+
+        # build the LQTCode of the inverses of the members of A, and the duals of C_0 and C_1
         codes = [
             ClassicalCode(code, field) for code in [code_0, code_1, code_0_prime, code_1_prime]
         ]
@@ -1119,7 +1215,9 @@ class LQTCode(CSSCode):
         (0, 0) and then (1, 1), and the vertices with Z-type checks are those of class (0, 1) and
         then (1, 0).  Within each class, vertices (h, s, t) are ordered by increasing h.  The checks
         of each vertex are consecutive rows of matrix_x or matrix_z, and the vertices appear in the
-        order of these rows.
+        order of these rows.  All vertices of a class have the same number of checks, but the two
+        classes of vertices with checks of one type can have different numbers of checks, since
+        their local codes can differ.
 
         Args:
             pauli: Pauli.X for the vertices with X-type checks, or Pauli.Z for those with Z-type
@@ -1156,6 +1254,8 @@ class LQTCode(CSSCode):
         }
         shifts_a = np.array([left_positions[member] for member in self.members_a], dtype=int)
         shifts_b = np.array([right_positions[member] for member in self.members_b], dtype=int)
+
+        # reshape, since an empty list of members gives an array of shape (0,)
         shifts_a = shifts_a.reshape(num_a, order)
         shifts_b = shifts_b.reshape(num_b, order)
 
@@ -1186,35 +1286,36 @@ class LQTCode(CSSCode):
     def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of translations of the complex that preserve this code, or None.
 
-        Let x be a member of G such that conjugation by x maps each member of A to a member of A:
-        ``x a_i x^-1 = a_π(i)``, where the permutation π of positions maps the k-th occurrence of a
-        member to the k-th occurrence of its conjugate.  Suppose that π, as a permutation of
-        coordinates, maps C_A^0 and C_A^1 onto themselves.  Then left translation by x, which maps
-        each vertex (g, s, t) to (xg, s, t), preserves this code:
+        Let x be a member of G such that conjugation by x permutes the list A: the conjugate of each
+        member occurs in A as often as the member does.  Then ``x a_i x^-1 = a_π(i)`` for the
+        permutation π of positions that maps the k-th occurrence of each member to the k-th
+        occurrence of its conjugate.  Suppose that π, as a permutation of coordinates, maps C_A^0
+        and C_A^1 onto themselves.  Then left translation by x, which maps each vertex (g, s, t) to
+        (xg, s, t), preserves this code:
 
-        - It maps the corners g, a_i g, g b_j, and a_i g b_j of square (i, j, g) to the corners
-          xg, ``a_π(i) xg``, xg b_j, and ``a_π(i) xg b_j`` of square ``(π(i), j, xg)``, of the same
+        - It maps the corners g, a_i g, g b_j, and a_i g b_j of square (i, j, g) to the corners xg,
+          ``a_π(i) xg``, xg b_j, and ``a_π(i) xg b_j`` of square ``(π(i), j, xg)``, of the same
           classes.  So it maps squares to squares, which is the qudit permutation
           ``(i, j, g) -> (π(i), j, xg)``, and vertices to vertices of the same class.
-        - The square at coordinate (i, j) of the local view of a vertex has the label (i, j) at
-          that vertex, so its image, which has the label (π(i), j), is at coordinate (π(i), j) of
-          the local view of the image of the vertex.
+        - The square at coordinate (i, j) of the local view of a vertex has the label (i, j) at that
+          vertex, so its image, which has the label (π(i), j), is at coordinate (π(i), j) of the
+          local view of the image of the vertex.
         - Since π maps C_A^s onto itself, it maps ~C_A^s onto itself.  So the translation maps the
-          local check space of each vertex onto that of its image, and so the row spaces of
-          matrix_x and matrix_z onto themselves.
+          local check space of each vertex onto that of its image, and so the row spaces of matrix_x
+          and matrix_z onto themselves.
 
-        Right translation by x, which maps each vertex (g, s, t) to (gx, s, t), likewise maps
-        square (i, j, g) to square ``(i, ρ(j), gx)``, where ``x^-1 b_j x = b_ρ(j)``, and preserves
-        this code if ρ matches repeated members in order and maps C_B^0 and C_B^1 onto themselves.
+        Right translation by x, which maps each vertex (g, s, t) to (gx, s, t), likewise maps square
+        (i, j, g) to square ``(i, ρ(j), gx)``, where ``x^-1 b_j x = b_ρ(j)``, and preserves this
+        code if ρ matches repeated members in order and maps C_B^0 and C_B^1 onto themselves.
         Matching in order makes the permutation of positions of a product xy the product of the
         permutations of x and y.  So the members x that satisfy the conditions form a group,
-        translations compose as their members do, and this method returns the qudit permutations
-        of generators of the groups of left and right translations.
+        translations compose as their members do, and this method returns the qudit permutations of
+        generators of the groups of left and right translations.
 
         These conditions are sufficient, not necessary.  The translations omit other symmetries,
-        such as those that match repeated members in other orders, those from automorphisms of G,
-        from exchanging A and B, or from exchanging classes of vertices (such as the involution σ
-        of the quadripartite complex of a QTCode), and permutations that preserve the stabilizer
+        such as permutations that match repeated members in other orders, that come from
+        automorphisms of G, that exchange A and B, that exchange classes of vertices (such as the
+        involution σ of the quadripartite complex of a QTCode), or that preserve the stabilizer
         group but not each local check space.
         """
         members = self._members_of_group
@@ -1238,8 +1339,8 @@ class LQTCode(CSSCode):
         """The parity checks of this code and its canonical local checks, for bliss to search.
 
         As for QTCode, bliss can find more automorphisms among the canonical checks (see
-        _get_canonical_checks), but also automorphisms among the parity checks that do not map the
-        canonical checks onto themselves, so it searches both (see
+        help(qldpc.codes.quantum.quantum_tanner)), but also automorphisms of the parity checks that
+        are not automorphisms of the canonical checks, so it searches both (see
         QTCode._get_automorphism_search_matrices).
         """
         canonical_checks = self._get_canonical_checks()
@@ -1250,14 +1351,12 @@ class LQTCode(CSSCode):
     def _get_canonical_checks(self) -> galois.FieldArray:
         """The canonical local checks of this code, in the layout of its parity check matrix.
 
-        The canonical local checks of a vertex are the nonzero words of its local check space that
-        are no heavier than the heaviest word of a minimum-weight basis of the space, on its local
-        view.  As for QTCode, a qudit permutation that maps the canonical checks onto themselves
-        preserves this code, and the canonical checks depend only on the local check spaces (see
-        QTCode._get_canonical_checks).  Here the vertices of each class have their own local check
-        space.  If the local check space of a class of vertices with X-type or Z-type checks has
-        more than 2^20 words, or more than 2^10 canonical checks at each vertex, the matrix holds
-        the parity checks of that type instead, which depend on the choice of local checks.
+        The module docstring defines the canonical local checks, and shows that they span the row
+        spaces of matrix_x and matrix_z.  Here the vertices of each class have their own local check
+        space.  For each type of checks, if either class of vertices with that type has a local
+        check space with more than _MAX_WORDS_FOR_CANONICAL_CHECKS words or
+        _MAX_CANONICAL_CHECKS_PER_VERTEX canonical checks per vertex, the returned matrix holds the
+        parity checks of that type instead, which depend on the choice of local checks.
         """
         blocks = []
         for pauli, parity_checks in zip(PAULIS_XZ, [self.matrix_x, self.matrix_z]):
@@ -1297,7 +1396,9 @@ def _parse_local_checks(value: object) -> _LocalChecks:
 def _get_dual_code(code: ClassicalCode) -> ClassicalCode:
     """The dual of a classical code, whose generator matrix is the parity check matrix of the code.
 
-    So the dual carries the same two matrices as the code, with their roles exchanged.
+    So the dual carries the same two matrices as the code, with their roles exchanged.  The dual
+    ``~code`` would instead carry a generator matrix that qLDPC computes, so "from_codes" local
+    checks would not use the parity check matrix that the code carries.
     """
     return ClassicalCode(code.generator).set_generator(code.matrix)
 
@@ -1348,10 +1449,10 @@ def _get_local_checks(
     The checks span the local check space ``C_A ⨂ C_B`` for X-type checks, or ``~C_A ⨂ ~C_B`` for
     Z-type checks, in the coordinates of a local view.  They are the products of minimum-weight
     bases of the two factors if min_weight is True, and otherwise the rows of ``G_A ⨂ G_B`` or
-    ``H_A ⨂ H_B`` for the generator matrices G and parity check matrices H that the codes carry
-    (see help(qldpc.codes.quantum.quantum_tanner)).  Before asking for minimum-weight bases, callers
-    check the sizes of all local codes with _check_min_weight_sizes, so that a request that cannot
-    be met fails before any enumeration.
+    ``H_A ⨂ H_B``, where G_A and H_A are the generator and parity check matrices that code_a
+    carries, and likewise for code_b (see help(qldpc.codes.quantum.quantum_tanner)).  Before asking
+    for minimum-weight bases, callers check the sizes of all local codes with
+    _check_min_weight_sizes, so that a request that cannot be met fails before any enumeration.
     """
     # spanning sets of the factors of the space: the local codes, or their duals
     if pauli is Pauli.X:
@@ -1364,7 +1465,10 @@ def _get_local_checks(
 
 
 def _check_min_weight_sizes(codes: Iterable[ClassicalCode]) -> None:
-    """Raise a ValueError if a local code or its dual has too many words for "min_weight" checks."""
+    """Raise a ValueError if a local code or its dual has too many words for "min_weight" checks.
+
+    The limit is _MAX_WORDS_FOR_MIN_WEIGHT_BASIS words.
+    """
     for code in codes:
         for num_words, space in [
             (code.field.order**code.dimension, "local code"),
@@ -1386,23 +1490,26 @@ def _get_translations(
     *,
     left: bool,
 ) -> list[tuple[abstract.GroupMember, tuple[int, ...]]]:
-    """Generators of the group of vertices that translate a quantum Tanner code from one side.
+    """Generators of the group of members x whose translations from one side preserve a code.
 
-    A vertex x qualifies if conjugation by x, ``m -> x m x^-1`` for left translations or
+    A member x of vertices qualifies if conjugation by x, ``m -> x m x^-1`` for left translations or
     ``m -> x^-1 m x`` for right translations, permutes the list of members, and the induced
-    permutation of positions, which matches repeated members in order, maps each code onto itself
-    as a permutation of its coordinates (see _get_conjugation_permutation, and the methods
-    _get_qudit_automorphisms of QTCode and LQTCode).
+    permutation of positions, which matches repeated members in order, maps each code onto itself as
+    a permutation of its coordinates (see _get_conjugation_permutation).  The list vertices must
+    include the product of any two of its members that qualify.  The permutations of two members
+    compose as the members do, so the members that qualify then form a group, of which this function
+    returns generators.
 
     Args:
-        vertices: The vertices that may qualify, in increasing order.
+        vertices: The members x of the group that may qualify, in increasing order, such as the
+            vertices with X-type checks of a QTCode or the members of G for an LQTCode.
         members: The list of members whose positions label the coordinates of the codes.
         codes: The local codes whose coordinates the positions of the members label.
         left: Whether to find left translations, rather than right translations.
 
     Returns:
-        Pairs of a generator x and the permutation π of positions by which conjugation by x maps
-        the member at each position i to the member at position π(i).
+        Pairs of a generator x and the permutation π of positions by which conjugation by x maps the
+        member at each position i to the member at position π(i).
     """
     # find the vertices whose conjugation permutes the members and keeps the codes
     preserves_codes: dict[tuple[int, ...], bool] = {}
@@ -1439,9 +1546,10 @@ def _get_conjugation_permutation(
     permutation π maps each position i to the position π(i) of the conjugate of the member at
     position i.  It matches repeated members in order: the k-th occurrence of a member goes to the
     k-th occurrence of its conjugate.  So the permutations of two vertices compose as the vertices
-    do.  The result is None if conjugation does not permute the list, which is to say if some
-    member and its conjugate occur different numbers of times.
+    do.  The result is None if conjugation does not permute the list, which is to say if some member
+    and its conjugate occur different numbers of times.
     """
+    # the positions at which each member occurs in the list, in increasing order
     positions: dict[abstract.GroupMember, list[int]] = {}
     for position, member in enumerate(members):
         positions.setdefault(member, []).append(position)
@@ -1463,11 +1571,13 @@ def _get_canonical_local_checks(
 ) -> galois.FieldArray | None:
     """The canonical checks of the tensor product of the row spaces of two matrices, or None.
 
-    The canonical checks are the nonzero words of the space whose weight is at most the largest
-    weight of a word in a minimum-weight basis of the space (see
-    QTCode._get_canonical_checks).  The result is None if the space has more than 2^20
-    words, or more than 2^10 canonical checks.
+    The canonical checks are the nonzero words of weight at most w_max of the space, where w_max is
+    the largest weight of a word in a minimum-weight basis of the space (see
+    help(qldpc.codes.quantum.quantum_tanner)).  The result is None if the space has more than
+    _MAX_WORDS_FOR_CANONICAL_CHECKS words, or more than _MAX_CANONICAL_CHECKS_PER_VERTEX canonical
+    checks.
     """
+    # find a basis of the space, and give up if it has too many words to enumerate
     field = type(factor_a)
     basis = np.kron(factor_a.row_space(), factor_b.row_space()).view(field)
     num_words = field.order ** len(basis)
@@ -1477,7 +1587,9 @@ def _get_canonical_local_checks(
         return field.Zeros((0, basis.shape[1]))
 
     # Products of minimum-weight bases are minimum-weight bases, so their largest weights multiply.
-    # Each factor has at most as many words as the space, since neither factor is zero.
+    # Finding a minimum-weight basis of a factor enumerates its words.  Each factor has at most as
+    # many words as the space, since neither factor is zero, so this costs no more than the
+    # enumeration below.
     max_weight = 1
     for factor in [factor_a, factor_b]:
         weights = np.count_nonzero(get_min_weight_basis(factor).view(np.ndarray), axis=1)
