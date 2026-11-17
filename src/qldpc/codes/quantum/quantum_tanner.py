@@ -13,7 +13,7 @@ labels one face.  At a vertex g with X-type checks, face ``f(g,a,b)`` has the la
 vertex ag with Z-type checks, the same face has the label (a^-1, b), since it is ``f(ag,a^-1,b)``.
 Coordinate (i, j) of the local view of a vertex is the face whose label is
 ``(members_a[i], members_b[j])``, where ``members_a`` and ``members_b`` list the members of A and B
-in increasing order.  So the local view of a vertex is an |A| x |B| array of qudits
+in increasing order.  So the local view of a vertex is an ``|A| x |B|`` array of qudits
 (QTCode.get_local_views).  In the coordinates of their local views, the X-type checks at a vertex
 span the local check space ``C_A ⨂ C_B``, and the Z-type checks span ``~C_A ⨂ ~C_B``, where ``~C``
 is the dual code of C.
@@ -37,7 +37,7 @@ same number of checks.
 The minimum-weight bases are tensor products of minimum-weight bases of the factors, such as
 ``{u_i ⨂ v_j}`` for minimum-weight bases {u_i} of C_A and {v_j} of C_B, which
 qldpc.math.get_min_weight_basis finds.  Such a product is a minimum-weight basis of ``C_A ⨂ C_B``,
-as follows.  Write |x| for the weight of a word x.  A basis {u_i} of a space is a minimum-weight
+as follows.  Write ``|x|`` for the weight of a word x.  A basis {u_i} of a space is a minimum-weight
 basis iff every word ``x = sum_i c_i u_i`` has ``|x| >= |u_i|`` whenever ``c_i != 0``.  (If
 ``|x| < |u_i|``, replacing u_i by x gives a lighter basis.  Conversely, the condition says that the
 words of the basis of weight at most w span all words of weight at most w, for every w, so no basis
@@ -277,7 +277,7 @@ class QTCode(CSSCode):
                 checks.
 
         Returns:
-            A read-only integer array of shape (number of vertices, |A|, |B|).
+            A read-only integer array of shape ``(number of vertices, |A|, |B|)``.
         """
         return self._local_views[Pauli.coerce_xz(pauli) is Pauli.Z]
 
