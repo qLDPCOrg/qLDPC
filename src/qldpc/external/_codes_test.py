@@ -7,6 +7,7 @@ from __future__ import annotations
 import unittest.mock
 import urllib
 
+import galois
 import numpy as np
 import pytest
 
@@ -128,7 +129,9 @@ def test_get_qdistrnd_distance_bound() -> None:
 
             # QDistRnd receives the checks with the X and Z support of each qudit side by side
             riffled_matrix = matrix[:, [col for qudit in range(5) for col in (qudit, qudit + 5)]]
-            commands = _codes._get_gap_sparse_matrix_commands("matrix", 2, riffled_matrix)
+            commands = _codes._get_gap_sparse_matrix_commands(
+                "matrix", galois.GF(2), riffled_matrix
+            )
             assert set(commands) <= set(get_output.call_args.args)
 
             assert (
@@ -199,6 +202,68 @@ def test_qdistrnd_bounds_without_checks_of_one_type() -> None:  # pragma: no cov
 def test_get_gap_sparse_matrix_commands() -> None:
     """Extension-field entries map to primitive-element powers, not integer multiples of One(F)."""
     # over GF(4) the galois integers 1, 2, 3 are Z(4)^0, Z(4)^1, Z(4)^2 -- not 1, 2, 3 copies of One
-    commands = " ".join(_codes._get_gap_sparse_matrix_commands("m", 4, np.array([[0, 1, 2, 3]])))
+    matrix = np.array([[0, 1, 2, 3]])
+    commands = " ".join(_codes._get_gap_sparse_matrix_commands("m", galois.GF(4), matrix))
     assert "elements:=[Z(4)^0,Z(4)^1,Z(4)^2]" in commands
     assert "v[i+1]:=elements[f]" in commands
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        galois.GF(3),
+        galois.GF(4),
+        galois.GF(9),
+        galois.GF(16),
+        galois.GF(8, irreducible_poly="x^3 + x^2 + 1"),
+        galois.GF(9, irreducible_poly="x^2 + 1"),
+    ],
+)
+def test_finite_field_elements(field: type[galois.FieldArray]) -> None:
+    """GAP and MAGMA expressions of field elements are those of the elements that galois encodes.
+
+    GAP's ``Z(q)`` is a root of the Conway polynomial of ``GF(q)``: ``x``, or the least primitive
+    root modulo a prime ``q``.  So reading ``Z(q)^k`` as a power of that root must give a field
+    isomorphism, which is the identity on the integers of a field with the Conway polynomial.
+    """
+    order, characteristic = field.order, field.characteristic
+    conway_field = galois.GF(order)
+    root = (
+        conway_field(galois.primitive_root(order))
+        if field.degree == 1
+        else conway_field(characteristic)
+    )
+    images = []
+    for expression in _codes.get_gap_field_elements(field):
+        if expression == f"0*Z({order})":
+            images.append(conway_field(0))
+        else:
+            base, exponent = expression.split("^")
+            assert base == f"Z({order})"
+            images.append(root ** int(exponent))
+    for aa in range(order):
+        for bb in range(order):
+            assert images[int(field(aa) + field(bb))] == images[aa] + images[bb]
+            assert images[int(field(aa) * field(bb))] == images[aa] * images[bb]
+    assert len({int(image) for image in images}) == order
+    if field.irreducible_poly == conway_field.irreducible_poly:
+        assert [int(image) for image in images] == list(range(order))
+
+    # MAGMA defines the field by its irreducible polynomial, and an element as a polynomial in its
+    # root w, which here evaluates at the x of the galois field
+    definition, elements = _codes.get_magma_field(field)
+    if field.degree == 1:
+        assert definition == ""
+        assert elements == [str(value) for value in range(order)]
+        return
+    coefficients = ",".join(map(str, field.irreducible_poly.coeffs[::-1].tolist()))
+    polynomial = f"Polynomial(GF({characteristic}), [{coefficients}])"
+    assert definition == f"F<w> := ext<GF({characteristic}) | {polynomial}>; "
+    x = field(characteristic)
+    for value, element in enumerate(elements):
+        total = field(0)
+        for term in element.split("+"):
+            coefficient, _, monomial = term.partition("w")
+            power = int(monomial.lstrip("^") or 1) if "w" in term else 0
+            total += field(int(coefficient.rstrip("*") or 1)) * x**power
+        assert total == field(value)

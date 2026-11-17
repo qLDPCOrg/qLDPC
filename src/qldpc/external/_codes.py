@@ -222,8 +222,8 @@ def get_qdistrnd_distance_bound(
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);;',
-            *_get_gap_sparse_matrix_commands("matrix_x", field_order, matrix),
-            *_get_gap_sparse_matrix_commands("matrix_z", field_order, matrix_z),
+            *_get_gap_sparse_matrix_commands("matrix_x", type(matrix), matrix),
+            *_get_gap_sparse_matrix_commands("matrix_z", type(matrix), matrix_z),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
 
@@ -234,7 +234,7 @@ def get_qdistrnd_distance_bound(
         args = ",".join([f"{one}*matrix", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);',
-            *_get_gap_sparse_matrix_commands("matrix", field_order, riffled_matrix),
+            *_get_gap_sparse_matrix_commands("matrix", type(matrix), riffled_matrix),
             f"Print(DistRandStab({args}:{kwargs}));",
         ]
 
@@ -255,13 +255,14 @@ def get_qdistrnd_distance_bound(
 
 
 def _get_gap_sparse_matrix_commands(
-    matrix_var: str, field_order: int, matrix: npt.NDArray[np.int_]
+    matrix_var: str, field: type[galois.FieldArray], matrix: npt.NDArray[np.int_]
 ) -> list[str]:
     """Get GAP commands that define a variable as a matrix over a finite field.
 
     The commands transfer the matrix in a sparse representation and assign it to the GAP variable
-    named matrix_var.  Matrix entries are integers that encode elements of GF(field_order).
+    named matrix_var.  Matrix entries are the galois integers of elements of the field.
     """
+    field_order = field.order
     _, matrix_width = matrix.shape
     # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
     # where, for all values `l` in that list, `matrix[i,l] == j+1`.  Example:
@@ -289,14 +290,7 @@ def _get_gap_sparse_matrix_commands(
 
     nonzero_str = ",".join(nonzero_row_str(nonzeros) for nonzeros in nonzero_entries)
 
-    # Map each stored galois integer 1..field_order-1 to the matching GAP field element.  A galois
-    # integer encodes an element's coordinates in the primitive-element basis, so it equals
-    # Z(field_order)^log.  GAP and galois share that primitive element (both use Conway
-    # polynomials), so the powers agree.
-    field = galois.GF(field_order)
-    field_elements = ",".join(
-        f"Z({field_order})^{int(field(value).log())}" for value in range(1, field_order)
-    )
+    field_elements = ",".join(get_gap_field_elements(field)[1:])
     commands = [
         f"nz:=[{nonzero_str}];;",
         f"F:=GF({field_order});;",
@@ -314,6 +308,71 @@ def _get_gap_sparse_matrix_commands(
     ]
     commands = [cmd.strip() for cmd in commands]
     return commands
+
+
+####################################################################################################
+# finite-field elements in GAP and MAGMA
+
+
+def get_gap_field_elements(field: type[galois.FieldArray]) -> list[str]:
+    """GAP expressions for the elements of a finite field, indexed by their galois integers.
+
+    GAP writes the elements of ``GF(q)`` as ``0*Z(q)`` and the powers of ``Z(q)``, a root of the
+    Conway polynomial of ``GF(q)``.  GAP reads integers by its own conventions: ``i * One(GF(q))``
+    is in the prime field, and GUAVA's ``CheckMatCode`` reads ``i`` as element ``i`` of GAP's sorted
+    list of the elements of ``GF(q)``.  Neither agrees with the integers of galois for every field,
+    such as ``GF(8)``, so these expressions write elements as GAP does.  galois builds ``GF(q)`` by
+    default with the Conway polynomial, and then ``Z(q)`` is galois's primitive element: ``x``, or
+    for a prime ``q``, the least primitive root modulo ``q``, which is the root of the Conway
+    polynomial ``x - a``.  The element with galois integer ``v`` is then ``Z(q)^log(v)``.
+
+    A field with another irreducible polynomial maps into the field with the Conway polynomial by
+    sending its ``x`` to a root of its irreducible polynomial, which is a field isomorphism.  The
+    choice among the roots, which are conjugate under the Frobenius automorphism, changes no weight
+    of a word and no permutation automorphism of a code.
+    """
+    order = field.order
+    conway_field = galois.GF(order)
+    if field.irreducible_poly == conway_field.irreducible_poly:
+        images = conway_field.Range(0, order)
+    else:
+        # evaluate the polynomial in x whose coefficients are the digits of each galois integer
+        polynomial = galois.Poly(field.irreducible_poly.coeffs.view(np.ndarray), field=conway_field)
+        root = polynomial.roots()[0]
+        powers = root ** np.arange(field.degree)
+        digits = field.Range(0, order).vector().view(np.ndarray)[:, ::-1]
+        images = conway_field(digits) @ powers
+    generator = conway_field.primitive_element
+    return [f"0*Z({order})"] + [f"Z({order})^{int(power)}" for power in images[1:].log(generator)]
+
+
+def get_magma_field(field: type[galois.FieldArray]) -> tuple[str, list[str]]:
+    """MAGMA commands that define a finite field as ``F``, and its elements by galois integer.
+
+    MAGMA maps an integer into a finite field through the prime field, so an integer cannot stand
+    for an element outside the prime field.  For a prime field, the commands are empty and the
+    elements are integers.  Otherwise, the commands define ``F`` as the extension of the prime field
+    by the irreducible polynomial of the galois field, whose root is ``w``, and the element with
+    galois integer ``v`` is the polynomial in ``w`` whose coefficients are the base-``p`` digits of
+    ``v``.
+    """
+    if field.degree == 1:
+        return "", [str(value) for value in range(field.order)]
+    characteristic = field.characteristic
+    coefficients = ",".join(map(str, field.irreducible_poly.coeffs[::-1].tolist()))
+    definition = (
+        f"F<w> := ext<GF({characteristic}) | Polynomial(GF({characteristic}), [{coefficients}])>; "
+    )
+    elements = ["0"]
+    for digits in field.Range(1, field.order).vector().view(np.ndarray)[:, ::-1].tolist():
+        terms = []
+        for power, digit in enumerate(digits):
+            if digit:
+                coefficient = [str(digit)] if digit != 1 or power == 0 else []
+                monomial = [] if power == 0 else ["w"] if power == 1 else [f"w^{power}"]
+                terms.append("*".join(coefficient + monomial))
+        elements.append("+".join(terms))
+    return definition, elements
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
