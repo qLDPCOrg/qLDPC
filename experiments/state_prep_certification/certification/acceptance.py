@@ -27,7 +27,7 @@
   exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
   ``post_s``, and a repeat ends without post-processing or certificate text.
 * **AT5:** every input matches its SHA-256, its recomputed DEM parameters equal those of
-  ``circuits.json``, and the D-synth states are the codes' |0...0> (``circuits.py --check``).
+  ``circuits.json``, and each code file passes ``code_files.check_code`` (``circuits.py --check``).
   Every noisy input has only the expected noise, with every measurement noisy.
 * **AT6:** neither ``mqt`` nor ``qiskit`` is loaded by the node's modules.
 * **AT7:** the brute-force baseline, on the ground-truth circuits and on C-goto, its variant, and
@@ -44,7 +44,34 @@
   from its partial results.  A ground-truth count that differs from the counters', and a baseline
   whose enumerated combinations differ from A_m, each make their circuit a disagreement, as does a
   baseline stopped after a violation at weight m against a finished certification whose smallest
-  violation is not at m.  An expected task without a row is reported as ``missing``.
+  violation is not at m.  An expected task without a row is reported as ``missing``.  Every case
+  of the combined margin of ``analyze_applications.py`` gives its value, its bound, or a
+  disagreement, and a footnoted margin keeps its sector.  A margin or a deletion parent that
+  disagrees with ``cert_bz``, or a final circuit that CC does not certify, makes its circuit a
+  disagreement, and agreeing deletion tasks do not.  A disagreeing parent does so also when its
+  verdict is only in the partial results of a killed task.  The whole margin column of one family
+  is checked, and the footnote lists m* = t, but not m* = t + 1 or a disagreement.  The deletion
+  outputs rebuild a reduced circuit from its input, report a wrong final SHA-256, leave the rebuild
+  unchecked for an input that is not the label's, exclude a disagreement from the table but list
+  its task, and list an uncertified parent and a timeout.
+* **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
+  acceptance estimate is within five standard errors of the exact probability from the DEM.  A
+  candidate circuit whose prepared state changed, and one with an added random measurement, are
+  rejected for those reasons.  ``prune`` runs twice through the task runner on C-goto, steane, and
+  ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial results.  Each
+  step and each final circuit, rebuilt, has its recorded outcome: by Stim's simulator, by
+  certification, and, where small enough, by the enumeration of the ground truth.  The final m*
+  agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final circuit
+  agree with the exact probabilities from their DEMs.  The enumeration also checks every step on
+  the d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are
+  delayed past its 5 s limit (``step_delay_s``) is a timeout that keeps its steps.
+* **AT10:** the margin gives "all" on C-goto and steane, 3 on E-chen, and 1 on W(C-goto).  On these
+  and every ground-truth circuit with r > t, it agrees with ``cert_bz``, with the enumeration up to
+  min(m*, r + 1) where small enough, and its sectors with an enumeration of the stabilizer group.
+  A run on E-chen delayed past its 5 s limit is a timeout that gives only a lower bound.
+* **AT11:** altered copies of code files (an Lx that anticommutes with a check, a check as Lz, no
+  Lx, another k, and the d = 5 surface code without its exchange of X and Z) each fail the check
+  that names it.
 
 The expected values of AT1 come from qLDPC's notebook and tests; a failure is investigated and
 reported, never fixed by changing a rule.  Each test prints PASS or FAIL; the script exits with
@@ -57,6 +84,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import pathlib
@@ -71,14 +99,18 @@ import numba
 import numpy as np
 import numpy.typing as npt
 
+from qldpc import circuits as qldpc_circuits
 from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBound
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from experiments.state_prep_certification.certification import (
     analyze,
+    analyze_applications,
+    applications,
     baseline,
     circuits,
+    code_files,
     counting,
     experiment,
     instrument,
@@ -606,7 +638,193 @@ def at8_analysis(directory: pathlib.Path, node: bool) -> None:
     # the missing task
     assert summary[fourth["id"]]["status_cert_cc"] == "missing", summary[fourth["id"]]
 
+    _check_application_analysis(directory / "applications")
     print("  4 B-cat circuits, 2 disagreements, 1 missing task")
+
+
+@test
+def at9_prune(directory: pathlib.Path, node: bool) -> None:
+    """The deletion arm against hand counts, the DEM, and the enumeration, and its timeout."""
+    import stim
+
+    # both orders and the counts of a circuit with a repeated and a two-target measurement, whose
+    # tie is broken against target order, and one encoder and one verification gate, whose measured
+    # qubit is its second target
+    circuit = stim.Circuit("R 0 1 2 3 4 5\nCX 1 5 1 3\nM 3\nMX 4 2\nM 0 2")
+    assert applications.measured_qubits(circuit, "last_measured_first") == [2, 0, 4, 3]
+    assert applications.measured_qubits(circuit, "first_measured_first") == [3, 4, 2, 0]
+    assert applications.count_gates(circuit) == {
+        "measured_qubits": 4,
+        "measurements": 5,
+        "encoder_gates": 1,
+        "verification_gates": 1,
+    }
+
+    # an acceptance estimate against the exact probability from the DEM, with five flags
+    certificate = _certify("aft.carbon.heuristic_opt", "brouwer_zimmermann")
+    estimate = applications.estimate_acceptance(certificate, 200_000, 1)
+    exact = _exact_acceptance(certificate)
+    assert abs(estimate["probability"] - exact) <= 5 * estimate["standard_error"], (estimate, exact)
+
+    # a deletion that changes the prepared state, and one that adds a random measurement
+    goto = experiment._entry("cgoto")
+    options = experiment.certify_options(goto) | {
+        "output_qubits": goto["output_qubits"],
+        "max_weight": goto["t"],
+    }
+    noise = goto["options"]["noise"]
+    text = applications.circuit_text(_input("cgoto"))
+    changed = stim.Circuit(text.replace("CX 0 3 2 1", "CX 2 1"))
+    random = stim.Circuit(text + "H 8\nM 8\n")
+    assert (
+        applications._check_deletion(changed, goto, noise, options)["outcome"] == "target changed"
+    )
+    assert not _prepares(changed, goto)
+    outcome = applications._check_deletion(random, goto, noise, options)["outcome"]
+    assert outcome == "detectors rejected" and _prepares(random, goto), outcome
+
+    # through the task runner, twice each, with the same steps, in the order of the arm, each
+    # step and the final circuit checked by rebuilding it, and the final checks sent last
+    accepted = 0
+    for circuit_id in ("cgoto", "aft.steane.heuristic_opt", "aft.cc_4_8_8.heuristic_opt"):
+        entry = experiment._entry(circuit_id)
+        task = experiment._task("prune", entry, 0, experiment._limit("prune"))
+        runs = [
+            local_runs.run_locally(directory / f"{circuit_id}.{run}", [task])[task["key"]]
+            for run in range(2)
+        ]
+        assert all(row["status"] == "ok" for row in runs), runs
+        first, second = (row["result"] for row in runs)
+        assert (first["steps"], first["final_sha256"]) == (second["steps"], second["final_sha256"])
+        assert [record for record in runs[0]["partial"] if "step" in record] == first["steps"]
+        order = applications.measured_qubits(_input(circuit_id), "last_measured_first")
+        assert [record["qubit"] for record in first["steps"]] == order, circuit_id
+        accepted += _check_prune(entry, first, _enumerable(entry))
+        keys = ("final_counts", "final_certified_cc", "acceptance")
+        assert runs[0]["partial"][-1] == {"final_checks": {k: first[k] for k in keys}}, circuit_id
+        kept = sum(record["outcome"] == "accepted" for record in first["steps"])
+        print(f"  {circuit_id}: {kept} of {len(first['steps'])} deletions accepted")
+
+        if circuit_id == "cgoto":
+            # C-goto keeps its flag, whose deletion gives W(C-goto), which violates at weight 1
+            (step,) = first["steps"]
+            assert step["outcome"] == "violation" and step["violation_weight"] == 1, step
+
+    # every step of the d = 3 A-ft circuits that pass at K = t, against the enumeration
+    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    checked = 0
+    for entry in entries:
+        steane = entry["id"] == "aft.steane.heuristic_opt"
+        if (
+            entry["family"] == "A-ft"
+            and entry["code"][2] == 3
+            and _enumerable(entry)
+            and not steane
+        ):
+            result = applications.prune(_input(entry["id"]), entry, "last_measured_first", 0)
+            if result["parent_certified"]:
+                accepted += _check_prune(entry, result, True)
+                checked += 1
+    assert checked and accepted, (checked, accepted)
+    print(f"  {checked} d = 3 circuits and {accepted} accepted deletions agree with enumeration")
+
+    # a run whose steps are delayed past its limit keeps its completed steps, and no result
+    entry = experiment._entry("aft.cc_4_8_8.heuristic_opt")
+    task = experiment._task("prune", entry, 0, 5.0) | {"step_delay_s": 10.0}
+    row = local_runs.run_locally(directory / "delayed", [task])[task["key"]]
+    steps = [record for record in row["partial"] if "step" in record]
+    assert row["status"] == "timeout" and steps and "steps" not in row["result"], row
+
+
+@test
+def at10_margin(directory: pathlib.Path, node: bool) -> None:
+    """The margin arm against cert_bz, the enumeration, and its sectors, and its timeout."""
+    expected: dict[str, int | str] = {
+        "cgoto": "all",
+        "aft.steane.heuristic_opt": "all",
+        "echen": 3,
+        "w.cgoto": 1,
+    }
+    entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
+    ids = list(expected) + [
+        e["id"] for e in entries if e["status"] == "ok" and e["ground_truth"] and e["r"] > e["t"]
+    ]
+    enumerated = sectors_enumerated = 0
+    for circuit_id in dict.fromkeys(ids):
+        entry = experiment._entry(circuit_id)
+        options = experiment.certify_options(entry)
+        result = applications.find_margin(experiment._noisy_input(entry), options)
+        margin = result["margin"]
+        assert margin == expected.get(circuit_id, margin), (circuit_id, margin)
+
+        # cert_bz at K = t + 1 gives the same m*, or "all" past the cutoff, or a smaller bound
+        certificate = _certify(circuit_id, "brouwer_zimmermann")
+        if not certificate.certified:
+            assert margin == certificate.counterexample.fault_weight, (circuit_id, margin)
+        elif entry["r"] + 1 <= options["max_weight"]:
+            assert margin == "all", (circuit_id, margin)
+        else:
+            assert margin == "all" or margin > options["max_weight"], (circuit_id, margin)
+
+        # the sectors: their larger weight is the residual weight, the violating parts exceed the
+        # fault weight, and each weight is that of an enumeration of the stabilizer group
+        if margin != "all":
+            sectors = (result["sector_weight_x"], result["sector_weight_z"])
+            assert max(sectors) == result["residual_weight"], (circuit_id, result)
+            parts = [name for name, w in zip("XZ", sectors) if w > len(result["fault_indices"])]
+            assert result["violating_parts"] == " and ".join(parts), (circuit_id, result)
+            if len(entry["output_qubits"]) <= 15:
+                assert sectors == _enumerated_sectors(entry, result["output_pauli"]), circuit_id
+                sectors_enumerated += 1
+
+        # the enumeration to min(m*, r + 1), where it is small enough
+        limit = entry["r"] + 1 if margin == "all" else min(margin, entry["r"] + 1)
+        size = sum(math.comb(entry["N0"], m) for m in range(1, limit + 1))
+        if size <= experiment.CONFIG["ground_truth"]["max_combinations"]:
+            truth = _enumerated_violation(_input(circuit_id), entry, options, limit)
+            assert truth == (None if margin == "all" else margin), (circuit_id, truth, margin)
+            enumerated += 1
+    assert enumerated and sectors_enumerated, (enumerated, sectors_enumerated)
+    print(f"  {len(set(ids))} circuits: {enumerated} enumerated, {sectors_enumerated} sectors")
+
+    # "all" reaches the cutoff r + 1 only if the search completed it
+    early = {"margin": "all", "per_weight": [{"m": 2, "violation": False}]}
+    assert applications.cutoff_reached(early, 1) and not applications.cutoff_reached(early, 5)
+    violation = {"margin": 6, "per_weight": [{"m": 6, "violation": True}]}
+    assert not applications.cutoff_reached(violation, 5)
+
+    # a run on E-chen delayed past its limit keeps its completed weights, and gives no m*
+    entry = experiment._entry("echen")
+    task = experiment._task("margin", entry, 0, 5.0) | {"step_delay_s": 10.0}
+    row = local_runs.run_locally(directory / "delayed", [task])[task["key"]]
+    completed = [record["m"] for record in row["partial"] if not record["violation"]]
+    assert row["status"] == "timeout" and completed and max(completed) < 3, row
+    assert "margin" not in row["result"], row["result"]
+
+
+@test
+def at11_code_files(directory: pathlib.Path, node: bool) -> None:
+    """Altered copies of code files fail the check that they break; AT5 checks the files."""
+    entry = experiment._entry("aft.steane.heuristic_opt")
+    code = json.loads((code_files.HERE / entry["code_file"]).read_text())
+    surface = experiment._entry("aft.rotated_surface_d5.heuristic_opt")
+    exchanged = json.loads((code_files.HERE / surface["code_file"]).read_text())
+    swap = {"Hx": "Hz", "Hz": "Hx", "Lx": "Lz", "Lz": "Lx"}
+    alterations: tuple[tuple[dict[str, Any], dict[str, Any], str], ...] = (
+        (
+            entry,
+            code | {"Lx": [[1 - bit if j == 3 else bit for j, bit in enumerate(code["Lx"][0])]]},
+            "Hz Lx^T",
+        ),
+        (entry, code | {"Lz": [code["Hz"][0]]}, "Lx Lz^T"),
+        (entry, code | {"Lx": []}, "Lx has 0 rows"),
+        (entry | {"code": [7, 2, 3]}, code, "k = n - rank(Hx) - rank(Hz)"),
+        (surface, exchanged | {key: exchanged[other] for key, other in swap.items()}, "state"),
+    )
+    for altered_entry, altered_code, check in alterations:
+        problems = code_files.check_code(altered_entry, altered_code)
+        assert any(check in problem for problem in problems), (check, problems)
+    print(f"  {len(alterations)} altered code files fail")
 
 
 def _check_brute_bz(circuit_id: str) -> bool:
@@ -846,6 +1064,387 @@ class _ShiftedShadow(instrument.Instrumentation):
     """Instrumentation whose shadow oracle shifts its answers."""
 
     shadow_search = _ShiftedSearch
+
+
+def _check_application_analysis(directory: pathlib.Path) -> None:
+    """The combined margin, and the deletion outputs, on synthetic rows (part of AT8)."""
+    import stim
+
+    def run(status: str, result: dict[str, Any] | None = None, partial: Any = None) -> Any:
+        return {"status": status, "result": result or {}, "partial": partial or []}
+
+    def bz(weight: int | None) -> dict[str, Any]:
+        return run("ok", {"certified": weight is None, "violation_weight": weight, "K": 3})
+
+    # every case of the combined margin for t = 2 and K = 3, as (cert_bz, cert_cc, margin arm,
+    # flag rank r, expected margin or "> k" or "disagreement")
+    not_run = run("not run")
+    weights = [{"m": m, "violation": False} for m in (2, 3, 4)]
+    sector = {"sector_weight_x": 0, "sector_weight_z": 2, "violating_parts": "Z"}
+    cases: list[tuple[Any, Any, Any, int, Any]] = [
+        (run("ok", bz(1)["result"] | sector), not_run, None, 7, 1),
+        (bz(3), bz(3), None, 7, 3),
+        (run("timeout"), bz(3), None, 7, 3),
+        (bz(None), not_run, None, 2, "all"),
+        (bz(None), not_run, [run("ok", {"margin": 5})], 7, 5),
+        (bz(None), not_run, [run("ok", {"margin": "all"})], 7, "all"),
+        (bz(None), not_run, [run("timeout", None, weights)], 7, "> 4"),
+        (bz(None), not_run, [run("timeout", None, weights[:1])], 7, "> 3"),
+        (run("timeout", None, weights[:1]), not_run, None, 7, "> 2"),
+        (not_run, not_run, None, 7, None),
+        (bz(3), not_run, [run("ok", {"margin": 4})], 7, "disagreement"),
+        (bz(None), not_run, [run("ok", {"margin": 3})], 7, "disagreement"),
+    ]
+    for bz_run, cc_run, margin_rows, r, expected in cases:
+        circuit = {"t": 2, "r": r, "options": {"max_weight": 3}}
+        fields = analyze_applications.margin_fields(circuit, bz_run, cc_run, margin_rows)
+        if expected == "disagreement":
+            assert fields["agree_margin"] is False and fields["margin"] is None, fields
+        elif isinstance(expected, str) and expected.startswith(">"):
+            assert fields["margin"] is None, fields
+            assert fields["margin_lower_bound"] == int(expected[2:]), (expected, fields)
+        else:
+            assert fields["margin"] == expected and fields["agree_margin"] is not False, fields
+        if expected == 1:
+            copied = {key: fields[f"margin_{key.replace('_weight', '')}"] for key in sector}
+            assert copied == sector, fields
+
+    # in summarize, a margin and a deletion parent that disagree with cert_bz, and a final circuit
+    # that CC does not certify, each make a disagreement; a consistent deletion task does not
+    def certification(weight: int | None, K: int) -> dict[str, Any]:
+        calls = {"calls": 1}
+        return bz(weight)["result"] | {"K": K, "zero_flag_checks": calls, "classification": calls}
+
+    parent = {"parent_certified": True, "parent_violation_weight": None}
+    synthetic = {
+        "echen": {"cert_bz": certification(3, 3) | {"batches": {}}, "margin": {"margin": 4}},
+        "cgoto": {
+            "cert_bz": certification(None, 2) | {"batches": {}},
+            "prune": {"parent_certified": False, "parent_violation_weight": 1},
+        },
+        "aft.steane.heuristic_opt": {
+            "cert_bz": certification(None, 2) | {"batches": {}},
+            "prune": parent | {"final_certified_cc": False},
+        },
+        "aft.steane.opt_opt": {
+            "cert_bz": certification(2, 2) | {"batches": {}},
+            "prune": parent | {"final_certified_cc": True},
+        },
+        "aft.steane.heuristic_heuristic": {
+            "cert_bz": certification(None, 2) | {"batches": {}},
+            "prune": parent | {"final_certified_cc": True},
+        },
+        "aft.shor.opt_opt": {
+            "cert_bz": certification(1, 2) | {"batches": {}},
+            "prune": {"parent_certified": False, "parent_violation_weight": 1},
+        },
+        # a killed task whose certified parent, known from its partial results, cert_bz refutes
+        "aft.shor.heuristic_opt": {
+            "cert_bz": certification(1, 2) | {"batches": {}},
+            "prune": run("timeout", None, [parent]),
+        },
+    }
+    rows = []
+    for circuit_id, results in synthetic.items():
+        for arm, result in results.items():
+            task = experiment._task(arm, experiment._entry(circuit_id), 0, experiment._limit(arm))
+            rows.append(
+                {"task_key": task["key"], "arm": arm, "repeat": 0, "post_status": None}
+                | {"T": 1.0, "peak_rss_gib": 0.5}
+                | (result if "status" in result else run("ok", result))
+            )
+    entries = {circuit_id: experiment._entry(circuit_id) for circuit_id in synthetic}
+    summary, _ = analyze.summarize(analyze.collect(rows, entries))
+    disagreements = {row["id"] for row in summary if row["verdict"] == "disagreement"}
+    expected = {"echen", "cgoto", "aft.steane.heuristic_opt", "aft.shor.heuristic_opt"}
+    assert disagreements == expected, disagreements
+
+    # the margin column of one family with t = 2, as (m*, lower bound, verdict)
+    column = [
+        (2, None, "certified"),
+        (3, None, "certified"),
+        (4, None, "certified"),
+        ("all", None, "certified"),
+        (None, 5, "certified"),
+        (None, None, "certified"),
+        (1, None, "disagreement"),
+    ]
+    keys = ("margin", "margin_lower_bound", "verdict")
+    column_rows = [{"t": 2} | dict(zip(keys, row)) for row in column]
+    assert analyze_applications.margin_column(column_rows) == {
+        "margin_at_most_t": 1,
+        "margin_t_plus_1": 1,
+        "margin_at_least_t_plus_2": 1,
+        "margin_at_least_t_plus_2_values": "4/2: 1",
+        "margin_all": 1,
+        "margin_unresolved": 1,
+        "margin_unresolved_k_range": "5-5",
+        "margin_unknown": 1,
+    }
+
+    # the deletion outputs: a reduced circuit rebuilt from its input, a wrong final SHA-256, an
+    # input that is not the one the label ran on, a disagreement, a parent not certified at K = t,
+    # and a timeout with its final checks
+    reduced_id = "aft.cc_4_8_8.heuristic_opt"
+    reduced = applications.prune(
+        _input(reduced_id), experiment._entry(reduced_id), "last_measured_first", 0
+    )
+    assert any(record["outcome"] == "accepted" for record in reduced["steps"]), reduced
+    inputs = directory / "inputs"
+    inputs.mkdir(parents=True, exist_ok=True)
+    for circuit_id in (reduced_id, "aft.steane.heuristic_opt"):
+        (inputs / f"{circuit_id}.stim").write_text(applications.circuit_text(_input(circuit_id)))
+    (inputs / "aft.shor.heuristic_opt.stim").write_text(
+        applications.circuit_text(_input(reduced_id))
+    )
+    checks = {"final_certified_cc": True}
+    arms = {
+        reduced_id: [run("ok", reduced, reduced["steps"])],
+        "aft.steane.heuristic_opt": [run("ok", reduced | {"final_sha256": "0" * 64})],
+        "aft.shor.heuristic_opt": [run("ok", reduced)],
+        "aft.steane.opt_opt": [run("ok", reduced)],
+        "cgoto": [run("ok", {"parent_certified": False, "parent_violation_weight": 1})],
+        "echen": [run("timeout", None, [parent, {"final_checks": checks}])],
+    }
+    per_circuit = {
+        circuit_id: {"circuit": experiment._entry(circuit_id), "arms": {"prune": arm_rows}}
+        for circuit_id, arm_rows in arms.items()
+    }
+    # the footnote lists m* = t, and leaves out m* = t + 1 and a disagreement
+    margins = {reduced_id: (2, "certified"), "aft.steane.heuristic_opt": (3, "certified")}
+    margins["aft.steane.opt_opt"] = (1, "disagreement")
+    summary_rows = [
+        {"id": circuit_id, "family": "F", "t": 2, "margin_violating_parts": "Z"}
+        | dict(zip(("margin", "verdict"), margins.get(circuit_id, (None, "certified"))))
+        for circuit_id in arms
+    ]
+    out = directory / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    analyze_applications.write_applications(per_circuit, summary_rows, out, inputs)
+    with open(out / "deletion_table.csv") as file:
+        table = {row["id"]: row["rebuild_matches"] for row in csv.DictReader(file)}
+    expected_table = {
+        reduced_id: "True",
+        "aft.steane.heuristic_opt": "False",
+        "aft.shor.heuristic_opt": "",
+    }
+    assert table == expected_table, table
+    with open(out / "deletion_tasks.csv") as file:
+        tasks = {row["id"]: row["disagreement"] for row in csv.DictReader(file)}
+    assert tasks == dict.fromkeys(table, "False") | {"aft.steane.opt_opt": "True"}, tasks
+    caption = json.loads((out / "deletion_caption.json").read_text())
+    assert [entry["id"] for entry in caption["not_certified_at_t"]] == ["cgoto"], caption
+    assert caption["unfinished"][0]["final_checks"] == checks, caption
+    assert caption["disagreements"] == [{"id": "aft.steane.opt_opt", "arm": "prune"}], caption
+    mismatches = caption["rebuild_mismatches"]
+    assert mismatches == [{"id": "aft.steane.heuristic_opt", "arm": "prune"}], caption
+    with open(out / "margin_footnote.csv") as file:
+        assert [row["id"] for row in csv.DictReader(file)] == [reduced_id]
+    stim.Circuit((out / "pruned" / f"prune.{reduced_id}.stim").read_text())
+
+
+def _check_prune(entry: dict[str, Any], result: dict[str, Any], enumerate_steps: bool) -> int:
+    """Check each step of a deletion task by rebuilding its circuit, and its final circuit.
+
+    Each accepted circuit prepares the parent's signed state, by Stim's simulator, and is certified
+    at K = t.  Each rejection has the outcome that the rebuilt circuit gives.  With
+    ``enumerate_steps``, every verdict is also that of the enumeration of the ground truth.  The
+    final circuit is the recorded one, both oracles certify it, its final m* agrees with cert_bz at
+    K = t + 1, and the acceptance estimates of parent and final circuit agree with the exact
+    probabilities from their DEMs.  Return the number of accepted steps that the enumeration
+    checked.
+    """
+    import stim
+
+    accepted_enumerated = 0
+
+    noise = entry["options"]["noise"]
+    options = experiment.certify_options(entry) | {
+        "output_qubits": entry["output_qubits"],
+        "max_weight": entry["t"],
+    }
+    current = _input(entry["id"])
+    for record in result["steps"]:
+        child, _, _ = circuits._delete_qubit(current, record["qubit"])
+        outcome = record["outcome"]
+        if outcome == "target changed":
+            assert not _prepares(child, entry), record
+            continue
+        assert _prepares(child, entry), record
+        noisy = experiment.noisy_circuit(child, noise)
+        if outcome == "detectors rejected":
+            try:
+                qldpc_circuits.certify_bounded_fault_propagation(
+                    noisy, method="brouwer_zimmermann", **options
+                )
+            except ValueError:
+                continue
+            raise AssertionError(f"qLDPC accepts the detectors of {record}")
+        certificate = qldpc_circuits.certify_bounded_fault_propagation(
+            noisy, method="brouwer_zimmermann", **options
+        )
+        example = certificate.counterexample
+        weight = None if example is None else example.fault_weight
+        assert weight == record.get("violation_weight"), (record, weight)
+        assert (outcome == "accepted") == (weight is None), record
+        if enumerate_steps:
+            truth = _enumerated_violation(child, entry, options, entry["t"])
+            assert truth == weight, (record, truth)
+            accepted_enumerated += outcome == "accepted"
+        if outcome == "accepted":
+            current = child
+
+    # the final circuit, rebuilt from the parent and the accepted deletions, by both oracles
+    text = applications.circuit_text(current)
+    assert text == result["final_circuit"], entry["id"]
+    assert hashlib.sha256(text.encode()).hexdigest() == result["final_sha256"], entry["id"]
+    noisy = experiment.noisy_circuit(stim.Circuit(text), noise)
+    final = qldpc_circuits.certify_bounded_fault_propagation(
+        noisy, method="brouwer_zimmermann", **options
+    )
+    cc = qldpc_circuits.certify_bounded_fault_propagation(
+        noisy, method="connected_cluster", **options
+    )
+    assert final.certified and cc.certified and result["final_certified_cc"] is True, (
+        entry["id"],
+        final.certified,
+        cc.certified,
+        result["final_certified_cc"],
+    )
+
+    # the final m*, against cert_bz at K = t + 1
+    beyond = qldpc_circuits.certify_bounded_fault_propagation(
+        noisy, method="brouwer_zimmermann", **(options | {"max_weight": entry["t"] + 1})
+    )
+    margin, example = result["final_margin"]["margin"], beyond.counterexample
+    if example is None:
+        assert margin == "all" or margin > entry["t"] + 1, (entry["id"], margin)
+    else:
+        assert margin == example.fault_weight, (entry["id"], margin)
+
+    # the acceptance estimates of parent and final circuit, against the exact probabilities
+    parent = qldpc_circuits.certify_bounded_fault_propagation(
+        experiment.noisy_circuit(_input(entry["id"]), noise),
+        method="brouwer_zimmermann",
+        **(options | {"max_weight": 1}),
+    )
+    for which, certificate in (("parent", parent), ("final", final)):
+        estimate, exact = result["acceptance"][which], _exact_acceptance(certificate)
+        assert abs(estimate["probability"] - exact) <= 5 * estimate["standard_error"], which
+    return accepted_enumerated
+
+
+def _enumerable(entry: dict[str, Any]) -> bool:
+    """Whether the ground-truth enumeration up to K = t is within its rule for a circuit.
+
+    The sum over 1 <= m <= t of C(N_0, m) must be within the ground-truth limit, and the flags must
+    fit in 64 bits, as ``counting.brute_force`` requires.
+    """
+    size = sum(math.comb(entry["N0"], m) for m in range(1, entry["t"] + 1))
+    limit = experiment.CONFIG["ground_truth"]["max_combinations"]
+    return size <= limit and entry["num_post_selection_detectors"] <= 64
+
+
+def _prepares(circuit: Any, entry: dict[str, Any]) -> bool:
+    """Whether a noiseless circuit leaves the parent's signed state on its output qubits.
+
+    Stim's simulator runs the circuit with a fixed seed, and every stabilizer of the parent's state,
+    placed on the output qubits, must then have expectation +1.
+    """
+    import stim
+
+    outputs = entry["output_qubits"]
+    simulator = stim.TableauSimulator(seed=0)
+    simulator.do(circuit)
+    size = max(simulator.num_qubits, max(outputs) + 1)
+    for text in entry["stabilizers"]:
+        stabilizer = stim.PauliString(text)
+        placed = stim.PauliString(size)
+        for position, qubit in enumerate(outputs):
+            placed[qubit] = stabilizer[position]
+        placed.sign = stabilizer.sign
+        if simulator.peek_observable_expectation(placed) != 1:
+            return False
+    return True
+
+
+def _enumerated_violation(
+    circuit: Any, entry: dict[str, Any], options: dict[str, Any], max_weight: int
+) -> int | None:
+    """The smallest violating fault weight up to ``max_weight`` by the ground-truth enumeration.
+
+    The DEM comes from an untimed certification at weight 1, as for the arm ``ground_truth``.
+    """
+    noisy = experiment.noisy_circuit(circuit, entry["options"]["noise"])
+    reference = qldpc_circuits.certify_bounded_fault_propagation(
+        noisy, method="brouwer_zimmermann", **(options | {"max_weight": 1})
+    )
+    flags, syndromes = counting.dem_signatures(
+        reference.detector_error_model,
+        reference.post_selection_detectors,
+        len(reference.state_stabilizers),
+    )
+    reduced = counting.reduce_signatures(flags, syndromes)
+    stabilizers = experiment.stabilizer_matrix(reference.state_stabilizers)
+    smallest: int | None = counting.brute_force(reduced, stabilizers, max_weight)[
+        "smallest_violation"
+    ]
+    return smallest
+
+
+def _exact_acceptance(certificate: Any) -> float:
+    """The probability that no post-selection detector of a certificate fires, from its DEM.
+
+    The distribution of the parities of the post-selection detectors is built mechanism by
+    mechanism, each firing independently with its probability.
+    """
+    position = {detector: j for j, detector in enumerate(certificate.post_selection_detectors)}
+    distribution = {0: 1.0}
+    for instruction in certificate.detector_error_model.flattened():
+        if instruction.type != "error":
+            continue
+        probability = instruction.args_copy()[0]
+        mask = 0
+        for target in instruction.targets_copy():
+            if target.is_relative_detector_id() and target.val in position:
+                mask ^= 1 << position[target.val]
+        if not mask:
+            continue
+        updated: dict[int, float] = {}
+        for state, weight in distribution.items():
+            updated[state] = updated.get(state, 0.0) + weight * (1 - probability)
+            updated[state ^ mask] = updated.get(state ^ mask, 0.0) + weight * probability
+        distribution = updated
+    return distribution.get(0, 0.0)
+
+
+def _enumerated_sectors(entry: dict[str, Any], output_pauli: str) -> tuple[int, int]:
+    """The residual weights of the X and Z parts of a Pauli error, by enumeration.
+
+    The X part is minimized over the X parts of the elements of the state's stabilizer group that
+    have no Z part, and the Z part likewise, which enumerates the whole group.
+    """
+    import stim
+
+    stabilizers = experiment.stabilizer_matrix([stim.PauliString(s) for s in entry["stabilizers"]])
+    n = len(entry["output_qubits"])
+    x_part, z_part = (part.astype(np.uint8) for part in stim.PauliString(output_pauli).to_numpy())
+    group = np.zeros((1, 2 * n), dtype=np.uint8)
+    for row in stabilizers:
+        group = np.vstack([group, group ^ row])
+    x_type = group[~group[:, n:].any(axis=1), :n]
+    z_type = group[~group[:, :n].any(axis=1), n:]
+    return (
+        int(((x_type ^ x_part).sum(axis=1)).min()),
+        int(((z_type ^ z_part).sum(axis=1)).min()),
+    )
+
+
+def _input(circuit_id: str) -> Any:
+    """The noiseless certification input of a circuit."""
+    import stim
+
+    return stim.Circuit((experiment.INPUTS / f"{circuit_id}.stim").read_text())
 
 
 if __name__ == "__main__":
