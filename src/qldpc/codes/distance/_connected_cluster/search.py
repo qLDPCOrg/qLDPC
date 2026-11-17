@@ -34,6 +34,11 @@ _MAX_SCALE = 2**40
 # Added to the level of a symbol for each reason that blocks it (see _search_supports).
 _BLOCKED = 2**40
 
+# The tables of overlap cuts pack an index ``i`` and a load ``l``, which is 1 or 2, into the entry
+# ``_LOAD_BASE * i + l`` (see _get_overlap_cuts), so that each table is one array, which keeps the
+# arguments of the compiled search fewer.
+_LOAD_BASE = 4
+
 
 ####################################################################################################
 # search entry points
@@ -136,6 +141,7 @@ class ConnectedClusterSearch:
                 get_automorphisms=get_automorphisms,
                 automorphism_minimum_states=tuning.automorphism_minimum_states,
                 restrict_viable_symbols=tuning.restrict_viable_symbols,
+                stabilizer_overlap_cuts=tuning.stabilizer_overlap_cuts,
             )
             if search.has_witnesses:
                 self._searches.append(search)
@@ -303,6 +309,11 @@ class SupportSearch:
             its limits (Section 3.5).  Zero asks before the first limit.
         restrict_viable_symbols: Whether states restrict their subtrees to viable symbols, as
             Section 3.4 says.  The search is exact either way.
+        stabilizer_overlap_cuts: Whether the search forbids symbols that would make its support
+            meet a known word in more than about half of it, as Section 3.4 says.  The known words
+            of ``find_witness`` are the rows of ``excluded``.  Those of syndrome queries are these
+            rows and the words that ``use_query_overlap_words`` adds.  The search is exact either
+            way.
 
     Attributes:
         num_variables: The number of variables.
@@ -328,6 +339,7 @@ class SupportSearch:
         get_automorphisms: Callable[[], npt.NDArray[np.int_] | None] | None = None,
         automorphism_minimum_states: int,
         restrict_viable_symbols: bool,
+        stabilizer_overlap_cuts: bool,
     ) -> None:
         # The compiled search would read invalid input without an error, so validate it here.
         assert_binary(checks, "checks")
@@ -347,6 +359,7 @@ class SupportSearch:
         self._get_automorphisms = get_automorphisms
         self._automorphism_minimum_states = automorphism_minimum_states
         self._restrict_viable_symbols = restrict_viable_symbols
+        self._stabilizer_overlap_cuts = stabilizer_overlap_cuts
 
         # A word satisfies a symplectic check if its dot product with the swapped check vanishes.
         if symplectic:
@@ -391,6 +404,10 @@ class SupportSearch:
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)
         self._inverse_overlaps[1:] = scale // np.arange(1, max_column_weight + 1)
 
+        # The excluded rows are known words for the overlap cuts, and queries may have more.
+        self._query_words = np.zeros((0, checks.shape[1]), dtype=np.uint8)
+        self._build_overlap_cuts()
+
     @property
     def has_witnesses(self) -> bool:
         """Whether any word is outside the row space of ``excluded``."""
@@ -433,6 +450,7 @@ class SupportSearch:
             np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
             False,
             self._restrict_viable_symbols,
+            *self._cuts,
         )
         self.num_states += num_states
         last = self._last_two_num_states[1] if self._last_two_num_states else 0
@@ -446,8 +464,11 @@ class SupportSearch:
 
         Entry ``j`` of the syndrome belongs to row ``j`` of ``checks``, and, for a symplectic
         problem, says whether a Pauli operator anticommutes with that row.  The vectors with a
-        syndrome form a coset of the words, and ``excluded`` plays no part.  The search is
-        exhaustive, but need not find a lightest vector (Section 3.8 of ``connected_cluster.md``).
+        syndrome form a coset of the words, and every vector of the coset counts, even if
+        ``excluded`` has rows.  The search is exhaustive, but need not find a lightest vector
+        (Section 3.8 of ``connected_cluster.md``).  The overlap cuts of the rows of ``excluded``
+        and of the words that ``use_query_overlap_words`` adds can change which vector the search
+        returns, but not whether it finds one within ``max_weight``.
 
         Returns:
             The sorted symbols of a vector with the syndrome, or None if every such vector weighs
@@ -499,6 +520,7 @@ class SupportSearch:
             packed_syndrome,
             True,
             self._restrict_viable_symbols,
+            *self._query_cuts,
         )
         return np.sort(support) if len(support) else None
 
@@ -536,6 +558,41 @@ class SupportSearch:
         basis, labels = get_nested_code_basis(get_kernel(self._excluded), self._checks)
         return basis[np.any(labels, axis=1)]
 
+    def use_query_overlap_words(self, words: npt.ArrayLike) -> None:
+        """Add known words, such as stabilizers, to those that the cuts of syndrome queries use.
+
+        A word is a vector that satisfies every check, in the representation of ``excluded``.  The
+        cuts of syndrome queries are exact for any words (Section 3.8 of ``connected_cluster.md``),
+        and help most with light ones.  ``find_witness`` does not use these words, since its cuts
+        are exact only for words in the row space of ``excluded`` (Section 3.4).  The cuts do
+        nothing unless ``stabilizer_overlap_cuts`` is set.
+
+        Raises:
+            ValueError: If the words are not a binary matrix as wide as the checks, or do not
+                satisfy every check.
+        """
+        assert_binary(words, "words")
+        words = np.asarray(words, dtype=np.uint8)
+        if words.ndim != 2 or words.shape[1] != self._query_words.shape[1]:
+            raise ValueError("The words must be a matrix as wide as the checks")
+        if np.any(multiply_binary(self._checks, words.T)):
+            raise ValueError("The words must satisfy the checks")
+        self._query_words = np.vstack([self._query_words, words])
+        self._build_overlap_cuts()
+
+    def _build_overlap_cuts(self) -> None:
+        """Tabulate the overlap cuts of ``find_witness`` and of queries, under the current ranks.
+
+        The cuts of ``find_witness`` use only the rows of ``excluded``, and those of queries also
+        use the words that ``use_query_overlap_words`` adds.  Without ``stabilizer_overlap_cuts``,
+        neither has any cuts.
+        """
+        witness_words, query_words = self._excluded, np.vstack([self._excluded, self._query_words])
+        if not self._stabilizer_overlap_cuts:
+            witness_words = query_words = witness_words[:0]
+        self._cuts = _get_overlap_cuts(witness_words, self._ranks, self._symplectic)
+        self._query_cuts = _get_overlap_cuts(query_words, self._ranks, self._symplectic)
+
     def _use_automorphisms(self, automorphisms: npt.NDArray[np.int_]) -> None:
         """Verify automorphisms, and search only from the least variable of each of their orbits.
 
@@ -557,6 +614,83 @@ class SupportSearch:
         self._roots = np.unique(orbits, return_index=True)[1].astype(np.int64)
         self._ranks = np.empty(self.num_variables, dtype=np.int64)
         self._ranks[np.argsort(orbits, kind="stable")] = np.arange(self.num_variables)
+        # A cut can leave out the lowest-ranked variable of its word, which the new ranks can move.
+        self._build_overlap_cuts()
+
+
+def _get_overlap_cuts(
+    words: npt.NDArray[np.uint8], ranks: npt.NDArray[np.int64], symplectic: bool
+) -> tuple[
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+]:
+    """Tabulate the overlap cuts of known words for ``_search_supports``.
+
+    The cut of a word ``g`` limits the load of a support on ``g``, which a support passes if the
+    load is at most the capacity ``|g| - 1`` (Section 3.4 of ``connected_cluster.md``).  Each symbol
+    on a variable of ``g`` adds 2 to the load if it has the value of ``g`` there and 1 otherwise,
+    except that the lowest-ranked variable of ``g`` adds nothing, unless the problem is binary and
+    ``|g|`` is odd.  Words of weight at most one are left out.  In a symplectic problem they cut
+    nothing, since their one variable ranks lowest.  In a binary problem, such a word would forbid
+    only its variable, which no lightest witness or solution holds, and the search stays exact
+    without it.
+
+    Returns:
+        ``symbol_starts`` and ``symbol_entries``, which list ``_LOAD_BASE c + l`` for each cut
+        ``c`` to which symbol ``s`` adds the load ``l``, at ``symbol_entries[symbol_starts[s] :
+        symbol_starts[s + 1]]``; ``cut_starts`` and ``cut_entries``, which list ``_LOAD_BASE s +
+        l`` for the same pairs by cut; the capacity of each cut; and the symbols whose load alone
+        exceeds the capacity of a cut, once for each such cut.
+    """
+    # Find the support of each distinct word, and the value of the word on each variable, and keep
+    # the words of weight at least two.
+    num_variables = len(ranks)
+    num_values = 3 if symplectic else 1
+    words = np.unique(words, axis=0)
+    if symplectic:
+        part_x, part_z = words[:, :num_variables], words[:, num_variables:]
+        supports = part_x | part_z
+        word_values = np.where(part_z == 0, 0, np.where(part_x == 0, 1, 2))
+    else:
+        supports, word_values = words, np.zeros_like(words)
+    weights = np.sum(supports, axis=1, dtype=np.int64)
+    supports = supports[weights >= 2]
+    word_values = word_values[weights >= 2]
+    weights = weights[weights >= 2]
+
+    # Leave out the lowest-ranked variable of each word, except of an odd word of a binary problem.
+    # np.nonzero lists the entries of the supports sorted by cut, so the entries of cut ``c`` start
+    # at position ``np.searchsorted(cuts, c)`` both there and after sorting by cut and then rank.
+    cuts, variables = np.nonzero(supports)
+    lowest = np.lexsort((ranks[variables], cuts))[np.searchsorted(cuts, np.arange(len(weights)))]
+    leaves_out = np.ones(len(weights), dtype=bool) if symplectic else weights % 2 == 0
+    kept = np.ones(len(cuts), dtype=bool)
+    kept[lowest[leaves_out]] = False
+    cuts, variables = cuts[kept], variables[kept]
+
+    # Give every value of each variable that a cut keeps its load on the cut.
+    values = np.arange(num_values)
+    symbols = (values[None, :] * num_variables + variables[:, None]).ravel()
+    loads = np.where(values[None, :] == word_values[cuts, variables][:, None], 2, 1).ravel()
+    cuts = np.repeat(cuts, num_values)
+    capacities = weights - 1
+
+    # List the pairs of a cut and a symbol by symbol and by cut.
+    by_symbol = np.argsort(symbols, kind="stable")
+    symbol_starts = np.searchsorted(symbols[by_symbol], np.arange(num_values * num_variables + 1))
+    cut_starts = np.searchsorted(cuts, np.arange(len(weights) + 1))
+    return (
+        symbol_starts.astype(np.int64),
+        (_LOAD_BASE * cuts[by_symbol] + loads[by_symbol]).astype(np.int64),
+        cut_starts.astype(np.int64),
+        (_LOAD_BASE * symbols + loads).astype(np.int64),
+        capacities,
+        symbols[loads > capacities[cuts]].astype(np.int64),
+    )
 
 
 ####################################################################################################
@@ -576,6 +710,12 @@ def _search_supports(
     start_syndrome: npt.NDArray[np.uint64],
     memoize: bool,
     restrict_viable_symbols: bool,
+    cut_symbol_starts: npt.NDArray[np.int64],
+    cut_symbol_entries: npt.NDArray[np.int64],
+    cut_starts: npt.NDArray[np.int64],
+    cut_entries: npt.NDArray[np.int64],
+    cut_capacities: npt.NDArray[np.int64],
+    cut_blocked_symbols: npt.NDArray[np.int64],
 ) -> tuple[npt.NDArray[np.int64], int]:
     """Search the supports that grow from each root through unsatisfied checks.
 
@@ -588,7 +728,8 @@ def _search_supports(
     root uses only variables of higher rank.  A root of -1 starts a syndrome query (Section 3.8)
     from ``start_syndrome``, which is not empty, is packed as a row of ``symbol_masks``, and is
     ignored by the other roots.  With ``memoize``, each state computes the overlap and repair of
-    each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.
+    each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.  The
+    remaining arguments tabulate the overlap cuts, as ``_get_overlap_cuts`` returns them.
 
     Returns:
         The symbols of a witness, or of a vector with the syndrome, of weight at most
@@ -607,9 +748,18 @@ def _search_supports(
     # A symbol is available if its level is the number of states in the stack that restrict their
     # subtrees, which stays below _BLOCKED.  The level counts those that allow the symbol, plus
     # _BLOCKED for each reason that blocks it: a state in the stack tried it, another value of its
-    # variable is the current branch of a state in the stack, or its variable ranks below the root.
+    # variable is the current branch of a state in the stack, its variable ranks below the root, or
+    # an overlap cut forbids it.
     levels = np.zeros(num_symbols, dtype=np.int64)
     num_restrictions = 0
+
+    # The load of the support on each overlap cut.  A symbol that would raise a load above its
+    # capacity is blocked for as long as the load stays above the capacity minus the load of the
+    # symbol, or from the start if the load of the symbol alone exceeds the capacity (Section 3.4 of
+    # connected_cluster.md).
+    cut_loads = np.zeros(len(cut_capacities), dtype=np.int64)
+    for symbol in cut_blocked_symbols:
+        levels[symbol] += _BLOCKED
 
     # The state at each depth has a syndrome, branches, and the cursor of its next branch.  A state
     # that restricts its subtree sets restricts[depth], since it may allow no symbols, and allows
@@ -665,19 +815,33 @@ def _search_supports(
             )
             num_restrictions += restricts[0]
         else:
-            # Block the variables of lower rank than the root, and branch on its values.
+            # Block the variables of lower rank than the root, and branch on its available values.
             for variable in range(num_variables):
                 if ranks[variable] < ranks[root]:
                     for value in range(num_values):
                         levels[value * num_variables + variable] += _BLOCKED
+            num_branches[0] = 0
             for value in range(num_values):
-                branches[0, value] = value * num_variables + root
-            num_branches[0] = num_values
+                if levels[value * num_variables + root] == 0:
+                    branches[0, num_branches[0]] = value * num_variables + root
+                    num_branches[0] += 1
         while depth >= 0:
             # Back at a state from a branch, unblock the other values of the variable of the branch.
             if cursors[depth]:
                 _shift_other_values(
                     levels, branches[depth, cursors[depth] - 1], num_variables, -_BLOCKED
+                )
+                _shift_cut_loads(
+                    levels,
+                    cut_loads,
+                    branches[depth, cursors[depth] - 1],
+                    -1,
+                    max_weight,
+                    cut_symbol_starts,
+                    cut_symbol_entries,
+                    cut_starts,
+                    cut_entries,
+                    cut_capacities,
                 )
 
             # Leave the state once it has tried every branch, and release the symbols that it tried
@@ -698,6 +862,18 @@ def _search_supports(
             cursors[depth] += 1
             levels[symbol] += _BLOCKED
             _shift_other_values(levels, symbol, num_variables, _BLOCKED)
+            _shift_cut_loads(
+                levels,
+                cut_loads,
+                symbol,
+                1,
+                max_weight,
+                cut_symbol_starts,
+                cut_symbol_entries,
+                cut_starts,
+                cut_entries,
+                cut_capacities,
+            )
             support[depth] = symbol
             num_unsatisfied = _xor_and_count(syndromes, depth, symbol_masks, symbol)
             needed = (num_unsatisfied + max_column_weight - 1) // max_column_weight
@@ -909,6 +1085,44 @@ def _shift_other_values(
     for value in range(1, num_symbols // num_variables):
         other = symbol + value * num_variables
         levels[other - num_symbols if other >= num_symbols else other] += change
+
+
+@always_compiled(inline=True)
+def _shift_cut_loads(
+    levels: npt.NDArray[np.int64],
+    cut_loads: npt.NDArray[np.int64],
+    symbol: int,
+    sign: int,
+    max_weight: int,
+    cut_symbol_starts: npt.NDArray[np.int64],
+    cut_symbol_entries: npt.NDArray[np.int64],
+    cut_starts: npt.NDArray[np.int64],
+    cut_entries: npt.NDArray[np.int64],
+    cut_capacities: npt.NDArray[np.int64],
+) -> None:
+    """Add (``sign`` 1) or remove (``sign`` -1) the loads of a symbol on its overlap cuts.
+
+    A symbol of load ``l`` on a cut is blocked while the load of the support on the cut exceeds its
+    capacity minus ``l``, so this blocks or unblocks the symbols of each cut whose load crosses that
+    threshold.  A support within the weight limit has a load of at most ``2 max_weight`` on any cut,
+    so a cut whose capacity is at least that blocks nothing, and is skipped.
+    """
+    for index in range(cut_symbol_starts[symbol], cut_symbol_starts[symbol + 1]):
+        cut = cut_symbol_entries[index] // _LOAD_BASE
+        capacity = cut_capacities[cut]
+        if capacity >= 2 * max_weight:
+            continue
+        old = cut_loads[cut]
+        new = old + sign * (cut_symbol_entries[index] % _LOAD_BASE)
+        cut_loads[cut] = new
+        low, high = min(old, new), max(old, new)
+        crosses_one = low <= capacity - 1 < high
+        crosses_two = low <= capacity - 2 < high
+        if crosses_one or crosses_two:
+            for position in range(cut_starts[cut], cut_starts[cut + 1]):
+                load = cut_entries[position] % _LOAD_BASE
+                if (crosses_one and load == 1) or (crosses_two and load == 2):
+                    levels[cut_entries[position] // _LOAD_BASE] += sign * _BLOCKED
 
 
 @always_compiled(inline=True)

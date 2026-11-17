@@ -72,12 +72,64 @@ def test_connected_cluster_queries_read_the_restriction_of_their_tuning(
     assert settings and set(settings) == {expected}
 
 
+@pytest.mark.parametrize("cuts", [True, False])
+def test_connected_cluster_queries_cut_by_the_stabilizers_of_their_state(
+    monkeypatch: pytest.MonkeyPatch, cuts: bool
+) -> None:
+    """Each coset search gets the stabilizers in its kernel, which cut its queries if switched on.
+
+    A Pauli search gets its own sparser stabilizers, and the search of X parts the X parts of the
+    pure-X stabilizers, which the search of Z parts checks with, and vice versa (Section 3.8 of
+    ``connected_cluster.md``).
+    """
+    received: dict[int, set[bytes]] = {}
+    use_words = coset.ConnectedClusterCosetSearch.use_query_overlap_words
+
+    def record_words(self: coset.ConnectedClusterCosetSearch, words: npt.ArrayLike) -> None:
+        rows = np.asarray(words, dtype=np.uint8)
+        received.setdefault(id(self), set()).update(row.tobytes() for row in rows)
+        use_words(self, words)
+
+    num_cuts_per_query: list[int] = []
+    search_supports = search._search_supports
+    signature = inspect.signature(search_supports)
+
+    def record_cuts(*args: Any, **kwargs: Any) -> tuple[npt.NDArray[np.int64], int]:
+        num_cuts_per_query.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
+        return search_supports(*args, **kwargs)
+
+    monkeypatch.setattr(coset.ConnectedClusterCosetSearch, "use_query_overlap_words", record_words)
+    monkeypatch.setattr(search, "_search_supports", record_cuts)
+    css_state = get_random_css_state(6, 3, np.random.default_rng(0))
+    with use_tuning(stabilizer_overlap_cuts=cuts):
+        pauli_oracle = CosetLeaderSearch(css_state, method="connected_cluster")
+        css_oracle = CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
+    (pauli_search,) = pauli_oracle._connected_cluster_searches
+    x_part_search, z_part_search = css_oracle._connected_cluster_searches
+    pairs = [
+        (pauli_search, pauli_search),
+        (x_part_search, z_part_search),
+        (z_part_search, x_part_search),
+    ]
+    for searched, checking in pairs:
+        expected = {np.asarray(row, dtype=np.uint8).tobytes() for row in checking.checks}
+        assert received[id(searched)] == expected
+
+        # Every syndrome that the table of light words lacks starts a query.
+        num_cuts_per_query.clear()
+        for syndrome in range(1, 2 ** len(searched.checks)):
+            searched.get_min_weight_bound(syndrome, 3)
+        assert num_cuts_per_query
+        assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_query)
+
+
+@pytest.mark.parametrize("cuts", [True, False])
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])
 def test_connected_cluster_answers_match_exhaustive_minima(
-    pytestconfig: pytest.Config, restrict_viable_symbols: bool, tune: Tune
+    pytestconfig: pytest.Config, restrict_viable_symbols: bool, cuts: bool, tune: Tune
 ) -> None:
-    """Queries get the bounds that ``ConnectedClusterCosetSearch`` states."""
-    tune(restrict_viable_symbols=restrict_viable_symbols)
+    """Queries get the bounds that ``ConnectedClusterCosetSearch`` states, with or without cuts."""
+    tune(restrict_viable_symbols=restrict_viable_symbols, stabilizer_overlap_cuts=cuts)
     # Graph states with phases are not CSS, and the connected-cluster method weighs errors on them
     # only by physical weight.  CSS states, with no pure-X stabilizer, only pure-X stabilizers, or
     # both, are weighed by both measures.

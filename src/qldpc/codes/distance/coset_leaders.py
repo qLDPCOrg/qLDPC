@@ -115,6 +115,7 @@ class CosetLeaderSearch:
             max_rounds=tuning.max_sparsifying_rounds,
             rounds_without_improvement=tuning.sparsifying_rounds_without_improvement,
             restrict_viable_symbols=tuning.restrict_viable_symbols,
+            stabilizer_overlap_cuts=tuning.stabilizer_overlap_cuts,
         )
         # Exactly one of the BZ searches and the connected-cluster searches is nonempty.
         self._brouwer_zimmermann_searches: tuple[BrouwerZimmermannCosetSearch, ...] = ()
@@ -132,7 +133,12 @@ class CosetLeaderSearch:
                     " use css_weight=False or the default method"
                 )
             else:
-                self._connected_cluster_searches = (cluster_search(matrix, symplectic=True),)
+                # The stabilizers commute with each other, so the sparser stabilizers have a zero
+                # syndrome and are known words for the overlap cuts (Section 3.8 of
+                # connected_cluster.md).
+                search = cluster_search(matrix, symplectic=True)
+                search.use_query_overlap_words(search.checks)
+                self._connected_cluster_searches = (search,)
             return
 
         # Row-reduce the X parts of the pure-X stabilizers and the Z parts of the pure-Z ones.  The
@@ -147,10 +153,14 @@ class CosetLeaderSearch:
         assert x_transform is not None and z_transform is not None
         if coset_search_method == "connected_cluster":
             # The Z parts of the pure-Z stabilizers check X parts, and vice versa.
-            self._connected_cluster_searches = (
-                cluster_search(z_rows, symplectic=False),
-                cluster_search(x_rows, symplectic=False),
-            )
+            x_part_search = cluster_search(z_rows, symplectic=False)
+            z_part_search = cluster_search(x_rows, symplectic=False)
+            # The X parts of the pure-X stabilizers, which the other search checks with, commute
+            # with the pure-Z stabilizers, so they have a zero syndrome and are known words for the
+            # overlap cuts, and likewise for Z parts (Section 3.8 of connected_cluster.md).
+            x_part_search.use_query_overlap_words(z_part_search.checks)
+            z_part_search.use_query_overlap_words(x_part_search.checks)
+            self._connected_cluster_searches = (x_part_search, z_part_search)
         else:
             self._brouwer_zimmermann_searches = get_css_searches(x_rows, z_rows, tuning)
 
