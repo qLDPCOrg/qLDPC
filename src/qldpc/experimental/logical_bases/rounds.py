@@ -27,7 +27,6 @@ from qldpc.objects import Pauli, PauliXZ
 from ._sectors import Sector, get_sector
 from .evaluation import (
     LogicalBasisMetrics,
-    LogicalOpsMetrics,
     _as_binary_matrix,
     evaluate_logical_ops,
 )
@@ -157,11 +156,7 @@ class OptimizedLogicalRounds:
         These are the metrics that :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`
         returns for this basis.
         """
-        k, n = len(self.logical_ops) // 2, self.logical_ops.shape[1] // 2
-        ops_x, ops_z = self.logical_ops[:k, :n], self.logical_ops[k:, n:]
-        return LogicalBasisMetrics(
-            x=LogicalOpsMetrics._from_ops(ops_x), z=LogicalOpsMetrics._from_ops(ops_z)
-        )
+        return LogicalBasisMetrics._from_valid_ops(self.logical_ops)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
