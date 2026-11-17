@@ -162,6 +162,14 @@ Nor does it look up the last one or two variables of a support in a table of syn
 With the bounds and the overlap cuts above, states with room for at most two more variables were observed to be few of the states that a search visits.
 Lookups of one or two variables, tried on the codes of `experiments/distance_tuning/workloads.py` and on the surface, toric, color, bivariate bicycle, pair-partition, and quantum Tanner codes that we timed, saved no measurable time.
 
+Nor does it prune by an erasure bound, as Qubitserf and DistQLDPC do ([references](#references)).
+Only the available variables of the unsatisfied checks carry weight in the dual above, so a completion of at most `W - s` variables holds at least `⌈Y⌉` of them, and at most `e = W - s - ⌈Y⌉` other available variables.
+For `e` up to 2, the bound prunes the state unless some available variables of the unsatisfied checks, in any number, and at most `e` other available variables complete the support to a witness, or, in a syndrome query, to a vector with the syndrome.
+Peeling and elimination over GF(2) decide this, and a hash of the checks lets them try every other variable, and every pair of them, at once.
+Unlike the bounds above, the erasure bound also uses the checks that the support satisfies, and a trial in qLDPC visited up to about 15 times fewer states.
+But each run of the bound cost about as much as 10 states, so the searches took about a quarter longer on a quantum Tanner code and on the [[288,12,18]] bivariate bicycle code, and up to about 2.5 times longer on pair-partition codes and on syndrome queries.
+They took about a third less time only on the [[144,12,12]] bivariate bicycle (gross) code and a color code, which took a few hundredths of a second.
+
 ### 3.5 Symmetries
 
 Let `Γ` be a group of column permutations that map `ker(H)` and `rowspan(G)` onto themselves, and so map witnesses to witnesses of the same weight.
@@ -406,5 +414,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - [QEC-pages/dist-m4ri](https://github.com/QEC-pages/dist-m4ri), by L. P. Pryadko and W. Zeng: a program whose connected-cluster (CC) method computes exact distances of classical codes, of quantum CSS codes, and of detector error models; its `src/dist_m4ri.c`, lines 827–877 at v0.16.1 (commit `4cc9c12`), looks up the last one or two columns of a support by a hash of the syndrome.
 - M. Webster, A. Jacob, and O. Higgott, "Distance-finding algorithms for quantum codes and circuits", Section 4.3.2, [arXiv:2603.22532](https://arxiv.org/abs/2603.22532): other names of the algorithm.
 - [Quantinuum/Qubitserf](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/cc.cpp), `cpp/distfind/cc.cpp`, lines 251–288 and 421–431 at commit `04b9349`: cuts by the overlaps with stabilizers, leaving out the first qubit of each stabilizer of even weight; and lines 445–475 and 551–554: a hash lookup of the last two qubits of a support, and a scan of one check for the last qubit.
+  Its [`cpp/distfind/erasure_bound.hpp`](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/erasure_bound.hpp), lines 114–260, with lines 527–540 of `cc.cpp`, prunes by the erasure bound.
+- [guluchen/DistQLDPC](https://github.com/guluchen/DistQLDPC/blob/fae495bce77d6fff2cbb308aaca0676b45c8e98e/src/cc/cc_half.h), `src/cc/cc_half.h`, lines 170–205 at commit `fae495b`: the erasure bound, behind a gate that times its tests.
 - [yeon-lee/QEDist](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/native_css/exact.cpp), `cssdist/native_css/exact.cpp`, lines 136–138 and 222 at commit `71a0f0c`, and J. Y. Lee, "Designing group-valued codes with full regular low-weight bases", [arXiv:2610.06820](https://arxiv.org/abs/2610.06820), with [yeon-lee/public-regular-logical-frames](https://github.com/yeon-lee/public-regular-logical-frames/blob/04ad4795ad15cb89ee47b7868ff925c30b2fc731/src/lp_exclusion.cpp), `src/lp_exclusion.cpp`, lines 68–69 at commit `04ad479`: pruning of supports that meet a stabilizer in more than half of it.
 - [Fanerst/tropidist](https://github.com/Fanerst/tropidist/blob/b03ec2d4077f287f89f97b5c2c16ce5ce17c2c58/cdist/gmitm.c), `cdist/gmitm.c`, lines 388–416 at commit `b03ec2d`, the program of Cheng, Guo, and Pan, [arXiv:2611.08247](https://arxiv.org/abs/2611.08247): the same rule, as "kernel dominance", by sets of variables with zero syndrome and zero logical value (see lines 207–210 for the name).
