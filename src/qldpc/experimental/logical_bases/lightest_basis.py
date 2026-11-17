@@ -33,12 +33,13 @@ def get_lightest_logical_basis(
     weights exactly, by repeatedly adding a lightest operator whose class is independent of the
     classes of those already chosen.
 
-    Each step first checks, with a search limited to the previous weight, whether that weight
-    recurs.  If it does not, an exact distance search (see :mod:`qldpc.codes.distance`) finds the
-    new weight, at a cost that generally grows exponentially with that weight.  Each step then
-    recovers an operator of its weight with many searches limited to that weight.  When several
-    operators have the lightest weight, the one chosen need not share few qubits with the others,
-    which :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops` measures.  Results are
+    Each step after the first checks, with a search limited to the previous weight, whether that
+    weight recurs.  If it does not, an exact distance search (see :mod:`qldpc.codes.distance`)
+    finds the new weight, at a cost that generally grows exponentially with that weight.  Each step
+    then recovers an operator of its weight with many searches limited to that weight.  Among operators
+    of the lightest weight, the choice ignores how many qubits each shares with the operators
+    already chosen; :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops` measures these
+    overlaps.  Results are
     cached on disk with :mod:`qldpc.cache` under the name ``"lightest_logical_basis_v1"``.
 
     Args:
@@ -65,9 +66,10 @@ def get_lightest_logical_basis(
 class LightestLogicalBasis:
     """A basis of logical operators of one Pauli type whose weights are as small as possible.
 
-    Its operators are in nondecreasing order of weight, and their weights bound every basis of
-    logical operators of the same Pauli type and kind (dressed or bare) from below: the ``i``-th
-    smallest weight of every such basis is at least ``weights[i]``.  In particular, no such basis
+    Its operators are in nondecreasing order of weight, and their weights bound the weights of every
+    basis of logical operators of the same Pauli type and kind (dressed or bare) from below: sorted
+    in nondecreasing order, the weights of every such basis are at least ``weights``, entry by
+    entry.  In particular, no such basis
     has a smaller maximum weight or total weight.
 
     These bounds hold for each Pauli type separately.  The X-type and Z-type operators of a complete
