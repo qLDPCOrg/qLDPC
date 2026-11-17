@@ -321,5 +321,5 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - Coverage cannot trace compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
-- Changes to the scans, to pruning, or to compiled entry points that threads run must keep the requirements on threads in Section 5 of the guide of each method, and pass its tests on threads.
+- A change to the scans, to pruning, or to the compiled entry points that threads run must keep the requirements on threads in Section 5 of the guide of each method, and pass the tests on threads that the guide lists.
 - `_readme_test.py` fails if this page omits a module, or names a file that does not exist.
