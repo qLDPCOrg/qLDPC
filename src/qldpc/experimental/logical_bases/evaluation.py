@@ -27,7 +27,7 @@ def evaluate_logical_ops(
     *,
     logicals: Literal["dressed", "bare"] = "dressed",
 ) -> LogicalBasisMetrics:
-    """Check a complete basis of logical operators of a CSS code, and measure its overlaps.
+    """Check a complete basis of logical operators of a CSS code, and measure weights and overlaps.
 
     A complete basis has shape ``(2k, 2n)``, laid out as by
     :meth:`qldpc.codes.CSSCode.get_logical_ops`: the first ``k`` rows are X-type operators and the
@@ -157,6 +157,8 @@ def _get_valid_classes(sector: Sector, ops: npt.NDArray[np.uint8]) -> npt.NDArra
     if np.any(sector.checks.astype(np.int64) @ ops.T.astype(np.int64) % 2):
         raise ValueError(f"Some {name} operators are not logical operators of the code")
     classes = sector.get_classes(ops)
+
+    # for a complete basis, the pairing check implies independence, but this error is clearer
     if len(get_independent_rows(classes)) != sector.dimension:
         raise ValueError(f"The {name} operators do not have independent logical classes")
     return classes

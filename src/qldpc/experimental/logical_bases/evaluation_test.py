@@ -26,7 +26,7 @@ def test_metrics() -> None:
 
 
 def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
-    """By default, the code's own complete basis is evaluated, one Pauli type in each attribute."""
+    """By default, the code's own complete basis is evaluated, with X-type and Z-type metrics."""
     metrics = evaluate_logical_ops(stabilizer_code)
     # the two Pauli types differ, so that swapping x and z would fail
     assert not np.array_equal(metrics.x.overlaps, metrics.z.overlaps)
@@ -97,5 +97,11 @@ def test_evaluate_dressed_ops(subsystem_code: codes.CSSCode) -> None:
     # X-type operator 0 and Z-type operator 0 now commute physically, but their classes anticommute
     assert ops[0, :n] @ ops[subsystem_code.dimension, n:] % 2 == 0
     evaluate_logical_ops(subsystem_code, ops)
-    with pytest.raises(ValueError, match="not logical operators"):
-        evaluate_logical_ops(subsystem_code, ops, logicals="bare")
+
+    # each half of the dressed operators is rejected when bare operators are required
+    original = subsystem_code.get_logical_ops().view(np.ndarray)
+    for row, name in [(0, "X"), (subsystem_code.dimension, "Z")]:
+        one_half = original.copy()
+        one_half[row] = ops[row]
+        with pytest.raises(ValueError, match=f"{name}-type operators are not logical"):
+            evaluate_logical_ops(subsystem_code, one_half, logicals="bare")

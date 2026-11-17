@@ -55,10 +55,10 @@ def test_lightest_basis(
         # the operators are logical, and independent modulo the trivial operators
         ops = basis.logical_ops.astype(int)
         assert not np.any(np.asarray(checks, dtype=int) @ ops.T % 2)
-        trivial_rank = _get_rank(trivial)
-        assert _get_rank(np.vstack([np.asarray(trivial, dtype=int), ops])) == trivial_rank + len(
-            ops
-        )
+        pivots: dict[int, int] = {}
+        for row in np.asarray(trivial):
+            _insert(pivots, _to_int(row))
+        assert all(_insert(pivots, _to_int(row)) for row in ops)
         weights.append(basis.weights)
 
     # the dressed operators of this subsystem code are lighter than its bare operators
@@ -85,11 +85,11 @@ def test_exact_searches_only_at_new_weights(
 
 
 def test_lightest_basis_properties() -> None:
-    """Summary values follow from the weights, including for codes without logical qubits."""
-    basis = LightestLogicalBasis(np.array([[1, 1, 1, 0], [1, 1, 0, 1]], dtype=np.uint8))
-    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 6, 2)
-    np.testing.assert_array_equal(basis.metrics.loads, [2, 2, 1, 1])
-    np.testing.assert_array_equal(basis.metrics.overlaps, [[3, 2], [2, 3]])
+    """Summary values follow from the operators, including for codes without logical qubits."""
+    basis = LightestLogicalBasis(np.array([[1, 1, 0, 0], [1, 1, 1, 0]], dtype=np.uint8))
+    assert (basis.max_weight, basis.total_weight, basis.load_lower_bound) == (3, 5, 2)
+    np.testing.assert_array_equal(basis.metrics.loads, [2, 2, 1, 0])
+    np.testing.assert_array_equal(basis.metrics.overlaps, [[2, 2], [2, 3]])
 
     basis = get_lightest_logical_basis(codes.CSSCode([[1, 1]], [[1, 1]]), Pauli.X)
     assert basis.logical_ops.shape == (0, 2)
@@ -103,12 +103,6 @@ def test_weight_queries() -> None:
     assert _has_light_word(space, space[:1], 2)
     assert not _has_light_word(space, space[:1], 1)
     assert not _has_light_word(space, space, 3)
-
-
-def _get_rank(matrix: npt.ArrayLike) -> int:
-    """The rank of a binary matrix over GF(2)."""
-    array = np.asarray(matrix, dtype=int)
-    return int(np.linalg.matrix_rank(galois.GF2(array))) if array.size else 0
 
 
 def _get_brute_force_weights(checks: npt.ArrayLike, trivial: npt.ArrayLike) -> list[int]:
