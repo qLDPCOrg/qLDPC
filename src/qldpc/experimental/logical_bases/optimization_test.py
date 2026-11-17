@@ -106,6 +106,8 @@ def test_subsystem_code(
     value = _max_weight(metrics.x.weights.tolist(), metrics.z.weights.tolist())
     assert value == _get_brute_force_optimum(subsystem_code, logicals, _max_weight)
     assert result.lower_bound == _get_lower_bound(subsystem_code, logicals, _max_weight)
+    assert result.lower_bound <= value
+    assert result.optimal == (value == result.lower_bound)
     if logicals == "bare":
         subsystem_code.set_logical_ops(result.logical_ops.astype(int))
 

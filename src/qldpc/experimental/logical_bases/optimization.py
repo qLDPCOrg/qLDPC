@@ -145,14 +145,14 @@ class OptimizedLogicalBasis:
         logical_ops: The basis, with shape ``(2k, 2n)``, laid out as by
             :meth:`qldpc.codes.CSSCode.get_logical_ops`.
         lower_bound: The value of the objective for the lightest bases of the two Pauli types, which
-            no complete basis can beat.  For ``"max_weight"`` and ``"total_weight"``, it is a tuple,
-            as ``objective`` in :func:`~qldpc.experimental.logical_bases.optimize_logical_basis`
-            describes.  It is None for an objective given as a function, unless the code has no
-            logical qubits.
-        stop_reason: Why the search stopped: ``"optimal"`` if it reached the lower bound, which
-            proves the basis optimal among all complete bases for the objective, ``"patience"`` if
-            it stopped improving, or ``"max_searches"`` if it used up its budget of distance
-            searches.
+            no complete basis of the kind that ``logicals`` selects can beat.  For ``"max_weight"``
+            and ``"total_weight"``, it is a tuple, as ``objective`` in
+            :func:`~qldpc.experimental.logical_bases.optimize_logical_basis` describes.  It is None
+            for an objective given as a function, unless the code has no logical qubits.
+        stop_reason: Why the search stopped.  ``"optimal"``: the search reached ``lower_bound``,
+            which proves the basis optimal for the objective among all complete bases of the kind
+            that ``logicals`` selects.  ``"patience"``: the search stopped improving.
+            ``"max_searches"``: the search used up its budget of distance searches.
         searches: The number of distance searches run to find the weights of classes.  The searches
             that find the lightest bases and recover operators of minimum weight are not counted.
     """
@@ -164,7 +164,10 @@ class OptimizedLogicalBasis:
 
     @property
     def optimal(self) -> bool:
-        """Whether the basis is proven optimal among all complete bases, by reaching the bound."""
+        """Whether the basis is proven optimal, by reaching ``lower_bound``.
+
+        The proof covers all complete bases of the kind that ``logicals`` selects.
+        """
         return self.stop_reason == "optimal"
 
     @property
