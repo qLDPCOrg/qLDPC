@@ -53,6 +53,8 @@ Start from a symptom
    * - A cheap connected-cluster search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
        Searches ask for them before a first limit that ``cutoff`` sets, unless the field is ``MAX_VALUE``.
+   * - Many cheap distance searches of large CSS codes spend their time looking for a qubit permutation that maps the X sector onto the Z sector
+     - Set :attr:`~SearchTuning.sector_maps` to ``False``.
    * - A :class:`~qldpc.codes.distance.CosetLeaderSearch` with the connected-cluster method takes long to build, or its queries are slow
      - Lower :attr:`~SearchTuning.max_sparsifying_rounds`, or :attr:`~SearchTuning.sparsifying_rounds_without_improvement` below it, for a quicker build; raise :attr:`~SearchTuning.max_sparsifying_rounds` for sparser checks and faster queries.
    * - A connected-cluster distance search of a subsystem code is slow to start, or slow to search
@@ -75,6 +77,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.enumeration_batch_exponent`
      -
      - `Section 3.6 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#36-work-estimates-and-exhaustive-enumeration>`__
+   * - Searching one sector of a CSS code whose sectors a qubit permutation maps onto each other
+     - :attr:`SearchTuning.sector_maps`
+     -
+     - `Searching one sector of a CSS code <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/README.md#searching-one-sector-of-a-css-code>`__ in the guide to the distance package
    * - Choosing a method, which ``method="auto"`` does for each distance search
      - :attr:`SearchTuning.auto_brute_force_max_words`, :attr:`SearchTuning.auto_free_work`, :attr:`SearchTuning.auto_probe_work`, :attr:`SearchTuning.connected_cluster_state_evaluations`
      -

@@ -21,6 +21,7 @@ from sympy.abc import x
 
 import qldpc
 from qldpc._binary import get_independent_rows
+from qldpc.external import _bliss
 from qldpc.objects import Pauli
 
 from ..conftest import Tune
@@ -323,8 +324,84 @@ def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
 
     get_distance_connected_cluster = core.get_distance_connected_cluster
     monkeypatch.setattr(core, "get_distance_connected_cluster", record)
-    assert core.get_distance_pauli(checks, method="connected_cluster") == 3
+    # The identity maps one sector of the Steane code onto the other, so turning off sector_maps
+    # keeps both sectors.
+    with use_tuning(sector_maps=False):
+        assert core.get_distance_pauli(checks, method="connected_cluster") == 3
     assert searched == [([7, 7], False)]
+
+
+@pytest.mark.parametrize("method", ["auto", "brouwer_zimmermann", "connected_cluster"])
+def test_css_searches_search_one_sector_if_a_permutation_maps_it_onto_the_other(
+    monkeypatch: pytest.MonkeyPatch, method: core.DistanceMethod
+) -> None:
+    """A search takes the X sector alone if a qubit permutation maps it onto the Z sector.
+
+    The X-type and Z-type checks of the Steane code have the same row space, so the identity maps
+    each sector onto the other.  Bliss finds a permutation for the surface code of distance 3 and
+    for the Bacon-Shor code of 3 x 3 qubits, a subsystem code.  The rectangular surface and
+    Bacon-Shor codes have none, since their X and Z distances differ.  With the switch
+    ``sector_maps`` off, a search never looks.  Every search finds the distance that brute force,
+    which searches both sectors, finds.
+    """
+    searched: list[int] = []
+
+    def record(name: str) -> None:
+        function = getattr(core, name)
+
+        def recording(sectors: Any, *args: Any, **kwargs: Any) -> Any:
+            searched.append(len(sectors))
+            return function(sectors, *args, **kwargs)
+
+        monkeypatch.setattr(core, name, recording)
+
+    for name in ("get_distance_brouwer_zimmermann", "get_distance_connected_cluster"):
+        record(name)
+    record("search_by_cost")
+    looked: list[str] = []
+    monkeypatch.setattr(core, "get_sector_map", _record_call(looked, "", core.get_sector_map))
+
+    num_sectors_with_bliss = 1 if _bliss.is_installed() else 2
+    cases = [
+        (qldpc.codes.SteaneCode(), 1),
+        (qldpc.codes.SurfaceCode(3), num_sectors_with_bliss),
+        (qldpc.codes.BaconShorCode(3), num_sectors_with_bliss),
+        (qldpc.codes.SurfaceCode(3, 4), 2),
+        (qldpc.codes.BaconShorCode(3, 4), 2),
+    ]
+    for code, num_sectors in cases:
+        checks_x, checks_z = code.matrix_x.view(np.ndarray), code.matrix_z.view(np.ndarray)
+        distance = core.get_distance_css(checks_x, checks_z, method="brute_force")
+        bounded = core.get_distance_css(checks_x, checks_z, method="brute_force", max_weight=2)
+        for switch, expected in ((True, num_sectors), (False, 2)):
+            searched.clear()
+            looked.clear()
+            with use_tuning(sector_maps=switch, auto_brute_force_max_words=0):
+                assert core.get_distance_css(checks_x, checks_z, method=method) == distance
+                assert (
+                    core.get_distance_css(checks_x, checks_z, method=method, max_weight=2)
+                    == bounded
+                )
+            assert searched[:1] == [expected] and searched[-1] == expected
+            assert len(looked) == (2 if switch else 0)
+
+
+def test_brute_force_never_looks_for_sector_maps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Brute force, also when "auto" takes it, searches both sectors without looking for a map."""
+    looked: list[str] = []
+    monkeypatch.setattr(core, "get_sector_map", _record_call(looked, "", core.get_sector_map))
+    searched: list[str] = []
+    monkeypatch.setattr(
+        core, "_search_checks", _record_call(searched, "sector", core._search_checks)
+    )
+    steane_code = qldpc.codes.SteaneCode()
+    for method in ("brute_force", "auto"):
+        with use_tuning(sector_maps=True, auto_brute_force_max_words=2**40):
+            distance = core.get_distance_css(
+                steane_code.matrix_x, steane_code.matrix_z, method=method
+            )
+        assert distance == 3
+    assert not looked and len(searched) == 4
 
 
 @pytest.mark.parametrize("method", METHODS)

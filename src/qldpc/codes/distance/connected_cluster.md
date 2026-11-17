@@ -55,6 +55,8 @@ The **support** of a vector is the set of its nonzero variables, and its **syndr
 A CSS code with X-type checks `H_X` and Z-type checks `H_Z` has two **sectors**, each an instance of this problem: its X-type logical operators, of distance `d(H_Z, H_X)`, and its Z-type ones, of distance `d(H_X, H_Z)`.
 Its distance is the smaller of the two.
 For a CSS subsystem code with gauge generators `G_X` and `G_Z` and stabilizers `S_X` and `S_Z`, the sectors are `(S_Z, G_X)` and `(S_X, G_Z)`, and a witness is a dressed logical operator.
+If `_search_css` finds a qubit permutation that maps each sector onto the other, the search takes the X sector alone.
+It finds only the identity and, with pybliss, permutations that map the nonzero rows of `G_X`, as listed, one to one onto those of `G_Z` and back, where `G_X = H_X` and `G_Z = H_Z` for a stabilizer code (section "Searching one sector of a CSS code" of [README.md](README.md)).
 For a classical code, `H` is its parity-check matrix and `G` is empty, and the search has one sector.
 [Section 3.7](#37-qubit-codes-that-are-not-css) treats qubit codes that are not CSS, whose search also has one sector.
 
