@@ -2209,19 +2209,20 @@ class QuditCode(AbstractCode):
 
         - with the optional pybliss package (``pip install 'qldpc[bliss]'``), automorphisms of the
           Tanner graph of the parity checks, in which each edge is colored by the Pauli operator of
-          its check on its qudit; and
+          its check on its qudit, and likewise of other sets of checks that span the same space, if
+          the class of the code chooses any, as QTCode does (see help(qldpc.codes.QTCode)); and
         - permutations that the construction of the code provides, if any, such as the translations
           of a group-algebra code.
 
         Each of these permutations maps the row space of the parity check matrix onto itself, so it
         preserves the stabilizer group (or, for a subsystem code, the gauge group).  For binary
-        codes, the Brouwer-Zimmermann and connected-cluster searches of exact distances use the same
-        permutations to search less.
+        codes, the Brouwer-Zimmermann and connected-cluster searches of exact distances can use the
+        same permutations to search less.
 
         The group can be a proper subgroup of the group of all qudit permutations that preserve the
-        code.  Bliss finds only permutations that map the parity checks to parity checks, so it can
-        miss permutations of the construction, and the group can depend on the choice of parity
-        checks and on whether pybliss is installed.
+        code.  Bliss finds only permutations that map a set of checks that it searches onto itself,
+        so it can miss permutations of the construction, and the group can depend on the sets of
+        checks that bliss searches and on whether pybliss is installed.
 
         Returns:
             A group of permutations of the qudits ``range(len(self))``, in which a member p maps
@@ -2767,15 +2768,30 @@ class QuditCode(AbstractCode):
         """
         return None
 
+    def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+        """Sets of checks, whose Tanner graphs bliss searches for automorphisms of this code.
+
+        Each matrix holds checks in the layout of the parity check matrix, and spans its row space.
+        A permutation of the qudits that maps the set of rows of one of these matrices onto itself
+        therefore maps the row space onto itself, so it preserves this code.  By default, the only
+        matrix is the parity check matrix.  A subclass can let bliss find more automorphisms by
+        adding a spanning set of checks that other automorphisms map onto itself.  Bliss searches
+        each matrix, so subclasses should return few.
+        """
+        return (self.matrix,)
+
     @functools.cached_property
     def _found_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of a group of qudit permutations that preserve this code, or None.
 
-        With the optional pybliss package, bliss finds the automorphisms of the Tanner graph of this
-        code, whose edges are colored by the Pauli operators of the checks.  Each automorphism
-        permutes the checks and the qudits, and leaves the parity check matrix unchanged, so its
-        qudit permutation maps the row space of the parity check matrix onto itself.  The result
-        holds these qudit permutations, followed by the generators from
+        With the optional pybliss package, bliss searches each matrix of checks from
+        ``_get_automorphism_search_matrices``, which by default is the parity check matrix of this
+        code.  It finds the automorphisms of the Tanner graph of the matrix, whose edges are colored
+        by the Pauli operators of the checks.  Each automorphism permutes the checks and the qudits,
+        and leaves the matrix unchanged.  So its qudit permutation maps the row space of the matrix,
+        which is the row space of the parity check matrix, onto itself.
+
+        The result holds these qudit permutations, followed by the generators from
         ``_get_qudit_automorphisms``, without repeats or the identity, in an array whose row ``i``
         maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no generators.
 
@@ -2785,13 +2801,14 @@ class QuditCode(AbstractCode):
         """
         generators = np.empty((0, len(self)), dtype=int)
         if _bliss.is_installed():
-            # value each entry by its Pauli operator, x + q z for the field order q, so that the
-            # values of X, Z, and Y on qubits are 1, 2, and 3
-            matrix = self.matrix.view(np.ndarray).astype(int)
-            paulis = matrix[:, : len(self)] + self.field.order * matrix[:, len(self) :]
-            if bliss_generators := _bliss.get_matrix_automorphism_generators(paulis):
-                qudit_generators = np.array(bliss_generators, dtype=int)[:, len(paulis) :]
-                generators = qudit_generators - len(paulis)
+            for search_matrix in self._get_automorphism_search_matrices():
+                # value each entry by its Pauli operator, x + q z for the field order q, so that the
+                # values of X, Z, and Y on qubits are 1, 2, and 3
+                matrix = search_matrix.view(np.ndarray).astype(int)
+                paulis = matrix[:, : len(self)] + self.field.order * matrix[:, len(self) :]
+                if bliss_generators := _bliss.get_matrix_automorphism_generators(paulis):
+                    qudit_generators = np.array(bliss_generators, dtype=int)[:, len(paulis) :]
+                    generators = np.vstack([generators, qudit_generators - len(paulis)])
 
         # verify the permutations of the construction, which bliss does not provide
         if (construction_generators := self._get_qudit_automorphisms()) is not None:
