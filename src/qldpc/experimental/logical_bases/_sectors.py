@@ -26,35 +26,32 @@ class Sector:
     """The logical operators of one Pauli type of a binary CSS code.
 
     The logical operators of this type are the words of ``ker(checks)``, and those in
-    ``row(trivial)`` act trivially on the logical qubits.  The ``k`` rows of ``reference_ops`` are
-    the code's own logical operators of this type, and the rows of ``dual_ops`` are the code's
-    logical operators of the opposite type, with ``reference_ops @ dual_ops.T`` the identity.  The
-    logical class of an operator ``op`` is ``dual_ops @ op``, which is its expansion in the basis of
-    classes of ``reference_ops``.
+    ``row(trivial)`` act trivially on the logical qubits.  The rows of ``dual_ops`` are the code's
+    logical operators of the opposite type.  They are bare, so they commute with every row of
+    ``trivial``, and the logical class ``dual_ops @ op`` of an operator ``op`` is well defined
+    modulo ``row(trivial)``.
 
     Attributes:
         pauli: The Pauli type of the operators.
         checks: Rows of the opposite type that every logical operator of this type commutes with.
         trivial: Rows of this type that span the operators that act trivially on logical qubits.
-        reference_ops: The code's logical operators of this type, with shape ``(k, n)``.
         dual_ops: The code's logical operators of the opposite type, with shape ``(k, n)``.
     """
 
     pauli: PauliXZ
     checks: npt.NDArray[np.uint8]
     trivial: npt.NDArray[np.uint8]
-    reference_ops: npt.NDArray[np.uint8]
     dual_ops: npt.NDArray[np.uint8]
 
     @property
     def num_qubits(self) -> int:
         """The number of physical qubits."""
-        return self.reference_ops.shape[1]
+        return self.dual_ops.shape[1]
 
     @property
     def dimension(self) -> int:
         """The number of logical qubits."""
-        return len(self.reference_ops)
+        return len(self.dual_ops)
 
     def get_space(self) -> npt.NDArray[np.uint8]:
         """Rows that span every logical operator of this type, trivial or not."""
@@ -84,7 +81,7 @@ def get_sector(code: codes.CSSCode, pauli: PauliXZLike, logicals: LogicalOpsKind
     if logicals not in ("dressed", "bare"):
         raise ValueError(f"logicals must be 'dressed' or 'bare', not {logicals!r}")
     pauli = Pauli.coerce_xz(pauli)
-    other: PauliXZ = Pauli.Z if pauli == Pauli.X else Pauli.X
+    other = pauli.swap_xz()
 
     if logicals == "bare":
         checks = code.get_matrix(other)
@@ -93,14 +90,10 @@ def get_sector(code: codes.CSSCode, pauli: PauliXZLike, logicals: LogicalOpsKind
         checks = code.get_stabilizer_ops(other)
         trivial = code.get_matrix(pauli)
     return Sector(
-        pauli,
-        _as_uint8(checks),
-        _as_uint8(trivial),
-        _as_uint8(code.get_logical_ops(pauli)),
-        _as_uint8(code.get_logical_ops(other)),
+        pauli, _as_uint8(checks), _as_uint8(trivial), _as_uint8(code.get_logical_ops(other))
     )
 
 
 def _as_uint8(matrix: npt.ArrayLike) -> npt.NDArray[np.uint8]:
-    """A binary matrix as a plain array of uint8 values."""
+    """A binary matrix, such as a ``galois`` array, as a plain array of uint8 values."""
     return np.asarray(matrix).view(np.ndarray).astype(np.uint8)
