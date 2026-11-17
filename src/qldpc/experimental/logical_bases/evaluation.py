@@ -13,7 +13,7 @@ import numpy.typing as npt
 from qldpc import codes
 from qldpc._binary import get_independent_rows
 from qldpc.codes.distance._binary import _as_dense
-from qldpc.objects import Pauli
+from qldpc.objects import Pauli, PauliXZLike
 
 from ._sectors import Sector, get_sector
 
@@ -76,7 +76,7 @@ def evaluate_logical_ops(
             " with all others"
         )
     return LogicalBasisMetrics(
-        x=LogicalOpsMetrics._from_ops(ops_x), z=LogicalOpsMetrics._from_ops(ops_z)
+        x=LogicalOpsMetrics._from_valid_ops(ops_x), z=LogicalOpsMetrics._from_valid_ops(ops_z)
     )
 
 
@@ -109,6 +109,45 @@ class LogicalOpsMetrics:
     loads: npt.NDArray[np.int_]
     overlaps: npt.NDArray[np.int_]
 
+    @classmethod
+    def from_ops(
+        cls,
+        code: codes.CSSCode,
+        pauli: PauliXZLike,
+        logical_ops: npt.ArrayLike | None = None,
+        *,
+        logicals: Literal["dressed", "bare"] = "dressed",
+    ) -> LogicalOpsMetrics:
+        """Check a basis of logical operators of one Pauli type, and measure weights and overlaps.
+
+        For a complete basis, with operators of both Pauli types, use
+        :func:`~qldpc.experimental.logical_bases.evaluate_logical_ops`.
+
+        Args:
+            code: A binary CSS code, which may be a subsystem code.
+            pauli: The Pauli type of the operators.
+            logical_ops: The basis to evaluate, with shape ``(k, n)``.  Defaults to the code's own
+                logical operators of this type.
+            logicals: For a subsystem code, ``"dressed"`` (the default) accepts logical operators
+                that commute with the stabilizers, while ``"bare"`` requires them to commute with
+                every gauge operator.  The two are the same for a stabilizer code.
+
+        Returns:
+            The metrics of the operators.
+
+        Raises:
+            TypeError: If ``code`` is not a CSS code.
+            ValueError: If ``code`` is not binary, or ``pauli`` or ``logicals`` is invalid.  Also if
+                ``logical_ops`` has the wrong shape, has entries other than 0 and 1, does not
+                consist of logical operators of this type, or does not have independent logical
+                classes.
+        """
+        sector = get_sector(code, pauli, logicals)
+        ops = code.get_logical_ops(pauli) if logical_ops is None else logical_ops
+        matrix = _as_binary_matrix(ops, (sector.dimension, sector.num_qubits))
+        _get_valid_classes(sector, matrix)
+        return cls._from_valid_ops(matrix)
+
     @property
     def weights(self) -> npt.NDArray[np.int_]:
         """The weight of each operator."""
@@ -135,7 +174,7 @@ class LogicalOpsMetrics:
         return int(np.count_nonzero(np.triu(self.overlaps, k=1)))
 
     @classmethod
-    def _from_ops(cls, ops: npt.NDArray[np.uint8]) -> LogicalOpsMetrics:
+    def _from_valid_ops(cls, ops: npt.NDArray[np.uint8]) -> LogicalOpsMetrics:
         """The metrics of the rows of a binary matrix, without checking that they are logical."""
         matrix = ops.astype(np.int_)
         return cls(matrix.sum(axis=0), matrix @ matrix.T)
@@ -157,8 +196,6 @@ def _get_valid_classes(sector: Sector, ops: npt.NDArray[np.uint8]) -> npt.NDArra
     if np.any(sector.checks.astype(np.int64) @ ops.T.astype(np.int64) % 2):
         raise ValueError(f"Some {name} operators are not logical operators of the code")
     classes = sector.get_classes(ops)
-
-    # for a complete basis, the pairing check implies independence, but this error is clearer
     if len(get_independent_rows(classes)) != sector.dimension:
         raise ValueError(f"The {name} operators do not have independent logical classes")
     return classes

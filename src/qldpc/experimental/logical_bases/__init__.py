@@ -15,7 +15,7 @@ bases with low weights, whose X-type and Z-type operators pair up.
 
 Public API:
     evaluate_logical_ops, LogicalBasisMetrics            — check and measure a complete basis
-    LogicalOpsMetrics                                    — the metrics of one Pauli type
+    LogicalOpsMetrics, LogicalOpsMetrics.from_ops        — check and measure one Pauli type
     get_lightest_logical_basis, LightestLogicalBasis     — a lightest basis of one Pauli type
     optimize_logical_basis, OptimizedLogicalBasis        — a complete basis with low weights
 """

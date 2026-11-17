@@ -90,7 +90,7 @@ class LightestLogicalBasis:
     @property
     def metrics(self) -> LogicalOpsMetrics:
         """The metrics of the operators: their weights, loads, and overlaps."""
-        return LogicalOpsMetrics._from_ops(self.logical_ops)
+        return LogicalOpsMetrics._from_valid_ops(self.logical_ops)
 
     @property
     def max_weight(self) -> int:
