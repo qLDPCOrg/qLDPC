@@ -11,7 +11,8 @@ flag costs a branch for each word.  Sections cited in this module are those of
 
 Threads run ``_scan`` at once, through ``scan_set_items`` and the batch loops of coset searches in
 ``coset.py``.  So a change to it must keep the requirements on threads in Section 5, notably "Keep
-the scans of a layer splittable across threads".
+the scans of a layer splittable across threads" and, for the coset scans, "Keep coset queries
+reproducible".
 """
 
 from __future__ import annotations

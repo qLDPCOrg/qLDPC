@@ -2,10 +2,11 @@
 
 """Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first.
 
-Batches of ``CosetLeaderSearch``, and callers that share one, run the queries of a coset search on
-several threads at once.  So a query only reads the coset search, whose tables, such as the overlap
-cuts of its queries, ``CosetLeaderSearch`` builds before any query runs.  Section 5 of
-``connected_cluster.md`` states the requirements on threads that a change must keep.
+Batches of ``CosetLeaderSearch`` run the queries of a coset search on several threads at once
+(Section 3.11 of ``connected_cluster.md``), and so can callers that share a ``CosetLeaderSearch``
+(the section "Threads" of ``README.md``).  So a query only reads the coset search, whose tables,
+such as the overlap cuts of its queries, ``CosetLeaderSearch`` builds before any query runs.
+Section 5 of ``connected_cluster.md`` states the requirements on threads that a change must keep.
 """
 
 from __future__ import annotations
@@ -120,7 +121,8 @@ class ConnectedClusterCosetSearch:
 
         Such words are stabilizers, for example.  The cuts do nothing until this method gives them
         words.  The words are in the representation of the checks (see
-        ``SupportSearch.use_query_overlap_words``).
+        ``SupportSearch.use_query_overlap_words``).  Call it only before any query runs, as the
+        constructor of ``CosetLeaderSearch`` does, since queries on other threads read the cuts.
         """
         self._search.use_query_overlap_words(words)
 

@@ -646,7 +646,9 @@ class SupportSearch:
         cuts of syndrome queries are exact for any words (Section 3.8 of ``connected_cluster.md``),
         and help most with light ones.  ``find_witness`` does not use these words, since its cuts
         are exact only for words in the row space of ``excluded`` (Section 3.4).  The cuts do
-        nothing unless ``stabilizer_overlap_cuts`` is set.
+        nothing unless ``stabilizer_overlap_cuts`` is set.  Call this method only while no query or
+        search of this object runs, as the constructor of ``CosetLeaderSearch`` does, since it
+        rebuilds the cuts that threads read (Section 3.11).
 
         Raises:
             ValueError: If the words are not a binary matrix as wide as the checks, or do not

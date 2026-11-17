@@ -358,6 +358,7 @@ It then skips partitioning if the automorphism family would do no more work than
 It switches if the work estimate of the automorphism family is less than the work that its current family has left from its next layer, and then scans the new set from layer two.
 Both estimates depend on `U`, so a search that declines reconsiders before a later such layer once `U` has dropped; at the same `U`, the work left in its family only falls, so it would decline again.
 The switch keeps both certificates: an eligible word lighter than `U` is unexamined by both families, so both bounds hold for it, and the search takes the larger, while the witnesses of the first family still count in `U`.
+On threads, this decision must keep the requirement "Decide only from what a layer leaves the same on any number of threads" of [Section 5](#5-correctness-requirements).
 
 #### Images of the blocks of a family
 
@@ -468,7 +469,7 @@ With blocks of `β` columns, the tables take `(r - 1) Σ_b 2^|J_b|` bytes, and b
 A lookup reads one entry per block.
 The scan looks up the bound each time it tries a new first row `s` for the pair that completes a prefix, and if `w + B ≥ U`, skips every completion of the prefix from row `s` on.
 A bound for a larger `s` is stronger, so a support is skipped exactly if the bound of its own `s` reaches `U - w`.
-The threads of a split layer, and coset queries that run at once, read the same tables, so a table must be complete before any scan reads it, and unchanged while scans do ([Section 5](#5-correctness-requirements)).
+The threads of a split layer ([Section 4.5](#45-behavior-spanning-files)), and coset queries that run at once, each read shared tables, so a table must be complete before any scan reads it, and unchanged while scans do ([Section 5](#5-correctness-requirements)).
 
 #### Certificates and contracts
 
@@ -518,6 +519,8 @@ So, just before scanning a search basis in a layer, a search:
 2. bounds at most `completion_bound_samples` random supports directly from the rows, and takes a conservative lower bound on the share that tables would skip;
 3. predicts the cost of the layer from this share, the lookups, and any build, with rough coefficients of `SearchTuning`: a lookup costs a few scans of a support for each block, and more for larger tables, which miss the caches more often;
 4. uses tables if the predicted cost is at most `completion_bound_max_cost_percent` percent of the cost without them.
+
+On threads, this choice must keep the requirement "Decide only from what a layer leaves the same on any number of threads" of [Section 5](#5-correctness-requirements).
 
 Tables use blocks of `completion_bound_block_bits` columns, and a basis whose tables would exceed `completion_bound_max_table_bytes` gets none.
 A distance search keeps the tables of one basis at a time, for its later layers, and drops them before another basis chooses tables or when its family changes, so a search whose layers scan several bases rebuilds their tables in each layer, which the prediction counts.
@@ -735,7 +738,7 @@ For the rank-deficient block of [Section 2.4](#24-search-bases-and-rank-deficien
 
 Every family gets the certificate of its own verified ranks and maximum coverage, so the heuristics below change how much work a search does, not whether its certificate holds; with a cutoff above one, they can change which witness at or below the cutoff it returns ([Section 4.5](#45-behavior-spanning-files)).
 Searches read the heuristics' fields as README.md's [Tuning](README.md#tuning) section says.
-A heuristic must also keep the requirements on threads of [Section 5](#5-correctness-requirements), such as deciding only from what a layer leaves as on one thread.
+A heuristic must also keep the requirements on threads of [Section 5](#5-correctness-requirements), such as "Decide only from what a layer leaves the same on any number of threads".
 Some fields are thresholds of gates on optional steps, such as building a family of search bases, solving linear programs, asking for automorphisms, or predicting the cost of completion tables.
 A step can save at most the work that it acts on, so its gate lets it run once an estimate of that work, in candidate/set evaluations, reaches the cost of the step, which the threshold need match only to an order of magnitude.
 The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fields, such as budgets and rough coefficients, and says how the defaults are set and when to change them.
@@ -915,8 +918,8 @@ A change may use other representations, certificates, and search strategies, but
     A call of `_find_first_not_within_max_weight` writes only its worker's lightest word and its worker's copy of the planning buffer, reset to the first step.
     A call of `_find_min_weights` writes only its own buffer for the lightest word and the weights of its own rows.
     Neither writes the shared planning buffer.
-  - `CosetRoutes` chooses each route, and builds its tails and tables, once, under `_ROUTE_LOCK`, and a batch query takes its route before its threads start ([Section 4.5](#45-behavior-spanning-files)).
-    Tables that a query may be reading never change: new tables go into a new record of tails, which copies the earlier ones ([Section 4.1](#41-module-map-and-layering)).
+  - `CosetRoutes` chooses each route, and builds the families other than the disjoint one and their records of tails, once, under `_ROUTE_LOCK`, and a batch query takes its route before its threads start ([Section 4.5](#45-behavior-spanning-files)).
+    A record of tails never changes once a query may read it: new completion tables go into a new record, which copies the earlier tables and their layout ([Section 4.1](#41-module-map-and-layering)).
 - **Count only work without the global interpreter lock in the split of coset batches.**
   The batch loops count as work only what they do without the global interpreter lock, in the units of [Section 4.5](#45-behavior-spanning-files): one for each query, and one for each word that it weighs after the word of its syndrome.
   That work decides when `run_blocks` moves the rest of a batch to threads, so this rule keeps the speed of the split, not its answers, which are those of one thread on any split.
@@ -933,10 +936,11 @@ A change may use other representations, certificates, and search strategies, but
   - Other code that threads run writes shared state only under a lock or through thread-safe objects, as the shared `U`, the claims of items, and the stop event are written.
   - The shared `U` is lowered only as a minimum, under the lock.
   - Code that threads run calls no numba-parallel code (`parallel=True` or `prange`, such as some functions of galois); see `run_work_items` in `_threads.py`.
-- **Decide only from what a layer leaves as on one thread** ([Section 4.5](#45-behavior-spanning-files), "Threads").
+- **Decide only from what a layer leaves the same on any number of threads** ([Section 4.5](#45-behavior-spanning-files), "Threads").
   After the layer of a set, `U` and the lower bound are those of one thread, and so are the estimates derived from them, such as `get_layer_work` and `estimate_automorphism_family_work`.
-  Every later decision reads only these: the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [README.md](README.md)).
+  Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [README.md](README.md)), reads only these.
   None may read what depends on the timing of the threads, such as `U` during a layer, how far a layer has got, or the counts of supports that a split layer weighs, looks up, and skips, which depend on when `U` falls.
+  A split layer that stops at the cutoff leaves a `U` that can depend on that timing, but the search then ends, with `U` as the result of an early exit.
   The lower bound counts the layer of a set only once every work item of that layer has run, as in `advance`, which raises it only after `_scan_set` has scanned each set that it counts.
   `test_searches_on_threads_advance_as_searches_on_one_thread` compares the bounds, best weights, and switches after each layer with those of one thread.
 - **Preserve the return contract.**

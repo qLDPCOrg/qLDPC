@@ -7,8 +7,8 @@ The search follows `Algorithm 994 <https://arxiv.org/abs/1603.06757>`_ and its
 search, takes its early exits, and scans its layers in resumable chunks with ``affine_search.py``.
 Sections cited in this module are those of ``brouwer_zimmermann.md``, which derives the certificates
 and invariants of the search.  A costly layer runs on several threads (Section 4.5), so a change
-here must keep the requirements on threads in Section 5, such as deciding only from what a layer
-leaves as on one thread.
+here must keep the requirements on threads in Section 5, such as "Decide only from what a layer
+leaves the same on any number of threads".
 """
 
 from __future__ import annotations
