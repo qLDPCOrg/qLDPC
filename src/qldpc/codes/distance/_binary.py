@@ -16,7 +16,21 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 
-from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
+from qldpc._binary import (
+    get_independent_rows,
+    get_kernel,
+    multiply_packed,
+    pack_bits,
+    row_reduce_binary,
+    unpack_bits,
+)
+
+# Products with at least this many rows and columns use the Method of Four Russians, whose tables
+# pay off only over many rows.  The size keeps either BLAS library from losing much: with fewer rows
+# or columns, float32 BLAS through Apple's Accelerate can be several times faster; with at least
+# this many, the Four Russians are usually faster with either library, by several times with
+# OpenBLAS.
+_MIN_FOUR_RUSSIANS_SIZE = 512
 
 ####################################################################################################
 # input checks
@@ -179,11 +193,20 @@ def multiply_binary(
 ) -> npt.NDArray[np.uint8]:
     """The product of two binary matrices over GF(2).
 
-    Products of matrices of zeros and ones in float32 are exact while their inner dimension is below
-    ``2**24``, and faster than in integers.
+    A product with at least ``_MIN_FOUR_RUSSIANS_SIZE`` rows and columns adds packed rows by the
+    Method of Four Russians (see ``multiply_packed``).  A smaller one multiplies the matrices in
+    float32 through BLAS, which is exact while their inner dimension is below ``2**24``, and faster
+    than in integers.
     """
+    if min(len(left), right.shape[1]) >= _MIN_FOUR_RUSSIANS_SIZE:
+        packed = multiply_packed(
+            pack_bits(np.ascontiguousarray(left)), pack_bits(np.ascontiguousarray(right))
+        )
+        return unpack_bits(packed, right.shape[1])
     assert left.shape[1] < 2**24
-    return (left.astype(np.float32) @ right.astype(np.float32) % 2).astype(np.uint8)
+    # Reduce the exact integer products modulo two in integers, which is much faster than in floats.
+    product = left.astype(np.float32) @ right.astype(np.float32)
+    return (product.astype(np.int32) & 1).astype(np.uint8)
 
 
 def swap_pauli_halves(paulis: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:

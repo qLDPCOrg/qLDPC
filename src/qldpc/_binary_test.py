@@ -92,6 +92,19 @@ def test_pack_bits(width: int) -> None:
     np.testing.assert_array_equal(binary.unpack_bits(packed, width), matrix)
 
 
+def test_multiply_packed() -> None:
+    """Packed products match products of integers, and ignore bits past the inner dimension.
+
+    The inner dimension ends inside a group of 8 rows, in the second word of the left rows.
+    """
+    rng = np.random.default_rng(0)
+    left = rng.integers(0, 2, (5, 128), dtype=np.uint8)
+    right = rng.integers(0, 2, (70, 9), dtype=np.uint8)
+    product = binary.multiply_packed(binary.pack_bits(left), binary.pack_bits(right))
+    expected = left[:, :70].astype(int) @ right % 2
+    np.testing.assert_array_equal(binary.unpack_bits(product, 9), expected)
+
+
 def test_get_inverse() -> None:
     """The inverse of a product of unitriangular matrices and a permutation inverts it."""
     rng = np.random.default_rng(70)

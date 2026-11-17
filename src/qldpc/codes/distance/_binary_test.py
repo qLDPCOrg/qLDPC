@@ -133,11 +133,16 @@ def test_distance_requires_binary_input() -> None:
     )
 
 
-def test_binary_products() -> None:
-    """Binary products match products of integers, reduced modulo two."""
+@pytest.mark.parametrize("shape", [(5, 70, 4), (512, 9, 512)])
+def test_binary_products(shape: tuple[int, int, int]) -> None:
+    """Binary products match products of integers, reduced modulo two.
+
+    The small product is computed in floats, and the large one by the Method of Four Russians.
+    """
+    num_rows, num_inner, num_cols = shape
     rng = np.random.default_rng(0)
-    left = rng.integers(2, size=(5, 70), dtype=np.uint8)
-    right = rng.integers(2, size=(70, 4), dtype=np.uint8)
+    left = rng.integers(2, size=(num_rows, num_inner), dtype=np.uint8)
+    right = rng.integers(2, size=(num_cols, num_inner), dtype=np.uint8).T
     product = binary.multiply_binary(left, right)
     assert product.dtype == np.uint8
     np.testing.assert_array_equal(product, left.astype(int) @ right.astype(int) % 2)

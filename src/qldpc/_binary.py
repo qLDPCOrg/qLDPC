@@ -168,6 +168,46 @@ def row_reduce_packed(
 
 
 @always_compiled
+def multiply_packed(
+    left: npt.NDArray[np.uint64], right: npt.NDArray[np.uint64]
+) -> npt.NDArray[np.uint64]:
+    """Multiply packed binary matrices over GF(2) by the Method of Four Russians.
+
+    Row ``i`` of the product is the sum of the rows ``j`` of ``right`` for which bit ``j`` of row
+    ``i`` of ``left`` is set, so ``left`` must have a word for every 64 rows of ``right``, and its
+    bits beyond them are ignored.  For each group of 8 consecutive rows of ``right``, the method
+    tabulates the sums of all 256 subsets of the group, and then adds to each row of the product the
+    entry that its 8 bits in the group select.  One addition of packed rows thus replaces up to 8,
+    and the table costs 255 additions per group, which pay off when ``left`` has many rows.  This is
+    the product of the M4RI library: M. Albrecht, G. Bard, and W. Hart, "Algorithm 898: Efficient
+    multiplication of dense matrices over GF(2)", https://arxiv.org/abs/0811.1714.
+    """
+    num_inner, num_words = right.shape
+    product = np.zeros((len(left), num_words), dtype=np.uint64)
+    table = np.zeros((256, num_words), dtype=np.uint64)
+    for start in range(0, num_inner, 8):
+        size = min(8, num_inner - start)
+
+        # Tabulate the sum of each subset of the group, as the sum of a smaller subset and a row.
+        for subset in range(1, 1 << size):
+            row = start + trailing_zeros_word(np.uint64(subset))
+            smaller = subset & (subset - 1)
+            for word in range(num_words):
+                table[subset, word] = table[smaller, word] ^ right[row, word]
+
+        # Add to each row of the product the sum of the rows that its bits in the group select.
+        # The group starts at a multiple of 8, so its bits lie in one word of ``left``.
+        word_index, shift = start // 64, np.uint64(start % 64)
+        mask = np.uint64((1 << size) - 1)
+        for index in range(len(left)):
+            subset = (left[index, word_index] >> shift) & mask
+            if subset:
+                for word in range(num_words):
+                    product[index, word] ^= table[subset, word]
+    return product
+
+
+@always_compiled
 def get_rank_packed(rows: npt.NDArray[np.uint64]) -> int:
     """Return the rank of packed rows over GF(2)."""
     labels = np.empty((len(rows), 0), dtype=np.uint64)
