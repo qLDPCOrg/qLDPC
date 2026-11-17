@@ -17,7 +17,7 @@ from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
 from qldpc.objects import Pauli
 
 from ._sectors import LogicalOpsKind, Sector, _as_uint8, get_sector
-from .evaluation import LogicalOpsMetrics
+from .evaluation import LogicalBasisMetrics, LogicalOpsMetrics
 from .lightest_basis import LightestLogicalBasis, _get_min_weight_word, get_lightest_logical_basis
 
 # Perturbations of the iterated local search keep every class within this much of the best maximum
@@ -162,11 +162,13 @@ class OptimizedLogicalBasis:
         return self.stop_reason == "lower_bound"
 
     @property
-    def metrics(self) -> tuple[LogicalOpsMetrics, LogicalOpsMetrics]:
-        """The metrics of the X-type and Z-type operators."""
+    def metrics(self) -> LogicalBasisMetrics:
+        """The metrics of the X-type and Z-type operators, as from ``evaluate_logical_ops``."""
         k, n = len(self.logical_ops) // 2, self.logical_ops.shape[1] // 2
         ops_x, ops_z = self.logical_ops[:k, :n], self.logical_ops[k:, n:]
-        return LogicalOpsMetrics._from_ops(ops_x), LogicalOpsMetrics._from_ops(ops_z)
+        return LogicalBasisMetrics(
+            x=LogicalOpsMetrics._from_ops(ops_x), z=LogicalOpsMetrics._from_ops(ops_z)
+        )
 
 
 def _get_objective_function(
