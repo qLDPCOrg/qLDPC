@@ -197,10 +197,12 @@ def _as_binary_matrix(ops: npt.ArrayLike, shape: tuple[int, int]) -> npt.NDArray
 
     Raises:
         ValueError: If ``ops`` does not have the given shape, has entries other than 0 and 1, or is
-            a ``galois`` array over a field other than GF(2).
+            a ``galois`` array, or a sequence of ``galois`` arrays, over a field other than GF(2).
     """
-    if isinstance(ops, galois.FieldArray) and type(ops).order != 2:
-        raise ValueError(f"Logical operators must be binary, not over GF({type(ops).order})")
+    parts = ops if isinstance(ops, (list, tuple)) else [ops]
+    for part in parts:
+        if isinstance(part, galois.FieldArray) and type(part).order != 2:
+            raise ValueError(f"Logical operators must be binary, not over GF({type(part).order})")
     matrix = np.asarray(_as_dense(ops)).view(np.ndarray)
     if matrix.shape != shape:
         raise ValueError(f"Expected logical operators with shape {shape}, not {matrix.shape}")

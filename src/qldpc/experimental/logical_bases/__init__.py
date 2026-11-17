@@ -29,6 +29,8 @@ Public API:
 - :func:`~qldpc.experimental.logical_bases.optimize_logical_basis`,
   :class:`~qldpc.experimental.logical_bases.OptimizedLogicalBasis`: a complete basis with low
   weights.
+- :data:`~qldpc.experimental.logical_bases.WeightObjective`: the type of an objective of
+  ``optimize_logical_basis`` given as a function of the weights.
 - :func:`~qldpc.experimental.logical_bases.optimize_logical_rounds`,
   :class:`~qldpc.experimental.logical_bases.OptimizedLogicalRounds`: operators to act on in few
   rounds.
@@ -39,7 +41,7 @@ from __future__ import annotations
 
 from .evaluation import LogicalBasisMetrics, LogicalOpsMetrics, evaluate_logical_ops
 from .lightest_basis import LightestLogicalBasis, get_lightest_logical_basis
-from .optimization import OptimizedLogicalBasis, optimize_logical_basis
+from .optimization import OptimizedLogicalBasis, WeightObjective, optimize_logical_basis
 from .rounds import LogicalOpsRounds, OptimizedLogicalRounds, optimize_logical_rounds
 
 __all__ = [
@@ -49,6 +51,7 @@ __all__ = [
     "LogicalOpsRounds",
     "OptimizedLogicalBasis",
     "OptimizedLogicalRounds",
+    "WeightObjective",
     "evaluate_logical_ops",
     "get_lightest_logical_basis",
     "optimize_logical_basis",

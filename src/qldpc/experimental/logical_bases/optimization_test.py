@@ -258,17 +258,32 @@ def test_budget(paired_code: codes.CSSCode, monkeypatch: pytest.MonkeyPatch) -> 
 def test_searches_and_seed(paired_code: codes.CSSCode, pytestconfig: pytest.Config) -> None:
     """The number of searches is counted exactly, and a seed makes the search reproducible."""
     seed = pytestconfig.getoption("randomly_seed")
+    perturb = _ClassSearch._perturb
+
+    def run() -> tuple[Any, list[tuple[list[int], list[int]]]]:
+        """Search with the seed, and record the classes of every perturbation."""
+        perturbed = []
+
+        def record(self: _ClassSearch, *args: Any) -> tuple[list[int], list[int]]:
+            perturbed.append(perturb(self, *args))
+            return perturbed[-1]
+
+        with mock.patch.object(_ClassSearch, "_perturb", record):
+            return optimize_logical_basis(paired_code, seed=seed), perturbed
+
     with mock.patch.object(
         optimization,
         "get_distance_from_generators",
         side_effect=optimization.get_distance_from_generators,
     ) as search:
-        result = optimize_logical_basis(paired_code, seed=seed)
+        result, perturbed = run()
     assert result.searches == search.call_count
 
-    repeat = optimize_logical_basis(paired_code, seed=seed)
+    # the perturbations, which depend on the seed, repeat exactly
+    repeat, repeat_perturbed = run()
     np.testing.assert_array_equal(repeat.logical_ops, result.logical_ops)
     assert repeat.searches == result.searches
+    assert perturbed and repeat_perturbed == perturbed
 
 
 @pytest.mark.parametrize("function", [_max_weight, _total_weight, _z_weight])
@@ -389,6 +404,11 @@ def test_special_inputs() -> None:
         optimize_logical_basis(code, patience=-1)
     with pytest.raises(ValueError, match="nonnegative"):
         optimize_logical_basis(code, max_searches=-1)
+
+    # an objective whose values are None fails, since they cannot be compared, rather than seeming
+    # to reach the lower bound, which is None for a function
+    with pytest.raises(TypeError):
+        optimize_logical_basis(codes.CSSCode(*_PAIRED_CHECKS), objective=lambda *weights: None)
 
 
 def _record_descent(code: codes.CSSCode, budgeted: bool) -> list[bool]:

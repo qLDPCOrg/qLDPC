@@ -339,7 +339,9 @@ class _ClassSearch:
         # the lower bound is reached
         stale = 0
         while (
-            not self._is_out_of_searches() and best_value != self.lower_bound and stale < patience
+            not self._is_out_of_searches()
+            and not self._reaches_bound(best_value)
+            and stale < patience
         ):
             classes_x, classes_z = self._descend(*self._perturb(best_x, best_z, rng))
             value = self._get_value(classes_x, classes_z)
@@ -348,7 +350,7 @@ class _ClassSearch:
                 best_x, best_z, best_value = classes_x, classes_z, value
 
         # report why the search stopped, preferring the proof of optimality
-        if best_value == self.lower_bound:
+        if self._reaches_bound(best_value):
             return best_x, best_z, "optimal"
         stop_reason: Literal["patience", "max_searches"] = (
             "max_searches" if self._is_out_of_searches() else "patience"
@@ -418,7 +420,7 @@ class _ClassSearch:
             weights_x = [self.table_x.weight(c) for c in classes_x]
             weights_z = [self.table_z.weight(c) for c in classes_z]
             value = self.objective(weights_x, weights_z)
-            if value == self.lower_bound:
+            if self._reaches_bound(value):
                 break
 
             # try the moves on the heaviest operators first, and take the first that improves
@@ -505,6 +507,10 @@ class _ClassSearch:
     def _is_out_of_searches(self) -> bool:
         """Whether the search has used up its budget of distance searches."""
         return self.max_searches is not None and self.searches >= self.max_searches
+
+    def _reaches_bound(self, value: Any) -> bool:
+        """Whether an objective value reaches the lower bound, which proves it optimal."""
+        return self.lower_bound is not None and value == self.lower_bound
 
 
 def _get_dual_classes(classes: Sequence[int]) -> list[int]:

@@ -4,6 +4,7 @@
 
 import galois
 import numpy as np
+import numpy.typing as npt
 import pytest
 import scipy.sparse
 
@@ -70,7 +71,15 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
     # rejects it
     with pytest.raises(ValueError, match="shape"):
         LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.X, np.vstack([ops[:k, :n], ops[:1, :n]]))
-    for not_binary in [2 * ops, -ops.astype(int), galois.GF(3)(ops), galois.GF(4)(ops)]:
+    gf3_rows = [galois.GF(3)(row) for row in ops]
+    not_binary_ops: list[npt.ArrayLike] = [
+        2 * ops,
+        -ops.astype(int),
+        galois.GF(3)(ops),
+        galois.GF(4)(ops),
+        gf3_rows,
+    ]
+    for not_binary in not_binary_ops:
         with pytest.raises(ValueError, match="binary"):
             evaluate_logical_ops(stabilizer_code, not_binary)
     for row, other_half in [(0, slice(n, None)), (k, slice(None, n))]:
