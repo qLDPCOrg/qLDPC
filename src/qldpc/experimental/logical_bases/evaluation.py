@@ -32,13 +32,14 @@ def evaluate_logical_ops(
     A complete basis has shape ``(2k, 2n)``, laid out as by
     :meth:`qldpc.codes.CSSCode.get_logical_ops`: the first ``k`` rows are X-type operators and the
     last ``k`` rows are Z-type operators, with X-type operator ``j`` anticommuting with Z-type
-    operator ``j`` and commuting with all others.  For a basis of one Pauli type, use
-    :meth:`LogicalOpsMetrics.from_ops`.
+    operator ``j`` and commuting with all others.
 
     For a subsystem code, these conditions apply to logical classes, since the gauge parts of
     dressed operators can change whether they commute.  To check a basis for
     :meth:`qldpc.codes.CSSCode.set_logical_ops`, which accepts only bare operators, pass
     ``logicals="bare"``.  Bare operators pair up physically exactly when their classes do.
+
+    For a basis of one Pauli type, use :meth:`LogicalOpsMetrics.from_ops`.
 
     Args:
         code: A binary CSS code, which may be a subsystem code.

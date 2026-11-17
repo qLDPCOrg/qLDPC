@@ -90,7 +90,8 @@ class LightestLogicalBasis:
     def metrics(self) -> LogicalOpsMetrics:
         """The metrics of the operators: their weights, loads, and overlaps.
 
-        These are the metrics that :meth:`LogicalOpsMetrics.from_ops` returns for this basis.
+        These are the metrics that
+        :meth:`~qldpc.experimental.logical_bases.LogicalOpsMetrics.from_ops` returns for this basis.
         """
         return LogicalOpsMetrics._from_valid_ops(self.logical_ops)
 
