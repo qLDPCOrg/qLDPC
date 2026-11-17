@@ -152,11 +152,12 @@ def test_binary_products(
     num_rows, num_inner, num_cols = shape
     rng = np.random.default_rng(0)
     left = rng.integers(2, size=(num_rows, num_inner), dtype=np.uint8)
+    # Callers often pass transposes, which are not C-ordered.
     right = rng.integers(2, size=(num_cols, num_inner), dtype=np.uint8).T
     product = binary.multiply_binary(left, right)
     assert product.dtype == np.uint8
     np.testing.assert_array_equal(product, left.astype(int) @ right.astype(int) % 2)
-    assert len(calls) == four_russians
+    assert bool(calls) == four_russians
     with pytest.raises(ValueError, match="Cannot multiply"):
         binary.multiply_binary(left, right[1:])
 

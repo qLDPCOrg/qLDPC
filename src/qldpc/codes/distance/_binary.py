@@ -25,10 +25,11 @@ from qldpc._binary import (
     unpack_bits,
 )
 
-# Products with at least this many rows and columns use the Method of Four Russians, whose tables
-# pay off only over many rows.  Below this size, float32 BLAS through Apple's Accelerate can be
-# several times faster.  At or above it, the Method of Four Russians is usually faster under both
-# Accelerate and OpenBLAS, by several times under OpenBLAS.
+# Products with at least this many rows and columns use the Method of Four Russians.  Its tables pay
+# off only over many rows, and each of its additions covers only as many columns as the product has.
+# If either dimension is smaller, float32 BLAS through Apple's Accelerate can be several times
+# faster.  Otherwise, the Method of Four Russians is usually faster under both Accelerate and
+# OpenBLAS, by several times under OpenBLAS.
 _MIN_FOUR_RUSSIANS_SIZE = 512
 
 ####################################################################################################
@@ -193,7 +194,7 @@ def multiply_binary(
     """The product over GF(2) of two matrices of zeros and ones, as a uint8 array.
 
     A product with at least ``_MIN_FOUR_RUSSIANS_SIZE`` rows and columns adds packed rows by the
-    Method of Four Russians (see ``multiply_packed``).  A smaller one multiplies the matrices in
+    Method of Four Russians (see ``multiply_packed``).  Any other product multiplies the matrices in
     float32 through BLAS, which is exact while their inner dimension is below ``2**24``, and faster
     than in integers.
 

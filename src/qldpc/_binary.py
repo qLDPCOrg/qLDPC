@@ -177,9 +177,9 @@ def multiply_packed(
     ``i`` of ``left`` is set.  The rows of ``left`` must have at least ``ceil(len(right) / 64)``
     words, and their bits past ``len(right)`` are ignored.  For each group of up to 8 consecutive
     rows of ``right``, the method tabulates the sums of all subsets of the group, and then adds to
-    each row of the product the table entry that the bits of the matching row of ``left`` in the
-    group select.  One addition of packed rows thus replaces up to 8, and the table costs at most
-    255 additions per group, which pay off when ``left`` has many rows.  This is the basic product
+    row ``i`` of the product the entry that the group's bits of row ``i`` of ``left`` select.  One
+    addition of packed rows thus replaces up to 8, and the table costs at most 255 additions per
+    group, a cost that pays off when ``left`` has many rows.  This is the basic product
     of the M4RI library ("M4RM"), without its further optimizations: M. Albrecht, G. Bard, and W.
     Hart, "Algorithm 898: Efficient multiplication of dense matrices over GF(2)",
     https://arxiv.org/abs/0811.1714.
@@ -193,10 +193,10 @@ def multiply_packed(
     product = np.zeros((len(left), num_words), dtype=np.uint64)
     table = np.zeros((256, num_words), dtype=np.uint64)
     for start in range(0, num_inner, 8):
-        size = min(8, num_inner - start)
+        group_size = min(8, num_inner - start)
 
         # Tabulate the sum of each subset of the group, as the sum of a smaller subset and a row.
-        for subset in range(1, 1 << size):
+        for subset in range(1, 1 << group_size):
             row = start + trailing_zeros_word(np.uint64(subset))
             smaller = subset & (subset - 1)
             for word in range(num_words):
@@ -205,7 +205,7 @@ def multiply_packed(
         # Add to each row of the product the sum of the rows that its bits in the group select.
         # The group starts at a multiple of 8, so its bits lie in one word of ``left``.
         word_index, shift = start // 64, np.uint64(start % 64)
-        mask = np.uint64((1 << size) - 1)
+        mask = np.uint64((1 << group_size) - 1)
         for product_row in range(len(left)):
             selection = (left[product_row, word_index] >> shift) & mask
             if selection:
