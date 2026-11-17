@@ -558,8 +558,8 @@ class ClassicalCode(AbstractCode):
         The cost of this computation generally grows exponentially with the size of the code.  The
         computed code distance is remembered for later calls unless cutoff is greater than 1.
         Vector distances are never remembered.  The Brouwer-Zimmermann and connected-cluster
-        searches of the distance of a binary code can use the bit permutations that preserve it,
-        which :meth:`get_known_permutation_automorphism_group` describes, to search less.
+        searches of the distance of a binary code can use the known bit permutations that preserve
+        it (see :meth:`get_known_permutation_automorphism_group`) to search less.
 
         Args:
             vector: If not None, rather than computing the code distance, compute the minimum
@@ -616,8 +616,8 @@ class ClassicalCode(AbstractCode):
                 self._distance = int(distance)
 
         else:
-            # An automorphism of the code need not map the coset of the vector onto itself, so these
-            # searches use none.
+            # An automorphism of the code need not map the coset of the vector onto itself, so the
+            # searches of the coset below use no automorphisms.
             vector = np.asanyarray(vector).view(self.field)
             if not np.any(self.matrix @ vector):
                 return 0
@@ -4670,12 +4670,11 @@ def _combine_automorphisms(
     num_qudits: int,
     source: str,
 ) -> npt.NDArray[np.int_] | None:
-    """Combine qudit permutations that bliss found with those of a construction, which it verifies.
+    """Combine the permutations that bliss found with those of a construction, after verifying them.
 
-    The result holds the found permutations, then the verified construction generators, without
-    repeats or the identity, or None if there are none.  ``source`` names the method of the
-    construction generators in the error that a generator raises if it does not map the row space
-    of the matrix onto itself.
+    The result holds the found permutations, then the construction generators, without repeats or
+    the identity, or None if there are none.  Raises a ValueError that names ``source`` if a
+    construction generator does not map the row space of the matrix onto itself.
     """
     generators = np.empty((0, num_qudits), dtype=int)
     for permutations in found:

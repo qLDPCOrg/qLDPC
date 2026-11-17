@@ -83,6 +83,7 @@ def test_bit_automorphisms_of_classes() -> None:
         (codes.ReedMullerCode(2, 4), 16 * 20160),
         (codes.ReedMullerCode(0, 1), 2),
         (codes.ReedMullerCode(0, 0), 1),
+        (codes.ReedMullerCode(1, 3, field=4), 8 * 168),
     ]
     for code, order in cases:
         generators = code._get_bit_automorphisms()
@@ -98,6 +99,7 @@ def test_bit_automorphisms_of_classes() -> None:
     for code in [
         codes.HammingCode(2, field=3),
         codes.SimplexCode(2, field=3),
+        codes.ReedMullerCode(1, 3, field=3),
         codes.RepetitionCode(3),
         codes.ClassicalCode([[1, 1, 0]]),
     ]:

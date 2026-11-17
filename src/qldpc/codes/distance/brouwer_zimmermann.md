@@ -358,16 +358,16 @@ The switch keeps both certificates: an eligible word lighter than `U` is unexami
 
 #### Where automorphisms come from
 
-With the optional `pybliss` package, bliss searches the parity checks of a binary quantum code for automorphisms.
-The class of the code can also supply other sets of checks that span the same space, through `QuditCode._get_automorphism_search_matrices`, so that bliss can find automorphisms that do not map parity checks to parity checks.
+With the optional `pybliss` package, bliss searches the parity checks of a binary classical or quantum code for automorphisms, and the class of the code can supply generators of automorphisms that its construction provides.
+For a quantum code, the class can also supply other sets of checks that span the same space, through `QuditCode._get_automorphism_search_matrices`, so that bliss can find automorphisms that do not map parity checks to parity checks.
 `QTCode`, for example, supplies its canonical local checks where they are few enough.
 Bliss finds the automorphisms of the Tanner graph of each set, whose edges are colored by the Pauli operators of the checks.
 These Tanner-graph automorphisms permute the checks and leave their Paulis unchanged, so they preserve the stabilizers, gauge operators, and logical operators, and for a CSS code those of each sector.
 They form a subgroup of the automorphisms of the code, which suffices, since any group of automorphisms gives a sound certificate.
-Code classes can also supply generators of automorphisms that their construction provides, through `QuditCode._get_qudit_automorphisms`, such as the translations of the group of an `MBCode`.
+Quantum code classes supply the generators of their construction through `QuditCode._get_qudit_automorphisms`, such as the translations of the group of an `MBCode`.
 Searches use these generators together with those that bliss finds.
 Bliss finds only automorphisms of the Tanner graphs of the sets of checks that it searches, so it can miss the generators of a construction.
-A binary classical code works the same way, through `ClassicalCode._get_bit_automorphisms`, with bliss searching its parity check matrix: a cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
+For a classical code, bliss searches only the parity check matrix, whose automorphisms permute checks and bits, and classes supply generators through `ClassicalCode._get_bit_automorphisms`: a cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
 A wrong generator would make the certificate unsound, so a search first checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
 When a BZ distance search uses automorphisms, it certifies a bound from the images of one information set.
 The BZ count scan of [Section 3.11](#311-counting-logical-operators) does not use automorphisms: it counts each word individually and does not track orbit sizes.

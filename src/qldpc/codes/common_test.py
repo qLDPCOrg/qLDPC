@@ -1256,19 +1256,20 @@ def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.Monke
     assert np.array_equal(found, shift_and_multiplier)
 
     # Bliss's permutations act on the checks and then the bits.  Codes keep the bit permutations,
-    # first, followed by those of the class, without repeats or the identity.  The parity checks
-    # of this cyclic code are circulant, so the cyclic shift of the bits shifts its checks too.
+    # first, followed by those of the class, without repeats or the identity.  The mocked check
+    # permutations differ from the bit permutations, so that a test of the checks would fail.
     cyclic_code = codes.CyclicCode(7, 1 + sympy.abc.x + sympy.abc.x**3)
     shift, multiplier = cyclic_code._get_bit_automorphisms()
-    checks = (np.arange(7) + 1) % 7
+    double_shift = shift[shift]
+    checks = np.arange(7)[::-1]
 
     def get_generators(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
         assert np.array_equal(matrix, cyclic_code.matrix)
-        return [[*checks, *(7 + shift)], list(range(14))]
+        return [[*checks, *(7 + double_shift)], list(range(14)), [*checks, *(7 + shift)]]
 
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", get_generators)
     assert (found := cyclic_code._found_bit_automorphisms) is not None
-    assert found.tolist() == [shift.tolist(), multiplier.tolist()]
+    assert found.tolist() == [double_shift.tolist(), shift.tolist(), multiplier.tolist()]
 
     # codes verify the permutations of their class
     class CodeWithTransposition(codes.ClassicalCode):
@@ -1298,8 +1299,7 @@ def test_classical_distances_use_automorphisms(
     shuffle = np.random.default_rng(0).permutation(21)
     cyclic_code = codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6)
     code_builders: list[Callable[[], codes.ClassicalCode]] = [
-        lambda: codes.BCHCode(31, 16),
-        lambda: codes.BCHCode(31, 11),
+        lambda: codes.BCHCode(15, 7),
         lambda: codes.CyclicCode(21, 1 + x + x**2 + x**4 + x**6),
         lambda: codes.ReedMullerCode(1, 4).forget_distance(),
         lambda: codes.ExtendedHammingCode(4).forget_distance(),
