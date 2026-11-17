@@ -10,6 +10,10 @@ weight ``U`` in a distance search, ``t + 1`` in a count of the words of weight `
 bound that proves a word heavier than the maximum weight in a coset query, and a limit that falls
 as lighter words turn up in a search for a minimum weight.  Sections 3.9 and 3.10 of
 ``brouwer_zimmermann.md`` derive the bound and the limits.
+
+The threads that share a layer of a distance search, and coset queries that run at once, read the
+same tables.  So a table must be complete before any scan reads it, and unchanged while scans do, as
+Section 5 of that guide requires of the data that threads read.
 """
 
 from __future__ import annotations

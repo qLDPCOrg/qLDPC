@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The step of the scans of search bases from one support of a layer to the next."""
+"""The step of the scans of search bases from one support of a layer to the next.
+
+The work items of a layer on threads rely on the lexicographic order of the steps (Section 5 of
+``brouwer_zimmermann.md``, "Keep the scans of a layer splittable across threads").
+"""
 
 from __future__ import annotations
 

@@ -397,7 +397,9 @@ class CosetLeaderSearch:
         ``max_weight``, so the least such index, and its bound, are those of one thread.  The work
         of a query is the number of states that its searches visit, as a BZ query counts the words
         that it weighs; a query that looks up its error and visits no state does none, since it
-        spends its time holding Python's global interpreter lock.
+        spends its time holding Python's global interpreter lock.  Threads run ``run_rows`` at once,
+        so the code that it calls must keep the requirements on threads in Section 5 of
+        ``connected_cluster.md``.
         """
         lock = threading.Lock()
         found: list[tuple[int, MinWeightBound]] = []
@@ -428,9 +430,9 @@ class CosetLeaderSearch:
     ) -> npt.NDArray[np.int64]:
         """Run ``get_min_weights`` with the connected-cluster searches.
 
-        ``_threads.run_blocks`` moves the rest of a costly batch to threads, with work as in
-        ``_find_first_cluster_bound``.  Each weight depends only on its syndrome, so the weights are
-        those of one thread.
+        ``_threads.run_blocks`` moves the rest of a costly batch to threads, with work and
+        requirements on threads as in ``_find_first_cluster_bound``.  Each weight depends only on
+        its syndrome, so the weights are those of one thread.
         """
         weights = np.empty(len(syndromes), dtype=np.int64)
 

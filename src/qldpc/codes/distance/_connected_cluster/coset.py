@@ -1,6 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first."""
+"""Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first.
+
+Batches of ``CosetLeaderSearch``, and callers that share one, run the queries of a coset search on
+several threads at once.  So a query only reads the coset search, whose tables, such as the overlap
+cuts of its queries, ``CosetLeaderSearch`` builds before any query runs.  Section 5 of
+``connected_cluster.md`` states the requirements on threads that a change must keep.
+"""
 
 from __future__ import annotations
 

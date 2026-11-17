@@ -3,7 +3,8 @@
 """Tables of the Brouwer-Zimmermann coset searches: bounds of steps, stopping steps, and tails.
 
 Sections cited in this module are those of ``brouwer_zimmermann.md``, whose Section 4.1 says how
-the coset searches use these tables.
+the coset searches use these tables.  Threads that answer queries at once read them, so a change
+here must keep the requirements on threads under "Keep coset queries reproducible" in Section 5.
 """
 
 from __future__ import annotations
