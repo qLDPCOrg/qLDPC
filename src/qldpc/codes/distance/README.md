@@ -45,6 +45,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - `_information_sets/` holds the families of information sets and their certificates, which the Brouwer-Zimmermann searches and the counts share.
   The method name `"information_sets"` is an alias of `"brouwer_zimmermann"`, for distances and counts alike.
 - `_cosets.py` holds the parts that the coset searches of both methods share.
+- `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see "Searching one sector of a CSS code").
 - `_tuning.py` holds the settings of the searches.
 - `_binary.py` holds the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
   The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
@@ -71,6 +72,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
 | The MacWilliams counting method | `_counting/macwilliams.py` |
 | The bound for one syndrome that the coset-leader search and its coset searches give (`MinWeightBound`) | `min_weight_bounds.py` |
+| Which sectors a distance search of a CSS code searches, and the qubit permutations that map one sector onto the other | `_search_css` of `core.py`, and `_sector_maps.py`, which calls `get_matrix_isomorphism` of `src/qldpc/external/_bliss.py` |
 | The parts that the coset searches of both methods share: words with unit syndromes, packed rows, sums of the rows that a support selects, and tables of the errors of weight zero or one | `_cosets.py` |
 | How basis families are built | `_information_sets/basis_families.py` |
 | Certificates, and how searches plan their steps: where they stop, and the work of the steps up to there | `_information_sets/certificates.py` |
@@ -91,7 +93,7 @@ From the top:
 2. `core.py`.
 3. `_auto.py`, the automatic choice of a method.
 4. The methods `_brouwer_zimmermann/`, `_connected_cluster/`, `_counting/`, and `_brute_force.py`.
-5. `_information_sets/`, `_cosets.py`, and `min_weight_bounds.py`, which the methods build on.
+5. `_information_sets/`, `_cosets.py`, and `min_weight_bounds.py`, which the methods build on, and `_sector_maps.py`, which `core.py` uses.
    The connected-cluster search uses `infer_weight_divisor`, `verify_automorphisms`, and `get_orbits` of `_information_sets/`.
 6. `_tuning.py`.
 7. `_binary.py`.
@@ -106,6 +108,44 @@ In `_connected_cluster/`, `coset` builds on `search` and `sparse_checks`, and in
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.
+
+## Searching one sector of a CSS code
+
+The distance of a CSS code is the smaller of the distances of its two sectors, so a search of the distance normally searches both.
+Let `G_X` and `G_Z` be the X-type and Z-type gauge generators of the code, which are its checks if it is a stabilizer code, and let `S_X` and `S_Z` be the spaces of its X-type and Z-type stabilizers.
+The X sector holds the words of `S_Z^⊥` outside `rowspan(G_X)`, and the Z sector those of `S_X^⊥` outside `rowspan(G_Z)` (Section 3.1 of `connected_cluster.md`).
+`_search_css` in `core.py` searches only the X sector if it finds a qubit permutation `π` that maps `rowspan(G_X)` onto `rowspan(G_Z)` and `rowspan(G_Z)` onto `rowspan(G_X)`.
+The two sectors then have the same distance, so the result is the same, and so are the meanings of `cutoff` and `upper_bound`, since one sector has a word of a given weight exactly when the other does.
+
+The proof: `π` preserves weights and dot products, so it maps the orthogonal complement of a space onto that of its image.
+The stabilizers are the gauge operators that commute with every gauge operator of the other type, `S_Z = rowspan(G_Z) ∩ rowspan(G_X)^⊥` and `S_X = rowspan(G_X) ∩ rowspan(G_Z)^⊥`.
+So `π(S_Z) = rowspan(G_X) ∩ rowspan(G_Z)^⊥ = S_X`, and `π` maps a word of the X sector, in `S_Z^⊥` but not in `rowspan(G_X)`, to a word in `S_X^⊥` but not in `rowspan(G_Z)`, a word of the Z sector of the same weight.
+The inverse of `π` swaps the row spaces too, and so maps the Z sector into the X sector, which makes the map onto.
+For a stabilizer code, `S_X = rowspan(G_X)` and `S_Z = rowspan(G_Z)`, and the proof is the same.
+
+Only `_search_css` looks for such a permutation, with `get_sector_map` in `_sector_maps.py`, and it finds only two kinds.
+The first is the identity, which swaps the row spaces if they are equal.
+For the second, color the X-type and Z-type gauge generators of the Tanner graph differently.
+With the optional pybliss package, bliss compares the canonical forms of this graph and of the graph with the colors swapped, and an isomorphism between them gives the second kind.
+Such an isomorphism maps the nonzero X-type gauge generators, as listed and counting repeats, one to one onto the nonzero Z-type ones, and the Z-type ones onto the X-type ones, so its permutation of the qubits swaps the row spaces.
+So bliss misses a permutation that swaps the row spaces but does not map the two lists onto each other, as when only one type has a redundant generator, or when the generators of one type are not images of those of the other.
+Without pybliss, the lookup finds only the identity.
+A search that misses a permutation searches both sectors, and its result stays the same.
+`maps_sectors` checks every candidate from bliss by rank tests over GF(2) before a search uses it.
+Brute force never looks, so that it searches each sector as given: it is meant for small codes and for independent checks of the other methods, and `auto` takes it only when enumerating the sectors is cheap.
+
+Cheap necessary tests come before the costly steps.
+Unequal ranks rule out every permutation.
+A few random words of `rowspan(G_Z)` test whether `rowspan(G_X)` may hold `rowspan(G_Z)` before the rank test of the identity, and the weights of the gauge generators and the X-degrees and Z-degrees of the qubits must match under swapped colors before bliss runs.
+The lookup takes milliseconds on codes of hundreds of qubits.
+On codes of thousands of qubits, it takes tens of milliseconds when the cheap tests reject, about a tenth of a second when it ends in the identity, and up to about a second when bliss runs.
+The switch `sector_maps` of `SearchTuning` turns the lookup off (see the docstring of `_tuning.py`).
+Code classes that promise equal distances with `promise_equal_distance_xz`, such as `BBCode`, search one sector already through `CSSCode.get_distance_exact`; this lookup covers other codes, and the functions that take matrices.
+
+Other exact distance tools use the same idea.
+DistQLDPC, at commit fae495b, finds a map of the X sector onto the Z sector by a search for an isomorphism of its Tanner graph that exchanges the colors of the X and Z checks ([cc_aut.cc, lines 537–571](https://github.com/guluchen/DistQLDPC/blob/fae495bce77d6fff2cbb308aaca0676b45c8e98e/src/cc/cc_aut.cc#L537-L571)), and verifies it before it searches one sector ([cc_driver.cc, lines 172–193](https://github.com/guluchen/DistQLDPC/blob/fae495bce77d6fff2cbb308aaca0676b45c8e98e/src/cc/cc_driver.cc#L172-L193) and [316–330](https://github.com/guluchen/DistQLDPC/blob/fae495bce77d6fff2cbb308aaca0676b45c8e98e/src/cc/cc_driver.cc#L316-L330)).
+QEDist, at commit 71a0f0c, takes a map that its user supplies or that its constructor of lifted-product codes proposes ([constructors.py, lines 103–116](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/constructors.py#L103-L116)), verifies it when it builds a `CSSCode` ([code.py, lines 59–67](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/code.py#L59-L67)), and then certifies the distance by searching one sector ([audit.py, lines 39–43](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/audit.py#L39-L43)).
+Qubitserf, at commit 04b9349, tests whether the identity, the reversal of the qubits, or a cyclic shift by half of them swaps the row spaces ([cc.cpp, lines 105–120](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/cc.cpp#L105-L120)).
 
 ## Choosing a method
 
