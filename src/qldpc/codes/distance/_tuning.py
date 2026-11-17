@@ -5,9 +5,9 @@
 :class:`SearchTuning` collects the values with which a search for an exact distance, a count of
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
-routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.4, 3.5, and 3.8 to
-3.11 of ``connected_cluster.md`` explain how searches use the fields, and the section "Choosing a
-method" of ``README.md`` how ``method="auto"`` uses its fields.
+routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.4, 3.5, 3.8, 3.9,
+and 3.11 of ``connected_cluster.md`` explain how searches use the fields, and the section "Choosing
+a method" of ``README.md`` how ``method="auto"`` uses its fields.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,

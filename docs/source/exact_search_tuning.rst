@@ -57,7 +57,8 @@ Start from a symptom
    * - A keyboard interrupt takes long to take effect
      - Lower :attr:`~SearchTuning.enumeration_batch_exponent`, :attr:`~SearchTuning.information_set_batch_exponent`, :attr:`~SearchTuning.scan_chunk_size`, :attr:`~SearchTuning.scan_chunks_per_call`, or :attr:`~SearchTuning.macwilliams_chunk_size`.
        A Brouwer-Zimmermann distance search on several threads scans chunks :attr:`~SearchTuning.num_threads` times as large, so the wait grows with the number of threads.
-       A connected-cluster search takes an interrupt only between its weight limits, or between coset queries, and no value changes that; a limit that it splits across threads takes an interrupt once the work items that its threads are searching end, which can take long.
+       On one thread, a connected-cluster search takes an interrupt only between weight limits, its own or those of a coset query.
+       On several threads, a connected-cluster limit that splits takes an interrupt once the work items that its threads are searching end, and a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch` by either method once the blocks that its threads are running end, which can take long.
        ``method="auto"``, the default, runs one for the distances of quantum codes and the fault distances of circuits; pass ``method="brouwer_zimmermann"`` for prompt interrupts.
    * - A cheap connected-cluster search spends its time finding automorphisms
      - Raise :attr:`~SearchTuning.automorphism_minimum_states`.
