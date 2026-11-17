@@ -19,6 +19,7 @@ from unittest import mock
 import numpy as np
 import numpy.typing as npt
 import pytest
+import scipy.optimize
 from sympy.abc import x, y, z
 
 import qldpc
@@ -773,6 +774,67 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
     assert bz.get_distance_brouwer_zimmermann(
         sectors, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
     ) == code.get_distance(method="brute_force")
+
+
+@pytest.mark.parametrize("threshold, num_layers", [(1_000, 2), (20_000, 3)])
+def test_images_of_blocks_bound_a_search_once_it_has_automorphisms(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, threshold: int, num_layers: int
+) -> None:
+    """Once a search has automorphisms, it bounds with the images of the blocks of its family.
+
+    The search of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915 asks for
+    automorphisms after two or three layers.  Its lower bound then is the optimum, rounded up to
+    even, of the linear program over every image of every block (Section 3.7), which this test
+    solves over columns, with the group that the translations generate.  After two layers the images
+    certify four, so the search goes on and switches to an automorphism family; after three they
+    certify six, so it ends without a switch, before scanning its fourth layer.
+    """
+    tune(automorphism_minimum_layer_work=threshold)
+    code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    generators = np.asarray(code._get_qudit_automorphisms())
+    asks = []
+    switch = bz._SectorSearch._switch_to_automorphism_family
+
+    def recording_switch(search: bz._SectorSearch) -> None:
+        instance, next_weight = search.instance, search.next_weight
+        switch(search)
+        asks.append((instance, next_weight, search.lower_bound, search.uses_automorphism_family))
+
+    monkeypatch.setattr(bz._SectorSearch, "_switch_to_automorphism_family", recording_switch)
+    assert (
+        bz.get_distance_brouwer_zimmermann(
+            [get_sector(code, Pauli.X)], cutoff=0, get_automorphisms=lambda: generators
+        )
+        == 6
+    )
+    ((instance, next_weight, lower_bound, switched),) = asks
+    assert next_weight == num_layers + 1
+
+    # Solve the program over every image of every block of the family, after its completed layers.
+    group = {tuple(range(len(code)))}
+    frontier = list(group)
+    while frontier:
+        member = np.array(frontier.pop())
+        for generator in generators:
+            image = tuple(generator[member].tolist())
+            if image not in group:
+                group.add(image)
+                frontier.append(image)
+    rows = []
+    requirements = []
+    for pivots, rank in zip(instance.pivots, instance.ranks):
+        for permutation in group:
+            row = np.zeros(len(code))
+            row[np.array(permutation)[pivots[:rank]]] = 1
+            rows.append(row)
+            requirements.append(num_layers + 1 - (instance.generators.shape[1] - rank))
+    result = scipy.optimize.linprog(
+        np.ones(len(code)), A_ub=-np.array(rows), b_ub=-np.array(requirements), bounds=(0, 1)
+    )
+    # Every eligible weight is even, so the bound rounds up to an even number (Section 3.2).
+    assert instance.certificate.weight_divisor == 2
+    assert lower_bound == 2 * math.ceil(math.ceil(result.fun - 1e-9) / 2)
+    assert switched == (lower_bound < 6)
 
 
 def test_stepped_searches_use_the_tuning_that_they_are_given(

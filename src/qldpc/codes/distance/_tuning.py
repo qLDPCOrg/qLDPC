@@ -209,10 +209,14 @@ class SearchTuning:
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
-    #: information sets also bounds unvisited words by linear programming; zero in every such
-    #: search, and ``MAX_VALUE`` in none.  Defaults to ``2 * 10**8``, a derived value: the cost of
-    #: linear programming, planning included, in a search of a large basis, a few hundred million
-    #: evaluations (Sections 3.1 and 4.4 of ``brouwer_zimmermann.md``).
+    #: information sets also bounds unvisited words by the linear program of Section 3.1 of
+    #: ``brouwer_zimmermann.md``; zero in every such search, and ``MAX_VALUE`` in none.  A search
+    #: that gets automorphisms solves the program over orbits of Section 3.7 of
+    #: ``brouwer_zimmermann.md`` in place of that program, for the family that it has then, disjoint
+    #: or overlapping, whatever this value, unless ``automorphism_orbit_bounds`` is off.  Defaults
+    #: to ``2 * 10**8``, a derived value: the cost of linear programming, planning included, in a
+    #: search of a large basis, a few hundred million evaluations (Sections 3.1 and 4.4 of
+    #: ``brouwer_zimmermann.md``).
     lp_minimum_work: int = 200_000_000
 
     #: The largest denominator of the fractions to which the certificate from linear programming
@@ -229,6 +233,13 @@ class SearchTuning:
     #: the cost of finding automorphisms, verifying them, and building their family for a large
     #: code, several million evaluations (Sections 3.7 and 4.4 of ``brouwer_zimmermann.md``).
     automorphism_minimum_layer_work: int = 5_000_000
+
+    #: Whether a BZ distance search, once it has verified automorphisms, bounds the weight of
+    #: unvisited words with the images of the pivot blocks of its family under them, by a linear
+    #: program over their orbits (Section 3.7 of ``brouwer_zimmermann.md``).  ``False`` skips these
+    #: bounds, and the search stays exact.  Defaults to ``True``, a switch; ``False`` is for
+    #: comparisons, such as ablations.
+    automorphism_orbit_bounds: bool = True
 
     # Fields of distance searches of CSS codes.
 
