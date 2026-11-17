@@ -158,6 +158,35 @@ For pair-partition and quantum Tanner codes, the cuts changed the number of stat
 At its last limit, the search stops at its first witness, and the cuts can forbid that witness, so that the search goes on to a later one.
 The searches of these three families took up to several percent longer.
 
+**Sums of pairs of checks.**
+A distance search also adds sums of two of its checks to its checks, and sums of two of its known words to its known words, as Qubitserf and DistQLDPC do ([references](#references)).
+A sum of two checks is in `rowspan(H)`, so every word satisfies it: the words, the witnesses, and the supports with an empty syndrome stay the same.
+The arguments above use an unsatisfied check only through this: it holds an odd number of the variables of the support and an even number of those of any word, and so a variable of every completion.
+In the problems of [Section 3.7](#37-qubit-codes-that-are-not-css), a sum of two checks likewise commutes with every word, so a symbol of every completion flips each unsatisfied sum.
+So the completeness argument of [Section 3.3](#33-the-depth-first-search), the bounds, and the forbidding of variables that are not viable hold with the sums among the checks, if `Δ` in `b1` counts the sums too.
+A sum of two rows of `G` is in `rowspan(G)`, so the argument of the overlap cuts holds for it as a known word.
+The symmetries, the logical test, and the weight divisor depend only on `ker(H)` and `rowspan(G)`, which do not change.
+
+A sum of two checks helps the search if an unsatisfied sum has fewer available variables than the unsatisfied checks, or adds weight to the dual, but every added check costs time at each state that it is unsatisfied in, and raises the overlaps that weigh the other checks.
+So the search adds a sum only if it is not zero, differs from every check, and is no heavier than the heavier of its two checks, as both programs do.
+A sum is no heavier than the heavier of its two checks only if the two share at least half of the lighter one.
+The search weighs the sum of each pair of checks that share a variable by counting the variables that they share and those on which they agree, without forming the sum.
+It takes these sums lightest first, until their total weight would exceed that of the checks, so that each state examines at most about twice as many entries of checks.
+It chooses sums of known words in the same way, but sums only the known words no heavier than the heaviest check.
+In a CSS code, the known words of each sector are the checks or gauge generators of the other sector.
+But the rows of the generator matrix that the distance of a vector from a classical code excludes can be dense.
+Finding their sums can cost far more than the search, and the cut of a word cuts only within limits above about half its weight.
+Qubitserf adds sums only if every check weighs at most 16 and there are at most 512 checks on at most 2048 variables, and stops at four times as many rows as checks, or at 2048 rows.
+The connected-cluster engine of DistQLDPC adds them by default, up to four times as many sums as checks.
+The sums made the searches of quantum Tanner codes visit 5 to 8 times fewer states and take 2 to 4 times less time, the most for one with Hadamards on half of its qubits, which is not CSS.
+They made the searches of some random codes with dense checks, CSS and not, take about a sixth to two fifths less time.
+They made the search of the `[[47, 1, 11]]` quantum quadratic-residue code visit about a third fewer states, but take about a third longer.
+They made the searches of color codes visit up to about 40 percent fewer states, but take up to a few milliseconds longer.
+Without the bound on their total weight, the searches of quantum Tanner codes were faster still, but those of codes with dense checks took up to about 7 times longer.
+Two checks of a bivariate bicycle or pair-partition code, or of a toric code, share too few variables for a light sum, so their searches do not change.
+Surface codes have a few light sums at their boundaries, which changed their searches by about one percent in states and a few milliseconds in time.
+Setting `pair_sum_checks` of `SearchTuning` in `_tuning.py` to `False` turns the sums off, and the search stays exact.
+
 [Section 3.10](#310-techniques-not-used) explains why qLDPC does not use some stronger bounds, forbidding rules, and lookups of other tools.
 
 ### 3.5 Symmetries
@@ -278,6 +307,11 @@ The stabilizers of a stabilizer state commute with each other, so they lie in `k
 So `CosetLeaderSearch` gives the search of Pauli errors its own sparser checks as known words, and, for the CSS weight, gives the search of X parts the X parts of the pure-X stabilizers, the sparser checks of the search of Z parts, and vice versa.
 The cuts can change which solution a query returns, but not whether the query finds one within a limit, so the answers and lower bounds of the queries do not change.
 
+**Sums of pairs of checks.**
+The sums of checks of [Section 3.4](#34-pruning) carry over to queries: every vector of `ker(H)` satisfies a sum of two checks, so the completeness argument above holds with it among the checks, and its syndrome bit is the sum of those of its two checks, which a query adds to its syndrome.
+So a `SupportSearch` with `pair_sum_checks` adds them to its queries too, but not the sums of known words, which only its distance searches use.
+The coset searches of `CosetLeaderSearch` add no sums: they made batches of queries on states of the gross code, whose sparser stabilizers have light sums, visit 2 to 3.5 times more states and take 3 to 4.5 times as long, and saved no time on the other codes that we timed.
+
 The roots, the forbidding of variables of lower rank than the root, the symmetries, the weight divisor, and the logical test of a distance search do not carry over: the nonzero syndrome gives the empty state a check to branch on, a syndrome is not invariant under the symmetries of the code, the weights of the solutions need not share a divisor, and every solution counts.
 
 `CosetLeaderSearch` of `coset_leaders.py`, which `certify_bounded_fault_propagation` and the experimental `estimate_residual_weight_histogram` use, answers its queries by syndrome queries when built with `method="connected_cluster"`.
@@ -317,7 +351,7 @@ So with `method="connected_cluster"`, these functions give the search two sets o
 
 - the gauge generators that commute with every gauge generator, which are stabilizers, as given, with any redundant rows, but without those heavier than every row of the second set;
 - the derived basis, made sparser by `get_sparser_rows` ([Section 3.8](#38-vectors-with-a-given-syndrome)) in up to `max_distance_sparsifying_rounds` rounds, which `sparsifying_rounds_without_improvement` can end sooner.
-  With `max_distance_sparsifying_rounds` set to 0, a distance search skips sparsifying entirely and keeps the derived basis as it is; a coset search with `max_sparsifying_rounds` set to 0 still makes these sums ([Section 3.8](#38-vectors-with-a-given-syndrome)).
+  With `max_distance_sparsifying_rounds` set to 0, a distance search skips sparsifying entirely and keeps the derived basis as it is; a coset search with `max_sparsifying_rounds` set to 0 still replaces checks by lighter sums with other checks, before and after the rounds ([Section 3.8](#38-vectors-with-a-given-syndrome)).
 
 Together, the two sets span exactly the stabilizer group, since the second spans it and the first lies in it; so they have the kernel of the derived basis, and the automorphisms of the code apply as before ([Section 3.5](#35-symmetries)).
 A distance search needs only the span of its checks, and no map of syndromes, so it can keep redundant checks.
@@ -440,6 +474,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |
+| Sums of pairs of checks and of known words | `get_light_pair_sums` in `_connected_cluster/sparse_checks.py`, the `summed_pairs` of `SupportSearch` and its `_find_vector_with_packed_syndrome`, which maps syndromes to them, its `witness_words`, the known words of `find_witness`, and `pair_sum_checks` of `SearchTuning` in `_tuning.py`, whose `False` turns them off |
 | When a search asks for symmetries | `automorphism_minimum_states` of `SearchTuning` in `_tuning.py` |
 | Weight divisor | `infer_weight_divisor` of `_information_sets/basis_families.py` |
 
@@ -461,7 +496,9 @@ Changes to the search can use other bounds and orders, but must keep these requi
   The canonical witness has a support that comes first in the order of these ranks, with ties in values broken arbitrarily.
   A distance search may use only rows of `G` as known words, while a syndrome query may use any word of `ker(H)` ([Section 3.8](#38-vectors-with-a-given-syndrome)).
   A cut that ignored the ranks that symmetries set could forbid the only witness that the roots reach, so the tests check that each root finds exactly the lightest witnesses that pass every cut, with and without symmetries.
-- **Give the same exact distances, and the same answers and lower bounds of coset queries, with `restrict_viable_symbols` and `stabilizer_overlap_cuts` on and off** ([Section 3.4](#34-pruning)), so the tests compare these settings with enumeration.
+- **Add only checks in the span of the checks, and only known words in `rowspan(G)` for a distance search or in `ker(H)` for a syndrome query** (Sections [3.4](#34-pruning) and [3.8](#38-vectors-with-a-given-syndrome)), map the syndrome of a query to the added checks, and count the added checks in `Δ`.
+  A sum of a check and a vector outside the span would cut witnesses, and too small a `Δ` would make `b1` prune states that a witness extends.
+- **Give the same exact distances, and the same answers and lower bounds of coset queries, with `restrict_viable_symbols` and `stabilizer_overlap_cuts` on and off, and the same exact distances and answers of the syndrome queries of `SupportSearch` with `pair_sum_checks` on and off** ([Section 3.4](#34-pruning)), so the tests compare these settings with enumeration.
 - **Give each variable at most one value**: block the other values of the variable of a symbol while the symbol is in the support, unblock them when the search leaves its branch, and let a sibling forbid only its own symbol.
   Without the blocking, distances would not change, but a witness could hold two symbols on one variable and overstate its weight, so the tests check witnesses at every weight limit.
 - **Forbid each earlier sibling's symbol, and every value of the variables of lower rank than the root.**
@@ -494,8 +531,9 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - [QEC-pages/dist-m4ri](https://github.com/QEC-pages/dist-m4ri), by L. P. Pryadko and W. Zeng: a program whose connected-cluster (CC) method computes exact distances of classical codes, of quantum CSS codes, and of detector error models; its `src/dist_m4ri.c`, lines 827–877 at v0.16.1 (commit `4cc9c12`), looks up the last one or two columns of a support by a hash of the syndrome.
 - M. Webster, A. Jacob, and O. Higgott, "Distance-finding algorithms for quantum codes and circuits", Section 4.3.2, [arXiv:2603.22532](https://arxiv.org/abs/2603.22532): other names of the algorithm.
 - [Quantinuum/Qubitserf](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/cc.cpp), `cpp/distfind/cc.cpp`, lines 251–288 and 421–431 at commit `04b9349`: cuts by the overlaps with stabilizers, leaving out the first qubit of each stabilizer of even weight; and lines 445–475 and 551–554: a hash lookup of the last two qubits of a support, and a scan of one check for the last qubit.
+  Lines 182–213 and 217–219: sums of pairs of checks, and of pairs of stabilizers, no heavier than the heavier of each pair, added as checks and known words until there are four times as many rows, or 2048, and only if every row weighs at most 16 and there are at most 512 rows and 2048 columns (lines 183, 187, and 196).
   Its [`cpp/distfind/erasure_bound.hpp`](https://github.com/Quantinuum/Qubitserf/blob/04b9349a2d421815c35b2a3d53878167e7237f47/cpp/distfind/erasure_bound.hpp), lines 114–260, with lines 527–540 of `cc.cpp`, prunes by the erasure bound.
-- [guluchen/DistQLDPC](https://github.com/guluchen/DistQLDPC/blob/fae495bce77d6fff2cbb308aaca0676b45c8e98e/src/cc/cc_half.h), `src/cc/cc_half.h`, lines 170–205 at commit `fae495b`: the erasure bound, behind a gate that times its tests.
+- [guluchen/DistQLDPC](https://github.com/guluchen/DistQLDPC/blob/fae495bce77d6fff2cbb308aaca0676b45c8e98e/src/cc/cc_half.h), `src/cc/cc_half.h`, lines 170–205 at commit `fae495b`: the erasure bound, behind a gate that times its tests; and lines 139–160: up to four times as many sums of pairs of checks, and of pairs of stabilizers, no heavier than the heavier of each pair, as redundant checks and known words, which its connected-cluster engine adds by default (its rules `sparse` and `sparseov`, on by default at lines 229 and 237–241, and in its `README.md`, line 160).
 - [yeon-lee/QEDist](https://github.com/yeon-lee/QEDist/blob/71a0f0c1020ffa48f6839e15c1a24b6642a8480e/cssdist/native_css/exact.cpp), `cssdist/native_css/exact.cpp`, lines 136–138 and 222 at commit `71a0f0c`, and its repairs through satisfied checks at lines 267–308, with lines 57–102 of `cssdist/native_css/even_methods.inc`, and its search for disjoint checks at lines 189–201 and 311–320, and J. Y. Lee, "Designing group-valued codes with full regular low-weight bases", [arXiv:2610.06820](https://arxiv.org/abs/2610.06820), with [yeon-lee/public-regular-logical-frames](https://github.com/yeon-lee/public-regular-logical-frames/blob/04ad4795ad15cb89ee47b7868ff925c30b2fc731/src/lp_exclusion.cpp), `src/lp_exclusion.cpp`, lines 68–69 at commit `04ad479`: pruning of supports that meet a stabilizer in more than half of it.
 - [Fanerst/tropidist](https://github.com/Fanerst/tropidist/blob/b03ec2d4077f287f89f97b5c2c16ce5ce17c2c58/cdist/gmitm.c), `cdist/gmitm.c`, lines 388–416 at commit `b03ec2d`, the program of Cheng, Guo, and Pan, [arXiv:2611.08247](https://arxiv.org/abs/2611.08247): the same rule, as "kernel dominance", by sets of variables with zero syndrome and zero logical value (see lines 207–210 for the name); and lines 364–385, with lines 207–231 of `cdist/search.py`, which forbid a variable that, with a variable of the support, one variable could replace.
 - L. Aghababaie Beni, O. Higgott, and N. Shutty, "Tesseract: a search-based decoder for quantum error correction", Section 3, Algorithms 1–3, [arXiv:2503.10988](https://arxiv.org/abs/2503.10988): best-first search by the cost of the chosen errors plus a bound of the same kind as `⌈Y⌉`.

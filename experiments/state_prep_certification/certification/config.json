@@ -1,6 +1,8 @@
 {
  "limits": {
   "cert_s": 1800,
+  "margin_s": 600,
+  "prune_s": 3600,
   "shadow_s": 3600,
   "count_s": 1800,
   "ground_truth_s": 600,
@@ -9,6 +11,10 @@
   "grace_s": 30
  },
  "mem_cap_gib": 8,
+ "prune": {
+  "acceptance_shots": 1000000,
+  "sensitivity_inputs": ["dsynth190.bb72.naive"]
+ },
  "repeats": {
   "below_s": 60,
   "count": 2,

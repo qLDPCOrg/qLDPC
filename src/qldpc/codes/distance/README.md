@@ -48,7 +48,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see "Searching one sector of a CSS code").
 - `_tuning.py` holds the settings of the searches.
 - `_threads.py` runs the work items of a search on several threads.
-- `_binary.py` holds the binary input checks, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
+- `_binary.py` holds the binary input checks, binary products, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
   The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
 
 ## Where to look
@@ -67,7 +67,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | The routes of BZ coset searches: the family of information sets for each maximum weight, the gate that chooses it, and the routes by tails | `_brouwer_zimmermann/coset_routes.py` |
 | The connected-cluster search, of distances and of vectors with a given syndrome | `_connected_cluster/search.py` |
 | The connected-cluster coset searches of the coset-leader search | `_connected_cluster/coset.py` |
-| How the connected-cluster searches make their checks sparser with the same span | `_connected_cluster/sparse_checks.py` |
+| How the connected-cluster searches make their checks sparser with the same span, and find the light sums of pairs of checks and of known words that distance searches add | `_connected_cluster/sparse_checks.py` |
 | Exhaustive enumeration, which the `brute_force` method runs, with its packed symplectic weights | `_brute_force.py` |
 | The scan of a count, or how its basis families follow local gates | `_counting/scan.py` |
 | The local Clifford gates of deformed counters | `_counting/local_cliffords.py` |
@@ -83,8 +83,8 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
 | The settings that a search reads when it starts (`SearchTuning` and `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
 | How a search runs its work items on threads, and its default number of threads | `_threads.py`; how the BZ distance search splits a layer into work items is in `_brouwer_zimmermann/distance.py` |
-| Binary input checks, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
-| Bit packing, bit counts, or row reduction over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
+| Binary input checks, binary products, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
+| Bit packing, bit counts, row reduction, or products of packed rows over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |
 
 ## How the modules depend on each other
@@ -106,7 +106,7 @@ Within a subpackage, the layering below is a convention.
 In `_information_sets/`, `basis_families` builds on `certificates` and `matroid_partition`, `automorphism_families` on `basis_families` and `certificates`, and `completion_bounds` on `certificates`.
 In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, and `coset` also on `coset_routes` and `coset_tables`.
 `coset_routes` builds on `coset_tables`, and both build on `affine_instance`.
-In `_connected_cluster/`, `coset` builds on `search` and `sparse_checks`, and in `_counting/`, `scan` on `local_cliffords`.
+In `_connected_cluster/`, `search` builds on `sparse_checks`, and `coset` on both, and in `_counting/`, `scan` on `local_cliffords`.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.

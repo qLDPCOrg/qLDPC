@@ -20,6 +20,12 @@ t + 1 for design t:
 * ``count_accepted``: A_m and C(N_0, m) for m <= K.
 * ``ground_truth``: brute force on the small circuits that ``circuits.json`` marks, in the subset
   ``check``.
+* ``margin``: the smallest violating fault weight m* of a circuit whose flag rank r exceeds its
+  design t, by BZ certification with no limit on the fault weight (``applications.py``).
+* ``prune`` and ``prune_sensitivity``: deletion of the measured qubits of a circuit of
+  ``circuits.VERIFIED_FAMILIES`` under exact certification at K = t, in two orders
+  (``applications.py``);
+  ``prune_sensitivity`` runs only on the circuits of ``prune.sensitivity_inputs``.
 
 The counts use these symbols: N error mechanisms of the DEM; N_0 reduced mechanisms, one per
 distinct nonzero signature (flags, syndrome); z of them with zero flags; p post-selection
@@ -31,10 +37,10 @@ U, the sum over 1 <= m <= K of C(N_0, m).
 
 The count and ground-truth arms take the DEM from an untimed certification with
 ``max_weight=1``, and their measured call is the counting itself, so that the runner's limit
-applies to it.  Before timing, every run certifies C-goto and E-chen with both methods, untimed,
-and a run of ``brute_bz`` also runs the baseline on C-goto.  A run of ``cert_bz``, ``cert_cc``, or
-``brute_bz`` that finishes in under ``repeats.below_s`` gets ``repeats.count`` more runs
-(``repeat_tasks``).
+applies to it.  Before timing, every run except those of ``applications.ARMS`` certifies C-goto
+and E-chen with both methods, untimed, and a run of ``brute_bz`` also runs the baseline on C-goto.
+A run of ``cert_bz``, ``cert_cc``, or ``brute_bz`` that finishes in under ``repeats.below_s`` gets
+``repeats.count`` more runs (``repeat_tasks``).
 """
 
 from __future__ import annotations
@@ -58,7 +64,12 @@ from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod
 
 NAME = "certification"
 EXTRA_WHEELS: list[str] = []
-DATA = ["circuit_data/inputs", "circuit_data/synthesized"]
+DATA = [
+    "circuit_data/inputs",
+    "circuit_data/synthesized",
+    "circuit_data/synthesized_mqt_1.9.0",
+    "circuit_data/codes",
+]
 FROZEN_FILES = ["config.json", "circuit_data/inputs/circuits.json"]
 HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = json.loads((HERE / "config.json").read_text())
@@ -75,6 +86,9 @@ ARMS: tuple[str, ...] = (
     "count_accepted",
     "count_listing",
     "ground_truth",
+    "margin",
+    "prune",
+    "prune_sensitivity",
 )
 METHODS: dict[str, DistanceMethod] = {
     "cert_bz": "brouwer_zimmermann",
@@ -88,6 +102,9 @@ MODES = {
     "count_accepted": "count",
     "count_listing": "count",
     "ground_truth": "ground_truth",
+    "margin": "margin",
+    "prune": "prune",
+    "prune_sensitivity": "prune",
 }
 
 # The arms whose fast runs are repeated (``repeat_tasks``).
@@ -117,11 +134,15 @@ def prepare(label_dir: pathlib.Path) -> None:
 def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
     """The tasks of a subset: ``main``, ``check``, or ``smoke``.
 
-    ``main`` has certification, the brute-force baseline, the shadow run, and the counts;
-    ``check`` the ground truth; and ``smoke`` every arm on C-goto, E-chen, and A-ft steane.  In
-    every subset, ``brute_bz`` runs only where ``circuits.json`` puts U within the cap, and
-    ``ground_truth`` only where its rule applies.
+    ``main`` has certification, the brute-force baseline, the shadow run, the counts, the margins,
+    and the deletions; ``check`` the ground truth; and ``smoke`` every arm that applies to C-goto,
+    E-chen, and A-ft steane.  In every subset, ``brute_bz`` runs only where ``circuits.json`` puts U
+    within the cap, ``ground_truth`` only where its rule applies, ``margin`` only where r > t,
+    ``prune`` only on the families of ``circuits.VERIFIED_FAMILIES``, and ``prune_sensitivity`` only
+    on the circuits of ``prune.sensitivity_inputs`` of ``config.json``.
     """
+    from experiments.state_prep_certification.certification import circuits
+
     entries = [e for e in json.loads(CIRCUITS_JSON.read_text())["circuits"] if e["status"] == "ok"]
     if subset == "smoke":
         entries = [
@@ -140,6 +161,15 @@ def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
             if arm == "ground_truth" and not entry["ground_truth"]:
                 continue
             if arm == "brute_bz" and not entry["brute_force"]:
+                continue
+            if arm == "margin" and entry["r"] <= entry["t"]:
+                continue
+            if arm == "prune" and entry["family"] not in circuits.VERIFIED_FAMILIES:
+                continue
+            if (
+                arm == "prune_sensitivity"
+                and entry["id"] not in CONFIG["prune"]["sensitivity_inputs"]
+            ):
                 continue
             task_list.append(_task(arm, entry, 0, _limit(arm)))
     return task_list
@@ -194,6 +224,10 @@ def _limit(arm: str) -> float:
         return float(LIMITS["shadow_s"])
     if arm == "ground_truth":
         return float(LIMITS["ground_truth_s"])
+    if arm == "margin":
+        return float(LIMITS["margin_s"])
+    if arm in ("prune", "prune_sensitivity"):
+        return float(LIMITS["prune_s"])
     return float(LIMITS["count_s"])
 
 
@@ -235,9 +269,14 @@ def run(task: dict[str, Any], label_dir: pathlib.Path) -> dict[str, Any]:
     """Run one task of the certification experiment.
 
     A task's ``post_delay_s``, which only the acceptance tests set, delays the description of a
-    certificate by that many seconds, within the post-processing allowance.
+    certificate by that many seconds, within the post-processing allowance.  The tasks of
+    ``applications.ARMS`` run in ``applications.run``, without warm-up.
     """
+    from experiments.state_prep_certification.certification import applications
+
     entry = _entry(task["input"]["id"])
+    if task["arm"] in applications.ARMS:
+        return applications.run(task, entry)
     noisy = _noisy_input(entry)
     _warm_up()
     arm = task["arm"]
@@ -403,7 +442,12 @@ def _listing(
 
 
 def _describe(certificate: Any) -> dict[str, Any]:
-    """The untimed description of a certificate, with the exact residual of a counterexample."""
+    """The untimed description of a certificate, with the exact residual of a counterexample.
+
+    The description of a counterexample also gives its sector (``applications.sector_fields``).
+    """
+    from experiments.state_prep_certification.certification import applications
+
     fields: dict[str, Any] = {"certificate_text": str(certificate)}
     example = certificate.counterexample
     if example is None:
@@ -424,7 +468,7 @@ def _describe(certificate: Any) -> dict[str, Any]:
     weight = int(oracle.get_min_weights(batch, num_qubits)[0])
     fields["residual_weight"] = weight
     fields["residual_exceeds_fault_weight"] = weight > len(example.fault_indices)
-    return fields
+    return fields | applications.sector_fields(certificate)
 
 
 def _entry(circuit_id: str) -> dict[str, Any]:

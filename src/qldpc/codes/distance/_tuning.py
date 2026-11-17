@@ -295,6 +295,15 @@ class SearchTuning:
     #: ``False`` is for comparisons, such as ablations.
     stabilizer_overlap_cuts: bool = True
 
+    #: Whether a connected-cluster distance search adds sums of pairs of its checks as redundant
+    #: checks, and sums of pairs of its known words as known words (Section 3.4 of
+    #: ``connected_cluster.md``).  It keeps a sum if it is no heavier than the heavier of its pair,
+    #: lightest first while their total weight stays within that of the rows that it sums, and sums
+    #: only the known words no heavier than its heaviest check.  ``False`` skips the sums, and the
+    #: search stays exact.  The coset searches of ``CosetLeaderSearch`` never add them.  Defaults to
+    #: ``True``, a switch; ``False`` is for comparisons, such as ablations.
+    pair_sum_checks: bool = True
+
     #: The most rounds, each a row reduction in a random order of the columns, in which a
     #: ``CosetLeaderSearch`` with the connected-cluster method makes its checks sparser when it is
     #: built; zero only adds checks to each other while that makes them lighter, and ``MAX_VALUE``

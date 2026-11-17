@@ -129,6 +129,10 @@ Routes and the names that control them
      - :attr:`SearchTuning.stabilizer_overlap_cuts`
      -
      - `Section 3.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#34-pruning>`__
+   * - Adding light sums of pairs of checks, and of pairs of known words, as redundant checks and known words, in connected-cluster distance searches
+     - :attr:`SearchTuning.pair_sum_checks`
+     -
+     - `Section 3.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#34-pruning>`__
    * - Making the checks of the connected-cluster coset searches of :class:`~qldpc.codes.distance.CosetLeaderSearch` sparser
      - :attr:`SearchTuning.max_sparsifying_rounds`, :attr:`SearchTuning.sparsifying_rounds_without_improvement`
      -

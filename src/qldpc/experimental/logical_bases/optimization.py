@@ -38,7 +38,7 @@ _ATTEMPTS_PER_MOVE = 4
 # optimization
 
 
-ClassObjective = Callable[[Sequence[int], Sequence[int]], Any]
+WeightObjective = Callable[[Sequence[int], Sequence[int]], Any]
 """A function of the weights of the X-type and Z-type operators of a basis; lower is better.
 
 Its values must be totally ordered, such as numbers or tuples of numbers, and it must be monotone:
@@ -51,7 +51,7 @@ function must also accept empty lists, for a code without logical qubits.
 def optimize_logical_basis(
     code: codes.CSSCode,
     *,
-    objective: Literal["max_weight", "total_weight"] | ClassObjective = "max_weight",
+    objective: Literal["max_weight", "total_weight"] | WeightObjective = "max_weight",
     logicals: Literal["dressed", "bare"] = "dressed",
     patience: int = 20,
     max_searches: int | None = None,
@@ -80,10 +80,11 @@ def optimize_logical_basis(
 
     For the named objectives, ``"max_weight"`` and ``"total_weight"``, the weights of the lightest
     bases of the two Pauli types bound the objective from below.  The search stops once it reaches
-    this lower bound, which proves the basis optimal.  It also stops once ``patience`` rounds of
-    perturbation and descent in a row bring no improvement, or once it has used up its budget of
-    ``max_searches`` distance searches.  Pairing can force a basis to be heavier than the lightest
-    bases, so a basis that does not reach the lower bound may still be optimal.
+    this lower bound, which proves the basis optimal among complete bases of the kind that
+    ``logicals`` selects.  It also stops once ``patience`` rounds of perturbation and descent in a
+    row bring no improvement, or once it has used up its budget of ``max_searches`` distance
+    searches.  Pairing can force a basis to be heavier than the lightest bases, so a basis that does
+    not reach the lower bound may still be optimal.
 
     Each class weight comes from an exact distance search (see :mod:`qldpc.codes.distance`).  Most
     searches only ask whether a class has an operator of at most some weight, so their cost depends
@@ -96,7 +97,7 @@ def optimize_logical_basis(
             weights in decreasing order.  ``"total_weight"`` minimizes the total weight, and breaks
             ties as ``"max_weight"`` does; its value is a tuple of the total followed by those
             weights.  A function of the lists of the weights of the X-type and Z-type operators sets
-            another objective (see :data:`ClassObjective`).  Unless the code has no logical qubits,
+            another objective (see :data:`WeightObjective`).  Unless the code has no logical qubits,
             such a function has no lower bound, so the search never proves a basis optimal.
         logicals: For a subsystem code, ``"dressed"`` (the default) uses logical operators that
             commute with the stabilizers, while ``"bare"`` uses those that commute with every gauge
@@ -141,30 +142,33 @@ def optimize_logical_basis(
 class OptimizedLogicalBasis:
     """A complete basis of logical operators found by a search for low weights.
 
+    Its operators are dressed or bare, as the ``logicals`` argument of
+    :func:`~qldpc.experimental.logical_bases.optimize_logical_basis` selects.
+
     Attributes:
         logical_ops: The basis, with shape ``(2k, 2n)``, laid out as by
             :meth:`qldpc.codes.CSSCode.get_logical_ops`.
         lower_bound: The value of the objective for the lightest bases of the two Pauli types, which
-            no complete basis can beat.  For ``"max_weight"`` and ``"total_weight"``, it is a tuple,
-            as ``objective`` in :func:`~qldpc.experimental.logical_bases.optimize_logical_basis`
-            describes.  It is None for an objective given as a function, unless the code has no
-            logical qubits.
-        stop_reason: Why the search stopped: ``"lower_bound"`` if it reached the lower bound, which
-            proves the basis optimal, ``"patience"`` if it stopped improving, or ``"max_searches"``
-            if it used up its budget of distance searches.
+            no complete basis of that kind can beat.  For ``"max_weight"`` and ``"total_weight"``,
+            it is a tuple, as that function's ``objective`` describes.  It is None for an objective
+            given as a function, unless the code has no logical qubits.
+        stop_reason: Why the search stopped.  ``"optimal"``: the search reached ``lower_bound``,
+            which proves the basis optimal for the objective among all complete bases of that kind.
+            ``"patience"``: the search stopped improving.  ``"max_searches"``: the search used up
+            its budget of distance searches.
         searches: The number of distance searches run to find the weights of classes.  The searches
             that find the lightest bases and recover operators of minimum weight are not counted.
     """
 
     logical_ops: npt.NDArray[np.uint8]
     lower_bound: Any
-    stop_reason: Literal["lower_bound", "patience", "max_searches"]
+    stop_reason: Literal["optimal", "patience", "max_searches"]
     searches: int
 
     @property
     def optimal(self) -> bool:
-        """Whether the basis is proven optimal, by reaching the lower bound."""
-        return self.stop_reason == "lower_bound"
+        """Whether the basis is proven optimal, as ``stop_reason`` describes."""
+        return self.stop_reason == "optimal"
 
     @property
     def metrics(self) -> LogicalBasisMetrics:
@@ -177,8 +181,8 @@ class OptimizedLogicalBasis:
 
 
 def _get_objective_function(
-    objective: Literal["max_weight", "total_weight"] | ClassObjective,
-) -> ClassObjective:
+    objective: Literal["max_weight", "total_weight"] | WeightObjective,
+) -> WeightObjective:
     """The objective as a function of the lists of weights of X-type and Z-type operators."""
     if callable(objective):
         return objective
@@ -295,7 +299,7 @@ class _ClassSearch:
     def __init__(
         self,
         code: codes.CSSCode,
-        objective: ClassObjective,
+        objective: WeightObjective,
         logicals: LogicalOpsKind,
         max_searches: int | None,
         lower_bound: Any = None,
@@ -322,10 +326,10 @@ class _ClassSearch:
         lightest_z: LightestLogicalBasis,
         patience: int,
         rng: np.random.Generator,
-    ) -> tuple[list[int], list[int], Literal["lower_bound", "patience", "max_searches"]]:
+    ) -> tuple[list[int], list[int], Literal["optimal", "patience", "max_searches"]]:
         """Search from the best start, and return the best classes and why the search stopped."""
         if self.dimension == 0:
-            return [], [], "lower_bound"
+            return [], [], "optimal"
 
         # descend from the best start
         best_x, best_z = self._descend(*self._get_start(lightest_x, lightest_z))
@@ -345,7 +349,7 @@ class _ClassSearch:
 
         # report why the search stopped, preferring the proof of optimality
         if best_value == self.lower_bound:
-            return best_x, best_z, "lower_bound"
+            return best_x, best_z, "optimal"
         stop_reason: Literal["patience", "max_searches"] = (
             "max_searches" if self._is_out_of_searches() else "patience"
         )

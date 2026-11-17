@@ -20,13 +20,14 @@ import numpy as np
 import numpy.typing as npt
 import scipy.sparse
 
-from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_word
+from qldpc._binary import get_kernel, pack_bits, popcount_word, trailing_zeros_word, unpack_bits
 from qldpc._compilation import always_compiled
 
 from .._binary import assert_binary, get_nested_code_basis, multiply_binary, swap_pauli_halves
 from .._information_sets import automorphism_families
 from .._information_sets.basis_families import infer_weight_divisor
 from .._tuning import MAX_VALUE, SearchTuning, get_tuning
+from .sparse_checks import get_light_pair_sums, get_row_weights
 
 # The largest scale of the weights of checks, which keeps their sums far from overflowing 64 bits.
 _MAX_SCALE = 2**40
@@ -142,6 +143,7 @@ class ConnectedClusterSearch:
                 automorphism_minimum_states=tuning.automorphism_minimum_states,
                 restrict_viable_symbols=tuning.restrict_viable_symbols,
                 stabilizer_overlap_cuts=tuning.stabilizer_overlap_cuts,
+                pair_sum_checks=tuning.pair_sum_checks,
             )
             if search.has_witnesses:
                 self._searches.append(search)
@@ -314,6 +316,12 @@ class SupportSearch:
             of ``find_witness`` are the rows of ``excluded``.  Those of syndrome queries are these
             rows and the words that ``use_query_overlap_words`` adds.  The search is exact either
             way.
+        pair_sum_checks: Whether the search adds, as redundant checks, the light sums of pairs
+            of checks that ``get_light_pair_sums`` of ``sparse_checks.py`` finds.  With
+            ``stabilizer_overlap_cuts``, ``find_witness`` also uses as known words the light sums
+            of pairs of those excluded rows that are no heavier than the heaviest check (Section
+            3.4).  The search is exact either way, and maps the syndrome of each query to the
+            added checks.
 
     Attributes:
         num_variables: The number of variables.
@@ -340,6 +348,7 @@ class SupportSearch:
         automorphism_minimum_states: int,
         restrict_viable_symbols: bool,
         stabilizer_overlap_cuts: bool,
+        pair_sum_checks: bool,
     ) -> None:
         # The compiled search would read invalid input without an error, so validate it here.
         assert_binary(checks, "checks")
@@ -379,9 +388,17 @@ class SupportSearch:
         self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
         self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row.ravel()]
 
+        # The search also branches on and weighs the sums of the pairs of kept checks in
+        # ``summed_pairs``, which follow the kept checks (Section 3.4 of connected_cluster.md).
+        searched_checks = self._checks
+        self._summed_pairs = np.zeros((0, 2), dtype=np.int64)
+        if pair_sum_checks:
+            sums, self._summed_pairs = get_light_pair_sums(self._checks, symplectic=symplectic)
+            searched_checks = np.vstack([self._checks, sums])
+
         # Column ``s`` of ``flips`` marks the checks that symbol ``s`` flips, and column ``s`` of
         # ``tests`` the tests that it fails.
-        flips = self._get_symbol_columns(self._checks)
+        flips = self._get_symbol_columns(searched_checks)
         sparse_flips = scipy.sparse.csr_array(flips)
         self._check_starts = sparse_flips.indptr.astype(np.int64)
         self._check_symbols = sparse_flips.indices.astype(np.int64)
@@ -404,7 +421,16 @@ class SupportSearch:
         self._inverse_overlaps = np.zeros(max_column_weight + 1, dtype=np.int64)
         self._inverse_overlaps[1:] = scale // np.arange(1, max_column_weight + 1)
 
-        # The excluded rows are known words for the overlap cuts, and queries may have more.
+        # The excluded rows are known words for the overlap cuts, and queries may have more.  With
+        # pair sums, so are the light sums of pairs of those excluded rows that are no heavier than
+        # the heaviest check (Section 3.4 of connected_cluster.md).
+        self._witness_words = excluded
+        if pair_sum_checks and stabilizer_overlap_cuts:
+            max_check_weight = get_row_weights(self._checks, symplectic=symplectic).max(initial=0)
+            word_weights = get_row_weights(excluded, symplectic=symplectic)
+            light_words = excluded[word_weights <= max_check_weight]
+            sums, _ = get_light_pair_sums(light_words, symplectic=symplectic)
+            self._witness_words = np.vstack([excluded, sums])
         self._query_words = np.zeros((0, checks.shape[1]), dtype=np.uint8)
         self._build_overlap_cuts()
 
@@ -508,6 +534,11 @@ class SupportSearch:
         The kept checks are the rows of ``checks`` without zero rows and later copies, in order, so
         independent checks are all kept.
         """
+        # The syndrome of a sum of two checks is the sum of their syndromes.
+        if len(self._summed_pairs):
+            bits = unpack_bits(packed_syndrome[None], len(self._checks))[0]
+            sums = bits[self._summed_pairs[:, 0]] ^ bits[self._summed_pairs[:, 1]]
+            packed_syndrome = pack_bits(np.concatenate([bits, sums])[None])[0]
         support, _ = _search_supports(
             self._check_starts,
             self._check_symbols,
@@ -583,11 +614,13 @@ class SupportSearch:
     def _build_overlap_cuts(self) -> None:
         """Tabulate the overlap cuts of ``find_witness`` and of queries, under the current ranks.
 
-        The cuts of ``find_witness`` use only the rows of ``excluded``, and those of queries also
-        use the words that ``use_query_overlap_words`` adds.  Without ``stabilizer_overlap_cuts``,
-        neither has any cuts.
+        The cuts of ``find_witness`` use the rows of ``excluded``, with ``pair_sum_checks`` also
+        light sums of pairs of them, and those of queries use the rows of ``excluded`` and the
+        words that ``use_query_overlap_words`` adds.  Without ``stabilizer_overlap_cuts``, neither
+        has any cuts.
         """
-        witness_words, query_words = self._excluded, np.vstack([self._excluded, self._query_words])
+        witness_words = self._witness_words
+        query_words = np.vstack([self._excluded, self._query_words])
         if not self._stabilizer_overlap_cuts:
             witness_words = query_words = witness_words[:0]
         self._cuts = _get_overlap_cuts(witness_words, self._ranks, self._symplectic)

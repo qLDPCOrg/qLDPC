@@ -25,6 +25,7 @@ from .. import _tuning
 from ..conftest import get_golay_checks, get_span
 from ..core import get_distance_css, get_distance_pauli
 from . import search as cs
+from .sparse_checks import get_light_pair_sums, get_row_weights
 
 Problem = tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
 
@@ -83,13 +84,28 @@ def is_witness(problem: Problem, support: npt.NDArray[np.int64]) -> bool:
 def get_search(*problem: npt.ArrayLike, **options: Any) -> cs.SupportSearch:
     """A search that asks for any automorphisms before its first weight limit, by default.
 
-    ``restrict_viable_symbols`` and ``stabilizer_overlap_cuts`` default to their values in the
-    default tuning.
+    ``restrict_viable_symbols``, ``stabilizer_overlap_cuts``, and ``pair_sum_checks`` default to
+    their values in the default tuning.
     """
     options.setdefault("automorphism_minimum_states", 0)
     options.setdefault("restrict_viable_symbols", _tuning.DEFAULT_TUNING.restrict_viable_symbols)
     options.setdefault("stabilizer_overlap_cuts", _tuning.DEFAULT_TUNING.stabilizer_overlap_cuts)
+    options.setdefault("pair_sum_checks", _tuning.DEFAULT_TUNING.pair_sum_checks)
     return cs.SupportSearch(*problem, **options)
+
+
+def get_known_words(problem: Problem, symplectic: bool, pair_sums: bool) -> npt.NDArray[np.uint8]:
+    """The known words of a distance search: the excluded rows, with light pair sums of some.
+
+    With ``pair_sums``, they include the light sums of pairs of those excluded rows that are no
+    heavier than the heaviest check (Section 3.4 of ``connected_cluster.md``).
+    """
+    checks, excluded = problem
+    if not pair_sums:
+        return excluded
+    max_check_weight = max(get_row_weights(checks, symplectic=symplectic), default=0)
+    light = excluded[get_row_weights(excluded, symplectic=symplectic) <= max_check_weight]
+    return np.vstack([excluded, get_light_pair_sums(light, symplectic=symplectic)[0]])
 
 
 def passes_overlap_cuts(
@@ -287,13 +303,17 @@ def test_the_distance_matches_enumeration(name: str, restrict_viable_symbols: bo
     """The distance search, and a search through each weight limit, agree with an enumeration."""
     problem = PROBLEMS[name]
     distance = get_brute_force_distance(problem)
-    for cuts in (True, False):
+    for cuts, pair_sums in itertools.product((True, False), repeat=2):
         tuning = _tuning.SearchTuning(
-            restrict_viable_symbols=restrict_viable_symbols, stabilizer_overlap_cuts=cuts
+            restrict_viable_symbols=restrict_viable_symbols,
+            stabilizer_overlap_cuts=cuts,
+            pair_sum_checks=pair_sums,
         )
         assert cs.get_distance_connected_cluster([problem], cutoff=0, tuning=tuning) == distance
-    for max_weight in range(1, distance + 1):
-        search = get_search(*problem, restrict_viable_symbols=restrict_viable_symbols)
+    for max_weight, pair_sums in itertools.product(range(1, distance + 1), (True, False)):
+        search = get_search(
+            *problem, restrict_viable_symbols=restrict_viable_symbols, pair_sum_checks=pair_sums
+        )
         witness = search.find_witness(max_weight)
         if max_weight < distance:
             assert witness is None
@@ -303,27 +323,33 @@ def test_the_distance_matches_enumeration(name: str, restrict_viable_symbols: bo
             )
 
 
+@pytest.mark.parametrize("pair_sums", [True, False])
 @pytest.mark.parametrize("cuts", [True, False])
-@pytest.mark.parametrize("name", SEARCHED_PROBLEMS)
-def test_each_root_finds_the_lightest_witnesses_that_it_roots(name: str, cuts: bool) -> None:
+@pytest.mark.parametrize("name", [*SEARCHED_PROBLEMS, "steane-X"])
+def test_each_root_finds_the_lightest_witnesses_that_it_roots(
+    name: str, cuts: bool, pair_sums: bool
+) -> None:
     """A root finds a witness at the distance exactly if it is the least variable of a lightest one.
 
-    With the overlap cuts, the lightest witness must also pass the cut of each excluded row.
-    Sections 3.3 and 3.4 of ``connected_cluster.md`` prove this completeness, and some lightest
-    witness passes every cut.
+    With the overlap cuts, the lightest witness must also pass the cut of each known word: each
+    excluded row, and with ``pair_sums``, the light sums of pairs of them.  Sections 3.3 and 3.4 of
+    ``connected_cluster.md`` prove this completeness, with or without the sums of pairs of checks,
+    and some lightest witness passes every cut.  In "steane-X", the sums of the excluded rows cut
+    the lightest witnesses whose least variable is 1, but not those whose least variable is 0.
     """
     problem = PROBLEMS[name]
     checks, excluded = problem
     words = get_span(get_kernel(checks)) - get_span(excluded)
     distance = min(word.bit_count() for word in words)
     lightest = [word for word in words if word.bit_count() == distance]
-    admissible = [word for word in lightest if passes_overlap_cuts(excluded, word, False)]
+    known_words = get_known_words(problem, False, pair_sums)
+    admissible = [word for word in lightest if passes_overlap_cuts(known_words, word, False)]
     assert admissible
     least_variables = {
         (word & -word).bit_length() - 1 for word in (admissible if cuts else lightest)
     }
     for root in range(checks.shape[1]):
-        search = get_search(*problem, stabilizer_overlap_cuts=cuts)
+        search = get_search(*problem, stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums)
         search._roots = np.array([root])
         witness = search.find_witness(distance)
         assert (witness is not None) == (root in least_variables)
@@ -391,7 +417,7 @@ def get_tree_code(rng: np.random.Generator, num_bits: int) -> codes.ClassicalCod
 
 
 def test_overlap_cuts_keep_the_distances_of_random_codes(pytestconfig: pytest.Config) -> None:
-    """Random surface-like codes have the same distances with and without the cuts.
+    """Random surface-like codes have the same distances with and without the cuts and pair sums.
 
     The hypergraph product of two repetition codes of 3 or 4 bits, with random trees of checks, has
     distance 3 or 4 and stabilizers of weight at most 5, some of them odd, whose cuts are tight on
@@ -405,8 +431,8 @@ def test_overlap_cuts_keep_the_distances_of_random_codes(pytestconfig: pytest.Co
         assert expected >= 3
         assert 2 * expected > max(np.sum(code.matrix_x.view(np.ndarray), axis=1, dtype=int))
         assert 2 * expected > max(np.sum(code.matrix_z.view(np.ndarray), axis=1, dtype=int))
-        for cuts in (True, False):
-            with _tuning.use_tuning(stabilizer_overlap_cuts=cuts):
+        for cuts, pair_sums in itertools.product((True, False), repeat=2):
+            with _tuning.use_tuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums):
                 distance = get_distance_css(
                     code.matrix_x, code.matrix_z, method="connected_cluster"
                 )
@@ -442,6 +468,8 @@ def test_vector_distances_from_classical_codes_are_cut_by_their_generators(
 ) -> None:
     """The distance of a vector from a classical code agrees with brute force, with or without cuts.
 
+    The pair sums of Section 3.4 of ``connected_cluster.md`` keep the distance too.
+
     The search excludes the rows of the generator matrix of the code, which are known words, here of
     weights 2 and 3, so its cuts act exactly when the switch is on (Section 3.4 of
     ``connected_cluster.md``).
@@ -464,9 +492,9 @@ def test_vector_distances_from_classical_codes_are_cut_by_their_generators(
         for vector in range(2**6):
             bits = [vector >> index & 1 for index in range(6)]
             expected = min((vector ^ word).bit_count() for word in code_words)
-            for cuts in (True, False):
+            for cuts, pair_sums in itertools.product((True, False), repeat=2):
                 num_cuts_per_search.clear()
-                with _tuning.use_tuning(stabilizer_overlap_cuts=cuts):
+                with _tuning.use_tuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums):
                     distance = code.get_distance_exact(vector=bits, method="connected_cluster")
                 assert distance == expected
                 assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_search)
@@ -483,10 +511,12 @@ def test_query_overlap_words_cut_queries_but_not_witnesses() -> None:
     """Words outside the excluded rows cut syndrome queries, but not the search for witnesses.
 
     The word 111 of these checks is not excluded, so it is a witness, and its cut would forbid it.
-    Its cut lets a query at limit 2 return only the lighter vector of its syndrome.
+    Its cut lets a query at limit 2 return only the lighter vector of its syndrome.  The search adds
+    no sum of the two checks, with which the query would return the lighter vector even without the
+    cut.
     """
     checks = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
-    search = get_search(checks, np.zeros((0, 3), dtype=np.uint8))
+    search = get_search(checks, np.zeros((0, 3), dtype=np.uint8), pair_sum_checks=False)
     assert query_symbols(search) == [0, 1]
     search.use_query_overlap_words([[1, 1, 1]])
     witness = search.find_witness(3)
@@ -500,7 +530,12 @@ def test_query_overlap_words_must_satisfy_the_checks_and_need_the_switch() -> No
     They cut only with the switch on.
     """
     checks = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
-    search = get_search(checks, np.zeros((0, 3), dtype=np.uint8), stabilizer_overlap_cuts=False)
+    search = get_search(
+        checks,
+        np.zeros((0, 3), dtype=np.uint8),
+        stabilizer_overlap_cuts=False,
+        pair_sum_checks=False,
+    )
     with pytest.raises(ValueError, match="satisfy the checks"):
         search.use_query_overlap_words([[1, 1, 0]])
     with pytest.raises(ValueError, match="as wide"):
@@ -516,7 +551,8 @@ def test_query_overlap_words_must_satisfy_the_checks_and_need_the_switch() -> No
 def test_each_support_is_visited_once_above_its_least_variable() -> None:
     """With every word excluded, a search visits the supports that grow from each root once.
 
-    The overlap cuts are off, since the excluded words would cut some of these supports.
+    The overlap cuts are off, since the excluded words would cut some of these supports, and so are
+    the sums of pairs of checks, which would add the check {0, 3}.
     """
     # The checks {0, 1, 2} and {1, 2, 3} have the words {0, 1, 3}, {0, 2, 3}, and {1, 2}.  At limit
     # 4, root 0 visits {0}, {0, 1}, {0, 1, 2}, {0, 1, 3}, {0, 2}, and {0, 2, 3}, since its branch on
@@ -526,7 +562,9 @@ def test_each_support_is_visited_once_above_its_least_variable() -> None:
     checks = np.array([[1, 1, 1, 0], [0, 1, 1, 1]], dtype=np.uint8)
     num_states = {}
     for max_weight in (2, 4):
-        search = get_search(checks, get_kernel(checks), stabilizer_overlap_cuts=False)
+        search = get_search(
+            checks, get_kernel(checks), stabilizer_overlap_cuts=False, pair_sum_checks=False
+        )
         assert search.find_witness(max_weight) is None
         num_states[max_weight] = search.num_states
     assert num_states == {2: 5, 4: 6 + 2 + 1 + 1}
@@ -705,9 +743,10 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
     # 1 is the first check with the fewest available variables, one, so the search branches only to
     # {1}.  That state leaves three checks unsatisfied, and the one more variable that the limit
     # allows flips at most two, so b1 skips it.  The counts rely on ties going to the first check,
-    # so a change of the tie-break needs a new instance.
+    # so a change of the tie-break needs a new instance.  The search adds no sums of pairs of
+    # checks, which would change the counts.
     checks = np.array([[1, 0, 1, 0], [0, 1, 0, 0], [1, 1, 0, 1], [0, 0, 1, 0]], dtype=np.uint8)
-    search = get_search(checks, np.zeros((0, 4), dtype=np.uint8))
+    search = get_search(checks, np.zeros((0, 4), dtype=np.uint8), pair_sum_checks=False)
     packed = cs.pack_bits(np.array([[1, 1, 0, 1]], dtype=np.uint8))[0]
     num_states = {}
     for restrict_viable_symbols in (True, False):
@@ -729,7 +768,9 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
     assert num_states == {True: 1, False: 0}
 
 
-@pytest.mark.parametrize("switch", ["restrict_viable_symbols", "stabilizer_overlap_cuts"])
+@pytest.mark.parametrize(
+    "switch", ["restrict_viable_symbols", "stabilizer_overlap_cuts", "pair_sum_checks"]
+)
 @pytest.mark.parametrize("expected", [True, False])
 def test_connected_cluster_distance_searches_read_the_switches_of_their_tuning(
     monkeypatch: pytest.MonkeyPatch, switch: str, expected: bool
@@ -761,6 +802,75 @@ def test_connected_cluster_distance_searches_read_the_switches_of_their_tuning(
     with _tuning.use_tuning(**{switch: not expected}):
         cs.get_distance_connected_cluster(get_sectors(steane), cutoff=0, tuning=tuning)
     assert set(settings) == {(False, expected)}
+
+
+def test_pair_sums_of_checks_save_states() -> None:
+    """Light sums of pairs of checks leave fewer states to visit before a lightest witness.
+
+    These problems have such sums (Section 3.4 of ``connected_cluster.md``).
+    """
+    problems = [
+        (PROBLEMS["nested-restrictions"], False),
+        (PROBLEMS["reed-muller-X"], False),
+        (QUBIT_PROBLEMS["eight-qubit"], True),
+    ]
+    for problem, symplectic in problems:
+        distance = (
+            min(support.bit_count() for support in get_symplectic_witness_supports(problem))
+            if symplectic
+            else get_brute_force_distance(problem)
+        )
+        num_states = []
+        for pair_sums in (False, True):
+            search = get_search(*problem, symplectic=symplectic, pair_sum_checks=pair_sums)
+            for max_weight in range(1, distance):
+                assert search.find_witness(max_weight) is None
+            assert search.find_witness(distance) is not None
+            num_states.append(search.num_states)
+        assert num_states[1] < num_states[0]
+
+
+def test_only_known_words_no_heavier_than_the_heaviest_check_are_summed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A distance search sums no pair of known words with one heavier than the heaviest check.
+
+    The sums of heavy words, such as the rows of the generator matrix that the distance of a vector
+    excludes, would cost much to find (Section 3.4 of ``connected_cluster.md``).  Here the checks
+    weigh 2, 3, and 2, and the excluded rows 2, 3, and 4, so the search sums only the first two.
+    """
+    summed: list[list[list[int]]] = []
+
+    def record(rows: npt.NDArray[np.uint8], **kwargs: Any) -> Any:
+        summed.append(rows.tolist())
+        return get_light_pair_sums(rows, **kwargs)
+
+    monkeypatch.setattr(cs, "get_light_pair_sums", record)
+    checks = np.array(
+        [[1, 1, 0, 0, 0, 0, 0, 0], [0, 0, 1, 1, 1, 0, 0, 0], [0, 0, 0, 0, 0, 1, 1, 0]],
+        dtype=np.uint8,
+    )
+    excluded = np.array(
+        [[1, 1, 0, 0, 0, 0, 0, 0], [0, 0, 1, 1, 0, 0, 0, 1], [1, 1, 0, 0, 0, 1, 1, 0]],
+        dtype=np.uint8,
+    )
+    get_search(checks, excluded, pair_sum_checks=True)
+    assert summed[-1] == excluded[:2].tolist()
+
+
+def test_syndrome_queries_cut_by_no_sums_of_known_words() -> None:
+    """Syndrome queries cut by the excluded rows, but not by the sums of pairs of them.
+
+    Only distance searches cut by these sums.  The two excluded rows sum to the light word {4, 5}.
+    Its cut would forbid variable 5 from the start, and the query at limit 3 would return
+    {0, 2, 3} rather than {0, 4} (Sections 3.4 and 3.8 of ``connected_cluster.md``).
+    """
+    checks = np.array([[0, 1, 1, 1, 0, 0], [0, 0, 1, 0, 1, 1], [1, 1, 1, 0, 1, 1]], dtype=np.uint8)
+    excluded = np.array([[1, 1, 1, 0, 1, 0], [1, 1, 1, 0, 0, 1]], dtype=np.uint8)
+    assert get_known_words((checks, excluded), False, True).tolist()[2:] == [[0, 0, 0, 0, 1, 1]]
+    search = get_search(checks, excluded, pair_sum_checks=True, stabilizer_overlap_cuts=True)
+    vector = search.find_vector_with_syndrome([0, 1, 0], 3)
+    assert vector is not None and vector.tolist() == [0, 4]
 
 
 def test_wrong_automorphisms_are_rejected() -> None:
@@ -871,14 +981,16 @@ def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> It
         yield get_qubit_problem(codes.QuditCode(matrix, is_subsystem_code=code.is_subsystem_code))
 
 
+@pytest.mark.parametrize("pair_sums", [True, False])
 @pytest.mark.parametrize("cuts", [True, False])
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])
 def test_random_qubit_problems_match_enumeration(
-    pytestconfig: pytest.Config, restrict_viable_symbols: bool, cuts: bool
+    pytestconfig: pytest.Config, restrict_viable_symbols: bool, cuts: bool, pair_sums: bool
 ) -> None:
     """Qubit problems agree with an enumeration at every weight limit, and from every root.
 
-    With the overlap cuts, a root finds a lightest witness only if one passes every cut.
+    With the overlap cuts, a root finds a lightest witness only if one passes the cut of every known
+    word, which with ``pair_sums`` include the light sums of pairs of gauge generators.
     """
     # The five-qubit code in two frames: in the first, a state needs Y on a qubit after an earlier
     # sibling of the state tried X there, and in the second, a state needs the other values of the
@@ -903,10 +1015,12 @@ def test_random_qubit_problems_match_enumeration(
         *(get_qubit_problem(codes.QuditCode(matrix)) for matrix in mixed_five_qubit_codes),
         *get_random_qubit_problems(rng, 10),
     ]
-    tuning = _tuning.SearchTuning(
-        restrict_viable_symbols=restrict_viable_symbols, stabilizer_overlap_cuts=cuts
-    )
-    options = {"restrict_viable_symbols": restrict_viable_symbols, "stabilizer_overlap_cuts": cuts}
+    options = {
+        "restrict_viable_symbols": restrict_viable_symbols,
+        "stabilizer_overlap_cuts": cuts,
+        "pair_sum_checks": pair_sums,
+    }
+    tuning = _tuning.SearchTuning(**options)
     for problem in problems:
         num_qubits = problem[0].shape[1] // 2
         supports = get_symplectic_witness_supports(problem)
@@ -933,7 +1047,8 @@ def test_random_qubit_problems_match_enumeration(
             if ((word | word >> num_qubits) % 2**num_qubits).bit_count() == distance
         ]
         if cuts:
-            lightest = [word for word in lightest if passes_overlap_cuts(problem[1], word, True)]
+            known_words = get_known_words(problem, True, pair_sums)
+            lightest = [word for word in lightest if passes_overlap_cuts(known_words, word, True)]
             assert lightest
         least_qubits = {
             (support & -support).bit_length() - 1
@@ -1159,9 +1274,13 @@ SYNDROME_PROBLEMS = {
 }
 
 
+@pytest.mark.parametrize("pair_sums", [True, False])
 @pytest.mark.parametrize("name", SYNDROME_PROBLEMS)
-def test_syndrome_queries_match_enumeration(name: str) -> None:
-    """A query finds a vector with a syndrome exactly if the limit reaches the least weight."""
+def test_syndrome_queries_match_enumeration(name: str, pair_sums: bool) -> None:
+    """A query finds a vector with a syndrome exactly if the limit reaches the least weight.
+
+    With ``pair_sums``, the search maps the syndrome to the light sums of pairs of its checks.
+    """
     checks, symplectic = SYNDROME_PROBLEMS[name]
     checks = np.asarray(checks, dtype=np.uint8)
     width = checks.shape[1]
@@ -1174,7 +1293,9 @@ def test_syndrome_queries_match_enumeration(name: str) -> None:
         syndrome = tuple(products @ vector % 2)
         least_weights[syndrome] = min(least_weights.get(syndrome, width), int(np.sum(support)))
 
-    search = get_search(checks, np.zeros((0, width)), symplectic=symplectic)
+    search = get_search(
+        checks, np.zeros((0, width)), symplectic=symplectic, pair_sum_checks=pair_sums
+    )
     for syndrome in itertools.product([0, 1], repeat=len(checks)):
         least_weight = least_weights.get(syndrome, num_variables + 1)
         for max_weight in range(num_variables + 1):
@@ -1202,7 +1323,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
         ],
         dtype=np.uint8,
     )
-    search = get_search(checks, np.zeros((0, checks.shape[1])))
+    search = get_search(checks, np.zeros((0, checks.shape[1])), pair_sum_checks=False)
 
     def search_from(roots: list[int], syndrome: tuple[int, ...]) -> list[int]:
         support, _ = cs._search_supports(
@@ -1237,7 +1358,9 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
 def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
     """Memoizing changes neither the support that a query returns nor its number of states."""
     checks, symplectic = SYNDROME_PROBLEMS[name]
-    search = get_search(checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic)
+    search = get_search(
+        checks, np.zeros((0, np.shape(checks)[1])), symplectic=symplectic, pair_sum_checks=False
+    )
     for bits in itertools.product([0, 1], repeat=len(search._checks)):
         if not any(bits):
             continue

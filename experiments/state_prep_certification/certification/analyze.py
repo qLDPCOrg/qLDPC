@@ -86,6 +86,12 @@ Outputs, in ``--out`` (by default ``analysis/`` in the label directory):
   with Phi_m, of the parameters that the listing depends on: the heavy share h / N_0, the unflagged
   share z / N_0, the start classes q_h, and the flag rank r.  The table describes when Phi_m is
   small against A_m; it fits nothing.
+* The margins and deletions (``analyze_applications.py``): the combined margin m* of each circuit
+  and its agreement in ``summary.csv`` (``margin``, ``margin_lower_bound``, ``agree_margin``, and
+  the sector of its counterexample), with ``agree_prune`` for its deletion tasks; the margin column
+  of ``main_table.csv``; and ``margin_footnote.csv``, ``deletion.csv``, ``deletion_table.csv``,
+  ``deletion_tasks.csv``, ``deletion_caption.json``, and ``pruned/``.  A disagreement of the margins
+  or the deletions makes the circuit a disagreement.
 * ``counterexamples.json``: every counterexample, with ``disagreement`` true where its circuit is a
   disagreement, and the box, three example counterexamples: in each of the groups
   A-unv with the weakened variants of A-ft, B-cat, and D-synth with its weakened variants, the
@@ -107,6 +113,7 @@ from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
+from experiments.state_prep_certification.certification import analyze_applications
 from experiments.state_prep_certification.common import manifest, store
 from experiments.state_prep_certification.common import tasks as task_store
 
@@ -130,6 +137,9 @@ REPORTED_ARMS = (
     "count_accepted",
     "count_listing",
     "ground_truth",
+    "margin",
+    "prune",
+    "prune_sensitivity",
 )
 
 # The statuses of an arm's first run that the main table counts per arm.
@@ -185,6 +195,7 @@ def write_outputs(
     write_tables(summary_rows, weight_rows, out)
     verdicts = {row["id"]: row["verdict"] for row in summary_rows}
     write_counterexamples(per_circuit, verdicts, circuits, out)
+    analyze_applications.write_applications(per_circuit, summary_rows, out)
 
 
 def parse_args() -> argparse.Namespace:
@@ -399,8 +410,10 @@ def summarize(
         agree_ground_truth = _agree_ground_truth(
             arms.get("ground_truth"), finished, listing, accepted
         )
+        margin = analyze_applications.margin_fields(circuit, bz, cc, arms.get("margin"))
+        agree_prune = analyze_applications.agree_prune(bz, arms)
         circuit_verdict = _circuit_verdict(bz, cc)
-        if False in (agree_baseline, agree_ground_truth):
+        if False in (agree_baseline, agree_ground_truth, margin["agree_margin"], agree_prune):
             circuit_verdict = "disagreement"
         summary_rows.append(
             {
@@ -453,6 +466,8 @@ def summarize(
                 "ground_truth_counts_match": _ground_truth_counts_match(
                     arms.get("ground_truth"), listing, accepted
                 ),
+                **margin,
+                "agree_prune": agree_prune,
             }
         )
         weight_rows += _per_weight(circuit_id, circuit, bz, cc, brute, listing, accepted)
@@ -803,6 +818,7 @@ def _main_table(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "agreement_ground_truth": _agreement(
                     members, "agree_ground_truth", ("ground_truth",)
                 ),
+                **analyze_applications.margin_column(members),
             }
         )
     return table

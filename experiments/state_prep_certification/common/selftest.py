@@ -266,6 +266,41 @@ def test_runner_messages_at_exit(directory: pathlib.Path, node: bool) -> None:
 
 
 @test
+def test_runner_partial_before_kill(directory: pathlib.Path, node: bool) -> None:
+    """A partial result written just before a kill is kept, and a result is not."""
+    from experiments.state_prep_certification.common import runner
+
+    task = _task("killed", [], mem_cap_gib=0.1)
+    watcher = runner._Watcher(directory, task, local=not node, job_slot=None, cpu=None)
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    child = subprocess.Popen(command, start_new_session=node)
+    watcher.root = child.pid
+    watcher.group = os.getpgid(child.pid) if node else None
+    read_fd, write_fd = os.pipe()
+
+    # after the watcher's last read, the child writes its messages, and the run is a memout
+    def poll() -> tuple[int, None]:
+        for message in (
+            {"type": "partial", "fields": {"index": 0}},
+            {"type": "result", "fields": {}},
+        ):
+            os.write(write_fd, (json.dumps(message) + "\n").encode())
+        return 2**30, None
+
+    watcher._poll_resources = poll  # type: ignore[method-assign]
+    try:
+        reason, _ = watcher._watch(child, read_fd, time.monotonic())
+        row = watcher._row(reason, None, "", "")
+        assert row["status"] == "memout" and row["partial"] == [{"index": 0}], row
+        assert row["result"] == {}, row
+    finally:
+        child.kill()
+        child.wait()
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+@test
 def test_runner_sigterm(directory: pathlib.Path, node: bool) -> None:
     """On SIGTERM the runner kills its run, writes no row, and exits with status 2."""
     tasks.write_pass1(directory, [_task("stop", [["spawn", 49.25]], limit_s=60.0)])

@@ -3100,7 +3100,7 @@ class CSSCode(QuditCode):
         """
         if self._is_subsystem_code is None:
             if self.field.order == 2:
-                # the float product of multiply_binary is much faster than galois
+                # multiply_binary is much faster than galois
                 matrix_x = self.matrix_x.view(np.ndarray).astype(np.uint8)
                 matrix_z = self.matrix_z.view(np.ndarray).astype(np.uint8)
                 overlaps = multiply_binary(matrix_x, matrix_z.T)

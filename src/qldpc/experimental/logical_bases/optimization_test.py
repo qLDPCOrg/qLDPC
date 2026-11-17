@@ -89,7 +89,7 @@ def test_certified_optimum() -> None:
     assert not improves.called  # the start meets the bound, so the descent tries no move
     assert not perturb.called
     assert result.optimal
-    assert result.stop_reason == "lower_bound"
+    assert result.stop_reason == "optimal"
     assert result.lower_bound == (2, 2, 2, 2)
     metrics = evaluate_logical_ops(code, result.logical_ops)
     assert (metrics.x.max_weight, metrics.z.max_weight) == (2, 2)
@@ -106,8 +106,22 @@ def test_subsystem_code(
     value = _max_weight(metrics.x.weights.tolist(), metrics.z.weights.tolist())
     assert value == _get_brute_force_optimum(subsystem_code, logicals, _max_weight)
     assert result.lower_bound == _get_lower_bound(subsystem_code, logicals, _max_weight)
+    assert result.lower_bound <= value
+    assert result.optimal == (value == result.lower_bound)
     if logicals == "bare":
         subsystem_code.set_logical_ops(result.logical_ops.astype(int))
+
+
+def test_optimum_of_kind() -> None:
+    """A bare basis proven optimal among bare bases can be heavier than the best dressed basis."""
+    # a [[3, 2]] subsystem code whose bare search reaches its lower bound
+    code = codes.CSSCode([[0, 0, 1]], [[0, 1, 1]])
+    result = optimize_logical_basis(code, logicals="bare")
+    assert result.optimal
+    metrics = evaluate_logical_ops(code, result.logical_ops, logicals="bare")
+    value = _max_weight(metrics.x.weights.tolist(), metrics.z.weights.tolist())
+    assert value == result.lower_bound == _get_brute_force_optimum(code, "bare", _max_weight)
+    assert _get_brute_force_optimum(code, "dressed", _max_weight) < value
 
 
 @pytest.mark.parametrize("function", [_max_weight, _total_weight])

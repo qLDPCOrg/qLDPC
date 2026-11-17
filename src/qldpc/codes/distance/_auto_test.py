@@ -24,7 +24,7 @@ from . import _auto, core
 from ._brouwer_zimmermann.distance import BrouwerZimmermannSearch
 from ._connected_cluster.search import ConnectedClusterSearch, SupportSearch
 from ._information_sets import basis_families
-from ._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
+from ._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
 from .conftest import CostlyStages, get_costly_basis, get_golay_checks, get_sector
 
 # Tunings that skip enumeration and the free phase, with a probe of unlimited work, or of none.
@@ -145,10 +145,13 @@ def test_the_free_phase_ends_with_the_expected_work(routes: Routes) -> None:
 
     The expected work of a limit is the work spent plus the predicted work of that limit.  A free
     work above the work spent before every limit of the Golay sector's search, but below the
-    largest expected work, makes it probe only through the prediction.
+    largest expected work, makes it probe only through the prediction.  The searches add no sums of
+    pairs of checks, with which the work spent before the last limit is too close to its expected
+    work for such a free work.
     """
     checks = get_golay_checks()
-    clusters = ConnectedClusterSearch([(checks, checks)], cutoff=0)
+    tuning = SearchTuning(pair_sum_checks=False)
+    clusters = ConnectedClusterSearch([(checks, checks)], cutoff=0, tuning=tuning)
     spent, expected = [], []
     while not clusters.finished:
         index, max_weight = clusters.next_limit
@@ -167,6 +170,7 @@ def test_the_free_phase_ends_with_the_expected_work(routes: Routes) -> None:
             auto_brute_force_max_words=0,
             auto_free_work=int(free_work),
             connected_cluster_state_evaluations=state_cost,
+            pair_sum_checks=False,
         ):
             assert core.get_distance_from_checks(checks, checks, method="auto") == 7
         assert routes.probes == probes

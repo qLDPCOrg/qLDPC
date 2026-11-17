@@ -1,16 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Sparser checks with the span of given checks, for the connected-cluster searches.
+"""Sparser checks with the span of given checks, and light sums of checks to add to them.
 
 ``get_sparser_rows`` makes checks sparser for the coset searches of ``coset.py`` and for the
 distance searches of subsystem codes in ``qldpc.codes.distance.core`` (Sections 3.8 and 3.9 of
-``connected_cluster.md``).
+``connected_cluster.md``).  ``get_light_pair_sums`` finds light sums of pairs of rows, which the
+distance searches of ``search.py`` add as redundant checks and known words (Section 3.4).
 """
 
 from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
+import scipy.sparse
 
 from qldpc._binary import pack_bits, row_reduce_binary, unpack_bits
 
@@ -71,12 +73,69 @@ def get_sparser_rows(
     return rows, multiply_binary(rows, get_unit_syndrome_words(matrix).T)
 
 
+def get_light_pair_sums(
+    rows: npt.NDArray[np.uint8], *, symplectic: bool
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.int64]]:
+    """Light sums of pairs of rows, whose total weight is at most that of the rows.
+
+    A sum of rows ``i < j`` is light if it is not zero and no heavier than the heavier of the two,
+    as ``get_row_weights`` weighs them (Section 3.4 of ``connected_cluster.md``).  The distinct
+    light sums that differ from every row are taken lightest first, with ties in the order of their
+    pairs, until the next would make their total weight exceed that of the rows.
+
+    Returns:
+        The sums, and the pair ``(i, j)`` of rows of each.
+    """
+    # The sum of rows i and j acts on the variables of either row, less those on which the two
+    # rows have equal values: it weighs w_i + w_j - s_ij - e_ij, where s_ij counts the variables
+    # that the rows share, and e_ij those with equal values, which are all of them for binary rows.
+    # Count s_ij + e_ij by products of indicator matrices.  Rows that share no variable sum to a row
+    # heavier than the heavier of the two, so only pairs that share one can give a light sum.
+    weights = get_row_weights(rows, symplectic=symplectic)
+    if symplectic:
+        num_variables = rows.shape[1] // 2
+        part_x, part_z = rows[:, :num_variables], rows[:, num_variables:]
+        overlaps = _count_overlaps(part_x | part_z)
+        for values in (part_x & (1 - part_z), part_z & (1 - part_x), part_x & part_z):
+            overlaps = overlaps + _count_overlaps(values)
+    else:
+        overlaps = 2 * _count_overlaps(rows)
+    counts = scipy.sparse.triu(overlaps, k=1).tocoo()
+    first, second = counts.row.astype(np.int64), counts.col.astype(np.int64)
+    sum_weights = weights[first] + weights[second] - counts.data
+    light = (sum_weights > 0) & (sum_weights <= np.maximum(weights[first], weights[second]))
+    first, second, sum_weights = first[light], second[light], sum_weights[light]
+
+    # Take the distinct new sums, lightest first, while their total weight stays within that of the
+    # rows.
+    order = np.lexsort((second, first, sum_weights))
+    known = {row.tobytes() for row in rows}
+    budget = weights.sum()
+    kept = []
+    for index in order.tolist():
+        if sum_weights[index] > budget:
+            break
+        row_sum = rows[first[index]] ^ rows[second[index]]
+        if row_sum.tobytes() not in known:
+            known.add(row_sum.tobytes())
+            kept.append(index)
+            budget -= sum_weights[index]
+    pairs = np.stack([first[kept], second[kept]], axis=1)
+    return rows[pairs[:, 0]] ^ rows[pairs[:, 1]], pairs
+
+
 def get_row_weights(rows: npt.NDArray[np.uint8], *, symplectic: bool) -> npt.NDArray[np.int64]:
     """The numbers of nonzero entries of rows, or of the qubits on which symplectic rows act."""
     if not symplectic:
         return rows.sum(axis=1, dtype=np.int64)
     half = rows.shape[1] // 2
     return (rows[:, :half] | rows[:, half:]).sum(axis=1, dtype=np.int64)
+
+
+def _count_overlaps(matrix: npt.NDArray[np.uint8]) -> scipy.sparse.csr_array:
+    """The number of columns in which both of each pair of rows of a binary matrix are one."""
+    sparse = scipy.sparse.csr_array(matrix, dtype=np.int64)
+    return sparse @ sparse.T
 
 
 def _sparsify(
