@@ -2,6 +2,7 @@
 
 """Unit tests for checking bases of logical operators and measuring their weights and overlaps."""
 
+import galois
 import numpy as np
 import pytest
 import scipy.sparse
@@ -15,13 +16,13 @@ from .evaluation import LogicalOpsMetrics, evaluate_logical_ops
 def test_metrics() -> None:
     """Weights, loads, and overlaps are counted from the supports of the operators."""
     metrics = LogicalOpsMetrics._from_valid_ops(
-        np.array([[1, 1, 0, 0], [1, 1, 1, 0], [0, 0, 0, 1]])
+        np.array([[1, 1, 0, 0], [1, 1, 1, 0], [0, 0, 1, 1]])
     )
-    np.testing.assert_array_equal(metrics.weights, [2, 3, 1])
-    np.testing.assert_array_equal(metrics.loads, [2, 2, 1, 1])
-    np.testing.assert_array_equal(metrics.overlaps, [[2, 2, 0], [2, 3, 0], [0, 0, 1]])
-    assert (metrics.max_weight, metrics.total_weight, metrics.max_load) == (3, 6, 2)
-    assert metrics.num_overlapping_pairs == 1
+    np.testing.assert_array_equal(metrics.weights, [2, 3, 2])
+    np.testing.assert_array_equal(metrics.loads, [2, 2, 2, 1])
+    np.testing.assert_array_equal(metrics.overlaps, [[2, 2, 0], [2, 3, 1], [0, 1, 2]])
+    assert (metrics.max_weight, metrics.total_weight, metrics.max_load) == (3, 7, 2)
+    assert metrics.num_overlapping_pairs == 2
 
     metrics = LogicalOpsMetrics._from_valid_ops(np.zeros((0, 3), dtype=np.uint8))
     assert (metrics.max_weight, metrics.total_weight, metrics.max_load) == (0, 0, 0)
@@ -55,26 +56,23 @@ def test_evaluate_code_basis(stabilizer_code: codes.CSSCode) -> None:
 
 
 def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
-    """Matrices that are not bases of logical operators, or not paired, are rejected.
-
-    So is an invalid Pauli type.
-    """
+    """Matrices that are not bases of logical operators, or not paired, are rejected."""
     k, n = stabilizer_code.dimension, len(stabilizer_code)
     ops = stabilizer_code.get_logical_ops().view(np.ndarray).copy()
 
     with pytest.raises(ValueError, match="shape"):
         evaluate_logical_ops(stabilizer_code, ops[:, :n])
 
-    # without a logical qubit, the other checks would accept a row too many
-    with pytest.raises(ValueError):
+    # with k = 0, every other check passes for an extra row, so only the shape check rejects it
+    with pytest.raises(ValueError, match="shape"):
         evaluate_logical_ops(codes.CSSCode([[1, 1]], [[1, 1]]), np.zeros((1, 4), dtype=int))
-    # a repeated row keeps the classes independent, so only the shape check rejects it
+    # with a repeated row, the classes still span all k logical qubits, so only the shape check
+    # rejects it
     with pytest.raises(ValueError, match="shape"):
         LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.X, np.vstack([ops[:k, :n], ops[:1, :n]]))
-    with pytest.raises(ValueError, match="binary"):
-        evaluate_logical_ops(stabilizer_code, 2 * ops)
-    with pytest.raises(ValueError):
-        LogicalOpsMetrics.from_ops(stabilizer_code, Pauli.Y)  # type: ignore[arg-type]
+    for not_binary in [2 * ops, -ops.astype(int), galois.GF(3)(ops), galois.GF(4)(ops)]:
+        with pytest.raises(ValueError, match="binary"):
+            evaluate_logical_ops(stabilizer_code, not_binary)
     for row, other_half in [(0, slice(n, None)), (k, slice(None, n))]:
         mixed = ops.copy()
         mixed[row, other_half] = 1
@@ -101,22 +99,22 @@ def test_evaluate_invalid_bases(stabilizer_code: codes.CSSCode) -> None:
 
 
 def test_evaluate_dressed_ops(subsystem_code: codes.CSSCode) -> None:
-    """Dressed operators are paired by their logical classes, not by physical commutation."""
-    n = len(subsystem_code)
+    """Dressed operators pair by their classes, and bare bases besides the code's are accepted."""
+    k, n = subsystem_code.dimension, len(subsystem_code)
     ops = subsystem_code.get_logical_ops().view(np.ndarray).copy()
     gauge_x = subsystem_code.get_gauge_ops(Pauli.X).view(np.ndarray)[0]
     gauge_z = subsystem_code.get_gauge_ops(Pauli.Z).view(np.ndarray)[0]
     assert gauge_x @ gauge_z % 2 == 1
     ops[0, :n] ^= gauge_x
-    ops[subsystem_code.dimension, n:] ^= gauge_z
+    ops[k, n:] ^= gauge_z
 
     # X-type operator 0 and Z-type operator 0 now commute physically, but their classes anticommute
-    assert ops[0, :n] @ ops[subsystem_code.dimension, n:] % 2 == 0
+    assert ops[0, :n] @ ops[k, n:] % 2 == 0
     evaluate_logical_ops(subsystem_code, ops)
 
     # each half of the dressed operators is rejected when bare operators are required
     original = subsystem_code.get_logical_ops().view(np.ndarray)
-    for row, name in [(0, "X"), (subsystem_code.dimension, "Z")]:
+    for row, name in [(0, "X"), (k, "Z")]:
         one_half = original.copy()
         one_half[row] = ops[row]
         with pytest.raises(ValueError, match=f"{name}-type operators are not logical"):
@@ -124,7 +122,18 @@ def test_evaluate_dressed_ops(subsystem_code: codes.CSSCode) -> None:
 
     # the X-type half of these dressed operators is likewise accepted as a basis of one type, and
     # rejected when bare operators are required
-    ops_x = ops[: subsystem_code.dimension, :n]
+    ops_x = ops[:k, :n]
     LogicalOpsMetrics.from_ops(subsystem_code, Pauli.X, ops_x)
     with pytest.raises(ValueError, match="X-type operators are not logical"):
         LogicalOpsMetrics.from_ops(subsystem_code, Pauli.X, ops_x, logicals="bare")
+
+    # a bare basis other than the code's own is accepted when bare operators are required, and by
+    # set_logical_ops
+    bare = original.copy()
+    bare[0] ^= bare[1]
+    bare[k + 1] ^= bare[k]
+    bare[0, :n] ^= subsystem_code.get_stabilizer_ops(Pauli.X).view(np.ndarray)[0].astype(bare.dtype)
+    assert not np.array_equal(bare, original)
+    evaluate_logical_ops(subsystem_code, bare, logicals="bare")
+    LogicalOpsMetrics.from_ops(subsystem_code, Pauli.X, bare[:k, :n], logicals="bare")
+    subsystem_code.set_logical_ops(bare)

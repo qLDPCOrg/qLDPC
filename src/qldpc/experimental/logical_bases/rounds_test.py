@@ -17,7 +17,7 @@ from qldpc import codes
 from qldpc.objects import Pauli, PauliXZ
 
 from . import rounds
-from .evaluation import evaluate_logical_ops
+from .evaluation import LogicalOpsMetrics, evaluate_logical_ops
 from .rounds import (
     LogicalOpsRounds,
     OptimizedLogicalRounds,
@@ -33,16 +33,16 @@ _CHOICE_CHECKS = ([[1, 0, 1, 1, 1, 0, 0]], [[0, 1, 1, 1, 0, 0, 1], [1, 1, 0, 0, 
 # a [[6, 3]] code whose X-type operators need 3 rounds at minimum weight, and 2 with slack 2
 _SLACK_CHECKS = ([[1, 1, 1, 1, 0, 1]], [[1, 1, 0, 1, 1, 1], [0, 1, 1, 1, 1, 1]])
 
-# an [[8, 4]] code in which, if only single rows of the basis reduced on the column-order
-# information set are listed, the X-type candidates listed for three classes all contain qubit 1,
-# which would wrongly bound the rounds below by 3, since a 2-round choice exists
+# an [[8, 4]] code in which a 2-round choice exists; but if only single rows of the basis reduced on
+# the column-order information set are listed, the X-type candidates of three classes all contain
+# qubit 1, which would wrongly bound the rounds below by 3
 _SHARED_CHECKS = (
     [[1, 1, 0, 1, 1, 1, 0, 1], [1, 1, 1, 0, 0, 1, 0, 0]],
     [[0, 1, 0, 1, 1, 1, 1, 0], [0, 0, 0, 1, 0, 0, 0, 1]],
 )
 
-# a [[7, 4]] code whose X-type choice at slack 3 with the smallest largest load is 3 heavier than
-# the lightest choice with the fewest rounds
+# a [[7, 4]] code whose X-type choices at slack 3 with the fewest rounds differ in their largest
+# load; the choice with the smallest largest load is 3 heavier than the lightest choice
 _ORDER_CHECKS = ([[1, 1, 1, 1, 1, 1, 1]], [[1, 0, 0, 0, 1, 0, 0], [1, 1, 1, 1, 1, 1, 0]])
 
 # a [[10, 6]] code with an integer program that HiGHS (in SciPy 1.18) fails to solve with presolve
@@ -76,6 +76,7 @@ def test_subsystem_code(
 ) -> None:
     """Operators of a subsystem code are chosen optimally, in the classes of the given basis."""
     k = subsystem_code.dimension
+    # a paired basis other than the code's own
     ops = np.asarray(subsystem_code.get_logical_ops(), dtype=int)
     ops[0] = (ops[0] + ops[1]) % 2
     ops[k + 1] = (ops[k + 1] + ops[k]) % 2
@@ -105,6 +106,41 @@ def test_time_limit() -> None:
         result = optimize_logical_rounds(code)
     _check_valid(code, code.get_logical_ops(), result, 0, "dressed")
     assert result.x.stop_reason == "time_limit"
+
+
+def test_time_limit_fallback() -> None:
+    """Without any choice in time, the lightest candidates are used, even with slack."""
+    code = codes.CSSCode(*_SLACK_CHECKS)
+    out_of_time = scipy.optimize.OptimizeResult(status=1, x=None, message="time limit")
+    with mock.patch.object(scipy.optimize, "milp", return_value=out_of_time):
+        result = optimize_logical_rounds(code, weight_slack=2)
+    _check_valid(code, code.get_logical_ops(), result, 2, "dressed")
+    assert result.x.stop_reason == "time_limit"
+    k, n = code.dimension, len(code)
+    words = _get_class_words(code, Pauli.X, "dressed")
+    for op in result.logical_ops[:k, :n].astype(int):
+        assert op.sum() == min(int(word.sum()) for word in words[_get_class(code, Pauli.X, op)])
+
+
+def test_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sampling with random information sets gives the same result every time."""
+    monkeypatch.setattr(rounds, "_MAX_ROWS_PER_SAMPLE", 1)
+    monkeypatch.setattr(rounds, "_MAX_SAMPLES", 3)
+    code = codes.CSSCode(*_ORDER_CHECKS)
+    results = [optimize_logical_rounds(code, weight_slack=2) for _ in range(4)]
+    for result in results[1:]:
+        np.testing.assert_array_equal(result.logical_ops, results[0].logical_ops)
+        np.testing.assert_array_equal(result.x.rounds, results[0].x.rounds)
+        np.testing.assert_array_equal(result.z.rounds, results[0].z.rounds)
+
+    # the Z-type lists, which these samples leave incomplete, are the same every time
+    trivial = code.get_matrix(Pauli.Z).view(np.ndarray).astype(np.uint8)
+    for op in code.get_logical_ops(Pauli.Z).view(np.ndarray).astype(np.uint8):
+        words = _get_class_words(code, Pauli.Z, "dressed")[_get_class(code, Pauli.Z, op)]
+        min_weight = min(int(word.sum()) for word in words)
+        lists = [_list_candidates(op, trivial, min_weight, 2)[0] for _ in range(4)]
+        for listed in lists[1:]:
+            np.testing.assert_array_equal(listed, lists[0])
 
 
 def test_time_limit_shared(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,7 +229,7 @@ def test_incomplete_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Random information sets find candidates that combine many rows on the column-order one."""
+    """Random information sets find candidates that need many rows of the column-order basis."""
     monkeypatch.setattr(rounds, "_MAX_ROWS_PER_SAMPLE", 1)
     code = codes.CSSCode(*_CHOICE_CHECKS)
     trivial = code.get_matrix(Pauli.X).view(np.ndarray).astype(np.uint8)
@@ -335,11 +371,11 @@ def _check_valid(
     evaluate_logical_ops(code, result.logical_ops, logicals=logicals)
     k, n = code.dimension, len(code)
     ops = np.asarray(logical_ops, dtype=int)
-    paulis: list[tuple[PauliXZ, LogicalOpsRounds, slice, slice]] = [
-        (Pauli.X, result.x, slice(None, k), slice(None, n)),
-        (Pauli.Z, result.z, slice(k, None), slice(n, None)),
+    paulis: list[tuple[PauliXZ, LogicalOpsRounds, LogicalOpsMetrics, slice, slice]] = [
+        (Pauli.X, result.x, result.metrics.x, slice(None, k), slice(None, n)),
+        (Pauli.Z, result.z, result.metrics.z, slice(k, None), slice(n, None)),
     ]
-    for pauli, rounds_of_type, rows, cols in paulis:
+    for pauli, rounds_of_type, metrics, rows, cols in paulis:
         words = _get_class_words(code, pauli, logicals)
         chosen = result.logical_ops[rows, cols].astype(int)
         for op, new_op in zip(ops[rows, cols], chosen):
@@ -349,9 +385,7 @@ def _check_valid(
         for r in range(rounds_of_type.num_rounds):
             assert chosen[rounds_of_type.rounds == r].sum(axis=0).max(initial=0) <= 1
         assert rounds_of_type.lower_bound <= _get_value(chosen)[0]
-        np.testing.assert_array_equal(
-            getattr(result.metrics, str(pauli).lower()).weights, chosen.sum(axis=1)
-        )
+        np.testing.assert_array_equal(metrics.weights, chosen.sum(axis=1))
 
 
 def _get_best(
