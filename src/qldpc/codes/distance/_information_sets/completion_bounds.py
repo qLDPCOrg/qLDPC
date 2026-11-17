@@ -318,8 +318,8 @@ def _estimate_skipped_share(
     if num_drawn < tuning.completion_bound_min_samples:
         return 0.0, 0
     rng = np.random.default_rng(0)
-    # The indices of the least ``weight`` of uniform keys are a random support; selecting them by
-    # partition rather than a full sort draws the same supports in linear time.
+    # The indices of the ``weight`` smallest of uniform random keys form a uniformly random
+    # support, which argpartition finds in linear time.
     keys = rng.random((num_drawn, num_rows))
     supports = np.sort(np.argpartition(keys, weight - 1, axis=1)[:, :weight], axis=1)
 
