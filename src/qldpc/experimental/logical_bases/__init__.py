@@ -13,9 +13,8 @@ of each Pauli type, whose weights bound those of every basis of that type (and, 
 code, of the same kind, dressed or bare) from below.
 
 Public API:
-    evaluate_logical_ops, LogicalOpsMetrics    — check a basis and measure weights and overlaps
-    get_lightest_logical_basis, LightestLogicalBasis
-        — the smallest weights that a basis of one Pauli type can have, with a basis that has them
+    evaluate_logical_ops, LogicalOpsMetrics               — check a basis, measure its overlaps
+    get_lightest_logical_basis, LightestLogicalBasis     — a lightest basis of one Pauli type
 """
 
 from __future__ import annotations
