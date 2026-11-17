@@ -241,10 +241,9 @@ The BZ search of Pauli errors is cached by stabilizer matrix (`PAULI_SEARCH_CACH
 Those of X and Z parts are cached by stabilizer group (`CSS_SEARCH_CACHE_SIZE`), so `CosetLeaderSearch` objects for different generators of one state share them.
 `find_first_not_within_max_weight` returns the bound that a single BZ search found for the first syndrome without an error within `max_weight`, or, with two BZ searches, the bound that `get_min_weight_bound` gives for that syndrome.
 `get_min_weights` answers a batch in one compiled loop per coset search (`BrouwerZimmermannCosetSearch.get_min_weights`; Section 3.10 of `brouwer_zimmermann.md`).
-Both batch queries search a batch with a compiled loop: `_find_first_not_within_max_weight` or `_find_min_weights`.
-They can move a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](#threads)).
+Both batch queries search their batches with compiled loops, `_find_first_not_within_max_weight` and `_find_min_weights`, and can move the rest of a costly batch to `num_threads` threads, the field of the tuning that `CosetLeaderSearch` reads when it is built ([Threads](#threads)).
 The calling thread starts the batch alone, and a batch of cheap queries stays there.
-The split work of a search is `num_threads * 2**information_set_batch_exponent` units of work, one unit for each query and one for each word that it weighs, as much as `num_threads` chunks of a BZ distance search scan.
+The split work of a search is `num_threads * 2**information_set_batch_exponent` units of work, one for each query and one for each word that it weighs after the word of its syndrome.
 Once the queries of a batch on the calling thread reach the split work, `run_blocks` of `_threads.py` gives the rest of the batch to the threads in blocks, each searched with the same compiled loop (Section 4.5 of `brouwer_zimmermann.md`).
 The answers are those of one thread: the weights, and the first index without an error within `max_weight` with its bound and error.
 
@@ -297,7 +296,7 @@ The docstring of `src/qldpc/_num_threads.py` gives the other warnings.
 Numba does not read the CPU quotas of containers, so in a container, set `QLDPC_NUM_THREADS` to its CPU quota rounded down, or to 1 if the quota is below 1.
 `numba.set_num_threads` changes only the count of the calling thread's numba parallel code, not `QLDPC_NUM_THREADS` or `numba.config.NUMBA_NUM_THREADS`, nor the threads of searches.
 `NUMBA_NUM_THREADS` alone still sets the count of searches when `QLDPC_NUM_THREADS` is not set.
-To keep searches on one core, set `QLDPC_NUM_THREADS=1` before Python starts, which reaches every thread and worker process, or run them within `use_tuning(num_threads=1)`, which must hold when a `CosetLeaderSearch` is built.
+To keep searches on one core, set `QLDPC_NUM_THREADS=1` before Python starts, which reaches every thread and worker process, or run them within `use_tuning(num_threads=1)`.
 BLAS threads follow the BLAS library's own variables, such as `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS` (Accelerate on macOS), or `OMP_NUM_THREADS`, which the sweep script of `experiments/distance_tuning` sets.
 New threads and spawned processes normally start with the default tuning (see the module docstring of `_tuning.py`), so a program that runs searches in a pool of workers must enter `use_tuning` in the function that each worker runs.
 That covers only the searches built there: a `CosetLeaderSearch` that the workers share must be built within `use_tuning(num_threads=1)`.

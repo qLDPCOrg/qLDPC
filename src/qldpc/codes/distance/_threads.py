@@ -224,7 +224,8 @@ def run_blocks(
     every block after the limit, including the rest of a range that they have claimed.  The limit
     only falls, and every row before it runs, so the first row that ends the batch is the one that
     one thread would find, provided that the caller keeps the least such row.  Exceptions
-    propagate as in ``run_work_items``, and the threads stop within their ranges.
+    propagate as in ``run_work_items``, and the threads stop within their ranges, except in the
+    narrow windows that its docstring describes.
     """
     if num_threads < 2:
         start_worker()(0, num_rows, NO_WORK_LIMIT)

@@ -124,8 +124,8 @@ class CosetLeaderSearch:
 
         # Read the active tuning, and prepare the searches.
         tuning = get_tuning()
-        # A BZ batch query moves to threads once its queries on the calling thread have done as much
-        # work as a chunk of each thread of a BZ distance search scans (Section 4.5).
+        # A BZ batch query moves to threads once its queries on the calling thread have done the
+        # split work (Section 4.5 of brouwer_zimmermann.md).
         num_threads = _threads.get_num_threads(tuning.num_threads)
         split_work = min(
             num_threads << tuning.information_set_batch_exponent, _threads.NO_WORK_LIMIT

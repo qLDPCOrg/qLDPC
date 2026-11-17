@@ -422,9 +422,9 @@ class SearchTuning:
     #: which keyboard interrupts cannot stop; on several threads, each thread scans ``num_threads``
     #: times as many in one call.  A BZ batch query of ``CosetLeaderSearch`` on several threads
     #: moves the rest of its batch to them once its queries on the calling thread have done
-    #: ``num_threads * 2**information_set_batch_exponent`` units of work, one unit for each query
-    #: and one for each word that it weighs.  At most 62.  Defaults to 15, a budget of interrupt
-    #: latency on one thread, which grows with the number of threads.
+    #: ``num_threads * 2**information_set_batch_exponent`` units of work, one for each query and one
+    #: for each word that it weighs after the word of its syndrome.  At most 62.  Defaults to 15, a
+    #: budget of interrupt latency on one thread, which grows with the number of threads.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: The number of threads on which a distance search by the BZ method scans a costly layer of a
