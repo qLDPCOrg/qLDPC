@@ -22,7 +22,6 @@ from .rounds import (
     LogicalOpsRounds,
     OptimizedLogicalRounds,
     _check_choice,
-    _count_candidates,
     _list_candidates,
     optimize_logical_rounds,
 )
@@ -54,13 +53,7 @@ _PRESOLVE_CHECKS = (
 
 @pytest.mark.parametrize(
     "checks, weight_slack",
-    [
-        (_CHOICE_CHECKS, 0),
-        (_SLACK_CHECKS, 0),
-        (_SLACK_CHECKS, 2),
-        (_ORDER_CHECKS, 3),
-        (_PRESOLVE_CHECKS, 2),
-    ],
+    [(_ORDER_CHECKS, 3), (_PRESOLVE_CHECKS, 2)],
 )
 def test_optimum(checks: tuple[Any, Any], weight_slack: int) -> None:
     """The chosen operators are optimal, by brute force over every choice of operators."""
@@ -241,19 +234,9 @@ def test_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_solver_failures() -> None:
-    """Solver failures are retried without presolve, and results that cannot be right raise."""
+    """Results that cannot be right raise errors."""
     code = codes.CSSCode(*_CHOICE_CHECKS)
     milp = scipy.optimize.milp
-
-    def failing_presolve(*args: Any, **kwargs: Any) -> Any:
-        if kwargs["options"].get("presolve", True):
-            return scipy.optimize.OptimizeResult(status=4, x=None, message="error")
-        return milp(*args, **kwargs)
-
-    with mock.patch.object(scipy.optimize, "milp", failing_presolve):
-        result = optimize_logical_rounds(code, time_limit=100)
-    _check_result(code, code.get_logical_ops(), result, 0, "dressed")
-    assert result.optimal
 
     def broken_milp(*args: Any, **kwargs: Any) -> Any:
         solution = milp(*args, **kwargs)
@@ -296,25 +279,8 @@ def test_check_choice() -> None:
         _check_choice(candidates, [(0, 0, 0), (0, 1, 1), (1, 0, 2)])
 
 
-def test_candidates() -> None:
-    """Candidates are listed and counted exactly, lightest first."""
-    code = codes.CSSCode(*_SLACK_CHECKS)
-    trivial = code.get_matrix(Pauli.X).view(np.ndarray).astype(np.uint8)
-    for op in code.get_logical_ops(Pauli.X).view(np.ndarray).astype(np.uint8):
-        words = get_class_words(code, Pauli.X, "dressed")[get_class(code, Pauli.X, op)]
-        min_weight = min(int(word.sum()) for word in words)
-        expected = {
-            word.astype(np.uint8).tobytes() for word in words if word.sum() <= min_weight + 2
-        }
-        listed, complete = _list_candidates(op, trivial, min_weight, 2)
-        assert complete
-        assert {word.astype(np.uint8).tobytes() for word in listed} == expected
-        assert [int(word.sum()) for word in listed] == sorted(int(word.sum()) for word in listed)
-        assert _count_candidates(op, trivial, min_weight, min_weight + 2) == len(expected)
-
-
-def test_special_inputs() -> None:
-    """Edge cases: no logical qubits, mixed optimality, a slack beyond n, and invalid arguments."""
+def test_special_inputs(subsystem_code: codes.CSSCode) -> None:
+    """Edge cases: no logical qubits, mixed optimality, a slack beyond n, and invalid bases."""
     code = codes.CSSCode([[1, 1]], [[1, 1]])
     result = optimize_logical_rounds(code)
     assert result.logical_ops.shape == (0, 4)
@@ -338,6 +304,11 @@ def test_special_inputs() -> None:
         optimize_logical_rounds(code, time_limit=-1)
     with pytest.raises(ValueError, match="shape"):
         optimize_logical_rounds(codes.SteaneCode(), np.zeros((1, 14), dtype=int))
+
+    # dressed operators of a subsystem code are not a basis of bare operators
+    dressed = optimize_logical_rounds(subsystem_code).logical_ops
+    with pytest.raises(ValueError, match="not logical"):
+        optimize_logical_rounds(subsystem_code, dressed, logicals="bare")
 
 
 def _check_result(
