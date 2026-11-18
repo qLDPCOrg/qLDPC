@@ -29,7 +29,7 @@ Point out when a change would be easier to review as a sequence of smaller pull 
 ## Decisions and recommendations
 
 Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
-If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#standard-triage) by name, settle decisions as it describes.
+If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#standard-triage) by name, run it as it describes; settle decisions by it only when they ask you to.
 
 ## Working on a change
 

@@ -2,7 +2,7 @@ Decisions and recommendations
 =============================
 
 Maintainers and agents follow this page; other contributors need not read it.
-It covers adding process, recommendations to whoever decides or to another contributor, a standard format for presenting decisions, and standard triage, in which independent agents' recommendations settle decisions.
+It covers adding process, recommendations to whoever decides or to another contributor, a standard format for presenting decisions, and standard triage, in which independent agents recommend options for decisions, and settle them only when asked to.
 A report of requested work, such as a hand-off or a review's findings with their suggested fixes, is not a recommendation unless it asks its recipient to choose or to take another step.
 
 .. _decisions-adding-process:
@@ -110,10 +110,13 @@ Put supporting detail, such as the evidence for each claim, after the Ask or in 
 Standard triage
 ---------------
 
-Standard triage lets the recommendations of independent agents settle decisions that you would otherwise present to the person you work for.
+Standard triage gathers and reconciles the recommendations of independent agents on decisions that you would otherwise present to the person you work for.
 It applies only when that person asks for it by name, and only to the work that they name, until they end it.
 Their absence, or an unanswered question, never starts it.
-You may tell a subagent to use triage only on work for which you were told to use it.
+
+A request for triage, as in "run standard triage on this decision", asks for steps 1 to 3 below and a report; the person who asked still decides.
+Triage settles a decision, as step 4 describes, only when they ask for that explicitly, as in "make this decision using standard triage".
+You may tell a subagent to use triage only on work for which you were told to use it, and to settle decisions only if you were told to.
 
 For each such decision, or for a few closely related ones together:
 
@@ -126,10 +129,11 @@ For each such decision, or for a few closely related ones together:
    Settle it by evidence, such as the cheapest check that could decide it, or by the principles above, such as the order of values or reversibility.
    If the settlement goes against an agent's recommendation, give that agent the argument and evidence for the settlement, and ask for a reply.
    If any agent still disagrees, or you do, leave the decision open.
-4. If no disagreement remains and the list below does not leave the decision open, take the agreed option and continue the work.
+4. If you were asked to settle the decision, no disagreement remains, and the list below does not leave the decision open, take the agreed option and continue the work.
    Where practical, commit the work for each settled decision on its own, so that it can be reverted alone.
+   Otherwise, the decision stays open.
 
-Triage leaves open each decision to:
+Even when asked to settle decisions, triage leaves open each decision to:
 
 * change, deprecate, or remove a public name, signature, argument, mode, default, or result, except to fix a reproduced bug without changing a public contract;
 * weaken or relabel a guarantee, such as by loosening a test, tolerance, or check, by skipping a test or marking it as expected to fail, or by changing whether a result is exact, a bound, or an estimate;
@@ -145,5 +149,5 @@ For a decision that triage leaves open, stop only the work that it blocks.
 For example, if the fix for a significant finding of a review would change a public default, the review stops as :doc:`reviewing changes <reviewing>` describes, while work on other changes continues.
 
 In the hand-off or the report on the work, present each decision that triage settled or left open as :ref:`the standard format <decisions-standard-format>` section describes, with each agent's initial recommendation, what decided it, and its tension.
-Say how each disagreement was reconciled, or, if it was not, the claim or value on which it turns.
+Say how each disagreement was reconciled, or, if it was not, the claim or value on which it turns; for an open decision on which no disagreement remains, also give the agreed option.
 For a settled decision, also give the option taken and how to undo it, such as the commit to revert.
