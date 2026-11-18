@@ -44,6 +44,13 @@ _BLOCKED = 2**40
 # arguments of the compiled search fewer.
 _LOAD_BASE = 4
 
+# Numba compiles a version of _search_supports for each number of 64-bit words of a syndrome up to
+# this one, and one version for all wider syndromes (see _get_fixed_words).  In each fixed version,
+# the loops over the words have a fixed length that the compiler unrolls.  A version is compiled,
+# and cached, only when a search first needs it, but each takes seconds to compile, so this bound
+# keeps them few.
+_MAX_FIXED_WORDS = 8
+
 # The tables of the overlap cuts of a search, as ``_get_overlap_cuts`` returns them.
 _CutTables = tuple[
     npt.NDArray[np.int64],
@@ -526,6 +533,7 @@ class SupportSearch:
                 limit,
                 # The searches from roots ignore the starting syndrome, and do not memoize.
                 np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
+                _get_fixed_words(self._symbol_masks.shape[1]),
                 False,
                 self._restrict_viable_symbols,
                 *cuts,
@@ -623,6 +631,7 @@ class SupportSearch:
             self._inverse_overlaps,
             int(min(max_weight, self.num_variables)),
             packed_syndrome,
+            _get_fixed_words(len(packed_syndrome)),
             True,
             self._restrict_viable_symbols,
             *self._query_cuts,
@@ -813,6 +822,15 @@ def _get_unique_rows(
     return first_rows.astype(np.int64), positions.astype(np.int64)
 
 
+def _get_fixed_words(num_words: int) -> tuple[int, ...]:
+    """The argument ``fixed_words`` of ``_search_supports`` for syndromes of ``num_words`` words.
+
+    It holds a zero for each word if there are at most ``_MAX_FIXED_WORDS`` words, and is empty
+    otherwise.
+    """
+    return (0,) * num_words if num_words <= _MAX_FIXED_WORDS else ()
+
+
 ####################################################################################################
 # weight limits on threads
 
@@ -952,6 +970,7 @@ def _search_supports(
     inverse_overlaps: npt.NDArray[np.int64],
     max_weight: int,
     start_syndrome: npt.NDArray[np.uint64],
+    fixed_words: tuple[int, ...],
     memoize: bool,
     restrict_viable_symbols: bool,
     cut_symbol_starts: npt.NDArray[np.int64],
@@ -971,9 +990,11 @@ def _search_supports(
     ``1 / k`` in units of ``1 / scale``, rounded down, so entry 1 is the scale.  The search from a
     root uses only variables of higher rank.  A root of -1 starts a syndrome query (Section 3.8)
     from ``start_syndrome``, which is not empty, is packed as a row of ``symbol_masks``, and is
-    ignored by the other roots.  With ``memoize``, each state computes the overlap and repair of
-    each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.  The
-    remaining arguments tabulate the overlap cuts, as ``_get_overlap_cuts`` returns them.
+    ignored by the other roots.  ``fixed_words`` is empty, or has an entry for each word of a row of
+    ``symbol_masks``, as ``_get_fixed_words`` makes it, and numba compiles a version for each of its
+    lengths (see ``_MAX_FIXED_WORDS``).  With ``memoize``, each state computes the overlap and
+    repair of each symbol at most once.  ``restrict_viable_symbols`` is as for ``_get_branches``.
+    The remaining arguments tabulate the overlap cuts, as ``_get_overlap_cuts`` returns them.
 
     The search runs work items in turn, as threads do (Section 3.11).  Item ``i`` is the subtree of
     a state at depth ``P = paths.shape[1]``, which holds ``P`` symbols: from root ``roots[i]``,
@@ -991,15 +1012,26 @@ def _search_supports(
         item, through the item of the witness if there is one, which never includes the empty
         state of a root; and the listed states, one per row, as ``[i, b_0, ..., b_{P}]``, for item
         ``i`` and the branches ``b_d``, through the witness if there is one.
+
+    Raises:
+        ValueError: If ``fixed_words`` is not empty and its length is not the number of words of a
+            row of ``symbol_masks``.
     """
     # Size the stack, and the branches of a state, which include the values of a root.
-    num_symbols, num_blocks = symbol_masks.shape
+    num_symbols = len(symbol_masks)
     num_variables = len(ranks)
     num_values = num_symbols // num_variables
     max_column_weight = len(inverse_overlaps) - 1
     max_branches = num_values
     for check in range(len(check_starts) - 1):
         max_branches = max(max_branches, check_starts[check + 1] - check_starts[check])
+
+    # Loops over the words of a syndrome run num_words times, which a version for a fixed number of
+    # words knows when it is compiled.  Too many words would read past the rows of symbol_masks,
+    # and too few would silently skip unsatisfied checks.
+    num_words = len(fixed_words) if len(fixed_words) else symbol_masks.shape[1]
+    if num_words != symbol_masks.shape[1]:
+        raise ValueError("fixed_words must have an entry for each word of a syndrome, or none")
 
     # A symbol is available if its level is the number of states in the stack that restrict their
     # subtrees, which stays below _BLOCKED.  The level counts those that allow the symbol, plus
@@ -1021,7 +1053,7 @@ def _search_supports(
     # that restricts its subtree sets restricts[depth], since it may allow no symbols, and allows
     # allowances[allowance_starts[depth] : allowance_starts[depth + 1]].  Room for every state to
     # allow every symbol would be large under a large cutoff, so allowances grows as needed.
-    syndromes = np.zeros((max_weight + 1, num_blocks), dtype=np.uint64)
+    syndromes = np.zeros((max_weight + 1, num_words), dtype=np.uint64)
     support = np.empty(max_weight + 1, dtype=np.int64)
     branches = np.empty((max_weight + 1, max_branches), dtype=np.int64)
     num_branches = np.zeros(max_weight + 1, dtype=np.int64)
@@ -1061,6 +1093,7 @@ def _search_supports(
                 levels,
                 num_restrictions,
                 syndromes,
+                num_words,
                 branches,
                 restricts,
                 allowance_starts,
@@ -1145,7 +1178,7 @@ def _search_supports(
                 cut_capacities,
             )
             support[depth] = symbol
-            num_unsatisfied = _xor_and_count(syndromes, depth, symbol_masks, symbol)
+            num_unsatisfied = _xor_and_count(syndromes, num_words, depth, symbol_masks, symbol)
             needed = (num_unsatisfied + max_column_weight - 1) // max_column_weight
             if depth + 1 + needed > max_weight:
                 continue
@@ -1189,6 +1222,7 @@ def _search_supports(
                 levels,
                 num_restrictions,
                 syndromes,
+                num_words,
                 branches,
                 restricts,
                 allowance_starts,
@@ -1213,7 +1247,10 @@ def _search_supports(
     return np.empty(0, dtype=np.int64), item_states, frontier[:num_listed]
 
 
-@always_compiled
+# Unlike the small helpers, _get_branches is long and has two call sites, but inlining it makes each
+# state about 3 to 12 percent cheaper with a fixed number of words, and up to about 6 percent
+# cheaper without, for the cost of compiling its code at both sites.
+@always_compiled(inline=True)
 def _get_branches(
     check_starts: npt.NDArray[np.int64],
     check_symbols: npt.NDArray[np.int64],
@@ -1221,6 +1258,7 @@ def _get_branches(
     levels: npt.NDArray[np.int64],
     available_level: int,
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     branches: npt.NDArray[np.int64],
     restricts: npt.NDArray[np.bool_],
     allowance_starts: npt.NDArray[np.int64],
@@ -1236,8 +1274,9 @@ def _get_branches(
 ) -> int:
     """Choose the branches of the state at ``depth``, whose syndrome is not empty, and count them.
 
-    A symbol is available if its level is ``available_level``.  The support can take ``slack`` more
-    variables.  The weights of the unsatisfied checks are in units of ``1 / inverse_overlaps[1]``.
+    A symbol is available if its level is ``available_level``.  A row of ``syndromes`` has
+    ``num_words`` words.  The support can take ``slack`` more variables.  The weights of the
+    unsatisfied checks are in units of ``1 / inverse_overlaps[1]``.
     Section 3.4 of ``connected_cluster.md`` says when the state is pruned, and when it allows only
     viable symbols in its subtree, which it does only if ``restrict_viable_symbols``.  A state that
     restricts its subtree raises the levels of the symbols that it allows, lists them in
@@ -1250,7 +1289,6 @@ def _get_branches(
     overlap of each symbol, row 1 that overlap, and rows 2 and 3 the same for repairs.  ``stamp`` is
     the stamp of this call, which no other call uses.
     """
-    num_blocks = syndromes.shape[1]
     scale = inverse_overlaps[1]
     memoize = memos.shape[1] > 0
     overlap_stamps, overlaps, repair_stamps, repairs = memos[0], memos[1], memos[2], memos[3]
@@ -1260,26 +1298,36 @@ def _get_branches(
     total_weight = 0
     branch_check = -1
     fewest = check_starts[-1] + 1
-    for block in range(num_blocks):
-        bits = syndromes[depth, block]
+    for word in range(num_words):
+        bits = syndromes[depth, word]
         while bits:
-            check = 64 * block + int(trailing_zeros_word(bits))
+            check = 64 * word + int(trailing_zeros_word(bits))
             bits &= bits - np.uint64(1)
             largest_overlap = 0
             count = 0
-            for position in range(check_starts[check], check_starts[check + 1]):
-                symbol = check_symbols[position]
-                if levels[symbol] == available_level:
-                    if not memoize:
-                        overlap = _get_overlap(syndromes, depth, symbol_masks, symbol)
-                    elif overlap_stamps[symbol] != stamp:
-                        overlap = _get_overlap(syndromes, depth, symbol_masks, symbol)
-                        overlap_stamps[symbol] = stamp
-                        overlaps[symbol] = overlap
-                    else:
-                        overlap = overlaps[symbol]
-                    largest_overlap = max(largest_overlap, overlap)
-                    count += 1
+            if memoize:
+                for position in range(check_starts[check], check_starts[check + 1]):
+                    symbol = check_symbols[position]
+                    if levels[symbol] == available_level:
+                        if overlap_stamps[symbol] != stamp:
+                            overlap = _get_overlap(
+                                syndromes, num_words, depth, symbol_masks, symbol
+                            )
+                            overlap_stamps[symbol] = stamp
+                            overlaps[symbol] = overlap
+                        else:
+                            overlap = overlaps[symbol]
+                        largest_overlap = max(largest_overlap, overlap)
+                        count += 1
+            else:
+                # Without memos, take the overlap of every symbol, and count only the available
+                # ones by a select rather than a branch, which the processor would often mispredict.
+                for position in range(check_starts[check], check_starts[check + 1]):
+                    symbol = check_symbols[position]
+                    available = levels[symbol] == available_level
+                    overlap = _get_overlap(syndromes, num_words, depth, symbol_masks, symbol)
+                    largest_overlap = max(largest_overlap, overlap if available else 0)
+                    count += available
             if count == 0:
                 return 0
             check_weights[check] = inverse_overlaps[largest_overlap]
@@ -1298,10 +1346,10 @@ def _get_branches(
         allowance_end = allowance_starts[depth]
         branch_check = -1
         fewest = check_starts[-1] + 1
-        for block in range(num_blocks):
-            bits = syndromes[depth, block]
+        for word in range(num_words):
+            bits = syndromes[depth, word]
             while bits:
-                check = 64 * block + int(trailing_zeros_word(bits))
+                check = 64 * word + int(trailing_zeros_word(bits))
                 bits &= bits - np.uint64(1)
                 count = 0
                 for position in range(check_starts[check], check_starts[check + 1]):
@@ -1309,11 +1357,11 @@ def _get_branches(
                     if levels[symbol] == available_level:
                         if not memoize:
                             repair = _get_repair(
-                                syndromes, depth, symbol_masks, symbol, check_weights
+                                syndromes, num_words, depth, symbol_masks, symbol, check_weights
                             )
                         elif repair_stamps[symbol] != stamp:
                             repair = _get_repair(
-                                syndromes, depth, symbol_masks, symbol, check_weights
+                                syndromes, num_words, depth, symbol_masks, symbol, check_weights
                             )
                             repair_stamps[symbol] = stamp
                             repairs[symbol] = repair
@@ -1341,9 +1389,9 @@ def _get_branches(
         if levels[symbol] != available_level:
             continue
         if not memoize:
-            repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+            repair = _get_repair(syndromes, num_words, depth, symbol_masks, symbol, check_weights)
         elif repair_stamps[symbol] != stamp:
-            repair = _get_repair(syndromes, depth, symbol_masks, symbol, check_weights)
+            repair = _get_repair(syndromes, num_words, depth, symbol_masks, symbol, check_weights)
             repair_stamps[symbol] = stamp
             repairs[symbol] = repair
         else:
@@ -1411,31 +1459,39 @@ def _shift_cut_loads(
 @always_compiled(inline=True)
 def _get_overlap(
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     depth: int,
     symbol_masks: npt.NDArray[np.uint64],
     symbol: int,
 ) -> int:
-    """The number of unsatisfied checks that a symbol flips, in the syndrome at a depth."""
+    """The number of unsatisfied checks that a symbol flips, in the syndrome at a depth.
+
+    A row of ``syndromes`` has ``num_words`` words.
+    """
     count = 0
-    for block in range(syndromes.shape[1]):
-        count += int(popcount_word(syndromes[depth, block] & symbol_masks[symbol, block]))
+    for word in range(num_words):
+        count += int(popcount_word(syndromes[depth, word] & symbol_masks[symbol, word]))
     return count
 
 
 @always_compiled(inline=True)
 def _get_repair(
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     depth: int,
     symbol_masks: npt.NDArray[np.uint64],
     symbol: int,
     check_weights: npt.NDArray[np.int64],
 ) -> int:
-    """The total weight of the unsatisfied checks that a symbol flips, at a depth."""
+    """The total weight of the unsatisfied checks that a symbol flips, at a depth.
+
+    A row of ``syndromes`` has ``num_words`` words.
+    """
     repair = 0
-    for block in range(syndromes.shape[1]):
-        bits = syndromes[depth, block] & symbol_masks[symbol, block]
+    for word in range(num_words):
+        bits = syndromes[depth, word] & symbol_masks[symbol, word]
         while bits:
-            repair += check_weights[64 * block + int(trailing_zeros_word(bits))]
+            repair += check_weights[64 * word + int(trailing_zeros_word(bits))]
             bits &= bits - np.uint64(1)
     return repair
 
@@ -1443,18 +1499,20 @@ def _get_repair(
 @always_compiled(inline=True)
 def _xor_and_count(
     syndromes: npt.NDArray[np.uint64],
+    num_words: int,
     depth: int,
     symbol_masks: npt.NDArray[np.uint64],
     symbol: int,
 ) -> int:
     """Set the syndrome at ``depth + 1`` to that at ``depth`` plus a symbol, and return its size.
 
-    The size of a syndrome is its number of unsatisfied checks.
+    A row of ``syndromes`` has ``num_words`` words, and the size of a syndrome is its number of
+    unsatisfied checks.
     """
     count = 0
-    for block in range(syndromes.shape[1]):
-        syndromes[depth + 1, block] = syndromes[depth, block] ^ symbol_masks[symbol, block]
-        count += int(popcount_word(syndromes[depth + 1, block]))
+    for word in range(num_words):
+        syndromes[depth + 1, word] = syndromes[depth, word] ^ symbol_masks[symbol, word]
+        count += int(popcount_word(syndromes[depth + 1, word]))
     return count
 
 

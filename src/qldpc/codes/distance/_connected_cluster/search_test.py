@@ -838,6 +838,7 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
             search._inverse_overlaps,
             2,
             packed,
+            cs._get_fixed_words(len(packed)),
             True,
             restrict_viable_symbols,
             *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
@@ -1037,6 +1038,110 @@ def test_the_logical_test_reads_every_block() -> None:
     search._test_columns = np.hstack([zeros, search._test_columns])
     witness = search.find_witness(3)
     assert witness is not None and is_witness(problem, witness)
+
+
+@pytest.mark.parametrize("symplectic", [False, True])
+def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
+    monkeypatch: pytest.MonkeyPatch, pytestconfig: pytest.Config, symplectic: bool
+) -> None:
+    """The version of the search for two-word syndromes and the general version search alike.
+
+    They find the same witnesses and vectors with a syndrome, and visit the same states.  The
+    problems are the X sector of the distance-13 surface code and the distance-7 surface code with
+    Hadamards on half of its qubits, whose syndromes have two words.  With ``_MAX_FIXED_WORDS`` set
+    to one, these syndromes are wider than it, so they take the general version.  The limits at and
+    below the distance run on one thread and on three, and the queries on one.  On one thread, every
+    call of the compiled search returns the same with either version.
+    """
+    # A small number of words gets a version of its own, and a large one the general version.
+    assert cs._get_fixed_words(1) == (0,)
+    assert cs._get_fixed_words(4 * cs._MAX_FIXED_WORDS) == ()
+
+    if symplectic:
+        distance = 7
+        code = codes.SurfaceCode(distance)
+        problem = get_qubit_problem(codes.QuditCode(code.conjugated(range(0, len(code), 2)).matrix))
+    else:
+        distance = 13
+        code = codes.SurfaceCode(distance)
+        problem = (np.asarray(code.matrix_z, np.uint8), np.asarray(code.matrix_x, np.uint8))
+    checks = problem[0]
+    width = checks.shape[1]
+    num_variables = width // 2 if symplectic else width
+    products = np.roll(checks, num_variables, axis=1) if symplectic else checks
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    syndromes = [
+        products @ get_vector(rng.choice(width, 2, replace=False), width, False) % 2
+        for _ in range(3)
+    ]
+
+    # Record what each call of the compiled search returns, and the length of its fixed_words, which
+    # is zero for the general version.
+    calls: list[tuple[int, list[int], list[int]]] = []
+    search_supports = cs._search_supports
+
+    def record(*args: Any) -> tuple[npt.NDArray[np.int64], ...]:
+        result = search_supports(*args)
+        fixed_words = args[11]
+        calls.append((len(fixed_words), result[0].tolist(), result[1].tolist()))
+        return result
+
+    monkeypatch.setattr(cs, "_search_supports", record)
+    results = []
+    for max_fixed_words, expected_length in [(cs._MAX_FIXED_WORDS, 2), (1, 0)]:
+        monkeypatch.setattr(cs, "_MAX_FIXED_WORDS", max_fixed_words)
+        for num_threads in (1, 3):
+            calls.clear()
+            search = get_search(
+                *problem, symplectic=symplectic, num_threads=num_threads, split_minimum_states=-1
+            )
+            no_witness, witness = map(search.find_witness, (distance - 1, distance))
+            assert no_witness is None and witness is not None and len(witness) == distance
+            vectors = []
+            for syndrome in syndromes:
+                symbols = search.find_vector_with_syndrome(syndrome, 2)
+                assert symbols is not None and len(symbols) <= 2
+                vector = get_vector(symbols, width, symplectic)
+                assert np.array_equal(products @ vector % 2, syndrome)
+                vectors.append(symbols.tolist())
+            assert {length for length, _, _ in calls} == {expected_length}
+            # Threads may or may not run the items after a witness, in any order.
+            returned = [call[1:] for call in calls] if num_threads == 1 else None
+            results.append((returned, witness.tolist(), search.num_states, vectors))
+    assert results[0] == results[2] and results[1] == results[3]
+    assert results[0][1:] == results[1][1:]
+
+
+def test_a_wrong_number_of_fixed_words_is_rejected() -> None:
+    """A version for a number of words of a syndrome is never run on syndromes of other widths.
+
+    Steane's checks have syndromes of one word, and the X sector of the distance-13 surface code
+    syndromes of two, which are given too many and too few fixed words.
+    """
+    surface = codes.SurfaceCode(13)
+    surface_x = (np.asarray(surface.matrix_z, np.uint8), np.asarray(surface.matrix_x, np.uint8))
+    for problem, fixed_words in [(PROBLEMS["steane-X"], (0, 0)), (surface_x, (0,))]:
+        search = get_search(*problem)
+        num_words = search._symbol_masks.shape[1]
+        assert len(fixed_words) != num_words
+        with pytest.raises(ValueError, match="fixed_words"):
+            cs._search_supports(
+                search._check_starts,
+                search._check_symbols,
+                search._symbol_masks,
+                search._test_columns,
+                search._roots,
+                np.empty((len(search._roots), 0), dtype=np.int64),
+                0,
+                search._ranks,
+                search._inverse_overlaps,
+                3,
+                np.zeros(num_words, dtype=np.uint64),
+                fixed_words,
+                False,
+                True,
+                *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
+            )
 
 
 def get_random_qubit_problems(rng: np.random.Generator, num_problems: int) -> Iterator[Problem]:
@@ -1792,6 +1897,7 @@ def test_a_syndrome_query_leaves_no_state_for_later_roots() -> None:
             search._inverse_overlaps,
             2,
             cs.pack_bits(np.array([syndrome], dtype=np.uint8))[0],
+            cs._get_fixed_words(1),
             True,
             True,
             *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
@@ -1835,6 +1941,7 @@ def test_memoizing_changes_no_result_or_count_of_states(name: str) -> None:
                     search._inverse_overlaps,
                     max_weight,
                     packed,
+                    cs._get_fixed_words(len(packed)),
                     memoize,
                     True,
                     *cs._get_overlap_cuts(search._excluded, search._ranks, search._symplectic),
