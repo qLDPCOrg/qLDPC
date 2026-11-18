@@ -7,7 +7,8 @@ checks ``H`` and are outside the row space of ``G``, or that have a given syndro
 supports through unsatisfied checks.  It is the connected-cluster algorithm of Dumer, Kovalev, and
 Pryadko, with the branch and bound of Okada and Kasai.  ``connected_cluster.md`` in
 ``src/qldpc/codes/distance/`` derives the search, cites its sources, and states its correctness
-requirements.
+requirements.  These include requirements on threads, since several threads run ``_search_supports``
+at once, to search a costly weight limit or to answer several queries (Sections 3.11 and 5).
 """
 
 from __future__ import annotations
@@ -42,6 +43,16 @@ _BLOCKED = 2**40
 # ``_LOAD_BASE * i + l`` (see _get_overlap_cuts), so that each table is one array, which keeps the
 # arguments of the compiled search fewer.
 _LOAD_BASE = 4
+
+# The tables of the overlap cuts of a search, as ``_get_overlap_cuts`` returns them.
+_CutTables = tuple[
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+    npt.NDArray[np.int64],
+]
 
 
 ####################################################################################################
@@ -399,14 +410,12 @@ class SupportSearch:
         # nothing.  Map each given check to the kept check that equals it, or to -1 if it is zero;
         # ``rank_of_unique`` maps each of the sorted unique rows to its position among kept checks.
         nonzero_rows = np.flatnonzero(np.any(checks, axis=1))
-        _, first_rows, unique_index_of_row = np.unique(
-            checks[nonzero_rows], axis=0, return_index=True, return_inverse=True
-        )
+        first_rows, unique_index_of_row = _get_unique_rows(checks[nonzero_rows])
         order = np.argsort(first_rows)
         rank_of_unique = np.argsort(order)
         self._checks = checks[nonzero_rows[first_rows[order]]]
         self._kept_index_of_check = np.full(len(checks), -1, dtype=np.int64)
-        self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row.ravel()]
+        self._kept_index_of_check[nonzero_rows] = rank_of_unique[unique_index_of_row]
 
         # The search also branches on and weighs the sums of the pairs of kept checks in
         # ``summed_pairs``, which follow the kept checks (Section 3.4 of connected_cluster.md).
@@ -452,7 +461,11 @@ class SupportSearch:
             sums, _ = get_light_pair_sums(light_words, symplectic=symplectic)
             self._witness_words = np.vstack([excluded, sums])
         self._query_words = np.zeros((0, checks.shape[1]), dtype=np.uint8)
-        self._build_overlap_cuts()
+        # find_witness tabulates its cuts at its first weight limit.  use_query_overlap_words and
+        # _tabulate_query_cuts tabulate the cuts of queries; otherwise find_vector_with_syndrome
+        # does so at its first query.  Each search tabulates only the kind it uses.
+        self._cuts: _CutTables | None = None
+        self._query_cuts: _CutTables | None = None
 
     @property
     def has_witnesses(self) -> bool:
@@ -486,6 +499,14 @@ class SupportSearch:
             automorphisms, self._get_automorphisms = self._get_automorphisms(), None
             if automorphisms is not None:
                 self._use_automorphisms(automorphisms)
+        # Tabulate the cuts of the known words under the current ranks, if they are not tabulated,
+        # before any thread starts, so that threads only read the search.
+        if self._cuts is None:
+            words = self._witness_words
+            if not self._stabilizer_overlap_cuts:
+                words = words[:0]
+            self._cuts = _get_overlap_cuts(words, self._ranks, self._symplectic)
+        cuts = self._cuts
         limit = int(min(max_weight, self.num_variables))
 
         def search(
@@ -507,7 +528,7 @@ class SupportSearch:
                 np.zeros(self._symbol_masks.shape[1], dtype=np.uint64),
                 False,
                 self._restrict_viable_symbols,
-                *self._cuts,
+                *cuts,
             )
 
         # A limit without a witness counts the states of every root, which weigh the work of the
@@ -568,6 +589,8 @@ class SupportSearch:
             return None
         if not np.any(kept_syndrome):
             return np.empty(0, dtype=np.int64)
+        if self._query_cuts is None:
+            self._tabulate_query_cuts()
         packed_syndrome = pack_bits(kept_syndrome[None])[0]
         return self._find_vector_with_packed_syndrome(packed_syndrome, max_weight)[0]
 
@@ -579,7 +602,10 @@ class SupportSearch:
         ``packed_syndrome`` has one bit for each kept check, packed as ``pack_bits`` packs a row.
         The kept checks are the rows of ``checks`` without zero rows and later copies, in order, so
         independent checks are all kept.  Also returns the number of states that the search visited.
+        The cuts of queries must be tabulated already (see ``_tabulate_query_cuts``), and the query
+        only reads the search, so that queries can run on threads.
         """
+        assert self._query_cuts is not None
         # The syndrome of a sum of two checks is the sum of their syndromes.
         if len(self._summed_pairs):
             bits = unpack_bits(packed_syndrome[None], len(self._checks))[0]
@@ -644,7 +670,9 @@ class SupportSearch:
         cuts of syndrome queries are exact for any words (Section 3.8 of ``connected_cluster.md``),
         and help most with light ones.  ``find_witness`` does not use these words, since its cuts
         are exact only for words in the row space of ``excluded`` (Section 3.4).  The cuts do
-        nothing unless ``stabilizer_overlap_cuts`` is set.
+        nothing unless ``stabilizer_overlap_cuts`` is set.  Call this method only while no query or
+        search of this object runs, as the constructor of ``CosetLeaderSearch`` does, since it
+        rebuilds the cuts that threads read (Section 3.11).
 
         Raises:
             ValueError: If the words are not a binary matrix as wide as the checks, or do not
@@ -657,22 +685,19 @@ class SupportSearch:
         if np.any(multiply_binary(self._checks, words.T)):
             raise ValueError("The words must satisfy the checks")
         self._query_words = np.vstack([self._query_words, words])
-        self._build_overlap_cuts()
+        # Tabulate the cuts now, so that the queries after this call only read the search.
+        self._tabulate_query_cuts()
 
-    def _build_overlap_cuts(self) -> None:
-        """Tabulate the overlap cuts of ``find_witness`` and of queries, under the current ranks.
+    def _tabulate_query_cuts(self) -> None:
+        """Tabulate the overlap cuts of queries under the current ranks.
 
-        The cuts of ``find_witness`` use the rows of ``excluded``, with ``pair_sum_checks`` also
-        light sums of pairs of them, and those of queries use the rows of ``excluded`` and the
-        words that ``use_query_overlap_words`` adds.  Without ``stabilizer_overlap_cuts``, neither
-        has any cuts.
+        The cuts use the rows of ``excluded`` and the words that ``use_query_overlap_words`` adds,
+        and there are none without ``stabilizer_overlap_cuts``.
         """
-        witness_words = self._witness_words
-        query_words = np.vstack([self._excluded, self._query_words])
+        words = np.vstack([self._excluded, self._query_words])
         if not self._stabilizer_overlap_cuts:
-            witness_words = query_words = witness_words[:0]
-        self._cuts = _get_overlap_cuts(witness_words, self._ranks, self._symplectic)
-        self._query_cuts = _get_overlap_cuts(query_words, self._ranks, self._symplectic)
+            words = words[:0]
+        self._query_cuts = _get_overlap_cuts(words, self._ranks, self._symplectic)
 
     def _use_automorphisms(self, automorphisms: npt.NDArray[np.int_]) -> None:
         """Verify automorphisms, and search only from the least variable of each of their orbits.
@@ -696,20 +721,16 @@ class SupportSearch:
         self._root_states = None
         self._ranks = np.empty(self.num_variables, dtype=np.int64)
         self._ranks[np.argsort(orbits, kind="stable")] = np.arange(self.num_variables)
-        # A cut can leave out the lowest-ranked variable of its word, which the new ranks can move.
-        self._build_overlap_cuts()
+        # A cut can leave out the lowest-ranked variable of its word, which the new ranks can move,
+        # so find_witness tabulates its cuts again, and tabulated cuts of queries are replaced now.
+        self._cuts = None
+        if self._query_cuts is not None:
+            self._tabulate_query_cuts()
 
 
 def _get_overlap_cuts(
     words: npt.NDArray[np.uint8], ranks: npt.NDArray[np.int64], symplectic: bool
-) -> tuple[
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-]:
+) -> _CutTables:
     """Tabulate the overlap cuts of known words for ``_search_supports``.
 
     The cut of a word ``g`` limits the load of a support on ``g``, which a support passes if the
@@ -732,7 +753,7 @@ def _get_overlap_cuts(
     # the words of weight at least two.
     num_variables = len(ranks)
     num_values = 3 if symplectic else 1
-    words = np.unique(words, axis=0)
+    words = words[_get_unique_rows(words)[0]]
     if symplectic:
         part_x, part_z = words[:, :num_variables], words[:, num_variables:]
         supports = part_x | part_z
@@ -773,6 +794,23 @@ def _get_overlap_cuts(
         capacities,
         symbols[loads > capacities[cuts]].astype(np.int64),
     )
+
+
+def _get_unique_rows(
+    matrix: npt.NDArray[np.uint8],
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """The distinct rows of a binary matrix, as ``np.unique(matrix, axis=0)`` finds them.
+
+    Returns:
+        The index of the first copy of each distinct row, with the distinct rows in increasing
+        order, and the position of each row among the distinct rows.
+    """
+    # Rows packed with their first column in the highest bit, and compared as byte strings, sort
+    # as the rows do, and tens of times faster than np.unique, which compares columns one by one.
+    packed = np.ascontiguousarray(np.packbits(matrix, axis=1))
+    keys = packed.view(np.dtype((np.void, packed.shape[1]))).ravel()
+    _, first_rows, positions = np.unique(keys, return_index=True, return_inverse=True)
+    return first_rows.astype(np.int64), positions.astype(np.int64)
 
 
 ####################################################################################################

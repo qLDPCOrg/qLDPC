@@ -181,12 +181,13 @@ The connected-cluster engine of DistQLDPC adds them by default, up to four times
 The sums made the searches of quantum Tanner codes visit 5 to 8 times fewer states and take 2 to 4 times less time, the most for one with Hadamards on half of its qubits, which is not CSS.
 They made the searches of some random codes with dense checks, CSS and not, take about a sixth to two fifths less time.
 They made the search of the `[[47, 1, 11]]` quantum quadratic-residue code visit about a third fewer states, but take about a third longer.
-They made the searches of color codes visit up to about 40 percent fewer states, but take up to a few milliseconds longer.
+They made the searches of color codes visit up to about 40 percent fewer states, and changed their time by under about a millisecond either way: about as long for the code of distance 9, and about a tenth less for the code of distance 13.
 Without the bound on their total weight, the searches of quantum Tanner codes were faster still, but those of codes with dense checks took up to about 7 times longer.
 Two checks of a bivariate bicycle or pair-partition code, or of a toric code, share too few variables for a light sum, so their searches do not change.
-Surface codes have a few light sums at their boundaries, which changed their searches by about one percent in states and a few milliseconds in time.
+Surface codes have a few light sums at their boundaries, which changed their searches by about one percent in states and under a millisecond in time.
 Setting `pair_sum_checks` of `SearchTuning` in `_tuning.py` to `False` turns the sums off, and the search stays exact.
 
+Every pruning rule must also keep the requirements on threads of [Section 5](#5-correctness-requirements), since threads search a costly weight limit by rebuilding each state from its path, and answer several syndrome queries of one search at once ([Section 3.11](#311-threads)).
 [Section 3.10](#310-techniques-not-used) explains why qLDPC does not use some stronger bounds, forbidding rules, and lookups of other tools.
 
 ### 3.5 Symmetries
@@ -204,11 +205,12 @@ Without symmetries, every variable is a root, ranked by its index.
 Okada and Kasai write the variables of a pair-partition code as `(ℓ, a)`, for a block column `ℓ` and a position `a` modulo the lift size `P`, search from the roots `(ℓ, 0)` of the orbits under cyclic translations of `a`, and rank `(ℓ, a)` by `ℓP + a`; their implementation uses these roots only if `P` is prime and `W < P`.
 qLDPC takes the orbits of any group of automorphisms that it verifies.
 
-The generators of `Γ` are automorphisms that the caller of a distance function supplies on request, such as the `_found_qudit_automorphisms` of quantum codes; classical codes supply none.
+The generators of `Γ` are automorphisms that the caller of a distance function supplies on request, such as the `_found_qudit_automorphisms` of quantum codes and the `_found_bit_automorphisms` of binary classical codes.
 For a large code, finding the automorphisms, verifying them, and ordering their orbits can cost as much as visiting many states.
 So the search of each sector asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
 That field of `SearchTuning` in `_tuning.py` defaults to a round number of states assumed to cost about as much to visit as asking.
 The search predicts the number of states of the next limit from the ratio between the numbers of the last two.
+These numbers are those of one thread on any number of threads, and a prediction must read nothing that depends on the threads ([Sections 3.11](#311-threads) and [5](#5-correctness-requirements)).
 The search predicts rather than counts because it can ask only between limits, and the limit in which it would reach `automorphism_minimum_states` can be a large part of the search.
 A first limit that a `cutoff` sets above the weight divisor ([Section 3.6](#36-from-a-search-to-the-distance)) has no prediction, so the search asks before it.
 A first limit at the divisor, the cheapest ([Section 2](#2-what-the-cost-of-the-search-depends-on)), is treated as visiting no states, so the search asks before it only if `automorphism_minimum_states` is zero.
@@ -320,6 +322,8 @@ The roots, the forbidding of variables of lower rank than the root, the symmetri
 It searches Pauli errors for the physical weight, but the CSS weight `max(|a|, |b|)` of an error `(a | b)` is not a sum over qubits, so it supports that weight only on a CSS state, where it searches the X and Z parts of errors separately, and raises a `ValueError` on any other state.
 Its one or two coset searches, each a `ConnectedClusterCosetSearch` in `_connected_cluster/coset.py`, take checks that can be dense ([Section 2](#2-what-the-cost-of-the-search-depends-on)), such as the row-reduced stabilizers that `certify_bounded_fault_propagation` passes, or the parts of pure-X and pure-Z stabilizers that `CosetLeaderSearch` row-reduces for the CSS weight.
 So each replaces its checks with sparser checks of the same span, and maps the syndrome of each query to them.
+Batches run the queries of one coset search on several threads at once ([Section 3.11](#311-threads)), and so can callers that share a `CosetLeaderSearch` (section "Threads" of [README.md](README.md#threads)).
+So a query only reads its coset search and the tables of its `SupportSearch` ([Section 5](#5-correctness-requirements)).
 
 The sparsest such checks are a lightest basis of the span, which the greedy algorithm for matroids finds by taking, again and again, the lightest word outside the span of those taken; but each step would be an exact search, whose cost grows quickly with the weight of the word.
 So `get_sparser_rows` of `_connected_cluster/sparse_checks.py` instead takes candidates from row reductions in random orders of the columns, and keeps a lightest basis of the candidates and the current checks, so that their total weight never rises.
@@ -455,6 +459,7 @@ Best-first variants would also replace the depth-first search of each limit, on 
 ### 3.11 Threads
 
 A costly weight limit of a distance search runs on `num_threads` threads of `SearchTuning`, which share the read-only tables of the search; the section "Threads" of [README.md](README.md#threads) says how to set their number.
+The overlap cuts ([Section 3.4](#34-pruning)) are among these tables: a distance search tabulates them at the start of its first weight limit, and again at the start of the limit at which symmetries change the ranks ([Section 3.5](#35-symmetries)), each time before the threads of that limit start.
 The threads give the same witness and count of states as a search on one thread, so that the decisions that depend on them, such as when to ask for symmetries ([Section 3.5](#35-symmetries)), the growth of the states, and the switch of `method="auto"` (section "Choosing a method" of [README.md](README.md)), do not depend on the number of threads.
 
 **Work items.**
@@ -497,6 +502,7 @@ By the predictions of [Section 3.5](#35-symmetries), a first limit that a `cutof
 **Syndrome queries.**
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs on one thread.
 The batch queries of `CosetLeaderSearch` instead move the rest of a batch to threads, by syndromes, once their queries on the calling thread have visited `num_threads * 2**information_set_batch_exponent` states, and give the answers of one thread (section "The coset-leader search" of [README.md](README.md#the-coset-leader-search)).
+A coset search tabulates the overlap cuts of its queries when it is built or given words, so the threads of a batch only read the search.
 
 ## 4. Guide to the source code
 
@@ -567,6 +573,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
 - **Keep the span of the stabilizers of a subsystem code exactly** ([Section 3.9](#39-sparser-stabilizers-of-subsystem-codes)): a smaller span would admit words that anticommute with a stabilizer, and a larger one would miss dressed logical operators; redundant rows need no map.
 - **On threads, give the same witness and count of states as a search on one thread, and give the batches of `CosetLeaderSearch` the answers of one thread, including the first index of a syndrome without an error within `max_weight`** ([Section 3.11](#311-threads)): replay the path of each work item exactly, run every item before the first with a witness in full, and count the states above the frontier once.
   The decisions that depend on these counts would otherwise depend on the number of threads.
+  So of what a limit leaves, decisions must read only its witness and count of states, and the states of each root only after a limit without a witness, since on threads the items after the first witness may or may not have run.
   In `_connected_cluster/search_test.py`, `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread`, `test_distance_searches_on_threads_take_the_steps_of_one_thread`, and `test_each_support_is_visited_once_above_its_least_variable` compare limits on threads with one thread, including a witness above the frontier and in the first and last items.
   `test_limits_on_threads_keep_the_first_witness_in_dfs_order` checks the first witness in either order of the threads, and `test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit` checks that a thread searches no later item of its range once an earlier item has a witness or an error.
   In `coset_leaders_test.py`, `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` and `test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_first` compare the batches on threads with one thread.
@@ -577,6 +584,8 @@ Changes to the search can use other bounds and orders, but must keep these requi
   - **Keep `_search_supports` writing only to arrays that it allocates**, and never to the tables of the search, since threads run it without the global interpreter lock.
     The other code that threads run writes only its own entries of shared results, such as the counts of states of its items and the weights of its rows, or writes under a lock, as when it records a witness or a syndrome without an error in reach.
     Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`).
+  - **Build the tables of the overlap cuts on the calling thread before a limit splits or a batch of coset queries runs**, so that threads and queries only read them, and tabulate them again when symmetries change the ranks ([Section 3.11](#311-threads)).
+    `test_limits_cut_with_the_latest_tables_tabulated_before_their_threads` in `_connected_cluster/search_test.py` checks that each limit searches with the latest tables, and `test_connected_cluster_queries_only_read_their_search` in `_connected_cluster/coset_test.py` checks that queries tabulate no cuts.
 - **Return the exact minimum unless a cutoff permits an early exit**: the limits rise one divisor at a time, so that the first witness is a lightest one, and an early exit returns the weight of a known witness, an upper bound.
 
 ## References

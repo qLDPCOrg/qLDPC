@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first."""
+"""Connected-cluster coset searches of ``CosetLeaderSearch``, with checks made sparser first.
+
+Several threads can run the queries of a coset search at once, as Section 3.8 of
+``connected_cluster.md`` says, and a change must keep the requirements on threads of its Section 5.
+"""
 
 from __future__ import annotations
 
@@ -94,6 +98,8 @@ class ConnectedClusterCosetSearch:
             # Sums of pairs of checks made queries slower (Section 3.8 of connected_cluster.md).
             pair_sum_checks=False,
         )
+        # Tabulate the cuts of queries now, so that queries only read the search.
+        self._search._tabulate_query_cuts()
         # For ``rows``, word ``j`` of ``get_unit_syndrome_words`` has a syndrome of only bit ``j``,
         # so the words of the set bits of a syndrome sum to a representative of its coset.
         syndrome_rows = swap_pauli_halves(rows) if symplectic else rows
@@ -114,7 +120,8 @@ class ConnectedClusterCosetSearch:
 
         Such words are stabilizers, for example.  The cuts do nothing until this method gives them
         words.  The words are in the representation of the checks (see
-        ``SupportSearch.use_query_overlap_words``).
+        ``SupportSearch.use_query_overlap_words``).  Call it only before any query runs, as the
+        constructor of ``CosetLeaderSearch`` does, since queries on other threads read the cuts.
         """
         self._search.use_query_overlap_words(words)
 

@@ -18,7 +18,7 @@ Code constructions
 * Add a linked literature reference and document the field, subsystem, distance, and validation assumptions in the class docstring.
 * Add co-located tests with independent invariants: rank-derived dimension, CSS orthogonality, symplectic commutation, row-space identities, known small distances, or exact cross-family equivalence.
   Do not validate construction-supplied or cached parameters by reading those same values back.
-* If the construction of a quantum code comes with a group of qudit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` to return generators of that group, as ``MBCode._get_qudit_automorphisms`` does.
+* If the construction of a code comes with a group of qudit or bit permutations that preserve the code, consider overriding ``_get_qudit_automorphisms`` or ``_get_bit_automorphisms`` to return generators of that group, as ``MBCode._get_qudit_automorphisms`` and ``CyclicCode._get_bit_automorphisms`` do.
   Prove that each generator maps the row space of the parity check matrix onto itself, and test that it does.
   For a CSS code, prove this for the row spaces of both ``matrix_x`` and ``matrix_z``.
   Give the proof in the docstring of the override or of a function that it calls, directly or through other functions, unless the :ref:`writing standard <writing-documentation>` puts the proof in a guide.

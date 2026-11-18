@@ -137,13 +137,17 @@ So bliss misses a permutation that swaps the row spaces but does not map the two
 Without pybliss, the lookup finds only the identity.
 A search that misses a permutation searches both sectors, and its result stays the same.
 `maps_sectors` checks every candidate from bliss by rank tests over GF(2) before a search uses it.
+The fixed candidates below skip these tests, since the lookup accepts one only if it maps the two lists onto each other, which already makes it swap the row spaces.
 Brute force never looks, so that it searches each sector as given: it is meant for small codes and for independent checks of the other methods, and `auto` takes it only when enumerating the sectors is cheap.
 
 Cheap necessary tests come before the costly steps.
 Unequal ranks rule out every permutation.
 A few random words of `rowspan(G_Z)` test whether `rowspan(G_X)` may hold `rowspan(G_Z)` before the rank test of the identity, and the weights of the gauge generators and the X-degrees and Z-degrees of the qubits must match under swapped colors before bliss runs.
+If pybliss is installed, the lookup first tries the reversal of the qubits, a cyclic shift by half of them, and a quarter turn of a square grid of qubits, as fixed candidates, and takes the first that maps the two lists of nonzero gauge generators onto each other, as the permutation of an isomorphism that bliss would find does.
+It tries them only with pybliss, since each stands in for a map that bliss would find.
+The reversal maps the lists of bivariate bicycle and generalized bicycle codes onto each other, so for them the lookup does not run bliss.
 The lookup takes milliseconds on codes of hundreds of qubits.
-On codes of thousands of qubits, it takes tens of milliseconds when the cheap tests reject, about a tenth of a second when it ends in the identity, and up to about a second when bliss runs.
+On codes of thousands of qubits, it takes tens of milliseconds when the cheap tests reject, about a tenth of a second when it ends in the identity, and up to a few tenths of a second when bliss runs.
 The switch `sector_maps` of `SearchTuning` turns the lookup off (see the docstring of `_tuning.py`).
 Code classes that promise equal distances with `promise_equal_distance_xz`, such as `BBCode`, search one sector already through `CSSCode.get_distance_exact`; this lookup covers other codes, and the functions that take matrices.
 
@@ -220,6 +224,8 @@ A better rule could use:
 - more features of the sectors, such as the weights of their checks.
 
 It could also resume the probe rather than start a new BZ search.
+It must read from a search only what is the same on any number of threads, as Section 5 of each guide requires ("Decide only from what a layer leaves the same on any number of threads" in `brouwer_zimmermann.md`).
+For example, the counts of supports that a BZ layer on threads weighs and skips depend on the timing of its threads, but the predictions of its completion tables do not.
 To check a refinement, record its choice and its predicted cost for each code before you time it, and then time it on codes other than those it was designed on, against each method alone.
 A refinement should never make a choice that is much slower, in absolute time, than the one it replaces.
 
@@ -317,8 +323,8 @@ Two decorators in `src/qldpc/_compilation.py` mark them, and its docstring says 
   A small helper that hot loops call, such as `advance_support`, is marked `@always_compiled(inline=True)`, so that compiled callers include its code rather than pay for a call.
 - `@compiled_on_request` marks parts of the set-up of searches, which run as plain Python unless a program calls `compile_search_setup()`.
 
-An entry point that several threads run at once, such as `scan_set_items` in `_brouwer_zimmermann/affine_search.py` or `_search_supports` in `_connected_cluster/search.py`, is marked `@always_compiled(nogil=True)`, so that its compiled code runs without Python's global interpreter lock.
-The docstring of `src/qldpc/_compilation.py` states the rule for using it.
+An entry point that several threads run at once, such as `scan_set_items` in `_brouwer_zimmermann/affine_search.py` or `_search_supports` in `_connected_cluster/search.py`, is marked `@always_compiled(nogil=True)`, so that its compiled code, and every compiled function that it calls, runs without Python's global interpreter lock.
+The docstring of `src/qldpc/_compilation.py` states the rules for that code.
 
 Numba looks up the functions that compiled code calls when compiling it, so compiled code may call NumPy and compiled functions, but not plain Python functions of qLDPC.
 Tests in `src/qldpc/_compiled_code_rules_test.py` check further rules, and the name of a failing test says which one was broken.
@@ -337,4 +343,6 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
 - A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads in Section 5 of the guide of each method, and pass the tests on threads that the guide lists.
+  So must a change to data that threads read, such as completion tables, the routes of coset searches, and the tables of a connected-cluster search, or to a decision that a search makes from the results of a layer or a weight limit.
+  Code that threads run reads the tuning only from its search, never through `get_tuning()`, since new threads start with the default tuning (see the module docstring of `_tuning.py`).
 - `_readme_test.py` fails if this page omits a module, or names a file that does not exist.

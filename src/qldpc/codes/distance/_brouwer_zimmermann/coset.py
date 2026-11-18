@@ -3,7 +3,9 @@
 """Brouwer-Zimmermann coset searches of ``CosetLeaderSearch``: the cosets of one binary code.
 
 Sections cited in this module are those of ``brouwer_zimmermann.md``, whose Sections 3.9, 3.10,
-and 4.1 explain these searches.
+and 4.1 explain these searches.  The batch loops run on several threads at once, and so can the
+queries of callers that share a search.  A change here must keep the requirements on threads under
+"Keep coset queries reproducible" in Section 5, and Section 4.1 says which buffers each call writes.
 """
 
 from __future__ import annotations
