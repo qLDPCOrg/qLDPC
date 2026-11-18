@@ -5,44 +5,69 @@
     python analyze.py (--archive PATH | --label-dir DIR) --certification-archive PATH [--out DIR]
 
 The analysis is descriptive: tables with first-order standard errors, which are not confidence
-bounds, and the outcome of the Phi_cal gate, as the plan of the experiment fixes them.  It writes
-CSV and JSON files only.
+bounds, and the outcome of the Phi_cal gate.  It writes CSV and JSON files only.
 
-**Provenance, a hard failure.**  Before it joins any circuit id, the analysis stops unless the
-certification archive matches its ``.sha256`` file and its inner ``SHA256SUMS``; its manifest
-records the subset ``main``, a run from a bundle, and no uncommitted changes; its label recomputes
-from ``pins.json`` and ``certification/config.json`` at the harness commit that the manifest
-records, from the label's copy of ``circuits.json``, and from the bundle's requirements; and that
-copy equals the ``circuits.json`` that the ranking label froze.
+**Provenance, a hard failure.**  Before it joins any circuit id, the analysis checks the
+certification archive, and stops unless every check passes:
+
+* the archive matches its ``.sha256`` file, and its files match its inner ``SHA256SUMS``;
+* its manifest records the subset ``main``, a run from a bundle, and no uncommitted changes;
+* its label recomputes, as ``manifest.compute_label`` computes it, from ``pins.json`` and
+  ``certification/config.json`` at the harness commit that the manifest records, from the label's
+  copy of ``circuits.json``, and from the bundle's requirements;
+* that copy of ``circuits.json`` equals the one that the ranking label froze.
 
 **Admission.**  A circuit is admitted if certification's analysis of the archive gives it the
-verdict "certified" or "violation at t + 1" at K = t + 1, which is certification at K = t, and no
-disagreement.  A group is in scope if it has at least two admitted circuits.  Every circuit not
-admitted, and every group dropped, is reported.
+verdict "certified" or "violation at t + 1" at K = t + 1, which is certification at K = t, rather
+than "disagreement" (the certification arms or checks disagree) or no verdict.  A group is in
+scope if it has at least two admitted circuits.  Every circuit not admitted, and every group
+dropped, is reported.
 
 **Scores** (``experiment.scores``), per admitted circuit and rate: Phi_unc, Phi_unc of the X-type
 histogram, Phi_cal with its histogram and calibration contributions sigma_hist and sigma_cal, the
-acceptance alpha, and Pr[R > 0 | A].  Lower values predict a smaller Phi_true, except for alpha,
-whose higher values do.  A calibration cell (m, g) is unreachable if no X error of weight m has X
-residual weight m on the group's state, and unsampled if it is reachable and no draw reached it.
+acceptance alpha, and Pr[R > 0 | A], the probability that an accepted shot has a nonzero residual
+weight.  Lower values predict a smaller Phi_true, except for alpha, whose higher values do.  A
+calibration cell (m, g) is unreachable if no X error of weight m has X residual weight m on the
+group's state, and unsampled if it is reachable and no draw reached it.  An unreachable cell has
+zero weight in every histogram, so it adds nothing to Phi_cal.
 
-**Pairs**, within a group at one rate: resolved if |Delta| > 2 sigma_Delta + tau_i + tau_j and
+**Pairs**, within a group at one rate, are resolved if |Delta| > 2 sigma_Delta + tau_i + tau_j,
+with Delta the difference of the two references and sigma_Delta their errors in quadrature, and
 neither reference has an inadequate stratum.  A score's call on a resolved pair is the sign of its
-difference; equal values are a tie, counted as wrong; a call is uncertain if the difference is
-within twice its standard error, with Phi_cal's shared calibration error propagated through the
-difference of the two circuits' cell weights, or if a reachable unsampled cell has weight in
-either histogram.  A rate is eligible with at least ``ELIGIBLE_PAIRS`` resolved pairs, and a score
-agrees at an eligible rate if it calls at least ``AGREE_ACCURACY`` of them correctly.  The gate
-keeps Phi_cal if at least two rates are eligible, Phi_cal agrees at each, and, pooled over them,
-Phi_cal calls strictly more pairs correctly than each of Phi_unc, alpha, and Pr[R > 0 | A], with
-Phi_cal's uncertain calls counted as wrong; it is inconclusive with fewer than two eligible rates.
+difference, and equal values are a tie, counted as wrong.  A call is uncertain if the difference
+is within twice its standard error.  For Phi_cal, that error propagates the shared calibration
+error through the difference of the two circuits' cell weights, and a call is also uncertain if a
+reachable unsampled cell has weight in either histogram.  A call without a score, as after a
+failed task, counts as wrong and is counted.
 
-**Costs** are projected sampling costs at matched first-order standard error, with the achieved
-costs and errors beside them (plan section 7).  The sampled cost of a component is scaled by
-max(s_min, (sigma / sigma_target)^2), but only where every sampled stratum, row, or cell that
-contributes to sigma has at least ``MIN_NONZERO`` draws of nonzero value; for histogram rows, whose
-draws are not stored, the Kish effective number of the draws of nonzero value stands in for their
-count.  k* follows the four cases of the break-even inequality.
+**Agreement and the gate.**  A rate is eligible with at least ``ELIGIBLE_PAIRS`` resolved pairs,
+and a score agrees at an eligible rate if it calls at least ``AGREE_ACCURACY`` of them correctly.
+The gate keeps Phi_cal if at least two rates are eligible, Phi_cal agrees at each, and, pooled
+over them, Phi_cal calls strictly more pairs correctly than each of Phi_unc, alpha, and
+Pr[R > 0 | A].  Phi_cal's uncertain calls count as wrong here.  The gate is inconclusive with
+fewer than two eligible rates.
+
+**Costs** are CPU seconds, projected to matched first-order standard errors, with the achieved
+costs and errors beside them.  For a group at a rate, the target is sigma* = max(0.1 max_i
+|Phi_true,i|, 0.01 p^2).  The reference of each circuit targets sigma*, Phi_unc targets sigma*,
+and Phi_cal splits it: sigma_hist <= sigma* / sqrt(2) for each circuit and sigma_cal <=
+sigma* / sqrt(2) for the worst.  Setup and exactly listed strata are fixed costs.  The sampled
+cost of a component is multiplied by max(s_min, (sigma / target)^2), with s_min = ``MIN_DRAWS``
+over the fewest draws of its sampled strata, rows, or cells.  This projection is made only where
+every sampled stratum, row, or cell that contributes to sigma has at least ``MIN_NONZERO`` draws of
+nonzero value; elsewhere the projected cost is left empty.  Histograms do not store their draws,
+so for their rows the Kish effective number of the draws of nonzero value stands in for their
+count; it is at most that count.
+
+The two methods cost A + k b for k circuits: A_score is the consumer's setup and the projected
+calibration, b_score the mean over the circuits of the preparation's setup, the projected X-type
+histogram, and the time to rebuild it and evaluate Phi_cal; A_direct is the consumer's setup for
+the reference, and b_direct the mean of the preparation's setup and the projected reference.  With
+delta_a = A_score - A_direct and delta_b = b_direct - b_score, the scores cost no more for k
+circuits exactly when delta_a <= k delta_b.  The break-even number k* (``break_even``) is the
+smallest such k >= 1 where delta_b > 0, a range of k where delta_b < 0, and is computed only where
+every component of the group's costs is projected.  b_unc, the per-circuit cost of Phi_unc, is
+reported beside them.
 
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory): ``admission.csv``,
 ``candidates.csv`` (with each circuit's projected and achieved costs), ``pairs.csv``,
@@ -64,8 +89,6 @@ import pathlib
 import statistics
 import subprocess
 import sys
-import tarfile
-import tempfile
 from typing import Any
 
 import numpy as np
@@ -104,7 +127,7 @@ class ProvenanceError(SystemExit):
 def main() -> None:
     """Analyze the run, and write the outputs."""
     args = parse_args()
-    label_dir = args.label_dir or _unpack(args.archive)
+    label_dir = args.label_dir or certification_analyze._unpack(args.archive)
     out = args.out or label_dir / "analysis"
     analyze(label_dir, args.certification_archive, out)
     print(f"wrote {out}")
@@ -132,24 +155,15 @@ def analyze(
     label_dir: pathlib.Path, certification_archive: pathlib.Path, out: pathlib.Path
 ) -> None:
     """Check provenance, admit the circuits, and write every output."""
+    # the analysis reads this tree's configuration, and the label's circuits
     out.mkdir(parents=True, exist_ok=True)
     if (label_dir / "config.json").read_bytes() != (experiment.HERE / "config.json").read_bytes():
         raise SystemExit(f"{label_dir.name} ran with another config.json than this tree's")
     circuits_bytes = (label_dir / "circuits.json").read_bytes()
+
+    # provenance and admission, then the scores, pairs, agreement, and costs
     certification_dir = check_provenance(certification_archive, circuits_bytes)
-    entries = {e["id"]: e for e in json.loads(circuits_bytes)["circuits"]}
-    grouped = experiment.groups(
-        sorted(
-            (
-                e
-                for e in entries.values()
-                if e["status"] == "ok"
-                and e["family"] in CONFIG["families"]
-                and e["t"] == CONFIG["t"]
-            ),
-            key=lambda e: e["id"],
-        )
-    )
+    grouped = experiment.groups(experiment.candidates(json.loads(circuits_bytes)["circuits"]))
     admission = admit(certification_dir, grouped)
     rows, missing = _ranking_rows(label_dir)
     candidates, groups = evaluate(rows, grouped, admission)
@@ -157,6 +171,7 @@ def analyze(
     agreement, gate = agree(pairs, candidates)
     group_rows = costs(candidates, groups)
 
+    # the tables, the checks, and the consumer circuits
     _write_csv(out / "admission.csv", admission)
     _write_csv(out / "candidates.csv", [_flatten(row) for row in candidates])
     _write_csv(out / "pairs.csv", pairs)
@@ -195,7 +210,8 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
     recorded = sums_file.read_text().split()
     if recorded[:2] != [store.sha256_file(archive), archive.name]:
         raise ProvenanceError(f"{archive.name} does not match {sums_file.name}")
-    label_dir = _unpack(archive)
+    # the files of the archive against its inner SHA256SUMS
+    label_dir = certification_analyze._unpack(archive)
     sums = (label_dir / "SHA256SUMS").read_text().splitlines()
     listed = {}
     for line in sums:
@@ -211,6 +227,7 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
     ):
         raise ProvenanceError(f"{archive.name} does not match its inner SHA256SUMS")
 
+    # the run that the manifest records, and its label
     record = json.loads((label_dir / "manifest.json").read_text())
     if record.get("subset") != "main":
         raise ProvenanceError(f"{archive.name} is of subset {record.get('subset')}, not main")
@@ -229,7 +246,7 @@ def check_provenance(archive: pathlib.Path, circuits_bytes: bytes) -> pathlib.Pa
         commit,
         record["bundle"]["requirements_sha256"],
     )
-    if record["label"] != expected or label_dir.name != expected:
+    if record["label"] != expected:
         raise ProvenanceError(f"{archive.name}: the label does not recompute ({expected})")
     if label_circuits != circuits_bytes:
         raise ProvenanceError(
@@ -298,21 +315,19 @@ def evaluate(
     for group, members in grouped.items():
         cells = reachable_cells(members[0])
         for rate in CONFIG["rates"]:
+            # a calib task that did not finish keeps the fields of its partial result
             calib_row = rows.get(f"calib.{group}.p{rate:g}")
-            calibration_fields = _field(calib_row, "calibration")
-            calibration = (
-                None
-                if calibration_fields is None
-                else ConsumerCalibration.from_dict(calibration_fields)
-            )
+            fields = _fields(calib_row)
             group_row: dict[str, Any] = {
                 "group": group,
                 "rate": rate,
                 "status_calib": _status(calib_row),
                 "unreachable_cells": [m for m in range(1, M + 1) if not cells[m]],
+                **{key: value for key, value in fields.items() if key not in ("group", "rate")},
             }
-            if calibration is not None:
-                counts = np.asarray(calibration.excess_num_samples[Pauli.X])  # type: ignore[index]
+            if "calibration" in fields:
+                calibration = ConsumerCalibration.from_dict(fields["calibration"])
+                counts = _x_table(calibration.excess_num_samples)
                 group_row["unsampled_cells"] = [
                     [m, g]
                     for m in range(1, M + 1)
@@ -320,29 +335,57 @@ def evaluate(
                     if cells[m] and counts[m - 1, g] == 0
                 ]
                 group_row["calibration"] = calibration
-                if calib_row is not None and calib_row["status"] == "ok":
-                    group_row |= {
-                        key: calib_row["result"][key]
-                        for key in (
-                            "consumer_circuit",
-                            "consumer_circuit_sha256",
-                            "block_preparation",
-                            "block_preparation_sha256",
-                            "fault_distance",
-                            "num_consumer_mechanisms",
-                            "max_fault_weight",
-                            "num_samples",
-                            "cpu_consumer_setup_s",
-                            "cpu_sampled_s",
-                            "score_timing",
-                        )
-                    }
             groups.append(group_row)
             for entry in members:
                 candidates.append(
                     _candidate(rows, entry, group, rate, entry["id"] in admitted, group_row)
                 )
     return candidates, groups
+
+
+def reachable_cells(entry: dict[str, Any]) -> dict[int, bool]:
+    """Whether some X error of weight m has X residual weight m on a circuit's state, for m <= M."""
+    matrix = certification.stabilizer_matrix(entry["stabilizers"])
+    setup = residual_weights._ResidualWeightSetup(matrix, True, Pauli.X, M)
+    num_qubits = matrix.shape[1] // 2
+    reachable = {}
+    for m in range(1, M + 1):
+        supports = residual_weights._get_combinations(num_qubits, m)
+        errors = np.zeros((len(supports), 2 * num_qubits), dtype=np.uint8)
+        np.put_along_axis(errors, supports, 1, axis=1)
+        reachable[m] = bool(np.any(setup.get_error_weights(errors) == m))
+    return reachable
+
+
+def calibration_difference_error(
+    calibration: ConsumerCalibration,
+    first: ResidualWeightHistogram,
+    second: ResidualWeightHistogram | None = None,
+) -> float:
+    """The calibration's contribution to the error of Phi_cal(first) - Phi_cal(second).
+
+    This is the calibration part of the error of
+    ``ConsumerCalibration.get_excess_failure_probability``, with each cell's and each baseline's
+    weight replaced by the difference of the two histograms' weights.  Without ``second``, it is
+    the calibration contribution sigma_cal of ``first``.
+    """
+    distribution, _ = calibration._get_distribution()
+    errors = _x_table(calibration.excess_standard_errors)
+    counts = _x_table(calibration.excess_num_samples)
+    baseline_errors = np.asarray(calibration.baseline_standard_errors)
+
+    def weights(histogram: ResidualWeightHistogram | None) -> tuple[np.ndarray, np.ndarray]:
+        """The weight of each cell's row and of each baseline in a histogram's score."""
+        if histogram is None:
+            return np.zeros(len(errors)), np.zeros(len(distribution))
+        probabilities = histogram.get_residual_weight_distribution()
+        rows = probabilities[1 : len(errors) + 1]
+        return rows, probabilities[len(errors) + 1 :].sum() + rows @ (counts == 0)
+
+    (rows_1, baseline_1), (rows_2, baseline_2) = weights(first), weights(second)
+    cell_terms = ((rows_1 - rows_2)[:, None] * errors * distribution) ** 2
+    baseline_terms = ((baseline_1 - baseline_2) * baseline_errors * distribution) ** 2
+    return math.sqrt(float(cell_terms.sum() + baseline_terms.sum()))
 
 
 def _candidate(
@@ -365,8 +408,14 @@ def _candidate(
         "status_direct": _status(direct_row),
         "unsampled_cells": group_row.get("unsampled_cells", []),
     }
-    total, x_type = _field(histogram_row, "total"), _field(histogram_row, "x")
+    # the baselines need only the total-weight histogram, and the scores also the calibration
+    fields = _fields(histogram_row)
+    total, x_type = fields.get("total"), fields.get("x")
     calibration = group_row.get("calibration")
+    if total is not None:
+        values = experiment.baselines(experiment.histogram_from_fields(total))
+        candidate |= {score: value for score, (value, _) in values.items()}
+        candidate |= {f"sigma_{score}": error for score, (_, error) in values.items()}
     if total is not None and x_type is not None and calibration is not None:
         histograms = (
             experiment.histogram_from_fields(total),
@@ -381,7 +430,7 @@ def _candidate(
         candidate |= {
             "histograms": histograms,
             "calibration": calibration,
-            **{f"{score}": value for score, (value, _) in values.items()},
+            **{score: value for score, (value, _) in values.items()},
             **{f"sigma_{score}": error for score, (_, error) in values.items()},
             "sigma_hist": sigma_hist,
             "sigma_cal": math.sqrt(max(sigma**2 - sigma_hist**2, 0.0)),
@@ -413,51 +462,6 @@ def _candidate(
     return candidate
 
 
-def reachable_cells(entry: dict[str, Any]) -> dict[int, bool]:
-    """Whether some X error of weight m has X residual weight m on a circuit's state, for m <= M."""
-    matrix = certification.stabilizer_matrix(entry["stabilizers"])
-    setup = residual_weights._ResidualWeightSetup(matrix, True, Pauli.X, M)
-    num_qubits = matrix.shape[1] // 2
-    reachable = {}
-    for m in range(1, M + 1):
-        supports = residual_weights._get_combinations(num_qubits, m)
-        errors = np.zeros((len(supports), 2 * num_qubits), dtype=np.uint8)
-        np.put_along_axis(errors, supports, 1, axis=1)
-        reachable[m] = bool(np.any(setup.get_error_weights(errors) == m))
-    return reachable
-
-
-def calibration_difference_error(
-    calibration: ConsumerCalibration,
-    first: ResidualWeightHistogram,
-    second: ResidualWeightHistogram | None = None,
-) -> float:
-    """The calibration's contribution to the error of Phi_cal(first) - Phi_cal(second).
-
-    This is the calibration part of the error of
-    ``ConsumerCalibration.get_excess_failure_probability``, with each cell's and each baseline's
-    weight replaced by the difference of the two histograms' weights.  Without ``second``, it is
-    the calibration contribution sigma_cal of ``first``.
-    """
-    distribution, _ = calibration._get_distribution()
-    errors = np.asarray(calibration.excess_standard_errors[Pauli.X])  # type: ignore[index]
-    counts = np.asarray(calibration.excess_num_samples[Pauli.X])  # type: ignore[index]
-    baseline_errors = np.asarray(calibration.baseline_standard_errors)
-
-    def weights(histogram: ResidualWeightHistogram | None) -> tuple[np.ndarray, np.ndarray]:
-        """The weight of each cell's row and of each baseline in a histogram's score."""
-        if histogram is None:
-            return np.zeros(len(errors)), np.zeros(len(distribution))
-        probabilities = histogram.get_residual_weight_distribution()
-        rows = probabilities[1 : len(errors) + 1]
-        return rows, probabilities[len(errors) + 1 :].sum() + rows @ (counts == 0)
-
-    (rows_1, baseline_1), (rows_2, baseline_2) = weights(first), weights(second)
-    cell_terms = ((rows_1 - rows_2)[:, None] * errors * distribution) ** 2
-    baseline_terms = ((baseline_1 - baseline_2) * baseline_errors * distribution) ** 2
-    return math.sqrt(float(cell_terms.sum() + baseline_terms.sum()))
-
-
 ####################################################################################################
 # agreement
 
@@ -476,6 +480,80 @@ def compare(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for first, second in itertools.combinations(list(members), 2):
             pairs.append(_pair(group, rate, first, second))
     return pairs
+
+
+def agree(
+    pairs: list[dict[str, Any]], candidates: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The agreement of each score at each rate, and the outcome of the Phi_cal gate."""
+    rows = []
+    for score in SCORES:
+        for rate in CONFIG["rates"]:
+            resolved = [p for p in pairs if p["rate"] == rate and p["resolved"]]
+            calls = [p.get(f"call_{score}") for p in resolved]
+            uncertain = [p.get(f"uncertain_{score}", False) for p in resolved]
+            correct = sum(call == "correct" for call in calls)
+            certain = sum(c == "correct" and not u for c, u in zip(calls, uncertain))
+            eligible = len(resolved) >= ELIGIBLE_PAIRS
+            accuracy = correct / len(resolved) if resolved else None
+            taus = list(_kendall(candidates, score, rate).values())
+            rows.append(
+                {
+                    "score": score,
+                    "rate": rate,
+                    "eligible": eligible,
+                    "resolved_pairs": len(resolved),
+                    "unresolved_pairs": sum(p["rate"] == rate and not p["resolved"] for p in pairs),
+                    "correct": correct,
+                    "correct_certain": certain,
+                    "ties": sum(call == "tie" for call in calls),
+                    "no_score": sum(call == "no score" for call in calls),
+                    "uncertain": sum(uncertain),
+                    "accuracy": accuracy,
+                    "agrees": eligible and accuracy is not None and accuracy >= AGREE_ACCURACY,
+                    "kendall_tau_b_median": statistics.median(taus) if taus else None,
+                    "kendall_groups": len(taus),
+                }
+            )
+    return rows, gate(rows)
+
+
+def gate(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The outcome of the Phi_cal gate, with Phi_cal's uncertain calls counted as wrong."""
+    by_score = {(row["score"], row["rate"]): row for row in rows}
+    eligible = [rate for rate in CONFIG["rates"] if by_score[("phi_cal", rate)]["eligible"]]
+    outcome: dict[str, Any] = {"eligible_rates": eligible}
+    if len(eligible) < 2:
+        return outcome | {"outcome": "inconclusive", "reason": "fewer than two eligible rates"}
+    agrees = {
+        rate: by_score[("phi_cal", rate)]["correct_certain"]
+        >= AGREE_ACCURACY * by_score[("phi_cal", rate)]["resolved_pairs"]
+        for rate in eligible
+    }
+    pooled = {
+        score: sum(
+            by_score[(score, rate)]["correct_certain" if score == "phi_cal" else "correct"]
+            for rate in eligible
+        )
+        for score in ("phi_cal", *GATE_RIVALS)
+    }
+    beats = all(pooled["phi_cal"] > pooled[score] for score in GATE_RIVALS)
+    kept = all(agrees.values()) and beats
+    return outcome | {
+        "outcome": "kept" if kept else "not kept",
+        "phi_cal_agrees": {f"{rate:g}": value for rate, value in agrees.items()},
+        "pooled_correct": pooled,
+    }
+
+
+def kendall_rows(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Kendall's tau_b of each score against Phi_true in each group at each rate."""
+    return [
+        {"score": score, "rate": rate, "group": group, "kendall_tau_b": tau}
+        for score in SCORES
+        for rate in CONFIG["rates"]
+        for group, tau in _kendall(candidates, score, rate).items()
+    ]
 
 
 def _pair(group: str, rate: float, first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any]:
@@ -534,79 +612,6 @@ def _weights_unsampled(first: dict[str, Any], second: dict[str, Any]) -> bool:
     return False
 
 
-def agree(
-    pairs: list[dict[str, Any]], candidates: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """The agreement of each score at each rate, and the outcome of the Phi_cal gate."""
-    rows = []
-    for score in SCORES:
-        for rate in CONFIG["rates"]:
-            resolved = [p for p in pairs if p["rate"] == rate and p["resolved"]]
-            calls = [p.get(f"call_{score}") for p in resolved]
-            uncertain = [p.get(f"uncertain_{score}", False) for p in resolved]
-            correct = sum(call == "correct" for call in calls)
-            certain = sum(c == "correct" and not u for c, u in zip(calls, uncertain))
-            eligible = len(resolved) >= ELIGIBLE_PAIRS
-            accuracy = correct / len(resolved) if resolved else None
-            taus = list(_kendall(candidates, score, rate).values())
-            rows.append(
-                {
-                    "score": score,
-                    "rate": rate,
-                    "eligible": eligible,
-                    "resolved_pairs": len(resolved),
-                    "unresolved_pairs": sum(p["rate"] == rate and not p["resolved"] for p in pairs),
-                    "correct": correct,
-                    "correct_certain": certain,
-                    "ties": sum(call == "tie" for call in calls),
-                    "uncertain": sum(uncertain),
-                    "accuracy": accuracy,
-                    "agrees": eligible and accuracy is not None and accuracy >= AGREE_ACCURACY,
-                    "kendall_tau_b_median": statistics.median(taus) if taus else None,
-                    "kendall_groups": len(taus),
-                }
-            )
-    return rows, gate(rows)
-
-
-def gate(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """The outcome of the Phi_cal gate, with Phi_cal's uncertain calls counted as wrong."""
-    by_score = {(row["score"], row["rate"]): row for row in rows}
-    eligible = [rate for rate in CONFIG["rates"] if by_score[("phi_cal", rate)]["eligible"]]
-    outcome: dict[str, Any] = {"eligible_rates": eligible}
-    if len(eligible) < 2:
-        return outcome | {"outcome": "inconclusive", "reason": "fewer than two eligible rates"}
-    agrees = {
-        rate: by_score[("phi_cal", rate)]["correct_certain"]
-        >= AGREE_ACCURACY * by_score[("phi_cal", rate)]["resolved_pairs"]
-        for rate in eligible
-    }
-    pooled = {
-        score: sum(
-            by_score[(score, rate)]["correct_certain" if score == "phi_cal" else "correct"]
-            for rate in eligible
-        )
-        for score in ("phi_cal", *GATE_RIVALS)
-    }
-    beats = all(pooled["phi_cal"] > pooled[score] for score in GATE_RIVALS)
-    kept = all(agrees.values()) and beats
-    return outcome | {
-        "outcome": "kept" if kept else "not kept",
-        "phi_cal_agrees": {f"{rate:g}": value for rate, value in agrees.items()},
-        "pooled_correct": pooled,
-    }
-
-
-def kendall_rows(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Kendall's tau_b of each score against Phi_true in each group at each rate."""
-    return [
-        {"score": score, "rate": rate, "group": group, "kendall_tau_b": tau}
-        for score in SCORES
-        for rate in CONFIG["rates"]
-        for group, tau in _kendall(candidates, score, rate).items()
-    ]
-
-
 def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> dict[str, float]:
     """Kendall's tau_b between a score and Phi_true in each group at a rate, where defined."""
     taus = {}
@@ -635,7 +640,12 @@ def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> dict[
 
 
 def costs(candidates: list[dict[str, Any]], groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The cost lines of each group at each rate (plan section 7), with k* where computed."""
+    """The cost lines of each group at each rate, as the module docstring defines them.
+
+    A group needs at least two admitted circuits, its calibration and score timing, and every
+    circuit's reference and scores.  Each circuit's own projected and achieved costs are added to
+    its row of ``candidates``.
+    """
     rows = []
     for group in groups:
         members = [
@@ -662,102 +672,28 @@ def costs(candidates: list[dict[str, Any]], groups: list[dict[str, Any]]) -> lis
     return rows
 
 
-def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[str, Any]:
-    """The projected and achieved costs of both methods for one group at one rate, and k*."""
-    target = max(
-        PRECISION_RELATIVE * max(abs(c["phi_true"]) for c in members),
-        PRECISION_FLOOR * group["rate"] ** 2,
-    )
-    timing = group["score_timing"]["mean_cpu_s"]
-    calibration = group["calibration"]
+def project(
+    fixed: float, sampled: float, sigma: float, target: float, draws: int, valid: bool
+) -> float | None:
+    """A projected cost: the fixed cost and the sampled cost scaled to the target error.
 
-    # direct simulation: fixed setup and exact strata, and the scaled sampled strata
-    direct_lines = []
-    for c in members:
-        cpu = c["cpu_direct"]
-        sampled = [s for s in c["strata"] if not s["exact"]]
-        valid = all(
-            s["nonzero"] >= MIN_NONZERO and (s["g"] or s["accepted_draws"] >= MIN_NONZERO)
-            for s in sampled
-        )
-        scale = _scale(c["sigma_true"], target, c["num_direct_samples"])
-        direct_lines.append(
-            (
-                cpu["cpu_prep_setup_s"] + cpu["cpu_exact_s"] + scale * cpu["cpu_sampled_s"],
-                cpu["cpu_prep_setup_s"] + cpu["cpu_exact_s"] + cpu["cpu_sampled_s"],
-                valid,
-            )
-        )
-    a_direct = statistics.mean(c["cpu_direct"]["cpu_consumer_setup_s"] for c in members)
-
-    # scores: the calibration once per group, and each circuit's histograms and score time
-    worst_cal = max(c["sigma_cal"] for c in members)
-    cal_scale = _scale(worst_cal, target / math.sqrt(2), group["num_samples"])
-    cal_valid = _calibration_valid(calibration, members, group["num_samples"])
-    a_score = group["cpu_consumer_setup_s"] + cal_scale * group["cpu_sampled_s"]
-    a_score_achieved = group["cpu_consumer_setup_s"] + group["cpu_sampled_s"]
-    score_lines: list[tuple[float, float, bool]] = []
-    unc_lines: list[tuple[float, float, bool]] = []
-    for c in members:
-        for name, sigma, sigma_target, score, lines in (
-            ("x", c["sigma_hist"], target / math.sqrt(2), "phi_cal", score_lines),
-            ("total", c["sigma_phi_unc"], target, "phi_unc", unc_lines),
-        ):
-            cpu = c["cpu_histogram"][name]
-            histogram = c["histograms"][0 if name == "total" else 1]
-            sampled_rows = histogram.num_samples[~histogram.exact & (histogram.num_samples > 0)]
-            scale = _scale(sigma, sigma_target, int(sampled_rows.min(initial=0)))
-            fixed = cpu["cpu_setup_s"] + cpu["cpu_exact_s"] + timing[score]
-            fixed += timing["rebuild_histogram"]
-            lines.append(
-                (
-                    fixed + scale * cpu["cpu_sampled_s"],
-                    fixed + cpu["cpu_sampled_s"],
-                    _histogram_valid(histogram),
-                )
-            )
-    for c, direct_line, score_line, unc_line in zip(members, direct_lines, score_lines, unc_lines):
-        c |= {
-            "cost_direct_projected": direct_line[0],
-            "cost_direct_achieved": direct_line[1],
-            "cost_phi_cal_projected": score_line[0],
-            "cost_phi_cal_achieved": score_line[1],
-            "cost_phi_unc_projected": unc_line[0],
-            "cost_phi_unc_achieved": unc_line[1],
-        }
-    b_direct = statistics.mean(line[0] for line in direct_lines)
-    b_score = statistics.mean(line[0] for line in score_lines)
-    valid = (
-        cal_valid and all(line[2] for line in direct_lines) and all(line[2] for line in score_lines)
-    )
-    return {
-        "sigma_target": target,
-        "A_score": a_score,
-        "b_score": b_score,
-        "A_direct": a_direct,
-        "b_direct": b_direct,
-        "b_unc": statistics.mean(line[0] for line in unc_lines),
-        "A_score_achieved": a_score_achieved,
-        "b_score_achieved": statistics.mean(line[1] for line in score_lines),
-        "b_direct_achieved": statistics.mean(line[1] for line in direct_lines),
-        "b_unc_achieved": statistics.mean(line[1] for line in unc_lines),
-        "sigma_true_max": max(c["sigma_true"] for c in members),
-        "sigma_hist_max": max(c["sigma_hist"] for c in members),
-        "sigma_cal_max": worst_cal,
-        "sigma_unc_max": max(c["sigma_phi_unc"] for c in members),
-        "scaling_valid_direct": all(line[2] for line in direct_lines),
-        "scaling_valid_calibration": cal_valid,
-        "scaling_valid_histograms": all(line[2] for line in score_lines),
-        "scaling_valid_unc": all(line[2] for line in unc_lines),
-        "tau_min": min(c["tau"] for c in members),
-        "tau_max": max(c["tau"] for c in members),
-        "k_star": break_even(a_score - a_direct, b_direct - b_score) if valid else "not computed",
-        "reason": None if valid else "the inverse-sample law is not justified",
-    }
+    The sampled cost is multiplied by max(s_min, (sigma / target)^2), with s_min = ``MIN_DRAWS``
+    / ``draws``, the fewest draws of a sampled stratum, row, or cell of the component.  It is None
+    where the inverse-sample law is not justified (``valid`` is False).
+    """
+    if not valid:
+        return None
+    if not draws:
+        return fixed
+    return fixed + max(MIN_DRAWS / draws, (sigma / target) ** 2) * sampled
 
 
 def break_even(delta_a: float, delta_b: float) -> str:
-    """The break-even outcome of the inequality delta_a <= k delta_b (plan section 7)."""
+    """The break-even outcome of the inequality delta_a <= k delta_b, for k >= 1 circuits.
+
+    With delta_b > 0, it is the smallest such k; with delta_b = 0, every k or none; with
+    delta_b < 0, the finite range of k for which it holds, or none.
+    """
     if delta_b > 0:
         if delta_a <= 0:
             return "1 (already no costlier)"
@@ -772,11 +708,13 @@ def break_even(delta_a: float, delta_b: float) -> str:
 def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Per rate, the medians and ranges over groups of the cost lines and achieved errors.
 
-    Also the median of the numeric k*, every group's k* outcome, and the range of tau.
+    Each projected line is taken over the groups where it is projected, and the number of these
+    groups is given.  Also given are the median of the numeric k*, every group's k* outcome, and
+    the range of tau.
     """
     rows = []
     for rate in CONFIG["rates"]:
-        computed = [r for r in group_rows if r["rate"] == rate and "A_score" in r]
+        computed = [r for r in group_rows if r["rate"] == rate and "A_direct_achieved" in r]
         row: dict[str, Any] = {"rate": rate, "groups": len(computed)}
         for key in (
             "A_score",
@@ -786,6 +724,7 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "b_unc",
             "A_score_achieved",
             "b_score_achieved",
+            "A_direct_achieved",
             "b_direct_achieved",
             "b_unc_achieved",
             "sigma_true_max",
@@ -793,26 +732,142 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "sigma_cal_max",
             "sigma_unc_max",
         ):
-            values = [r[key] for r in computed]
+            values = [r[key] for r in computed if r[key] is not None]
+            row[f"{key}_groups"] = len(values)
             row[f"{key}_median"] = statistics.median(values) if values else None
             row[f"{key}_min"] = min(values, default=None)
             row[f"{key}_max"] = max(values, default=None)
-        numeric = [int(r["k_star"]) for r in computed if str(r["k_star"]).isdigit()]
-        row["k_star_median"] = statistics.median(numeric) if numeric else None
+        numeric = [_k_star_number(r["k_star"]) for r in computed]
+        numbers = [number for number in numeric if number is not None]
+        row["k_star_median"] = statistics.median(numbers) if numbers else None
+        row["k_star"] = "; ".join(f"{r['group']}: {r['k_star']}" for r in computed)
         row["tau_min"] = min((r["tau_min"] for r in computed), default=None)
         row["tau_max"] = max((r["tau_max"] for r in computed), default=None)
-        row["k_star"] = "; ".join(f"{r['group']}: {r['k_star']}" for r in computed)
         rows.append(row)
     return rows
 
 
-def _scale(sigma: float, target: float, num_samples: int) -> float:
-    """The factor max(s_min, (sigma / target)^2) of a sampled cost, with s_min = 1000 / n.
+def nonzero_changes(mean: float, error: float, count: int) -> int:
+    """The increases plus decreases of a calibration cell, from its mean and Jeffreys error.
 
-    n is the smallest number of draws of a sampled stratum, row, or cell of the component, so that
-    each gets at least 1000 draws after scaling.
+    With a = increases + 1/2, b = decreases + 1/2, and A = count + 3/2, the variance is
+    ((a + b) A - (a - b)^2) / (A^2 (A + 1)), and a - b = mean count.
     """
-    return max(MIN_DRAWS / num_samples, (sigma / target) ** 2) if num_samples else 0.0
+    total = count + 1.5
+    plus_minus = (error**2 * total**2 * (total + 1) + (mean * count) ** 2) / total
+    return round(plus_minus - 1)
+
+
+def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[str, Any]:
+    """The projected and achieved costs of both methods for one group at one rate, and k*."""
+    target = max(
+        PRECISION_RELATIVE * max(abs(c["phi_true"]) for c in members),
+        PRECISION_FLOOR * group["rate"] ** 2,
+    )
+    timing = group["score_timing"]["mean_cpu_s"]
+    calibration = group["calibration"]
+
+    # direct simulation: fixed setup and exact strata, and the scaled sampled strata
+    for c in members:
+        cpu = c["cpu_direct"]
+        # a sampled stratum (f, 0) also estimates the acceptance, whose nonzero draws are accepted
+        valid = all(
+            s["nonzero"] >= MIN_NONZERO and (s["g"] or s["accepted_draws"] >= MIN_NONZERO)
+            for s in c["strata"]
+            if not s["exact"]
+        )
+        fixed = cpu["cpu_prep_setup_s"] + cpu["cpu_exact_s"]
+        c["cost_direct_achieved"] = fixed + cpu["cpu_sampled_s"]
+        c["cost_direct_projected"] = project(
+            fixed, cpu["cpu_sampled_s"], c["sigma_true"], target, c["num_direct_samples"], valid
+        )
+
+    # Phi_cal: the calibration once per group, against the error of its worst circuit
+    worst_cal = max(c["sigma_cal"] for c in members)
+    cal_valid = _calibration_valid(calibration, members, group["num_samples"])
+    a_score_achieved = group["cpu_consumer_setup_s"] + group["cpu_sampled_s"]
+    a_score = project(
+        group["cpu_consumer_setup_s"],
+        group["cpu_sampled_s"],
+        worst_cal,
+        target / math.sqrt(2),
+        group["num_samples"],
+        cal_valid,
+    )
+
+    # each circuit's histograms, with the time to rebuild one and evaluate its score
+    for c in members:
+        for name, score, sigma, sigma_target in (
+            ("x", "phi_cal", c["sigma_hist"], target / math.sqrt(2)),
+            ("total", "phi_unc", c["sigma_phi_unc"], target),
+        ):
+            cpu = c["cpu_histogram"][name]
+            histogram = c["histograms"][0 if name == "total" else 1]
+            rows = histogram.num_samples[~histogram.exact & (histogram.num_samples > 0)]
+            fixed = (
+                cpu["cpu_setup_s"]
+                + cpu["cpu_exact_s"]
+                + timing["rebuild_histogram"]
+                + timing[score]
+            )
+            c[f"cost_{score}_achieved"] = fixed + cpu["cpu_sampled_s"]
+            c[f"cost_{score}_projected"] = project(
+                fixed,
+                cpu["cpu_sampled_s"],
+                sigma,
+                sigma_target,
+                int(rows.min()) if rows.size else 0,
+                _histogram_valid(histogram),
+            )
+
+    # the cost lines, and k* where every component is projected
+    a_direct = statistics.mean(c["cpu_direct"]["cpu_consumer_setup_s"] for c in members)
+    lines = {
+        "b_direct": _mean_or_none([c["cost_direct_projected"] for c in members]),
+        "b_score": _mean_or_none([c["cost_phi_cal_projected"] for c in members]),
+        "b_unc": _mean_or_none([c["cost_phi_unc_projected"] for c in members]),
+    }
+    b_direct, b_score = lines["b_direct"], lines["b_score"]
+    projected = a_score is not None and b_direct is not None and b_score is not None
+    k_star = "not computed"
+    if a_score is not None and b_direct is not None and b_score is not None:
+        k_star = break_even(a_score - a_direct, b_direct - b_score)
+    return {
+        "sigma_target": target,
+        "A_score": a_score,
+        "A_direct": a_direct,
+        **lines,
+        "A_score_achieved": a_score_achieved,
+        "A_direct_achieved": a_direct,
+        "b_score_achieved": statistics.mean(c["cost_phi_cal_achieved"] for c in members),
+        "b_direct_achieved": statistics.mean(c["cost_direct_achieved"] for c in members),
+        "b_unc_achieved": statistics.mean(c["cost_phi_unc_achieved"] for c in members),
+        "sigma_true_max": max(c["sigma_true"] for c in members),
+        "sigma_hist_max": max(c["sigma_hist"] for c in members),
+        "sigma_cal_max": worst_cal,
+        "sigma_unc_max": max(c["sigma_phi_unc"] for c in members),
+        "projected_calibration": a_score is not None,
+        "projected_direct": lines["b_direct"] is not None,
+        "projected_histograms": lines["b_score"] is not None,
+        "projected_unc": lines["b_unc"] is not None,
+        "tau_min": min(c["tau"] for c in members),
+        "tau_max": max(c["tau"] for c in members),
+        "k_star": k_star,
+        "reason": None if projected else "the inverse-sample law is not justified",
+    }
+
+
+def _mean_or_none(values: list[float | None]) -> float | None:
+    """The mean of values, or None if any is None."""
+    if any(value is None for value in values):
+        return None
+    return statistics.mean(value for value in values if value is not None)
+
+
+def _k_star_number(outcome: str) -> int | None:
+    """The number k* of a break-even outcome, if it has one."""
+    first = outcome.split()[0]
+    return int(first) if first.isdigit() else None
 
 
 def _histogram_valid(histogram: ResidualWeightHistogram) -> bool:
@@ -841,9 +896,9 @@ def _calibration_valid(
     nonzero draws are its failures.
     """
     distribution, _ = calibration._get_distribution()
-    table = np.asarray(calibration.excess_failure_probabilities[Pauli.X])
-    errors = np.asarray(calibration.excess_standard_errors[Pauli.X])  # type: ignore[index]
-    counts = np.asarray(calibration.excess_num_samples[Pauli.X])  # type: ignore[index]
+    table = _x_table(calibration.excess_failure_probabilities)
+    errors = _x_table(calibration.excess_standard_errors)
+    counts = _x_table(calibration.excess_num_samples)
     baseline = np.asarray(calibration.baseline_failure_probabilities)
     num_qubits = len(calibration.state_stabilizers or ())
     shots = num_samples * min(M + 1, num_qubits)
@@ -858,17 +913,6 @@ def _calibration_valid(
             if round(baseline[g] * shots) < MIN_NONZERO:
                 return False
     return True
-
-
-def nonzero_changes(mean: float, error: float, count: int) -> int:
-    """The increases plus decreases of a cell, from its mean and Jeffreys standard error.
-
-    With a = increases + 1/2, b = decreases + 1/2, and A = count + 3/2, the variance is
-    ((a + b) A - (a - b)^2) / (A^2 (A + 1)), and a - b = mean count.
-    """
-    total = count + 1.5
-    plus_minus = (error**2 * total**2 * (total + 1) + (mean * count) ** 2) / total
-    return round(plus_minus - 1)
 
 
 ####################################################################################################
@@ -969,16 +1013,23 @@ def _ranking_rows(label_dir: pathlib.Path) -> tuple[dict[str, dict[str, Any]], l
     return final, not_ok
 
 
-def _field(row: dict[str, Any] | None, name: str) -> Any:
-    """A field of a row's result, or of its partial results if the run did not finish."""
+def _fields(row: dict[str, Any] | None) -> dict[str, Any]:
+    """The result of a row, or, if its run did not finish, the fields of its partial results."""
     if row is None:
-        return None
+        return {}
     if row["status"] == "ok":
-        return row["result"].get(name)
+        result: dict[str, Any] = row["result"]
+        return result
+    fields: dict[str, Any] = {}
     for record in row.get("partial", []):
-        if name in record:
-            return record[name]
-    return None
+        fields |= record
+    return fields
+
+
+def _x_table(tables: Any) -> np.ndarray:
+    """The X-type table of a calibration's tables, which ``Consumer.calibrate`` always fills."""
+    assert tables is not None
+    return np.asarray(tables[Pauli.X])
 
 
 def _status(row: dict[str, Any] | None) -> str:
@@ -1022,21 +1073,15 @@ def _flatten(candidate: dict[str, Any]) -> dict[str, Any]:
 
 
 def _git_show(commit: str, path: str) -> bytes:
-    """A file of the repository at a commit."""
-    return subprocess.run(
+    """A file of the repository at a commit; a provenance error if Git cannot show it."""
+    shown = subprocess.run(
         ["git", "-C", str(manifest.REPOSITORY_ROOT), "show", f"{commit}:{path}"],
         capture_output=True,
-        check=True,
-    ).stdout
-
-
-def _unpack(archive: pathlib.Path) -> pathlib.Path:
-    """Unpack an archive into a temporary directory, and return its label directory."""
-    target = pathlib.Path(tempfile.mkdtemp(prefix="spc-ranking-"))
-    with tarfile.open(archive) as tar:
-        tar.extractall(target, filter="data")
-    (label_dir,) = [path for path in target.iterdir() if path.is_dir()]
-    return label_dir
+        check=False,
+    )
+    if shown.returncode:
+        raise ProvenanceError(f"cannot read {path} at the harness commit {commit}")
+    return shown.stdout
 
 
 def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:

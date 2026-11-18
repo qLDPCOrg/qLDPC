@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""The stratified direct reference of Phi_true, and its exact leading order (plan section 5).
+"""The stratified direct reference of Phi_true, and its exact leading order.
 
 Phi_true is the excess failure probability that an accepted preparation causes in the consumer:
 with preparation faults F and consumer faults T, the paired change in failure is
@@ -18,11 +18,18 @@ the product of the destabilizers of its output syndrome, which equals its output
 stabilizer of the prepared state.  The consumer's mechanisms, decoder, and responses to block
 errors are those of qLDPC's ``Consumer``.  The strata are f <= f_max and g <= g_max, with f_max the
 histogram's default largest fault weight and g_max the calibration's.  A stratum (f, g) is listed
-exactly if it has at most ``max_exact_faults`` pairs of faults, and otherwise sampled: F from
-qLDPC's proposal for weight f, normalized exactly, with importance weight P_f(F) / q_f(F), and T
-exactly from its conditional law, as ``Consumer.calibrate`` draws it.  The estimate is the ratio of
-the stratified sums, with a first-order standard error and the deterministic truncation allowance
-``tau = u / alpha_exact + v`` of plan section 5.
+exactly if it has at most ``max_exact_faults`` pairs of faults, and otherwise sampled.  A sampled
+stratum draws F from a proposal for weight f (``sample_faults``), with importance weight
+P_f(F) / q_f(F), and T exactly from its conditional law, as ``Consumer.calibrate`` draws it.
+
+The estimate is the ratio of the stratified sums.  Preparation faults heavier than f_max, of total
+probability u, count as accepted with no change, and consumer faults heavier than g_max, of total
+probability v, are left out.  The first-order (delta-method) standard error ``sigma`` treats the
+strata as independent, except that a sampled stratum (f, 0) also estimates a_f from the same
+draws.  Since every change lies in [-1, 1], the truncations move the estimate's target by at most
+the deterministic allowance ``tau = u / alpha_exact + v``, where ``alpha_exact`` is the acceptance
+mass of the exactly listed fault weights of the preparation, f = 0 included.  Neither ``sigma`` nor
+``tau`` is a confidence bound, and the ratio estimate is not unbiased.
 """
 
 from __future__ import annotations
@@ -236,7 +243,7 @@ class Stratum:
     nonzero: int = 0
     accepted_draws: int = 0
     ess: float | None = None
-    max_weight: float | None = None
+    max_importance_weight: float | None = None
     cpu_s: float = 0.0
 
     @property
@@ -259,7 +266,7 @@ def stratified_reference(
 
     Sampled strata draw ``num_samples`` faults each, from the proposal of ``sample_faults`` with
     the given factor.  Each stratum is reported to ``progress`` when it is done, so that a run
-    killed at its limit keeps its finished strata.
+    killed at its limit keeps them, after the laws of both fault weights.
 
     Returns:
         The estimate ``phi`` with its standard error ``sigma`` and truncation allowance ``tau``,
@@ -276,6 +283,16 @@ def stratified_reference(
         pairing.simulation.probabilities, max_residual_weight, calibration_tolerance
     )
     num_prep, num_consumer = len(preparation), len(pairing.simulation.probabilities)
+    laws = {
+        "pi": pi.tolist(),
+        "u": u,
+        "eta": eta.tolist(),
+        "v": v,
+        "num_prep_mechanisms": num_prep,
+        "num_consumer_mechanisms": num_consumer,
+    }
+    if progress is not None:
+        progress(laws)
     strata = []
     for f, g in itertools.product(range(1, len(pi)), range(len(eta))):
         start = time.process_time()
@@ -287,12 +304,7 @@ def stratified_reference(
         strata.append(stratum)
         if progress is not None:
             progress({"stratum": dataclasses.asdict(stratum)})
-    return combine_strata(strata, pi, u, eta, v) | {
-        "pi": pi.tolist(),
-        "eta": eta.tolist(),
-        "num_prep_mechanisms": num_prep,
-        "num_consumer_mechanisms": num_consumer,
-    }
+    return combine_strata(strata, pi, u, eta, v) | laws
 
 
 def combine_strata(
@@ -302,7 +314,7 @@ def combine_strata(
     eta: npt.NDArray[np.float64],
     v: float,
 ) -> dict[str, Any]:
-    """The ratio estimate of Phi_true from its strata, with sigma and tau (plan section 5)."""
+    """The ratio estimate of Phi_true from its strata, with sigma and tau (see the module)."""
     numerator = numerator_variance = covariance = 0.0
     # stratum f = 0 is accepted with no change
     acceptance = alpha_exact = float(pi[0])
@@ -354,12 +366,11 @@ def sample_faults(
     the faults are drawn exactly from the proposal's conditional law.
     """
     odds = preparation.probabilities / (1 - preparation.probabilities)
-    factor = flagged_odds_factor
     flagged = preparation.flagged
-    proposal = odds * np.where(flagged, factor, 1.0)
+    proposal = odds * np.where(flagged, flagged_odds_factor, 1.0)
     faults = _sample_conditional_bernoulli(proposal, f, num_samples, rng)
     log_ratio = _log_elementary_symmetric(proposal, f) - _log_elementary_symmetric(odds, f)
-    weights = np.exp(log_ratio - math.log(factor) * flagged[faults].sum(axis=1))
+    weights = np.exp(log_ratio - math.log(flagged_odds_factor) * flagged[faults].sum(axis=1))
     return faults, weights
 
 
@@ -425,7 +436,7 @@ def _sample_stratum(
         nonzero=nonzero,
         accepted_draws=int(np.count_nonzero(accepted)),
         ess=float(weights.sum() ** 2 / np.sum(weights**2)),
-        max_weight=float(weights.max()),
+        max_importance_weight=float(weights.max()),
     )
     if g == 0:
         acceptances = weights * accepted
@@ -612,12 +623,13 @@ def exact_cells(
 ) -> dict[tuple[int, int], fractions.Fraction]:
     """Exact excesses of the calibration's X-type ensemble, for fixed consumer faults.
 
-    The ensemble of residual weight m draws X errors of each physical weight w = 1, ...,
-    min(M + 1, n) in equal numbers, uniformly among the supports of size w, and keeps those of X
-    residual weight m (plan section 4.1).  Key (m, j) holds the mean of ``chi(E, T) - chi(0, T)``
-    over this ensemble, for T row j of ``consumer_faults``.  Key (0, j) holds zero, and key
-    (M + 1, j) the excess of certain failure, ``1 - chi(0, T)``, as ``ConsumerCalibration`` counts
-    residual weights above M.
+    Let M be ``max_residual_weight`` and n the number of block qubits.  The ensemble of residual
+    weight m draws X errors of each physical weight w = 1, ..., min(M + 1, n) in equal numbers,
+    uniformly among the supports of size w, and keeps those of X residual weight m, as
+    ``Consumer.calibrate`` samples it with ``paulis=("X",)``.  Key (m, j) holds the mean of
+    ``chi(E, T) - chi(0, T)`` over this ensemble, for T row j of ``consumer_faults``.  Key (0, j)
+    holds zero, and key (M + 1, j) the excess of certain failure, ``1 - chi(0, T)``, as
+    ``ConsumerCalibration`` counts residual weights above M.
     """
     num_qubits = pairing.preparation.stabilizers.shape[1] // 2
     supports = [

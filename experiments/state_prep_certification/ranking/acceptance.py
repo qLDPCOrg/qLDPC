@@ -30,11 +30,15 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   f + g <= 2, at each rate, the reference's numbers of paired changes +1 and -1 equal those of the
   plain enumeration.
 * **RT8:** no ``mqt`` or ``qiskit`` module is loaded.
-* **RT9:** the analysis (plan section 9): on a synthetic certification archive, each verdict and a
-  disagreement admit or drop their circuits as the rule says, a circuit without a row is not
-  admitted, and an archive whose ``circuits.json`` differs from the ranking label's fails the
-  provenance check.  The four cases of the break-even number give their outcomes.  A ``direct``
-  task stopped at a limit of 3 s is a timeout that keeps its finished strata.
+* **RT9:** on a synthetic certification archive, named and labelled as a node's, each verdict and
+  a disagreement admit or drop their circuits as the rule says, a circuit without a row is not
+  admitted, and a group with one admitted circuit is out of scope.  An archive that breaks any one
+  provenance check fails it.  A ``direct`` task stopped at a limit of 20 s is a timeout that keeps
+  the laws of both fault weights and its finished strata.
+* **RT10:** the reference's ratio, error, allowance, and inadequate strata from hand-made strata;
+  resolved and unresolved pairs, and correct, wrong, tied, uncertain, and missing calls; the gate's
+  outcomes; the break-even outcomes at their boundaries; projected costs; and the nonzero draws of
+  a calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.
 
 Each test prints PASS or FAIL; the script exits with status 1 if any failed.
 """
@@ -44,6 +48,7 @@ from __future__ import annotations
 import argparse
 import fractions
 import functools
+import io
 import itertools
 import json
 import math
@@ -51,6 +56,7 @@ import pathlib
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import traceback
@@ -64,7 +70,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 from experiments.state_prep_certification.certification import circuits as certification_circuits
 from experiments.state_prep_certification.common import local_runs, manifest, store
 from experiments.state_prep_certification.ranking import analyze, direct, experiment
-from experiments.state_prep_certification.ranking import consumer as consumer_module
+from experiments.state_prep_certification.ranking import consumer as ranking_consumer
 from qldpc import circuits
 from qldpc.experimental.circuits.benchmarking import (
     ConsumerCalibration,
@@ -85,6 +91,8 @@ FAILURES = (
     SystemExit,
     TypeError,
     ValueError,
+    ImportError,
+    subprocess.SubprocessError,
 )
 NODE_TESTS = ("RT1", "RT2", "RT8")
 M = experiment.MAX_RESIDUAL_WEIGHT
@@ -174,9 +182,23 @@ def rt2_consumers(directory: pathlib.Path) -> None:
         entry = members[0]
         num_qubits = len(entry["output_qubits"])
         for rate in experiment.CONFIG["rates"]:
-            consumer = consumer_module.build_consumer(entry, rate, DECODER)
+            consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
             simulation = consumers._ConsumerSimulation(consumer, np.random.default_rng(0))
-            assert not np.any(simulation._responses[num_qubits:]), (group, rate)
+
+            # by Stim, with a certain error between the noiseless block preparation and consumer:
+            # every single-qubit X error reaches a detector, and no Z error flips anything
+            for qubit in range(num_qubits):
+                for pauli, reached in (("X", True), ("Z", False)):
+                    circuit = consumer.block_preparation.copy()
+                    circuit.append(f"{pauli}_ERROR", [qubit], 1.0)
+                    circuit += consumer.circuit.without_noise()
+                    detectors, observables = circuit.compile_detector_sampler().sample(
+                        1, separate_observables=True
+                    )
+                    flipped = bool(detectors.any() or observables.any())
+                    assert flipped == reached and detectors.any() == reached, (group, pauli, qubit)
+
+            # whether the decoder corrects each single-qubit X error, with no consumer fault
             errors = np.zeros((num_qubits, 2 * num_qubits), dtype=np.uint8)
             errors[range(num_qubits), range(num_qubits)] = 1
             flips = simulation.get_flips(np.zeros((num_qubits, 0), dtype=np.intp))
@@ -209,6 +231,12 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
         options = experiment.histogram_options(entry)
         preparation = direct.get_preparation(noisy, options, M)
         histogram = estimate_residual_weight_histogram(noisy, M, 0, pauli="X", **options)
+        pi, u = direct.fault_weight_law(
+            preparation.probabilities, M + 1, residual_weights._TRUNCATION_TOLERANCE
+        )
+        assert len(pi) == len(histogram.fault_weight_probabilities), circuit_id
+        assert np.allclose(pi, histogram.fault_weight_probabilities, rtol=0, atol=1e-15)
+        assert abs(u - histogram.truncated_probability) <= 1e-15, circuit_id
         for f in np.flatnonzero(histogram.exact)[1:]:
             faults = residual_weights._get_combinations(len(preparation), int(f))
             probabilities = direct._conditional_probabilities(preparation.probabilities, faults)
@@ -222,7 +250,7 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
             )
         print(f"  {circuit_id}: fault weights 1-{np.flatnonzero(histogram.exact)[-1]} agree")
 
-        consumer = consumer_module.build_consumer(entry, rate, DECODER)
+        consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
         simulation = consumers._ConsumerSimulation(consumer, np.random.default_rng(0))
         calibration = consumer.calibrate(M, 10, paulis=("X",), seed=0)
         eta, _ = direct.fault_weight_law(
@@ -233,7 +261,7 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
 
     # sampled strata against their exact listings
     entry = experiment.entry_of("cgoto")
-    consumer = consumer_module.build_consumer(entry, rate, DECODER)
+    consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
     pairing = direct.build_pairing(
         experiment.noisy_input(entry, rate),
         experiment.histogram_options(entry),
@@ -244,6 +272,7 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
     factor = float(experiment.CONFIG["direct"]["flagged_odds_factor"])
     for f, g in ((2, 0), (2, 1), (3, 0)):
         exact = direct._list_stratum(pairing, f, g)
+        assert exact.plus + exact.minus > 0, (f, g)
         sampled = direct._sample_stratum(
             pairing, f, g, 20_000, factor, np.random.default_rng(f + g)
         )
@@ -267,7 +296,7 @@ def rt4_scores(directory: pathlib.Path) -> None:
         noisy, M, 0, max_fault_weight=4, pauli="X", **options
     )
     assert total.exact.all() and x_type.exact.all()
-    consumer = consumer_module.build_consumer(entry, rate, DECODER)
+    consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
     simulation = consumers._ConsumerSimulation(consumer, np.random.default_rng(0))
     num_columns = 4
     table = np.array([[0.1, 0.3, 0.5, 0.6], [0.7, 0.6, 0.4, 0.2]])
@@ -353,7 +382,7 @@ def rt5_leading_order(directory: pathlib.Path) -> None:
         )
 
         for rate in experiment.CONFIG["rates"]:
-            consumer = consumer_module.build_consumer(entry, rate, DECODER)
+            consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
             pairing = direct.build_pairing(
                 experiment.noisy_input(entry, rate),
                 experiment.histogram_options(entry),
@@ -375,12 +404,13 @@ def rt8_imports(directory: pathlib.Path) -> None:
 
 @test
 def rt9_analysis(directory: pathlib.Path) -> None:
-    """Admission, provenance, the break-even cases, and a timeout that keeps its strata."""
+    """Admission, every provenance check, and a timeout that keeps its laws and strata."""
     verdicts = {
         "aft.steane.heuristic_heuristic": ("certified", "certified"),
         "aft.steane.heuristic_opt": ("violation at 2", "violation at 2"),
         "aft.steane.opt_opt": ("violation at 1", "violation at 1"),
         "cgoto": ("certified", "violation at 2"),
+        "aft.shor.opt_opt": ("certified", "certified"),
     }
     circuits_bytes = experiment.CIRCUITS_JSON.read_bytes()
     archive = synthetic_certification_archive(directory / "certification", verdicts)
@@ -390,33 +420,169 @@ def rt9_analysis(directory: pathlib.Path) -> None:
     assert admission["aft.steane.heuristic_opt"]["admitted"]
     assert not admission["aft.steane.opt_opt"]["admitted"]
     assert admission["cgoto"]["verdict"] == "disagreement" and not admission["cgoto"]["admitted"]
-    assert admission["aft.shor.opt_opt"]["verdict"] == "no row"
+    assert admission["aft.shor.heuristic_opt"]["verdict"] == "no row"
     assert admission["aft.steane.heuristic_opt"]["group_in_scope"]
+    assert admission["aft.shor.opt_opt"]["admitted"]
     assert not admission["aft.shor.opt_opt"]["group_in_scope"]
+
+    # each provenance check fails on an archive that breaks only it
     other = json.loads(circuits_bytes)
     other["circuits"] = other["circuits"][:-1]
-    try:
-        analyze.check_provenance(archive, json.dumps(other).encode())
-    except analyze.ProvenanceError:
-        pass
-    else:
-        raise AssertionError("a different circuits.json passed the provenance check")
+    broken = {
+        "another circuits.json": (archive, json.dumps(other).encode()),
+        "subset": (_variant(directory, "subset", verdicts, subset="smoke"), circuits_bytes),
+        "no bundle": (_variant(directory, "bundle", verdicts, bundle=False), circuits_bytes),
+        "dirty": (_variant(directory, "dirty", verdicts, dirty=True), circuits_bytes),
+        "label": (_variant(directory, "label", verdicts, label="certification-0"), circuits_bytes),
+        "outer SHA-256": (_variant(directory, "outer", verdicts, outer=True), circuits_bytes),
+        "inner SHA256SUMS": (_variant(directory, "inner", verdicts, inner=True), circuits_bytes),
+    }
+    for case, (path, frozen) in broken.items():
+        try:
+            analyze.check_provenance(path, frozen)
+        except analyze.ProvenanceError:
+            continue
+        raise AssertionError(f"an archive with a broken {case} passed the provenance check")
 
-    assert analyze.break_even(5.0, 2.0) == "3"
-    assert analyze.break_even(-1.0, 2.0) == "1 (already no costlier)"
-    assert analyze.break_even(-1.0, 0.0) == "already no costlier for every k"
-    assert analyze.break_even(1.0, 0.0) == "none"
-    assert analyze.break_even(-5.0, -2.0) == "only 1 <= k <= 2"
-    assert analyze.break_even(-1.0, -2.0) == "none"
-
+    # a direct task stopped at its limit keeps the laws of the fault weights and its strata
     task = experiment._task(
         "direct", "aft.hamming.opt_opt.p0.005", {"id": "aft.hamming.opt_opt", "rate": 0.005}
-    ) | {"limit_s": 3.0}
+    ) | {"limit_s": 20.0}
     row = local_runs.run_locally(directory / "timeout", [task])[task["key"]]
-    strata = [record["stratum"] for record in row["partial"]]
-    assert row["status"] == "timeout" and strata, row["status"]
-    assert all(stratum["f"] >= 1 for stratum in strata), strata
-    print(f"  a direct task stopped at 3 s keeps {len(strata)} strata")
+    strata = [record["stratum"] for record in row["partial"] if "stratum" in record]
+    assert row["status"] == "timeout" and "pi" in row["partial"][0] and strata, row["status"]
+    print(f"  a direct task stopped at 20 s keeps {len(strata)} strata")
+
+
+@test
+def rt10_rules(directory: pathlib.Path) -> None:
+    """The reference's ratio, error, and allowance, and the rules of pairs, the gate, and costs."""
+    # the ratio estimate, its first-order error, and tau, from hand-made strata
+    strata = [
+        direct.Stratum(1, 0, exact=True, mean=0.2, acceptance=0.5),
+        direct.Stratum(
+            2,
+            0,
+            exact=False,
+            mean=0.3,
+            variance=0.01,
+            acceptance=0.4,
+            acceptance_variance=0.004,
+            covariance=0.002,
+            draws=100,
+            ess=5.0,
+        ),
+        direct.Stratum(1, 1, exact=True, mean=0.1),
+    ]
+    pi, u, eta, v = np.array([0.5, 0.3, 0.15]), 0.05, np.array([0.9, 0.08]), 0.02
+    result = direct.combine_strata(strata, pi, u, eta, v)
+    numerator = 0.3 * 0.9 * 0.2 + 0.15 * 0.9 * 0.3 + 0.3 * 0.08 * 0.1
+    alpha = 0.5 + 0.3 * 0.5 + 0.15 * 0.4 + 0.05
+    phi = numerator / alpha
+    variance = (
+        (0.15 * 0.9) ** 2 * 0.01 - 2 * phi * (0.15 * 0.9) * 0.15 * 0.002 + phi**2 * 0.15**2 * 0.004
+    ) / alpha**2
+    assert math.isclose(result["phi"], phi, rel_tol=1e-12), result["phi"]
+    assert math.isclose(result["sigma"], math.sqrt(variance), rel_tol=1e-12), result["sigma"]
+    assert math.isclose(result["tau"], 0.05 / (0.5 + 0.3 * 0.5) + 0.02, rel_tol=1e-12)
+    assert result["inadequate"] == [[2, 0]], result["inadequate"]
+
+    # pairs: resolved, within the margin, and with an inadequate stratum; each kind of call
+    rate = experiment.CONFIG["rates"][0]
+    calibration = ConsumerCalibration(
+        {"X": [[0.1], [0.2]]},
+        [0.0],
+        excess_standard_errors={"X": [[0.0], [0.0]]},
+        baseline_standard_errors=[0.0],
+        excess_num_samples={"X": [[10], [10]]},
+    )
+    weight_sums = np.zeros((1, M + 3))
+    weight_sums[0, 1:4] = [0.8, 0.1, 0.1]
+    histogram = ResidualWeightHistogram(
+        max_residual_weight=M,
+        css_weight=True,
+        fault_weight_probabilities=np.array([1.0]),
+        truncated_probability=0.0,
+        weight_sums=weight_sums,
+        squared_weight_sums=np.zeros_like(weight_sums),
+        num_samples=np.array([0]),
+        exact=np.array([True]),
+        pauli="X",
+    )
+
+    def candidate(name: str, true: float, scores: dict[str, float], **extra: Any) -> dict[str, Any]:
+        """A candidate with a reference, its scores and errors, and its calibration."""
+        values = {"phi_cal": 0.0, "phi_unc": 0.0, "alpha": 0.5, "residual": 0.0} | scores
+        return {
+            "id": name, "group": "g", "rate": rate, "admitted": True, "phi_true": true,
+            "sigma_true": 0.01, "tau": 0.001, "inadequate": [], "calibration": calibration,
+            "histograms": (histogram, histogram), "unsampled_cells": [], "sigma_hist": 0.0,
+            **values, **{f"sigma_{score}": 0.0 for score in values}, **extra,
+        }  # fmt: skip
+
+    candidates = [
+        candidate("a", 1.0, {"phi_cal": 1.0, "phi_unc": 1.0, "alpha": 0.9, "residual": 2.0},
+                  sigma_residual=5.0),
+        candidate("b", 2.0, {"phi_cal": 2.0, "phi_unc": 2.0, "alpha": 0.8, "residual": 1.0},
+                  unsampled_cells=[[1, 0]]),
+        candidate("c", 2.01, {"phi_cal": 3.0, "phi_unc": 3.0, "alpha": 0.9, "residual": 3.0}),
+        candidate("d", 9.0, {}, inadequate=[[2, 0]]),
+    ]  # fmt: skip
+    pairs = {(p["first"], p["second"]): p for p in analyze.compare(candidates)}
+    assert pairs[("b", "c")]["reason"] == "within margin"
+    assert pairs[("a", "d")]["reason"] == "inadequate stratum"
+    ab, ac = pairs[("a", "b")], pairs[("a", "c")]
+    assert ab["resolved"] and ac["resolved"]
+    assert ab["call_phi_unc"] == "correct" and ab["call_alpha"] == "correct"
+    assert ac["call_alpha"] == "tie" and ab["call_residual"] == "wrong"
+    assert ab["uncertain_residual"] and not ac["uncertain_phi_unc"]
+    assert ab["uncertain_phi_cal"] and not ac["uncertain_phi_cal"]
+    assert ab["call_phi_unc_x"] == "no score"
+    rows, _ = analyze.agree(list(pairs.values()), candidates)
+    row = next(r for r in rows if r["score"] == "phi_cal" and r["rate"] == rate)
+    assert (row["resolved_pairs"], row["correct"], row["correct_certain"]) == (2, 2, 1), row
+    assert not row["eligible"]
+
+    # the gate, from agreement rows: kept, not kept, and inconclusive
+    def gate(phi_cal: tuple[int, int], rival: int, eligible: int = 2) -> str:
+        """The gate when Phi_cal has (correct, certain) calls of 10 at each eligible rate."""
+        rows = [
+            {"score": score, "rate": r, "eligible": index < eligible, "resolved_pairs": 10,
+             "correct": phi_cal[0] if score == "phi_cal" else rival,
+             "correct_certain": phi_cal[1] if score == "phi_cal" else rival}
+            for score in analyze.SCORES
+            for index, r in enumerate(experiment.CONFIG["rates"])
+        ]  # fmt: skip
+        return str(analyze.gate(rows)["outcome"])
+
+    assert gate((9, 9), 8) == "kept"
+    assert gate((9, 7), 6) == "not kept"
+    assert gate((9, 9), 9) == "not kept"
+    assert gate((9, 9), 8, eligible=1) == "inconclusive"
+
+    # the break-even outcomes, at and near their boundaries
+    for delta_a, delta_b, outcome in (
+        (5.0, 2.0, "3"),
+        (4.0, 2.0, "2"),
+        (-1.0, 2.0, "1 (already no costlier)"),
+        (-1.0, 0.0, "already no costlier for every k"),
+        (1.0, 0.0, "none"),
+        (-5.0, -2.0, "only 1 <= k <= 2"),
+        (-2.0, -2.0, "only 1 <= k <= 1"),
+        (-1.0, -2.0, "none"),
+    ):
+        assert analyze.break_even(delta_a, delta_b) == outcome, (delta_a, delta_b)
+
+    # projected costs: the minimum allocation, the scaling, and no projection where invalid
+    assert analyze.project(1.0, 2.0, 0.1, 1.0, 10_000, True) == 1.0 + 0.1 * 2.0
+    assert analyze.project(1.0, 2.0, 3.0, 1.0, 10_000, True) == 1.0 + 9.0 * 2.0
+    assert analyze.project(1.0, 2.0, 3.0, 1.0, 10_000, False) is None
+
+    # the nonzero draws of a calibration cell, through qLDPC's Jeffreys error
+    for increases, decreases, count in ((3, 1, 50), (40, 12, 1000), (0, 0, 10)):
+        error = float(consumers._get_jeffreys_deviations(increases, decreases, count))
+        mean = (increases - decreases) / count
+        assert analyze.nonzero_changes(mean, error, count) == increases + decreases
 
 
 ####################################################################################################
@@ -424,13 +590,19 @@ def rt9_analysis(directory: pathlib.Path) -> None:
 
 
 def synthetic_certification_archive(
-    directory: pathlib.Path, verdicts: dict[str, tuple[str, str]]
+    directory: pathlib.Path,
+    verdicts: dict[str, tuple[str, str]],
+    subset: str = "main",
+    bundle: bool = True,
+    dirty: bool = False,
+    label: str | None = None,
 ) -> pathlib.Path:
-    """A certification archive of subset ``main`` from a bundle, with the given verdicts.
+    """A certification archive of a bundle's run, as ``run_node.py`` names it, with given verdicts.
 
     Each circuit gets one ``cert_bz`` and one ``cert_cc`` row, with the verdicts "certified" or
-    "violation at m".  The label is that of the harness commit HEAD, the current ``circuits.json``,
-    and a stand-in for the bundle's requirements.
+    "violation at m".  The label is that of ``manifest.compute_label`` for the harness commit
+    HEAD, this tree's ``pins.json``, certification's ``config.json`` and ``circuits.json``, and a
+    stand-in for the bundle's requirements; the other arguments change the manifest.
     """
     commit = subprocess.run(
         ["git", "-C", str(manifest.REPOSITORY_ROOT), "rev-parse", "HEAD"],
@@ -439,25 +611,19 @@ def synthetic_certification_archive(
         check=True,
     ).stdout.strip()
     requirements = "0" * 64
-    files = [
-        ("pins.json", analyze._git_show(commit, "experiments/state_prep_certification/pins.json")),
-        (
-            "config.json",
-            analyze._git_show(
-                commit, "experiments/state_prep_certification/certification/config.json"
-            ),
-        ),
-        ("circuits.json", experiment.CIRCUITS_JSON.read_bytes()),
+    frozen = [
+        experiment.CIRCUITS_JSON.parents[2] / "config.json",
+        experiment.CIRCUITS_JSON,
     ]
-    label = analyze.certification_label(files, commit, requirements)
+    label = label or manifest.compute_label("certification", frozen, commit + requirements)
     label_dir = directory / label
     label_dir.mkdir(parents=True, exist_ok=True)
-    (label_dir / "circuits.json").write_bytes(files[2][1])
+    (label_dir / "circuits.json").write_bytes(experiment.CIRCUITS_JSON.read_bytes())
     record = {
         "label": label,
-        "subset": "main",
-        "harness": {"commit": commit, "dirty": False, "source": "bundle.json"},
-        "bundle": {"requirements_sha256": requirements},
+        "subset": subset,
+        "harness": {"commit": commit, "dirty": dirty, "source": "bundle.json"},
+        "bundle": {"requirements_sha256": requirements} if bundle else None,
     }
     (label_dir / "manifest.json").write_text(json.dumps(record) + "\n")
     for circuit_id, (bz, cc) in verdicts.items():
@@ -483,7 +649,39 @@ def synthetic_certification_archive(
                     },
                 },
             )
-    return store.make_archive(label_dir, label)
+    return store.make_archive(label_dir, f"{label}-node-20261118T000000Z")
+
+
+def _variant(
+    directory: pathlib.Path,
+    name: str,
+    verdicts: dict[str, tuple[str, str]],
+    outer: bool = False,
+    inner: bool = False,
+    **changes: Any,
+) -> pathlib.Path:
+    """A synthetic certification archive with one change to its manifest or its checksums.
+
+    ``outer`` changes the archive's ``.sha256`` file, and ``inner`` replaces a file of the archive
+    without updating its ``SHA256SUMS``.
+    """
+    archive = synthetic_certification_archive(directory / name, verdicts, **changes)
+    if outer:
+        sums = archive.with_name(archive.name + ".sha256")
+        sums.write_text(f"{'0' * 64}  {archive.name}\n")
+    if inner:
+        with tarfile.open(archive) as tar:
+            members = [(member, tar.extractfile(member)) for member in tar.getmembers()]
+            contents = {m.name: (f.read() if f else b"") for m, f in members}
+        with tarfile.open(archive, "w:gz") as tar:
+            for name_, data in contents.items():
+                data = data + b"\n" if name_.endswith("runs.jsonl") else data
+                info = tarfile.TarInfo(name_)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        sums = archive.with_name(archive.name + ".sha256")
+        sums.write_text(f"{store.sha256_file(archive)}  {archive.name}\n")
+    return archive
 
 
 def _frozen_pairing(
@@ -496,10 +694,10 @@ def _frozen_pairing(
     probe_preparation = direct.get_preparation(experiment.noisy_input(entry, probe), options, M)
     rng = np.random.default_rng(0)
     simulation = consumers._ConsumerSimulation(
-        consumer_module.build_consumer(entry, frozen, DECODER), rng
+        ranking_consumer.build_consumer(entry, frozen, DECODER), rng
     )
     probe_simulation = consumers._ConsumerSimulation(
-        consumer_module.build_consumer(entry, probe, DECODER), rng
+        ranking_consumer.build_consumer(entry, probe, DECODER), rng
     )
     return (
         direct.Pairing(preparation, simulation),
