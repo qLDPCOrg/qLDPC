@@ -854,13 +854,22 @@ class ClassicalCode(AbstractCode):
         standard input, or with ``with_magma=True`` prompt for MAGMA output on standard input; see
         help(qldpc.abstract.Group.from_name).
         """
-        matrix_str = self.canonicalized.matrix_as_string()
+        matrix = self.canonicalized.matrix.view(np.ndarray)
+
+        def get_matrix_str(elements: Sequence[str]) -> str:
+            """The parity check matrix, with each entry v written as elements[v]."""
+            rows = ("[" + ",".join(elements[value] for value in row) + "]" for row in matrix)
+            return "[" + ",".join(rows) + "]"
+
+        # GAP and MAGMA read integers by conventions that differ from those of galois outside prime
+        # fields, so write the elements of other fields as these systems do
         if with_magma:
-            rows, cols = self.canonicalized.matrix.shape
-            magma_matrix = f"Matrix(GF({self.field.order}), {rows}, {cols}, {matrix_str})"
+            definition, field_name, elements = _codes.get_magma_field(self.field)
+            magma_matrix = f"Matrix({field_name}, {len(matrix)}, {matrix.shape[1]}, "
+            magma_matrix += get_matrix_str(elements) + ")"
             # MAGMA's AutomorphismGroup of a nonbinary code is its monomial automorphism group,
             # which acts on n * (q - 1) points, so ask for its PermutationGroup, on n points
-            magma_group = f"PermutationGroup(LinearCode({magma_matrix}));"
+            magma_group = f"{definition}PermutationGroup(LinearCode({magma_matrix}));"
             return abstract.Group.from_name(magma_group, from_magma=True)
 
         warning = (
@@ -869,7 +878,12 @@ class ClassicalCode(AbstractCode):
             ' passing the argument "with_magma=True" to the method that needs to compute the group.'
         )
 
-        code_str = f"CheckMatCode({matrix_str}, GF({self.field.order}))"
+        gap_elements = (
+            [str(value) for value in range(self.field.order)]
+            if self.field.degree == 1
+            else _codes.get_gap_field_elements(self.field)
+        )
+        code_str = f"CheckMatCode({get_matrix_str(gap_elements)}, GF({self.field.order}))"
 
         def get_group(gap_function: str) -> abstract.Group:
             """Compute the permutation automorphism group of this code with a GAP/GUAVA function."""

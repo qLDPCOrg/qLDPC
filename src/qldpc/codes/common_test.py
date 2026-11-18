@@ -124,6 +124,13 @@ def test_constructions_classical(pytestconfig: pytest.Config) -> None:
         code = codes.ClassicalCode.stack([code_a, code_b])
 
 
+def test_matrix_as_string() -> None:
+    """The parity check matrix as a string lists the galois integers of its entries, row by row."""
+    code = codes.ClassicalCode([[1, 0, 1, 2, 3], [0, 1, 1, 1, 1]], field=4)
+    assert code.matrix_as_string() == "[[1,0,1,2,3],[0,1,1,1,1]]"
+    assert codes.ClassicalCode(np.zeros((0, 2), dtype=int)).matrix_as_string() == "[]"
+
+
 def test_field_array_construction() -> None:
     """Explicit fields preserve compatible arrays and reject unsafe reinterpretation."""
     binary_matrix = galois.GF(2)([[0, 1]])
@@ -379,6 +386,16 @@ def test_permutation_automorphism_group(
         with unittest.mock.patch("qldpc.external.gap.get_output", side_effect=get_output):
             assert codes.HammingCode(2, field=2).get_permutation_automorphism_group().order == 2
 
+        # the elements 2 = x and 3 = x + 1 of GF(4) are written as powers of Z(4), a root of the
+        # Conway polynomial x^2 + x + 1
+        with unittest.mock.patch(
+            "qldpc.external.gap.get_output", return_value="\n(1,2)\n"
+        ) as get_output:
+            codes.HammingCode(2, field=4).get_permutation_automorphism_group()
+        query = "".join("".join(get_output.call_args.args).split())
+        rows = "[Z(4)^0,0*Z(4),Z(4)^0,Z(4)^1,Z(4)^2],[0*Z(4),Z(4)^0,Z(4)^0,Z(4)^0,Z(4)^0]"
+        assert f"PermutationAutomorphismGroup(CheckMatCode([{rows}],GF(4)))" in query
+
     # compute a permutation automorphism group with MAGMA, asking it for the PermutationGroup of the
     # code rather than its AutomorphismGroup, whose members also scale nonbinary coordinates
     user_inputs = iter(
@@ -389,6 +406,17 @@ def test_permutation_automorphism_group(
     group = abstract.CyclicGroup(2)
     assert code.get_permutation_automorphism_group(with_magma=True).equiv(group)
     assert "\nPermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));\n" in capsys.readouterr().out
+
+    # MAGMA maps integers into GF(8) through the prime field, so the query defines GF(8) by the
+    # irreducible polynomial x^3 + x^2 + 1 of the galois field, listing its coefficients constant
+    # first, and writes its elements as polynomials in a root
+    user_inputs = iter(["Permutation group acting on a set of cardinality 3", "Order = 1", ""])
+    field_8 = galois.GF(8, irreducible_poly="x^3 + x^2 + 1")
+    code = codes.ClassicalCode(field_8([[1, 2, 6]]))
+    assert code.get_permutation_automorphism_group(with_magma=True).order == 1
+    field = "F<w>:=ext<GF(2)|Polynomial(GF(2),[1,0,1,1])>;"
+    matrix = "Matrix(F,1,3,[[1,w,w+w^2]])"
+    assert f"\n{field}PermutationGroup(LinearCode({matrix}));\n" in capsys.readouterr().out
 
 
 def test_matrix_automorphism_group() -> None:
