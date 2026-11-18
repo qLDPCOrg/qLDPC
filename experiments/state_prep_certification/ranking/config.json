@@ -9,7 +9,7 @@
  "direct": {
   "samples": 10000,
   "max_exact_faults": 1000000,
-  "flagged_odds_factor": 0.05
+  "flagged_odds_factor": 1.0
  },
  "score_timing": {"histogram_samples": 1000, "evaluations": 100, "max_s": 60},
  "exact": {"group": "steane", "frozen_rate": 0.0001, "probe_rate": 1e-10},

@@ -20,7 +20,10 @@ errors are those of qLDPC's ``Consumer``.  The strata are f <= f_max and g <= g_
 histogram's default largest fault weight and g_max the calibration's.  A stratum (f, g) is listed
 exactly if it has at most ``max_exact_faults`` pairs of faults, and otherwise sampled.  A sampled
 stratum draws F from a proposal for weight f (``sample_faults``), with importance weight
-P_f(F) / q_f(F), and T exactly from its conditional law, as ``Consumer.calibrate`` draws it.
+P_f(F) / q_f(F), and T exactly from its conditional law, as ``Consumer.calibrate`` draws it.  The
+experiment's configuration draws F exactly from its own conditional law, so that every weight is 1.
+qLDPC's histograms instead suppress flagged mechanisms in their proposal, which would give the
+accepted faults whose flags cancel weights of 400 and more, and too few effective draws.
 
 The estimate is the ratio of the stratified sums.  Preparation faults heavier than f_max, of total
 probability u, count as accepted with no change, and consumer faults heavier than g_max, of total
@@ -228,8 +231,9 @@ class Stratum:
     covariance of the two, ``plus`` and ``minus`` count draws, and ``nonzero`` and ``ess`` are the
     draws with a nonzero change and the Kish effective sample size of the importance weights.
     ``draws``, ``accepted_draws``, and ``max_importance_weight`` are the number of draws, the number
-    accepted, and the largest importance weight, all zero or None for an exact stratum; ``cpu_s`` is
-    the CPU time of the stratum.
+    accepted, and the largest importance weight, all zero or None for an exact stratum;
+    ``importance_weight_bound`` is the largest weight that any draw could have, which the proposal
+    fixes; and ``cpu_s`` is the CPU time of the stratum.
     """
 
     f: int
@@ -247,6 +251,7 @@ class Stratum:
     accepted_draws: int = 0
     ess: float | None = None
     max_importance_weight: float | None = None
+    importance_weight_bound: float | None = None
     cpu_s: float = 0.0
 
     @property
@@ -359,22 +364,30 @@ def sample_faults(
     num_samples: int,
     flagged_odds_factor: float,
     rng: np.random.Generator,
-) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.float64]]:
+) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.float64], float]:
     """Faults of weight f from a proposal, with importance weights P_f(F) / q_f(F).
 
     The proposal multiplies the odds of flagged mechanisms by ``flagged_odds_factor``, as qLDPC's
     histograms do with their ``_FLAGGED_ODDS_FACTOR``.  Given f, a fault has a probability
     proportional to the product of its odds under both the noise and the proposal, so both
     conditional laws are normalized exactly by elementary symmetric polynomials of the odds, and
-    the faults are drawn exactly from the proposal's conditional law.
+    the faults are drawn exactly from the proposal's conditional law.  With a factor of 1, the two
+    laws coincide, and every weight is exactly 1.
+
+    Returns:
+        The faults, one per row, their importance weights, and the largest weight that any fault
+        of weight f can have, which a fault with as many flagged mechanisms as possible attains
+        when the factor is below 1.
     """
     odds = preparation.probabilities / (1 - preparation.probabilities)
     flagged = preparation.flagged
     proposal = odds * np.where(flagged, flagged_odds_factor, 1.0)
     faults = _sample_conditional_bernoulli(proposal, f, num_samples, rng)
     log_ratio = _log_elementary_symmetric(proposal, f) - _log_elementary_symmetric(odds, f)
-    weights = np.exp(log_ratio - math.log(flagged_odds_factor) * flagged[faults].sum(axis=1))
-    return faults, weights
+    log_factor = math.log(flagged_odds_factor)
+    weights = np.exp(log_ratio - log_factor * flagged[faults].sum(axis=1))
+    most_flagged = min(f, int(flagged.sum())) if log_factor < 0 else 0
+    return faults, weights, math.exp(log_ratio - log_factor * most_flagged)
 
 
 def _list_stratum(pairing: Pairing, f: int, g: int) -> Stratum:
@@ -415,7 +428,9 @@ def _sample_stratum(
 ) -> Stratum:
     """A sampled stratum (f, g), with exactly normalized importance weights."""
     preparation, simulation = pairing.preparation, pairing.simulation
-    faults, weights = sample_faults(preparation, f, num_samples, flagged_odds_factor, rng)
+    faults, weights, weight_bound = sample_faults(
+        preparation, f, num_samples, flagged_odds_factor, rng
+    )
     consumer_faults = consumers._sample_fault_sets(simulation.probabilities, g, num_samples, rng)
     accepted = preparation.accepted(faults)
     changes = np.zeros(num_samples, dtype=int)
@@ -440,6 +455,7 @@ def _sample_stratum(
         accepted_draws=int(np.count_nonzero(accepted)),
         ess=float(weights.sum() ** 2 / np.sum(weights**2)),
         max_importance_weight=float(weights.max()),
+        importance_weight_bound=weight_bound,
     )
     if g == 0:
         acceptances = weights * accepted
