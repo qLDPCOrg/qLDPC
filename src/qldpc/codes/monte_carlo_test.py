@@ -330,12 +330,32 @@ def test_error_rate_func() -> None:
     assert rates.shape == (2,) and uncertainties.shape == (2,)
     assert rates[0] == 0  # a zero physical error rate gives a zero logical error rate
 
+    # an iterable of physical error rates also yields the discard rate at each of them
+    discards = func([0.1], discard_rate=True)
+    assert np.array_equal(discards, [[result] for result in func(0.1, discard_rate=True)])
+
     # physical error rates beyond the constructed range are rejected
     with pytest.raises(ValueError, match="does not cover"):
         func(0.9)
 
     # an iterable input yields one bound per error rate, rather than losing entries
     assert np.asarray(func.truncation_error_bound([0.1, 0.2])).shape == (2,)
+
+
+def test_error_rate_func_of_0d_array() -> None:
+    """An ErrorRateFunc and its truncation_error_bound take a 0-d array to 0-d arrays.
+
+    They do so because their overloads type a 0-d array as an iterable, which gives arrays.
+    """
+    counts = np.array([1, 10])
+    func = monte_carlo.ErrorRateFunc(counts, np.array([0, 1]), np.zeros(2, dtype=int), 3, 0.5)
+    for discard_rate in [False, True]:
+        results = func(np.array(0.1), discard_rate=discard_rate)
+        assert all(isinstance(result, np.ndarray) and result.shape == () for result in results)
+        assert results == func(0.1, discard_rate=discard_rate)
+    bound = func.truncation_error_bound(np.array(0.1))
+    assert isinstance(bound, np.ndarray) and bound.shape == ()
+    assert bound == func.truncation_error_bound(0.1)
 
 
 def _expected_rate_and_error(
