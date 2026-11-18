@@ -267,15 +267,15 @@ def test_deprecated_distance_functions() -> None:
         ),
         (
             lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
-                generator, method="brute_force", max_weight=1
+                generator, method="brute_force"
             ),
-            2,
+            3,
         ),
         (
             lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
-                generator[:1], generator[1:], homogeneous=True, max_weight=1
+                generator[:1], generator[1:], homogeneous=True
             ),
-            2,
+            3,
         ),
         (
             lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
@@ -313,6 +313,18 @@ def test_deprecated_distance_functions() -> None:
             with pytest.warns(DeprecationWarning):
                 assert search() == 3
             assert get_distance.call_args.kwargs["method"] == "auto"
+
+    # As before, a code without nontrivial words has a distance: its length if it is classical, and
+    # if it is quantum, zero if some logical operators are given, and its number of qubits if not.
+    no_logical_ops = np.zeros((0, 4), dtype=int)
+    for search, distance in (
+        (lambda: get_distance_classical([[0, 0, 0, 0]]), 4),
+        (lambda: get_distance_quantum([[1, 1, 0, 0]], [[1, 1, 0, 0]], homogeneous=True), 0),
+        (lambda: get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]], homogeneous=True), 4),
+        (lambda: get_distance_quantum(no_logical_ops, [[1, 1, 0, 0]]), 2),
+    ):
+        with pytest.warns(DeprecationWarning):
+            assert search() == distance
 
     # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
     # arguments.
@@ -375,6 +387,30 @@ def test_deprecated_distance_functions() -> None:
             assert search() == 3
         assert exponents[-1:] == [2]
         assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
+
+
+def test_deprecated_get_distance_css_brouwer_zimmermann() -> None:
+    """The deprecated function warns at its caller, and gives the smallest distance of its sectors.
+
+    As before, the result is at most the upper bound, and a sector without nontrivial logical
+    operators has distance zero if some logical operators are given, and its number of bits if not.
+    """
+    get_distance: Any = codes.get_distance_css_brouwer_zimmermann  # type: ignore[attr-defined]
+    generator = np.asarray(codes.HammingCode(3).generator)
+    # The first sector has distance 3, as in test_deprecated_distance_functions, and the second 2.
+    sectors = [(generator[:1], generator[1:]), ([[1, 1, 0, 0, 0, 0, 0]], [])]
+    with pytest.warns(DeprecationWarning, match="get_distance_from_generators") as caught:
+        assert get_distance(sectors, cutoff=0) == 2
+    assert caught[0].filename == __file__
+    for distance_sectors, upper_bound, distance in (
+        (sectors, 1, 1),
+        ([([[1, 1, 0, 0]], [[1, 1, 0, 0]]), sectors[0]], None, 0),
+        ([(np.zeros((0, 4), dtype=int), [[1, 1, 0, 0]])], None, 4),
+    ):
+        with pytest.warns(DeprecationWarning):
+            assert get_distance(distance_sectors, cutoff=0, upper_bound=upper_bound) == distance
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="upper bound"):
+        get_distance([], cutoff=0)
 
 
 def test_deprecated_get_primitive_central_idempotents() -> None:

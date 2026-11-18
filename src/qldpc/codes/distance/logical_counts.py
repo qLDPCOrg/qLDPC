@@ -9,7 +9,6 @@ counters of deformed codes.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -18,10 +17,8 @@ from typing import TYPE_CHECKING, Literal, SupportsIndex
 import numpy as np
 import numpy.typing as npt
 
-from qldpc import _deprecations
 from qldpc._binary import get_independent_rows, get_kernel, pack_bits
 from qldpc._compilation import set_on_request_functions_compiled
-from qldpc._utils import get_external_caller_stacklevel
 
 from ._binary import (
     as_binary_matrix_pair,
@@ -256,7 +253,6 @@ class CSSLogicalCounter:
         method: LogicalCountMethod = "brouwer_zimmermann",
         count_pauli: bool = False,
         within_distance: bool = False,
-        max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
     ) -> CSSLogicalCounts:
         """Count the nontrivial logical operators of a given weight.
 
@@ -280,8 +276,6 @@ class CSSLogicalCounter:
             within_distance: If True, raise an error when the weight is above the distance, that
                 is, when some nontrivial X-only or Z-only logical operator is lighter than the
                 weight.  Full Pauli counts always do this.  Defaults to False.
-            max_information_sets: Deprecated.  To tune counts instead, see the page
-                :doc:`/exact_search_tuning` of the documentation.
 
         Returns:
             The counted weight and the counts.  If no weight is given and the code encodes no
@@ -306,15 +300,6 @@ class CSSLogicalCounter:
             self._validate_macwilliams_request(count_pauli)
         # Every search of this count uses one tuning.
         tuning = get_tuning()
-        if max_information_sets is not None:  # DEPRECATED: see qldpc._deprecations
-            _deprecations.warn_deprecated(
-                "The max_information_sets argument of logical-operator counts is deprecated and"
-                " will be removed in a future release.  To tune counts, see the documentation page"
-                " 'Exact-search performance and tuning'",
-                stacklevel=get_external_caller_stacklevel(),
-            )
-            max_sets = as_integer(max_information_sets, "max_information_sets")
-            tuning = dataclasses.replace(tuning, max_information_sets=max_sets)
 
         # A code without logicals needs no scan, and the MacWilliams method needs no sectors.
         if not self.dimension:
@@ -680,7 +665,6 @@ def count_logical_ops_css(
     method: LogicalCountMethod = "brouwer_zimmermann",
     count_pauli: bool = False,
     within_distance: bool = False,
-    max_information_sets: SupportsIndex | None = None,  # DEPRECATED: see qldpc._deprecations
 ) -> CSSLogicalCounts:
     """Count the nontrivial logical operators of a given weight in a binary CSS code.
 
@@ -702,7 +686,6 @@ def count_logical_ops_css(
         method=method,
         count_pauli=count_pauli,
         within_distance=within_distance,
-        max_information_sets=max_information_sets,
     )
 
 

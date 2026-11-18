@@ -27,7 +27,7 @@ from ..conftest import Tune
 from . import logical_counts as lc
 from ._counting import macwilliams
 from ._information_sets import basis_families
-from ._tuning import DEFAULT_TUNING, use_tuning
+from ._tuning import use_tuning
 from .conftest import (
     HAND_X,
     HAND_Z,
@@ -243,63 +243,6 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
         qldpc.codes.distance.compile_search_setup()
     select = basis_families.get_overlapping_family
     assert not isinstance(select, numba.core.registry.CPUDispatcher)
-
-
-@pytest.mark.usefixtures("plain_search_setup")
-def test_deprecated_max_information_sets_argument(
-    monkeypatch: pytest.MonkeyPatch, tune: Tune
-) -> None:
-    """The argument warns, takes only nonnegative integers, and limits every search of a count."""
-    counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
-    for value in (2.5, True):
-        not_an_integer: Any = value
-        with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="integer"):
-            counter.count_logical_ops(max_information_sets=not_an_integer)
-    with (
-        pytest.warns(DeprecationWarning),
-        pytest.raises(ValueError, match="max_information_sets must be between 0"),
-    ):
-        counter.count_logical_ops(max_information_sets=-1)
-
-    limits: list[int] = []
-    original = lc.get_distance_brouwer_zimmermann
-
-    def search(*args: Any, **kwargs: Any) -> int:
-        limits.append(kwargs["tuning"].max_information_sets)
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(lc, "get_distance_brouwer_zimmermann", search)
-    code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
-    checks = code.matrix_x, code.matrix_z
-    expected = lc.CSSLogicalCounter(*checks).count_logical_ops()
-    with pytest.warns(DeprecationWarning, match="Exact-search performance and tuning") as records:
-        counts = [
-            lc.CSSLogicalCounter(*checks).count_logical_ops(max_information_sets=np.int32(3)),
-            lc.count_logical_ops_css(*checks, max_information_sets=3),
-        ]
-    assert counts == [expected, expected]
-    # Both warnings point at this test, also through count_logical_ops_css.
-    assert [record.filename for record in records] == [__file__, __file__]
-    assert limits == [DEFAULT_TUNING.max_information_sets, 3, 3]
-
-    # The limit also reaches the scans of a count of a given weight, which searches no distance.  At
-    # weight three, the scans of this code build families of nine and six sets by default.
-    sizes: list[int] = []
-    original_family = basis_families.get_overlapping_family
-
-    def family(*args: Any) -> basis_families.BasisFamily:
-        replacement = original_family(*args)
-        sizes.append(len(replacement.ranks))
-        return replacement
-
-    monkeypatch.setattr(basis_families, "get_overlapping_family", family)
-    tune(overlapping_minimum_work=0)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
-    checks = code.matrix_x, code.matrix_z
-    expected = lc.count_logical_ops_css(*checks, 3, method="brute_force")
-    with pytest.warns(DeprecationWarning):
-        assert lc.count_logical_ops_css(*checks, 3, max_information_sets=4) == expected
-    assert sizes and max(sizes) <= 4
 
 
 @pytest.mark.usefixtures("plain_search_setup")
