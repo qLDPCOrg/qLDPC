@@ -2,7 +2,7 @@ Decisions and recommendations
 =============================
 
 Maintainers and agents follow this page; other contributors need not read it.
-It covers adding process, recommendations to whoever decides or to another contributor, a standard format for presenting decisions, and standard triage, in which independent agents' recommendations settle decisions.
+It covers adding process, recommendations to whoever decides or to another contributor, a standard format for presenting decisions, and standard triage, which gathers independent agents' recommendations on decisions and settles them only when asked to.
 A report of requested work, such as a hand-off or a review's findings with their suggested fixes, is not a recommendation unless it asks its recipient to choose or to take another step.
 
 .. _decisions-adding-process:
@@ -110,10 +110,13 @@ Put supporting detail, such as the evidence for each claim, after the Ask or in 
 Standard triage
 ---------------
 
-Standard triage lets the recommendations of independent agents settle decisions that you would otherwise present to the person you work for.
-It applies only when that person asks for it by name, and only to the work that they name, until they end it.
+Standard triage gathers and reconciles the recommendations of independent agents on decisions.
+It applies only when the person you work for asks for it by name, and only to the work that they name, until they end it.
 Their absence, or an unanswered question, never starts it.
-You may tell a subagent to use triage only on work for which you were told to use it.
+
+A request for triage, as in "run standard triage on this decision", asks for steps 1 to 3 below and a report; the person who asked still decides.
+Triage settles a decision, as step 4 describes, only when they ask for that explicitly, as in "make this decision using standard triage".
+You may tell a subagent to use triage only on work for which you were told to use it, and to settle decisions only if you were told to.
 
 For each such decision, or for a few closely related ones together:
 
@@ -123,18 +126,18 @@ For each such decision, or for a few closely related ones together:
    Then ask each to recommend an option as the principles for recommendations describe.
    Ask it to name what decided its recommendation, such as a constraint, a value, a standard, or the evidence, and to state its tension.
 3. If the agents disagree with each other or with you, find the claim or value on which the disagreement turns.
-   Settle it by evidence, such as the cheapest check that could decide it, or by the principles above, such as the order of values or reversibility.
-   If the settlement goes against an agent's recommendation, give that agent the argument and evidence for the settlement, and ask for a reply.
+   Resolve it by evidence, such as the cheapest check that could decide it, or by the principles above, such as the order of values or reversibility.
+   If the resolution goes against an agent's recommendation, give that agent the argument and evidence for it, and ask for a reply.
    If any agent still disagrees, or you do, leave the decision open.
-4. If no disagreement remains and the list below does not leave the decision open, take the agreed option and continue the work.
+4. If you were asked to settle the decision, no disagreement remains, and the list below does not leave the decision open, take the agreed option and continue the work.
    Where practical, commit the work for each settled decision on its own, so that it can be reverted alone.
 
-Triage leaves open each decision to:
+Even when asked to settle decisions, triage leaves open each decision to:
 
 * change, deprecate, or remove a public name, signature, argument, mode, default, or result, except to fix a reproduced bug without changing a public contract;
 * weaken or relabel a guarantee, such as by loosening a test, tolerance, or check, by skipping a test or marking it as expected to fail, or by changing whether a result is exact, a bound, or an estimate;
 * add :ref:`process <decisions-adding-process>` that the request does not call for, or that guards against a problem that other process caused or left open;
-* apply a patch to a protected file;
+* approve a change to a protected file in a maintainer's place, such as by applying a patch that they have not approved, or by handing off a branch whose current protected-file changes they have not approved;
 * change the dependencies or the build;
 * go beyond the request, such as by starting work that it did not ask for or by exceeding the limits that it set;
 * act outside the local repository, such as by pushing or by commenting on an issue or pull request;
@@ -146,4 +149,5 @@ For example, if the fix for a significant finding of a review would change a pub
 
 In the hand-off or the report on the work, present each decision that triage settled or left open as :ref:`the standard format <decisions-standard-format>` section describes, with each agent's initial recommendation, what decided it, and its tension.
 Say how each disagreement was reconciled, or, if it was not, the claim or value on which it turns.
+For an open decision on which the agents agree, also give the agreed option.
 For a settled decision, also give the option taken and how to undo it, such as the commit to revert.
