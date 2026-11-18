@@ -1,0 +1,31 @@
+{
+ "families": ["A-ft", "C-goto"],
+ "t": 1,
+ "rates": [0.0001, 0.001, 0.005],
+ "max_residual_weight": 2,
+ "decoder": {"osd_method": "OSD_CS", "osd_order": 7},
+ "histogram_samples": 100000,
+ "calibration_samples": 10000,
+ "direct": {
+  "samples": 10000,
+  "max_exact_faults": 1000000,
+  "flagged_odds_factor": 1.0
+ },
+ "score_timing": {"histogram_samples": 1000, "evaluations": 100, "max_s": 60},
+ "exact": {"group": "steane", "frozen_rate": 0.0001, "probe_rate": 1e-10},
+ "mc_check": {"inputs": ["cgoto", "aft.shor.opt_opt"], "rate": 0.005, "shots": 1000000},
+ "repro": {"input": "cgoto", "rate": 0.001, "samples": 1000},
+ "smoke": {"group": "steane", "rate": 0.001},
+ "limits": {
+  "histogram_s": 1800,
+  "calib_s": 3600,
+  "direct_s": 3600,
+  "exact_s": 1800,
+  "mc_check_s": 3600,
+  "repro_s": 600,
+  "startup_cap_s": 120,
+  "grace_s": 30
+ },
+ "mem_cap_gib": 8,
+ "acceptance_limit_s": 600
+}

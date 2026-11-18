@@ -37,6 +37,7 @@ EXPERIMENTS_DIR = pathlib.Path(__file__).resolve().parents[1]
 PLUGINS = {
     "certification": "experiments.state_prep_certification.certification.experiment",
     "distances": "experiments.state_prep_certification.distances.experiment",
+    "ranking": "experiments.state_prep_certification.ranking.experiment",
     "selftest": "experiments.state_prep_certification.common.selftest_plugin",
 }
 
