@@ -705,12 +705,13 @@ class QTCode(_SquareComplexCode):
 
         The file records the subsets, the local codes, the order of the field, the complex, the
         choice of local checks, and the generator matrices of the local codes.  From these data,
-        QTCode.load rebuilds an equal code.  Since the file records only the order of the field,
-        this method saves only codes over galois.GF(order), with its default irreducible polynomial
-        and primitive element.  The members of each subset are written in sorted order, so that the
-        file does not depend on the order in which the subsets list their members.  Equal codes can
-        still give different files, if they chose their local checks differently, or if their local
-        codes carry different generator matrices.
+        QTCode.load rebuilds an equal code.  In later releases, it rebuilds the same parity check
+        matrices, with the same order of checks and qudits.  Since the file records only the order
+        of the field, this method saves only codes over galois.GF(order), with its default
+        irreducible polynomial and primitive element.  The members of each subset are written in
+        sorted order, so that the file does not depend on the order in which the subsets list their
+        members.  Equal codes can still give different files, if they chose their local checks
+        differently, or if their local codes carry different generator matrices.
 
         Raises:
             ValueError: If the field of this code is not galois.GF(order), with its default
@@ -768,11 +769,24 @@ class QTCode(_SquareComplexCode):
     def load(path: str) -> QTCode:
         """Load a QTCode from a file written by QTCode.save.
 
-        The code chooses its local checks as the saved code did.  Files written by QTCode.save in
-        earlier releases record no choice of local checks, and no generator matrices of the local
-        codes, and load with "min_weight".  Their codes had parity checks in reduced row echelon
-        form, which span the same local check spaces, so the loaded code has the same stabilizer
-        group, but can have other parity checks.
+        The loaded code chooses its local checks as the saved code did, if the file records that
+        choice.  For files that record a choice of local checks, QTCode.load rebuilds the same
+        parity check matrices in every later release, with the same order of checks and qudits.
+
+        Files written by QTCode.save in releases up to 0.4.1 and the dev releases 0.4.2.dev20261004
+        and 0.4.2.dev20261023 record no choice of local checks, and no generator matrices of the
+        local codes, and load with "min_weight".  Their codes had local checks in reduced row
+        echelon form, which span the same local check spaces.  So for a code over galois.GF(order),
+        with its default irreducible polynomial and primitive element, a file of 0.4.0, 0.4.1, or
+        these dev releases loads with the same stabilizer group, but can load with other parity
+        checks.  Loading the file of a code over another representation of its field gives a code
+        over galois.GF(order), which can differ from the saved code, or raises an error.
+
+        Releases before 0.4.0 ordered qudits in a way that varied between sessions, so their files
+        can also load with the qudits in another order.  Releases 0.0.11 to 0.0.17 also wrote a last
+        line that lists conjugated qudits, whose X-type and Z-type operators the saved code
+        exchanged.  QTCode conjugates no qudits, so loading such a file raises a ValueError unless
+        the line is exactly "# conjugate: ()".
         """
         if not os.path.isfile(path):
             raise ValueError(f"Path does not exist: {path}")
@@ -819,6 +833,15 @@ class QTCode(_SquareComplexCode):
             if missing := [name for name in choice_names if name not in choice_starts]:
                 raise ValueError(f"Saved code has no '# {missing[0]}:' line: {path}")
             starts |= choice_starts
+
+        # Releases 0.0.11 to 0.0.17 ended files with a "# conjugate:" line that lists conjugated
+        # qudits, or "()" if there are none.  A QTCode cannot conjugate qudits, so raise unless the
+        # line is exactly "# conjugate: ()".
+        last_lines = lines[starts["bipartite"] + 1 :]
+        if any(
+            line.startswith("# conjugate:") and line != "# conjugate: ()" for line in last_lines
+        ):
+            raise ValueError(f"Saved code conjugates qudits, which a QTCode cannot do: {path}")
 
         def get_malformed_error(name: str) -> ValueError:
             """The error for a section of the file that QTCode.load cannot read."""
