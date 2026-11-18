@@ -470,20 +470,24 @@ def shared_arrays_read_only(*roots: object) -> Iterator["list[_SharedArray]"]:
     An array taken from these arrays before this starts, such as a slice that a local name holds,
     stays writeable, so a test starts this before such arrays are taken.  A view taken within the
     block stays read-only after it, if code keeps it.  The flags are restored when the block exits,
-    also on an error, and the arrays are then compared with their copies, unless the block raised.
-    Yields the records of the arrays (see ``_get_shared_arrays``).
+    also on an error.  If the block raised, an array that cannot be made writeable again gives a
+    warning, and the error of the block propagates.  Otherwise such an array fails the check, and
+    the arrays are then compared with their copies.  Yields the records of the arrays (see
+    ``_get_shared_arrays``).
     """
     arrays = _get_shared_arrays(*roots)
-    unrestored: list[str] = []
     try:
         for each in arrays:
             each.array.flags.writeable = False
         yield arrays
-    finally:
+    except BaseException:
         unrestored = _restore_flags(arrays)
         if unrestored:
-            # Warn rather than raise, so that an error of the block is not hidden.
-            warnings.warn(f"Arrays left read-only: {unrestored}", RuntimeWarning, stacklevel=2)
+            # Warn rather than raise, so that the error of the block is not hidden.  The warning
+            # names the line of the with statement, past this generator and contextlib's __exit__.
+            warnings.warn(f"Arrays left read-only: {unrestored}", RuntimeWarning, stacklevel=3)
+        raise
+    unrestored = _restore_flags(arrays)
     assert not unrestored, f"Arrays left read-only: {unrestored}"
     _assert_unchanged(arrays)
 
@@ -641,7 +645,11 @@ def _get_shared_arrays(*roots: object) -> list[_SharedArray]:
         elif isinstance(value, list | tuple):
             pending += [(f"{path}[{index}]", item) for index, item in enumerate(value)]
         elif type(value).__module__.split(".")[0] == "qldpc":
-            pending += [(f"{path}.{name}", item) for name, item in vars(value).items()]
+            try:
+                attributes = vars(value)
+            except TypeError as error:
+                raise TypeError(f"{path} has no __dict__") from error
+            pending += [(f"{path}.{name}", item) for name, item in attributes.items()]
     return arrays
 
 

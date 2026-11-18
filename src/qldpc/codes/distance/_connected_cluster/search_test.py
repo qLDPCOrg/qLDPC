@@ -1383,8 +1383,8 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     array of the search read-only.
     """
     calls = record_thread_counts(monkeypatch)
-    # The arrays are marked when the threads start, so the roots and paths of the work items, which
-    # the limit takes before, stay writeable (Section 5 of connected_cluster.md).
+    # The roots and paths of the work items, which _search_on_threads makes for the threads, are not
+    # reached from the search, so they stay writeable (Section 5 of connected_cluster.md).
     checked = check_shared_arrays_on_threads(monkeypatch, lambda *_, **__: [search])
     for (problem, symplectic, get_automorphisms), switch in itertools.product(
         get_threaded_cases(), [True, False]
