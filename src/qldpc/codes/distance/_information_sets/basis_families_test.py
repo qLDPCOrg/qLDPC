@@ -92,6 +92,17 @@ def test_a_basis_family_stacks_its_sets() -> None:
     assert no_labels.labels.shape == (3, 3, 0)
 
 
+def test_a_dependent_set_of_columns_is_an_error() -> None:
+    """A basis family rejects a dependent set of columns, whose rank it would otherwise overstate.
+
+    The check is not an ``assert``, so it also holds under ``python -O``.
+    """
+    basis = np.array([[1, 1, 0, 0], [0, 0, 1, 1]], dtype=np.uint8)  # columns 0 and 1 are equal
+    labels = np.eye(2, dtype=np.uint8)
+    with pytest.raises(RuntimeError, match="not independent"):
+        basis_families._get_family_of_sets(basis, labels, [[0, 2], [0, 1]], weight_divisor=1)
+
+
 @pytest.mark.parametrize("basis", [PARTIAL_BASIS, EVEN_BASIS])
 def test_family_certificates(basis: npt.NDArray[np.uint8]) -> None:
     """Rank-deficient blocks and inferred parity give certificates valid for every word."""
