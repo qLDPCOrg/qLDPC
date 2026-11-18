@@ -130,30 +130,6 @@ def test_brute_force_batches_hold_one_word_that_needs_more(tune: Tune) -> None:
     assert set(_get_batch_sizes(129, 1, tune)) == {3}
 
 
-def _get_batch_sizes(num_bits: int, batch_exponent: int, tune: Tune) -> list[int]:
-    """The numbers of packed integers in the batches of an enumeration of random words."""
-    tune(enumeration_batch_exponent=batch_exponent)
-    rng = np.random.default_rng(num_bits)
-    logical_ops = rng.integers(2, size=(4, num_bits))
-    stabilizers = rng.integers(2, size=(8, num_bits))
-
-    # Record the number of packed integers in each batch.
-    sizes: list[int] = []
-    bitwise_count = np.bitwise_count
-
-    def _spy_weight(
-        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
-    ) -> npt.NDArray[np.uint64]:
-        sizes.append(arr.size)
-        return bitwise_count(arr, out=out)
-
-    with mock.patch.object(np, "bitwise_count", _spy_weight):
-        qldpc.codes.distance.get_distance_from_generators(
-            logical_ops, stabilizers, method="brute_force"
-        )
-    return sizes
-
-
 def test_get_distance_empty_stabilizers_symplectic() -> None:
     """Riffling handles the empty matrix of a symplectic enumeration without stabilizers."""
     # The symplectic vector [1, 0 | 0, 0] is an X operator on qubit 0 with symplectic weight 1.
@@ -274,3 +250,27 @@ def _count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
         out[indices] = sum(ival >> i & 1 for i in range(nbits))
 
     return out
+
+
+def _get_batch_sizes(num_bits: int, batch_exponent: int, tune: Tune) -> list[int]:
+    """The numbers of packed integers in the batches of an enumeration of random words."""
+    tune(enumeration_batch_exponent=batch_exponent)
+    rng = np.random.default_rng(num_bits)
+    logical_ops = rng.integers(2, size=(4, num_bits))
+    stabilizers = rng.integers(2, size=(8, num_bits))
+
+    # Record the number of packed integers in each batch.
+    sizes: list[int] = []
+    bitwise_count = np.bitwise_count
+
+    def _spy_weight(
+        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
+    ) -> npt.NDArray[np.uint64]:
+        sizes.append(arr.size)
+        return bitwise_count(arr, out=out)
+
+    with mock.patch.object(np, "bitwise_count", _spy_weight):
+        qldpc.codes.distance.get_distance_from_generators(
+            logical_ops, stabilizers, method="brute_force"
+        )
+    return sizes

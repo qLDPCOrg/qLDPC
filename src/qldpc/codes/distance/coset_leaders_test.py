@@ -71,7 +71,7 @@ _BLOCK_CASES = pytest.mark.parametrize(
 )
 
 # A state whose class of syndrome 3 has minimum weight two, which connected-cluster queries at
-# maximum weight two find by visiting states, and which has classes of minimum weight above two.
+# maximum weight two find by visiting states.  Some of its classes have minimum weight above two.
 _THREADED_STATE = ROUTED_PHYSICAL_STATES[1]
 
 
@@ -349,7 +349,8 @@ def test_bounds_match_per_block_minima(
 ) -> None:
     """Five blocks, whose stabilizers are even but cosets can be odd, match block minima.
 
-    A query by physical weight can stop by its certificate above the minimum.
+    A query by physical weight can stop by its certificate with a representative heavier than the
+    minimum.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     num_blocks = 5
@@ -360,17 +361,18 @@ def test_bounds_match_per_block_minima(
     # block is slow to search as plain Python, so it gets fewer random syndromes.
     num_random = 3 if block == _PHASED_GHZ_BLOCK else 7
     syndromes = [443351, *rng.integers(1 << (num_blocks * len(block)), size=num_random).tolist()]
-    minima = []
     for syndrome in syndromes:
         local = [
             [(syndrome >> (len(block) * index + jj)) & 1 for jj in range(len(block))]
             for index in range(num_blocks)
         ]
-        minima.append(_block_minimum(block, local, css_weight))
+        minimum = _block_minimum(block, local, css_weight)
+        if syndrome == syndromes[0]:
+            first_minimum = minimum
         for max_weight in range(1, 6):
             bound = search.get_min_weight_bound(syndrome, max_weight)
-            assert bound.within_max_weight == (minima[-1] <= max_weight)
-            assert bound.lower_bound <= minima[-1]
+            assert bound.within_max_weight == (minimum <= max_weight)
+            assert bound.lower_bound <= minimum
             if not bound.within_max_weight:
                 assert bound.lower_bound > max_weight
 
@@ -382,7 +384,7 @@ def test_bounds_match_per_block_minima(
         tune(coset_route_minimum_work=MAX_VALUE, disjoint_random_column_orders=0)
         bound = CosetLeaderSearch(matrix).get_min_weight_bound(syndromes[0], 2)
         assert not bound.within_max_weight
-        assert get_pauli_weight(bound.representative, len(matrix), False) > minima[0]
+        assert get_pauli_weight(bound.representative, len(matrix), False) > first_minimum
 
 
 @pytest.mark.parametrize("block", [_PHASED_GHZ_BLOCK, _GHZ_BLOCK], ids=["phased-ghz", "ghz"])
@@ -749,7 +751,7 @@ def test_connected_cluster_searches_get_the_stabilizers_in_their_kernel(
     assert pauli_words == get_rows(pauli_search)
 
     # By CSS weight, the search of each part gets the checks of the other.  The two searches get
-    # different words, so the check would fail if each search got its own checks.
+    # different words, so the assertion would fail if each search got its own checks.
     received.clear()
     CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
     (first, first_words), (second, second_words) = received.values()

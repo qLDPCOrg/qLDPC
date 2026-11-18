@@ -105,8 +105,8 @@ def test_brouwer_zimmermann_search_state() -> None:
 
 def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
     """Layer work saturates below the largest threshold, which never asks for automorphisms."""
-    # Each word of the layer has a one on the pivot of each of its 35 rows, so it weighs 35, the
-    # cutoff, and the scan stops at its first support.
+    # The rows are zero apart from their pivot ones, so each word of layer 35 weighs 35, the cutoff,
+    # and the scan stops at its first support.
     dimension, weight = 70, 35
     assert math.comb(dimension, weight) > MAX_VALUE
     for minimum_layer_work, expected_calls in ((MAX_VALUE, 0), (2**61, 1)):
@@ -135,8 +135,8 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
 
 # Each case reaches one early exit from search setup or a shared search with real inputs.  The test
 # forces whether setup builds overlapping families, and keeps it from partitioning, but a change to
-# how setup builds its families can still move a case to another exit.  If the test then fails, find
-# a new natural input here rather than stubbing internals.
+# how setup builds its families can still move a case to another exit.  If the test or the coverage
+# gate then fails, find a new natural input here rather than stubbing internals.
 SETUP_EXIT_CASES = [
     # A shared search reaches the cutoff inside a coefficient-weight scan.
     pytest.param(
@@ -152,7 +152,7 @@ SETUP_EXIT_CASES = [
         False,
         id="scan-cutoff",
     ),
-    # Rows of an overlapping replacement family reach the cutoff, which its certificate does not.
+    # Rows of an overlapping replacement family reach the cutoff.
     pytest.param(
         [[1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1]],
         [
@@ -195,7 +195,10 @@ def test_brouwer_zimmermann_setup_exits(
     monkeypatch: pytest.MonkeyPatch,
     prepared: list[bz._SectorSearch],
 ) -> None:
-    """Each case takes the early exit that it names, and agrees with a brute-force oracle."""
+    """Each case settles in setup exactly when it builds an overlapping family.
+
+    Each case also agrees with a brute-force oracle.
+    """
     expected = qldpc.codes.distance.get_distance_from_generators(
         logicals, stabilizers, cutoff=0, method="brute_force"
     )
@@ -221,7 +224,8 @@ def test_brouwer_zimmermann_setup_exits(
     assert expected <= distance <= max(cutoff, expected)
 
     # Setup settles a case exactly if an overlapping family replaces the disjoint one.  The cases
-    # with a positive cutoff end at it, and the other ends at a certificate.
+    # with a cutoff end at or below it, and the case without one settles in setup, so by its
+    # certificate.
     assert bool(prepared) == (not replacements) == (not overlap)
     assert (distance <= cutoff) == (cutoff > 0)
 
@@ -425,8 +429,9 @@ def test_a_search_of_an_mb_code_takes_overlapping_sets(
     than the one information set of a disjoint family.
     """
     # Remove the work gate of overlapping families, so that setup chooses between the families by
-    # their predicted work alone.
-    tune(overlapping_minimum_work=0)
+    # their predicted work alone, and keep setup from partitioning, since a partitioned family can
+    # also cover a column more than once.
+    tune(overlapping_minimum_work=0, partition_work_ratio=MAX_VALUE)
     code = qldpc.codes.MBCode(
         {x: 4, y: 4, z: 2},
         1 + x + y + x * y * z,

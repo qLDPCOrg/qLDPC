@@ -157,9 +157,10 @@ def test_a_gate_that_makes_words_odd_infers_the_weight_divisor_again(
 
     # The CNOT maps the checks to 1011 and 0111, so each sector gains a word of weight one.  The
     # family of the self-dual code serves both sectors, and the CNOT keeps the rank of each of its
-    # sets, so it moves the family into both.
+    # sets, so it moves the family into both, and counting builds no other family.
     divisors.clear()
     deformed = counter.deformed_cnot(0, 1)
+    assert divisors == [1, 1]
     _assert_counts_match_enumeration(deformed)
     assert divisors == [1, 1]
 

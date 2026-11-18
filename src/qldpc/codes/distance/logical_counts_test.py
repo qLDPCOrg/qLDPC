@@ -202,8 +202,8 @@ def test_methods_agree_on_random_codes(
         assert counter.count_logical_ops(
             count_pauli=True, method="brouwer_zimmermann"
         ) == counter.count_logical_ops(count_pauli=True, method="brute_force")
-    # Some disjoint family that a scan starts from has at least `num_sets` sets, so the comparison
-    # checks which set counts each word.
+    # Some disjoint family that a scan starts from has at least ``num_sets`` sets, so several sets
+    # could count a word.
     assert max(sizes) >= num_sets
 
 

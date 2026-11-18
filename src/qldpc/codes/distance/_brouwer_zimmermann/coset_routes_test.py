@@ -27,16 +27,21 @@ from . import affine_instance, coset_routes, coset_tables
 
 # Two thresholds of the route gate, and maximum weights of queries of OVERLAPPING_ROUTES_CODE.  At
 # the middle weight, queries predict far fewer examinations than the high threshold with the greedy
-# packing.  They predict more than the other threshold with the greedy packing, but fewer with the
-# overlapping family, which they take.  At the heavy weights, queries predict far more examinations
-# than the other threshold with the greedy packing and with the family that they take: the
-# overlapping family at the first two heavy weights, and the greedy packing at the last.  The
-# examinations of the families of small codes differ too little for the middle weight to be far
-# from the other threshold.
-_HIGH_THRESHOLD, _THRESHOLD = 64, 8
+# packing.  They predict more than the low threshold with the greedy packing, but fewer with the
+# overlapping family, which they take under the low threshold.  At the heavy weights, queries
+# predict far more examinations than the low threshold with the greedy packing and with the family
+# that they take: the overlapping family at the first two heavy weights, and the greedy packing at
+# the last.  The examinations of the families of small codes differ too little for the middle
+# weight to be far from the low threshold.
+#
+# Under the high threshold, queries at the far weight predict more than three times as many
+# examinations as the high threshold with the greedy packing, and take the overlapping family.  No
+# weight of this code takes another family and predicts four times as many.
+_LOW_THRESHOLD, _HIGH_THRESHOLD = 8, 40
 _MIDDLE_WEIGHT = 1
 _OTHER_FAMILY_WEIGHTS = (3, 4)
 _HEAVY_WEIGHTS = (*_OTHER_FAMILY_WEIGHTS, 5)
+_FAR_WEIGHT = 4
 
 # A code of five rows whose greedy packing leaves a partial set of rank two.
 _DEFICIENT_ROUTES_CODE = np.hstack(
@@ -48,12 +53,12 @@ _DEFICIENT_ROUTES_CODE = np.hstack(
 _TWO_ROWS_CODE = np.array([[1, 0, 1, 1], [0, 1, 1, 1]], dtype=np.uint8)
 
 
-def test_the_gate_keeps_the_greedy_packing_far_below_its_threshold_and_not_far_above(
+def test_the_gate_keeps_the_greedy_packing_only_below_its_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Queries far below the threshold take the greedy packing, and build no other family.
 
-    Queries far above it take another family at some maximum weights.
+    Queries above it take the family with the least work, which can be the greedy packing.
     """
     # Far below the high threshold, queries take the greedy packing and build no other family.
     families = _spy_on_families(monkeypatch)
@@ -63,20 +68,44 @@ def test_the_gate_keeps_the_greedy_packing_far_below_its_threshold_and_not_far_a
     assert high_routes.get_route(_MIDDLE_WEIGHT)[0] is high_routes.disjoint_tables
     assert len(families) == 1
 
-    # At the other threshold, the same queries take another family, so only the gate kept the greedy
-    # packing.  Far above that threshold, queries take the overlapping family, whose sets share
-    # pivots, at the first two heavy weights, and the greedy packing at the last.
-    routes = _build_routes(OVERLAPPING_ROUTES_CODE, _THRESHOLD)
-    disjoint = (_get_instance(families, routes.disjoint_tables), routes.disjoint_tables)
+    # At the threshold zero, the same queries take another family, so only the gate kept the greedy
+    # packing.
+    routes = _build_routes(OVERLAPPING_ROUTES_CODE, 0)
     assert routes.get_route(_MIDDLE_WEIGHT)[0] is not routes.disjoint_tables
+
+    # Far above the low threshold, queries take the overlapping family at the first two heavy
+    # weights, and the greedy packing at the last.
+    routes = _build_routes(OVERLAPPING_ROUTES_CODE, _LOW_THRESHOLD)
+    disjoint = (_get_instance(families, routes.disjoint_tables), routes.disjoint_tables)
     for max_weight in _HEAVY_WEIGHTS:
-        assert routes._get_examinations(*disjoint, max_weight) >= 4 * _THRESHOLD
+        assert routes._get_examinations(*disjoint, max_weight) >= 4 * _LOW_THRESHOLD
         tables, _ = routes.get_route(max_weight)
         if max_weight in _OTHER_FAMILY_WEIGHTS:
-            pivots = tables.pivots[tables.pivots >= 0]
-            assert len(np.unique(pivots)) < len(pivots)
+            assert _has_shared_pivots(tables)
         else:
             assert tables is routes.disjoint_tables
+
+
+def test_each_query_faces_the_gate_whatever_queries_came_before() -> None:
+    """Each query faces the gate, whatever queries of the same routes came before it.
+
+    Queries of increasing and of decreasing maximum weights take the same routes: the greedy packing
+    far below the threshold, and another family at some maximum weight far above it.
+    """
+    max_weights = range(1, OVERLAPPING_ROUTES_CODE.shape[1] + 1)
+    increasing = _build_routes(OVERLAPPING_ROUTES_CODE, _HIGH_THRESHOLD)
+    decreasing = _build_routes(OVERLAPPING_ROUTES_CODE, _HIGH_THRESHOLD)
+    routes = {max_weight: increasing.get_route(max_weight)[0] for max_weight in max_weights}
+    for max_weight in reversed(max_weights):
+        tables, _ = decreasing.get_route(max_weight)
+        assert np.array_equal(tables.pivots, routes[max_weight].pivots)
+
+    # Far below the high threshold, the route is the greedy packing; far above it, it is not.
+    disjoint = (_get_disjoint_instance(OVERLAPPING_ROUTES_CODE), increasing.disjoint_tables)
+    assert 4 * increasing._get_examinations(*disjoint, _MIDDLE_WEIGHT) <= _HIGH_THRESHOLD
+    assert routes[_MIDDLE_WEIGHT] is increasing.disjoint_tables
+    assert increasing._get_examinations(*disjoint, _FAR_WEIGHT) >= 3 * _HIGH_THRESHOLD
+    assert _has_shared_pivots(routes[_FAR_WEIGHT])
 
 
 @pytest.mark.parametrize(
@@ -112,24 +141,28 @@ def test_routes_by_tails_take_the_latest_record_of_their_own_family(
     """
     families = _spy_on_families(monkeypatch)
     builds = _spy_on_tails(monkeypatch)
-    routes = _build_routes(OVERLAPPING_ROUTES_CODE, _THRESHOLD, by_tails=True)
-    plain_routes = _build_routes(OVERLAPPING_ROUTES_CODE, _THRESHOLD)
+    routes = _build_routes(OVERLAPPING_ROUTES_CODE, _LOW_THRESHOLD, by_tails=True)
+    plain_routes = _build_routes(OVERLAPPING_ROUTES_CODE, _LOW_THRESHOLD)
     disjoint = (_get_instance(families, routes.disjoint_tables), routes.disjoint_tables)
+
+    # At the middle weight, the greedy packing reaches the low threshold, but the overlapping
+    # family, which the query takes, does not.
+    tables, tails = routes.get_route(_MIDDLE_WEIGHT)
+    assert _has_shared_pivots(tables)
+    examinations = routes._get_examinations(_get_instance(families, tables), tables, _MIDDLE_WEIGHT)
+    assert routes._get_examinations(*disjoint, _MIDDLE_WEIGHT) >= _LOW_THRESHOLD > examinations
+    assert tails is None
+
+    # Far below the high threshold, the gate keeps the greedy packing at the middle weight, and the
+    # route is not by tails.
     high_routes = _build_routes(OVERLAPPING_ROUTES_CODE, _HIGH_THRESHOLD, by_tails=True)
     assert high_routes.get_route(_MIDDLE_WEIGHT)[1] is None
 
-    # At the middle weight, the greedy packing reaches the threshold, but the family that the query
-    # takes does not.
-    tables, tails = routes.get_route(_MIDDLE_WEIGHT)
-    examinations = routes._get_examinations(_get_instance(families, tables), tables, _MIDDLE_WEIGHT)
-    assert routes._get_examinations(*disjoint, _MIDDLE_WEIGHT) >= _THRESHOLD > examinations
-    assert tails is None
-
-    # Far above the threshold, a route by tails gives a record of the family that it takes.
+    # Far above the low threshold, a route by tails gives a record of the family that it takes.
     for max_weight in _HEAVY_WEIGHTS:
         tables, tails = routes.get_route(max_weight)
         instance = _get_instance(families, tables)
-        assert routes._get_examinations(instance, tables, max_weight) >= 4 * _THRESHOLD
+        assert routes._get_examinations(instance, tables, max_weight) >= 4 * _LOW_THRESHOLD
         assert tails is not None
         assert next(build.instance for build in builds if build.record is tails) is instance
         assert plain_routes.get_route(max_weight)[1] is None
@@ -348,3 +381,9 @@ def _get_instance(
     """The coset instance of the family of some tables, among the recorded families."""
     (instance,) = [instance for instance, built in families if built is tables]
     return instance
+
+
+def _has_shared_pivots(tables: coset_tables.CosetSearchTables) -> bool:
+    """Whether some sets of the family of some tables share pivots, as in the overlapping family."""
+    pivots = tables.pivots[tables.pivots >= 0]
+    return len(np.unique(pivots)) < len(pivots)

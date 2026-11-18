@@ -162,10 +162,6 @@ def test_selection_follows_its_policy() -> None:
     """Tables are used if their predicted cost is within the limit, and reused for the same rows."""
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 60, 24))
     assert cb.select_completion_tables(rows, 1, 12, None, FORCED) is None
-    default = DEFAULT_TUNING
-    # A layer with fewer supports than the minimum layer work is not considered.
-    gated = dataclasses.replace(default, completion_bound_minimum_layer_work=10**12)
-    assert cb.select_completion_tables(rows, 6, 6, None, gated) is None
 
     # With the best weight six, every bound in layer six reaches its limit of zero, so tables skip
     # every support, and repay their lookups and their build.  The tuning sets every setting of the
@@ -186,6 +182,9 @@ def test_selection_follows_its_policy() -> None:
     )
     tables = cb.select_completion_tables(rows, 6, 6, None, pinned)
     assert tables is not None
+    # A layer with fewer supports than the minimum layer work is not considered.
+    gated = dataclasses.replace(pinned, completion_bound_minimum_layer_work=10**12)
+    assert cb.select_completion_tables(rows, 6, 6, None, gated) is None
     # Tables that skip nothing, as for a best weight of 1000, never repay their lookups, even when
     # already built.
     assert cb.select_completion_tables(rows, 6, 1000, tables, pinned) is None
@@ -298,7 +297,7 @@ def test_estimates_need_enough_affordable_samples(monkeypatch: pytest.MonkeyPatc
         patch.setattr(np.random, "default_rng", record)
         assert cb._estimate_skipped_share(rows, 2, 4, 8, 6, most) == (0.0, 0)
         assert not generators
-        # With a budget, the same call draws random supports.
+        # Under a tuning with a budget, the call draws random supports.
         assert cb._estimate_skipped_share(rows, 2, 4, 8, 6, fewer) == (1.0, 100)
         assert generators
 

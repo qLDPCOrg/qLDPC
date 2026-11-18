@@ -554,8 +554,8 @@ def test_connected_cluster_searches_take_the_active_tuning(
     """CSS and Pauli distances search by connected clusters with the active tuning.
 
     ``get_distance_css`` searches through ``_search_css``, and ``get_distance_pauli``, whose
-    searches are symplectic, through ``_search_checks``.  The active tuning turns off two switches
-    of the searches that are on by default.
+    searches are symplectic, through ``_search_checks``.  Each search takes both of its switches
+    from the active tuning, whether they are on or off.
     """
     switches: list[tuple[bool, bool, bool]] = []
     initialize = SupportSearch.__init__
@@ -567,13 +567,15 @@ def test_connected_cluster_searches_take_the_active_tuning(
 
     monkeypatch.setattr(SupportSearch, "__init__", record)
     steane_code = qldpc.codes.SteaneCode()
-    with use_tuning(restrict_viable_symbols=False, pair_sum_checks=False):
-        core.get_distance_css(
-            steane_code.matrix_x, steane_code.matrix_z, method="connected_cluster"
-        )
-        core.get_distance_pauli(qldpc.codes.FiveQubitCode().matrix, method="connected_cluster")
-    assert {symplectic for symplectic, _, _ in switches} == {False, True}
-    assert not any(restrict or pair_sums for _, restrict, pair_sums in switches)
+    for switch in (True, False):
+        switches.clear()
+        with use_tuning(restrict_viable_symbols=switch, pair_sum_checks=switch):
+            core.get_distance_css(
+                steane_code.matrix_x, steane_code.matrix_z, method="connected_cluster"
+            )
+            core.get_distance_pauli(qldpc.codes.FiveQubitCode().matrix, method="connected_cluster")
+        assert {symplectic for symplectic, _, _ in switches} == {False, True}
+        assert all(restrict == pair_sums == switch for _, restrict, pair_sums in switches)
 
 
 def test_connected_cluster_needs_parity_checks() -> None:
