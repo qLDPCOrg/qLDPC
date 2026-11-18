@@ -367,8 +367,9 @@ def evaluate(
 def exact_no_fault_baseline(calibration: ConsumerCalibration) -> ConsumerCalibration:
     """The calibration with the baseline f(0, 0) exact, if it was estimated as 0.
 
-    With no consumer fault and no block error, every shot of the consumer is the same, and its
-    decoder is deterministic, so f(0, 0) is exactly 0 or 1, and an estimate of 0 from any shots
+    With no consumer fault and no block error, every shot gives the same detectors and
+    observables, and the decoder is deterministic, so f(0, 0) is exactly 0 or 1, and an estimate
+    of 0 from any number of shots
     means f(0, 0) = 0 exactly.  ``Consumer.calibrate`` still gives it the Jeffreys error of its
     zero failures.  The value of every score is unchanged.
     """
@@ -848,13 +849,12 @@ def direct_terms(candidate: dict[str, Any]) -> tuple[list[float], list[float]]:
     estimates a_f, as many accepted draws.  Its contribution to sigma^2 is that of
     ``direct.combine_strata``.  Its bound uses that each draw's weighted change and weighted
     acceptance lie in [-W, W], for the largest importance weight W that the proposal allows, so
-    that each mean has a variance of at most W^2 / n.  ``alpha_reference`` is the reference's
-    acceptance alpha, which ``combine_strata`` estimates.  With alpha >= alpha_exact, the
-    contribution is at most ((pi_f eta_g + max(1, |Phi|) pi_f) W)^2 / (n alpha_exact^2) for
-    g = 0, and (pi_f eta_g W)^2 / (n alpha_exact^2) otherwise; |Phi| <= 1, but its estimate can
-    exceed 1.  A stratum (f, 0) whose draws are nearly all
-    accepted can still pass with an unreliable estimate of a_f's variance; that term carries a
-    factor Phi^2.
+    that each mean has a variance of at most W^2 / n.  With the reference's acceptance alpha
+    (``alpha_reference``, estimated by ``combine_strata``) at least alpha_exact, the contribution
+    is at most ((pi_f eta_g + max(1, |Phi|) pi_f) W)^2 / (n alpha_exact^2) for g = 0, and
+    (pi_f eta_g W)^2 / (n alpha_exact^2) otherwise; |Phi| <= 1, but its estimate can exceed 1.
+    A stratum (f, 0) whose draws are nearly all accepted can still pass with an unreliable
+    estimate of a_f's variance; that term carries a factor Phi^2.
     """
     pi, eta = candidate["pi"], candidate["eta"]
     alpha, phi = candidate["alpha_reference"], candidate["phi_true"]
@@ -949,8 +949,9 @@ def calibration_terms(
     (``nonzero_changes``), and a baseline with as many failures; an exact baseline has no error and
     is not a part.  ``num_samples`` is the calibration's draws for each fault weight and physical
     error weight, so a baseline's shots are ``num_samples`` times the min(M + 1, n) physical error
-    weights that ``Consumer.calibrate`` draws for the X type, the only type calibrated here.
-    Weights are at most 1, a cell's Jeffreys variance is at most 1 / count, and a
+    weights that ``Consumer.calibrate`` draws for the X type, the only type calibrated here, for
+    M the calibration's largest residual weight and n the block's qubits.  Weights are at most 1,
+    a cell's Jeffreys variance is at most 1 / count, and a
     baseline's at most 1 / shots, so a part at fault weight g contributes at most Pr[g]^2 / count,
     or Pr[g]^2 / shots.
     """
@@ -1274,7 +1275,7 @@ def _strip_cpu(value: Any) -> Any:
 
 
 def _flatten(candidate: dict[str, Any]) -> dict[str, Any]:
-    """A candidate's row of candidates.csv, without its objects."""
+    """A candidate's row of candidates.csv, without its objects and its laws pi and eta."""
     row = {
         k: v
         for k, v in candidate.items()

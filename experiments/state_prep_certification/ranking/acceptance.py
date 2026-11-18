@@ -21,7 +21,7 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   largest fault weight equal those of the calibration.  On ``cgoto``, sampled strata of weights
   that are also listed exactly agree with the listing within four standard errors, with weights
   of 1; and at qLDPC's flagged-odds factor, each importance weight and the bound on a stratum's
-  weights equal those of a brute-force listing.
+  weights equal those of a brute-force listing on six of its mechanisms.
 * **RT4:** on ``cgoto`` at p = 10^-3, with every fault weight up to 4 listed and a calibration
   with exact cells, Phi_unc and Phi_cal from qLDPC equal a computation from the listed faults, to
   10^-12.  The calibration contribution of ``analyze.calibration_difference_error`` equals
@@ -277,12 +277,17 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
         M,
         np.random.default_rng(0),
     )
-    factor = 1.0
     for f, g in ((2, 0), (2, 1), (3, 0)):
         exact = direct._list_stratum(pairing, f, g)
         assert exact.plus + exact.minus > 0, (f, g)
         sampled = direct._sample_stratum(
-            pairing, f, g, 20_000, factor, np.random.default_rng(f + g)
+            # factor 1, config.json's value under decision 1
+            pairing,
+            f,
+            g,
+            20_000,
+            1.0,
+            np.random.default_rng(f + g),
         )
         assert abs(sampled.mean - exact.mean) <= 4 * math.sqrt(sampled.variance), (f, g)
         if g == 0:
@@ -308,7 +313,8 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
     odds = small.probabilities / (1 - small.probabilities)
     qldpc_factor = residual_weights._FLAGGED_ODDS_FACTOR
     proposal = odds * np.where(small.flagged, qldpc_factor, 1.0)
-    # with three flagged mechanisms, f = 2 reaches the bound with two, and f = 4 with all three
+    # f = 2 tests a bound reached with f flagged mechanisms, and f = 4 one capped at the three
+    # flagged
     for f in (2, 4):
         subsets = list(itertools.combinations(range(6), f))
         noise = np.array([np.prod(odds[list(subset)]) for subset in subsets])
@@ -886,7 +892,7 @@ def rt10_rules(directory: pathlib.Path) -> None:
         f"histogram.z.p{rate:g}": {"status": "ok", "result": {"total": fields, "x": fields}},
         f"direct.z.p{rate:g}": {"status": "ok", "result": direct_result},
     }
-    scored = analyze._candidate(candidate_rows, {"id": "z"}, "g", rate, True, {})
+    scored = analyze._candidate(candidate_rows, {"id": "z"}, "g", rate, admitted=True, group_row={})
     assert scored["alpha"] == total_histogram.acceptance_probability != 0.5, scored["alpha"]
     assert scored["alpha_reference"] == 0.5, scored
 
@@ -911,9 +917,8 @@ def rt10_rules(directory: pathlib.Path) -> None:
     sigma_cal = analyze.calibration_difference_error(passing_calibration, passing_histogram)
     assert not failing and math.isclose(sum(passing), sigma_cal**2, rel_tol=1e-12), passing
     # cell (2, 0) has 9 increases and decreases, and the baseline at g = 1 has 9 failures of
-    # 1000 x 3 shots, one for each physical error weight up to M + 1 = 3 of the 4 qubits; their
-    # bounds are Pr[0]^2 / 500 and
-    # Pr[1]^2 / 3000, and with 10 failures the baseline passes
+    # 1000 shots for each physical error weight 1 to min(M + 1, 4) = 3; their bounds are
+    # Pr[0]^2 / 500 and Pr[1]^2 / 3000, and with 10 failures the baseline passes
     failing_calibration = terms_calibration(((60, 10, 1000), (8, 1, 500)), 9 / 3000)
     _, failing = analyze.calibration_terms(failing_calibration, passing_histogram, 1000)
     pr_0, pr_1 = failing_calibration._get_distribution()[0]

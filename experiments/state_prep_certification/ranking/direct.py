@@ -23,9 +23,9 @@ stratum draws F from a proposal for weight f (``sample_faults``), with importanc
 P_f(F) / q_f(F), and T exactly from its conditional law, as ``Consumer.calibrate`` draws it.  With
 ``flagged_odds_factor`` = 1 in ``config.json``, the proposal is the noise's conditional law P_f,
 so every weight is 1.  qLDPC's histograms multiply the odds of flagged mechanisms by
-``_FLAGGED_ODDS_FACTOR``, which would give an accepted fault with two flagged mechanisms whose
-flags cancel a weight of up to the factor's inverse squared, and leave a stratum too few effective
-draws.
+``_FLAGGED_ODDS_FACTOR``.  With that factor, an accepted fault with two flagged mechanisms whose
+flags cancel would have an importance weight of up to the factor's inverse squared, which leaves a
+stratum too few effective draws.
 
 The estimate is the ratio of the stratified sums.  Preparation faults heavier than f_max, of total
 probability u, count as accepted with no change, and consumer faults heavier than g_max, of total
