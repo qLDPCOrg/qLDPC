@@ -137,13 +137,17 @@ So bliss misses a permutation that swaps the row spaces but does not map the two
 Without pybliss, the lookup finds only the identity.
 A search that misses a permutation searches both sectors, and its result stays the same.
 `maps_sectors` checks every candidate from bliss by rank tests over GF(2) before a search uses it.
+The fixed candidates below skip these tests, since the lookup accepts one only if it maps the two lists onto each other, which already makes it swap the row spaces.
 Brute force never looks, so that it searches each sector as given: it is meant for small codes and for independent checks of the other methods, and `auto` takes it only when enumerating the sectors is cheap.
 
 Cheap necessary tests come before the costly steps.
 Unequal ranks rule out every permutation.
 A few random words of `rowspan(G_Z)` test whether `rowspan(G_X)` may hold `rowspan(G_Z)` before the rank test of the identity, and the weights of the gauge generators and the X-degrees and Z-degrees of the qubits must match under swapped colors before bliss runs.
+If pybliss is installed, the lookup first tries the reversal of the qubits, a cyclic shift by half of them, and a quarter turn of a square grid of qubits, as fixed candidates, and takes the first that maps the two lists of nonzero gauge generators onto each other, as the permutation of an isomorphism that bliss would find does.
+It tries them only with pybliss, since each stands in for a map that bliss would find.
+The reversal maps the lists of bivariate bicycle and generalized bicycle codes onto each other, so for them the lookup does not run bliss.
 The lookup takes milliseconds on codes of hundreds of qubits.
-On codes of thousands of qubits, it takes tens of milliseconds when the cheap tests reject, about a tenth of a second when it ends in the identity, and up to about a second when bliss runs.
+On codes of thousands of qubits, it takes tens of milliseconds when the cheap tests reject, about a tenth of a second when it ends in the identity, and up to a few tenths of a second when bliss runs.
 The switch `sector_maps` of `SearchTuning` turns the lookup off (see the docstring of `_tuning.py`).
 Code classes that promise equal distances with `promise_equal_distance_xz`, such as `BBCode`, search one sector already through `CSSCode.get_distance_exact`; this lookup covers other codes, and the functions that take matrices.
 
