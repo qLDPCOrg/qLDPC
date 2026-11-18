@@ -61,9 +61,13 @@ This projection assumes that sigma falls as the inverse square root of the draws
 stratum, row, or cell with fewer than ``MIN_NONZERO`` draws of nonzero value may not.  Such a
 component fails; histograms do not store their draws, so for their rows the Kish effective number
 of the draws of nonzero value, which is at most their count, stands in for it.  A component's
-projection is made only if the failing parts can only matter little: the sum of their bounds, which
-the method's ranges fix before any data, is at most ``EXEMPT_SHARE`` of the summed estimated
-variance of the passing parts.  Elsewhere the projected cost is left empty.  The bounds are those of
+projection is made only if the failing parts can change it by at most ``EXEMPT_SHARE``: the sum
+of their bounds, which the method's ranges fix before any data, is at most that share of
+max(sigma^2_pass, s_min sigma_target^2), with sigma^2_pass the estimated variance of the passing
+parts (``exempted``).  The estimated sigma reported beside a projection includes the exempted
+parts' own estimates, which few draws may understate, so their summed bound is reported beside it
+(``exempted_bound_*``).  Elsewhere the
+projected cost is left empty.  The bounds are those of
 ``direct_terms``, ``histogram_terms``, and ``calibration_terms``.  The calibration's baseline
 f(0, 0) is exact (``exact_no_fault_baseline``), and so has no error and no draws to count.
 
@@ -791,18 +795,41 @@ def nonzero_changes(mean: float, error: float, count: int) -> int:
     return round(plus_minus - 1)
 
 
-def exempted(passing: list[float], failing: list[float]) -> bool:
+def exempted(passing: list[float], failing: list[float], floor: float = 0.0) -> bool:
     """Whether a projection may be made despite the parts that fail the nonzero-draw test.
+
+    The projection scales a sampled cost by s = max(s_min, sigma^2 / sigma_target^2), so parts
+    that add at most b to sigma^2 change s by a factor of at most 1 + b / (s sigma_target^2).  They
+    may be exempted if that factor is at most 1 + ``EXEMPT_SHARE``, with s taken from the passing
+    parts: their bounds sum to at most ``EXEMPT_SHARE`` of max(sigma^2_pass, s_min
+    sigma_target^2).
 
     Args:
         passing: The estimated contributions to sigma^2 of the sampled parts that pass.
         failing: The bounds on the contributions of those that fail.
+        floor: s_min sigma_target^2 of the projection.
 
     Returns:
-        Whether the failing parts' bounds sum to at most ``EXEMPT_SHARE`` of the passing parts'
-        estimates; with no failing part, True.
+        Whether the failing parts may be exempted; with no failing part, True.
     """
-    return sum(failing) <= EXEMPT_SHARE * sum(passing)
+    return sum(failing) <= EXEMPT_SHARE * max(sum(passing), floor)
+
+
+def check_projection(
+    terms: tuple[list[float], list[float]], draws: int, target: float
+) -> tuple[bool, float]:
+    """Whether a component's projection may be made, and the summed bound of its exempted parts.
+
+    Args:
+        terms: The passing parts' estimates and the failing parts' bounds, as ``direct_terms``,
+            ``histogram_terms``, and ``calibration_terms`` give them.
+        draws: The fewest draws of a sampled part, which sets s_min = ``MIN_DRAWS`` / draws.
+        target: The component's target error sigma_target.
+    """
+    passing, failing = terms
+    floor = MIN_DRAWS / draws * target**2 if draws else 0.0
+    valid = exempted(passing, failing, floor)
+    return valid, sum(failing) if valid else 0.0
 
 
 def direct_terms(candidate: dict[str, Any]) -> tuple[list[float], list[float]]:
@@ -969,7 +996,9 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
     # direct simulation: fixed setup and exact strata, and the scaled sampled strata
     for c in members:
         cpu = c["cpu_direct"]
-        valid = exempted(*direct_terms(c))
+        valid, c["exempted_bound_direct"] = check_projection(
+            direct_terms(c), c["num_direct_samples"], target
+        )
         fixed = cpu["cpu_prep_setup_s"] + cpu["cpu_exact_s"]
         c["cost_direct_achieved"] = fixed + cpu["cpu_sampled_s"]
         c["cost_direct_projected"] = project(
@@ -979,17 +1008,20 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
     # Phi_cal: the calibration once per group, against the error of its worst circuit
     worst = max(members, key=lambda c: c["sigma_cal"])
     worst_cal = worst["sigma_cal"]
-    cal_valid = exempted(
-        *calibration_terms(calibration, worst["histograms"][1], group["num_samples"])
+    counts = _x_table(calibration.excess_num_samples)
+    cal_draws = int(counts[counts > 0].min()) if np.any(counts > 0) else 0
+    cal_valid, cal_bound = check_projection(
+        calibration_terms(calibration, worst["histograms"][1], group["num_samples"]),
+        cal_draws,
+        target / math.sqrt(2),
     )
     a_score_achieved = group["cpu_consumer_setup_s"] + group["cpu_sampled_s"]
-    counts = _x_table(calibration.excess_num_samples)
     a_score = project(
         group["cpu_consumer_setup_s"],
         group["cpu_sampled_s"],
         worst_cal,
         target / math.sqrt(2),
-        int(counts[counts > 0].min()) if np.any(counts > 0) else 0,
+        cal_draws,
         cal_valid,
     )
 
@@ -1007,6 +1039,10 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
                 else phi_cal_values(calibration, histogram)
             )
             rows = histogram.num_samples[~histogram.exact & (histogram.num_samples > 0)]
+            draws = int(rows.min()) if rows.size else 0
+            valid, c[f"exempted_bound_{score}"] = check_projection(
+                histogram_terms(histogram, values), draws, sigma_target
+            )
             fixed = (
                 cpu["cpu_setup_s"]
                 + cpu["cpu_exact_s"]
@@ -1019,8 +1055,8 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
                 cpu["cpu_sampled_s"],
                 sigma,
                 sigma_target,
-                int(rows.min()) if rows.size else 0,
-                exempted(*histogram_terms(histogram, values)),
+                draws,
+                valid,
             )
 
     # the cost lines, and k* where every component is projected
@@ -1047,6 +1083,7 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         "sigma_hist_max": max(c["sigma_hist"] for c in members),
         "sigma_cal_max": worst_cal,
         "sigma_unc_max": max(c["sigma_phi_unc"] for c in members),
+        "exempted_bound_calibration": cal_bound,
         "projected_calibration": a_score is not None,
         "projected_direct": lines["b_direct"] is not None,
         "projected_histograms": lines["b_score"] is not None,

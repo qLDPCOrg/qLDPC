@@ -40,8 +40,9 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   resolved and unresolved pairs, and correct, wrong, tied, uncertain, and missing calls; the gate's
   outcomes; a pair on each side of the margin; a group's cost lines and k*, and each validity input
   of the cost projection on each side of its threshold; the break-even outcomes at their
-  boundaries; projected costs; and the nonzero draws of a calibration cell through qLDPC's Jeffreys
-  error, all against values worked out by hand.
+  boundaries; projected costs; the exemption of parts with few draws, at its boundary and with the
+  floor s_min sigma_target^2; each part's estimate and bound; and the nonzero draws of a
+  calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.
 
 Each test prints PASS or FAIL; the script exits with status 1 if any failed.
 """
@@ -727,6 +728,13 @@ def rt10_rules(directory: pathlib.Path) -> None:
     # the 1% rule, at its boundary
     assert analyze.exempted([1.0], [0.0099]) and not analyze.exempted([1.0], [0.0101])
     assert analyze.exempted([], []) and not analyze.exempted([], [1e-30])
+    # with s = s_min, the floor s_min sigma_target^2 replaces a smaller passing variance
+    assert analyze.exempted([1e-30], [0.0099], 1.0) and not analyze.exempted([1e-30], [0.0101], 1.0)
+    assert not analyze.exempted([1.0], [0.0101], 0.5)
+    # s_min = 1000 / 4000 and sigma_target = 2 give a floor of 1, and an exempted bound is reported
+    assert analyze.check_projection(([1e-30], [0.0099]), 4000, 2.0) == (True, 0.0099)
+    assert analyze.check_projection(([1e-30], [0.0101]), 4000, 2.0) == (False, 0.0)
+    assert analyze.check_projection(([1.0], [0.0099]), 0, 2.0) == (True, 0.0099)
 
     # a reference's terms: a passing stratum's estimate and a failing stratum's bound
     base = {"exact": False, "draws": 100, "importance_weight_bound": 2.0}
