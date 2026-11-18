@@ -555,7 +555,9 @@ def rt10_rules(directory: pathlib.Path) -> None:
     def gate(
         phi_cal: tuple[int, int], rival: int, eligible: int = 2, best: str | None = None
     ) -> str:
-        """The gate when Phi_cal makes (correct, certain) correct calls of 10 at each eligible rate.
+        """The gate when Phi_cal's calls at each eligible rate are (correct, certain and correct).
+
+        Each eligible rate has 10 resolved pairs.
 
         Every other score makes ``rival`` correct calls, none of them certain, except ``best``,
         which makes as many correct and certain calls as Phi_cal's certain ones.  At an ineligible
@@ -566,16 +568,17 @@ def rt10_rules(directory: pathlib.Path) -> None:
             calls = phi_cal if score == "phi_cal" else (rival, 0)
             calls = (phi_cal[1], phi_cal[1]) if score == best else calls
             for index, r in enumerate(experiment.CONFIG["rates"]):
-                if index >= eligible:
-                    calls = (0, 0) if score == "phi_cal" else (10, 10)
+                rate_calls = (
+                    calls if index < eligible else ((0, 0) if score == "phi_cal" else (10, 10))
+                )
                 rows.append(
                     {
                         "score": score,
                         "rate": r,
                         "eligible": index < eligible,
                         "resolved_pairs": 10,
-                        "correct": calls[0],
-                        "correct_certain": calls[1],
+                        "correct": rate_calls[0],
+                        "correct_certain": rate_calls[1],
                     }
                 )
         return str(analyze.gate(rows)["outcome"])
@@ -598,13 +601,21 @@ def rt10_rules(directory: pathlib.Path) -> None:
 
     # the cost lines of one group, against values worked out by hand; every validity input is at
     # its threshold of 10 nonzero draws, and the reached cell with the fewest draws sets s_min
+    target = 0.1 * 2e-3
+
     def cost_lines(
         direct_nonzero: int = 10,
         accepted: int = 10,
         row: tuple[int, ...] = (100, 1890, 6, 4, 0),
         cells: tuple[tuple[int, int, int], ...] = ((6, 4, 1000), (8, 2, 500)),
     ) -> dict[str, Any]:
-        """The cost lines of two hand-made circuits, with the given nonzero draws."""
+        """The cost lines of two hand-made circuits.
+
+        ``direct_nonzero`` and ``accepted`` are the nonzero and accepted draws of two sampled
+        strata of the reference, ``row`` the summed weights of the histograms' sampled row (whose
+        draws all have weight 1), and ``cells`` the increases, decreases, and draws of the
+        calibration's two cells.
+        """
         weights = np.zeros((2, M + 3))
         weights[0, 1] = 1.0
         weights[1] = row
@@ -665,16 +676,16 @@ def rt10_rules(directory: pathlib.Path) -> None:
                 "mean_cpu_s": {"rebuild_histogram": 0.01, "phi_cal": 0.02, "phi_unc": 0.03}
             },
         }
-        return analyze._cost_lines(members, group)  # fmt: skip
+        return analyze._cost_lines(members, group)
 
-    target = 0.1 * 2e-3
     lines = cost_lines()
     expected = {
         "sigma_target": target,
         "A_direct": 0.5,
         "b_direct": 1.0 + 2.0 + 4 * 3.0,
-        # s_min = 1000 / 500 exceeds the worst calibration error's (1)^2
+        # s_min = MIN_DRAWS / 500 = 2 exceeds (sigma_cal / (sigma* / sqrt 2))^2 = 1 of the worst
         "A_score": 0.4 + (1000 / 500) * 5.0,
+        "sigma_cal_max": target / math.sqrt(2),
         "b_score": 0.1 + 0.2 + 0.01 + 0.02 + 4 * 0.3,
         "b_unc": 0.1 + 0.2 + 0.01 + 0.03 + max(1000 / 2000, 1.0) * 0.3,
     }
@@ -690,8 +701,12 @@ def rt10_rules(directory: pathlib.Path) -> None:
         ("b_direct", cost_lines(accepted=9)),
         ("b_score", cost_lines(row=(100, 1891, 5, 4, 0))),
         ("A_score", cost_lines(cells=((5, 4, 1000), (8, 2, 500)))),
+        # overflow gives weight to the baseline f(0, 0), which has no failures
+        ("A_score", cost_lines(row=(100, 1890, 6, 3, 1))),
     ):
         assert broken[line] is None and broken["k_star"] == "not computed", (line, broken)
+        others = {"b_direct", "b_score", "A_score"} - {line}
+        assert all(broken[other] is not None for other in others), (line, broken)
 
     # the break-even outcomes, at and near their boundaries
     for delta_a, delta_b, outcome in (

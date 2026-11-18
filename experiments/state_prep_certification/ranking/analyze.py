@@ -44,8 +44,9 @@ either histogram.  A call without a score, as after a failed task, counts as wro
 and a score agrees at an eligible rate if it calls at least ``AGREE_ACCURACY`` of them correctly.
 The gate keeps Phi_cal if at least two rates are eligible, Phi_cal agrees at each, and, pooled over
 them, Phi_cal calls strictly more pairs correctly than each of Phi_unc, alpha, and Pr[R > 0 | A].
-Phi_cal's uncertain calls count as wrong here; the ``agrees`` column of ``agreement.csv`` counts
-them as correct, and ``correct_certain`` gives the correct calls without them, as the gate uses.
+Phi_cal's uncertain calls count as wrong here.  The ``agrees`` column of ``agreement.csv`` counts
+each call by its sign, uncertain or not, as ``correct`` does, and ``correct_certain``, which the
+gate uses, gives the correct calls that are not uncertain.
 The gate is inconclusive with fewer than two eligible rates.
 
 **Costs** are CPU seconds, projected to matched first-order standard errors, with the achieved
@@ -712,7 +713,7 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     Each projected line is taken over the groups where it is projected, and the number of these
     groups is given.  Also given are the median of the numeric k*, every group's k* outcome, and
-    the range of the truncation allowance tau over every group with a reference.
+    the range of the truncation allowance tau over the admitted circuits with a reference.
     """
     rows = []
     for rate in CONFIG["rates"]:
