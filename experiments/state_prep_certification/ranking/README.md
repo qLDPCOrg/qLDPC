@@ -1,7 +1,8 @@
 # Ranking certified preparations against direct simulation
 
 This experiment asks whether two decoder-free scores of state preparation circuits order certified circuits as direct simulation does, and at what cost relative to it.
-Both scores combine a circuit's residual-weight histogram, the distribution of the residual weight R of an accepted shot, with a model of the consumer: Phi_unc assumes a consumer that fails when R plus its own fault weight exceeds t, with the consumer's own fault-weight law, and Phi_cal uses a calibration of the consumer by simulation (qLDPC's `ResidualWeightHistogram` and `ConsumerCalibration`).
+Both scores combine a circuit's residual-weight histogram, the distribution of the residual weight R of an accepted shot, with a model of the consumer, defined below.
+Phi_unc assumes that the consumer fails when R plus its own fault weight exceeds the weight t that the code corrects, and Phi_cal uses a calibration of the consumer by simulation (qLDPC's `ResidualWeightHistogram` and `ConsumerCalibration`).
 The reference, Phi_true, is the excess failure probability that an accepted preparation causes in one fixed noisy consumer with one fixed decoder, estimated by stratified direct simulation.
 Two trivial baselines are scored beside them: the probability alpha that post-selection accepts a shot, and Pr[R > 0 | A], the probability that an accepted shot has a nonzero residual weight.
 The analysis is descriptive, and its first-order standard errors are not confidence bounds.
@@ -19,7 +20,7 @@ The experiment reads certification's inputs and code files from `../certificatio
 The consumer of a group is one noisy round of syndrome measurement followed by a noisy Z-basis readout of all data qubits: qLDPC's Z-basis memory experiment of the group's code, built from its code file, without the resets of the data qubits.
 A noiseless block preparation, Stim's circuit for the group's signed state, puts data qubit i in the state of output qubit i, and the observables are the code file's logical Z operators.
 The decoder is BP-OSD (`OSD_CS`, order 7), built from the consumer's detector error model at each rate.
-Preparation and consumer get `DepolarizingNoiseModel(p)` at each rate of `config.json`.
+At each rate p of `config.json`, the consumer gets `DepolarizingNoiseModel(p)`, and each preparation its own noise model of `circuits.json` at rate p, which is that model for every candidate.
 The X checks of this consumer have no detectors, so Z errors on the block change nothing, and Phi_cal uses a calibration of X-type errors only.
 
 ## Arms
@@ -34,7 +35,7 @@ The X checks of this consumer have no detectors, so Z errors on the block change
 | `repro` | one `histogram` and one `direct` task, twice each | the same outputs from the same seed |
 
 [`experiment.py`](experiment.py) describes the arms and their seeds, and [`config.json`](config.json) holds the rates, sample sizes, limits, and the circuits of `exact`, `mc_check`, and `repro`.
-Each `histogram`, `calib`, and `direct` task records the CPU seconds of its setup, of its exactly listed strata, and of its sampled strata or cells, for the cost comparison.
+The `histogram` and `direct` tasks record the CPU seconds of their setup, their exactly listed strata, and their sampled strata, and `calib` those of its setup and its sampled cells, for the cost comparison.
 The scores are computed by the analysis from the stored histograms and calibrations.
 
 ## Commands

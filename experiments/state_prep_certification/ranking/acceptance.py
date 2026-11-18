@@ -10,8 +10,9 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
 
 * **RT1:** certification's inputs and code files pass ``circuits.check_inputs``, and every circuit
   of a group prepares the group's signed state on its output qubits, in order.
-* **RT2:** at each rate, Stim builds the detector error model of each group's consumer, and every
-  single-qubit Z error on the block flips no detector or observable.  Whether the decoder corrects
+* **RT2:** at each rate, Stim builds the detector error model of each group's consumer, every
+  single-qubit X error on the block flips a detector, and every single-qubit Z error flips no
+  detector or observable.  Whether the decoder corrects
   every single-qubit X error on the block, with an ideal consumer, is recorded, with the number of
   the consumer's mechanisms and its fault distance, in ``RT2/consumers.json``; it is not a failure.
 * **RT3:** on ``cgoto`` and ``aft.carbon.opt_opt`` at p = 10^-3, the reference's mechanism list
@@ -291,14 +292,16 @@ def rt4_scores(directory: pathlib.Path) -> None:
     entry = experiment.entry_of("cgoto")
     noisy = experiment.noisy_input(entry, rate)
     options = experiment.histogram_options(entry)
-    total = estimate_residual_weight_histogram(noisy, M, 0, max_fault_weight=4, **options)
+    max_fault_weight = 4
+    total = estimate_residual_weight_histogram(
+        noisy, M, 0, max_fault_weight=max_fault_weight, **options
+    )
     x_type = estimate_residual_weight_histogram(
-        noisy, M, 0, max_fault_weight=4, pauli="X", **options
+        noisy, M, 0, max_fault_weight=max_fault_weight, pauli="X", **options
     )
     assert total.exact.all() and x_type.exact.all()
     consumer = ranking_consumer.build_consumer(entry, rate, DECODER)
     simulation = consumers._ConsumerSimulation(consumer, np.random.default_rng(0))
-    num_columns = 4
     table = np.array([[0.1, 0.3, 0.5, 0.6], [0.7, 0.6, 0.4, 0.2]])
     baseline = np.array([0.0, 0.05, 0.2, 0.3])
     calibration = ConsumerCalibration(
@@ -314,14 +317,16 @@ def rt4_scores(directory: pathlib.Path) -> None:
     # the listed faults, each weighed by its probability, with heavier fault weights accepted with
     # overflow
     preparation = direct.get_preparation(noisy, options, M)
-    pi, u = residual_weights._get_fault_weight_probabilities(preparation.probabilities, 4)
+    pi, u = residual_weights._get_fault_weight_probabilities(
+        preparation.probabilities, max_fault_weight
+    )
     cases: list[tuple[list[float], PauliXZ | None, ResidualWeightHistogram, float]] = [
         (values_unc, None, total, experiment.scores(total, x_type, calibration)["phi_unc"][0]),
-        (values_cal, Pauli.X, x_type, calibration.get_excess_failure_probability(x_type)[0]),
+        (values_cal, Pauli.X, x_type, experiment.scores(total, x_type, calibration)["phi_cal"][0]),
     ]
     for values, pauli, histogram, score in cases:
         numerator, acceptance = u * values[-1], u
-        for f in range(num_columns + 1):
+        for f in range(max_fault_weight + 1):
             faults = residual_weights._get_combinations(len(preparation), f)
             weights = direct._conditional_probabilities(preparation.probabilities, faults)
             accepted = preparation.accepted(faults)
@@ -544,21 +549,107 @@ def rt10_rules(directory: pathlib.Path) -> None:
     assert not row["eligible"]
 
     # the gate, from agreement rows: kept, not kept, and inconclusive
-    def gate(phi_cal: tuple[int, int], rival: int, eligible: int = 2) -> str:
-        """The gate when Phi_cal has (correct, certain) calls of 10 at each eligible rate."""
-        rows = [
-            {"score": score, "rate": r, "eligible": index < eligible, "resolved_pairs": 10,
-             "correct": phi_cal[0] if score == "phi_cal" else rival,
-             "correct_certain": phi_cal[1] if score == "phi_cal" else rival}
-            for score in analyze.SCORES
-            for index, r in enumerate(experiment.CONFIG["rates"])
-        ]  # fmt: skip
+    def gate(
+        phi_cal: tuple[int, int], rival: int, eligible: int = 2, best: str | None = None
+    ) -> str:
+        """The gate when Phi_cal has (correct, certain) calls of 10 at each eligible rate.
+
+        Every rival calls ``rival`` correctly, except ``best``, which calls as many as Phi_cal.
+        """
+        rows = []
+        for score in analyze.SCORES:
+            correct = phi_cal if score == "phi_cal" else (rival, rival)
+            correct = (phi_cal[1], phi_cal[1]) if score == best else correct
+            for index, r in enumerate(experiment.CONFIG["rates"]):
+                rows.append(
+                    {
+                        "score": score,
+                        "rate": r,
+                        "eligible": index < eligible,
+                        "resolved_pairs": 10,
+                        "correct": correct[0],
+                        "correct_certain": correct[1],
+                    }
+                )
         return str(analyze.gate(rows)["outcome"])
 
     assert gate((9, 9), 8) == "kept"
     assert gate((9, 7), 6) == "not kept"
-    assert gate((9, 9), 9) == "not kept"
+    assert gate((10, 8), 9) == "not kept"
+    for best in ("phi_unc", "alpha", "residual"):
+        assert gate((9, 9), 8, best=best) == "not kept", best
+    assert gate((9, 9), 8, best="phi_unc_x") == "kept"
     assert gate((9, 9), 8, eligible=1) == "inconclusive"
+
+    # the margin of a pair, 2 sigma_Delta + tau_i + tau_j = 0.04828..., between two differences
+    for difference, resolved in ((0.047, False), (0.050, True)):
+        near = [
+            candidate(name, true, {}, tau=0.01)
+            for name, true in (("x", 1.0), ("y", 1.0 + difference))
+        ]
+        assert analyze._pair("g", rate, *near)["resolved"] == resolved, difference
+
+    # the cost lines of one group, against values worked out by hand
+    histogram_weights = np.zeros((2, M + 3))
+    histogram_weights[0, 1] = 1.0
+    histogram_weights[1] = [100, 1800, 60, 40, 0]
+    sampled_histogram = ResidualWeightHistogram(
+        max_residual_weight=M,
+        css_weight=True,
+        fault_weight_probabilities=np.array([0.9, 0.1]),
+        truncated_probability=0.0,
+        weight_sums=histogram_weights,
+        squared_weight_sums=histogram_weights,
+        num_samples=np.array([0, 2000]),
+        exact=np.array([True, False]),
+        pauli="X",
+    )
+    cell_changes = ((100, 20, 1000), (200, 10, 1000))
+    cost_calibration = ConsumerCalibration(
+        {"X": [[(i - d) / n] for i, d, n in cell_changes]},
+        [0.0],
+        excess_standard_errors={
+            "X": [[float(consumers._get_jeffreys_deviations(i, d, n))] for i, d, n in cell_changes]
+        },
+        baseline_standard_errors=[0.01],
+        excess_num_samples={"X": [[n] for _, _, n in cell_changes]},
+    )
+    target = 0.1 * 2e-3
+    members = [
+        {
+            "phi_true": phi, "sigma_true": 2 * target, "tau": 0.0, "num_direct_samples": 10_000,
+            "strata": [{"exact": False, "g": 1, "nonzero": 20, "accepted_draws": 50}],
+            "cpu_direct": {"cpu_consumer_setup_s": 0.5, "cpu_prep_setup_s": 1.0,
+                           "cpu_exact_s": 2.0, "cpu_sampled_s": 3.0},
+            "sigma_hist": 2 * target / math.sqrt(2), "sigma_cal": 3 * target / math.sqrt(2),
+            "sigma_phi_unc": target, "histograms": (sampled_histogram, sampled_histogram),
+            "cpu_histogram": {name: {"cpu_setup_s": 0.1, "cpu_exact_s": 0.2,
+                                     "cpu_sampled_s": 0.3} for name in ("x", "total")},
+        }
+        for phi in (1e-3, 2e-3)
+    ]  # fmt: skip
+    group = {
+        "rate": 1e-3,
+        "calibration": cost_calibration,
+        "num_samples": 10_000,
+        "cpu_consumer_setup_s": 0.4,
+        "cpu_sampled_s": 5.0,
+        "score_timing": {
+            "mean_cpu_s": {"rebuild_histogram": 0.01, "phi_cal": 0.02, "phi_unc": 0.03}
+        },
+    }
+    lines = analyze._cost_lines(members, group)
+    expected = {
+        "sigma_target": target,
+        "A_direct": 0.5,
+        "b_direct": 1.0 + 2.0 + 4 * 3.0,
+        "A_score": 0.4 + 9 * 5.0,
+        "b_score": 0.1 + 0.2 + 0.01 + 0.02 + 4 * 0.3,
+        "b_unc": 0.1 + 0.2 + 0.01 + 0.03 + max(1000 / 2000, 1.0) * 0.3,
+    }
+    for key, value in expected.items():
+        assert math.isclose(lines[key], value, rel_tol=1e-12), (key, lines[key], value)
+    assert lines["k_star"] == analyze.break_even(45.4 - 0.5, 15.0 - 1.53) == "4", lines["k_star"]
 
     # the break-even outcomes, at and near their boundaries
     for delta_a, delta_b, outcome in (

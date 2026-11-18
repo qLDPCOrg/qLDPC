@@ -24,9 +24,10 @@ circuit's options at rate p:
 
 The seed of a task is the first 8 bytes of the SHA-256 of its key, and the two copies of a
 ``repro`` task share the seed of their key without the copy.  Each run calls ``runner.timed``
-once, around the whole task.  The ``histogram``, ``calib``, and ``direct`` tasks also record the
-CPU seconds of their parts for the cost comparison: setup (detector error models, decoders, and
-mechanism lists), exactly listed strata, and sampled strata or cells.  Each sends its finished
+once, around the whole task.  The ``histogram`` and ``direct`` tasks also record the CPU seconds
+of their parts for the cost comparison: setup (detector error models, decoders, and mechanism
+lists), exactly listed strata, and sampled strata; ``calib`` records its setup and its sampled
+cells.  Each sends its finished
 parts as partial results, which a run killed at its limit keeps.  Admission of candidates by
 their certification verdicts is left to ``analyze.py``, so every task runs.
 """
@@ -124,7 +125,7 @@ def prepare(label_dir: pathlib.Path) -> None:
 
 
 def tasks(label_dir: pathlib.Path, subset: str) -> list[dict[str, Any]]:
-    """The tasks of a subset: ``main``, or ``smoke``, the group and rate of ``smoke``.
+    """The tasks of a subset: ``main``, or ``smoke``, the group and rate named by ``smoke``.
 
     ``smoke`` has the ``histogram``, ``direct``, and ``calib`` tasks of its group and rate, the
     ``exact`` tasks, and the ``repro`` tasks.
@@ -323,6 +324,7 @@ def histograms(entry: dict[str, Any], rate: float, num_samples: int, seed: int) 
     fields: dict[str, Any] = {"id": entry["id"], "rate": rate, "num_samples": num_samples}
     paulis: tuple[PauliXZ | None, ...] = (None, Pauli.X)
     for name, pauli, child in zip(("total", "x"), paulis, _child_seeds(seed, 2)):
+        # setup alone, built only to be timed, then a run without samples, then the full run
         start = time.process_time()
         full, qubits, selected = residual_weights._get_selection(
             noisy, options["output_qubits"], options["add_flags"], options["post_select"]
@@ -411,6 +413,7 @@ def calibrate(group: str, rate: float, seed: int) -> dict[str, Any]:
     start = time.process_time()
     consumer = ranking_consumer.build_consumer(first, rate, CONFIG["decoder"])
     built = time.process_time()
+    # the simulation is built only to time setup; the calibration builds its own
     consumers._ConsumerSimulation(consumer, np.random.default_rng(calibration_seed))
     setup = time.process_time()
     calibration = consumer.calibrate(
@@ -598,13 +601,13 @@ def _evaluate(
     x_type: ResidualWeightHistogram,
     calibration: ConsumerCalibration,
 ) -> object:
-    """Evaluate one score, as ``scores`` does, without its standard error where it has none."""
+    """Evaluate one score or baseline, with its standard error, as ``scores`` does."""
     if name == "phi_unc":
         return total.get_excess_failure_probability(unc_profile(calibration))
     if name == "phi_cal":
         return calibration.get_excess_failure_probability(x_type)
     if name == "alpha":
-        return total.acceptance_probability
+        return total.acceptance_probability, acceptance_error(total)
     return total.get_excess_failure_probability(ConsumerProfile.hard(0))
 
 

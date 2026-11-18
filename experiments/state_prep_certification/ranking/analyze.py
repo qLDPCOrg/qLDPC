@@ -32,8 +32,9 @@ group's state, and unsampled if it is reachable and no draw reached it.  An unre
 zero weight in every histogram, so it adds nothing to Phi_cal.
 
 **Pairs**, within a group at one rate, are resolved if |Delta| > 2 sigma_Delta + tau_i + tau_j,
-with Delta the difference of the two references and sigma_Delta their errors in quadrature, and
-neither reference has an inadequate stratum.  A score's call on a resolved pair is the sign of its
+with Delta the difference of the two references, sigma_Delta their errors in quadrature, and
+tau_i and tau_j their truncation allowances (``direct.py``), and neither reference has an
+inadequate stratum.  A score's call on a resolved pair is the sign of its
 difference, and equal values are a tie, counted as wrong.  A call is uncertain if the difference
 is within twice its standard error.  For Phi_cal, that error propagates the shared calibration
 error through the difference of the two circuits' cell weights, and a call is also uncertain if a
@@ -44,7 +45,8 @@ failed task, counts as wrong and is counted.
 and a score agrees at an eligible rate if it calls at least ``AGREE_ACCURACY`` of them correctly.
 The gate keeps Phi_cal if at least two rates are eligible, Phi_cal agrees at each, and, pooled
 over them, Phi_cal calls strictly more pairs correctly than each of Phi_unc, alpha, and
-Pr[R > 0 | A].  Phi_cal's uncertain calls count as wrong here.  The gate is inconclusive with
+Pr[R > 0 | A].  Phi_cal's uncertain calls count as wrong here, though not in the ``agrees``
+column of ``agreement.csv``, which ``correct_certain`` complements.  The gate is inconclusive with
 fewer than two eligible rates.
 
 **Costs** are CPU seconds, projected to matched first-order standard errors, with the achieved
@@ -64,15 +66,17 @@ calibration, b_score the mean over the circuits of the preparation's setup, the 
 histogram, and the time to rebuild it and evaluate Phi_cal; A_direct is the consumer's setup for
 the reference, and b_direct the mean of the preparation's setup and the projected reference.  With
 delta_a = A_score - A_direct and delta_b = b_direct - b_score, the scores cost no more for k
-circuits exactly when delta_a <= k delta_b.  The break-even number k* (``break_even``) is the
-smallest such k >= 1 where delta_b > 0, a range of k where delta_b < 0, and is computed only where
-every component of the group's costs is projected.  b_unc, the per-circuit cost of Phi_unc, is
+circuits exactly when delta_a <= k delta_b; ``break_even`` gives the outcome, k*, in each case of
+the sign of delta_b.  k* is computed only where every component of the group's costs is
+projected.  b_unc, the per-circuit cost of Phi_unc, is
 reported beside them.
 
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory): ``admission.csv``,
 ``candidates.csv`` (with each circuit's projected and achieved costs), ``pairs.csv``,
 ``agreement.csv``, ``kendall.csv``, ``gate.json``, ``groups.csv``, ``cost_table.csv``,
-``leading_order.csv``, ``checks.json`` (RT6 and RT7, and every task without a final ``ok`` row), and
+``leading_order.csv``, ``checks.json`` (RT6, the ``mc_check`` estimates against the reference
+within three standard errors plus tau; RT7, whether the two copies of each ``repro`` task agree;
+and every task without a final ``ok`` row), and
 ``consumers/``, the consumer circuit and block preparation of each group and rate.
 """
 
@@ -80,7 +84,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import dataclasses
 import hashlib
 import itertools
 import json
@@ -422,18 +425,15 @@ def _candidate(
             experiment.histogram_from_fields(x_type),
         )
         values = experiment.scores(*histograms, calibration)
-        without_errors = dataclasses.replace(
-            calibration, excess_standard_errors=None, baseline_standard_errors=None
-        )
-        sigma_hist = without_errors.get_excess_failure_probability(histograms[1])[1]
         sigma = values["phi_cal"][1]
+        sigma_cal = calibration_difference_error(calibration, histograms[1])
         candidate |= {
             "histograms": histograms,
             "calibration": calibration,
             **{score: value for score, (value, _) in values.items()},
             **{f"sigma_{score}": error for score, (_, error) in values.items()},
-            "sigma_hist": sigma_hist,
-            "sigma_cal": math.sqrt(max(sigma**2 - sigma_hist**2, 0.0)),
+            "sigma_hist": math.sqrt(max(sigma**2 - sigma_cal**2, 0.0)),
+            "sigma_cal": sigma_cal,
             "truncation_histogram": histograms[0].truncation_error_bound,
             "truncation_calibration": calibration.truncated_probability,
             "cpu_histogram": {
@@ -496,7 +496,7 @@ def agree(
             certain = sum(c == "correct" and not u for c, u in zip(calls, uncertain))
             eligible = len(resolved) >= ELIGIBLE_PAIRS
             accuracy = correct / len(resolved) if resolved else None
-            taus = list(_kendall(candidates, score, rate).values())
+            taus = [tau for tau in _kendall(candidates, score, rate).values() if tau is not None]
             rows.append(
                 {
                     "score": score,
@@ -612,9 +612,12 @@ def _weights_unsampled(first: dict[str, Any], second: dict[str, Any]) -> bool:
     return False
 
 
-def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> dict[str, float]:
-    """Kendall's tau_b between a score and Phi_true in each group at a rate, where defined."""
-    taus = {}
+def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> dict[str, float | None]:
+    """Kendall's tau_b between a score and Phi_true in each group at a rate.
+
+    It is None where it is undefined, as when every value of the score is equal.
+    """
+    taus: dict[str, float | None] = {}
     members = [
         c
         for c in candidates
@@ -630,8 +633,7 @@ def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> dict[
         tau = scipy.stats.kendalltau(
             [sign * c[score] for c in group_members], [c["phi_true"] for c in group_members]
         ).statistic
-        if not math.isnan(tau):
-            taus[name] = float(tau)
+        taus[name] = None if math.isnan(tau) else float(tau)
     return taus
 
 
@@ -659,6 +661,8 @@ def costs(candidates: list[dict[str, Any]], groups: list[dict[str, Any]]) -> lis
             if key not in ("calibration", "consumer_circuit", "block_preparation", "score_timing")
         }
         row["admitted"] = len(members)
+        taus = [c["tau"] for c in members if "tau" in c]
+        row |= {"tau_min": min(taus, default=None), "tau_max": max(taus, default=None)}
         complete = (
             members
             and "calibration" in group
@@ -714,7 +718,7 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     rows = []
     for rate in CONFIG["rates"]:
-        computed = [r for r in group_rows if r["rate"] == rate and "A_direct_achieved" in r]
+        computed = [r for r in group_rows if r["rate"] == rate and "A_direct" in r]
         row: dict[str, Any] = {"rate": rate, "groups": len(computed)}
         for key in (
             "A_score",
@@ -724,7 +728,6 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "b_unc",
             "A_score_achieved",
             "b_score_achieved",
-            "A_direct_achieved",
             "b_direct_achieved",
             "b_unc_achieved",
             "sigma_true_max",
@@ -741,8 +744,9 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         numbers = [number for number in numeric if number is not None]
         row["k_star_median"] = statistics.median(numbers) if numbers else None
         row["k_star"] = "; ".join(f"{r['group']}: {r['k_star']}" for r in computed)
-        row["tau_min"] = min((r["tau_min"] for r in computed), default=None)
-        row["tau_max"] = max((r["tau_max"] for r in computed), default=None)
+        taus = [r for r in group_rows if r["rate"] == rate and r["tau_min"] is not None]
+        row["tau_min"] = min((r["tau_min"] for r in taus), default=None)
+        row["tau_max"] = max((r["tau_max"] for r in taus), default=None)
         rows.append(row)
     return rows
 
@@ -786,12 +790,13 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
     worst_cal = max(c["sigma_cal"] for c in members)
     cal_valid = _calibration_valid(calibration, members, group["num_samples"])
     a_score_achieved = group["cpu_consumer_setup_s"] + group["cpu_sampled_s"]
+    counts = _x_table(calibration.excess_num_samples)
     a_score = project(
         group["cpu_consumer_setup_s"],
         group["cpu_sampled_s"],
         worst_cal,
         target / math.sqrt(2),
-        group["num_samples"],
+        int(counts[counts > 0].min()) if np.any(counts > 0) else 0,
         cal_valid,
     )
 
@@ -828,7 +833,6 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         "b_unc": _mean_or_none([c["cost_phi_unc_projected"] for c in members]),
     }
     b_direct, b_score = lines["b_direct"], lines["b_score"]
-    projected = a_score is not None and b_direct is not None and b_score is not None
     k_star = "not computed"
     if a_score is not None and b_direct is not None and b_score is not None:
         k_star = break_even(a_score - a_direct, b_direct - b_score)
@@ -838,7 +842,6 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         "A_direct": a_direct,
         **lines,
         "A_score_achieved": a_score_achieved,
-        "A_direct_achieved": a_direct,
         "b_score_achieved": statistics.mean(c["cost_phi_cal_achieved"] for c in members),
         "b_direct_achieved": statistics.mean(c["cost_direct_achieved"] for c in members),
         "b_unc_achieved": statistics.mean(c["cost_phi_unc_achieved"] for c in members),
@@ -850,10 +853,8 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         "projected_direct": lines["b_direct"] is not None,
         "projected_histograms": lines["b_score"] is not None,
         "projected_unc": lines["b_unc"] is not None,
-        "tau_min": min(c["tau"] for c in members),
-        "tau_max": max(c["tau"] for c in members),
         "k_star": k_star,
-        "reason": None if projected else "the inverse-sample law is not justified",
+        "reason": None if k_star != "not computed" else "the inverse-sample law is not justified",
     }
 
 
@@ -954,7 +955,7 @@ def rt7(rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     for kind in ("histogram", "direct"):
         name = f"repro.{kind}.{repro['input']}.p{repro['rate']:g}"
         first, second = rows.get(f"{name}.a"), rows.get(f"{name}.b")
-        if first is None or second is None or "ok" != first["status"] or "ok" != second["status"]:
+        if first is None or second is None or first["status"] != "ok" or second["status"] != "ok":
             results.append({"task": name, "identical": None})
             continue
         results.append(

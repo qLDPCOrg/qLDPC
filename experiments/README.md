@@ -250,7 +250,7 @@ See the [lattice-surgery README](lattice_surgery/README.md) for example commands
 
 ## State preparation certification
 
-[`state_prep_certification/`](state_prep_certification/) holds experiments on the exact certification of fault-tolerant state preparation circuits, and on the exact distance searches that it relies on.
+[`state_prep_certification/`](state_prep_certification/) holds experiments on the exact certification of fault-tolerant state preparation circuits, on the exact distance searches that it relies on, and on a ranking of the certified circuits.
 They run only qLDPC and its Python dependencies, on a Linux node without practical network access.
 A workstation builds one offline bundle with `bundle.py`.
 The node runs an experiment with `node.sh` and GNU parallel, one pinned core per run, and one archive comes back for analysis.
