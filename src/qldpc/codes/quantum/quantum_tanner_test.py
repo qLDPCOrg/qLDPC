@@ -794,7 +794,10 @@ def test_quantum_tanner_save_fields(tmp_path: pathlib.Path) -> None:
 
 
 def test_quantum_tanner_load_malformed(tmp_path: pathlib.Path) -> None:
-    """Loading fails clearly for malformed sections, unrecognized local checks, and conjugation."""
+    """Malformed sections, unknown choices of local checks, and conjugated qudits fail to load.
+
+    Each raises a ValueError that names the problem.
+    """
     shift = abstract.CyclicGroup(4).generators[0]
     path = tmp_path / "code.txt"
     codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2)).save(str(path))
