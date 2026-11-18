@@ -408,13 +408,12 @@ def test_permutation_automorphism_group(
     assert "\nPermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));\n" in capsys.readouterr().out
 
     # MAGMA maps integers into GF(8) through the prime field, so the query defines GF(8) by the
-    # irreducible polynomial x^3 + x^2 + 1 of the galois field, constant coefficient first, and
-    # writes its elements as polynomials in a root
-    user_inputs = iter(
-        ["Permutation group acting on a set of cardinality 3", "Order = 2", "    (2, 3)", ""]
-    )
+    # irreducible polynomial x^3 + x^2 + 1 of the galois field, listing its coefficients constant
+    # first, and writes its elements as polynomials in a root
+    user_inputs = iter(["Permutation group acting on a set of cardinality 3", "Order = 1", ""])
     field_8 = galois.GF(8, irreducible_poly="x^3 + x^2 + 1")
-    codes.ClassicalCode(field_8([[1, 2, 6]])).get_permutation_automorphism_group(with_magma=True)
+    code = codes.ClassicalCode(field_8([[1, 2, 6]]))
+    assert code.get_permutation_automorphism_group(with_magma=True).order == 1
     field = "F<w>:=ext<GF(2)|Polynomial(GF(2),[1,0,1,1])>;"
     matrix = "Matrix(F,1,3,[[1,w,w+w^2]])"
     assert f"\n{field}PermutationGroup(LinearCode({matrix}));\n" in capsys.readouterr().out

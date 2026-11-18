@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Codes from GAP, QECDB, and the qLDPC Challenge, QDistRnd bounds, and field elements for GAP."""
+"""External codes, QDistRnd bounds, and finite-field elements for GAP and MAGMA."""
 
 from __future__ import annotations
 
@@ -266,16 +266,16 @@ def _get_gap_sparse_matrix_commands(matrix_var: str, matrix: galois.FieldArray) 
     _, matrix_width = matrix.shape
     # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
     # where, for all values `l` in that list, `matrix[i,l] == j+1`.  Example:
-    #     matrix_var: NDArray[F3] = [
+    #     matrix: NDArray[F3] = [
     #         [0, 0, 0, 1, 2, 1],
     #         [1, 0, 0, 0, 0, 0],
     #     ]
     #     nonzero_entries: list[list[np.NDArray[np.int_]]] = [
-    #         [ # Sparse definition of the first matrix row, `matrix_var[0]`
-    #             [3, 5],  # Columns in this row that contain 1's: `matrix_var[0, 3] == 1`
-    #             [4],  # Columns in this row that contain 2's: `matrix_var[0, 4] == 2`
+    #         [ # Sparse definition of the first matrix row, `matrix[0]`
+    #             [3, 5],  # Columns in this row that contain 1's: `matrix[0, 3] == 1`
+    #             [4],  # Columns in this row that contain 2's: `matrix[0, 4] == 2`
     #         ],
-    #         [ # Sparse definition of the second matrix row, `matrix_var[1]`
+    #         [ # Sparse definition of the second matrix row, `matrix[1]`
     #             [0],  # Columns in this row that contain 1's
     #             [],  # Columns in this row that contain 2's
     #         ],
@@ -350,14 +350,18 @@ def get_gap_field_elements(field: type[galois.FieldArray]) -> list[str]:
 
 
 def get_magma_field(field: type[galois.FieldArray]) -> tuple[str, str, list[str]]:
-    """MAGMA commands that define a finite field, its name, and its elements by galois integer.
+    """The MAGMA definition, name, and elements of a finite field.
 
     MAGMA maps an integer into a finite field through the prime field, so an integer cannot stand
-    for an element outside the prime field.  For a prime field, the commands are empty, the name is
-    ``GF(p)``, and the elements are integers.  Otherwise, the commands define ``F`` as the extension
-    of the prime field by the irreducible polynomial of the galois field, whose root is ``w``, and
-    the element with galois integer ``v`` is the polynomial in ``w`` whose coefficients are the
-    base-``p`` digits of ``v``.
+    for an element outside the prime field.  For a prime field, the definition is empty, the name is
+    ``GF(p)``, and the elements are integers.  Otherwise, the definition defines ``F`` as the
+    extension of the prime field by the irreducible polynomial of the galois field, and names a root
+    of that polynomial ``w``.  The element with galois integer ``v`` is then the polynomial in ``w``
+    whose coefficients are the base-``p`` digits of ``v``.
+
+    Returns:
+        MAGMA commands that define the field, the name of the field in MAGMA, and a list whose entry
+        ``v`` is the MAGMA expression of the element with galois integer ``v``.
     """
     if field.degree == 1:
         return "", f"GF({field.order})", [str(value) for value in range(field.order)]
