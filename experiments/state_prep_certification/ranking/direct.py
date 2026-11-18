@@ -22,9 +22,10 @@ exactly if it has at most ``max_exact_faults`` pairs of faults, and otherwise sa
 stratum draws F from a proposal for weight f (``sample_faults``), with importance weight
 P_f(F) / q_f(F), and T exactly from its conditional law, as ``Consumer.calibrate`` draws it.  With
 ``flagged_odds_factor`` = 1 in ``config.json``, the proposal is the noise's conditional law P_f,
-so every weight is 1.  qLDPC's histograms multiply the odds of flagged mechanisms by 0.05, so an
-accepted fault with two flagged mechanisms whose flags cancel would get the weight 0.05^-2 = 400,
-and a stratum too few effective draws.
+so every weight is 1.  qLDPC's histograms multiply the odds of flagged mechanisms by
+``_FLAGGED_ODDS_FACTOR``, which would give an accepted fault with two flagged mechanisms whose
+flags cancel a weight of up to the factor's inverse squared, and leave a stratum too few effective
+draws.
 
 The estimate is the ratio of the stratified sums.  Preparation faults heavier than f_max, of total
 probability u, count as accepted with no change, and consumer faults heavier than g_max, of total
@@ -376,8 +377,9 @@ def sample_faults(
     laws coincide, and every weight is exactly 1.
 
     Returns:
-        The faults, one per row, their importance weights, and an upper bound on the weight of any
-        fault of weight f, which is the largest such weight for a factor of at most 1.
+        The faults, one per row, their importance weights, and an upper bound on the importance
+        weight of any fault of weight f, which is the largest such importance weight for a factor
+        of at most 1.
     """
     odds = preparation.probabilities / (1 - preparation.probabilities)
     flagged = preparation.flagged

@@ -20,8 +20,8 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   residual weight of qLDPC's X-type histogram, to 10^-12; the consumer's fault-weight law and its
   largest fault weight equal those of the calibration.  On ``cgoto``, sampled strata of weights
   that are also listed exactly agree with the listing within four standard errors, with weights
-  of 1; and at qLDPC's factor 0.05, the bound on a stratum's weights is the largest weight of any
-  fault, by brute force.
+  of 1; and at qLDPC's flagged-odds factor, each importance weight and the bound on a stratum's
+  weights equal those of a brute-force listing.
 * **RT4:** on ``cgoto`` at p = 10^-3, with every fault weight up to 4 listed and a calibration
   with exact cells, Phi_unc and Phi_cal from qLDPC equal a computation from the listed faults, to
   10^-12.  The calibration contribution of ``analyze.calibration_difference_error`` equals
@@ -277,7 +277,7 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
         M,
         np.random.default_rng(0),
     )
-    factor = float(experiment.CONFIG["direct"]["flagged_odds_factor"])
+    factor = 1.0
     for f, g in ((2, 0), (2, 1), (3, 0)):
         exact = direct._list_stratum(pairing, f, g)
         assert exact.plus + exact.minus > 0, (f, g)
@@ -292,8 +292,8 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
         print(f"  cgoto ({f}, {g}): sampled {sampled.mean:.4f}, exact {exact.mean:.4f}")
         assert sampled.importance_weight_bound == 1.0 == sampled.max_importance_weight, sampled
 
-    # at qLDPC's factor 0.05, the weight bound is the largest P_f(F) / q_f(F) over every fault F
-    # of weight f, by brute force on six mechanisms, three of them flagged
+    # at qLDPC's factor, each weight is P_f(F) / q_f(F), and the weight bound is its largest value
+    # over every fault F of weight f, by brute force on six mechanisms, three of them flagged
     preparation = pairing.preparation
     flagged = np.flatnonzero(preparation.flagged)[:3]
     unflagged = np.flatnonzero(~preparation.flagged)[:3]
@@ -306,14 +306,20 @@ def rt3_mechanisms(directory: pathlib.Path) -> None:
         preparation.css_weight,
     )
     odds = small.probabilities / (1 - small.probabilities)
-    proposal = odds * np.where(small.flagged, 0.05, 1.0)
-    for f in range(1, 5):
-        subsets = [list(subset) for subset in itertools.combinations(range(6), f)]
-        noise = np.array([np.prod(odds[subset]) for subset in subsets])
-        tilted = np.array([np.prod(proposal[subset]) for subset in subsets])
-        largest = float(np.max((noise / noise.sum()) / (tilted / tilted.sum())))
-        bound = direct.sample_faults(small, f, 10, 0.05, np.random.default_rng(f))[2]
-        assert math.isclose(bound, largest, rel_tol=1e-9), (f, bound, largest)
+    qldpc_factor = residual_weights._FLAGGED_ODDS_FACTOR
+    proposal = odds * np.where(small.flagged, qldpc_factor, 1.0)
+    # with three flagged mechanisms, f = 2 reaches the bound with two, and f = 4 with all three
+    for f in (2, 4):
+        subsets = list(itertools.combinations(range(6), f))
+        noise = np.array([np.prod(odds[list(subset)]) for subset in subsets])
+        tilted = np.array([np.prod(proposal[list(subset)]) for subset in subsets])
+        ratios = dict(zip(subsets, (noise / noise.sum()) / (tilted / tilted.sum())))
+        faults, importance, bound = direct.sample_faults(
+            small, f, 20, qldpc_factor, np.random.default_rng(f)
+        )
+        assert math.isclose(bound, max(ratios.values()), rel_tol=1e-9), (f, bound)
+        for fault, weight in zip(faults, importance):
+            assert math.isclose(weight, ratios[tuple(sorted(fault))], rel_tol=1e-9), (f, fault)
 
 
 @test
@@ -704,7 +710,7 @@ def rt10_rules(directory: pathlib.Path) -> None:
                 "phi_true": phi,
                 "sigma_true": 2 * target,
                 "tau": 0.0,
-                "alpha": 0.9,
+                "alpha_reference": 0.9,
                 "alpha_exact": 0.8,
                 "pi": [0.5, 0.3, 0.2],
                 "eta": [0.9, eta_1],
@@ -770,7 +776,8 @@ def rt10_rules(directory: pathlib.Path) -> None:
         others = {"b_direct", "b_score", "A_score"} - {line}
         assert all(broken[other] is not None for other in others), (line, broken)
 
-    # overflow gives weight to the baseline f(0, 0), which is exact and blocks nothing
+    # residual weights above the calibration's cells give weight to the baseline f(0, 0), which is
+    # exact and blocks nothing
     assert cost_lines(row=(100, 1890, 6, 3, 1))["k_star"] != "not computed"
 
     # a failing cell that only the circuit with the smaller sigma_cal reaches still blocks
@@ -792,8 +799,8 @@ def rt10_rules(directory: pathlib.Path) -> None:
     )
 
     # the 1% rule, at its boundary, and with the floor s_min sigma_target^2
-    assert analyze.exempted([1.0], [0.0099]) and not analyze.exempted([1.0], [0.0101])
-    assert analyze.exempted([], []) and not analyze.exempted([], [1e-30])
+    assert analyze.exempted([1.0], [0.0099], 0.0) and not analyze.exempted([1.0], [0.0101], 0.0)
+    assert analyze.exempted([], [], 0.0) and not analyze.exempted([], [1e-30], 0.0)
     assert not analyze.exempted([1.0], [0.0101], 0.5)
     # s_min = 1000 / 4000 and sigma_target = 2 give a floor of 1, and an exempted bound is reported
     assert analyze.check_projection(([1e-30], [0.0099]), 4000, 2.0) == (True, 0.0099)
@@ -813,7 +820,7 @@ def rt10_rules(directory: pathlib.Path) -> None:
     ]  # fmt: skip
     combined = direct.combine_strata(passing_strata, pi, u, eta, v)
     reference = {
-        "pi": pi.tolist(), "eta": eta.tolist(), "alpha": combined["alpha"],
+        "pi": pi.tolist(), "eta": eta.tolist(), "alpha_reference": combined["alpha"],
         "alpha_exact": combined["alpha_exact"], "phi_true": combined["phi"],
         "strata": combined["strata"],
     }  # fmt: skip
@@ -824,7 +831,8 @@ def rt10_rules(directory: pathlib.Path) -> None:
     base = {"exact": False, "draws": 100, "importance_weight_bound": 2.0}
     _, failing = analyze.direct_terms(
         {
-            "pi": [0.5, 0.3, 0.2], "eta": [0.9, 0.1], "alpha": 0.8, "alpha_exact": 0.7,
+            "pi": [0.5, 0.3, 0.2], "eta": [0.9, 0.1], "alpha_reference": 0.8,
+            "alpha_exact": 0.7,
             "phi_true": 0.01,
             "strata": [
                 base | {"f": 1, "g": 1, "variance": 0.5, "nonzero": 3, "accepted_draws": 50},
@@ -865,6 +873,23 @@ def rt10_rules(directory: pathlib.Path) -> None:
     _, failing = analyze.histogram_terms(failing_histogram, values)
     assert math.isclose(failing[0], 0.04**2 * 2**2 * 0.4 / 0.81**2, rel_tol=1e-12), failing
 
+    # a candidate with a histogram and a reference keeps the histogram's alpha as its score
+    total_histogram = dataclasses.replace(passing_histogram, pauli=None)
+    fields = experiment.histogram_fields(total_histogram)
+    direct_result = {
+        "phi": 0.1, "sigma": 0.01, "tau": 0.0, "alpha": 0.5, "alpha_exact": 0.4,
+        "pi": [0.5, 0.5], "eta": [1.0], "inadequate": [], "strata": [], "num_samples": 100,
+        "cpu_consumer_setup_s": 0.0, "cpu_prep_setup_s": 0.0, "cpu_exact_s": 0.0,
+        "cpu_sampled_s": 0.0,
+    }  # fmt: skip
+    candidate_rows = {
+        f"histogram.z.p{rate:g}": {"status": "ok", "result": {"total": fields, "x": fields}},
+        f"direct.z.p{rate:g}": {"status": "ok", "result": direct_result},
+    }
+    scored = analyze._candidate(candidate_rows, {"id": "z"}, "g", rate, True, {})
+    assert scored["alpha"] == total_histogram.acceptance_probability != 0.5, scored["alpha"]
+    assert scored["alpha_reference"] == 0.5, scored
+
     # a calibration's terms: estimates that sum to sigma_cal^2, and the bounds of failing parts
     def terms_calibration(
         cells: tuple[tuple[int, int, int], ...], baseline_1: float
@@ -878,19 +903,24 @@ def rt10_rules(directory: pathlib.Path) -> None:
             excess_standard_errors={"X": [[error, 0.01] for error in jeffreys]},
             baseline_standard_errors=[0.0, 0.01],
             excess_num_samples={"X": [[n, 1000] for *_, n in cells]},
-            state_stabilizers=["+ZI", "+IZ"],
+            state_stabilizers=["+ZIII", "+IZII", "+IIZI", "+IIIZ"],
         )
 
     passing_calibration = terms_calibration(((60, 10, 1000), (30, 5, 500)), 0.1)
     passing, failing = analyze.calibration_terms(passing_calibration, passing_histogram, 1000)
     sigma_cal = analyze.calibration_difference_error(passing_calibration, passing_histogram)
     assert not failing and math.isclose(sum(passing), sigma_cal**2, rel_tol=1e-12), passing
-    # cell (2, 0) has 9 increases and decreases, and the baseline at g = 1 has 0.002 x 1000 x 2
-    # = 4 failures; their bounds are Pr[0]^2 / 500 and Pr[1]^2 / shots
-    failing_calibration = terms_calibration(((60, 10, 1000), (8, 1, 500)), 0.002)
+    # cell (2, 0) has 9 increases and decreases, and the baseline at g = 1 has 9 failures of
+    # 1000 x 3 shots, one for each physical error weight up to M + 1 = 3 of the 4 qubits; their
+    # bounds are Pr[0]^2 / 500 and
+    # Pr[1]^2 / 3000, and with 10 failures the baseline passes
+    failing_calibration = terms_calibration(((60, 10, 1000), (8, 1, 500)), 9 / 3000)
     _, failing = analyze.calibration_terms(failing_calibration, passing_histogram, 1000)
     pr_0, pr_1 = failing_calibration._get_distribution()[0]
-    assert np.allclose(failing, [pr_0**2 / 500, pr_1**2 / 2000], rtol=1e-12, atol=0), failing
+    assert np.allclose(failing, [pr_0**2 / 500, pr_1**2 / 3000], rtol=1e-12, atol=0), failing
+    passing_baseline = terms_calibration(((60, 10, 1000), (8, 1, 500)), 10 / 3000)
+    _, failing = analyze.calibration_terms(passing_baseline, passing_histogram, 1000)
+    assert len(failing) == 1, failing
 
     # f(0, 0) estimated as 0 is made exact, and any other baseline is left as it is
     errors = np.asarray(analyze.exact_no_fault_baseline(
