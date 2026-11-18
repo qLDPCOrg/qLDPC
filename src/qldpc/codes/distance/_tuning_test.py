@@ -476,7 +476,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
             distance = bz.get_distance_brouwer_zimmermann(
                 [get_sector(bb_code, Pauli.X)],
                 cutoff=0,
-                get_automorphisms=bb_code._get_qudit_automorphisms,
+                get_automorphisms=bb_code._get_permutation_automorphisms,
             )
         assert distance == 6
         assert set(denominators) == ({97} if orbit_bounds else set())

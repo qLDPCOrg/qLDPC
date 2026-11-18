@@ -313,7 +313,7 @@ class PairPartitionCode(CSSCode):
         exponents_x, exponents_z = np.array(exponents.reshape(basis.shape[1:]), dtype=int)
         return cls(exponents_x, exponents_z, lift_size)
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
         """Translations of every block column of qubits by the generator of the cyclic group Z_P.
 
         The X-type check in row ``r`` of block row ``i`` addresses qubit ``r - e_{il}`` of each

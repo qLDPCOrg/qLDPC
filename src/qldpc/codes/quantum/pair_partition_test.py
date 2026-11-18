@@ -98,7 +98,7 @@ def test_pair_partition_codes() -> None:
 
     # translating every block column by the same cyclic shift preserves the checks of each type,
     # and moves each qubit through every position of its block column
-    (translation,) = code._get_qudit_automorphisms()
+    (translation,) = code._get_permutation_automorphisms()
     shifts = (translation.reshape(4, 5) - np.arange(5)) % 5
     assert np.all(shifts == shifts[0, 0]) and shifts[0, 0] != 0
     assert np.all(translation.reshape(4, 5) // 5 == np.arange(4)[:, None])

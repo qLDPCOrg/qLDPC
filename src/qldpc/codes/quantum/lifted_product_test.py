@@ -525,7 +525,7 @@ def test_lifted_product_translations() -> None:
     matrix_a = abstract.RingArray([[ring.one + gen_a, gen_b, gen_a * gen_b]])
     matrix_b = abstract.RingArray([[ring.one + gen_b], [gen_a]])
     for code in (codes.LPCode(matrix_a, matrix_b), codes.SLPCode(matrix_a, matrix_b)):
-        translations = code._get_qudit_automorphisms()
+        translations = code._get_permutation_automorphisms()
         assert translations is not None and len(translations) == 2
         assert_valid_translations(code, translations, group_order=6)
 
@@ -535,7 +535,7 @@ def test_lifted_product_translations_require_group_algebra() -> None:
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
     matrix = abstract.RingArray([[ring.one + ring.generators[0]]])
     for code in (codes.LPCode(matrix), codes.SLPCode(matrix)):
-        assert code._get_qudit_automorphisms() is None
+        assert code._get_permutation_automorphisms() is None
 
 
 def test_lifted_product_over_matrix_rings() -> None:
@@ -643,7 +643,7 @@ def test_lifted_product_translations_with_larger_lifts() -> None:
     ring = abstract.GroupRing(group)
     matrix = abstract.RingArray.build([[ring.one + ring.generators[0]]], ring)
     for code in (codes.LPCode(matrix), codes.SLPCode(matrix)):
-        translations = code._get_qudit_automorphisms()
+        translations = code._get_permutation_automorphisms()
         assert translations is not None
         assert_valid_translations(code, translations, group_order=group.order)
 

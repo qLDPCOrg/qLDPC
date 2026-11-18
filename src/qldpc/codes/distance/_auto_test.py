@@ -339,7 +339,7 @@ def test_searches_by_cost_use_lifted_automorphisms(routes: Routes) -> None:
     for changes, search, automorphisms, distance in (
         (NO_PROBE, search_css, shifts, 7),
         (NO_PROBE, search_golay, shifts, 7),
-        (UNLIMITED, search_bicycle, bicycle_code._get_qudit_automorphisms(), 3),
+        (UNLIMITED, search_bicycle, bicycle_code._get_permutation_automorphisms(), 3),
     ):
         num_switches = len(routes.switch_bounds)
         get_automorphisms = mock.Mock(return_value=automorphisms)

@@ -977,19 +977,19 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
     The bliss search is mocked here, and checked against the real package in its own tests.
     """
     poly_x = sympy.abc.x
-    translations = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)._get_qudit_automorphisms()
+    translations = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)._get_permutation_automorphisms()
     assert translations is not None
 
     # without pybliss, or if bliss finds nothing, codes return the automorphisms of their family
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
     code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
-    assert (found := code._found_qudit_automorphisms) is not None
+    assert (found := code._known_permutation_automorphisms) is not None
     assert np.array_equal(found, translations)
-    assert codes.CSSCode(code.matrix_x, code.matrix_z)._found_qudit_automorphisms is None
+    assert codes.CSSCode(code.matrix_x, code.matrix_z)._known_permutation_automorphisms is None
     monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
     code = codes.MBCode([7], 1 + poly_x, 1 + poly_x**3)
-    assert (found := code._found_qudit_automorphisms) is not None
+    assert (found := code._known_permutation_automorphisms) is not None
     assert np.array_equal(found, translations)
 
     # bliss sees each check as its Pauli operators, with 1, 2, and 3 for X, Z, and Y.  The first
@@ -1002,7 +1002,7 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", get_generators)
     five_qubit_code = codes.QuditCode(codes.FiveQubitCode().matrix)
-    assert (found := five_qubit_code._found_qudit_automorphisms) is not None
+    assert (found := five_qubit_code._known_permutation_automorphisms) is not None
     assert found.tolist() == [shift]
 
     # The generators that bliss finds come first, followed by those of the code, without repeats or
@@ -1011,7 +1011,7 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
     # of which permutes the checks of this code as it permutes the qudits.
     x, y = sympy.abc.x, sympy.abc.y
     code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
-    bb_translations = code._get_qudit_automorphisms()
+    bb_translations = code._get_permutation_automorphisms()
     assert bb_translations is not None and len(bb_translations) == 2
     num_checks = len(code.matrix)
     product = bb_translations[0][bb_translations[1]]
@@ -1021,7 +1021,7 @@ def test_automorphisms_from_bliss_and_construction(monkeypatch: pytest.MonkeyPat
         "get_matrix_automorphism_generators",
         lambda *_: [list(qudits) + list(num_checks + qudits) for qudits in bliss_generators],
     )
-    assert (found := code._found_qudit_automorphisms) is not None
+    assert (found := code._known_permutation_automorphisms) is not None
     assert found.tolist() == [product.tolist(), *bb_translations.tolist()]
 
 
@@ -1034,14 +1034,14 @@ def test_automorphism_search_matrices(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 2, y: 2}, 1 + x, 1 + y)
-    translations = bb_code._get_qudit_automorphisms()
+    translations = bb_code._get_permutation_automorphisms()
     assert translations is not None and len(translations) == 2
     num_checks, num_qudits = bb_code.matrix.shape[0], len(bb_code)
 
     class CodeWithRepeatedChecks(codes.QuditCode):
         """A code that has bliss search its parity checks, and its parity checks repeated twice."""
 
-        def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+        def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
             return (self.matrix, np.vstack([self.matrix, self.matrix]).view(self.field))
 
     searched_matrices: list[npt.NDArray[np.int_]] = []
@@ -1059,12 +1059,14 @@ def test_automorphism_search_matrices(monkeypatch: pytest.MonkeyPatch) -> None:
     matrix = bb_code.matrix.view(np.ndarray)
     paulis = matrix[:, :num_qudits] + 2 * matrix[:, num_qudits:]
 
-    assert (found := codes.QuditCode(bb_code.matrix)._found_qudit_automorphisms) is not None
+    assert (found := codes.QuditCode(bb_code.matrix)._known_permutation_automorphisms) is not None
     assert found.tolist() == translations[:1].tolist()
     assert [searched.tolist() for searched in searched_matrices] == [paulis.tolist()]
 
     searched_matrices.clear()
-    assert (found := CodeWithRepeatedChecks(bb_code.matrix)._found_qudit_automorphisms) is not None
+    assert (
+        found := CodeWithRepeatedChecks(bb_code.matrix)._known_permutation_automorphisms
+    ) is not None
     assert sorted(found.tolist()) == sorted(translations.tolist())
     assert sorted(searched.tolist() for searched in searched_matrices) == sorted(
         [paulis.tolist(), np.vstack([paulis, paulis]).tolist()]
@@ -1082,7 +1084,7 @@ def test_automorphism_search_matrices_are_verified(monkeypatch: pytest.MonkeyPat
     class CodeWithWrongChecks(codes.QuditCode):
         """A code that has bliss search a check that is not in its row space."""
 
-        def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+        def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
             return (self.matrix, self.field([[0, 0, 0, 0, 1, 1]]))
 
     def search(matrix: npt.NDArray[np.int_]) -> list[list[int]]:
@@ -1092,7 +1094,9 @@ def test_automorphism_search_matrices_are_verified(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", search)
     code = CodeWithWrongChecks([[0, 0, 0, 1, 1, 0]])
-    with pytest.raises(ValueError, match=r"CodeWithWrongChecks\._get_automorphism_search_matrices"):
+    with pytest.raises(
+        ValueError, match=r"CodeWithWrongChecks\._get_permutation_automorphism_search_matrices"
+    ):
         code.get_known_permutation_automorphism_group()
 
 
@@ -1117,7 +1121,7 @@ def test_known_permutation_automorphism_group(monkeypatch: pytest.MonkeyPatch) -
 
         automorphisms: npt.NDArray[np.int_]
 
-        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
     # every permutation of its qudits preserves a code without parity checks
@@ -1170,13 +1174,13 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     class CSSCodeWithAutomorphisms(codes.CSSCode):
         automorphisms: npt.NDArray[np.int_]
 
-        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
     class QuditCodeWithAutomorphisms(codes.QuditCode):
         automorphisms: npt.NDArray[np.int_]
 
-        def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             return self.automorphisms
 
     def get_css_distance(
@@ -1203,7 +1207,7 @@ def test_distances_verify_automorphisms(monkeypatch: pytest.MonkeyPatch, tune: T
     tune(automorphism_minimum_layer_work=0, automorphism_minimum_states=0)
     x, y = sympy.abc.x, sympy.abc.y
     bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    translations = bb_code._get_qudit_automorphisms()
+    translations = bb_code._get_permutation_automorphisms()
     bacon_shor_matrix = codes.BaconShorCode(4).conjugated(range(0, 16, 2)).matrix
     row_swap = np.arange(16).reshape(4, 4)[[1, 0, 2, 3]].ravel()
     cases: list[tuple[Callable[[npt.NDArray[np.int_]], int | float], npt.NDArray[np.int_], int]] = [
@@ -1255,7 +1259,7 @@ def test_distances_with_bliss(monkeypatch: pytest.MonkeyPatch, tune: Tune) -> No
     shuffle = np.random.default_rng(0).permutation(len(bb_code))
     for matrix in (bb_code.matrix, bb_code.conjugated(range(36, 72)).matrix):
         code = codes.QuditCode(np.hstack([matrix[:, shuffle], matrix[:, len(bb_code) + shuffle]]))
-        assert code._found_qudit_automorphisms is not None
+        assert code._known_permutation_automorphisms is not None
         assert code.get_distance_exact(method="brouwer_zimmermann") == 6
 
 
@@ -1264,27 +1268,27 @@ def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.Monke
 
     The bliss search is mocked here, and checked against the real package in its own tests.
     """
-    shift_and_multiplier = codes.BCHCode(15, 7)._get_bit_automorphisms()
+    shift_and_multiplier = codes.BCHCode(15, 7)._get_permutation_automorphisms()
 
     # without pybliss, or if bliss finds nothing, codes return the automorphisms of their class
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
     code = codes.BCHCode(15, 7)
-    assert (found := code._found_bit_automorphisms) is not None
+    assert (found := code._known_permutation_automorphisms) is not None
     assert np.array_equal(found, shift_and_multiplier)
     assert code.get_known_permutation_automorphism_group().order == 15 * 4
     generic_code = codes.ClassicalCode(code.matrix)
-    assert generic_code._found_bit_automorphisms is None
+    assert generic_code._known_permutation_automorphisms is None
     assert generic_code.get_known_permutation_automorphism_group().order == 1
     monkeypatch.setattr(common._bliss, "is_installed", lambda: True)
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", lambda *_: [])
-    assert (found := codes.BCHCode(15, 7)._found_bit_automorphisms) is not None
+    assert (found := codes.BCHCode(15, 7)._known_permutation_automorphisms) is not None
     assert np.array_equal(found, shift_and_multiplier)
 
     # Bliss's permutations act on the checks and then the bits.  Codes keep the bit permutations,
     # first, followed by those of the class, without repeats or the identity.  The mocked check
     # permutations differ from the bit permutations, so that a test of the checks would fail.
     cyclic_code = codes.CyclicCode(7, 1 + sympy.abc.x + sympy.abc.x**3)
-    shift, multiplier = cyclic_code._get_bit_automorphisms()
+    shift, multiplier = cyclic_code._get_permutation_automorphisms()
     double_shift = shift[shift]
     checks = np.arange(7)[::-1]
 
@@ -1293,12 +1297,12 @@ def test_bit_automorphisms_from_bliss_and_construction(monkeypatch: pytest.Monke
         return [[*checks, *(7 + double_shift)], list(range(14)), [*checks, *(7 + shift)]]
 
     monkeypatch.setattr(common._bliss, "get_matrix_automorphism_generators", get_generators)
-    assert (found := cyclic_code._found_bit_automorphisms) is not None
+    assert (found := cyclic_code._known_permutation_automorphisms) is not None
     assert found.tolist() == [double_shift.tolist(), shift.tolist(), multiplier.tolist()]
 
     # codes verify the permutations of their class
     class CodeWithTransposition(codes.ClassicalCode):
-        def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             return np.array([[1, 0, 2]])
 
     monkeypatch.setattr(common._bliss, "is_installed", lambda: False)
@@ -1343,9 +1347,9 @@ def test_classical_distances_use_automorphisms(
             with (
                 unittest.mock.patch.object(
                     type(code),
-                    "_get_bit_automorphisms",
+                    "_get_permutation_automorphisms",
                     autospec=True,
-                    side_effect=type(code)._get_bit_automorphisms,
+                    side_effect=type(code)._get_permutation_automorphisms,
                 ) as get_automorphisms,
                 unittest.mock.patch.object(
                     common, function_name, autospec=True, side_effect=function
@@ -1366,7 +1370,7 @@ def test_classical_distances_use_automorphisms(
 
     # a wrong permutation of a class makes the search raise an error
     class CodeWithTransposition(codes.ClassicalCode):
-        def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+        def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
             transposition = np.arange(len(self))
             transposition[[0, 1]] = [1, 0]
             return transposition[None]

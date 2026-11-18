@@ -87,7 +87,7 @@ def test_bit_automorphisms_of_classes() -> None:
         (codes.ReedMullerCode(1, 3, field=4), 8 * 168),
     ]
     for code, order in cases:
-        generators = code._get_bit_automorphisms()
+        generators = code._get_permutation_automorphisms()
         assert generators is not None
         for generator in generators:
             assert np.array_equal(np.sort(generator), np.arange(len(code)))
@@ -104,7 +104,7 @@ def test_bit_automorphisms_of_classes() -> None:
         codes.RepetitionCode(3),
         codes.ClassicalCode([[1, 1, 0]]),
     ]:
-        assert code._get_bit_automorphisms() is None
+        assert code._get_permutation_automorphisms() is None
 
 
 def test_special_codes() -> None:

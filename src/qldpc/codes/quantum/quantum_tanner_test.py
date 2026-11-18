@@ -678,11 +678,11 @@ def test_quantum_tanner_all_translations() -> None:
     """On small codes, the returned translations generate all translations that preserve the code.
 
     A brute-force search finds every translation by a vertex, from the left or the right, that
-    preserves the code.  The conditions under which QTCode._get_qudit_automorphisms returns a
+    preserves the code.  The conditions under which QTCode._get_permutation_automorphisms returns a
     translation are sufficient but not known to be necessary, so this test uses fixed codes.
     """
     for code in get_small_qt_codes(np.random.default_rng(0)):
-        translations = code._get_qudit_automorphisms()
+        translations = code._get_permutation_automorphisms()
         assert translations is not None
 
         # translate the faces by every vertex, keeping the translations that preserve the code
@@ -781,7 +781,7 @@ def test_quantum_tanner_canonical_checks_without_qudits() -> None:
         code = codes.QTCode(subset_a, subset_b, code_a, code_b)
         assert len(code) == 0
         assert code._get_canonical_checks().shape == (0, 0)
-        assert code._get_qudit_automorphisms() is None
+        assert code._get_permutation_automorphisms() is None
         assert code.get_known_permutation_automorphism_group().order == 1
 
     # a zero factor makes a zero space, whose canonical checks need no search of the other factor
@@ -828,7 +828,7 @@ def test_quantum_tanner_symmetries() -> None:
     1152.
     """
     code = get_c4_a4_code("min_weight")
-    translations = code._get_qudit_automorphisms()
+    translations = code._get_permutation_automorphisms()
     assert translations is not None
     group = abstract.Group(*[abstract.GroupMember(row.tolist()) for row in translations])
     assert group.order == 72
@@ -1466,7 +1466,7 @@ def test_lifted_quantum_tanner_translations() -> None:
     """
     for exchange_classes in [False, True]:
         code = get_s3_lifted_qt_code(exchange_classes)
-        translations = code._get_qudit_automorphisms()
+        translations = code._get_permutation_automorphisms()
         assert translations is not None
         for translation in translations:
             for matrix in [code.matrix_x, code.matrix_z]:
@@ -1487,7 +1487,7 @@ def test_lifted_quantum_tanner_translations_of_order_3() -> None:
     images = [[1, 0, 3, 2], [2, 3, 0, 1], [3, 2, 1, 0]]
     members = [abstract.GroupMember(image) for image in images]
     code = codes.LQTCode(group, members, members, codes.RepetitionCode(3), codes.RepetitionCode(3))
-    translations = code._get_qudit_automorphisms()
+    translations = code._get_permutation_automorphisms()
     assert translations is not None
     for translation in translations:
         for matrix in [code.matrix_x, code.matrix_z]:
@@ -1504,7 +1504,7 @@ def test_lifted_quantum_tanner_canonical_checks(monkeypatch: pytest.MonkeyPatch)
     codes_a, codes_b = [code.code_a0, code.code_a1], [code.code_b0, code.code_b1]
     num_qudits = len(code)
     search_matrix = code._get_canonical_checks()
-    search_matrices = code._get_automorphism_search_matrices()
+    search_matrices = code._get_permutation_automorphism_search_matrices()
     assert len(search_matrices) == 2
     for matrix in [code.matrix, search_matrix]:
         assert any(np.array_equal(matrix, other) for other in search_matrices)
@@ -1536,7 +1536,7 @@ def test_lifted_quantum_tanner_canonical_checks(monkeypatch: pytest.MonkeyPatch)
 
     # if they replace all canonical checks, bliss searches only the parity checks
     monkeypatch.setattr(quantum_tanner, "_MAX_WORDS_FOR_CANONICAL_CHECKS", 0)
-    search_matrices = code._get_automorphism_search_matrices()
+    search_matrices = code._get_permutation_automorphism_search_matrices()
     assert len(search_matrices) == 1
     assert np.array_equal(search_matrices[0], code.matrix)
 

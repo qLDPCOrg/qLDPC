@@ -92,7 +92,7 @@ class CyclicCode(ClassicalCode):
         matrix = ring.eval(poly, symbols).lift().T  # transpose the lift by convention
         super().__init__(matrix, field)
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
         """The cyclic shift and, if it permutes the bits, the Frobenius multiplier of this code.
 
         The parity check matrix lifts an element of the group algebra of the cyclic group, so it is
@@ -167,7 +167,7 @@ class HammingCode(ClassicalCode):
         self._dimension = len(self) - len(self._matrix)
         self._distance = 3
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of the general linear group, which permutes the bits of a binary code.
 
         Bit ``j`` of a binary Hamming code of rank ``m`` is the nonzero point ``j + 1`` of
@@ -211,7 +211,7 @@ class ExtendedHammingCode(ClassicalCode):
         self._dimension = len(self) - len(self._matrix)
         self._distance = 4
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
         """Generators of the affine group of ``F_2^m``, which permutes the bits of this code.
 
         Bit ``j`` of this code is the point of ``F_2^m`` written in binary as ``j``, with bit ``0``
@@ -278,7 +278,7 @@ class ReedMullerCode(ClassicalCode):
         mat_z = np.zeros_like(mat_b)
         return np.block([[mat_a, mat_a], [mat_z, mat_b]]).astype(int)
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of the affine group of ``F_2^m``, which permutes the bits of this code.
 
         The recursion of ``get_generator`` builds ``RM(r, m)`` from words ``(u, u + v)`` for ``u``
@@ -350,7 +350,7 @@ class BCHCode(ClassicalCode):
         super().__init__(bch.H)
         self._dimension = dimension
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_]:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
         """The cyclic shift and, if it permutes the bits, the Frobenius multiplier of this code.
 
         A BCH code is a cyclic code, and galois orders its bits by the descending powers of ``x``
@@ -472,7 +472,7 @@ class SimplexCode(ClassicalCode):
             "Suitable primitive polynomial not found.  This should not be possible."
         )  # pragma: no cover
 
-    def _get_bit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """The cyclic shift and the Frobenius multiplier of a binary simplex code, or None.
 
         The cyclic presentation of a binary simplex code (see ``get_defining_polynomial``) is a

@@ -184,7 +184,7 @@ class _SquareComplexCode(CSSCode):
         the blocks are in the order of these rows.
         """
 
-    def _get_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
+    def _get_permutation_automorphism_search_matrices(self) -> tuple[galois.FieldArray, ...]:
         """The parity checks of this code and its canonical local checks, for bliss to search.
 
         Bliss can find more automorphisms among the canonical checks (see
@@ -873,7 +873,7 @@ class QTCode(_SquareComplexCode):
         """The vertices with checks of one type, as one block, since they share C_A and C_B."""
         return [(self.code_a, self.code_b, self.get_local_views(pauli))]
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of translations of the Cayley complex that preserve this code, or None.
 
         Here A and B are the cover subsets of the complex, whose vertices are members of the cover
@@ -1333,7 +1333,7 @@ class LQTCode(_SquareComplexCode):
             for ss, tt in _VERTEX_CLASSES[pauli]
         ]
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Generators of translations of the complex that preserve this code, or None.
 
         Let x be a member of G such that conjugation by x permutes the list A: the conjugate of each

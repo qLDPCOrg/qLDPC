@@ -407,16 +407,16 @@ On default searches of about 80 CSS codes, it never ended a search sooner than t
 
 With the optional `pybliss` package, bliss searches the parity checks of a binary classical or quantum code for automorphisms.
 With or without `pybliss`, the class of the code can supply generators of automorphisms that its construction provides.
-For a quantum code, the class can also supply other sets of checks that span the same space, through `QuditCode._get_automorphism_search_matrices`, so that bliss can find automorphisms that do not map parity checks to parity checks.
+For a quantum code, the class can also supply other sets of checks that span the same space, through `QuditCode._get_permutation_automorphism_search_matrices`, so that bliss can find automorphisms that do not map parity checks to parity checks.
 `QTCode`, for example, supplies its canonical local checks where they are few enough.
 Bliss finds the automorphisms of the Tanner graph of each set, whose edges are colored by the Pauli operators of the checks.
 These Tanner-graph automorphisms permute the checks and leave their Paulis unchanged, so they preserve the stabilizers, gauge operators, and logical operators, and for a CSS code those of each sector.
 They form a subgroup of the automorphisms of the code, which suffices, since any group of automorphisms gives a sound certificate.
-Quantum code classes supply the generators of their construction through `QuditCode._get_qudit_automorphisms`, such as the translations of the group of an `MBCode`.
+Quantum code classes supply the generators of their construction through `QuditCode._get_permutation_automorphisms`, such as the translations of the group of an `MBCode`.
 Searches use these generators together with those that bliss finds.
 Bliss finds only automorphisms of the Tanner graphs of the sets of checks that it searches, so it can miss the generators of a construction.
 For a classical code, bliss searches only the parity check matrix, whose automorphisms permute checks and bits.
-Classical code classes supply generators through `ClassicalCode._get_bit_automorphisms`.
+Classical code classes supply generators through `ClassicalCode._get_permutation_automorphisms`.
 A cyclic code, for example, supplies its cyclic shift, which bliss misses for a `BCHCode`, whose parity checks hold only some shifts of one check.
 A wrong generator would make the certificate unsound, so a search first checks that each maps `V` and `S` onto themselves, and raises an error if one does not.
 When a BZ distance search uses automorphisms, it certifies a bound from the images of the blocks of its family, and, if it switches, from the images of one information set.
@@ -718,7 +718,7 @@ The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_
 | Certificate within a layer `L(t, j)` | `Certificate.step_lower_bound(weight, num_completed)` and the table of `get_step_lower_bounds`, which `Certificate.get_weight_bounds` rounds and divides for coset searches; `get_num_sets_to_certify`, `plan`, `find_stopping_step`, and `plan_steps` find stopping steps ([Section 4.1](#41-module-map-and-layering)) |
 | Certificate from linear programming | `get_lp_lower_bound`, which a `Certificate` with `pivot_blocks` combines with the coverage-divided certificate; `BasisFamily.get_search_certificate` adds the blocks to costly searches of overlapping families, and `_switch_to_automorphism_family` adds the blocks and `column_orbits`, for the program over orbits, once a search has verified automorphisms |
 | Family of search bases | `BasisFamily` of [_information_sets/basis_families.py](_information_sets/basis_families.py), which stacks the search bases into arrays and gives their `Certificate`; packed in an `AffineInstance`, and, in coset searches, with the tables of `CosetSearchTables` and `CosetTails` of [_brouwer_zimmermann/coset_tables.py](_brouwer_zimmermann/coset_tables.py) |
-| Automorphisms, generators of `Γ` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_found_qudit_automorphisms` and `_get_qudit_automorphisms` of `QuditCode`, and `_found_bit_automorphisms` and `_get_bit_automorphisms` of `ClassicalCode` |
+| Automorphisms, generators of `Γ` | `automorphisms`, whose row `i` maps column `j` to column `automorphisms[i, j]`, as returned by `get_automorphisms`; `_known_permutation_automorphisms` and `_get_permutation_automorphisms` of `QuditCode` and of `ClassicalCode` |
 | Automorphism family | `get_automorphism_family` of [_information_sets/automorphism_families.py](_information_sets/automorphism_families.py), which returns a `BasisFamily` of the scanned set and the `Certificate` of all of its images; `_switch_to_automorphism_family` adopts them, and sets `uses_automorphism_family` of the search |
 | Last completed layer `t`, next layer | `completed_weight`, `next_weight` |
 | Divisor `D` | `Certificate.weight_divisor`, in Hamming units of the searched basis |
@@ -887,10 +887,10 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   Each sector of a joint search keeps its `lower_bound` and the `certificate` of its `instance` ([Section 3.3](#33-sharing-witnesses-between-css-sectors)).
 - **Automorphisms.**
   The distance functions take automorphisms as an array or as a function, and pass them to their BZ searches as a function that calls the function of the caller at most once.
-  `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_found_qudit_automorphisms` of the code, which the code caches, so bliss runs at most once for a code.
-  It holds the automorphisms that bliss (`src/qldpc/external/_bliss.py`) finds among each set of checks from `_get_automorphism_search_matrices`, followed by the generators from `_get_qudit_automorphisms`, without repeats or the identity.
-  The code verifies the generators from `_get_qudit_automorphisms`, and those that bliss finds in sets of checks other than the parity checks, before it appends them.
-  `get_distance_exact` of `ClassicalCode` passes `_found_bit_automorphisms` in the same way, with bliss searching the parity check matrix and the generators from `_get_bit_automorphisms` appended, unless it measures the distance from a vector, whose coset an automorphism of the code need not preserve.
+  `get_distance_exact` of `CSSCode` and of `QuditCode` in `src/qldpc/codes/common.py` pass a function that returns `_known_permutation_automorphisms` of the code, which the code caches, so bliss runs at most once for a code.
+  It holds the automorphisms that bliss (`src/qldpc/external/_bliss.py`) finds among each set of checks from `_get_permutation_automorphism_search_matrices`, followed by the generators from `_get_permutation_automorphisms`, without repeats or the identity.
+  The code verifies the generators from `_get_permutation_automorphisms`, and those that bliss finds in sets of checks other than the parity checks, before it appends them.
+  `get_distance_exact` of `ClassicalCode` passes `_known_permutation_automorphisms` in the same way, with bliss searching the parity check matrix and the generators from `_get_permutation_automorphisms` appended, unless it measures the distance from a vector, whose coset an automorphism of the code need not preserve.
   A search calls the function only at the points of [Section 3.7](#37-images-of-an-information-set-under-automorphisms), and uses the generators only after `verify_automorphisms` accepts them; for a CSS code, they must map the row spaces of both parity-check matrices onto themselves.
   For a general Pauli problem, `_get_lifted_automorphisms` lifts them to the coordinates of `T`, except for Pauli strings that `get_distance_pauli` searches as a CSS code.
 

@@ -401,7 +401,7 @@ def test_multivariate_bicycle_translations_preserve_checks() -> None:
     One cyclic factor of this code is trivial, so its group has fewer generators than symbols.
     """
     code = codes.MBCode([2, 1, 3], x + 1, x * y + 1)
-    assert_valid_translations(code, code._get_qudit_automorphisms(), group_order=6)
+    assert_valid_translations(code, code._get_permutation_automorphisms(), group_order=6)
 
 
 def test_gala_translations_preserve_checks() -> None:
@@ -411,7 +411,7 @@ def test_gala_translations_preserve_checks() -> None:
     code = codes.GALACode(
         generators_f=[ring.one, xx], generators_g=[xx**2, ring.one], num_active_rows=1
     )
-    translations = code._get_qudit_automorphisms()
+    translations = code._get_permutation_automorphisms()
     assert translations is not None and len(translations) == 1
     assert_valid_translations(code, translations, group_order=3)
 
@@ -437,7 +437,7 @@ def test_abelian_block_translations_of_field_lifts() -> None:
     assert np.array_equal(translations, integer_translations)
     ring = abstract.GroupRing(group)
     code = codes.LPCode(abstract.RingArray.build([[ring.one + ring.generators[0], 1]], ring))
-    code_translations = code._get_qudit_automorphisms()
+    code_translations = code._get_permutation_automorphisms()
     assert code_translations is not None
     assert_valid_translations(code, code_translations, group_order=3)
 
