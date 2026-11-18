@@ -610,7 +610,7 @@ def test_oracles_answer_exactly_with_other_families(
     [
         {},
         {"coset_route_minimum_work": 0},
-        {"coset_route_minimum_work": 0, "completion_bound_max_table_bytes": 0},
+        {"coset_route_minimum_work": 0, "coset_completion_max_table_bytes": 0},
     ],
     ids=["disjoint", "tables", "no-tables"],
 )

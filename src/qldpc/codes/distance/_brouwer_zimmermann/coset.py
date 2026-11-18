@@ -334,8 +334,8 @@ class _CosetTuning(NamedTuple):
     coset_route_minimum_work: int
     max_information_sets: int
     overlapping_attempts_per_set: int
-    completion_bound_max_table_bytes: int
     coset_completion_block_bits: int
+    coset_completion_max_table_bytes: int
 
     @classmethod
     def from_tuning(cls, tuning: SearchTuning, *, paulis_by_css_weight: bool) -> _CosetTuning:
@@ -350,7 +350,7 @@ class _CosetTuning(NamedTuple):
         coset_tuning = cls(*fields)
         if paulis_by_css_weight:
             return coset_tuning._replace(
-                completion_bound_max_table_bytes=0, coset_completion_block_bits=0
+                coset_completion_block_bits=0, coset_completion_max_table_bytes=0
             )
         return coset_tuning._replace(max_css_single_pairs=0)
 
@@ -468,7 +468,7 @@ def _get_routes(
         attempts_per_set=tuning.overlapping_attempts_per_set,
         by_tails=by_tails,
         block_bits=tuning.coset_completion_block_bits,
-        max_table_bytes=tuning.completion_bound_max_table_bytes,
+        max_table_bytes=tuning.coset_completion_max_table_bytes,
     )
 
 

@@ -352,12 +352,13 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md``).
     completion_bound_max_cost_percent: int = 100
 
-    #: The most bytes of completion tables kept by a distance search for each sector, by a count
-    #: for each sector besides the tables that it is building, and by a ``CosetLeaderSearch`` for
-    #: each set of a family; a basis whose tables do not fit gets none, and zero disables tables.
-    #: Defaults to 256 MiB, a budget of memory, which fits blocks of 16 columns for bases of up to
-    #: about 500 rows and 140 tail columns.
-    completion_bound_max_table_bytes: int = 256 * 2**20
+    #: The most bytes of completion tables kept by a distance search for each sector, and by a count
+    #: for each sector besides the tables that it is building; a basis whose tables do not fit gets
+    #: none, and zero disables tables.  Defaults to 2 GiB, a budget of memory, which fits blocks of
+    #: 16 columns for bases of up to about 500 rows and 1000 tail columns.  Distance searches and
+    #: counts build tables only where their cost model accepts them (Section 3.9 of
+    #: ``brouwer_zimmermann.md``).
+    completion_bound_max_table_bytes: int = 2 * 2**30
 
     #: The number of tail columns in a block of the completion tables of distance searches and
     #: counts, a power of two up to 16.  The table of a block has ``2**width`` bytes for each row of
@@ -369,6 +370,14 @@ class SearchTuning:
     #: ``CosetLeaderSearch`` by Hamming weight build for their costliest queries, a power of two up
     #: to 16.  Defaults to 16, the widest allowed (Section 4.4 of ``brouwer_zimmermann.md``).
     coset_completion_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
+
+    #: The most bytes of completion tables, for each set of a family, that the searches of
+    #: ``CosetLeaderSearch`` by Hamming weight build for their costliest queries; a set whose tables
+    #: do not fit gets none, and zero disables these tables.  Defaults to 256 MiB, a budget of
+    #: memory and of setup effort: these queries get the tables of every set that they scan in
+    #: layers of two or more rows, if the tables fit, without predicting whether the tables pay
+    #: (Section 4.4 of ``brouwer_zimmermann.md``).
+    coset_completion_max_table_bytes: int = 256 * 2**20
 
     #: The number of random supports from which a search estimates the share of a layer that
     #: completion tables would skip, within ``completion_bound_sampling_work``; drawing them takes
