@@ -204,12 +204,11 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
     to start, which only threads that do not take turns can do.
     """
     max_weights = range(-1, 9)
-    counter_lock = threading.Lock()
+    turn = threading.Condition()
     building = 0
     overlaps = []
     chained = []
     latest: dict[int, tuple[affine_instance.AffineInstance, coset_tables.CosetTails]] = {}
-    overlapped = threading.Event()
     get_coset_tails = coset_tables.get_coset_tails
 
     def build_in_turn(
@@ -220,19 +219,17 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
     ) -> coset_tables.CosetTails:
         """Build a record, and keep it as the latest record of its family."""
         nonlocal building
-        with counter_lock:
+        with turn:
             building += 1
             overlaps.append(building > 1)
-            if building > 1:
-                overlapped.set()
-            first = len(overlaps) == 1
+            turn.notify_all()
             previous = latest.get(id(instance))
             chained.append(record is (None if previous is None else previous[1]))
-        if first:
-            # Threads that take turns start no other build, so this wait times out.
-            overlapped.wait(timeout=1)
+            if len(overlaps) == 1:
+                # Threads that take turns start no other build, so this wait times out.
+                turn.wait_for(lambda: building > 1, timeout=1)
         built = get_coset_tails(instance, sets, record, **kwargs)
-        with counter_lock:
+        with turn:
             latest[id(instance)] = (instance, built)
             building -= 1
         return built

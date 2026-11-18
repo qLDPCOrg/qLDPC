@@ -131,11 +131,8 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
             hide_a_base(error=False)
 
     slotted = type("Slotted", (), {"__slots__": (), "__module__": "qldpc"})()
-    with (
-        pytest.raises(TypeError, match=r"roots\[0\] has no __dict__"),
-        distance_conftest.shared_arrays_read_only(slotted),
-    ):
-        pass
+    with pytest.raises(TypeError, match=r"roots\[0\] has no __dict__"):
+        distance_conftest.shared_arrays_read_only(slotted).__enter__()
 
 
 ####################################################################################################

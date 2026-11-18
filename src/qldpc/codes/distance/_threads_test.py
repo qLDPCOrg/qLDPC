@@ -226,14 +226,10 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
         kept.append(thread)
         raise KeyboardInterrupt
 
-    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        """Count the start of a worker, which would run no range."""
-        next(worker_starts)
-        return lambda start, end: None
-
     def search() -> None:
         try:
-            _threads.run_work_items(10, 2, start_worker)
+            # Each worker would count its start, and then run no range.
+            _threads.run_work_items(10, 2, lambda stop: (next(worker_starts), _run_no_range)[1])
         except BaseException as error:  # noqa: BLE001 - the test checks which error the search raised
             raised.append(error)
 
@@ -249,6 +245,10 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
     start(thread)
     thread.join(timeout=THREAD_TIMEOUT)
     assert not thread.is_alive() and next(worker_starts) == 0
+
+
+def _run_no_range(start: int, end: int) -> None:
+    """Run no range: the worker of a thread that never starts one."""
 
 
 def _get_worker_for_the_other_thread() -> tuple[

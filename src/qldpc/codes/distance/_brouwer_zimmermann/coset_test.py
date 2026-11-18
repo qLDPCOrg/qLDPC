@@ -249,9 +249,9 @@ def test_routed_states_take_families_that_beat_the_greedy_packing(
 ) -> None:
     """Costly queries of the routed states take families that beat the greedy packing.
 
-    At the threshold zero, some route has more sets than the greedy packing, or as many and a larger
-    partial set, as ``conftest.py`` says of these states, and the routes are by tails exactly by
-    physical weight.  Tests that need other families rely on these states.
+    At the threshold zero, some route has more full information sets than the greedy packing, or as
+    many sets and a larger partial set, as ``conftest.py`` says of these states, and the routes are
+    by tails exactly by physical weight.  Tests that need other families rely on these states.
     """
     with use_tuning(coset_route_minimum_work=MAX_VALUE) as tuning:
         greedy, _ = coset.get_pauli_search(matrix, css_weight, tuning)._get_route(2)
@@ -262,6 +262,7 @@ def test_routed_states_take_families_that_beat_the_greedy_packing(
         """The ranks of the sets of a family: their numbers of pivots that are not padding."""
         return np.count_nonzero(tables.pivots >= 0, axis=1).tolist()
 
+    dimension = greedy.pivots.shape[1]
     greedy_ranks = get_ranks(greedy)
     beaten = False
     for max_weight in range(2, len(matrix) + 1):
@@ -269,7 +270,7 @@ def test_routed_states_take_families_that_beat_the_greedy_packing(
         assert (tails is not None) == (not css_weight)
         ranks = get_ranks(tables)
         if more_sets:
-            beaten |= len(ranks) > len(greedy_ranks)
+            beaten |= ranks.count(dimension) > greedy_ranks.count(dimension)
         else:
             beaten |= len(ranks) == len(greedy_ranks) and min(ranks) > min(greedy_ranks)
     assert beaten
