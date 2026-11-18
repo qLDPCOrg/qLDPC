@@ -605,7 +605,7 @@ def test_each_root_excludes_the_orbits_before_its_own() -> None:
     """The search from the root of an orbit uses no variable of an earlier orbit."""
     code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     order = np.random.default_rng(0).permutation(len(code))
-    automorphisms = np.argsort(order)[code._get_qudit_automorphisms()[:, order]]
+    automorphisms = np.argsort(order)[code._get_permutation_automorphisms()[:, order]]
     problem = (get_sectors(code)[0][0][:, order], get_sectors(code)[0][1][:, order])
 
     # The orbits under translations are the two blocks of 36 qubits, which the shuffle interleaves.
@@ -706,7 +706,9 @@ def test_a_cutoff_raises_the_first_limit_to_a_multiple_of_the_divisor(
 def test_pruning_keeps_the_search_of_a_high_rate_code_small() -> None:
     """Pruning rules out witnesses of weight up to 8 in a [[276, 98, 14]] code in few states."""
     code = codes.PairPartitionCode(EXPONENTS_X_276, EXPONENTS_Z_276, lift_size=23)
-    search = get_search(*get_sectors(code)[0], get_automorphisms=code._get_qudit_automorphisms)
+    search = get_search(
+        *get_sectors(code)[0], get_automorphisms=code._get_permutation_automorphisms
+    )
     assert search.find_witness(8) is None
 
     # The bound on the states fails if states stop forbidding variables for their subtrees (Section

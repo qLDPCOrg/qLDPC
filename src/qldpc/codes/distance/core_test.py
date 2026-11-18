@@ -514,7 +514,7 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
     transposition[[0, 1]] = [1, 0]
     tune(auto_brute_force_max_words=0)
     for css_method in ("connected_cluster", "auto"):
-        get_automorphisms = mock.Mock(return_value=code._get_qudit_automorphisms())
+        get_automorphisms = mock.Mock(return_value=code._get_permutation_automorphisms())
         distance = core.get_distance_css(
             code.matrix_x, code.matrix_z, method=css_method, automorphisms=get_automorphisms
         )
@@ -528,7 +528,7 @@ def test_automorphisms_are_checked_and_asked_for_once(tune: Tune) -> None:
     # A search of Pauli strings by cost asks once too, from the connected-cluster search of its free
     # phase.  Hadamards on the second block of the code keep the automorphisms above.
     pauli_checks = code.conjugated(range(7, 14)).matrix
-    get_automorphisms = mock.Mock(return_value=code._get_qudit_automorphisms())
+    get_automorphisms = mock.Mock(return_value=code._get_permutation_automorphisms())
     distance = core.get_distance_pauli(pauli_checks, method="auto", automorphisms=get_automorphisms)
     assert distance == 3
     get_automorphisms.assert_called_once()
@@ -750,7 +750,7 @@ def test_quantum_distances_use_qubit_automorphisms(tune: Tune) -> None:
     # translations of both blocks still preserve.
     tune(automorphism_minimum_layer_work=0)
     bicycle_code = qldpc.codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
-    translations = bicycle_code._get_qudit_automorphisms()
+    translations = bicycle_code._get_permutation_automorphisms()
     transposition = np.arange(len(bicycle_code))
     transposition[[0, 1]] = [1, 0]
     code = bicycle_code.conjugated(range(7, 14))

@@ -241,7 +241,7 @@ class GALACode(CSSCode):
             [[generators[(col - row) % size] for col in range(size)] for row in range(size)]
         )
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Translations of every block of qudits, or None (see _get_abelian_block_translations)."""
         return _get_abelian_block_translations(self.group, self.num_blocks)
 
@@ -492,7 +492,7 @@ class MBCode(TBCode):
             + subgraphs_XL[::2]
         )
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_]:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_]:
         """Translations of both blocks of qudits by the generators of the group of this code.
 
         The qudits of each block, and the checks of each type, are indexed by group elements.
@@ -850,7 +850,7 @@ def _get_block_translations(group: abstract.Group, num_blocks: int) -> npt.NDArr
 
     These permutations preserve a code whose checks they permute, as when the parity check matrices
     are arrays of lifts of elements of an abelian group algebra, as in a quasi-cyclic code.  Such a
-    code can return them from ``_get_qudit_automorphisms``.
+    code can return them from ``_get_permutation_automorphisms``.
     """
     block_size = len(group.lift(group.identity))
     offsets = block_size * np.arange(num_blocks)[:, None]

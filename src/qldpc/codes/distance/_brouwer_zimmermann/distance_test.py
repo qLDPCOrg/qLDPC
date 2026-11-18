@@ -655,7 +655,7 @@ def test_automorphism_family_searches_scan_every_layer_they_certify(
     expected = bz.get_distance_brouwer_zimmermann([sector], cutoff=0)
     assert expected == 8
     distance = bz.get_distance_brouwer_zimmermann(
-        [sector], cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+        [sector], cutoff=0, get_automorphisms=code._get_permutation_automorphisms
     )
     assert distance == expected
 
@@ -766,13 +766,17 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
             cutoff=0,
             method="brute_force",
         )
-        for get_automorphisms in (code._get_qudit_automorphisms, lambda: identity, lambda: None):
+        for get_automorphisms in (
+            code._get_permutation_automorphisms,
+            lambda: identity,
+            lambda: None,
+        ):
             distance = bz.get_distance_brouwer_zimmermann(
                 [sector], cutoff=0, get_automorphisms=get_automorphisms
             )
             assert distance == expected
     assert bz.get_distance_brouwer_zimmermann(
-        sectors, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+        sectors, cutoff=0, get_automorphisms=code._get_permutation_automorphisms
     ) == code.get_distance(method="brute_force")
 
 
@@ -791,7 +795,7 @@ def test_images_of_blocks_bound_a_search_once_it_has_automorphisms(
     """
     tune(automorphism_minimum_layer_work=threshold)
     code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    generators = np.asarray(code._get_qudit_automorphisms())
+    generators = np.asarray(code._get_permutation_automorphisms())
     asks = []
     switch = bz._SectorSearch._switch_to_automorphism_family
 
@@ -894,7 +898,7 @@ def test_the_next_layer_work_is_that_of_the_layer_that_advance_scans(
         sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
         with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
             search = bz.BrouwerZimmermannSearch(
-                sectors, cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+                sectors, cutoff=0, get_automorphisms=code._get_permutation_automorphisms
             )
             while not search.finished:
                 asked.clear()
@@ -962,7 +966,7 @@ def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     sector = get_sector(code, Pauli.X)
     for minimum_layer_work, expected_calls in ((10**9, 0), (0, 1)):
-        get_automorphisms = mock.Mock(wraps=code._get_qudit_automorphisms)
+        get_automorphisms = mock.Mock(wraps=code._get_permutation_automorphisms)
         with use_tuning(automorphism_minimum_layer_work=minimum_layer_work):
             bz.get_distance_brouwer_zimmermann(
                 [sector], cutoff=0, get_automorphisms=get_automorphisms
@@ -1116,8 +1120,8 @@ def test_searches_switch_to_automorphism_images_instead_of_partitioning(tune: Tu
     # With the code's translations, the search switches at once.  With the identity alone, no
     # automorphisms, or the largest threshold, which asks for none, it partitions instead.
     for get_automorphisms, minimum_layer_work, partitions in (
-        (code._get_qudit_automorphisms, 10**9, False),
-        (code._get_qudit_automorphisms, MAX_VALUE, True),
+        (code._get_permutation_automorphisms, 10**9, False),
+        (code._get_permutation_automorphisms, MAX_VALUE, True),
         (lambda: identity, 0, True),
         (lambda: None, 0, True),
     ):
@@ -1171,7 +1175,7 @@ def test_a_switch_at_the_end_of_setup_can_certify_the_distance(tune: Tune) -> No
     distance = bz.get_distance_brouwer_zimmermann(
         [get_sector(code, Pauli.X)],
         cutoff=0,
-        get_automorphisms=code._get_qudit_automorphisms,
+        get_automorphisms=code._get_permutation_automorphisms,
     )
     assert distance == expected
 
@@ -1191,7 +1195,7 @@ def test_rows_of_an_automorphism_family_can_reach_the_cutoff(
     sector = get_sector(code, Pauli.Z)
     assert bz.get_distance_brouwer_zimmermann([sector], cutoff=0) == 4
     distance = bz.get_distance_brouwer_zimmermann(
-        [sector], cutoff=6, get_automorphisms=code._get_qudit_automorphisms
+        [sector], cutoff=6, get_automorphisms=code._get_permutation_automorphisms
     )
     assert distance == 6
 
@@ -1281,7 +1285,7 @@ def test_completion_tables_keep_distances_exact(
                     [get_sector(code, pauli)],
                     cutoff=0,
                     upper_bound=upper_bound,
-                    get_automorphisms=code._get_qudit_automorphisms,
+                    get_automorphisms=code._get_permutation_automorphisms,
                 )
             assert assert_skips(distance) == expected
 
@@ -1294,7 +1298,7 @@ def test_completion_tables_keep_distances_exact(
     with use_tuning(completion_bound_max_table_bytes=0):
         expected = bz.get_distance_brouwer_zimmermann([(basis, labels)], cutoff=0)
     columns = rng.permutation(len(code))
-    automorphisms = np.asarray(code._get_qudit_automorphisms())
+    automorphisms = np.asarray(code._get_permutation_automorphisms())
     skipped = completion_tables.skipped
     distance = bz.get_distance_brouwer_zimmermann(
         [(basis[:, columns], labels)],
@@ -1368,7 +1372,7 @@ def test_joint_searches_with_completion_tables(
             sectors,
             cutoff=0,
             upper_bound=upper_bound,
-            get_automorphisms=code._get_qudit_automorphisms,
+            get_automorphisms=code._get_permutation_automorphisms,
         )
         assert distance == expected
         assert len(searches) == 2 and all(skipped)
@@ -1566,7 +1570,7 @@ def test_searches_take_completion_limits_from_their_tuning(
             assert bz.get_distance_brouwer_zimmermann(
                 sectors,
                 cutoff=0,
-                get_automorphisms=code._get_qudit_automorphisms,
+                get_automorphisms=code._get_permutation_automorphisms,
             ) == code.get_distance(method="brute_force")
         assert block_bits == expected_block_bits
 
@@ -1752,7 +1756,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
         prepared.clear()
         tune(num_threads=num_threads, information_set_batch_exponent=4)
         search = bz.BrouwerZimmermannSearch(
-            [sector], cutoff=0, get_automorphisms=code._get_qudit_automorphisms
+            [sector], cutoff=0, get_automorphisms=code._get_permutation_automorphisms
         )
         history = []
         while not search.finished:
@@ -1807,7 +1811,7 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
     with monkeypatch.context() as patch, use_tuning(num_threads=1):
         patch.setattr(affine_search, "scan_set", recording_scan)
         bz.get_distance_brouwer_zimmermann(
-            [sector], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
+            [sector], cutoff=cutoff, get_automorphisms=code._get_permutation_automorphisms
         )
     item_rows = [tuple(items.get_item(index).tolist()) for index in range(items.num_items)]
     (witness_item,) = witness_items
@@ -1854,7 +1858,7 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
 
     monkeypatch.setattr(bz._threads, "run_work_items", gated_run)
     search = bz.BrouwerZimmermannSearch(
-        [sector], cutoff=cutoff, get_automorphisms=code._get_qudit_automorphisms
+        [sector], cutoff=cutoff, get_automorphisms=code._get_permutation_automorphisms
     )
     (sector_search,) = prepared
     while not search.finished:

@@ -282,7 +282,7 @@ class LPCode(CSSCode):
 
         return lifted_ops_x, lifted_ops_z
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Translations of every block of qudits, or None (see _get_lifted_block_translations)."""
         return _get_lifted_block_translations(self.matrix_a.ring, len(self))
 
@@ -404,7 +404,7 @@ class SLPCode(CSSCode):
         """
         return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
-    def _get_qudit_automorphisms(self) -> npt.NDArray[np.int_] | None:
+    def _get_permutation_automorphisms(self) -> npt.NDArray[np.int_] | None:
         """Translations of every block of qudits, or None (see _get_lifted_block_translations)."""
         return _get_lifted_block_translations(self.matrix_a.ring, len(self))
 
