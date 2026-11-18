@@ -426,11 +426,11 @@ def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     ``parallel=True``, such as some of galois's, or of ``_tuning.get_tuning``, raises an
     ``AssertionError``, which ``run_work_items`` raises again.  Two threads that run numba-parallel
     code at once abort the process under numba's workqueue layer, and a new thread reads the default
-    tuning.  The fixture sees only the calls that tests make on workers.  In compiled code,
-    ``test_no_function_of_qldpc_is_compiled_numba_parallel`` of ``_thread_rules_test.py`` keeps the
-    functions of qLDPC from being numba-parallel, and
-    ``test_always_compiled_functions_use_nothing_from_outside_qldpc`` of
-    ``qldpc/_compiled_code_rules_test.py`` keeps out those of galois.
+    tuning.  The fixture sees only the calls that tests make on workers.  In compiled code, two
+    tests of ``qldpc/_compiled_code_rules_test.py`` check the rest:
+    ``test_nothing_asks_numba_for_parallel_code`` keeps the functions of qLDPC from being
+    numba-parallel, and ``test_always_compiled_functions_use_nothing_from_outside_qldpc`` keeps out
+    those of galois.
     """
     run_work_items = _threads.run_work_items
 

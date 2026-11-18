@@ -591,7 +591,7 @@ Changes to the search can use other bounds and orders, but must keep these requi
     Review checks this.
   - **Call no numba-parallel code on threads, and read the tuning there only from the search.**
     Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`), and it reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.
-    `test_no_function_of_qldpc_is_compiled_numba_parallel` of [_thread_rules_test.py](_thread_rules_test.py) checks that qLDPC compiles none of its own functions numba-parallel.
+    `test_nothing_asks_numba_for_parallel_code` of `src/qldpc/_compiled_code_rules_test.py` checks that qLDPC compiles none of its own functions numba-parallel.
     `test_always_compiled_functions_use_nothing_from_outside_qldpc` of `src/qldpc/_compiled_code_rules_test.py` keeps galois's functions out of compiled code.
     The fixture `check_code_on_threads` of [conftest.py](conftest.py) fails each test of this package whose threads call numba-parallel code from Python, or read the tuning through `get_tuning`.
     Review checks such calls on paths that tests do not run on threads.

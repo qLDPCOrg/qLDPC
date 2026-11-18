@@ -6,13 +6,10 @@ Section 5 of ``brouwer_zimmermann.md`` and ``connected_cluster.md``, and the doc
 ``qldpc/_compilation.py``, state the rules.  An entry point compiled with ``nogil=True`` runs on
 several threads at once, without Python's global interpreter lock, and so does every compiled
 function that it calls.  A race between them would rarely change a result that tests compare, so
-these tests read the code instead:
-
-- Section 5 of the guide of its method names each such entry point of this package.  That section,
-  with the docstring of ``_compilation.py``, states the rules of the entry point.
-- No function of qLDPC is compiled with numba's ``parallel`` option.  ``always_compiled`` has no
-  such option, and ``_compiled_code_rules_test.py`` keeps the functions of other packages, such as
-  galois's, out of compiled code, so compiled code that threads run calls no numba-parallel code.
+a test here reads the code instead: it checks that Section 5 of the guide of its method names each
+such entry point of this package.  That section, with the docstring of ``_compilation.py``, states
+the rules of the entry point.  ``test_nothing_asks_numba_for_parallel_code`` of
+``qldpc/_compiled_code_rules_test.py`` keeps qLDPC's own compiled code from being numba-parallel.
 
 While every test of this package runs, its fixture ``check_code_on_threads`` of ``conftest.py``
 checks that the Python code that threads run calls no numba-parallel code and reads the tuning only
@@ -59,19 +56,6 @@ def test_entry_points_without_the_lock_are_named_in_section_5_of_their_guides() 
         assert any(f"`{name}`" in guides[method] for method in methods), (
             f"Section 5 of no guide of {methods} names {module}.{name}"
         )
-
-
-def test_no_function_of_qldpc_is_compiled_numba_parallel() -> None:
-    """qLDPC compiles no numba-parallel code, which threads must not call.
-
-    Two threads that run such code at once abort the process under numba's workqueue layer.
-    """
-    for path, tree in _get_source_trees(Path(qldpc.__file__).parent):
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _is_njit(node.func):
-                assert all(keyword.arg != "parallel" for keyword in node.keywords), (
-                    f"{path.name} passes numba the parallel option"
-                )
 
 
 @pytest.mark.skipif(
@@ -148,19 +132,12 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
 # helpers
 
 
-def _get_source_trees(directory: Path) -> list[tuple[Path, ast.Module]]:
-    """The path and syntax tree of every source file in a directory of qLDPC that is not a test."""
-    return [
-        (path, ast.parse(path.read_text(encoding="utf-8")))
-        for path in _compilation._get_source_paths(directory)
-    ]
-
-
 def _get_entry_points() -> list[tuple[str, str]]:
     """The module and name of each function of this package compiled with ``nogil=True``."""
     package = Path(qldpc.__file__).parent
     entry_points = []
-    for path, tree in _get_source_trees(Path(__file__).parent):
+    for path in _compilation._get_source_paths(Path(__file__).parent):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for function in conftest.get_compiled_functions(tree)["always_compiled"]:
             if any(_releases_the_lock(decorator) for decorator in function.decorator_list):
                 module = ".".join(path.relative_to(package.parent).with_suffix("").parts)
@@ -174,11 +151,6 @@ def _releases_the_lock(decorator: ast.expr) -> bool:
         keyword.arg == "nogil" and getattr(keyword.value, "value", False) is True
         for keyword in decorator.keywords
     )
-
-
-def _is_njit(function: ast.expr) -> bool:
-    """Whether an expression is a name or an attribute called ``njit`` or ``jit``."""
-    return getattr(function, "attr", getattr(function, "id", "")) in ("njit", "jit")
 
 
 def _get_section_5(guide: Path) -> str:
