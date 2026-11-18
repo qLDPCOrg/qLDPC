@@ -930,9 +930,9 @@ A change may use other representations, certificates, and search strategies, but
     `test_concurrent_batches_share_a_search` runs its batches with every array of the search read-only, so that numba rejects a write to one in any branch of compiled code, and checks that the arrays are unchanged.
     Review checks the writes that this misses.
     Numba compiles some writes to read-only arrays anyway, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`.
-    The test does not mark the buffers that a batch makes for its workers: the lightest word `best` and the copy of the planning buffer of each worker of `_find_first_on_threads`, and the `weights` of `_find_min_weights_on_threads`.
-    Review checks that each worker or call writes only its own.
-    Nor does it cover paths that the tests do not run with the arrays read-only, or, in plain Python, writes that tests do not run.
+    The test does not mark the buffers that a batch makes for its workers: the lightest word `best` and the copy of the planning buffer of each worker of `_find_first_on_threads`, and the rows of the shared `weights` of `_find_min_weights_on_threads`.
+    The test also misses paths that the tests do not run with the arrays read-only, and, in plain Python, writes that tests do not run.
+    Review checks that each worker writes only its own buffers, and each call only its own rows.
   - `CosetRoutes` chooses each route once, under `_ROUTE_LOCK`, and there builds the families other than the disjoint one, once, and each record of tails, and a batch query takes its route before its threads start ([Section 4.5](#45-behavior-spanning-files)).
     A record of tails never changes once a query may read it: a route that needs new completion tables gets a new record of its family, which copies the earlier tables and their layout ([Section 4.1](#41-module-map-and-layering)).
 - **Count only work without the global interpreter lock in the split of coset batches.**
@@ -952,9 +952,9 @@ A change may use other representations, certificates, and search strategies, but
     `test_searches_on_threads_advance_as_searches_on_one_thread` runs the threads with every array of the search read-only, so that numba rejects a write to one in any branch of compiled code, and checks that the arrays are unchanged.
     Review checks the writes that this misses.
     Numba compiles some writes to read-only arrays anyway, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`.
-    The test does not mark the buffers that `_scan_set_on_threads` makes for each thread, such as `support` and `prefixes`.
-    Review checks that each thread writes only its own.
-    Nor does it cover paths that the tests do not run with the arrays read-only, or, in plain Python, writes that tests do not run.
+    The test does not mark the arrays that each thread of `_scan_set_on_threads` gets for itself: its `support` and `prefixes`, and the work items that it scans.
+    The test also misses paths that the tests do not run with the arrays read-only, and, in plain Python, writes that tests do not run.
+    Review checks that each thread writes only its own arrays.
   - Other code that threads run writes shared state only under a lock or through thread-safe objects, as the shared `U`, the claims of items, and the stop event are written.
     Review checks this.
   - The shared `U` is lowered only as a minimum, under the lock.

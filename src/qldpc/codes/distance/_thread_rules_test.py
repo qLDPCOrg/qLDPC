@@ -113,7 +113,9 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
         """Make read-only the base of a marked view within the block, and raise if asked to."""
         nonlocal with_line
         hidden_base = np.zeros(4)
-        with_line = inspect.currentframe().f_lineno + 1  # type: ignore[union-attr]
+        frame = inspect.currentframe()
+        assert frame is not None
+        with_line = frame.f_lineno + 1
         with distance_conftest.shared_arrays_read_only([hidden_base[:2]]):
             hidden_base.flags.writeable = False
             if error:
