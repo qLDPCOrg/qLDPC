@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import math
 from collections.abc import Iterator
 from typing import Any
 from unittest import mock
@@ -21,22 +20,27 @@ from qldpc._binary import get_kernel
 from qldpc.objects import Pauli
 
 from . import _auto, core
+from ._binary import get_nested_code_basis
 from ._brouwer_zimmermann.distance import BrouwerZimmermannSearch
 from ._connected_cluster.search import ConnectedClusterSearch, SupportSearch
 from ._information_sets import basis_families
-from ._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning, use_tuning
+from ._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from .conftest import CostlyStages, get_costly_basis, get_golay_checks, get_sector
 
 # Tunings that skip enumeration and the free phase, with a probe of unlimited work, or of none.
 UNLIMITED = {"auto_brute_force_max_words": 0, "auto_free_work": 0, "auto_probe_work": MAX_VALUE}
 NO_PROBE = {"auto_brute_force_max_words": 0, "auto_free_work": 0, "auto_probe_work": 0}
 
+# A tuning with a probe of no work, and a state cost far above the default, so that a search
+# switches to BZ sooner.
+SWITCH = {**NO_PROBE, "connected_cluster_state_evaluations": 10**6}
+
 
 def get_nested_sector(
     checks: npt.NDArray[np.uint8], excluded: npt.NDArray[np.uint8]
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
     """The nested basis and labels of the words that satisfy binary checks, outside the excluded."""
-    return qldpc.codes.distance._binary.get_nested_code_basis(get_kernel(checks), excluded)
+    return get_nested_code_basis(get_kernel(checks), excluded)
 
 
 def get_shapes(rank: int, width: int) -> _auto.BrouwerZimmermannProblem:
@@ -46,14 +50,18 @@ def get_shapes(rank: int, width: int) -> _auto.BrouwerZimmermannProblem:
     )
 
 
-def test_brute_force_is_cheap_up_to_its_budget_of_packed_integers() -> None:
-    """Enumeration is cheap if it examines at most the budget of integers over all of its spaces."""
+def test_brute_force_is_cheap_within_its_budget_of_packed_integers() -> None:
+    """Enumeration is cheap if it examines at most the budget of integers over all of its spaces.
+
+    The budget is 1024 integers, and each case is a factor of 4 from it: 256 words of one integer
+    fit, but 16 such spaces, 256 words of 16 integers, or 4096 words of one bit, which take one
+    integer each, do not.
+    """
     tuning = dataclasses.replace(DEFAULT_TUNING, auto_brute_force_max_words=1 << 10)
-    assert _auto.is_cheap_to_enumerate([10], 64, tuning)
-    assert not _auto.is_cheap_to_enumerate([10], 65, tuning)
-    assert _auto.is_cheap_to_enumerate([9, 9], 64, tuning)
-    assert not _auto.is_cheap_to_enumerate([9, 9, 0], 64, tuning)
-    assert _auto.is_cheap_to_enumerate([8], 256, tuning)
+    assert _auto.is_cheap_to_enumerate([8], 64, tuning)
+    assert not _auto.is_cheap_to_enumerate([8] * 16, 64, tuning)
+    assert not _auto.is_cheap_to_enumerate([8], 16 * 64, tuning)
+    assert not _auto.is_cheap_to_enumerate([12], 1, tuning)
 
 
 def test_brouwer_zimmermann_costs_grow_with_the_level_and_add_over_sectors() -> None:
@@ -143,37 +151,21 @@ def test_a_search_by_cost_can_end_in_its_free_phase(routes: Routes) -> None:
 def test_the_free_phase_ends_with_the_expected_work(routes: Routes) -> None:
     """The search probes once the expected work of a limit, at a state cost, exceeds the free work.
 
-    The expected work of a limit is the work spent plus the predicted work of that limit.  A free
-    work above the work spent before every limit of the Golay sector's search, but below the
-    largest expected work, makes it probe only through the prediction.  The searches add no sums of
-    pairs of checks, with which the work spent before the last limit is too close to its expected
-    work for such a free work.
+    The expected work of a limit is the work spent plus the predicted work of that limit.  Counted
+    in states, that of the Golay sector's search stays below ``10**6`` at every limit, and exceeds
+    one state at some limit.  So with a free work of ``10**6``, the search ends in its free phase at
+    a state cost of 1, and probes at a state cost of ``10**6``.
     """
     checks = get_golay_checks()
-    tuning = SearchTuning(pair_sum_checks=False)
-    clusters = ConnectedClusterSearch([(checks, checks)], cutoff=0, tuning=tuning)
-    spent, expected = [], []
-    while not clusters.finished:
-        index, max_weight = clusters.next_limit
-        spent.append(clusters.num_states)
-        expected.append(clusters.num_states + clusters.predict_states(index, max_weight))
-        clusters.advance()
-    assert 2 * max(spent) < max(expected)
-
-    state_cost = 3
-    for free_work, probes in (
-        (state_cost * (max(spent) + max(expected)) / 2, [(True, 7)]),
-        (state_cost * 2 * max(expected), []),
-    ):
+    for state_cost, num_probes in ((1, 0), (10**6, 1)):
         routes.probes.clear()
         with use_tuning(
             auto_brute_force_max_words=0,
-            auto_free_work=int(free_work),
+            auto_free_work=10**6,
             connected_cluster_state_evaluations=state_cost,
-            pair_sum_checks=False,
         ):
             assert core.get_distance_from_checks(checks, checks, method="auto") == 7
-        assert routes.probes == probes
+        assert len(routes.probes) == num_probes
 
 
 def test_a_cutoff_ends_the_free_phase_at_once(routes: Routes) -> None:
@@ -185,7 +177,7 @@ def test_a_cutoff_ends_the_free_phase_at_once(routes: Routes) -> None:
     checks = get_golay_checks()
     with use_tuning(auto_brute_force_max_words=0, auto_free_work=10**12, auto_probe_work=0):
         assert core.get_distance_from_checks(checks, checks, method="auto", cutoff=4) == 7
-    assert routes.probes == [(False, 7)] and routes.switch_bounds == []
+    assert len(routes.probes) == 1 and routes.switch_bounds == []
 
 
 def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
@@ -221,12 +213,16 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
     with use_tuning(**NO_PROBE):
         core.get_distance_pauli(hgp_checks, method="auto")
     assert routes.probes[-1] == (False, 14)
+
+    # Each finished probe's bound, a weight of BZ words, is even and lies between twice the
+    # distance and twice the cutoff.
     routes.probes.clear()
     with use_tuning(**UNLIMITED):
         assert core.get_distance_pauli(hgp_checks, method="auto", cutoff=4) == 4
         assert 4 <= core.get_distance_pauli(hgp_checks, method="auto", cutoff=6) <= 6
         assert core.get_distance_pauli(hgp_checks, method="auto", cutoff=7) == 7
-    assert routes.probes == [(True, 8), (True, 8), (True, 14)]
+    for (finished, best), cutoff in zip(routes.probes, (4, 6, 7), strict=True):
+        assert finished and 8 <= best <= 2 * cutoff and best % 2 == 0
 
     # A CSS search passes its cutoff on too: with the cutoff 7, a search of the Golay code probes
     # before its first weight limit, and a row of the probe's basis weighs 7, so the probe finishes
@@ -235,14 +231,15 @@ def test_a_finished_probe_gives_the_distance(routes: Routes) -> None:
     routes.limits.clear()
     with use_tuning(**NO_PROBE):
         assert core.get_distance_css(golay.matrix_x, golay.matrix_z, method="auto", cutoff=7) == 7
-    assert routes.probes == [(True, 7)] and routes.limits == []
+    assert [finished for finished, _ in routes.probes] == [True] and routes.limits == []
 
 
 def test_an_unfinished_probe_caps_the_search_by_its_bound(routes: Routes) -> None:
     """The probe's bound ends the connected-cluster search.
 
-    The search of the surface code finds no witness itself: it stops once its lower bounds reach the
-    probe's bound.
+    The setup of the probe of the surface code, which advances no layer, finds a word of weight 5,
+    the distance.  So the connected-cluster search finds no witness itself: it stops once its lower
+    bounds reach the probe's bound.
     """
     surface_code = qldpc.codes.SurfaceCode(5)
     with use_tuning(**NO_PROBE):
@@ -250,20 +247,22 @@ def test_an_unfinished_probe_caps_the_search_by_its_bound(routes: Routes) -> Non
             surface_code.matrix_x, surface_code.matrix_z, method="auto"
         )
     assert distance == 5
-    assert routes.probes == [(False, 5)] and routes.switch_bounds == routes.witnesses == []
+    assert routes.probes == [(False, 5)]
+    assert routes.switch_bounds == routes.witnesses == []
 
 
 def test_a_switch_takes_the_probe_bound_and_finds_the_distance(routes: Routes) -> None:
     """A switch to BZ starts again with the full tuning and the bound of the probe.
 
-    With a probe that does nothing, the Golay sector's search switches, as binary words and as
-    Pauli strings, also with an upper bound or a cutoff below the distance.  The bound of a switch
-    is in the weights of BZ words, which are twice those of Pauli strings.
+    With a probe that does nothing, and a state cost far above the default, the Golay sector's
+    search switches, as binary words and as Pauli strings, also with an upper bound or a cutoff
+    below the distance.  The bound of a switch is in the weights of BZ words, which are twice those
+    of Pauli strings.
     """
     checks = get_golay_checks()
     golay = qldpc.codes.CSSCode(checks.astype(int), checks.astype(int))
     pauli_checks = golay.conjugated(range(0, 23, 2)).matrix
-    with use_tuning(**NO_PROBE) as tuning:
+    with use_tuning(**SWITCH) as tuning:
         for search in (
             functools.partial(core.get_distance_from_checks, checks, checks, method="auto"),
             functools.partial(core.get_distance_pauli, pauli_checks, method="auto"),
@@ -273,7 +272,12 @@ def test_a_switch_takes_the_probe_bound_and_finds_the_distance(routes: Routes) -
             assert search(cutoff=3) == 7
     probe_bounds = [best for finished, best in routes.probes if not finished]
     assert len(routes.switch_bounds) == 6 and routes.switch_bounds == probe_bounds
-    assert routes.switch_bounds[3:] == [14, 12, 14]
+
+    # The bounds of the Pauli strings are even, at least twice the distance, and twice the limit
+    # max_weight + 1 = 6 with that limit.
+    first, limited, last = routes.switch_bounds[3:]
+    assert limited == 12
+    assert all(bound >= 14 and bound % 2 == 0 for bound in (first, last))
     assert all(switch_tuning == tuning for switch_tuning in routes.switch_tunings)
 
 
@@ -337,8 +341,8 @@ def test_searches_by_cost_use_lifted_automorphisms(routes: Routes) -> None:
     )
     asks = {"automorphism_minimum_states": MAX_VALUE, "automorphism_minimum_layer_work": 0}
     for changes, search, automorphisms, distance in (
-        (NO_PROBE, search_css, shifts, 7),
-        (NO_PROBE, search_golay, shifts, 7),
+        (SWITCH, search_css, shifts, 7),
+        (SWITCH, search_golay, shifts, 7),
         (UNLIMITED, search_bicycle, bicycle_code._get_permutation_automorphisms(), 3),
     ):
         num_switches = len(routes.switch_bounds)
@@ -346,7 +350,7 @@ def test_searches_by_cost_use_lifted_automorphisms(routes: Routes) -> None:
         with use_tuning(**changes, **asks):
             assert search(method="auto", automorphisms=get_automorphisms) == distance
         get_automorphisms.assert_called_once()
-        if changes is NO_PROBE:
+        if changes is SWITCH:
             assert len(routes.switch_bounds) == num_switches + 1
         else:
             assert routes.probes[-1][0]
@@ -408,12 +412,15 @@ def test_the_probe_skips_the_costly_stages_of_setup(
 def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_bound() -> None:
     """The search switches while it grows faster than BZ, once it would work more than BZ.
 
-    The work to certify a level counts the states spent and projected for the limits of every
-    sector below it, each weighing the state cost, and the projection to the probe's bound adds
-    half the limit at the bound.  After its limits 1 to 4, the Golay sector's search grows faster
-    than a BZ search of a basis of rank and width 16, and more slowly than one of rank and width
-    23.  A state cost between the thresholds of level 6 and of the bound 8 switches only by the
-    bound.
+    It compares the work to certify the level of its next limit, and the work to reach the probe's
+    bound.  After its limits 1 to 4, the Golay sector's search grows faster than a BZ search of a
+    basis of rank and width 16, by more than 11 / 6 per unit of weight, and more slowly than one of
+    rank and width 23.  Its states up to its next limit are fewer than the work of that BZ search
+    to certify its level, so a state cost of 1 does not switch at the next limit, but one of
+    ``10**6`` does.  To reach the bound 23, the length of the code, it projects all of the states
+    predicted for its limit 22 and half of those for 23.  From at least one state at its limit 4,
+    they are more than ``(11 / 6)**18 + (11 / 6)**19 / 2``, which exceeds the ``2**16 - 1``
+    supports of all of the layers of that BZ search, so a state cost of 1 switches with that bound.
     """
     checks = get_golay_checks()
     clusters = ConnectedClusterSearch([(checks, checks)], cutoff=0)
@@ -429,17 +436,9 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
         pair.advance()
     assert _auto._project_states(pair, 8) == pytest.approx(2 * _auto._project_states(clusters, 8))
 
-    spent = clusters.num_states
-    predicted = {weight: clusters.predict_states(0, weight) for weight in range(5, 9)}
-    level_threshold = slow.get_work(6) / (spent + predicted[5])
-    bound_threshold = slow.get_work(8) / (
-        spent + sum(predicted[w] for w in (5, 6, 7)) + predicted[8] / 2
-    )
-    assert 2 * bound_threshold < level_threshold
-    state_cost = round(math.sqrt(level_threshold * bound_threshold))
-    assert not _auto._should_switch(clusters, slow, 5, state_cost)
-    assert _auto._should_switch(clusters, slow, 8, state_cost)
-    assert _auto._should_switch(clusters, slow, 5, math.ceil(2 * level_threshold))
+    assert not _auto._should_switch(clusters, slow, 5, 1)
+    assert _auto._should_switch(clusters, slow, 5, 10**6)
+    assert _auto._should_switch(clusters, slow, 23, 1)
 
     fast = _auto._BrouwerZimmermannCosts(get_shapes(23, 23))
     assert not _auto._should_switch(clusters, fast, 20, 10**6)

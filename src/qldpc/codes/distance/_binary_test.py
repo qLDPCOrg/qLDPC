@@ -163,6 +163,7 @@ def test_binary_products(
 
 
 def test_symplectic_to_hamming_doubles_weights() -> None:
+    """The image of each Pauli string weighs twice as many bits as the string has qubits."""
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     transformed = binary.symplectic_to_hamming(symplectic)
     np.testing.assert_array_equal(

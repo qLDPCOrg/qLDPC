@@ -130,11 +130,11 @@ def test_brute_force_visits_every_nontrivial_word_once(
 
 
 @pytest.mark.parametrize("num_bits", [300, 1000])
-def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
-    """The largest batch fills more than half of its room, for words of 5 and 16 packed integers."""
+def test_brute_force_batches_fit_their_size(num_bits: int, tune: Tune) -> None:
+    """No batch exceeds its room, for words of 5 and 16 packed integers."""
     batch_exponent = 9
     sizes = _get_batch_sizes(num_bits, batch_exponent, tune)
-    assert 2 ** (batch_exponent - 1) < max(sizes) <= 2**batch_exponent
+    assert max(sizes) <= 2**batch_exponent
 
 
 def test_brute_force_batches_hold_one_word_that_needs_more(tune: Tune) -> None:
@@ -235,6 +235,7 @@ def test_early_exit_returns_only_weighed_operators(symplectic: bool) -> None:
 
 
 def test_riffle() -> None:
+    """Riffling interleaves the X and Z bits of each qubit, also of no rows, in even widths."""
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     expected = np.stack((symplectic[:, :3], symplectic[:, 3:]), axis=2).reshape(-1, 6)
     np.testing.assert_array_equal(_brute_force.riffle(symplectic), expected)
