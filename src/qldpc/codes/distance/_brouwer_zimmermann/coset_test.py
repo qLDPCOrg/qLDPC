@@ -156,8 +156,10 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
         changes: list[tuple[dict[str, Any], bool]] = [
             ({"max_css_single_pairs": 0}, paulis_by_css_weight),
             ({"coset_completion_block_bits": 4}, not paulis_by_css_weight),
+            ({"coset_completion_max_table_bytes": 4}, not paulis_by_css_weight),
             ({"coset_route_minimum_work": 0}, True),
             ({"overlapping_minimum_work": 0}, False),
+            ({"completion_bound_max_table_bytes": 4}, False),
         ]
         # Only the fields that a search reads key its cache.
         for change, reads in changes:
@@ -194,7 +196,8 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
         max_information_sets=5,
         overlapping_attempts_per_set=3,
         coset_completion_block_bits=4,
-        completion_bound_max_table_bytes=12345,
+        coset_completion_max_table_bytes=12345,
+        completion_bound_max_table_bytes=54321,
     ):
         oracle = CosetLeaderSearch(ROUTED_PHYSICAL_STATES[1])
     for syndrome, max_weight in itertools.product(range(1 << 5), range(2, 5)):
@@ -896,15 +899,31 @@ def _assert_min_weights_match_brute_force(
     [
         {},
         {"coset_route_minimum_work": 0},
-        {"coset_route_minimum_work": 0, "completion_bound_max_table_bytes": 0},
+        {"coset_route_minimum_work": 0, "coset_completion_max_table_bytes": 0},
     ],
     ids=["disjoint", "tables", "no-tables"],
 )
 def test_min_weights_of_cosets_match_brute_force(
-    tuning: dict[str, int], pytestconfig: pytest.Config, tune: Tune
+    tuning: dict[str, int],
+    pytestconfig: pytest.Config,
+    tune: Tune,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Searches for the minimum weights of cosets agree with the least weights of their words."""
+    """Searches for the minimum weights of cosets agree with the least weights of their words.
+
+    Routes by tails build completion tables, unless their budget is zero.
+    """
     tune(**tuning)
+
+    # Record the sizes of the tables that routes by tails ask for.
+    table_bytes: list[int] = []
+    get_table_bytes_within = completion_bounds.get_table_bytes_within
+
+    def record(rows: npt.NDArray[np.uint64], block_bits: int, max_bytes: int) -> int:
+        table_bytes.append(get_table_bytes_within(rows, block_bits, max_bytes))
+        return table_bytes[-1]
+
+    monkeypatch.setattr(completion_bounds, "get_table_bytes_within", record)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     num_rows, num_columns = int(rng.integers(3, 6)), int(rng.integers(8, 11))
@@ -922,7 +941,10 @@ def test_min_weights_of_cosets_match_brute_force(
     early_stop_syndromes = [1126, 4578, 6129]
     minima = _coset_minima(_HEAVY_COSETS_CODE, checks, early_stop_syndromes)
     _assert_min_weights_match_brute_force(search, early_stop_syndromes, minima, len(checks), rng)
-    if "completion_bound_max_table_bytes" in tuning:
+    # Routes by tails, which the costly tunings take, build tables unless their budget is zero.
+    if "coset_route_minimum_work" in tuning:
+        assert any(table_bytes) == ("coset_completion_max_table_bytes" not in tuning)
+    if "coset_completion_max_table_bytes" in tuning:
         return
     matrix = get_graph_state(4, [(0, 1), (1, 2), (2, 3)], phase=True)
     search = coset.get_pauli_search(matrix, True, get_tuning())

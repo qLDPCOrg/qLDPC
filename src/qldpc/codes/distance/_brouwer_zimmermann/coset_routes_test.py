@@ -60,7 +60,7 @@ def _build_routes(
         attempts_per_set=2,
         by_tails=by_tails,
         block_bits=DEFAULT_TUNING.coset_completion_block_bits,
-        max_table_bytes=DEFAULT_TUNING.completion_bound_max_table_bytes,
+        max_table_bytes=DEFAULT_TUNING.coset_completion_max_table_bytes,
     )
 
 

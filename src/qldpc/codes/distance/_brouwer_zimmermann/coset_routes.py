@@ -56,7 +56,7 @@ class CosetRoutes:
         by_tails: Whether the search has routes by tails, which only searches that weigh Hamming
             weights have.
         block_bits: The field ``coset_completion_block_bits`` of the tuning.
-        max_table_bytes: The field ``completion_bound_max_table_bytes`` of the tuning.
+        max_table_bytes: The field ``coset_completion_max_table_bytes`` of the tuning.
 
     Attributes:
         disjoint_tables: The tables of the disjoint family.

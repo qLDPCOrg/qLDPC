@@ -803,7 +803,9 @@ The Retuning section of [_tuning.py](_tuning.py) defines the other classes of fi
   3. The route is the family of least work at `ω`, summed over its tables, and on ties the disjoint family, then the maximum disjoint one.
      A search for minimum weights up to `ω` takes the route of `ω`, or of the number of qubits if that is smaller, since no coset has a larger minimum weight.
   4. In a search by Hamming weight, the route is a route by tails if its own predicted examinations also reach the threshold.
-     Its queries then weigh words by their tails, and skip completions by tables on blocks of `coset_completion_block_bits` columns, for every search basis that they scan in layers of two or more rows, if the tables fit in `completion_bound_max_table_bytes`; the threshold and this limit replace the minimum layer work and the cost model of `select_completion_tables`.
+     Its queries then weigh words by their tails, and skip completions by tables on blocks of `coset_completion_block_bits` columns, for every search basis that they scan in layers of two or more rows, if the tables fit in `coset_completion_max_table_bytes`; the threshold and this limit replace the minimum layer work and the cost model of `select_completion_tables`.
+     Since a route by tails builds these tables without predicting whether they pay, this limit defaults lower than `completion_bound_max_table_bytes`.
+     That field limits the tables of distance searches and counts, which build only the tables that their cost model accepts.
 
   Building the two families costs a matroid partitioning and the row reductions of an overlapping family; weighing by tails adds a fixed cost to each query, for the tail of its offset in each search basis and the rebuild of its lightest word; and tables cost memory and a build.
   Only queries that examine many words repay these costs.
