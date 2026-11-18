@@ -547,6 +547,34 @@ def test_connected_cluster_searches_sparse_stabilizers(
     assert set(map(tuple, apply_hadamards(kept))) <= set(map(tuple, checks))
 
 
+def test_connected_cluster_searches_take_the_active_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CSS and Pauli distances pass the active tuning to their connected-cluster searches.
+
+    ``get_distance_css`` searches through ``_search_css``, and ``get_distance_pauli``, whose
+    searches are symplectic, through ``_search_checks``.
+    """
+    calls: list[tuple[bool, Any]] = []
+    search = core.get_distance_connected_cluster
+
+    def record(sectors: Any, **kwargs: Any) -> int:
+        calls.append((kwargs.get("symplectic", False), kwargs["tuning"]))
+        return search(sectors, **kwargs)
+
+    monkeypatch.setattr(core, "get_distance_connected_cluster", record)
+    steane_code = qldpc.codes.SteaneCode()
+    checks_x, checks_z = (
+        steane_code.matrix_x.view(np.ndarray),
+        steane_code.matrix_z.view(np.ndarray),
+    )
+    with use_tuning(restrict_viable_symbols=False, pair_sum_checks=False) as tuning:
+        core.get_distance_css(checks_x, checks_z, method="connected_cluster")
+        core.get_distance_pauli(qldpc.codes.FiveQubitCode().matrix, method="connected_cluster")
+    assert {symplectic for symplectic, _ in calls} == {False, True}
+    assert all(passed == tuning for _, passed in calls)
+
+
 def test_connected_cluster_needs_parity_checks() -> None:
     """get_distance_from_generators rejects the connected-cluster method, which needs checks."""
     with pytest.raises(ValueError, match="use get_distance_from_checks"):

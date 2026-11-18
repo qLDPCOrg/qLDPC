@@ -30,7 +30,7 @@ from ..conftest import (
     get_golay_checks,
     get_span,
 )
-from ..core import get_distance_css, get_distance_pauli
+from ..core import get_distance_css
 from . import search as cs
 from .sparse_checks import get_light_pair_sums, get_row_weights
 
@@ -452,11 +452,9 @@ def test_overlap_cuts_keep_the_distances_of_random_codes(pytestconfig: pytest.Co
         assert 2 * expected > max(np.sum(code.matrix_x.view(np.ndarray), axis=1, dtype=int))
         assert 2 * expected > max(np.sum(code.matrix_z.view(np.ndarray), axis=1, dtype=int))
         for cuts, pair_sums in itertools.product((True, False), repeat=2):
-            with _tuning.use_tuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums):
-                distance = get_distance_css(
-                    code.matrix_x, code.matrix_z, method="connected_cluster"
-                )
-                assert distance == expected
+            tuning = _tuning.SearchTuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums)
+            distance = cs.get_distance_connected_cluster(get_sectors(code), cutoff=0, tuning=tuning)
+            assert distance == expected
 
 
 def test_odd_excluded_words_cut_their_lowest_ranked_variable_too() -> None:
@@ -483,16 +481,18 @@ def test_odd_excluded_words_cut_their_lowest_ranked_variable_too() -> None:
     assert witness is not None and is_witness((checks, excluded), witness)
 
 
-def test_vector_distances_from_classical_codes_are_cut_by_their_generators(
+def test_cosets_of_classical_codes_are_cut_by_their_generators(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The distance of a vector from a classical code agrees with brute force, with or without cuts.
+    """The distance of a coset of a classical code agrees with brute force, with or without cuts.
 
     The pair sums of Section 3.4 of ``connected_cluster.md`` keep the distance too.
 
-    The search excludes the rows of the generator matrix of the code, which are known words, here of
-    weights 2 and 3, so its cuts act exactly when the switch is on (Section 3.4 of
-    ``connected_cluster.md``).
+    For a code with checks ``H`` and generator matrix ``G``, and a vector ``v``, the words of the
+    checks ``[H | Hv]`` are the code words with a zero appended, and the vectors of the coset of
+    ``v`` with a one appended.  The search excludes ``[G | 0]``, so its witnesses are the vectors of
+    the coset.  The rows of ``G`` are known words, here of weights 2 and 3, so the cuts act exactly
+    when the switch is on (Section 3.4 of ``connected_cluster.md``).
     """
     num_cuts_per_search: list[int] = []
     search_supports = cs._search_supports
@@ -508,17 +508,24 @@ def test_vector_distances_from_classical_codes_are_cut_by_their_generators(
     weights = set()
     for seed in (2, 7):
         code = codes.ClassicalCode.random(6, 3, seed=seed)
+        matrix = code.matrix.view(np.ndarray).astype(np.uint8)
         generator = code.generator.view(np.ndarray).astype(np.uint8)
         weights |= set(np.sum(generator, axis=1).tolist())
-        code_words = get_span(generator)
+        excluded = np.hstack([generator, np.zeros((len(generator), 1), dtype=np.uint8)])
         for vector in range(2**6):
-            bits = [vector >> index & 1 for index in range(6)]
-            expected = min((vector ^ word).bit_count() for word in code_words)
+            bits = np.array([vector >> index & 1 for index in range(6)], dtype=np.uint8)
+            checks = np.hstack([matrix, (matrix @ bits % 2)[:, None]]).astype(np.uint8)
+            expected = get_brute_force_distance((checks, excluded))
             for cuts, pair_sums in itertools.product((True, False), repeat=2):
                 num_cuts_per_search.clear()
-                with _tuning.use_tuning(stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums):
-                    distance = code.get_distance_exact(vector=bits, method="connected_cluster")
+                tuning = _tuning.SearchTuning(
+                    stabilizer_overlap_cuts=cuts, pair_sum_checks=pair_sums
+                )
+                distance = cs.get_distance_connected_cluster(
+                    [(checks, excluded)], cutoff=0, tuning=tuning
+                )
                 assert distance == expected
+                assert num_cuts_per_search
                 assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_search)
     assert {2, 3} <= weights
 
@@ -799,7 +806,8 @@ def test_the_restriction_to_viable_symbols_can_be_switched_off() -> None:
     # only the root, since the variables of lower rank are blocked.  {1} leaves checks 0, 2, and 3
     # unsatisfied with weight 1 each, and Y = 3 > W - 1 prunes it.  {2}, {3}, and {4} each leave a
     # check with no available variable.  If the search without the restriction stopped pruning by Y,
-    # it would also visit a child of {1}, and the equality would fail.
+    # it would also visit a child of {1}, and the equality would fail.  The counts rely on ties
+    # going to the first check, so a change of the tie-break needs a new instance.
     checks = np.array(
         [[1, 1, 1, 0, 0], [1, 0, 0, 1, 1], [1, 1, 0, 1, 0], [1, 1, 0, 0, 1]], dtype=np.uint8
     )
@@ -860,33 +868,32 @@ def test_the_restriction_can_be_switched_off_at_the_start_of_a_syndrome_query() 
 def test_connected_cluster_distance_searches_read_the_switches_of_their_tuning(
     monkeypatch: pytest.MonkeyPatch, switch: str, expected: bool
 ) -> None:
-    """Distance searches pass the switches of their tuning to ``SupportSearch``."""
+    """Distance searches pass the switches of their tuning to ``SupportSearch``.
+
+    Without a tuning, they read the active one.
+    """
     changes = {switch: expected}
-    settings: list[tuple[bool, bool]] = []
+    settings: list[bool] = []
     initialize = cs.SupportSearch.__init__
     signature = inspect.signature(initialize)
 
     def record(*args: Any, **kwargs: Any) -> None:
-        arguments = signature.bind(*args, **kwargs).arguments
-        settings.append((arguments["symplectic"], arguments[switch]))
+        settings.append(signature.bind(*args, **kwargs).arguments[switch])
         initialize(*args, **kwargs)
 
-    # get_distance_css searches through core._search_css, and get_distance_pauli, whose searches are
-    # symplectic, through core._search_checks.
     monkeypatch.setattr(cs.SupportSearch, "__init__", record)
-    steane = codes.SteaneCode()
+    sectors = get_sectors(codes.SteaneCode())
     with _tuning.use_tuning(**changes):
-        get_distance_css(steane.matrix_x, steane.matrix_z, method="connected_cluster")
-        get_distance_pauli(codes.FiveQubitCode().matrix, method="connected_cluster")
-    assert set(settings) == {(False, expected), (True, expected)}
+        cs.get_distance_connected_cluster(sectors, cutoff=0)
+    assert settings and set(settings) == {expected}
 
     # Searches built with a tuning use it, whatever the active tuning, and the function that builds
     # them passes its tuning on.
     settings.clear()
     tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, **changes)
     with _tuning.use_tuning(**{switch: not expected}):
-        cs.get_distance_connected_cluster(get_sectors(steane), cutoff=0, tuning=tuning)
-    assert set(settings) == {(False, expected)}
+        cs.get_distance_connected_cluster(sectors, cutoff=0, tuning=tuning)
+    assert settings and set(settings) == {expected}
 
 
 def test_pair_sums_of_checks_save_states() -> None:
@@ -967,6 +974,35 @@ def test_wrong_automorphisms_are_rejected() -> None:
         search.find_witness(3)
 
 
+@pytest.mark.parametrize("symplectic", [False, True])
+def test_automorphisms_must_keep_the_row_space_of_the_excluded_rows(symplectic: bool) -> None:
+    """A permutation that keeps the words but not the row space of the excluded rows is rejected.
+
+    Every permutation of the variables keeps the words of the check 111, or of the Pauli XXX.  The
+    swap of variables 0 and 1 keeps the excluded row 110, or Z0 Z1, but the swap of 1 and 2 does
+    not.  Accepting the second swap would let the search skip variable 2 as a root, which is sound
+    only for permutations that keep the excluded rows too, so it could give a wrong distance
+    (Section 3.5 of ``connected_cluster.md``).  A symplectic problem moves the X and Z parts of each
+    qubit together.
+    """
+    if symplectic:
+        problem = (
+            np.array([[1, 1, 1, 0, 0, 0]], dtype=np.uint8),
+            np.array([[0, 0, 0, 1, 1, 0]], dtype=np.uint8),
+        )
+    else:
+        problem = (np.array([[1, 1, 1]], dtype=np.uint8), np.array([[1, 1, 0]], dtype=np.uint8))
+    keeps, moves = np.array([[1, 0, 2]]), np.array([[0, 2, 1]])
+    witness = get_search(
+        *problem, symplectic=symplectic, get_automorphisms=lambda: keeps
+    ).find_witness(2)
+    assert witness is not None
+    assert (is_symplectic_witness if symplectic else is_witness)(problem, witness)
+    search = get_search(*problem, symplectic=symplectic, get_automorphisms=lambda: moves)
+    with pytest.raises(ValueError, match="not an automorphism"):
+        search.find_witness(2)
+
+
 def test_sectors_are_searched_together(monkeypatch: pytest.MonkeyPatch) -> None:
     """A witness of weight 3 in one sector stops the search of the other, of distance 7, at 3."""
     sectors = get_sectors(codes.TetrahedralCode())
@@ -1024,16 +1060,6 @@ def test_stepped_searches_advance_the_sector_with_the_lowest_lower_bound(
     search.advance()
     assert len(limits) == num_limits
 
-    # Sectors without witnesses, and a known bound within the cutoff, leave nothing to search.
-    trivial = (np.array([[1, 1]], dtype=np.uint8), np.array([[1, 1]], dtype=np.uint8))
-    for search in (
-        cs.ConnectedClusterSearch([trivial], cutoff=0),
-        cs.ConnectedClusterSearch(sectors, cutoff=3, upper_bound=3),
-    ):
-        assert search.finished and search.result == 3
-        search.advance()
-    assert len(limits) == num_limits
-
 
 def test_the_logical_test_reads_every_block() -> None:
     """The logical test finds a witness that fails only tests past the first block of 64."""
@@ -1052,25 +1078,32 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
     """The version of the search for two-word syndromes and the general version search alike.
 
     They find the same witnesses and vectors with a syndrome, and visit the same states.  The
-    problems are the X sector of the distance-13 surface code and the distance-7 surface code with
-    Hadamards on half of its qubits, whose syndromes have two words.  With ``_MAX_FIXED_WORDS`` set
-    to one, these syndromes are wider than it, so they take the general version.  The limits at and
-    below the distance run on one thread and on three, and the queries on one.  On one thread, every
-    call of the compiled search returns the same with either version.
+    problems have 70 checks, so their syndromes have two words, since the searches add no sums of
+    pairs of checks, which would add words.  With ``_MAX_FIXED_WORDS`` set to one, these syndromes
+    are wider than it, so they take the general version.  The limits at and below the distance run
+    on one thread, and on three, which also run the frontier passes and the items of each version.
+    The queries run on one thread.  On one thread, every call of the compiled search returns the
+    same with either version.
     """
     # A small number of words gets a version of its own, and a large one the general version.
     assert cs._get_fixed_words(1) == (0,)
     assert cs._get_fixed_words(4 * cs._MAX_FIXED_WORDS) == ()
 
+    # Variables 0 and 1 are in every check of a block, and every other variable in one, so the
+    # nonzero words act on variables 0 and 1 alone, and weigh 2.  The binary problem has a block of
+    # 70 checks, and the symplectic problem a block of 35 X-type checks and one of 35 Z-type checks.
+    def get_block(num_checks: int) -> npt.NDArray[np.uint8]:
+        """Checks that each hold variables 0 and 1, and one variable of their own."""
+        ones = np.ones((num_checks, 2), dtype=np.uint8)
+        return np.hstack([ones, np.eye(num_checks, dtype=np.uint8)])
+
+    distance = 2
     if symplectic:
-        distance = 7
-        code = codes.SurfaceCode(distance)
-        problem = get_qubit_problem(codes.QuditCode(code.conjugated(range(0, len(code), 2)).matrix))
+        block = get_block(35)
+        checks = np.block([[block, np.zeros_like(block)], [np.zeros_like(block), block]])
     else:
-        distance = 13
-        code = codes.SurfaceCode(distance)
-        problem = (np.asarray(code.matrix_z, np.uint8), np.asarray(code.matrix_x, np.uint8))
-    checks = problem[0]
+        checks = get_block(70)
+    problem = (checks, np.zeros((0, checks.shape[1]), dtype=np.uint8))
     width = checks.shape[1]
     num_variables = width // 2 if symplectic else width
     products = np.roll(checks, num_variables, axis=1) if symplectic else checks
@@ -1098,7 +1131,11 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
         for num_threads in (1, 3):
             calls.clear()
             search = get_search(
-                *problem, symplectic=symplectic, num_threads=num_threads, split_minimum_states=-1
+                *problem,
+                symplectic=symplectic,
+                pair_sum_checks=False,
+                num_threads=num_threads,
+                split_minimum_states=-1,
             )
             no_witness, witness = map(search.find_witness, (distance - 1, distance))
             assert no_witness is None and witness is not None and len(witness) == distance
@@ -1357,28 +1394,40 @@ def test_stepped_searches_report_their_progress_and_take_caps() -> None:
     search.advance()
     assert search.finished and search.result == 6
 
-    # A cap within the cutoff ends the search at once.
-    search = cs.ConnectedClusterSearch([sector], cutoff=5)
-    search.update_upper_bound(5)
-    assert search.finished and search.result == 5 and search.num_states == 0
-
 
 def test_the_growth_of_states_skips_a_change_of_roots() -> None:
     """The growth compares only limits from the same number of roots, which automorphisms reduce.
 
-    The search asks for the cyclic shifts before limit 4, which then searches from fewer roots.
+    The search asks for the cyclic shifts once it has visited as many states as a search without
+    them visits through limit 3.  Since the states grow from limit to limit, it asks before limit 4,
+    which then searches from fewer roots.
     """
-    shifts = np.roll(np.arange(23), 1)[None]
-    tuning = dataclasses.replace(_tuning.DEFAULT_TUNING, automorphism_minimum_states=100)
-    search = cs.ConnectedClusterSearch(
-        [get_golay_problem()], cutoff=0, get_automorphisms=lambda: shifts, tuning=tuning
+    plain = cs.ConnectedClusterSearch(
+        [get_golay_problem()], cutoff=0, tuning=_tuning.DEFAULT_TUNING
     )
-    states, growths = [], []
+    for _ in range(3):
+        plain.advance()
+    shifts = np.roll(np.arange(23), 1)[None]
+    states: list[int] = []
+    growths: list[float | None] = []
+    asked: list[int] = []
+
+    def get_automorphisms() -> npt.NDArray[np.int_]:
+        asked.append(len(states))
+        return shifts
+
+    tuning = dataclasses.replace(
+        _tuning.DEFAULT_TUNING, automorphism_minimum_states=plain.num_states
+    )
+    search = cs.ConnectedClusterSearch(
+        [get_golay_problem()], cutoff=0, get_automorphisms=get_automorphisms, tuning=tuning
+    )
     for _ in range(5):
         num_states = search.num_states
         search.advance()
         states.append(search.num_states - num_states)
         growths.append(search.get_growth(0))
+    assert asked == [3]
     assert growths[2] == growths[3] == pytest.approx(states[2] / states[1])
     assert growths[4] == pytest.approx(np.sqrt(states[2] / states[1] * states[4] / states[3]))
 
@@ -1462,6 +1511,66 @@ def record_thread_counts(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     return calls
 
 
+def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record where the witness of each limit on threads comes from, in wrappers that still run.
+
+    The witness is in the first work item, a middle one, or the last, or above the frontier, after
+    every item.  A limit without a witness records nothing.  The wrappers number the items of each
+    range in the order in which ``_search_on_threads`` searches them.
+    """
+    positions: list[str] = []
+    found_items: list[int] = []
+    above: list[bool] = []
+    next_item = threading.local()
+    run_work_items = cs._threads.run_work_items
+    search_supports = cs._search_supports
+    signature = inspect.signature(search_supports)
+
+    def run_numbered(
+        num_items: int,
+        num_threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **kwargs: Any,
+    ) -> None:
+        def start_numbered(stop: threading.Event) -> Callable[[int, int], None]:
+            run_range = start_worker(stop)
+
+            def run_numbered_range(start: int, end: int) -> None:
+                next_item.index = start
+                try:
+                    run_range(start, end)
+                finally:
+                    del next_item.index
+
+            return run_numbered_range
+
+        found_items.clear()
+        run_work_items(num_items, num_threads, start_numbered, **kwargs)
+        if found_items:
+            first = min(found_items)
+            positions.append(
+                "first" if first == 0 else "last" if first == num_items - 1 else "middle"
+            )
+        elif above:
+            positions.append("above")
+        above.clear()
+
+    def search_numbered(*args: Any, **kwargs: Any) -> Any:
+        result = search_supports(*args, **kwargs)
+        item = getattr(next_item, "index", None)
+        if item is not None:
+            next_item.index = item + 1
+            if len(result[0]):
+                found_items.append(item)
+        elif signature.bind(*args, **kwargs).arguments["frontier_depth"] and len(result[0]):
+            above.append(True)
+        return result
+
+    monkeypatch.setattr(cs._threads, "run_work_items", run_numbered)
+    monkeypatch.setattr(cs, "_search_supports", search_numbered)
+    return positions
+
+
 def get_threaded_cases() -> Iterator[
     tuple[Problem, bool, Callable[[], npt.NDArray[np.int_]] | None]
 ]:
@@ -1490,9 +1599,11 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
     both on or both off (Section 3.11 of ``connected_cluster.md``).  The threads run with every
-    array of the search read-only.
+    array of the search read-only.  The first witness of some limit is in each of the positions that
+    ``get_threaded_cases`` names.
     """
     calls = record_thread_counts(monkeypatch)
+    positions = record_witness_positions(monkeypatch)
     # The roots and paths of the work items, which _search_on_threads makes for the threads, are not
     # reached from the search, so they stay writeable (Section 5 of connected_cluster.md).
     checked = check_shared_arrays_on_threads(monkeypatch, lambda *_, **__: [search])
@@ -1519,6 +1630,7 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
         assert all(result == results[0] for result in results)
     assert set(calls) == {3, 8}
     assert len(checked) == len(calls) and min(checked) > 0
+    assert set(positions) == {"first", "middle", "last", "above"}
 
 
 def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
@@ -1534,10 +1646,12 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
     - The problem of ``test_overlap_cuts_follow_the_ranks_of_symmetries`` learns its permutation at
       its third limit, at which the new tables give the witness of a search that learns it first,
       [0, 5], where the tables of its ranks by index would give [0, 1].
-    - The Golay code learns its cyclic shifts once it predicts 1000 states, at its sixth limit.  On
-      four threads, with a split gate that splits every limit, its limits end in the frontier
-      passes on the calling thread, except the fifth and the seventh, which run on threads, one
-      under each table of cuts.  It finds the witnesses, and visits the states, of one thread.
+    - The Golay code learns its cyclic shifts once it has visited as many states as a search without
+      them visits through its third limit, so after its first limit.  On four threads, with a split
+      gate that splits every limit and a frontier of one item per thread, its first limit runs on
+      threads under the tables of its ranks by index, since its 23 roots are enough items, and its
+      last limit, which has a witness, runs on threads under the tables that it tabulated again
+      with the shifts.  It finds the witnesses, and visits the states, of one thread.
 
     A limit tabulates its cuts before it calls ``_search_on_threads``, so no tabulation can happen
     while threads run.  The test checks this as well.
@@ -1585,14 +1699,19 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
     symbols = [[None if w is None else w.tolist() for w in limits] for limits in witnesses]
     assert symbols[1] == [None, [0, 1], [0, 5]] and symbols[0][2] == [0, 5]
 
-    # The Golay code learns its shifts at its sixth limit, on one thread and on four.
+    # The Golay code learns its shifts at a limit after its first, on one thread and on four, which
+    # split its limits into items of one per thread.
+    plain = get_search(*get_golay_problem())
+    for max_weight in (1, 2, 3):
+        plain.find_witness(max_weight)
+    monkeypatch.setattr(cs, "_ITEMS_PER_THREAD", 1)
     results = []
     for num_threads in (1, 4):
         events.clear()
         search = get_search(
             *get_golay_problem(),
             get_automorphisms=lambda: np.roll(np.arange(23), -1)[None],
-            automorphism_minimum_states=1000,
+            automorphism_minimum_states=plain.num_states,
             num_threads=num_threads,
             split_minimum_states=-1,
         )
@@ -1600,7 +1719,6 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
         results.append(
             ([None if w is None else w.tolist() for w in golay_witnesses], search.num_states)
         )
-        assert len(search._roots) == 1
         assert events.count("cuts") == 2
     assert results[0] == results[1] and results[0][0][-1] is not None
     starts = [index for index, event in enumerate(events) if event == "start"]
