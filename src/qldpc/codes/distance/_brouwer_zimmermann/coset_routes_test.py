@@ -17,7 +17,12 @@ from qldpc._binary import get_kernel
 
 from .. import _cosets
 from .._tuning import DEFAULT_TUNING, MAX_VALUE
-from ..conftest import EVEN_ROUTES_CODE, OVERLAPPING_ROUTES_CODE, TWO_FAMILIES_CODE
+from ..conftest import (
+    EVEN_ROUTES_CODE,
+    OVERLAPPING_ROUTES_CODE,
+    THREAD_TIMEOUT,
+    TWO_FAMILIES_CODE,
+)
 from . import affine_instance, coset_routes, coset_tables
 
 # A code of five rows whose greedy packing leaves a partial set of rank two.
@@ -234,7 +239,7 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(coset_tables, "get_coset_tails", build_in_turn)
     routes = _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True)
-    barrier = threading.Barrier(len(max_weights), timeout=10)
+    barrier = threading.Barrier(len(max_weights), timeout=THREAD_TIMEOUT)
 
     def get_route(
         max_weight: int,
