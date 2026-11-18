@@ -229,9 +229,9 @@ class ErrorRateFunc:
         Returns:
             The rate and its statistical uncertainty: two floats for one physical error rate, or two
             arrays with one entry per physical error rate, which are 0-d for a 0-d array.  The
-            logical error rate is taken among kept shots (see help(ErrorRateFunc)), so if every
-            shot is discarded at a physical error rate, the logical error rate and its uncertainty
-            are both NaN there, as in qldpc.circuits.get_logical_error_and_discard_rate.
+            logical error rate is taken among kept shots (see help(ErrorRateFunc)), so if every shot
+            is discarded at a physical error rate, the logical error rate and its uncertainty are
+            both NaN there, as in qldpc.circuits.get_logical_error_and_discard_rate.
 
         Raises:
             ValueError: If a physical error rate exceeds max_error_rate.

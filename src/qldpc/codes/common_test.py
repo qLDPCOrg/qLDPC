@@ -2137,6 +2137,19 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
             stabs = code.get_stabilizer_ops(pauli.swap_xz())
             assert np.linalg.matrix_rank(destabs @ stabs.T) == len(destabs)
 
+    # operators of one Pauli type fill only their own half of their symplectic vectors
+    for code in get_codes_for_testing_ops():
+        for getter in [
+            code.get_logical_ops,
+            code.get_stabilizer_ops,
+            code.get_gauge_ops,
+            code.get_destabilizer_ops,
+        ]:
+            for pauli in PAULIS_XZ:
+                ops = getter(pauli, symplectic=True).reshape(-1, 2, len(code))
+                assert np.array_equal(ops[:, pauli], getter(pauli))
+                assert not np.any(ops[:, pauli.swap_xz()])
+
     # a code with "over-complete" checks has the expected parameters
     dist = 4
     code = codes.ToricCode(dist, rotated=True)
