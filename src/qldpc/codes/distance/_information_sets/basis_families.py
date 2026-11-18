@@ -732,6 +732,9 @@ def _get_family_of_sets(
 
     The basis's labels are reduced along with it, and the family is certified with the coverage of
     its pivots.
+
+    Raises:
+        RuntimeError: If a set of columns is not independent.
     """
     # Reduce the basis on each set, transforming its labels along with it.
     dimension = len(basis)
@@ -739,18 +742,24 @@ def _get_family_of_sets(
     generators = np.empty((num_sets, dimension, basis.shape[1]), dtype=np.uint8)
     set_labels = np.empty((num_sets, dimension, labels.shape[1]), dtype=np.uint8)
     pivots = np.full((num_sets, dimension), -1, dtype=np.int64)
+    ranks = np.empty(num_sets, dtype=np.int64)
     for index, columns in enumerate(column_sets):
         reduced, reduced_labels, found = row_reduce_binary(
             basis, labels, columns=np.array(columns, dtype=int)
         )
-        assert reduced_labels is not None and len(found) == len(columns)
+        assert reduced_labels is not None  # labels in give labels out
+
+        # A dependent set means that the caller, such as matroid partitioning, broke its contract.
+        if len(found) != len(columns):
+            raise RuntimeError(f"Column set {index} of a basis family is not independent")
         generators[index], set_labels[index] = reduced, reduced_labels
         pivots[index, : len(found)] = found
+        ranks[index] = len(found)
     return BasisFamily(
         generators,
         set_labels,
         pivots,
-        np.array([len(columns) for columns in column_sets], dtype=np.int64),
+        ranks,
         weight_divisor,
         int(np.bincount(pivots[pivots >= 0]).max()),
     )
