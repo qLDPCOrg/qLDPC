@@ -261,12 +261,19 @@ def test_annotations() -> None:
 def test_unsupported_instructions() -> None:
     """Noise, untagged classically controlled gates, and untagged SPP gates are not supported."""
     for circuit in ["X_ERROR(0.1) 0", "X_ERROR[t](0.1) 0", "M(0.1) 0", "HERALDED_ERASE(0.1) 0"]:
-        with pytest.raises(ValueError, match="Noise"):
+        with pytest.raises(ValueError, match=r"Noise is not supported.*without_noise"):
             transpile_to_cz(stim.Circuit(circuit))
-    with pytest.raises(ValueError, match="classically controlled"):
+        transpile_to_cz(stim.Circuit(circuit).without_noise())
+    with pytest.raises(ValueError, match=r"classically controlled.*give it a tag"):
         transpile_to_cz(stim.Circuit("M 0\nCX rec[-1] 1"))
-    with pytest.raises(ValueError, match="SPP gates are not supported"):
+    with pytest.raises(ValueError, match=r"SPP gates are not supported.*give it a tag"):
         transpile_to_cz(stim.Circuit("SPP X0*Z1"))
+
+    # tagged gates, as the errors suggest, are copied, with relabeled qubits
+    tagged = stim.Circuit("M 0\nCX[keep] rec[-1] 1\nSPP[keep] X0*Z1")
+    assert transpile_to_cz(tagged, cleanup=False) == tagged
+    swapped = transpile_to_cz(stim.Circuit("SWAP 0 1") + tagged, cleanup=False)
+    assert swapped[:3] == stim.Circuit("M 1\nCX[keep] rec[-1] 0\nSPP[keep] X1*Z0")
     with pytest.raises(ValueError, match="non-empty"):
         transpile_to_cz(stim.Circuit(), immune_qubit_tag="")
 

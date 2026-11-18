@@ -169,7 +169,11 @@ class _Transpiler:
         if (data.is_noisy_gate and name not in _NOISY_WITH_ARGUMENTS) or (
             name in _NOISY_WITH_ARGUMENTS and any(instruction.gate_args_copy())
         ):
-            raise ValueError(f"Noise is not supported: {instruction}")
+            raise ValueError(
+                f"Noise is not supported: {instruction}.  Remove noise with"
+                " circuit.without_noise(), transpile that noiseless circuit, and then add noise to"
+                " the result, as with noise_model.noisy_circuit(...)."
+            )
         if name == "TICK":
             return
         if name in _ANNOTATIONS:
@@ -193,7 +197,9 @@ class _Transpiler:
             target.is_measurement_record_target or target.is_sweep_bit_target for target in targets
         ):
             raise ValueError(
-                f"Untagged classically controlled gates are not supported: {instruction}"
+                f"Untagged classically controlled gates are not supported: {instruction}.  To keep"
+                " such a gate as it is, give it a tag, as in CX[keep] rec[-1] 0; tagged"
+                " instructions are copied, except that their qubits may be relabeled."
             )
         elif data.is_unitary and data.is_single_qubit_gate:
             for target in targets:
@@ -214,7 +220,11 @@ class _Transpiler:
             ]
             self.circuit.append(name, new_targets, instruction.gate_args_copy())
         else:
-            raise ValueError(f"Untagged {name} gates are not supported")
+            raise ValueError(
+                f"Untagged {name} gates are not supported.  To keep such a gate as it is, give it a"
+                f" tag, as in {name}[keep]; tagged instructions are copied, except that their"
+                " qubits may be relabeled."
+            )
 
     def _apply_two_qubit_gate(self, name: str, input_qubit_0: int, input_qubit_1: int) -> None:
         """Apply a two-qubit gate as single-qubit gates, at most one CZ, and maybe a relabeling."""

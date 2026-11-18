@@ -60,8 +60,17 @@ def test_basics(pytestconfig: pytest.Config, rows: int = 2, cols: int = 3) -> No
     # we can't multiply matrices over different rings
     other_ring = abstract.GroupRing(ring.group, field=ring.field.order + 1)
     other_matrix = abstract.RingArray.build(np.eye(matrix_a.shape[0], dtype=int), other_ring)
-    with pytest.raises(ValueError, match="different rings"):
+    with pytest.raises(ValueError, match=r"different rings: one over GF\(.*over one ring"):
         abstract.matmul(other_matrix, matrix_a)
+
+    # a matrix over another group algebra with the same field can be embedded, as the error says
+    trivial_matrix = abstract.RingArray.build([[1]], abstract.TrivialGroup())
+    cyclic_ring = abstract.GroupRing(abstract.CyclicGroup(2))
+    cyclic_matrix = abstract.RingArray.build([[1]], cyclic_ring)
+    with pytest.raises(ValueError, match=r"RingArray\.build\(matrix, ring\)"):
+        abstract.matmul(trivial_matrix, cyclic_matrix)
+    embedded = abstract.RingArray.build(trivial_matrix, cyclic_ring)
+    assert np.array_equal(abstract.matmul(embedded, cyclic_matrix), cyclic_matrix)
 
 
 def random_monomial_matrix(

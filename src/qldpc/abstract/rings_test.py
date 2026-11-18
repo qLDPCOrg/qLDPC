@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import operator
+import re
 from collections.abc import Sequence
 
 import galois
@@ -282,16 +283,39 @@ def test_arithmetic_across_rings() -> None:
     assert ring.one + equal_ring.one == ring.zero
     assert ring.one * equal_ring.one == ring.one
 
-    # members of group algebras with another group, field, or lift do not
-    for different_ring in [
-        abstract.GroupRing(abstract.CyclicGroup(3)),
-        abstract.GroupRing(abstract.SymmetricGroup(3), field=3),
-        abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift()),
+    # members of group algebras with another group, field, or lift do not, and the error says how
+    # the rings differ
+    for different_ring, difference in [
+        (abstract.GroupRing(abstract.CyclicGroup(3)), "groups of orders 6 and 3"),
+        (abstract.GroupRing(abstract.SymmetricGroup(3), field=3), "over GF(3)"),
+        (abstract.GroupRing(abstract.SymmetricGroup(3).with_natural_lift()), "matrix lifts"),
     ]:
-        with pytest.raises(ValueError, match="different rings"):
+        with pytest.raises(ValueError, match=f"different rings: .*{re.escape(difference)}"):
             ring.one + different_ring.one
         with pytest.raises(ValueError, match="different rings"):
             ring.one * different_ring.one
+
+    # extension fields of the same order with different irreducible polynomials are named apart
+    field_a, field_b = galois.GF(9), galois.GF(9, irreducible_poly="x^2 + 1")
+    group = abstract.CyclicGroup(2)
+    with pytest.raises(ValueError, match=r"x\^2 \+ 1"):
+        abstract.GroupRing(group, field_a).one + abstract.GroupRing(group, field_b).one
+
+    # groups of the same order with different members define different group algebras
+    with pytest.raises(ValueError, match="different members or generators"):
+        (
+            abstract.GroupRing(abstract.CyclicGroup(4)).one
+            + abstract.GroupRing(abstract.AbelianGroup(2, 2)).one
+        )
+
+    # groups with the same members but different generators define different group algebras
+    generator = abstract.CyclicGroup(3).generators[0]
+    ring_a, ring_b = (
+        abstract.GroupRing(abstract.Group(generator)),
+        abstract.GroupRing(abstract.Group(generator**-1)),
+    )
+    with pytest.raises(ValueError, match="different members or generators"):
+        ring_a.one + ring_b.one
 
 
 def test_group_members_of_ring_members() -> None:
@@ -681,8 +705,10 @@ def test_combining_members_of_different_rings() -> None:
     ring = abstract.MatrixRing(np.array([[0, 1], [1, 0]]))
     other_ring = abstract.MatrixRing(np.array([[0, 1], [1, 1]]))
     assert ring.field is other_ring.field and ring.dim == other_ring.dim
-    with pytest.raises(ValueError, match="different rings"):
+    with pytest.raises(ValueError, match="with different bases"):
         ring.one + other_ring.one
+    with pytest.raises(ValueError, match=r"2x2 matrices over GF.2., and Group algebra"):
+        ring.one + abstract.GroupRing(abstract.CyclicGroup(2)).one
     with pytest.raises(ValueError, match="different rings"):
         ring.one * other_ring.one
 

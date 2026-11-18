@@ -53,10 +53,27 @@ def test_ring_array(pytestconfig: pytest.Config) -> None:
         abstract.RingArray([[0]])
     with pytest.raises(ValueError, match="Cannot determine the underlying ring"):
         abstract.RingArray([])
-    with pytest.raises(ValueError, match="Inconsistent rings"):
+    with pytest.raises(
+        ValueError, match=r"different rings: one over GF\(2\), and one over GF\(3\)"
+    ):
         abstract.RingArray([ring.one for ring in rings])
-    with pytest.raises(ValueError, match="Inconsistent rings"):
+    with pytest.raises(ValueError, match=r"different rings: .*Take all entries from one ring"):
         abstract.RingArray.build([ring.one for ring in rings])
+    with pytest.raises(
+        ValueError, match=r"The given ring and the ring of an entry differ: .*ring\.$"
+    ):
+        abstract.RingArray([rings[0].one], rings[1])
+
+    # members of group algebras with one field can be embedded into a ring passed to build
+    trivial_ring, cyclic_ring = [
+        abstract.GroupRing(group) for group in [abstract.TrivialGroup(), abstract.CyclicGroup(2)]
+    ]
+    values = [trivial_ring.one, cyclic_ring.one]
+    with pytest.raises(ValueError, match=r"different rings: .*Pass the target ring"):
+        abstract.RingArray.build(values)
+    with pytest.raises(ValueError, match=r"embed them with RingArray\.build"):
+        abstract.RingArray([trivial_ring.one], cyclic_ring)
+    assert abstract.RingArray.build(values, cyclic_ring).ring == cyclic_ring
     with pytest.raises(ValueError, match="requires a 1 or 2-dimensional"):
         abstract.RingArray.build([[[1]]], rings[0]).lift()
 
@@ -221,7 +238,7 @@ def test_build_edge_cases() -> None:
     assert abstract.RingArray.build(elements).field is galois.GF(3)
     with pytest.raises(ValueError, match="cannot be read in"):
         abstract.RingArray.build(elements, abstract.GroupRing(abstract.CyclicGroup(2), field=4))
-    with pytest.raises(ValueError, match="Inconsistent fields"):
+    with pytest.raises(ValueError, match=r"different fields, GF\(3\) and GF\(5\)"):
         abstract.RingArray.build([galois.GF(3)(1), galois.GF(5)(1)])
 
     # so do field arrays in a list, for each way to build a RingArray
@@ -296,6 +313,8 @@ def test_entries_of_ring_arrays() -> None:
     trivial_ring = abstract.GroupRing(abstract.TrivialGroup(), field=5)
     with pytest.raises(ValueError, match=r"RingArray\.build"):
         matrix[0, 0] = trivial_ring.one
+    matrix[0, 0] = abstract.RingArray.build([trivial_ring.one], matrix.ring)[0]
+    assert matrix[0, 0] == matrix.ring.one
     matrix_ring = abstract.MatrixRing([[0, 1], [1, 0]])
     trivial_ring_2 = abstract.GroupRing(abstract.TrivialGroup(), field=2)
     for target_ring, other_member in [
@@ -304,8 +323,9 @@ def test_entries_of_ring_arrays() -> None:
         (trivial_ring_2, matrix_ring.one),
     ]:
         target = abstract.RingArray.build([0], target_ring)
-        with pytest.raises(ValueError, match=r"different rings$"):
+        with pytest.raises(ValueError, match="different rings") as error:
             target[0] = other_member
+        assert "RingArray.build" not in str(error.value)
 
     # members of an equal ring, and 0-dimensional arrays of members, are set as members
     equal_ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)

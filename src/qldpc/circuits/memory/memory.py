@@ -327,7 +327,10 @@ def get_observables(
     basis = None if basis is None else Pauli.coerce_xz(basis)
     data_qubits = range(len(code)) if data_qubits is None else data_qubits
     if len(data_qubits) != len(code):
-        raise ValueError("data_qubits must contain one target per data qubit")
+        raise ValueError(
+            f"data_qubits must contain {len(code)} targets, one for each data qubit of the code,"
+            f" but contains {len(data_qubits)}."
+        )
     num_observables = code.dimension * (2 if basis is None else 1)
     observable_indices = (
         range(num_observables) if observable_indices is None else observable_indices
@@ -338,9 +341,16 @@ def get_observables(
 
     # consistency checks
     if on_measurements is not False and len(on_measurements) != len(code):
-        raise ValueError("on_measurements must contain one target per data qubit")
+        raise ValueError(
+            f"on_measurements must contain {len(code)} targets, one for each data qubit of the"
+            f" code, but contains {len(on_measurements)}."
+        )
     if len(observable_indices) != num_observables:
-        raise ValueError(f"Expected {num_observables} observable indices")
+        raise ValueError(
+            f"observable_indices must contain {num_observables}"
+            f" {'index' if num_observables == 1 else 'indices'}, one for each observable, but"
+            f" contains {len(observable_indices)}."
+        )
 
     # build a graph of edges directed from observables to the data qubits they address
     logical_ops = code.get_logical_ops(basis, symplectic=True)
@@ -390,9 +400,16 @@ def get_logical_bell_prep(
         else reference_qubits
     )
     if len(data_qubits) != len(code):
-        raise ValueError("data_qubits must contain one target per data qubit")
+        raise ValueError(
+            f"data_qubits must contain {len(code)} targets, one for each data qubit of the code,"
+            f" but contains {len(data_qubits)}."
+        )
     if len(reference_qubits) != code.dimension:
-        raise ValueError("reference_qubits must contain one target per logical qubit")
+        raise ValueError(
+            f"reference_qubits must contain {code.dimension}"
+            f" {'target' if code.dimension == 1 else 'targets'}, one for each logical qubit of the"
+            f" code, but contains {len(reference_qubits)}."
+        )
 
     # entangle the first code.dimension data qubits with references
     circuit = stim.Circuit()

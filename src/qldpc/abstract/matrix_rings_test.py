@@ -152,7 +152,7 @@ def test_member_from_matrix() -> None:
     one, swap = ring.basis
     assert ring.member_from_matrix([[1, 1], [1, 1]]) == one + swap
     assert ring.member_from_matrix((one + swap).lift()) == one + swap
-    with pytest.raises(ValueError, match="not in the ring"):
+    with pytest.raises(ValueError, match=r"not in the ring, Algebra of dimension 2.*generating"):
         ring.member_from_matrix([[1, 1], [0, 1]])
     with pytest.raises(ValueError, match="lifts to a 2x2 matrix"):
         ring.member_from_matrix(np.eye(3, dtype=int))

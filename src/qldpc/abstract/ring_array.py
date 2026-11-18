@@ -25,7 +25,14 @@ from ._coefficients import (
 )
 from ._howell import get_howell_normal_form_poly, get_howell_normal_form_semisimple
 from .groups import Group, GroupMember, NestedSequence, TrivialGroup
-from .rings import GroupRing, Ring, RingMember, _as_object_array
+from .rings import (
+    GroupRing,
+    Ring,
+    RingMember,
+    _as_object_array,
+    _describe_field,
+    _ring_difference,
+)
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinTransformer
@@ -115,6 +122,7 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
             base_ring = data._ring
 
         # identify the base ring for this RingArray
+        ring_is_given = base_ring is not None
         for value in array.ravel():
             if not isinstance(value, RingMember):
                 raise TypeError(
@@ -123,7 +131,28 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                 )
             else:
                 if not (base_ring is None or base_ring == value.ring):
-                    raise ValueError("Inconsistent rings provided for a RingArray")
+                    difference = _ring_difference(base_ring, value.ring)
+                    if ring_is_given:
+                        embeddable = (
+                            isinstance(base_ring, GroupRing)
+                            and isinstance(value.ring, GroupRing)
+                            and base_ring.field is value.ring.field
+                        )
+                        raise ValueError(
+                            f"The given ring and the ring of an entry differ: {difference}.  Pass"
+                            " entries from the given ring"
+                            + (
+                                ", or embed them with RingArray.build(data, ring), which works when"
+                                " the given ring's group contains every group member being"
+                                " embedded."
+                                if embeddable
+                                else "."
+                            )
+                        )
+                    raise ValueError(
+                        f"The entries of a RingArray belong to different rings: {difference}."
+                        "  Take all entries from one ring."
+                    )
                 base_ring = value.ring
 
         if base_ring is None:
@@ -370,7 +399,19 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
         if ring is None:
             rings = {value.ring for value in array.ravel() if isinstance(value, RingMember)}
             if len(rings) > 1:
-                raise ValueError("Inconsistent rings provided to RingArray.build")
+                ring_a, ring_b, *_ = rings
+                if all(isinstance(rr, GroupRing) and rr.field is ring_a.field for rr in rings):
+                    advice = (
+                        "Pass the target ring, as in RingArray.build(values, ring).  This embeds"
+                        " members of other group algebras over the same field when the target"
+                        " ring's group contains every group member being embedded."
+                    )
+                else:
+                    advice = "Take all entries from one ring."
+                raise ValueError(
+                    "The entries of a RingArray belong to different rings:"
+                    f" {_ring_difference(ring_a, ring_b)}.  {advice}"
+                )
             if rings:
                 ring = next(iter(rings))
             elif isinstance(array, RingArray) and array._ring is not None:
@@ -386,7 +427,11 @@ class RingArray(np.ndarray[Any, np.dtype[np.object_]]):
                     }
                 )
                 if len(fields) > 1:
-                    raise ValueError("Inconsistent fields provided to RingArray.build")
+                    names = " and ".join(sorted(map(_describe_field, fields)))
+                    raise ValueError(
+                        f"The entries of a RingArray are elements of different fields, {names}."
+                        "  Convert them to one field."
+                    )
                 ring = GroupRing(TrivialGroup(), next(iter(fields), None))
         ring = ring if isinstance(ring, Ring) else GroupRing(ring)
         one = ring.one
@@ -772,18 +817,19 @@ def _check_entry_ring(ring: Ring, other: Ring) -> None:
     If the value is a member of another group algebra over the same field, the error points to
     RingArray.build.
     """
-    try:
-        ring._check_same_ring(other)
-    except ValueError as error:
-        if (
-            isinstance(ring, GroupRing)
-            and isinstance(other, GroupRing)
-            and other.field is ring.field
-        ):
-            raise ValueError(
-                f"{error}; embed members of another group algebra explicitly with RingArray.build"
-            ) from None
-        raise
+    if (
+        other != ring
+        and isinstance(ring, GroupRing)
+        and isinstance(other, GroupRing)
+        and other.field is ring.field
+    ):
+        raise ValueError(
+            "Cannot put a member of another group algebra into a RingArray:"
+            f" {_ring_difference(ring, other)}.  Embed the member first, as in"
+            " RingArray.build([member], array.ring)[0], which works when the group of array.ring"
+            " contains the group members of the member."
+        )
+    ring._check_same_ring(other)
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations
