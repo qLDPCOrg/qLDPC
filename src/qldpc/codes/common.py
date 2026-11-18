@@ -578,7 +578,9 @@ class ClassicalCode(AbstractCode):
                 ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on
+            distance, while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
@@ -1613,7 +1615,9 @@ class QuditCode(AbstractCode):
         get_distance).
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
-        always be True for a non-CSS code.
+        always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so code that may get a CSSCode passes ``symplectic=True``
+        to get symplectic vectors from every code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1867,7 +1871,9 @@ class QuditCode(AbstractCode):
         generators of a canonical generating set, and the Pauli.X generators are the remainder.
 
         The symplectic argument is provided for compatibility with CSSCode.get_stabilizer_ops, and
-        must always be True for a non-CSS code.
+        must always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so code that may get a CSSCode passes ``symplectic=True``
+        to get symplectic vectors from every code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1921,7 +1927,9 @@ class QuditCode(AbstractCode):
         recompute these operators rather than returning cached values.
 
         The symplectic argument is provided for compatibility with CSSCode.get_gauge_ops, and must
-        always be True for a non-CSS code.
+        always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so code that may get a CSSCode passes ``symplectic=True``
+        to get symplectic vectors from every code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1954,7 +1962,9 @@ class QuditCode(AbstractCode):
         stabilizers, and Pauli.Z those dual to the X-type stabilizers.
 
         The symplectic argument is provided for compatibility with CSSCode.get_destabilizer_ops, and
-        must always be True for a non-CSS code.
+        must always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so code that may get a CSSCode passes ``symplectic=True``
+        to get symplectic vectors from every code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -2143,7 +2153,9 @@ class QuditCode(AbstractCode):
                 exhaustive enumeration, and reject ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on
+            distance, while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
@@ -3712,6 +3724,9 @@ class CSSCode(QuditCode):
 
         If ``canonicalized is True``, guarantee that the stabilizer matrix is canonicalized (i.e.,
         row-reduced) such that its rows are a minimal generating set for the stabilizer group.
+
+        If passed a Pauli (Pauli.X or Pauli.Z), return only the generators of that type, with
+        ``len(self)`` columns by default, or ``2 * len(self)`` if ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if self._stabilizer_ops is None and self.is_subsystem_code:
@@ -3755,7 +3770,9 @@ class CSSCode(QuditCode):
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
-        logical Pauli operators computed by CSSCode.get_logical_ops.
+        logical Pauli operators computed by CSSCode.get_logical_ops.  If passed a Pauli, return only
+        the operators of that type, with ``len(self)`` columns by default, or ``2 * len(self)`` if
+        ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         gauge_ops = QuditCode.get_gauge_ops(self, pauli, recompute=recompute)
@@ -3769,6 +3786,8 @@ class CSSCode(QuditCode):
         """The destabilizers of this code.
 
         See help(qldpc.codes.QuditCode.get_destabilizer_ops) for an explanation of destabilizers.
+        If passed a Pauli, return only the destabilizers of that type, with ``len(self)`` columns by
+        default, or ``2 * len(self)`` if ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         destabilizer_ops = QuditCode.get_destabilizer_ops(self, pauli)
@@ -3898,7 +3917,9 @@ class CSSCode(QuditCode):
                 ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on
+            distance, while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
