@@ -24,7 +24,7 @@ from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
 from .. import _tuning
-from ..conftest import get_golay_checks, get_span
+from ..conftest import check_shared_arrays_on_threads, get_golay_checks, get_span
 from ..core import get_distance_css, get_distance_pauli
 from . import search as cs
 from .sparse_checks import get_light_pair_sums, get_row_weights
@@ -1379,9 +1379,11 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     """On threads, each weight limit finds the witness and visits the states of one thread.
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
-    both on or both off (Section 3.11 of ``connected_cluster.md``).
+    both on or both off (Section 3.11 of ``connected_cluster.md``).  The threads write no array of
+    the search.
     """
     calls = record_thread_counts(monkeypatch)
+    checked = check_shared_arrays_on_threads(monkeypatch, lambda: [search])
     for (problem, symplectic, get_automorphisms), switch in itertools.product(
         get_threaded_cases(), [True, False]
     ):
@@ -1404,6 +1406,7 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
             )
         assert all(result == results[0] for result in results)
     assert set(calls) == {3, 8}
+    assert len(checked) == len(calls)
 
 
 def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(

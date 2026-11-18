@@ -345,4 +345,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - A change to the scans or how they step, to pruning, to the work items, or to any code that threads run must keep the requirements on threads in Section 5 of the guide of each method, and pass the tests on threads that the guide lists.
   So must a change to data that threads read, such as completion tables, the routes of coset searches, and the tables of a connected-cluster search, or to a decision that a search makes from the results of a layer or a weight limit.
   Code that threads run reads the tuning only from its search, never through `get_tuning()`, since new threads start with the default tuning (see the module docstring of `_tuning.py`).
+- While each test of this package runs, the fixture `check_code_on_threads` of `conftest.py` fails it if its threads read the tuning through `get_tuning()` or call numba-parallel code from Python.
+  `_thread_rules_test.py` reads the entry points compiled with `nogil=True`: it checks that Section 5 of their guides names them, which of their arguments they write, and that they call no numba-parallel code.
+  A new such entry point needs an entry in its `_WRITTEN_ARGUMENTS`.
 - `_readme_test.py` fails if this page omits a module, or names a file that does not exist.

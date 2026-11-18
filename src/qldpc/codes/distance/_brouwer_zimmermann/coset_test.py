@@ -33,10 +33,12 @@ from ..conftest import (
     ROUTED_PHYSICAL_STATES,
     TWO_FAMILIES_CODE,
     assert_exact_answers,
+    assert_unchanged,
     get_binary_matrix,
     get_exhaustive_minima,
     get_graph_state,
     get_random_full_rank_matrix,
+    get_shared_arrays,
     get_stabilizer_matrix,
     get_syndrome,
     scramble,
@@ -1464,7 +1466,8 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     """Batches that run at once on threads of their own share a search, and answer as alone.
 
     Each batch has its own maximum weight, and so its own stopping steps, which it caches in its
-    own copies of the planning buffer of its route, leaving the shared buffer as it was.
+    own copies of the planning buffer of its route, leaving the shared buffer, and every other array
+    of the search, as it was.
     """
     tune(coset_route_minimum_work=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -1483,7 +1486,7 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     # would change the buffer when it resets its own step to the first.
     for planning in plannings:
         planning[:, -1, :2] = (len(planning[0]) - 2, planning.shape[2] - 1)
-    cached_steps = [planning[:, -1].copy() for planning in plannings]
+    shared = get_shared_arrays(search)
 
     def query(index: int, num_threads: int) -> tuple[Any, ...]:
         """Answer both batch queries of a batch."""
@@ -1497,6 +1500,6 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     with concurrent.futures.ThreadPoolExecutor(4) as pool:
         answers = list(pool.map(query, range(len(batches)), [2] * len(batches)))
     assert answers == expected
-    # The batch queries cache stopping steps only in copies of the shared planning buffers.
-    for planning, steps in zip(plannings, cached_steps, strict=True):
-        assert np.array_equal(planning[:, -1], steps)
+    # The batch queries cache stopping steps only in copies of the shared planning buffers, and
+    # write no other array of the search.
+    assert_unchanged(shared)

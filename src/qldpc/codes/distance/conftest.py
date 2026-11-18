@@ -2,11 +2,15 @@
 
 """Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
+import contextlib
+import functools
 import itertools
-from collections.abc import Iterable, Sequence
+import threading
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any, NamedTuple
 
 import galois
+import numba
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -16,6 +20,7 @@ from qldpc import _compilation, codes, math
 from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
 from qldpc.objects import Pauli, PauliXZ
 
+from . import _threads, _tuning
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
 from ._information_sets import basis_families, certificates
@@ -33,6 +38,193 @@ def plain_search_setup() -> None:
     fixture, which then runs first.
     """
     _compilation.set_on_request_functions_compiled(False)
+
+
+@pytest.fixture(autouse=True)
+def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the workers of ``run_work_items`` fail if they break a rule on threads, in every test.
+
+    Section 5 of each method's guide states the rules.  While a worker runs, on a new thread or on
+    the thread that called ``run_work_items``, a call from Python of numba code compiled with
+    ``parallel=True``, such as some of galois's, or of ``_tuning.get_tuning``, raises an
+    ``AssertionError``, which ``run_work_items`` raises again.  Two threads that run numba-parallel
+    code at once abort the process under numba's workqueue layer, and a new thread reads the default
+    tuning.  ``_thread_rules_test.py`` checks the compiled code that workers call.
+    """
+    run_work_items = _threads.run_work_items
+
+    def run_checked(
+        num_items: int,
+        num_threads: int,
+        start_worker: Callable[[threading.Event], Callable[[int, int], None]],
+        **options: Any,
+    ) -> None:
+        def start_checked(stop: threading.Event) -> Callable[[int, int], None]:
+            with _running_worker():
+                run_range = start_worker(stop)
+
+            def run_range_checked(start: int, end: int) -> None:
+                with _running_worker():
+                    run_range(start, end)
+
+            return run_range_checked
+
+        with _checking_numba_calls():
+            run_work_items(num_items, num_threads, start_checked, **options)
+
+    monkeypatch.setattr(_threads, "run_work_items", run_checked)
+    monkeypatch.setattr(_tuning, "_ACTIVE_TUNING", _CheckedTuning(_tuning._ACTIVE_TUNING))
+
+
+# The number of workers of ``run_work_items`` that run on each thread, which is at most one unless a
+# worker calls ``run_work_items`` itself.
+_RUNNING_WORKERS = threading.local()
+
+# The number of calls of ``run_work_items`` that run, while ``_checking_numba_calls`` checks calls
+# of numba code, and a lock on it.
+_CHECKED_RUNS = [0]
+_CHECKED_RUNS_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _running_worker() -> Iterator[None]:
+    """Mark the current thread as running a worker of ``run_work_items``."""
+    _RUNNING_WORKERS.count = _get_running_workers() + 1
+    try:
+        yield
+    finally:
+        _RUNNING_WORKERS.count -= 1
+
+
+def _get_running_workers() -> int:
+    """The number of workers of ``run_work_items`` that the current thread runs."""
+    return getattr(_RUNNING_WORKERS, "count", 0)
+
+
+@contextlib.contextmanager
+def _checking_numba_calls() -> Iterator[None]:
+    """Make numba dispatchers check, while any call of ``run_work_items`` runs, who calls them.
+
+    Calls from Python of numba-parallel code raise on the threads that run workers.  The check is
+    installed only while threads run, so that other calls of compiled code from Python cost nothing
+    more.
+    """
+    dispatcher = numba.core.dispatcher.Dispatcher
+    with _CHECKED_RUNS_LOCK:
+        if not _CHECKED_RUNS[0]:
+            call = dispatcher.__call__
+
+            def checked_call(self: Any, *args: Any, **kwargs: Any) -> object:
+                if _get_running_workers() and self.targetoptions.get("parallel"):
+                    raise AssertionError(
+                        f"A worker of run_work_items called numba-parallel code: {self.py_func}"
+                    )
+                return call(self, *args, **kwargs)
+
+            dispatcher.__call__ = checked_call  # type: ignore[method-assign,assignment]
+        _CHECKED_RUNS[0] += 1
+    try:
+        yield
+    finally:
+        with _CHECKED_RUNS_LOCK:
+            _CHECKED_RUNS[0] -= 1
+            if not _CHECKED_RUNS[0]:
+                del dispatcher.__call__
+
+
+class _CheckedTuning:
+    """The context variable of the active tuning, which workers of ``run_work_items`` may not read.
+
+    Code that threads run reads the tuning only from its search, since new threads start with the
+    default tuning (see the module docstring of ``_tuning.py``).
+    """
+
+    def __init__(self, variable: Any) -> None:
+        self.variable = variable
+
+    def get(self) -> _tuning.SearchTuning:
+        """The active tuning, which raises an ``AssertionError`` on a worker of a search."""
+        if _get_running_workers():
+            raise AssertionError("A worker of run_work_items read the tuning through get_tuning")
+        return self.variable.get()
+
+    def set(self, value: _tuning.SearchTuning) -> Any:
+        """Set the active tuning, and return the token that resets it."""
+        return self.variable.set(value)
+
+    def reset(self, token: Any) -> None:
+        """Reset the active tuning to its value before ``set`` returned a token."""
+        self.variable.reset(token)
+
+
+class SharedArray(NamedTuple):
+    """An array that threads share, with the path from the object that reaches it, and a copy."""
+
+    path: str
+    array: npt.NDArray[Any]
+    copy: npt.NDArray[Any]
+
+
+def get_shared_arrays(*roots: object) -> list[SharedArray]:
+    """Copies of the arrays that the given objects reach, which code on threads may only read.
+
+    The objects reach arrays through the items of dictionaries, lists, tuples, and sets, the
+    arguments of ``functools.partial``, and the attributes of objects of qLDPC.
+    """
+    arrays = []
+    seen = set()
+    pending: list[tuple[str, object]] = [
+        (f"roots[{index}]", root) for index, root in enumerate(roots)
+    ]
+    while pending:
+        path, value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, np.ndarray):
+            arrays.append(SharedArray(path, value, value.copy()))
+        elif isinstance(value, dict):
+            pending += [(f"{path}[{key!r}]", item) for key, item in value.items()]
+        elif isinstance(value, list | tuple | set | frozenset):
+            pending += [(f"{path}[{index}]", item) for index, item in enumerate(value)]
+        elif isinstance(value, functools.partial):
+            pending += [(f"{path}.args", value.args), (f"{path}.keywords", value.keywords)]
+        elif type(value).__module__.split(".")[0] == "qldpc":
+            names = [*getattr(value, "__dict__", ()), *getattr(type(value), "__slots__", ())]
+            pending += [(f"{path}.{name}", getattr(value, name, None)) for name in names]
+    return arrays
+
+
+def assert_unchanged(arrays: list[SharedArray]) -> None:
+    """Check that no shared array has changed since ``get_shared_arrays`` copied it."""
+    changed = [
+        each.path
+        for each in arrays
+        if each.array.shape != each.copy.shape or each.array.tobytes() != each.copy.tobytes()
+    ]
+    assert not changed, f"Shared arrays changed: {changed}"
+
+
+def check_shared_arrays_on_threads(
+    monkeypatch: pytest.MonkeyPatch, get_roots: Callable[[], Iterable[object]]
+) -> list[int]:
+    """Check that no call of ``run_work_items`` changes the arrays that some objects reach.
+
+    The objects, which ``get_roots`` returns at the start of each call, are those that the threads
+    of the call share, such as a search.  Returns the list of the numbers of arrays that each call
+    left unchanged, so that a test can check that threads ran.
+    """
+    run_work_items = _threads.run_work_items
+    checked = []
+
+    def run_checked(*args: Any, **kwargs: Any) -> None:
+        arrays = get_shared_arrays(*get_roots())
+        run_work_items(*args, **kwargs)
+        assert_unchanged(arrays)
+        checked.append(len(arrays))
+
+    monkeypatch.setattr(_threads, "run_work_items", run_checked)
+    return checked
 
 
 class CostlyStages(NamedTuple):

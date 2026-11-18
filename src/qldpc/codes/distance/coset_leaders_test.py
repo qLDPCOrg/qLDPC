@@ -26,10 +26,13 @@ from .conftest import (
     ROUTED_CSS_WEIGHT_STATE,
     ROUTED_PHYSICAL_STATES,
     assert_exact_answers,
+    assert_unchanged,
+    check_shared_arrays_on_threads,
     get_exhaustive_minima,
     get_graph_state,
     get_pauli_weight,
     get_random_css_state,
+    get_shared_arrays,
     get_stabilizer_matrix,
     get_syndrome,
     scramble,
@@ -844,27 +847,31 @@ def test_both_passes_of_css_states_take_the_threads_of_the_search(
 
 
 def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
-    pytestconfig: pytest.Config,
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Connected-cluster batch queries moved to threads answer as on one thread.
 
     The found index, its bound and error, and the weights are those of one thread, by physical
     weight and by CSS weight.  With chunks of one state, a batch moves to threads once its queries
-    have visited a state for each thread.
+    have visited a state for each thread.  No query writes an array of its search, which threads,
+    and the threads of callers, share.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
+    oracles: list[CosetLeaderSearch] = []
+    checked = check_shared_arrays_on_threads(monkeypatch, lambda: oracles)
     for matrix, css_weight in cases:
         num_qubits = len(matrix)
         minima = get_exhaustive_minima(matrix, css_weight)
         syndromes = rng.integers(1 << num_qubits, size=40)
         batch = split_syndromes_into_words(syndromes.tolist(), num_qubits)
-        oracles = []
+        oracles.clear()
         for num_threads in (1, 2, 3, 8):
             with use_tuning(num_threads=num_threads, information_set_batch_exponent=0):
                 oracles.append(
                     CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
                 )
+        shared = get_shared_arrays(*oracles)
         for max_weight in range(num_qubits + 1):
             found = _find_each_not_within_max_weight(oracles[-1], matrix, batch, max_weight)
             assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
@@ -877,6 +884,8 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
             weights = [oracle.get_min_weights(batch, max_weight) for oracle in oracles]
             assert all(np.array_equal(weight, weights[0]) for weight in weights)
             assert np.array_equal(weights[0], np.minimum(minima[syndromes], max_weight + 1))
+        assert_unchanged(shared)
+    assert checked
 
 
 # A state whose syndromes 3 and 7 have errors of weight 2 and 3 at least, which connected-cluster
