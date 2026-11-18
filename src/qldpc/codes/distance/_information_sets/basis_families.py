@@ -731,7 +731,7 @@ def _get_family_of_sets(
     """The basis family of one or more sets of independent columns of a basis.
 
     The basis's labels are reduced along with it, and the family is certified with the coverage of
-    its pivots.  Each set's rank is the number of pivots that its reduction finds.
+    its pivots.
 
     Raises:
         RuntimeError: If a set of columns is not independent.
@@ -749,7 +749,7 @@ def _get_family_of_sets(
         )
         assert reduced_labels is not None  # labels in give labels out
 
-        # A dependent set would overstate its rank, and so the family's certificate.
+        # A dependent set means that the caller, such as matroid partitioning, broke its contract.
         if len(found) != len(columns):
             raise RuntimeError(f"Column set {index} of a basis family is not independent")
         generators[index], set_labels[index] = reduced, reduced_labels
