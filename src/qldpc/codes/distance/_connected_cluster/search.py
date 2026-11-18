@@ -7,7 +7,8 @@ checks ``H`` and are outside the row space of ``G``, or that have a given syndro
 supports through unsatisfied checks.  It is the connected-cluster algorithm of Dumer, Kovalev, and
 Pryadko, with the branch and bound of Okada and Kasai.  ``connected_cluster.md`` in
 ``src/qldpc/codes/distance/`` derives the search, cites its sources, and states its correctness
-requirements.
+requirements.  These include requirements on threads, since several threads run ``_search_supports``
+at once, to search a costly weight limit or to answer several queries (Sections 3.11 and 5).
 """
 
 from __future__ import annotations
@@ -644,7 +645,9 @@ class SupportSearch:
         cuts of syndrome queries are exact for any words (Section 3.8 of ``connected_cluster.md``),
         and help most with light ones.  ``find_witness`` does not use these words, since its cuts
         are exact only for words in the row space of ``excluded`` (Section 3.4).  The cuts do
-        nothing unless ``stabilizer_overlap_cuts`` is set.
+        nothing unless ``stabilizer_overlap_cuts`` is set.  Call this method only while no query or
+        search of this object runs, as the constructor of ``CosetLeaderSearch`` does, since it
+        rebuilds the cuts that threads read (Section 3.11).
 
         Raises:
             ValueError: If the words are not a binary matrix as wide as the checks, or do not

@@ -3,7 +3,8 @@
 """Tables of the Brouwer-Zimmermann coset searches: bounds of steps, stopping steps, and tails.
 
 Sections cited in this module are those of ``brouwer_zimmermann.md``, whose Section 4.1 says how
-the coset searches use these tables.
+the coset searches use these tables.  Threads that answer queries at once read them, so a change
+here must keep the requirements on threads under "Keep coset queries reproducible" in Section 5.
 """
 
 from __future__ import annotations
@@ -209,8 +210,9 @@ def get_stopping_step(table: npt.NDArray[np.int64], max_weight: int) -> tuple[in
     if its bound exceeds ``max_weight`` and entry ``[w, j - 1]``, the bound of the step before it,
     does not; otherwise ``certificates.find_stopping_step`` finds the step, which replaces it.  A
     negative ``max_weight`` gives the first step, and the largest native integer, the only
-    ``max_weight`` that no bound exceeds, gives the last.  Threads may share the buffer
-    (Section 4.1).
+    ``max_weight`` that no bound exceeds, gives the last.  Single queries on several threads may
+    share the buffer, since each holds the global interpreter lock (Section 4.1); the batch loop of
+    queries gives each worker its own copy.
 
     Returns:
         ``stop_layer``, ``stop_num_completed``, and the bound of that step.

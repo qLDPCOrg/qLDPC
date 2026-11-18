@@ -5,6 +5,13 @@
 A certificate bounds the weights of the eligible words that a search of a basis family has not
 visited, and a plan says where a search stops above a limit, and the work of its steps up to there.
 Sections cited in this module are those of ``brouwer_zimmermann.md``.
+
+Compiled functions here, such as ``find_stopping_step`` and ``is_unused_set``, also run within nogil
+calls of threaded searches, so they must keep the rules for such code in the docstring of
+``qldpc/_compilation.py``.  The plans and certificates, through ``Certificate.certifies`` and
+``Certificate.get_num_sets_to_certify``, feed the decisions of a distance search, which must keep
+the requirement of Section 5, "Decide only from what a layer leaves the same on any number of
+threads".
 """
 
 from __future__ import annotations

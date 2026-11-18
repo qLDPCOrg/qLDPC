@@ -55,10 +55,16 @@ always-compiled and compiled-on-request functions.  An always-compiled function 
 always-compiled functions, since it is compiled and cached by itself.
 
 Pass ``nogil=True`` to :func:`always_compiled` only for an entry point that several threads run at
-once, such as the scan of a work item of a distance search.  Such a function may write only to
-arrays that its caller gives to one thread.  The compiled code then runs without Python's global
-interpreter lock, so that threads run it in parallel.  Other compiled functions keep the lock, so
-that threads that call them at once take turns.
+once, such as the scan of a work item of a distance search.  Its compiled code then runs without
+Python's global interpreter lock, so that threads run it in parallel, and so does every compiled
+function that it calls.  Such an entry point, and every compiled function that it calls, may write
+only to arrays that it allocates, or to arrays or entries that nothing else reads or writes while it
+runs, such as buffers that its caller gives to one thread.  It must read nothing that anything else
+writes while it runs, and call no numba code compiled with ``parallel=True`` or ``prange`` (see
+``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  For a distance search, Section 5 of
+its guide in ``qldpc/codes/distance/`` states the requirements on threads in full.  A compiled
+function without ``nogil=True`` keeps the lock when Python calls it while it is compiled, so threads
+that call it at once from Python take turns.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
 function of both kinds runs as plain Python, much more slowly.  :func:`always_compiled` then returns
@@ -193,8 +199,9 @@ def always_compiled(
     Used as ``@always_compiled(inline=True)``, it also makes compiled code that calls the function
     include its code rather than call it, which saves the cost of a call in a hot loop.  Used as
     ``@always_compiled(nogil=True)``, it makes the compiled function release Python's global
-    interpreter lock while it runs (see the module docstring for when to use it).  The options are
-    part of the source files, so changing them selects a new directory of compiled code.
+    interpreter lock while it runs, also in the compiled functions that it calls (see the module
+    docstring for when to use it, and what such code must not do).  The options are part of the
+    source files, so changing them selects a new directory of compiled code.
 
     If ``QLDPC_DISABLE_COMPILATION`` or numba's ``NUMBA_DISABLE_JIT`` disables compilation (see the
     module docstring), it returns the function itself.
