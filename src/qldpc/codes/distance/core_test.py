@@ -25,7 +25,7 @@ from qldpc.external import _bliss
 from qldpc.objects import Pauli
 
 from ..conftest import Tune
-from . import core
+from . import _brute_force, core
 from ._binary import get_css_stabilizers
 from ._tuning import use_tuning
 from .conftest import get_random_full_rank_matrix, get_span
@@ -591,6 +591,34 @@ def test_special_inputs_of_generators() -> None:
         core.get_distance_from_generators(
             [[1, 0]], np.zeros((1, 1, 2), dtype=np.uint8), symplectic=True
         )
+
+
+def test_dependent_logical_rows_give_the_distance_of_their_span() -> None:
+    """Repeated logical rows are reduced to a basis of the quotient before any search."""
+    distance = core.get_distance_from_generators(
+        [[1, 1, 1], [1, 1, 1]], [], cutoff=0, method="brouwer_zimmermann"
+    )
+    assert distance == 3
+
+
+def test_brouwer_zimmermann_searches_never_enumerate_every_word() -> None:
+    """A BZ search scans information sets, even where enumerating every word would cost less."""
+    logicals = [[1, 0, 0, 0, 1, 0, 1, 1, 0]]
+    stabilizers = [
+        [0, 1, 0, 0, 0, 0, 1, 0, 1],
+        [0, 0, 1, 0, 1, 0, 1, 0, 1],
+        [0, 0, 0, 1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 1, 1, 0, 1],
+    ]
+    expected = core.get_distance_from_generators(logicals, stabilizers, method="brute_force")
+    with mock.patch.object(
+        _brute_force, "_get_distance_brute_force", wraps=_brute_force._get_distance_brute_force
+    ) as enumerate_words:
+        distance = core.get_distance_from_generators(
+            logicals, stabilizers, method="brouwer_zimmermann"
+        )
+    assert distance == expected
+    enumerate_words.assert_not_called()
 
 
 @pytest.mark.parametrize(

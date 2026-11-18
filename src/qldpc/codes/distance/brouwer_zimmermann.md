@@ -707,7 +707,7 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | `_SectorSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `BrouwerZimmermannSearch.finished` | Marks the search finished once the shared `U ≤ cutoff`, or the search of every sector has finished; `get_distance_brouwer_zimmermann` then returns `U` |
 
-The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, and `test_searches_that_setup_settles_are_finished_at_once` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
+The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, `test_a_switch_at_the_end_of_setup_can_certify_the_distance`, and `test_searches_that_setup_settles_are_finished_at_once` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
 
 ### 4.3 Concept-to-code glossary
 
