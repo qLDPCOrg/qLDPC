@@ -600,7 +600,10 @@ def test_deformed_counters_walk_their_own_checks() -> None:
 
 
 def test_macwilliams_capabilities() -> None:
-    """Unsupported codes and requests raise errors, and still work with the other methods."""
+    """Codes without logicals get zero counts, and unsupported codes and requests raise errors.
+
+    Each unsupported code or request still works with the other methods.
+    """
     no_logicals = lc.CSSLogicalCounter(np.eye(4)[:2], np.eye(4)[2:])
     no_distance = no_logicals.count_logical_ops(method="macwilliams")
     assert no_distance == Counts(codes.NO_DISTANCE, 0, 0, None)

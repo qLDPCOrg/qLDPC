@@ -54,7 +54,7 @@ LogicalCountMethod = Literal[
 - ``"macwilliams"``, and its alias ``"weight_enumerator"``: the weight distributions of the spaces
   of the checks, through the MacWilliams identities.  It does not support subsystem codes, full
   Pauli counts of codes that are not self-dual, or checks of rank above 63 in codes that encode
-  qubits.  A code that encodes no qubits gets zero counts from every method.
+  qubits.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 """
 
