@@ -744,9 +744,10 @@ def test_quantum_tanner_saved_local_checks(tmp_path: pathlib.Path) -> None:
         assert np.array_equal(loaded_code.code_a.generator, code_a.generator)
         assert np.array_equal(loaded_code.code_b.generator, code_b.generator)
 
-    # Released versions of QTCode.load up to 0.4.1 read the lines of integers between comment lines
-    # as the subsets and local codes, and the field and complex from the last two lines.  The lines
-    # that record the choice of local checks are comment lines, so these versions ignore them.
+    # QTCode.load in releases 0.0.18 to 0.4.1 and the dev releases 0.4.2.dev20261004 and
+    # 0.4.2.dev20261023 reads the lines of integers between comment lines as the subsets and local
+    # codes, and the field and complex from the last two lines.  The lines that record the choice of
+    # local checks are comment lines, so these releases ignore them.
     lines = path.read_text().splitlines()
     assert lines[-2:] == ["# base field: 2", "# bipartite: False"]
     first, last = lines.index("# local checks: from_codes"), lines.index("# base field: 2")
