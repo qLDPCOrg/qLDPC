@@ -4,13 +4,13 @@
 
 ``core.py`` chooses a method for each search.  It enumerates every word if ``is_cheap_to_enumerate``
 says that this is cheap.  Otherwise, it takes the Brouwer-Zimmermann (BZ) method for a search given
-by generators, or for one that excludes no nonzero word, as for a classical code.  Other searches,
-as of a quantum code or of the faults of a circuit, run ``search_by_cost``: a connected-cluster
-search that switches to a BZ search once that is predicted to cost less.  The section "Choosing a
-method" of ``README.md`` in ``src/qldpc/codes/distance/`` explains the rule, why it keeps results
-exact, and its estimates.  Both searches can run on several threads, so the rule decides only from
-results that are the same on any number of threads, as Section 5 of the guide of each method
-requires.
+by generators, or for a search of binary words that excludes no nonzero word, as for a classical
+code.  Other searches, as of a quantum code or of the faults of a circuit, run ``search_by_cost``: a
+connected-cluster search that switches to a BZ search once that is predicted to cost less.  The
+section "Choosing a method" of ``README.md`` in ``src/qldpc/codes/distance/`` explains the rule, why
+it keeps results exact, and its estimates.  Both searches can run on several threads, so the rule
+decides only from results that are the same on any number of threads, as Section 5 of the guide of
+each method requires.
 """
 
 from __future__ import annotations

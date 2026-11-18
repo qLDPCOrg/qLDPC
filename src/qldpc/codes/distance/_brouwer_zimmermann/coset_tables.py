@@ -249,11 +249,11 @@ def _get_planning(bound_tables: Sequence[npt.NDArray[np.int64]]) -> PlanningBuff
     ``get_search_tables``), and otherwise one for every coset.  Each table has one more row than its
     bounds.  Entry ``[w, j]`` of the bounds is a bound on the words left unvisited once the first
     ``j`` sets have completed layer ``w`` and the others layer ``w - 1``, so column zero holds the
-    bound before the first step of a row.  The bounds never change.  The last row, which only
-    ``get_stopping_step`` reads and writes, holds the layer and the number of completed sets of the
-    stopping step that it returned last, initially the first step ``(0, 1)``.  One array holds the
-    bounds and the cached steps, since each argument of a compiled call adds to the time of every
-    query.
+    bound before the first step of a row.  The bounds never change.  The last row holds the layer
+    and the number of completed sets of the stopping step that ``get_stopping_step`` returned last,
+    initially the first step ``(0, 1)``.  ``get_stopping_step`` reads and writes it, and
+    ``coset._get_own_planning`` resets it in each copy for a worker.  One array holds the bounds and
+    the cached steps, since each argument of a compiled call adds to the time of every query.
     """
     planning = np.zeros(
         (len(bound_tables), len(bound_tables[0]) + 1, bound_tables[0].shape[1]), dtype=np.int64

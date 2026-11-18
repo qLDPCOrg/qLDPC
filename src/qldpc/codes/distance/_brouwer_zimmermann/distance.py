@@ -84,8 +84,9 @@ def get_distance_brouwer_zimmermann(
             family.
         get_automorphisms: If given, returns None or an array whose rows ``g`` generate a group of
             column permutations, each mapping column ``j`` to column ``g[j]``.  Each generator must
-            map the space and the excluded subspace of every sector onto themselves.  A search
-            calls the function at most once, and verifies the generators (Section 3.7).
+            map the space and the excluded subspace of every sector onto themselves.  The search
+            of each sector calls the function at most once, so a search of two sectors may call it
+            twice, and verifies the generators (Section 3.7).
         tuning: The tuning that every search uses throughout.  Default: the active tuning.
 
     Returns:
