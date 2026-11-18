@@ -205,7 +205,7 @@ Without symmetries, every variable is a root, ranked by its index.
 Okada and Kasai write the variables of a pair-partition code as `(ℓ, a)`, for a block column `ℓ` and a position `a` modulo the lift size `P`, search from the roots `(ℓ, 0)` of the orbits under cyclic translations of `a`, and rank `(ℓ, a)` by `ℓP + a`; their implementation uses these roots only if `P` is prime and `W < P`.
 qLDPC takes the orbits of any group of automorphisms that it verifies.
 
-The generators of `Γ` are automorphisms that the caller of a distance function supplies on request, such as the `_found_qudit_automorphisms` of quantum codes; classical codes supply none.
+The generators of `Γ` are automorphisms that the caller of a distance function supplies on request, such as the `_found_qudit_automorphisms` of quantum codes and the `_found_bit_automorphisms` of binary classical codes.
 For a large code, finding the automorphisms, verifying them, and ordering their orbits can cost as much as visiting many states.
 So the search of each sector asks for them at most once, before the first weight limit at which it expects to have visited `automorphism_minimum_states` states over all its limits.
 That field of `SearchTuning` in `_tuning.py` defaults to a round number of states assumed to cost about as much to visit as asking.
