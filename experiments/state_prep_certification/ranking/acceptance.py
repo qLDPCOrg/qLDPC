@@ -12,9 +12,9 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   of a group prepares the group's signed state on its output qubits, in order.
 * **RT2:** at each rate, Stim builds the detector error model of each group's consumer, every
   single-qubit X error on the block flips a detector, and every single-qubit Z error flips no
-  detector or observable.  Whether the decoder corrects
-  every single-qubit X error on the block, with an ideal consumer, is recorded, with the number of
-  the consumer's mechanisms and its fault distance, in ``RT2/consumers.json``; it is not a failure.
+  detector or observable.  Whether the decoder corrects every single-qubit X error on the block,
+  with an ideal consumer, is recorded, with the number of the consumer's mechanisms and its fault
+  distance, in ``RT2/consumers.json``; it is not a failure.
 * **RT3:** on ``cgoto`` and ``aft.carbon.opt_opt`` at p = 10^-3, the reference's mechanism list
   gives, on each exactly listed fault weight, the acceptance and the probabilities of each X
   residual weight of qLDPC's X-type histogram, to 10^-12; the consumer's fault-weight law and its
@@ -38,8 +38,10 @@ test is stopped after ``acceptance_limit_s`` of ``config.json``.  RT6 and RT7 ar
   the laws of both fault weights and its finished strata.
 * **RT10:** the reference's ratio, error, allowance, and inadequate strata from hand-made strata;
   resolved and unresolved pairs, and correct, wrong, tied, uncertain, and missing calls; the gate's
-  outcomes; the break-even outcomes at their boundaries; projected costs; and the nonzero draws of
-  a calibration cell through qLDPC's Jeffreys error, all against values worked out by hand.
+  outcomes; a pair on each side of the margin; a group's cost lines and k*, and each validity input
+  of the cost projection on each side of its threshold; the break-even outcomes at their
+  boundaries; projected costs; and the nonzero draws of a calibration cell through qLDPC's Jeffreys
+  error, all against values worked out by hand.
 
 Each test prints PASS or FAIL; the script exits with status 1 if any failed.
 """
@@ -320,9 +322,10 @@ def rt4_scores(directory: pathlib.Path) -> None:
     pi, u = residual_weights._get_fault_weight_probabilities(
         preparation.probabilities, max_fault_weight
     )
+    computed = experiment.scores(total, x_type, calibration)
     cases: list[tuple[list[float], PauliXZ | None, ResidualWeightHistogram, float]] = [
-        (values_unc, None, total, experiment.scores(total, x_type, calibration)["phi_unc"][0]),
-        (values_cal, Pauli.X, x_type, experiment.scores(total, x_type, calibration)["phi_cal"][0]),
+        (values_unc, None, total, computed["phi_unc"][0]),
+        (values_cal, Pauli.X, x_type, computed["phi_cal"][0]),
     ]
     for values, pauli, histogram, score in cases:
         numerator, acceptance = u * values[-1], u
@@ -552,28 +555,32 @@ def rt10_rules(directory: pathlib.Path) -> None:
     def gate(
         phi_cal: tuple[int, int], rival: int, eligible: int = 2, best: str | None = None
     ) -> str:
-        """The gate when Phi_cal has (correct, certain) calls of 10 at each eligible rate.
+        """The gate when Phi_cal makes (correct, certain) correct calls of 10 at each eligible rate.
 
-        Every rival calls ``rival`` correctly, except ``best``, which calls as many as Phi_cal.
+        Every other score makes ``rival`` correct calls, none of them certain, except ``best``,
+        which makes as many correct and certain calls as Phi_cal's certain ones.  At an ineligible
+        rate, Phi_cal calls none correctly and every other score all 10.
         """
         rows = []
         for score in analyze.SCORES:
-            correct = phi_cal if score == "phi_cal" else (rival, rival)
-            correct = (phi_cal[1], phi_cal[1]) if score == best else correct
+            calls = phi_cal if score == "phi_cal" else (rival, 0)
+            calls = (phi_cal[1], phi_cal[1]) if score == best else calls
             for index, r in enumerate(experiment.CONFIG["rates"]):
+                if index >= eligible:
+                    calls = (0, 0) if score == "phi_cal" else (10, 10)
                 rows.append(
                     {
                         "score": score,
                         "rate": r,
                         "eligible": index < eligible,
                         "resolved_pairs": 10,
-                        "correct": correct[0],
-                        "correct_certain": correct[1],
+                        "correct": calls[0],
+                        "correct_certain": calls[1],
                     }
                 )
         return str(analyze.gate(rows)["outcome"])
 
-    assert gate((9, 9), 8) == "kept"
+    assert gate((8, 8), 7) == "kept"
     assert gate((9, 7), 6) == "not kept"
     assert gate((10, 8), 9) == "not kept"
     for best in ("phi_unc", "alpha", "residual"):
@@ -589,67 +596,102 @@ def rt10_rules(directory: pathlib.Path) -> None:
         ]
         assert analyze._pair("g", rate, *near)["resolved"] == resolved, difference
 
-    # the cost lines of one group, against values worked out by hand
-    histogram_weights = np.zeros((2, M + 3))
-    histogram_weights[0, 1] = 1.0
-    histogram_weights[1] = [100, 1800, 60, 40, 0]
-    sampled_histogram = ResidualWeightHistogram(
-        max_residual_weight=M,
-        css_weight=True,
-        fault_weight_probabilities=np.array([0.9, 0.1]),
-        truncated_probability=0.0,
-        weight_sums=histogram_weights,
-        squared_weight_sums=histogram_weights,
-        num_samples=np.array([0, 2000]),
-        exact=np.array([True, False]),
-        pauli="X",
-    )
-    cell_changes = ((100, 20, 1000), (200, 10, 1000))
-    cost_calibration = ConsumerCalibration(
-        {"X": [[(i - d) / n] for i, d, n in cell_changes]},
-        [0.0],
-        excess_standard_errors={
-            "X": [[float(consumers._get_jeffreys_deviations(i, d, n))] for i, d, n in cell_changes]
-        },
-        baseline_standard_errors=[0.01],
-        excess_num_samples={"X": [[n] for _, _, n in cell_changes]},
-    )
-    target = 0.1 * 2e-3
-    members = [
-        {
-            "phi_true": phi, "sigma_true": 2 * target, "tau": 0.0, "num_direct_samples": 10_000,
-            "strata": [{"exact": False, "g": 1, "nonzero": 20, "accepted_draws": 50}],
-            "cpu_direct": {"cpu_consumer_setup_s": 0.5, "cpu_prep_setup_s": 1.0,
-                           "cpu_exact_s": 2.0, "cpu_sampled_s": 3.0},
-            "sigma_hist": 2 * target / math.sqrt(2), "sigma_cal": 3 * target / math.sqrt(2),
-            "sigma_phi_unc": target, "histograms": (sampled_histogram, sampled_histogram),
-            "cpu_histogram": {name: {"cpu_setup_s": 0.1, "cpu_exact_s": 0.2,
-                                     "cpu_sampled_s": 0.3} for name in ("x", "total")},
+    # the cost lines of one group, against values worked out by hand; every validity input is at
+    # its threshold of 10 nonzero draws, and the reached cell with the fewest draws sets s_min
+    def cost_lines(
+        direct_nonzero: int = 10,
+        accepted: int = 10,
+        row: tuple[int, ...] = (100, 1890, 6, 4, 0),
+        cells: tuple[tuple[int, int, int], ...] = ((6, 4, 1000), (8, 2, 500)),
+    ) -> dict[str, Any]:
+        """The cost lines of two hand-made circuits, with the given nonzero draws."""
+        weights = np.zeros((2, M + 3))
+        weights[0, 1] = 1.0
+        weights[1] = row
+        histogram = ResidualWeightHistogram(
+            max_residual_weight=M,
+            css_weight=True,
+            fault_weight_probabilities=np.array([0.9, 0.1]),
+            truncated_probability=0.0,
+            weight_sums=weights,
+            squared_weight_sums=weights,
+            num_samples=np.array([0, 2000]),
+            exact=np.array([True, False]),
+            pauli="X",
+        )
+        calibration = ConsumerCalibration(
+            {"X": [[(i - d) / n] for i, d, n in cells]},
+            [0.0],
+            excess_standard_errors={
+                "X": [[float(consumers._get_jeffreys_deviations(i, d, n))] for i, d, n in cells]
+            },
+            baseline_standard_errors=[0.01],
+            excess_num_samples={"X": [[n] for *_, n in cells]},
+        )
+        members = [
+            {
+                "phi_true": phi,
+                "sigma_true": 2 * target,
+                "tau": 0.0,
+                "num_direct_samples": 10_000,
+                "strata": [
+                    {"exact": False, "g": 1, "nonzero": direct_nonzero, "accepted_draws": 50},
+                    {"exact": False, "g": 0, "nonzero": 10, "accepted_draws": accepted},
+                ],
+                "cpu_direct": {
+                    "cpu_consumer_setup_s": 0.5,
+                    "cpu_prep_setup_s": 1.0,
+                    "cpu_exact_s": 2.0,
+                    "cpu_sampled_s": 3.0,
+                },
+                "sigma_hist": 2 * target / math.sqrt(2),
+                "sigma_cal": share * target / math.sqrt(2),
+                "sigma_phi_unc": target,
+                "histograms": (histogram, histogram),
+                "cpu_histogram": {
+                    name: {"cpu_setup_s": 0.1, "cpu_exact_s": 0.2, "cpu_sampled_s": 0.3}
+                    for name in ("x", "total")
+                },
+            }
+            for phi, share in ((1e-3, 1.0), (2e-3, 0.5))
+        ]
+        group = {
+            "rate": 1e-3,
+            "calibration": calibration,
+            "num_samples": 10_000,
+            "cpu_consumer_setup_s": 0.4,
+            "cpu_sampled_s": 5.0,
+            "score_timing": {
+                "mean_cpu_s": {"rebuild_histogram": 0.01, "phi_cal": 0.02, "phi_unc": 0.03}
+            },
         }
-        for phi in (1e-3, 2e-3)
-    ]  # fmt: skip
-    group = {
-        "rate": 1e-3,
-        "calibration": cost_calibration,
-        "num_samples": 10_000,
-        "cpu_consumer_setup_s": 0.4,
-        "cpu_sampled_s": 5.0,
-        "score_timing": {
-            "mean_cpu_s": {"rebuild_histogram": 0.01, "phi_cal": 0.02, "phi_unc": 0.03}
-        },
-    }
-    lines = analyze._cost_lines(members, group)
+        return analyze._cost_lines(members, group)  # fmt: skip
+
+    target = 0.1 * 2e-3
+    lines = cost_lines()
     expected = {
         "sigma_target": target,
         "A_direct": 0.5,
         "b_direct": 1.0 + 2.0 + 4 * 3.0,
-        "A_score": 0.4 + 9 * 5.0,
+        # s_min = 1000 / 500 exceeds the worst calibration error's (1)^2
+        "A_score": 0.4 + (1000 / 500) * 5.0,
         "b_score": 0.1 + 0.2 + 0.01 + 0.02 + 4 * 0.3,
         "b_unc": 0.1 + 0.2 + 0.01 + 0.03 + max(1000 / 2000, 1.0) * 0.3,
     }
     for key, value in expected.items():
         assert math.isclose(lines[key], value, rel_tol=1e-12), (key, lines[key], value)
-    assert lines["k_star"] == analyze.break_even(45.4 - 0.5, 15.0 - 1.53) == "4", lines["k_star"]
+    delta_a = expected["A_score"] - expected["A_direct"]
+    delta_b = expected["b_direct"] - expected["b_score"]
+    assert lines["k_star"] == analyze.break_even(delta_a, delta_b) == "1", lines["k_star"]
+
+    # one input below its threshold leaves its line unprojected, and k* not computed
+    for line, broken in (
+        ("b_direct", cost_lines(direct_nonzero=9)),
+        ("b_direct", cost_lines(accepted=9)),
+        ("b_score", cost_lines(row=(100, 1891, 5, 4, 0))),
+        ("A_score", cost_lines(cells=((5, 4, 1000), (8, 2, 500)))),
+    ):
+        assert broken[line] is None and broken["k_star"] == "not computed", (line, broken)
 
     # the break-even outcomes, at and near their boundaries
     for delta_a, delta_b, outcome in (

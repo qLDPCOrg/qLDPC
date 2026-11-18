@@ -227,8 +227,9 @@ class Stratum:
     For a sampled stratum, they are the estimates D-hat and a-hat with their variances and the
     covariance of the two, ``plus`` and ``minus`` count draws, and ``nonzero`` and ``ess`` are the
     draws with a nonzero change and the Kish effective sample size of the importance weights.
-    ``draws``, ``accepted_draws``, and ``max_importance_weight`` are the draws, those accepted, and
-    the largest importance weight; ``cpu_s`` is the CPU time of the stratum.
+    ``draws``, ``accepted_draws``, and ``max_importance_weight`` are the number of draws, the number
+    accepted, and the largest importance weight, all zero or None for an exact stratum; ``cpu_s`` is
+    the CPU time of the stratum.
     """
 
     f: int

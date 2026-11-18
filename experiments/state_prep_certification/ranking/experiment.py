@@ -23,13 +23,12 @@ circuit's options at rate p:
 * ``repro``: one ``histogram`` and one ``direct`` task of ``repro``, each twice, with the same seed.
 
 The seed of a task is the first 8 bytes of the SHA-256 of its key, and the two copies of a
-``repro`` task share the seed of their key without the copy.  Each run calls ``runner.timed``
-once, around the whole task.  The ``histogram`` and ``direct`` tasks also record the CPU seconds
-of their parts for the cost comparison: setup (detector error models, decoders, and mechanism
-lists), exactly listed strata, and sampled strata; ``calib`` records its setup and its sampled
-cells.  Each sends its finished
-parts as partial results, which a run killed at its limit keeps.  Admission of candidates by
-their certification verdicts is left to ``analyze.py``, so every task runs.
+``repro`` task share the seed of their key without the copy.  Each run calls ``runner.timed`` once,
+around the whole task.  The ``histogram`` and ``direct`` tasks also record the CPU seconds of their
+parts for the cost comparison: setup (detector error models, decoders, and mechanism lists),
+exactly listed strata, and sampled strata; ``calib`` records its setup and its sampled cells.  Each
+sends its finished parts as partial results, which a run killed at its limit keeps.  Admission of
+candidates by their certification verdicts is left to ``analyze.py``, so every task runs.
 """
 
 from __future__ import annotations

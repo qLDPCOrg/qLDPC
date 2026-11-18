@@ -32,22 +32,21 @@ group's state, and unsampled if it is reachable and no draw reached it.  An unre
 zero weight in every histogram, so it adds nothing to Phi_cal.
 
 **Pairs**, within a group at one rate, are resolved if |Delta| > 2 sigma_Delta + tau_i + tau_j,
-with Delta the difference of the two references, sigma_Delta their errors in quadrature, and
-tau_i and tau_j their truncation allowances (``direct.py``), and neither reference has an
-inadequate stratum.  A score's call on a resolved pair is the sign of its
-difference, and equal values are a tie, counted as wrong.  A call is uncertain if the difference
-is within twice its standard error.  For Phi_cal, that error propagates the shared calibration
-error through the difference of the two circuits' cell weights, and a call is also uncertain if a
-reachable unsampled cell has weight in either histogram.  A call without a score, as after a
-failed task, counts as wrong and is counted.
+with Delta the difference of the two references, sigma_Delta their errors in quadrature, and tau_i
+and tau_j their truncation allowances (``direct.py``), and neither reference has an inadequate
+stratum.  A score's call on a resolved pair is the sign of its difference, and equal values are a
+tie, counted as wrong.  A call is uncertain if the difference is within twice its standard error.
+For Phi_cal, that error propagates the shared calibration error through the difference of the two
+circuits' cell weights, and a call is also uncertain if a reachable unsampled cell has weight in
+either histogram.  A call without a score, as after a failed task, counts as wrong and is counted.
 
 **Agreement and the gate.**  A rate is eligible with at least ``ELIGIBLE_PAIRS`` resolved pairs,
 and a score agrees at an eligible rate if it calls at least ``AGREE_ACCURACY`` of them correctly.
-The gate keeps Phi_cal if at least two rates are eligible, Phi_cal agrees at each, and, pooled
-over them, Phi_cal calls strictly more pairs correctly than each of Phi_unc, alpha, and
-Pr[R > 0 | A].  Phi_cal's uncertain calls count as wrong here, though not in the ``agrees``
-column of ``agreement.csv``, which ``correct_certain`` complements.  The gate is inconclusive with
-fewer than two eligible rates.
+The gate keeps Phi_cal if at least two rates are eligible, Phi_cal agrees at each, and, pooled over
+them, Phi_cal calls strictly more pairs correctly than each of Phi_unc, alpha, and Pr[R > 0 | A].
+Phi_cal's uncertain calls count as wrong here; the ``agrees`` column of ``agreement.csv`` counts
+them as correct, and ``correct_certain`` gives the correct calls without them, as the gate uses.
+The gate is inconclusive with fewer than two eligible rates.
 
 **Costs** are CPU seconds, projected to matched first-order standard errors, with the achieved
 costs and errors beside them.  For a group at a rate, the target is sigma* = max(0.1 max_i
@@ -67,17 +66,16 @@ histogram, and the time to rebuild it and evaluate Phi_cal; A_direct is the cons
 the reference, and b_direct the mean of the preparation's setup and the projected reference.  With
 delta_a = A_score - A_direct and delta_b = b_direct - b_score, the scores cost no more for k
 circuits exactly when delta_a <= k delta_b; ``break_even`` gives the outcome, k*, in each case of
-the sign of delta_b.  k* is computed only where every component of the group's costs is
-projected.  b_unc, the per-circuit cost of Phi_unc, is
-reported beside them.
+the sign of delta_b.  k* is computed only where every component of the group's costs is projected.
+b_unc, the per-circuit cost of Phi_unc, is reported beside them.
 
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory): ``admission.csv``,
 ``candidates.csv`` (with each circuit's projected and achieved costs), ``pairs.csv``,
 ``agreement.csv``, ``kendall.csv``, ``gate.json``, ``groups.csv``, ``cost_table.csv``,
 ``leading_order.csv``, ``checks.json`` (RT6, the ``mc_check`` estimates against the reference
 within three standard errors plus tau; RT7, whether the two copies of each ``repro`` task agree;
-and every task without a final ``ok`` row), and
-``consumers/``, the consumer circuit and block preparation of each group and rate.
+and every task without a final ``ok`` row), and ``consumers/``, the consumer circuit and block
+preparation of each group and rate.
 """
 
 from __future__ import annotations
@@ -714,7 +712,7 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     Each projected line is taken over the groups where it is projected, and the number of these
     groups is given.  Also given are the median of the numeric k*, every group's k* outcome, and
-    the range of tau.
+    the range of the truncation allowance tau over every group with a reference.
     """
     rows = []
     for rate in CONFIG["rates"]:
@@ -744,9 +742,9 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         numbers = [number for number in numeric if number is not None]
         row["k_star_median"] = statistics.median(numbers) if numbers else None
         row["k_star"] = "; ".join(f"{r['group']}: {r['k_star']}" for r in computed)
-        taus = [r for r in group_rows if r["rate"] == rate and r["tau_min"] is not None]
-        row["tau_min"] = min((r["tau_min"] for r in taus), default=None)
-        row["tau_max"] = max((r["tau_max"] for r in taus), default=None)
+        with_tau = [r for r in group_rows if r["rate"] == rate and r["tau_min"] is not None]
+        row["tau_min"] = min((r["tau_min"] for r in with_tau), default=None)
+        row["tau_max"] = max((r["tau_max"] for r in with_tau), default=None)
         rows.append(row)
     return rows
 
