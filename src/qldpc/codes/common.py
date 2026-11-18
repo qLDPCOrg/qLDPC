@@ -570,7 +570,6 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, no result is remembered.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`), also used for vector distances.
                 Nonbinary calculations use exhaustive enumeration, and reject
@@ -1922,8 +1921,9 @@ class QuditCode(AbstractCode):
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
-        logical Pauli operators computed by QuditCode.get_logical_ops.  If ``recompute is True``,
-        recompute these operators rather than returning cached values.
+        logical Pauli operators computed by QuditCode.get_logical_ops.  If passed a Pauli, return
+        only the operators of that type.  If ``recompute is True``, recompute these operators rather
+        than returning cached values.
 
         The symplectic argument is provided for compatibility with CSSCode.get_gauge_ops, and must
         always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
@@ -2145,7 +2145,6 @@ class QuditCode(AbstractCode):
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, no result is remembered.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Nonbinary calculations use
                 exhaustive enumeration, and reject ``"connected_cluster"``.
@@ -3897,8 +3896,8 @@ class CSSCode(QuditCode):
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
         operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
         distance instead, if the code is binary.  The cost of this computation generally grows
-        exponentially with the size of the code.  Computed distances are remembered for later calls
-        unless cutoff is greater than 1.
+        exponentially with the size of the code.  A distance that a search computes is remembered
+        for later calls unless cutoff is greater than 1.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3906,7 +3905,6 @@ class CSSCode(QuditCode):
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, no result is remembered.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Closed forms that search classical
                 codes, such as those of hypergraph product codes, search them with the same method.

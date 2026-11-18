@@ -329,7 +329,8 @@ def test_error_rate_func() -> None:
     rates, uncertainties = np.asarray(rates), np.asarray(uncertainties)
     assert rates.shape == (2,) and uncertainties.shape == (2,)
     assert rates[0] == 0  # a zero physical error rate gives a zero logical error rate
-    # the discard rate of an iterable of physical error rates matches that of each rate
+
+    # an iterable of physical error rates also yields the discard rate at each of them
     discards = func([0.1], discard_rate=True)
     assert np.array_equal(discards, [[result] for result in func(0.1, discard_rate=True)])
 
@@ -342,9 +343,9 @@ def test_error_rate_func() -> None:
 
 
 def test_error_rate_func_of_0d_array() -> None:
-    """ErrorRateFunc and its truncation_error_bound take a 0-d array to 0-d arrays.
+    """An ErrorRateFunc and its truncation_error_bound take a 0-d array to 0-d arrays.
 
-    Their overloads type a 0-d array as an iterable, so its results are arrays.
+    They do so because their overloads type a 0-d array as an iterable, which gives arrays.
     """
     counts = np.array([1, 10])
     func = monte_carlo.ErrorRateFunc(counts, np.array([0, 1]), np.zeros(2, dtype=int), 3, 0.5)

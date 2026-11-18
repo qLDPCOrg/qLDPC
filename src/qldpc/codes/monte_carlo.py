@@ -297,7 +297,7 @@ class ErrorRateFunc:
         itself without discards.  It is also the most by which the reported rate can exceed the true
         rate, which it does if every such error is in fact kept and decoded correctly.  Takes one
         physical error rate or an iterable of them, and returns one bound or an array of them to
-        match, as the constructed function itself does.
+        match, which is 0-d for a 0-d array, as the constructed function itself does.
         """
         if isinstance(error_rate, np.ndarray) and error_rate.ndim == 0:
             # a 0-d array is an Iterable that cannot be iterated
