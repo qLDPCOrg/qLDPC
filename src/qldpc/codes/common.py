@@ -2909,8 +2909,7 @@ class QuditCode(AbstractCode):
 
         The result holds these qudit permutations, followed by the generators from
         ``_get_permutation_automorphisms``, without repeats or the identity, in an array whose row
-        ``i`` maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no
-        generators.
+        ``i`` maps qudit ``j`` to qudit ``row[j]``.  The result is None if there are no generators.
 
         Raises:
             ValueError: If a generator from ``_get_permutation_automorphisms``, or a permutation
@@ -2944,9 +2943,10 @@ class QuditCode(AbstractCode):
                         if not _preserves_row_space(self.matrix, generator, len(self), get_rank()):
                             raise ValueError(
                                 "A qudit permutation that bliss found in a matrix from"
-                                f" {type(self).__name__}._get_permutation_automorphism_search_matrices is not"
-                                " an automorphism of the code, so the rows of that matrix do not"
-                                " span the row space of the parity check matrix"
+                                f" {type(self).__name__}."
+                                "_get_permutation_automorphism_search_matrices is not an"
+                                " automorphism of the code, so the rows of that matrix do not span"
+                                " the row space of the parity check matrix"
                             )
                 found.append(qudit_generators)
         return _combine_automorphisms(
