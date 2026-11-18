@@ -347,6 +347,8 @@ A single query, `CosetLeaderSearch.get_min_weight_bound`, searches at `W` direct
 Without reuse, a state computes the overlap and repair ([Section 3.4](#34-pruning)) of a symbol once for each unsatisfied check that it examines and the symbol flips.
 The checks of a syndrome query can stay dense after the rounds, so a symbol can flip many unsatisfied checks, and the query computes both at most once per symbol and state.
 A distance search, whose checks are usually sparse, recomputes both, since the bookkeeping would cost more than it saves.
+It also computes the overlap of every symbol of an unsatisfied check, available or not.
+It then takes the `m_c` of the check ([Section 3.4](#34-pruning)) and its number of available symbols without branching on availability, since the processor often mispredicts that branch, which costs more than the extra overlaps.
 
 ### 3.9 Sparser stabilizers of subsystem codes
 
@@ -538,7 +540,11 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 `SupportSearch` validates every sector, and the `get_distance_exact` methods of the code classes in `src/qldpc/codes/common.py` call these functions.
 Nonbinary codes, `logical_counts.py`, and `get_distance_from_generators` reject `method="connected_cluster"`: counting needs every word of a weight rather than one witness, and generators are not checks.
 Hypergraph product codes get their closed-form distances by searching the classical seed codes with the given method.
-`_search_supports`, `_get_branches`, and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
+`_search_supports` and `_is_outside_excluded` are compiled with `always_compiled`, and their small helpers with `always_compiled(inline=True)`, as [README.md](README.md) explains.
+`_get_branches` is long and has two call sites, but is inlined too, since that makes each state up to about a tenth cheaper.
+Numba compiles one version of `_search_supports` for each number of 64-bit words of a syndrome up to `_MAX_FIXED_WORDS`, and one for wider syndromes.
+In each fixed version, the loops over the words have a fixed length.
+The argument `fixed_words`, which `_get_fixed_words` makes, selects the version.
 Threads run `_search_supports` at once, so it is compiled with `nogil=True`, and writes only to arrays that it allocates.
 
 ## 5. Correctness requirements
