@@ -2,7 +2,7 @@ Decisions and recommendations
 =============================
 
 Maintainers and agents follow this page; other contributors need not read it.
-It covers adding process, recommendations to whoever decides or to another contributor, a standard format for presenting decisions, and standard triage, which gathers independent agents' recommendations on decisions, and settles the decisions only when asked to.
+It covers adding process, recommendations to whoever decides or to another contributor, a standard format for presenting decisions, and standard triage, which gathers independent agents' recommendations on decisions and settles them only when asked to.
 A report of requested work, such as a hand-off or a review's findings with their suggested fixes, is not a recommendation unless it asks its recipient to choose or to take another step.
 
 .. _decisions-adding-process:
@@ -110,7 +110,7 @@ Put supporting detail, such as the evidence for each claim, after the Ask or in 
 Standard triage
 ---------------
 
-Standard triage gathers and reconciles the recommendations of independent agents on decisions for the person you work for.
+Standard triage gathers and reconciles the recommendations of independent agents on decisions.
 It applies only when that person asks for it by name, and only to the work that they name, until they end it.
 Their absence, or an unanswered question, never starts it.
 
@@ -137,7 +137,7 @@ Even when asked to settle decisions, triage leaves open each decision to:
 * change, deprecate, or remove a public name, signature, argument, mode, default, or result, except to fix a reproduced bug without changing a public contract;
 * weaken or relabel a guarantee, such as by loosening a test, tolerance, or check, by skipping a test or marking it as expected to fail, or by changing whether a result is exact, a bound, or an estimate;
 * add :ref:`process <decisions-adding-process>` that the request does not call for, or that guards against a problem that other process caused or left open;
-* stand in for a maintainer's approval of a change to a protected file, such as by applying a patch or handing off a branch that they have not inspected;
+* approve a change to a protected file in a maintainer's place, such as by applying a patch that they have not approved, or by handing off a branch that they have not inspected since its last revision;
 * change the dependencies or the build;
 * go beyond the request, such as by starting work that it did not ask for or by exceeding the limits that it set;
 * act outside the local repository, such as by pushing or by commenting on an issue or pull request;
