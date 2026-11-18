@@ -12,6 +12,14 @@ Contributing in brief
 6. Maintainers review each pull request against the :doc:`standards <standards/index>`, often with AI agents, as :doc:`reviewing changes <reviewing>` describes.
    You need not run that review yourself.
 
+Contributors and maintainers
+----------------------------
+
+This guide and the :doc:`standards <standards/index>` are for everyone who changes qLDPC.
+AI-assisted changes must meet the same standards as other changes.
+:doc:`Reviewing changes <reviewing>` describes how changes are reviewed in the maintainer workflow.
+:doc:`Decisions and recommendations <decisions>` describes how decisions are recommended and made.
+Maintainers and AI agents follow these pages; other contributors need not read them.
 The README states how `qLDPC uses AI assistants <https://github.com/qLDPCOrg/qLDPC#ai-usage>`_.
 AI agents, including contributors' own, follow `AGENTS.md <https://github.com/qLDPCOrg/qLDPC/blob/main/AGENTS.md>`_.
 
@@ -118,6 +126,4 @@ The TQEC notebook (``examples/logical_error_rates/specialized/decoding_tqec_circ
 .. toctree::
    :hidden:
 
-   reviewing
-   decisions
    standards/index
