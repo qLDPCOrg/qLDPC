@@ -106,8 +106,8 @@ import functools
 import heapq
 import itertools
 import os
-from collections.abc import Iterable, Sequence
-from typing import Literal, get_args
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, Literal, get_args
 
 import galois
 import networkx as nx
@@ -762,21 +762,17 @@ class QTCode(_SquareComplexCode):
 
             # write other data
             file.write(f"# base field: {order}\n")
-            file.write(f"# bipartite: {self.complex.bipartite}\n")
+            file.write(f"# bipartite: {bool(self.complex.bipartite)}\n")
 
     @staticmethod
-    def load(
-        path: str,
-        *,
-        local_checks: LocalChecks | None = None,
-    ) -> QTCode:
+    def load(path: str) -> QTCode:
         """Load a QTCode from a file written by QTCode.save.
 
-        The code chooses its local checks as the saved code did, unless the argument local_checks
-        (as for QTCode) is given.  Files written by QTCode.save in earlier releases record no choice
-        of local checks, and no generator matrices of the local codes, and load with "min_weight".
-        Their codes had parity checks in reduced row echelon form, which span the same local check
-        spaces, so the loaded code has the same stabilizer group, but can have other parity checks.
+        The code chooses its local checks as the saved code did.  Files written by QTCode.save in
+        earlier releases record no choice of local checks, and no generator matrices of the local
+        codes, and load with "min_weight".  Their codes had parity checks in reduced row echelon
+        form, which span the same local check spaces, so the loaded code has the same stabilizer
+        group, but can have other parity checks.
         """
         if not os.path.isfile(path):
             raise ValueError(f"Path does not exist: {path}")
@@ -824,41 +820,91 @@ class QTCode(_SquareComplexCode):
                 raise ValueError(f"Saved code has no '# {missing[0]}:' line: {path}")
             starts |= choice_starts
 
+        def get_malformed_error(name: str) -> ValueError:
+            """The error for a section of the file that QTCode.load cannot read."""
+            return ValueError(f"Saved code has a malformed '# {name}:' section: {path}")
+
         def read_rows(name: str) -> list[list[int]]:
-            """Read the rows of integers in a section, which can be empty or have empty rows."""
+            """Read the rows of integers in a section, which can be empty or have empty rows.
+
+            Raise a ValueError if a row holds anything other than integers.
+            """
             next_start = min(start for start in starts.values() if start > starts[name])
             section_lines = lines[starts[name] + 1 : next_start]
-            return [[int(value) for value in line.split()] for line in section_lines]
+            try:
+                return [[int(value) for value in line.split()] for line in section_lines]
+            except ValueError as error:
+                raise get_malformed_error(name) from error
+
+        def read_value(name: str) -> str:
+            """Read the value on the line that starts a section, as "2" in "# base field: 2"."""
+            return lines[starts[name]].removeprefix(f"# {name}:").strip()
+
+        def read_literal(name: str, is_valid: Callable[[object], bool]) -> Any:
+            """Read the Python literal on the line that starts a section.
+
+            Raise a ValueError if the literal does not parse or is not valid.
+            """
+            # ast.literal_eval also raises MemoryError or RecursionError for some deeply nested
+            # input
+            try:
+                value = ast.literal_eval(read_value(name))
+            except (SyntaxError, ValueError, TypeError, MemoryError, RecursionError) as error:
+                raise get_malformed_error(name) from error
+            if not is_valid(value):
+                raise get_malformed_error(name)
+            return value
+
+        def is_integer_matrix(value: object) -> bool:
+            """Whether a value is a list of lists of integers, as the rows of a matrix."""
+            return isinstance(value, list) and all(
+                isinstance(row, list) and all(type(entry) is int for entry in row) for row in value
+            )
+
+        def to_matrix(name: str, rows: list[list[int]], num_columns: int) -> npt.NDArray[np.int_]:
+            """Convert rows of a section to a matrix with the given number of columns.
+
+            Raise a ValueError if the rows do not form such a matrix, or hold integers too large
+            for it.
+            """
+            try:
+                return np.array(rows, dtype=int).reshape(len(rows), num_columns)
+            except (OverflowError, ValueError) as error:
+                raise get_malformed_error(name) from error
+
+        def read_members(name: str) -> set[abstract.GroupMember]:
+            """Read the members of a subset from their array forms, one per row of a section.
+
+            Raise a ValueError if a row is not a permutation.
+            """
+            rows = read_rows(name)
+            try:
+                return {abstract.GroupMember(row) for row in rows}
+            except ValueError as error:
+                raise get_malformed_error(name) from error
 
         # construct subsets and generating codes
-        field = ast.literal_eval(lines[starts["base field"]].split(":")[-1])
-        bipartite = ast.literal_eval(lines[starts["bipartite"]].split(":")[-1])
-        subset_a = {abstract.GroupMember(row) for row in read_rows("subset_a")}
-        subset_b = {abstract.GroupMember(row) for row in read_rows("subset_b")}
+        field: int = read_literal("base field", lambda value: type(value) is int)
+        # 0.4.1 wrote the argument bipartite as given, such as 1
+        bipartite = bool(read_literal("bipartite", lambda value: type(value) in (bool, int)))
+        subset_a, subset_b = read_members("subset_a"), read_members("subset_b")
 
         # a seed code without parity checks still has one bit per member of its subset
         code_a, code_b = [
-            ClassicalCode(np.array(rows, dtype=int).reshape(len(rows), len(subset)), field)
-            for rows, subset in [
-                (read_rows("code_a.matrix"), subset_a),
-                (read_rows("code_b.matrix"), subset_b),
-            ]
+            ClassicalCode(to_matrix(name, read_rows(name), len(subset)), field)
+            for name, subset in [("code_a.matrix", subset_a), ("code_b.matrix", subset_b)]
         ]
 
-        # restore the choice of local checks, and the generator matrices of the local codes
+        # restore the choice of local checks, and the generator matrices of the local codes, which
+        # files without them leave to the defaults
+        local_checks: LocalChecks = "min_weight"
         if choice_starts:
-            for code, name in [(code_a, "code_a"), (code_b, "code_b")]:
-                rows = ast.literal_eval(lines[starts[f"{name}.generator"]].split(":", 1)[1].strip())
-                code.set_generator(np.array(rows, dtype=int).reshape(len(rows), len(code)))
-            if local_checks is None:
-                local_checks = _parse_local_checks(lines[starts["local checks"]].split(":")[-1])
+            for code, name in [(code_a, "code_a.generator"), (code_b, "code_b.generator")]:
+                rows: list[list[int]] = read_literal(name, is_integer_matrix)
+                code.set_generator(to_matrix(name, rows, len(code)))
+            local_checks = _parse_local_checks(read_value("local checks"))
         return QTCode(
-            subset_a,
-            subset_b,
-            code_a,
-            code_b,
-            bipartite=bipartite,
-            local_checks="min_weight" if local_checks is None else local_checks,
+            subset_a, subset_b, code_a, code_b, bipartite=bipartite, local_checks=local_checks
         )
 
     @functools.cached_property
@@ -1407,7 +1453,7 @@ class LQTCode(_SquareComplexCode):
 def _parse_local_checks(value: object) -> LocalChecks:
     """Read a choice of local checks, raising a ValueError if it is not one."""
     for local_checks in get_args(LocalChecks):
-        if isinstance(value, str) and value.strip() == local_checks:
+        if isinstance(value, str) and value == local_checks:
             return local_checks
     raise ValueError(
         f"Unrecognized choice of local checks: {value!r} (expected one of {get_args(LocalChecks)})"

@@ -51,10 +51,15 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="different fields"):
         codes.QTCode(subset_a, subset_a, code_a, code_b)
 
-    # saving and loading a QTCode, creating a missing directory along the way
+    # saving and loading QTCodes on both complexes, with headers, creating a missing directory
+    cycle = abstract.GroupMember([1, 2, 0])
+    swaps = [abstract.GroupMember(image) for image in [[1, 0, 2], [2, 1, 0], [0, 2, 1]]]
+    bipartite_code = codes.QTCode([cycle, ~cycle], swaps, [[1, 1]], [[1, 1, 1]], bipartite=True)
     path = tmp_path / "subdirectory" / "code.txt"
-    code.save(str(path), "header")
-    assert codes.QTCode.load(str(path)) == code
+    for saved_code in [code, bipartite_code]:
+        saved_code.save(str(path), "header")
+        assert path.read_text().startswith("# header\n# subset_a:\n")
+        assert codes.QTCode.load(str(path)) == saved_code
     with pytest.raises(ValueError, match="Path does not exist"):
         codes.QTCode.load(str(tmp_path / "missing.txt"))
 
@@ -549,7 +554,7 @@ def test_quantum_tanner_default_local_checks(tmp_path: pathlib.Path) -> None:
     assert_same_row_space(loaded_code.matrix_x, code.matrix_x)
     assert_same_row_space(loaded_code.matrix_z, code.matrix_z)
 
-    for local_checks in ["row_reduced", None]:
+    for local_checks in ["row_reduced", " min_weight", None]:
         with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
             codes.QTCode(subset, subset, code_a, local_checks=local_checks)  # type: ignore[arg-type]
 
@@ -578,10 +583,6 @@ def test_quantum_tanner_saved_local_checks(tmp_path: pathlib.Path) -> None:
     assert lines[-2:] == ["# base field: 2", "# bipartite: False"]
     first, last = lines.index("# local checks: from_codes"), lines.index("# base field: 2")
     assert all(line.startswith("#") for line in lines[first:last])
-
-    # the choice of local checks given to load takes precedence over the saved one
-    min_weight_code = codes.QTCode(subset, subset, code_a, code_b, local_checks="min_weight")
-    assert codes.QTCode.load(str(path), local_checks="min_weight") == min_weight_code
 
     # loading fails clearly if one of the sections that choose the parity checks is missing
     lines = path.read_text().splitlines()
@@ -621,6 +622,48 @@ def test_quantum_tanner_save_fields(tmp_path: pathlib.Path) -> None:
     code = codes.QTCode([shift, ~shift], [shift, ~shift], [[1, 2]], field=4)
     code.save(str(path))
     assert codes.QTCode.load(str(path)) == code
+
+
+def test_quantum_tanner_load_malformed(tmp_path: pathlib.Path) -> None:
+    """Loading fails clearly for a malformed section or an unrecognized choice of local checks."""
+    shift = abstract.CyclicGroup(4).generators[0]
+    path = tmp_path / "code.txt"
+    codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2)).save(str(path))
+    text = path.read_text()
+
+    # values that do not parse as Python literals, have the wrong type, or do not fit in an array of
+    # integers are malformed
+    for name, value, malformed_value in [
+        ("base field", "2", "'GF(2)'"),
+        ("base field", "2", "{[]: 1}"),
+        # values nested too deeply for ast.literal_eval to parse
+        ("base field", "2", "1" + "+1" * 10**5),
+        ("base field", "2", "-" * 10**5 + "1"),
+        ("bipartite", "False", "'False'"),
+        # load reads a value after its name, not after the last colon as releases up to 0.4.1 did
+        ("code_a.generator", "[[1, 1]]", "[[1]]: [[1, 1]]"),
+        ("code_b.generator", "[[1, 1]]", "[[1.0, 1]]"),
+        ("code_b.generator", "[[1, 1]]", f"[[1, {10**30}]]"),
+    ]:
+        path.write_text(text.replace(f"# {name}: {value}", f"# {name}: {malformed_value}"))
+        with pytest.raises(ValueError, match=f"malformed '# {re.escape(name)}:'"):
+            codes.QTCode.load(str(path))
+
+    # so are rows that hold anything other than integers or have the wrong length, and rows of
+    # subsets that are not permutations
+    for name, row, malformed_row in [
+        ("code_a.matrix", "1 1", "1 x"),
+        ("code_a.matrix", "1 1", "1 1 1"),
+        ("subset_a", "1 2 3 0", "1 1 3 0"),
+    ]:
+        path.write_text(text.replace(f"# {name}:\n{row}\n", f"# {name}:\n{malformed_row}\n"))
+        with pytest.raises(ValueError, match=f"malformed '# {re.escape(name)}:'"):
+            codes.QTCode.load(str(path))
+
+    # an unrecognized choice of local checks is not read as a default
+    path.write_text(text.replace("# local checks: min_weight", "# local checks: row_reduced"))
+    with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
+        codes.QTCode.load(str(path))
 
 
 def test_quantum_tanner_without_checks() -> None:
