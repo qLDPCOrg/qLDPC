@@ -1749,9 +1749,9 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
 ) -> None:
     """A distance search on threads takes the limits, and counts the states, of one thread.
 
-    With chunks of one support, every limit that is predicted to visit more states than threads
-    splits, and eight threads split it into many items.  A cutoff makes the search exit at its
-    first limit, which visits states.
+    At exponent 0, every limit on eight threads that is predicted to visit more than two states
+    splits, into many items.  A cutoff makes the search exit at its first limit, which visits
+    states.
     """
     tune(information_set_batch_exponent=0)
     calls = record_thread_counts(monkeypatch)
@@ -1774,10 +1774,11 @@ def test_distance_searches_on_threads_take_the_steps_of_one_thread(
 def test_limits_split_across_threads_only_if_costly(
     monkeypatch: pytest.MonkeyPatch, tune: Tune
 ) -> None:
-    """A limit runs on threads only if it is predicted to visit more states than a chunk per thread.
+    """A limit runs on threads only if it is predicted to visit more states than its split gate.
 
-    The second and last limit of this search is predicted to visit far fewer states than default
-    chunks for two threads, and far more than chunks of ``2**0``.
+    The gate is ``num_threads * 2**information_set_batch_exponent // 4`` states.  The second and
+    last limit of this search is predicted to visit far fewer states than the gate of two threads at
+    the default exponent, and more than that at exponent 0, which is zero.
     """
     calls = record_thread_counts(monkeypatch)
     problem = PROBLEMS["toric-X"]

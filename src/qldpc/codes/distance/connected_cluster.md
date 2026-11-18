@@ -497,9 +497,12 @@ The search returns the witness of the first item that has one, or else the witne
 It counts the states above the frontier before that witness in DFS order, the states of the earlier items, and the states of the item of the witness up to the witness, which is the count of one thread; without a witness, it counts every state.
 
 **When to split.**
-A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `num_threads * 2**information_set_batch_exponent` states, as many as the supports of a chunk of a BZ scan for each thread ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)).
-A split costs far fewer states than the gate, which reuses the chunk size of BZ scans, so the gate is conservative: lowering `information_set_batch_exponent` lets smaller limits split.
-By the predictions of [Section 3.5](#35-symmetries), a first limit that a `cutoff` sets above the weight divisor runs on threads, and a first limit at the divisor does not.
+A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `num_threads * 2**information_set_batch_exponent // 4` states, a quarter of the supports that each thread of a BZ scan on `num_threads` threads scans in one chunk ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)), since a state costs far more than a support.
+A split costs up to about a millisecond for each thread, in its frontier passes, the calls that search its items, and the start of the threads.
+At the default exponent, the gate is 8192 states for each thread, about one to a dozen milliseconds of work, so a limit that splits is predicted to cost at least about as much as its split; a limit that finds its witness early can cost less.
+Lowering `information_set_batch_exponent` lets smaller limits split.
+A first limit at the weight divisor is predicted to visit no states, so it runs on one thread.
+A first limit that a `cutoff` sets above the divisor is predicted to visit `MAX_VALUE - 1` states (`_predict_states`), so it runs on threads unless the gate reaches that, which happens only with four or more threads and an exponent near its maximum.
 
 **Syndrome queries.**
 A syndrome query ([Section 3.8](#38-vectors-with-a-given-syndrome)) runs on one thread.
@@ -528,7 +531,7 @@ The names below are in `_connected_cluster/search.py`, unless the table says oth
 | Logical test | `SupportSearch._get_tests`, and `_is_outside_excluded` |
 | Roots, ranks, and symmetries | `SupportSearch._use_automorphisms`, and `verify_automorphisms` and `get_orbits` of `_information_sets/automorphism_families.py` |
 | States, branching, and undoing what a state forbade when the search leaves it | `_search_supports`, whose `levels` mark the available symbols |
-| Weight limits on threads: the frontier, work items, replay, weighted claims, ordered commit, and when to split | `_search_on_threads`, `paths` and `frontier_depth` of `_search_supports`, `num_threads` and `split_minimum_states` of `SupportSearch`, and `run_work_items` of `_threads.py`; `num_threads` of `SearchTuning` in `_tuning.py` |
+| Weight limits on threads: the frontier, work items, replay, weighted claims, ordered commit, and when to split | `_search_on_threads`; `paths` and `frontier_depth` of `_search_supports`; `num_threads` and `split_minimum_states` of `SupportSearch`; the constructor of `ConnectedClusterSearch`, which computes the gate `split_minimum_states` from `information_set_batch_exponent` and `_SPLIT_GATE_SHIFT`; `run_work_items` of `_threads.py`; and `num_threads` and `information_set_batch_exponent` of `SearchTuning` in `_tuning.py` |
 | Batches of syndrome queries on threads | `_find_first_cluster_bound` and `_get_min_cluster_weights` of `CosetLeaderSearch` in `coset_leaders.py`, `ConnectedClusterCosetSearch._get_min_weight_bound_and_states` in `_connected_cluster/coset.py`, which counts the work of a query, and `run_blocks` of `_threads.py` |
 | Weights, pruning, and the symbols that a state forbids for its subtree | `_get_branches`, and `restrict_viable_symbols` of `SearchTuning` in `_tuning.py`, whose `False` turns that forbidding off |
 | Overlaps with known words: loads, capacities, and the symbols that they forbid | `_get_overlap_cuts`, `_shift_cut_loads`, `SupportSearch.use_query_overlap_words`, and `stabilizer_overlap_cuts` of `SearchTuning` in `_tuning.py`, whose `False` turns the cuts off; `ConnectedClusterCosetSearch.use_query_overlap_words` and the constructor of `CosetLeaderSearch` for queries |

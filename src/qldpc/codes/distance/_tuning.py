@@ -448,7 +448,9 @@ class SearchTuning:
     #: query does one unit, and one more for each word that it weighs after the word of its
     #: syndrome; with the connected-cluster method, it does one unit for each state that its
     #: searches visit.  A connected-cluster distance search keeps on one thread a weight limit that
-    #: it predicts to visit at most that many states (Section 3.11 of ``connected_cluster.md``).
+    #: it predicts to visit at most a quarter of
+    #: ``num_threads * 2**information_set_batch_exponent`` states, rounded down, since a state
+    #: costs far more than a support (Section 3.11 of ``connected_cluster.md``).
     #: At most 62.  Defaults to 15, a budget of interrupt latency on one thread, which grows with
     #: the number of threads.
     information_set_batch_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
@@ -464,10 +466,12 @@ class SearchTuning:
     #: numba's own count.  A distance search resolves ``None`` once, when it starts, and a
     #: ``CosetLeaderSearch`` when it is built.  A layer of a set runs on the calling thread alone
     #: unless it has at least three rows and more than
-    #: ``num_threads * 2**information_set_batch_exponent`` supports, a connected-cluster weight
-    #: limit unless it is predicted to visit more states than that, and a batch until its queries
-    #: have done as many units of work, in the units that ``information_set_batch_exponent``
+    #: ``num_threads * 2**information_set_batch_exponent`` supports, and a batch until its queries
+    #: have done that many units of work, in the units that ``information_set_batch_exponent``
     #: defines for each method (Section 4.5 of ``brouwer_zimmermann_code.md`` and Section 3.11 of
+    #: ``connected_cluster.md``).  A connected-cluster weight limit runs on the calling thread
+    #: alone unless it is predicted to visit more than a quarter of
+    #: ``num_threads * 2**information_set_batch_exponent`` states, rounded down (Section 3.11 of
     #: ``connected_cluster.md``).  Programs that run searches in several processes or threads at
     #: once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before Python starts.
     #: ``use_tuning(num_threads=1)`` caps a worker only if entered in the function that it runs,

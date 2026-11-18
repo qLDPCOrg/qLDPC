@@ -152,10 +152,13 @@ class ConnectedClusterSearch:
 
         # Keep a search of each sector with witnesses; a sector without witnesses only bounds the
         # result.  A weight limit runs on threads if it is predicted to visit more states than a
-        # chunk of a BZ scan has supports, for each thread (Section 3.11 of connected_cluster.md).
+        # quarter of the supports that each thread of a BZ scan on ``num_threads`` threads scans in
+        # one chunk (``_SPLIT_GATE_SHIFT``).
         tuning = get_tuning() if tuning is None else tuning
         num_threads = _threads.get_num_threads(tuning.num_threads)
-        split_minimum_states = num_threads << tuning.information_set_batch_exponent
+        split_minimum_states = (
+            num_threads << tuning.information_set_batch_exponent
+        ) >> _SPLIT_GATE_SHIFT
         self._cutoff = cutoff
         self._best_weight = upper_bound
         self._no_distance_bounds: list[int] = []
@@ -838,6 +841,14 @@ def _get_fixed_words(num_words: int) -> tuple[int, ...]:
 # claims of the threads, weighed by earlier states, can share the work (Section 3.11 of
 # connected_cluster.md).
 _ITEMS_PER_THREAD = 32
+
+# A distance search splits a weight limit across threads only if it predicts that the limit visits
+# more than ``(num_threads << information_set_batch_exponent) >> _SPLIT_GATE_SHIFT`` states, a
+# quarter of the supports that each thread of a BZ scan on ``num_threads`` threads scans in one
+# chunk, since a state costs far more than a support.  At the default exponent, a limit that splits
+# is then predicted to cost at least about as much as its split, though one that finds its witness
+# early can cost less (Section 3.11 of connected_cluster.md).
+_SPLIT_GATE_SHIFT = 2
 
 # Searches the work items of a weight limit, as ``_search_supports`` does: from roots, along paths,
 # and with a frontier depth.
