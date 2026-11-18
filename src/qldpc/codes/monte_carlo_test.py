@@ -338,6 +338,16 @@ def test_error_rate_func() -> None:
     assert np.asarray(func.truncation_error_bound([0.1, 0.2])).shape == (2,)
 
 
+def test_error_rate_func_of_0d_array() -> None:
+    """A 0-d array of physical error rates yields 0-d arrays, as its iterable overload says."""
+    counts = np.array([1, 10])
+    func = monte_carlo.ErrorRateFunc(counts, np.array([0, 1]), np.zeros(2, dtype=int), 3, 0.5)
+    rate, uncertainty = func(np.array(0.1))
+    bound = func.truncation_error_bound(np.array(0.1))
+    assert isinstance(rate, np.ndarray) and rate.shape == uncertainty.shape == bound.shape == ()
+    assert (rate, uncertainty) == func(0.1) and bound == func.truncation_error_bound(0.1)
+
+
 def _expected_rate_and_error(
     func: monte_carlo.ErrorRateFunc, error_rate: float, *, discard_rate: bool = False
 ) -> tuple[float, float]:

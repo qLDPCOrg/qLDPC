@@ -228,14 +228,18 @@ class ErrorRateFunc:
 
         Returns:
             The rate and its statistical uncertainty: two floats for one physical error rate, or two
-            one-dimensional arrays with one entry per physical error rate.  The logical error rate
-            is taken among kept shots (see help(ErrorRateFunc)), so if every shot is discarded at a
-            physical error rate, the logical error rate and its uncertainty are both NaN there, as
-            in qldpc.circuits.get_logical_error_and_discard_rate.
+            arrays with one entry per physical error rate, which are 0-d for a 0-d array.  The
+            logical error rate is taken among kept shots (see help(ErrorRateFunc)), so if every
+            shot is discarded at a physical error rate, the logical error rate and its uncertainty
+            are both NaN there, as in qldpc.circuits.get_logical_error_and_discard_rate.
 
         Raises:
             ValueError: If a physical error rate exceeds max_error_rate.
         """
+        if isinstance(error_rate, np.ndarray) and error_rate.ndim == 0:
+            # a 0-d array is an Iterable that cannot be iterated
+            values, errors = self(error_rate.reshape(1), discard_rate=discard_rate)
+            return values.reshape(()), errors.reshape(())
         if isinstance(error_rate, Iterable):
             results = [self(rate, discard_rate=discard_rate) for rate in error_rate]
             return (
@@ -295,6 +299,9 @@ class ErrorRateFunc:
         physical error rate or an iterable of them, and returns one bound or an array of them to
         match, as the constructed function itself does.
         """
+        if isinstance(error_rate, np.ndarray) and error_rate.ndim == 0:
+            # a 0-d array is an Iterable that cannot be iterated
+            return self.truncation_error_bound(error_rate.reshape(1)).reshape(())
         if isinstance(error_rate, Iterable):
             values = [self.truncation_error_bound(rate) for rate in error_rate]
             return np.array(values)
