@@ -5,11 +5,13 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import itertools
 import pathlib
 import pickle
 import random
 import re
+import textwrap
 import unittest.mock
 from typing import get_args
 
@@ -51,10 +53,15 @@ def test_quantum_tanner(pytestconfig: pytest.Config, tmp_path: pathlib.Path) -> 
     with pytest.raises(ValueError, match="different fields"):
         codes.QTCode(subset_a, subset_a, code_a, code_b)
 
-    # saving and loading a QTCode, creating a missing directory along the way
+    # saving and loading QTCodes on both complexes, with headers, creating a missing directory
+    cycle = abstract.GroupMember([1, 2, 0])
+    swaps = [abstract.GroupMember(image) for image in [[1, 0, 2], [2, 1, 0], [0, 2, 1]]]
+    bipartite_code = codes.QTCode([cycle, ~cycle], swaps, [[1, 1]], [[1, 1, 1]], bipartite=True)
     path = tmp_path / "subdirectory" / "code.txt"
-    code.save(str(path), "header")
-    assert codes.QTCode.load(str(path)) == code
+    for saved_code in [code, bipartite_code]:
+        saved_code.save(str(path), "header")
+        assert path.read_text().startswith("# header\n# subset_a:\n")
+        assert codes.QTCode.load(str(path)) == saved_code
     with pytest.raises(ValueError, match="Path does not exist"):
         codes.QTCode.load(str(tmp_path / "missing.txt"))
 
@@ -480,27 +487,192 @@ def get_c4_a4_code(local_checks: LocalChecks = "min_weight") -> codes.QTCode:
 
 
 def test_quantum_tanner_min_weight_regression() -> None:
-    """Minimum-weight local checks give a [[144, 8, 12]] code checks of weight 6."""
+    """Minimum-weight local checks give a [[144, 8, 12]] code with checks of weight 6."""
     code = get_c4_a4_code()
     assert (len(code), code.dimension) == (144, 8)
     assert code.get_weight() == 6
 
-    # the checks are deterministic, as a saved code relies on: pin those of the first vertices
-    expected_checks: dict[PauliXZ, list[list[int]]] = {
-        Pauli.X: [
-            [1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1],
-            [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-            [0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0],
-        ],
-        Pauli.Z: [
-            [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-            [1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1],
-            [0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1],
-        ],
-    }
-    for pauli, matrix in zip(expected_checks, [code.matrix_x, code.matrix_z]):
-        local_view = code.get_local_views(pauli)[0]
-        assert np.array_equal(matrix[:3][:, local_view.ravel()], expected_checks[pauli])
+
+def test_quantum_tanner_parity_check_regression(tmp_path: pathlib.Path) -> None:
+    """Saved files load with pinned parity check matrices.
+
+    For files that record a choice of local checks, QTCode.load promises to rebuild the same parity
+    check matrices in every later release, with the same order of checks and qudits (see
+    QTCode.load).  This test guards that promise.  It loads files that QTCode.save writes in this
+    release, given here as text, and pins the matrices of their codes, so it fails if a change to
+    how files are read, or to how codes are built from their data, changes these matrices.  The
+    codes are over GF(2) on both complexes, over GF(3) with each choice of local checks, and over
+    GF(4).  Each local check space of the "min_weight" codes has several minimum-weight bases, so
+    the pins also fix which one QTCode chooses.  The test also loads a file that 0.4.1 wrote, which
+    records no choice of local checks, and pins the "min_weight" checks that it loads with.  It also
+    loads that file with the last line "# conjugate: ()", which 0.0.11 to 0.0.17 wrote for codes
+    without conjugated qudits, and with "# bipartite: 1", which 0.4.1 wrote for a code built with
+    bipartite=1.
+    """
+
+    def get_digest(matrix: galois.FieldArray) -> tuple[tuple[int, ...], str]:
+        """The shape of a matrix over a field of order at most 256, and a hash of its entries."""
+        entries = matrix.view(np.ndarray).astype(np.uint8).tobytes()
+        return matrix.shape, hashlib.sha256(entries).hexdigest()[:16]
+
+    # a code over GF(2) on the bipartite complex of S_3, whose file is given below in this release's
+    # format, as 0.4.1 wrote it, and as 0.0.11 to 0.0.17 wrote it
+    digests_s3 = (((12, 24), "665216ea24e4f1c0"), ((12, 24), "a23deb3c02e0831d"))
+    file_text_041 = textwrap.dedent(
+        """\
+        # subset_a:
+        2 0 1
+        1 2 0
+        # subset_b:
+        2 1 0
+        1 0 2
+        0 1 2
+        0 2 1
+        # code_a.matrix:
+        1 1
+        # code_b.matrix:
+        1 1 1 0
+        0 1 1 1
+        # base field: 2
+        # bipartite: True
+        """
+    )
+
+    path = tmp_path / "code.txt"
+    for file_text, (digest_x, digest_z) in [
+        (
+            # GF(2), on the quadripartite complex of Z_6
+            """\
+            # subset_a:
+            1 2 3 4 5 0
+            3 4 5 0 1 2
+            5 0 1 2 3 4
+            # subset_b:
+            1 2 3 4 5 0
+            3 4 5 0 1 2
+            5 0 1 2 3 4
+            # code_a.matrix:
+            1 1 0
+            0 1 1
+            # code_b.matrix:
+            1 1 1
+            # local checks: min_weight
+            # code_a.generator: [[1, 1, 1]]
+            # code_b.generator: [[1, 1, 0], [0, 1, 1]]
+            # base field: 2
+            # bipartite: False
+            """,
+            (((12, 27), "b00585d05a7219f9"), ((12, 27), "d07562358f9a1120")),
+        ),
+        (
+            # GF(2), on the bipartite complex of S_3, with the 3-cycles in A, and the identity and
+            # the transpositions in B
+            """\
+            # subset_a:
+            1 2 0
+            2 0 1
+            # subset_b:
+            0 1 2
+            0 2 1
+            1 0 2
+            2 1 0
+            # code_a.matrix:
+            1 1
+            # code_b.matrix:
+            1 1 1 0
+            0 1 1 1
+            # local checks: min_weight
+            # code_a.generator: [[1, 1]]
+            # code_b.generator: [[1, 0, 1, 1], [0, 1, 1, 0]]
+            # base field: 2
+            # bipartite: True
+            """,
+            digests_s3,
+        ),
+        # the same code, as 0.4.1 wrote it, with no choice of local checks
+        (file_text_041, digests_s3),
+        # the same code, as 0.0.11 to 0.0.17 wrote it, with no conjugated qudits
+        (file_text_041 + "# conjugate: ()\n", digests_s3),
+        # the same code, as 0.4.1 wrote it if the code was built with bipartite=1
+        (file_text_041.replace("# bipartite: True", "# bipartite: 1"), digests_s3),
+        (
+            # GF(3), on the quadripartite complex of Z_4
+            """\
+            # subset_a:
+            1 2 3 0
+            2 3 0 1
+            3 0 1 2
+            # subset_b:
+            1 2 3 0
+            2 3 0 1
+            3 0 1 2
+            # code_a.matrix:
+            1 1 1
+            # code_b.matrix:
+            1 2 0
+            1 1 1
+            # local checks: min_weight
+            # code_a.generator: [[1, 2, 0], [1, 1, 1]]
+            # code_b.generator: [[1, 1, 1]]
+            # base field: 3
+            # bipartite: False
+            """,
+            (((16, 36), "a0a948a348718a44"), ((16, 36), "3a21b7d13b9ce30e")),
+        ),
+        (
+            # the same subsets and local codes with "from_codes", and generator matrices that are
+            # not the defaults, which give the X-type checks
+            """\
+            # subset_a:
+            1 2 3 0
+            2 3 0 1
+            3 0 1 2
+            # subset_b:
+            1 2 3 0
+            2 3 0 1
+            3 0 1 2
+            # code_a.matrix:
+            1 1 1
+            # code_b.matrix:
+            1 2 0
+            1 1 1
+            # local checks: from_codes
+            # code_a.generator: [[1, 2, 0], [1, 1, 1]]
+            # code_b.generator: [[2, 2, 2]]
+            # base field: 3
+            # bipartite: False
+            """,
+            (((16, 36), "15b0a39fa21e11be"), ((16, 36), "69cae8398f44678f")),
+        ),
+        (
+            # GF(4), on the quadripartite complex of the Klein group
+            """\
+            # subset_a:
+            1 0 3 2
+            2 3 0 1
+            3 2 1 0
+            # subset_b:
+            1 0 3 2
+            2 3 0 1
+            3 2 1 0
+            # code_a.matrix:
+            1 2 3
+            # code_b.matrix:
+            1 0 2
+            0 1 3
+            # local checks: min_weight
+            # code_a.generator: [[1, 0, 2], [0, 1, 3]]
+            # code_b.generator: [[1, 2, 3]]
+            # base field: 4
+            # bipartite: False
+            """,
+            (((16, 36), "0000e37ac9968dad"), ((16, 36), "b8f9705a40a9fe41")),
+        ),
+    ]:
+        path.write_text(textwrap.dedent(file_text))
+        code = codes.QTCode.load(str(path))
+        assert get_digest(code.matrix_x) == digest_x
+        assert get_digest(code.matrix_z) == digest_z
 
 
 def test_quantum_tanner_default_dual_code() -> None:
@@ -513,7 +685,7 @@ def test_quantum_tanner_default_dual_code() -> None:
 
 
 def test_quantum_tanner_default_local_checks(tmp_path: pathlib.Path) -> None:
-    """QTCodes choose minimum-weight local checks by default, also for files of earlier releases."""
+    """QTCodes choose minimum-weight local checks by default, also for files without a choice."""
     shift = abstract.CyclicGroup(4).generators[0]
     subset = [shift, ~shift, shift**2, shift**4]
     code_a = codes.ClassicalCode([[1, 0, 0, 0], [0, 1, 1, 0]])
@@ -535,8 +707,9 @@ def test_quantum_tanner_default_local_checks(tmp_path: pathlib.Path) -> None:
         members, members, code_a
     ) == codes.QTCode.from_ordered_members(members, members, code_a, local_checks="min_weight")
 
-    # Files saved by earlier releases record no choice of local checks and no generator matrices of
-    # the local codes, and load with minimum-weight local checks.
+    # Files saved by releases up to 0.4.1 and the dev releases 0.4.2.dev20261004 and
+    # 0.4.2.dev20261023 record no choice of local checks and no generator matrices of the local
+    # codes, and load with minimum-weight local checks.
     path = tmp_path / "code.txt"
     from_codes_code.save(str(path))
     lines = path.read_text().splitlines()
@@ -549,7 +722,7 @@ def test_quantum_tanner_default_local_checks(tmp_path: pathlib.Path) -> None:
     assert_same_row_space(loaded_code.matrix_x, code.matrix_x)
     assert_same_row_space(loaded_code.matrix_z, code.matrix_z)
 
-    for local_checks in ["row_reduced", None]:
+    for local_checks in ["row_reduced", " min_weight", None]:
         with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
             codes.QTCode(subset, subset, code_a, local_checks=local_checks)  # type: ignore[arg-type]
 
@@ -571,17 +744,14 @@ def test_quantum_tanner_saved_local_checks(tmp_path: pathlib.Path) -> None:
         assert np.array_equal(loaded_code.code_a.generator, code_a.generator)
         assert np.array_equal(loaded_code.code_b.generator, code_b.generator)
 
-    # Released versions of QTCode.load up to 0.4.1 read the lines of integers between comment lines
-    # as the subsets and local codes, and the field and complex from the last two lines.  The lines
-    # that record the choice of local checks are comment lines, so these versions ignore them.
+    # QTCode.load in releases 0.0.18 to 0.4.1 and the dev releases 0.4.2.dev20261004 and
+    # 0.4.2.dev20261023 reads the lines of integers between comment lines as the subsets and local
+    # codes, and the field and complex from the last two lines.  The lines that record the choice of
+    # local checks are comment lines, so these releases ignore them.
     lines = path.read_text().splitlines()
     assert lines[-2:] == ["# base field: 2", "# bipartite: False"]
     first, last = lines.index("# local checks: from_codes"), lines.index("# base field: 2")
     assert all(line.startswith("#") for line in lines[first:last])
-
-    # the choice of local checks given to load takes precedence over the saved one
-    min_weight_code = codes.QTCode(subset, subset, code_a, code_b, local_checks="min_weight")
-    assert codes.QTCode.load(str(path), local_checks="min_weight") == min_weight_code
 
     # loading fails clearly if one of the sections that choose the parity checks is missing
     lines = path.read_text().splitlines()
@@ -597,6 +767,83 @@ def test_quantum_tanner_saved_local_checks(tmp_path: pathlib.Path) -> None:
         for choice in LOCAL_CHECKS
     ]
     assert toric_codes[0] == toric_codes[1]
+
+
+def test_quantum_tanner_save_fields(tmp_path: pathlib.Path) -> None:
+    """QTCodes save only over default representations of fields, since files record only the order.
+
+    Over a field with another irreducible polynomial or primitive element, QTCode.load would read
+    the saved values in the default field, so QTCode.save raises before it writes anything.
+    """
+    shift = abstract.CyclicGroup(4).generators[0]
+    path = tmp_path / "subdirectory" / "code.txt"
+    for field in [
+        galois.GF(8, irreducible_poly="x^3 + x^2 + 1"),
+        galois.GF(8, primitive_element=3),
+        galois.GF(5, primitive_element=3),
+    ]:
+        code = codes.QTCode([shift, ~shift], [shift, ~shift], [[1, 2]], field=field)
+        with pytest.raises(ValueError, match="record only the order of the field"):
+            code.save(str(path))
+        assert not path.parent.exists()
+
+    # the default representation of an extension field saves and loads
+    code = codes.QTCode([shift, ~shift], [shift, ~shift], [[1, 2]], field=4)
+    code.save(str(path))
+    assert codes.QTCode.load(str(path)) == code
+
+
+def test_quantum_tanner_load_malformed(tmp_path: pathlib.Path) -> None:
+    """Malformed sections, unknown choices of local checks, and conjugated qudits fail to load.
+
+    Each raises a ValueError that names the problem.
+    """
+    shift = abstract.CyclicGroup(4).generators[0]
+    path = tmp_path / "code.txt"
+    codes.QTCode([shift, ~shift], [shift, ~shift], codes.RepetitionCode(2)).save(str(path))
+    text = path.read_text()
+
+    # values that do not parse as Python literals, have the wrong type, or do not fit in an array of
+    # integers are malformed
+    for name, value, malformed_value in [
+        ("base field", "2", "'GF(2)'"),
+        ("base field", "2", "{[]: 1}"),
+        # values nested too deeply for ast.literal_eval to parse
+        ("base field", "2", "1" + "+1" * 10**5),
+        ("base field", "2", "-" * 10**5 + "1"),
+        ("bipartite", "False", "'False'"),
+        # load reads a value after its name, not after the last colon as releases up to 0.4.1 did
+        ("code_a.generator", "[[1, 1]]", "[[1]]: [[1, 1]]"),
+        ("code_b.generator", "[[1, 1]]", "[[1.0, 1]]"),
+        ("code_b.generator", "[[1, 1]]", f"[[1, {10**30}]]"),
+    ]:
+        path.write_text(text.replace(f"# {name}: {value}", f"# {name}: {malformed_value}"))
+        with pytest.raises(ValueError, match=f"malformed '# {re.escape(name)}:'"):
+            codes.QTCode.load(str(path))
+
+    # so are rows that hold anything other than integers or have the wrong length, and rows of
+    # subsets that are not permutations
+    for name, row, malformed_row in [
+        ("code_a.matrix", "1 1", "1 x"),
+        ("code_a.matrix", "1 1", "1 1 1"),
+        ("subset_a", "1 2 3 0", "1 1 3 0"),
+    ]:
+        path.write_text(text.replace(f"# {name}:\n{row}\n", f"# {name}:\n{malformed_row}\n"))
+        with pytest.raises(ValueError, match=f"malformed '# {re.escape(name)}:'"):
+            codes.QTCode.load(str(path))
+
+    # an unrecognized choice of local checks is not read as a default
+    path.write_text(text.replace("# local checks: min_weight", "# local checks: row_reduced"))
+    with pytest.raises(ValueError, match="Unrecognized choice of local checks"):
+        codes.QTCode.load(str(path))
+
+    # a QTCode cannot conjugate qudits, so files of 0.0.11 to 0.0.17 that list conjugated qudits do
+    # not load
+    choice_lines = ("# local checks:", "# code_a.generator:", "# code_b.generator:")
+    lines = [line for line in text.splitlines() if not line.startswith(choice_lines)]
+    path.write_text("\n".join(lines) + "\n# conjugate: [0, 5]\n")
+    with pytest.raises(ValueError, match="conjugates qudits"):
+        codes.QTCode.load(str(path))
 
 
 def test_quantum_tanner_without_checks() -> None:
