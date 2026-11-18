@@ -16,7 +16,18 @@ from qldpc._binary import pack_bits
 
 from ..conftest import Tune
 from . import _brute_force
-from .conftest import count_set_bits
+
+
+def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
+    """Return per-word bit counts, computed bit by bit as an independent reference for popcounts."""
+    val = np.asarray(val)
+    nbits = 8 * val.itemsize
+    out = np.empty_like(val)
+    for indices in np.ndindex(val.shape):
+        ival = int(val[indices])
+        out[indices] = sum(ival >> i & 1 for i in range(nbits))
+
+    return out
 
 
 @pytest.mark.parametrize("batch_exponent", [1, 3, 13])

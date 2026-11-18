@@ -34,9 +34,7 @@ from .conftest import (
     METHODS,
     SWEL_MATRIX,
     Counts,
-    append_frozen_qubits,
     enumerate_logical_ops,
-    get_expected_counts,
     get_random_css_code,
 )
 
@@ -767,6 +765,25 @@ def _assert_reduced(checks: npt.NDArray[np.uint8], matrix: npt.ArrayLike) -> Non
 
 ####################################################################################################
 # helpers
+
+
+def append_frozen_qubits(
+    checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Append qubits fixed in |0> by a Z check each.  No logical of minimum weight touches them."""
+    x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
+    extra = width - x.shape[1]
+    padded_x = np.pad(x, ((0, 0), (0, extra)))
+    padded_z = np.vstack(
+        [np.pad(z, ((0, 0), (0, extra))), np.hstack([np.zeros((extra, z.shape[1])), np.eye(extra)])]
+    ).astype(np.uint8)
+    return padded_x, padded_z
+
+
+def get_expected_counts(code: codes.CSSCode) -> lc.CSSLogicalCounts:
+    """Counts at the distance, including full Pauli operators, from an independent enumeration."""
+    counts_x, counts_z, distance, full = enumerate_logical_ops(code)
+    return Counts(distance, counts_x[distance], counts_z[distance], full)
 
 
 def _random_subsystem_code(

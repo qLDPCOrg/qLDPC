@@ -31,9 +31,10 @@ from . import logical_counts as lc
 from ._brouwer_zimmermann import distance as bz
 from ._connected_cluster import search as connected_cluster
 from ._counting import scan
-from ._information_sets import basis_families, certificates
+from ._information_sets import basis_families
 from .conftest import (
     MISSED_SET_CODE,
+    THREAD_TIMEOUT,
     CostlyStages,
     get_binary_matrix,
     get_random_css_code,
@@ -75,7 +76,7 @@ def test_new_threads_start_with_the_default_tuning() -> None:
         _tuning.use_tuning(max_information_sets=4),
         concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor,
     ):
-        worker_tuning = executor.submit(_tuning.get_tuning).result()
+        worker_tuning = executor.submit(_tuning.get_tuning).result(timeout=THREAD_TIMEOUT)
         assert worker_tuning == (_tuning.get_tuning() if inherits else _tuning.DEFAULT_TUNING)
         assert _tuning.get_tuning().max_information_sets == 4
 
@@ -161,11 +162,10 @@ def test_tunings_are_validated() -> None:
 def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> None:
     """Exact distances and counts are the same under tunings that take different routes.
 
-    By default, and with every threshold below at ``MAX_VALUE``, the distance searches of this code
-    scan one information set.  With every threshold below at zero, the distance searches take a
-    family of overlapping information sets, whose certificate ends them during setup, and the counts
-    scan families found by matroid partitioning.  No route uses completion tables, which the tests
-    of ``_brouwer_zimmermann/distance_test.py`` force instead.
+    With every threshold below at zero, matroid partitioning finds overlapping information sets for
+    some search, and some search bounds unvisited words by linear programming.  By default, and with
+    every threshold at ``MAX_VALUE``, neither happens.  The tests of
+    ``_brouwer_zimmermann/distance_test.py`` force completion tables.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
@@ -178,9 +178,10 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
         "macwilliams_shared_walk_rank": 0,
     }
     reluctant = dict.fromkeys(eager, _tuning.MAX_VALUE)
-    results, partitioned = [], []
+    results, partitioned, solves_programs = [], [], []
     for changes in ({}, eager, reluctant):
         costly_stages.partitioned_families.clear()
+        costly_stages.search_certificates.clear()
         with _tuning.use_tuning(**changes):
             # New codes and counters, since codes and counters remember their distances.
             fresh = codes.CSSCode(code.matrix_x, code.matrix_z)
@@ -201,8 +202,11 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
                 for family in costly_stages.partitioned_families
             )
         )
+        solves_programs.append(
+            any(certificate.pivot_blocks for certificate in costly_stages.search_certificates)
+        )
     assert results[0] == results[1] == results[2]
-    assert partitioned == [False, True, False]
+    assert partitioned == solves_programs == [False, True, False]
 
 
 def test_limits_on_partitioned_coverage_change_routes_but_not_results(
@@ -321,21 +325,12 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     """Distance searches and counts pass the values of their tuning to the code that uses them.
 
     Tuning keeps results, so recording the arguments of each reader is what shows that a value
-    arrives.  The tuning takes every route, with values that differ from the defaults.  Fields that
-    this test does not follow are read in one of two ways.  Some are read within one function from
-    the tuning that it receives, and their tests in ``_information_sets/completion_bounds_test.py``,
-    ``_information_sets/basis_families_test.py``, and ``_auto_test.py`` change them there.  Among
-    them, ``sector_maps`` is read by ``_search_css``, and ``core_test.py`` switches it.  Others are
-    read once by ``CosetLeaderSearch``, which passes their values down to its coset searches:
-    ``max_css_single_pairs`` and ``max_sparsifying_rounds``.  Tests in ``coset_leaders_test.py``,
-    ``_brouwer_zimmermann/coset_test.py``, and ``_connected_cluster/coset_test.py`` change or record
-    these, and the fields that the oracle passes down to the routes of its BZ searches.  The
+    arrives.  Each field that this test follows differs from its default.  Fields that this test
+    does not follow, such as those of completion tables, are tested where they are read.  The
     connected-cluster distance search of the subsystem code with X-type gauge generator [1, 1, 0]
     and Z-type gauge generators [0, 1, 1] and [1, 0, 0] shows that
     ``max_distance_sparsifying_rounds`` and ``sparsifying_rounds_without_improvement`` reach
-    ``get_sparser_rows``.  The last part of this test follows ``automorphism_minimum_layer_work``,
-    ``automorphism_orbit_bounds``, and ``lp_dual_max_denominator`` into the program over orbits of
-    a BZ distance search.
+    ``get_sparser_rows``.
     """
     seen: dict[str, list[Any]] = collections.defaultdict(list)
 
@@ -354,7 +349,12 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     record(basis_families, "_get_disjoint_sets", "random_column_orders")
     record(basis_families, "get_overlapping_family_policy", "tuning", prefix="overlapping ")
     record(basis_families, "get_partitioned_family", "tuning")
-    record(basis_families.BasisFamily, "get_search_certificate", "lp_max_denominator")
+    record(
+        basis_families.BasisFamily,
+        "get_search_certificate",
+        "lp_minimum_work",
+        "lp_max_denominator",
+    )
     record(core, "get_nested_distance_brute_force", "batch_exponent", prefix="core ")
     record(lc, "get_nested_distance_brute_force", "batch_exponent", prefix="count ")
     record(lc.CSSLogicalCounter, "_count_with_macwilliams", "shared_walk_rank", "chunk_size")
@@ -364,6 +364,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "__init__",
         "automorphism_minimum_states",
         "restrict_viable_symbols",
+        "stabilizer_overlap_cuts",
+        "pair_sum_checks",
     )
     record(core, "get_sparser_rows", "max_rounds", "rounds_without_improvement")
     record(core, "is_cheap_to_enumerate", "tuning", prefix="auto ")
@@ -393,6 +395,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         macwilliams_shared_walk_rank=5,
         automorphism_minimum_states=7,
         restrict_viable_symbols=False,
+        stabilizer_overlap_cuts=False,
+        pair_sum_checks=False,
         max_distance_sparsifying_rounds=4,
         sparsifying_rounds_without_improvement=2,
         auto_brute_force_max_words=0,
@@ -413,6 +417,7 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "random_column_orders": {5},
         "overlapping tuning": {tuning},
         "tuning": {tuning},
+        "lp_minimum_work": {0},
         "lp_max_denominator": {97},
         "core batch_exponent": {6},
         "count batch_exponent": {6},
@@ -421,6 +426,8 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "max_chunks": {3},
         "automorphism_minimum_states": {7},
         "restrict_viable_symbols": {False},
+        "stabilizer_overlap_cuts": {False},
+        "pair_sum_checks": {False},
         "max_rounds": {4},
         "rounds_without_improvement": {2},
         "auto tuning": {tuning},
@@ -442,42 +449,3 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(numba.config, "NUMBA_NUM_THREADS", 3)
     bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
     assert seen["search"] and all(search[1] == 3 for search in seen["search"])
-
-    # A search that gets automorphisms solves its program over orbits with the denominators of its
-    # tuning, and the images of its blocks finish the search when it asks for automorphisms, without
-    # a switch (Section 3.7 of brouwer_zimmermann.md).  Without automorphism_orbit_bounds, it solves
-    # none, and still switches to an automorphism family and finds the distance.
-    denominators = []
-    switches = []
-    get_lp_lower_bound = certificates.get_lp_lower_bound
-    switch = bz._SectorSearch._switch_to_automorphism_family
-
-    def recording_switch(search: bz._SectorSearch) -> None:
-        switch(search)
-        switches.append((search.uses_automorphism_family, search.finished))
-
-    def recording_lp(
-        pivot_blocks: Any, requirements: Any, max_denominator: int, column_orbits: Any
-    ) -> int:
-        if column_orbits:
-            denominators.append(max_denominator)
-        return get_lp_lower_bound(pivot_blocks, requirements, max_denominator, column_orbits)
-
-    monkeypatch.setattr(certificates, "get_lp_lower_bound", recording_lp)
-    monkeypatch.setattr(bz._SectorSearch, "_switch_to_automorphism_family", recording_switch)
-    for orbit_bounds in (True, False):
-        denominators.clear()
-        switches.clear()
-        with _tuning.use_tuning(
-            automorphism_minimum_layer_work=20_000,
-            lp_dual_max_denominator=97,
-            automorphism_orbit_bounds=orbit_bounds,
-        ):
-            distance = bz.get_distance_brouwer_zimmermann(
-                [get_sector(bb_code, Pauli.X)],
-                cutoff=0,
-                get_automorphisms=bb_code._get_permutation_automorphisms,
-            )
-        assert distance == 6
-        assert set(denominators) == ({97} if orbit_bounds else set())
-        assert switches == [(False, True) if orbit_bounds else (True, False)]

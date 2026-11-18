@@ -30,6 +30,7 @@ from ..conftest import (
     RANK_DEFICIENT_CODE,
     ROUTED_CSS_WEIGHT_STATE,
     ROUTED_PHYSICAL_STATES,
+    THREAD_TIMEOUT,
     TWO_FAMILIES_CODE,
     assert_exact_answers,
     get_binary_matrix,
@@ -1254,7 +1255,7 @@ def test_an_earlier_heavy_coset_that_ends_last_is_the_answer(
         start = _get_row(syndromes, batch)
         # The calling thread first searches row 0 alone, in a call that starts at row 0.
         if 0 < start <= 2 < start + len(syndromes):
-            assert later_done.wait(10)
+            assert later_done.wait(THREAD_TIMEOUT)
         answer = compiled(syndromes, *args)
         if 0 < start <= 40 < start + len(syndromes):
             later_done.set()
@@ -1304,10 +1305,10 @@ def test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer(
         start = _get_row(syndromes, batch)
         if 0 < start <= 2 < start + len(syndromes):
             finders.append(threading.get_ident())
-            assert started_40.wait(10)
+            assert started_40.wait(THREAD_TIMEOUT)
         if 0 < start <= 40 < start + len(syndromes):
             started_40.set()
-            assert recorded_2.wait(10)
+            assert recorded_2.wait(THREAD_TIMEOUT)
         return compiled(syndromes, *args)
 
     monkeypatch.setattr(coset._threads, "run_work_items", run_and_watch_ranges)
@@ -1336,10 +1337,10 @@ def test_the_word_of_an_earlier_heavy_coset_survives_a_later_search(
         if 0 < start <= 2 < start + len(syndromes):
             answer = compiled(syndromes, *args)
             returned_2.set()
-            assert returned_40.wait(10)
+            assert returned_40.wait(THREAD_TIMEOUT)
             return answer
         if 0 < start <= 40 < start + len(syndromes):
-            assert returned_2.wait(10)
+            assert returned_2.wait(THREAD_TIMEOUT)
             answer = compiled(syndromes, *args)
             returned_40.set()
             return answer
@@ -1448,7 +1449,7 @@ def test_each_worker_searches_with_its_own_copy_of_the_planning_buffer(
         calls.append((threading.get_ident(), args[6]))
         start = _get_row(syndromes, batch)
         if start == 1:
-            assert other_searched.wait(10)
+            assert other_searched.wait(THREAD_TIMEOUT)
         elif start > 1:
             other_searched.set()
         return compiled(syndromes, *args)
@@ -1491,7 +1492,7 @@ def test_threads_stop_within_their_ranges_after_an_exception(
         row = _get_row(syndromes, batch)
         calls.append((row, threading.get_ident()))
         if row == 1:
-            assert stops[0].wait(10)
+            assert stops[0].wait(THREAD_TIMEOUT)
         elif row > 1:
             raise ValueError("a later block")
         return compiled(syndromes, *args)

@@ -23,7 +23,8 @@ from ..conftest import (
     HAND_Z,
     METHODS,
     CostlyStages,
-    assert_counts_match_enumeration,
+    Counts,
+    enumerate_logical_ops,
     get_random_css_code,
     get_sector,
 )
@@ -361,3 +362,17 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
     depth, lighter = count_chunk(*arguments, prefixes, 0, 4, *options, False, *table_arguments)
     assert (depth, lighter) == (-1, False)
     assert histogram.sum() == 1
+
+
+####################################################################################################
+# helpers
+
+
+def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: Any) -> None:
+    """Check the counts at every weight, and the Pauli counts at the distance, by enumeration."""
+    counts_x, counts_z, distance, full = enumerate_logical_ops(counter.code)
+    for weight in range(counter.num_qubits + 1):
+        result = counter.count_logical_ops(weight, **options)
+        assert (result.count_x, result.count_z) == (counts_x[weight], counts_z[weight])
+    expected = Counts(distance, counts_x[distance], counts_z[distance], full)
+    assert counter.count_logical_ops(count_pauli=True, **options) == expected

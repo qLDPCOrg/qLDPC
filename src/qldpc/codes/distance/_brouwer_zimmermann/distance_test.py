@@ -32,6 +32,7 @@ from .._information_sets import basis_families, certificates, completion_bounds,
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from ..conftest import (
     MISSED_SET_CODE,
+    THREAD_TIMEOUT,
     CostlyStages,
     check_shared_arrays_on_threads,
     get_costly_basis,
@@ -840,6 +841,36 @@ def test_images_of_blocks_bound_a_search_once_it_has_automorphisms(
     assert instance.certificate.weight_divisor == 2
     assert lower_bound == 2 * math.ceil(math.ceil(result.fun - 1e-9) / 2)
     assert switched == (lower_bound < 6)
+
+
+@pytest.mark.usefixtures("switch_before_any_layer")
+@pytest.mark.parametrize("orbit_bounds", [True, False])
+def test_searches_solve_the_program_over_orbits_as_their_tuning_says(
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, orbit_bounds: bool
+) -> None:
+    """A search with automorphisms solves its program over orbits with the tuning's denominators.
+
+    Without ``automorphism_orbit_bounds``, it solves no such program, and still finds the distance
+    of the [[72, 12, 6]] bivariate bicycle code of Bravyi et al., Nature 627, 778 (2024).
+    """
+    tune(lp_dual_max_denominator=97, automorphism_orbit_bounds=orbit_bounds)
+    denominators: list[int] = []
+    get_lp_lower_bound = certificates.get_lp_lower_bound
+
+    def recording_lp(
+        pivot_blocks: Any, requirements: Any, max_denominator: int, column_orbits: Any = ()
+    ) -> int:
+        if column_orbits:
+            denominators.append(max_denominator)
+        return get_lp_lower_bound(pivot_blocks, requirements, max_denominator, column_orbits)
+
+    monkeypatch.setattr(certificates, "get_lp_lower_bound", recording_lp)
+    code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
+    distance = bz.get_distance_brouwer_zimmermann(
+        [get_sector(code, Pauli.X)], cutoff=0, get_automorphisms=code._get_permutation_automorphisms
+    )
+    assert distance == 6
+    assert set(denominators) == ({97} if orbit_bounds else set())
 
 
 def test_stepped_searches_use_the_tuning_that_they_are_given(
@@ -1851,11 +1882,11 @@ def test_searches_on_threads_stop_at_the_cutoff_within_a_layer(
                 if not (gated and start > witness_index):
                     # The range of the witness waits until another thread holds a later range.
                     if gated and witness_index < end:
-                        assert later_claimed.wait(timeout=10)
+                        assert later_claimed.wait(timeout=THREAD_TIMEOUT)
                     run_range(start, end)
                     return
                 later_claimed.set()
-                assert stop.wait(timeout=10)
+                assert stop.wait(timeout=THREAD_TIMEOUT)
                 thread = threading.get_ident()
                 scans_before = sum(scan.thread == thread for scan in item_scans)
                 run_range(start, end)
@@ -1949,13 +1980,13 @@ def test_an_error_on_a_thread_stops_a_search_on_threads(
 
     def failing_scan(*args: Any) -> tuple[int, int, int, int, int]:
         if threading.get_ident() != calling_thread:
-            assert scanning.wait(timeout=10)
+            assert scanning.wait(timeout=THREAD_TIMEOUT)
             failed.set()
             raise ValueError("failed")
         # The scan from depth -1 before the threads start returns at once.
         if args[7] >= 0:
             scanning.set()
-            assert failed.wait(timeout=10)
+            assert failed.wait(timeout=THREAD_TIMEOUT)
         return scan_set_items(*args)
 
     monkeypatch.setattr(affine_search, "scan_set_items", failing_scan)

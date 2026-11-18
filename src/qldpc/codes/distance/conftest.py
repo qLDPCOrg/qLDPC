@@ -26,6 +26,10 @@ from ._binary import get_nested_code_basis
 from ._information_sets import basis_families, certificates
 from .coset_leaders import CosetLeaderSearch
 
+# How long, in seconds, a test waits for another thread, so that a deadlock fails the test rather
+# than hangs it.
+THREAD_TIMEOUT = 10
+
 
 @pytest.fixture
 def plain_search_setup() -> None:
@@ -136,18 +140,6 @@ def get_random_full_rank_matrix(
             return matrix
 
 
-def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
-    """Return per-word bit counts, computed bit by bit as an independent reference for popcounts."""
-    val = np.asarray(val)
-    nbits = 8 * val.itemsize
-    out = np.empty_like(val)
-    for indices in np.ndindex(val.shape):
-        ival = int(val[indices])
-        out[indices] = sum(ival >> i & 1 for i in range(nbits))
-
-    return out
-
-
 def assert_certificate_bounds_unvisited_words(
     basis: npt.NDArray[np.uint8], family: basis_families.BasisFamily
 ) -> None:
@@ -204,24 +196,6 @@ def assert_certificate_bounds_unvisited_words(
 
 Counts = lc.CSSLogicalCounts
 METHODS: tuple[lc.LogicalCountMethod, ...] = ("brouwer_zimmermann", "brute_force")
-
-
-def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
-    """Binary rows whose bit j is bit j of each integer."""
-    return np.array([[value >> jj & 1 for jj in range(width)] for value in values], dtype=np.uint8)
-
-
-def append_frozen_qubits(
-    checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Append qubits fixed in |0> by a Z check each.  No logical of minimum weight touches them."""
-    x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
-    extra = width - x.shape[1]
-    padded_x = np.pad(x, ((0, 0), (0, extra)))
-    padded_z = np.vstack(
-        [np.pad(z, ((0, 0), (0, extra))), np.hstack([np.zeros((extra, z.shape[1])), np.eye(extra)])]
-    ).astype(np.uint8)
-    return padded_x, padded_z
 
 
 def get_random_css_code(
@@ -314,27 +288,12 @@ def enumerate_logical_ops(code: codes.CSSCode) -> tuple[list[int], list[int], in
     return counts_x, counts_z, distance, full
 
 
-def get_expected_counts(code: codes.CSSCode) -> lc.CSSLogicalCounts:
-    """Counts at the distance, including full Pauli operators, from an independent enumeration."""
-    counts_x, counts_z, distance, full = enumerate_logical_ops(code)
-    return Counts(distance, counts_x[distance], counts_z[distance], full)
-
-
-def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: Any) -> None:
-    """Check the counts at every weight, and the Pauli counts at the distance, by enumeration."""
-    counts_x, counts_z, distance, full = enumerate_logical_ops(counter.code)
-    for weight in range(counter.num_qubits + 1):
-        result = counter.count_logical_ops(weight, **options)
-        assert (result.count_x, result.count_z) == (counts_x[weight], counts_z[weight])
-    expected = Counts(distance, counts_x[distance], counts_z[distance], full)
-    assert counter.count_logical_ops(count_pauli=True, **options) == expected
-
-
 # X checks {0,1,2,3,4} and {2,4}, and Z checks {1,2,3,4} and {0,1}, on five qubits.  By hand, the
 # distance is two, the X-only logicals of weight two are {2,3} and {3,4}, and the Z-only ones are
 # {2,4}, {0,3} and {1,3}.  The Z word {2,4} also supports the X stabilizer {2,4}, so in total there
 # are 2 + 3 + 1 = 6 logical Pauli operators of weight two.
-HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
+HAND_X = get_binary_matrix(["11111", "00101"])
+HAND_Z = get_binary_matrix(["01111", "11000"])
 
 # The matrix by which the SWEL-preserving Clifford acts on X and on Z supports.
 SWEL_MATRIX = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
@@ -587,6 +546,9 @@ _RUNNING_WORKERS = threading.local()
 _CHECKED_RUNS = [0]
 _CHECKED_RUNS_LOCK = threading.Lock()
 
+# The ``__call__`` that numba's dispatchers define themselves, or None, while the check replaces it.
+_OWN_CALL: list[Any] = [None]
+
 
 @contextlib.contextmanager
 def _running_worker() -> Iterator[None]:
@@ -633,14 +595,13 @@ def _checking_numba_calls() -> Iterator[None]:
         with _CHECKED_RUNS_LOCK:
             _CHECKED_RUNS[0] -= 1
             if not _CHECKED_RUNS[0]:
+                # Numba's Dispatcher inherits __call__ from a type of numba's C extension, so no
+                # test reaches the branch that restores a __call__ of its own, which a later numba
+                # could define.
                 if _OWN_CALL[0] is None:
                     del dispatcher.__call__
                 else:
                     dispatcher.__call__ = _OWN_CALL[0]  # type: ignore[method-assign]
-
-
-# The ``__call__`` that numba's dispatchers define themselves, or None, while the check replaces it.
-_OWN_CALL: list[Any] = [None]
 
 
 class _CheckedTuning:

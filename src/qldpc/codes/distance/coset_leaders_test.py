@@ -25,6 +25,7 @@ from ._tuning import use_tuning
 from .conftest import (
     ROUTED_CSS_WEIGHT_STATE,
     ROUTED_PHYSICAL_STATES,
+    THREAD_TIMEOUT,
     assert_exact_answers,
     get_exhaustive_minima,
     get_graph_state,
@@ -913,7 +914,9 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
 
             def gated_range(start: int, end: int) -> None:
                 if start == 0:
-                    assert (later_ran if later_first else later_started).wait(timeout=10)
+                    assert (later_ran if later_first else later_started).wait(
+                        timeout=THREAD_TIMEOUT
+                    )
                 run_range(start, end)
                 (later_ran if start else first_ran).set()
 
@@ -926,7 +929,7 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
     ) -> tuple[MinWeightBound, int]:
         if not later_first and syndrome not in syndromes[:2]:
             later_started.set()
-            assert first_ran.wait(timeout=10)
+            assert first_ran.wait(timeout=THREAD_TIMEOUT)
         return get_bound(search, syndrome, max_weight)
 
     monkeypatch.setattr(_threads, "run_work_items", gated_run)

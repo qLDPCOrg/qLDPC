@@ -24,7 +24,12 @@ from qldpc.objects import PAULIS_XZ, Pauli
 
 from ...conftest import Tune
 from .. import _tuning
-from ..conftest import check_shared_arrays_on_threads, get_golay_checks, get_span
+from ..conftest import (
+    THREAD_TIMEOUT,
+    check_shared_arrays_on_threads,
+    get_golay_checks,
+    get_span,
+)
 from ..core import get_distance_css, get_distance_pauli
 from . import search as cs
 from .sparse_checks import get_light_pair_sums, get_row_weights
@@ -1703,7 +1708,9 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
 
             def gated_range(start: int, end: int) -> None:
                 if start == 0:
-                    assert (later_ran if later_first else later_started).wait(timeout=10)
+                    assert (later_ran if later_first else later_started).wait(
+                        timeout=THREAD_TIMEOUT
+                    )
                 run_range(start, end)
                 (later_ran if start else first_ran).set()
 
@@ -1715,7 +1722,7 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
         roots = signature.bind(*args, **kwargs).arguments["roots"]
         if not later_first and len(roots) and roots[0] != 0:
             later_started.set()
-            assert first_ran.wait(timeout=10)
+            assert first_ran.wait(timeout=THREAD_TIMEOUT)
         return search_supports(*args, **kwargs)
 
     problem = (np.zeros((0, 100), dtype=np.uint8), np.zeros((0, 100), dtype=np.uint8))
@@ -1764,7 +1771,7 @@ def test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit(
             def gated_range(start: int, end: int) -> None:
                 ranges.append((start, end))
                 if start == 0:
-                    assert later_started.wait(timeout=10)
+                    assert later_started.wait(timeout=THREAD_TIMEOUT)
                 try:
                     run_range(start, end)
                 finally:
@@ -1785,7 +1792,9 @@ def test_a_range_on_threads_stops_after_an_earlier_item_ends_the_limit(
                 # Count the items that the search ran, which a search may end early.
                 later_roots.append(int(roots[0]))
                 later_started.set()
-                assert (first_ran if ends_by == "witness" else stops[0]).wait(timeout=10)
+                assert (first_ran if ends_by == "witness" else stops[0]).wait(
+                    timeout=THREAD_TIMEOUT
+                )
                 result = search_supports(*args, **kwargs)
                 later_items.append(len(result[1]))
                 return result

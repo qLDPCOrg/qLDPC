@@ -105,7 +105,7 @@ From the top:
 
 A top-level module or subpackage imports only from lower levels, and a module also from its own subpackage.
 `_layering_test.py` checks this.
-Within a subpackage, the layering below is a convention.
+Within a subpackage, the modules import each other in the layers below, which the `_layering_test.py` of the subpackage checks.
 In `_information_sets/`, `basis_families` builds on `certificates` and `matroid_partition`, `automorphism_families` on `basis_families` and `certificates`, and `completion_bounds` on `certificates`.
 In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, and `coset` also on `coset_routes` and `coset_tables`.
 `coset_routes` builds on `coset_tables`, and both build on `affine_instance`.
@@ -338,7 +338,7 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   `python checks/pytest_.py src/qldpc/codes/distance` runs the tests.
   `python checks/coverage_.py src/qldpc/codes/distance/<module>.py` checks one module's coverage.
   The validation commands in `docs/source/contributing/index.rst` list the other checks.
-- `conftest.py` holds the fixtures and helpers that several test files share, such as a check of counts against brute-force enumeration.
+- `conftest.py` holds the fixtures and helpers that several test files share, such as `enumerate_logical_ops`, which counts logical operators by enumeration.
 - Coverage cannot trace compiled code, so the coverage check runs compiled functions as plain Python, and CI runs these tests again with them compiled (see `docs/source/contributing/standards/testing.rst`).
 - `python -m pytest src/qldpc/codes/distance --compile-search-setup` runs the tests with the set-up code of searches compiled.
   Some tests request the `plain_search_setup` fixture of `conftest.py`, whose docstring says which tests need it.
@@ -350,4 +350,4 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
   `test_nothing_asks_numba_for_parallel_code` of `src/qldpc/_compiled_code_rules_test.py` checks that no function of qLDPC is compiled with numba's `parallel` option.
   Four tests on threads, which Section 5 of each guide names, run with every array of their search read-only, through `check_shared_arrays_on_threads` or `shared_arrays_read_only` of `conftest.py`, so that numba rejects a write to one in any branch of compiled code.
   Section 5 of each guide lists the writes that this misses, which review checks.
-- `_readme_test.py` fails if this page omits a module, or names a file that does not exist.
+- `_readme_test.py` fails if "Where to look" omits a module, if "Layout" omits a top-level module or subpackage, or if this page names a file that does not exist.
