@@ -10,7 +10,6 @@ import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any, NamedTuple
 
-import galois
 import numba
 import numpy as np
 import numpy.typing as npt
@@ -19,7 +18,7 @@ import stim
 
 from qldpc import _compilation, codes, math
 from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import PauliXZ
 
 from . import _threads, _tuning
 from . import logical_counts as lc
@@ -282,19 +281,23 @@ def get_span(rows: npt.ArrayLike) -> set[int]:
 
 
 def enumerate_logical_ops(code: codes.CSSCode) -> tuple[list[int], list[int], int, int]:
-    """Count logical operators by enumerating the normalizers, using CSSCode's stabilizers.
+    """Count logical operators by enumerating the stabilizers and normalizers by brute force.
 
     Returns the X-only and Z-only counts at every weight, the distance, and the number of nontrivial
     logical operators of any type at the distance.
     """
-    num_qubits = len(code)
-    normalizers = []
-    for stabilizers in (code.get_stabilizer_ops(Pauli.Z), code.get_stabilizer_ops(Pauli.X)):
-        field = galois.GF(2)
-        kernel = field(stabilizers).null_space() if len(stabilizers) else field.Identity(num_qubits)
-        normalizers.append(get_span(kernel))
-    normal_x, normal_z = normalizers
+
+    def commute(word: int, others: set[int]) -> bool:
+        return all(not (word & other).bit_count() & 1 for other in others)
+
+    # The stabilizers are the gauge operators that commute with every gauge operator of the other
+    # type, and a normalizer holds the words that commute with every stabilizer of the other type.
     gauge_x, gauge_z = get_span(code.matrix_x), get_span(code.matrix_z)
+    stabilizers_x = {word for word in gauge_x if commute(word, gauge_z)}
+    stabilizers_z = {word for word in gauge_z if commute(word, gauge_x)}
+    num_qubits = len(code)
+    normal_x = {word for word in range(1 << num_qubits) if commute(word, stabilizers_z)}
+    normal_z = {word for word in range(1 << num_qubits) if commute(word, stabilizers_x)}
     counts_x, counts_z = [0] * (num_qubits + 1), [0] * (num_qubits + 1)
     for word in normal_x - gauge_x:
         counts_x[word.bit_count()] += 1
@@ -332,6 +335,9 @@ def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: An
 # {2,4}, {0,3} and {1,3}.  The Z word {2,4} also supports the X stabilizer {2,4}, so in total there
 # are 2 + 3 + 1 = 6 logical Pauli operators of weight two.
 HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
+
+# The matrix by which the SWEL-preserving Clifford acts on X and on Z supports.
+SWEL_MATRIX = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
 
 
 ####################################################################################################
