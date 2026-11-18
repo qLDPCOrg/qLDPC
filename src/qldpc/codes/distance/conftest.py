@@ -3,6 +3,7 @@
 """Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
 import contextlib
+import dataclasses
 import itertools
 import threading
 import warnings
@@ -146,6 +147,57 @@ def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
         out[indices] = sum(ival >> i & 1 for i in range(nbits))
 
     return out
+
+
+def assert_certificate_bounds_unvisited_words(
+    basis: npt.NDArray[np.uint8], family: basis_families.BasisFamily
+) -> None:
+    """Check that each step's certificate bounds every word that no search basis has visited.
+
+    A search basis visits a word after layer ``t`` if the word combines at most ``t`` of its rows.
+    The check covers the family's certificate, with and without the bounds of linear programming.
+    Also check the weight divisor, and that ``certifies`` agrees with each step's bound.
+    """
+
+    def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
+        return {
+            (np.asarray(bits) @ generators % 2).astype(np.uint8).tobytes(): sum(bits)
+            for bits in itertools.product((0, 1), repeat=len(generators))
+        }
+
+    words = get_coefficient_weights(basis)
+    coefficient_weights = [get_coefficient_weights(generators) for generators in family.generators]
+    certificate = family.certificate
+    pivot_blocks = tuple(
+        tuple(int(column) for column in pivots[:rank])
+        for pivots, rank in zip(family.pivots, family.ranks, strict=True)
+    )
+    denominator = _tuning.DEFAULT_TUNING.lp_dual_max_denominator
+    checked = [
+        certificate,
+        dataclasses.replace(certificate, pivot_blocks=pivot_blocks, lp_max_denominator=denominator),
+    ]
+    assert all(weights.keys() == words.keys() for weights in coefficient_weights)
+    weights = {word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words}
+    steps = [
+        (layer, num_completed)
+        for layer in range(1, len(basis))
+        for num_completed in range(len(family.ranks) + 1)
+    ]
+    for word, weight in weights.items():
+        assert weight % certificate.weight_divisor == 0
+        for layer, num_completed in steps:
+            completed = [
+                layer if index < num_completed else layer - 1 for index in range(len(family.ranks))
+            ]
+            if all(item[word] > done for item, done in zip(coefficient_weights, completed)):
+                for each in checked:
+                    assert weight >= each.step_lower_bound(layer, num_completed)
+
+    for each, (layer, num_completed) in itertools.product(checked, steps):
+        bound = each.step_lower_bound(layer, num_completed)
+        for upper_bound in range(1, basis.shape[1] + 2):
+            assert each.certifies(layer, num_completed, upper_bound) == (bound >= upper_bound)
 
 
 ####################################################################################################

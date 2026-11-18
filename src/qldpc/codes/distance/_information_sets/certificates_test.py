@@ -13,8 +13,11 @@ import numpy.typing as npt
 import pytest
 import scipy.optimize
 
+from qldpc._binary import row_reduce_binary
+
 from .._tuning import DEFAULT_TUNING
-from . import certificates
+from ..conftest import assert_certificate_bounds_unvisited_words, get_random_full_rank_matrix
+from . import basis_families, certificates
 
 DENOMINATOR = DEFAULT_TUNING.lp_dual_max_denominator
 
@@ -87,6 +90,57 @@ def test_certificate_follows_its_definition(pytestconfig: pytest.Config) -> None
 
     # A family of no sets, which get_overlapping_family returns for no replacement, does no work.
     assert certificates.Certificate(3, ()).work(2) == 0
+
+
+def test_certificates_bound_every_unvisited_word(pytestconfig: pytest.Config) -> None:
+    """Certificates of random sets bound the weight of every word that no set has visited.
+
+    The sets overlap unevenly, and some are partial.
+    """
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(20):
+        dimension = int(rng.integers(3, 6))
+        basis = get_random_full_rank_matrix(
+            rng, dimension, int(rng.integers(dimension + 2, 3 * dimension))
+        )
+        # Reduce the basis on random nonzero columns, so that each set has a pivot.
+        nonzero = np.flatnonzero(basis.any(axis=0))
+        num_sets = int(rng.integers(3, 6))
+        sets = [
+            row_reduce_binary(
+                basis,
+                None,
+                columns=rng.permutation(nonzero)[: int(rng.integers(1, len(nonzero) + 1))],
+            )
+            for _ in range(num_sets)
+        ]
+        pivots = np.full((num_sets, dimension), -1, dtype=np.int64)
+        for index, (_, _, found) in enumerate(sets):
+            pivots[index, : len(found)] = found
+        family = basis_families.BasisFamily(
+            np.array([reduced for reduced, _, _ in sets]),
+            np.zeros((num_sets, dimension, 0), dtype=np.uint8),
+            pivots,
+            np.array([len(found) for _, _, found in sets], dtype=np.int64),
+            basis_families.infer_weight_divisor(basis),
+            int(np.bincount(pivots[pivots >= 0]).max()),
+        )
+        assert_certificate_bounds_unvisited_words(basis, family)
+
+
+def test_the_example_of_the_coverage_bound() -> None:
+    """Three pairs of columns of the code of ``101`` and ``011`` certify three after layer one.
+
+    This is the example of "The certificate" in Section 3.1 of ``brouwer_zimmermann.md``.
+    """
+    basis = np.array([[1, 0, 1], [0, 1, 1]], dtype=np.uint8)
+    words = [np.array(bits) @ basis % 2 for bits in itertools.product((0, 1), repeat=2)]
+    # The code has distance two, and each pair of columns is an information set, since the four
+    # words differ on it.  Each column lies in two of the pairs.
+    assert min(int(word.sum()) for word in words[1:]) == 2
+    for pair in itertools.combinations(range(3), 2):
+        assert len({tuple(word[list(pair)]) for word in words}) == 4
+    assert certificates.Certificate(2, (2, 2, 2), max_coverage=2).lower_bound(1) == 3
 
 
 def test_weight_bounds_divide_the_step_bounds(pytestconfig: pytest.Config) -> None:
@@ -317,6 +371,27 @@ def test_linear_programming_can_beat_the_coverage_bound() -> None:
     assert certificates.get_lp_lower_bound([(0, 1, 2), (0, 1, 3)], [3, 3], DENOMINATOR) == 4
 
 
+def test_bounds_of_linear_programming_round_up_to_the_weight_divisor() -> None:
+    """Where every eligible word is even, the bound of linear programming rounds up to be even.
+
+    In the example of Section 3.1 of ``brouwer_zimmermann.md``, the program bounds the weight by
+    five after layer one, and the coverage bound by four.  A step of the last layer, after which no
+    word remains, keeps ``NO_WORD_BOUND``.
+    """
+    blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
+    certificate = certificates.Certificate(
+        3,
+        (3,) * 5,
+        weight_divisor=2,
+        max_coverage=3,
+        pivot_blocks=blocks,
+        lp_max_denominator=DENOMINATOR,
+    )
+    assert certificate.lower_bound(1) == 6
+    assert certificate.certifies(1, 5, 6)
+    assert certificate.step_lower_bound(3, 1) == certificates.NO_WORD_BOUND
+
+
 def test_a_failed_linear_program_gives_no_bound(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the solver reports a failure, the bound claims nothing rather than a solver's guess."""
     failure = scipy.optimize.OptimizeResult(status=4, message="numerical difficulties")
@@ -401,6 +476,7 @@ def test_work_estimates_saturate(dimension: int, num_sets: int) -> None:
 
 
 def test_binomials_are_exact_where_they_fit_and_cannot_be_modified() -> None:
+    """Binomials are exact below the cap and capped above it, in a read-only shared array."""
     binomials = certificates.get_capped_binomials(70)
     assert not binomials.flags.writeable
     assert binomials[:5].tolist() == [math.comb(70, weight) for weight in range(5)]

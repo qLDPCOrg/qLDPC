@@ -17,39 +17,6 @@ from ..conftest import get_random_full_rank_matrix
 from .matroid_partition import get_information_sets_with_coverage
 
 
-def _is_information_set(basis: npt.NDArray[np.uint8], columns: list[int]) -> bool:
-    """Whether the columns are as many as the rows of the basis, and independent."""
-    _, _, pivots = row_reduce_binary(basis[:, columns], None)
-    return len(columns) == len(basis) == len(pivots)
-
-
-def _get_max_num_sets(basis: npt.NDArray[np.uint8], max_coverage: int, max_sets: int) -> int:
-    """The most information sets, up to ``max_sets``, with no column in more than ``max_coverage``.
-
-    A depth-first search, feasible for bases of a few columns.
-    """
-    information_sets = [
-        columns
-        for columns in itertools.combinations(range(basis.shape[1]), len(basis))
-        if _is_information_set(basis, list(columns))
-    ]
-
-    @functools.cache
-    def search(start: int, loads: tuple[int, ...], count: int) -> int:
-        best = count
-        if count == max_sets:
-            return best
-        for index in range(start, len(information_sets)):
-            new_loads = list(loads)
-            for column in information_sets[index]:
-                new_loads[column] += 1
-            if max(new_loads) <= max_coverage:
-                best = max(best, search(index, tuple(new_loads), count + 1))
-        return best
-
-    return search(0, (0,) * basis.shape[1], 0)
-
-
 def test_a_basis_whose_sets_need_columns_that_could_not_join_earlier() -> None:
     """Filling a set still tries the columns after those whose copies could not join it."""
     rows = ["1100000100", "0010001000", "0000100100", "0000010100"]
@@ -142,3 +109,36 @@ def _get_largest_remaining_rank(basis: npt.NDArray[np.uint8], num_sets: int) -> 
         )
 
     return search(0, frozenset(), 0)
+
+
+def _is_information_set(basis: npt.NDArray[np.uint8], columns: list[int]) -> bool:
+    """Whether the columns are as many as the rows of the basis, and independent."""
+    _, _, pivots = row_reduce_binary(basis[:, columns], None)
+    return len(columns) == len(basis) == len(pivots)
+
+
+def _get_max_num_sets(basis: npt.NDArray[np.uint8], max_coverage: int, max_sets: int) -> int:
+    """The most information sets, up to ``max_sets``, with no column in more than ``max_coverage``.
+
+    A depth-first search, feasible for bases of a few columns.
+    """
+    information_sets = [
+        columns
+        for columns in itertools.combinations(range(basis.shape[1]), len(basis))
+        if _is_information_set(basis, list(columns))
+    ]
+
+    @functools.cache
+    def search(start: int, loads: tuple[int, ...], count: int) -> int:
+        best = count
+        if count == max_sets:
+            return best
+        for index in range(start, len(information_sets)):
+            new_loads = list(loads)
+            for column in information_sets[index]:
+                new_loads[column] += 1
+            if max(new_loads) <= max_coverage:
+                best = max(best, search(index, tuple(new_loads), count + 1))
+        return best
+
+    return search(0, (0,) * basis.shape[1], 0)
