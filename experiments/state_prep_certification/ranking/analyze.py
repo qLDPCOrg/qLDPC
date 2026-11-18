@@ -45,10 +45,10 @@ draws are not stored, the Kish effective number of the draws of nonzero value st
 count.  k* follows the four cases of the break-even inequality.
 
 Outputs, in ``--out`` (by default ``analysis/`` in the label directory): ``admission.csv``,
-``candidates.csv``, ``pairs.csv``, ``agreement.csv``, ``gate.json``, ``groups.csv``,
-``cost_table.csv``, ``leading_order.csv``, ``checks.json`` (RT6 and RT7, and every task without a
-final ``ok`` row), and ``consumers/``, the consumer circuit and block preparation of each group and
-rate.
+``candidates.csv`` (with each circuit's projected and achieved costs), ``pairs.csv``,
+``agreement.csv``, ``kendall.csv``, ``gate.json``, ``groups.csv``, ``cost_table.csv``,
+``leading_order.csv``, ``checks.json`` (RT6 and RT7, and every task without a final ``ok`` row), and
+``consumers/``, the consumer circuit and block preparation of each group and rate.
 """
 
 from __future__ import annotations
@@ -161,6 +161,7 @@ def analyze(
     _write_csv(out / "candidates.csv", [_flatten(row) for row in candidates])
     _write_csv(out / "pairs.csv", pairs)
     _write_csv(out / "agreement.csv", agreement)
+    _write_csv(out / "kendall.csv", kendall_rows(candidates))
     (out / "gate.json").write_text(json.dumps(gate, indent=1) + "\n")
     _write_csv(out / "groups.csv", group_rows)
     _write_csv(out / "cost_table.csv", cost_table(group_rows))
@@ -547,7 +548,7 @@ def agree(
             certain = sum(c == "correct" and not u for c, u in zip(calls, uncertain))
             eligible = len(resolved) >= ELIGIBLE_PAIRS
             accuracy = correct / len(resolved) if resolved else None
-            taus = _kendall(candidates, score, rate)
+            taus = list(_kendall(candidates, score, rate).values())
             rows.append(
                 {
                     "score": score,
@@ -596,15 +597,25 @@ def gate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> list[float]:
+def kendall_rows(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Kendall's tau_b of each score against Phi_true in each group at each rate."""
+    return [
+        {"score": score, "rate": rate, "group": group, "kendall_tau_b": tau}
+        for score in SCORES
+        for rate in CONFIG["rates"]
+        for group, tau in _kendall(candidates, score, rate).items()
+    ]
+
+
+def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> dict[str, float]:
     """Kendall's tau_b between a score and Phi_true in each group at a rate, where defined."""
-    taus = []
+    taus = {}
     members = [
         c
         for c in candidates
         if c["admitted"] and c["rate"] == rate and "phi_true" in c and score in c
     ]
-    for _, group in itertools.groupby(
+    for name, group in itertools.groupby(
         sorted(members, key=lambda c: c["group"]), key=lambda c: c["group"]
     ):
         group_members = list(group)
@@ -615,7 +626,7 @@ def _kendall(candidates: list[dict[str, Any]], score: str, rate: float) -> list[
             [sign * c[score] for c in group_members], [c["phi_true"] for c in group_members]
         ).statistic
         if not math.isnan(tau):
-            taus.append(float(tau))
+            taus[name] = float(tau)
     return taus
 
 
@@ -683,14 +694,8 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
     worst_cal = max(c["sigma_cal"] for c in members)
     cal_scale = _scale(worst_cal, target / math.sqrt(2), group["num_samples"])
     cal_valid = _calibration_valid(calibration, members, group["num_samples"])
-    a_score = (
-        group["cpu_consumer_setup_s"]
-        + cal_scale * group["cpu_sampled_s"]
-        + timing["rebuild_calibration"]
-    )
-    a_score_achieved = (
-        group["cpu_consumer_setup_s"] + group["cpu_sampled_s"] + timing["rebuild_calibration"]
-    )
+    a_score = group["cpu_consumer_setup_s"] + cal_scale * group["cpu_sampled_s"]
+    a_score_achieved = group["cpu_consumer_setup_s"] + group["cpu_sampled_s"]
     score_lines: list[tuple[float, float, bool]] = []
     unc_lines: list[tuple[float, float, bool]] = []
     for c in members:
@@ -700,7 +705,8 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         ):
             cpu = c["cpu_histogram"][name]
             histogram = c["histograms"][0 if name == "total" else 1]
-            scale = _scale(sigma, sigma_target, int(histogram.num_samples.sum()))
+            sampled_rows = histogram.num_samples[~histogram.exact & (histogram.num_samples > 0)]
+            scale = _scale(sigma, sigma_target, int(sampled_rows.min(initial=0)))
             fixed = cpu["cpu_setup_s"] + cpu["cpu_exact_s"] + timing[score]
             fixed += timing["rebuild_histogram"]
             lines.append(
@@ -710,6 +716,15 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
                     _histogram_valid(histogram),
                 )
             )
+    for c, direct_line, score_line, unc_line in zip(members, direct_lines, score_lines, unc_lines):
+        c |= {
+            "cost_direct_projected": direct_line[0],
+            "cost_direct_achieved": direct_line[1],
+            "cost_phi_cal_projected": score_line[0],
+            "cost_phi_cal_achieved": score_line[1],
+            "cost_phi_unc_projected": unc_line[0],
+            "cost_phi_unc_achieved": unc_line[1],
+        }
     b_direct = statistics.mean(line[0] for line in direct_lines)
     b_score = statistics.mean(line[0] for line in score_lines)
     valid = (
@@ -734,6 +749,7 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         "scaling_valid_calibration": cal_valid,
         "scaling_valid_histograms": all(line[2] for line in score_lines),
         "scaling_valid_unc": all(line[2] for line in unc_lines),
+        "tau_min": min(c["tau"] for c in members),
         "tau_max": max(c["tau"] for c in members),
         "k_star": break_even(a_score - a_direct, b_direct - b_score) if valid else "not computed",
         "reason": None if valid else "the inverse-sample law is not justified",
@@ -754,7 +770,10 @@ def break_even(delta_a: float, delta_b: float) -> str:
 
 
 def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Per rate, the medians over groups of the cost lines, and of k* where computed."""
+    """Per rate, the medians and ranges over groups of the cost lines and achieved errors.
+
+    Also the median of the numeric k*, every group's k* outcome, and the range of tau.
+    """
     rows = []
     for rate in CONFIG["rates"]:
         computed = [r for r in group_rows if r["rate"] == rate and "A_score" in r]
@@ -769,6 +788,10 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "b_score_achieved",
             "b_direct_achieved",
             "b_unc_achieved",
+            "sigma_true_max",
+            "sigma_hist_max",
+            "sigma_cal_max",
+            "sigma_unc_max",
         ):
             values = [r[key] for r in computed]
             row[f"{key}_median"] = statistics.median(values) if values else None
@@ -776,13 +799,19 @@ def cost_table(group_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row[f"{key}_max"] = max(values, default=None)
         numeric = [int(r["k_star"]) for r in computed if str(r["k_star"]).isdigit()]
         row["k_star_median"] = statistics.median(numeric) if numeric else None
+        row["tau_min"] = min((r["tau_min"] for r in computed), default=None)
+        row["tau_max"] = max((r["tau_max"] for r in computed), default=None)
         row["k_star"] = "; ".join(f"{r['group']}: {r['k_star']}" for r in computed)
         rows.append(row)
     return rows
 
 
 def _scale(sigma: float, target: float, num_samples: int) -> float:
-    """The factor max(s_min, (sigma / target)^2) of a sampled cost, with s_min = 1000 / n."""
+    """The factor max(s_min, (sigma / target)^2) of a sampled cost, with s_min = 1000 / n.
+
+    n is the smallest number of draws of a sampled stratum, row, or cell of the component, so that
+    each gets at least 1000 draws after scaling.
+    """
     return max(MIN_DRAWS / num_samples, (sigma / target) ** 2) if num_samples else 0.0
 
 

@@ -437,45 +437,41 @@ def time_scores(
 
     The histograms have ``score_timing.histogram_samples`` samples.  Each of at most
     ``score_timing.evaluations`` rounds, within ``score_timing.max_s``, rebuilds the calibration and
-    the histograms from their stored fields and evaluates each score once.
+    the histograms by a round trip through their stored fields (``to_dict`` and ``from_dict``, and
+    ``histogram_fields`` and ``histogram_from_fields``), and evaluates each score once.
     """
     settings = CONFIG["score_timing"]
     noisy = noisy_input(entry, rate)
     options = histogram_options(entry)
     total_seed, x_seed = _child_seeds(seed, 2)
-    stored = {
-        "total": histogram_fields(
-            estimate_residual_weight_histogram(
-                noisy,
-                MAX_RESIDUAL_WEIGHT,
-                settings["histogram_samples"],
-                seed=total_seed,
-                method="brouwer_zimmermann",
-                **options,
-            )
+    histograms = {
+        "total": estimate_residual_weight_histogram(
+            noisy,
+            MAX_RESIDUAL_WEIGHT,
+            settings["histogram_samples"],
+            seed=total_seed,
+            method="brouwer_zimmermann",
+            **options,
         ),
-        "x": histogram_fields(
-            estimate_residual_weight_histogram(
-                noisy,
-                MAX_RESIDUAL_WEIGHT,
-                settings["histogram_samples"],
-                pauli="X",
-                seed=x_seed,
-                method="brouwer_zimmermann",
-                **options,
-            )
+        "x": estimate_residual_weight_histogram(
+            noisy,
+            MAX_RESIDUAL_WEIGHT,
+            settings["histogram_samples"],
+            pauli="X",
+            seed=x_seed,
+            method="brouwer_zimmermann",
+            **options,
         ),
     }
-    stored_calibration = calibration.to_dict()
     seconds = {"rebuild_calibration": 0.0, "rebuild_histogram": 0.0}
     evaluations = 0
     deadline = time.monotonic() + float(settings["max_s"])
     while evaluations < int(settings["evaluations"]) and time.monotonic() < deadline:
         start = time.process_time()
-        rebuilt = ConsumerCalibration.from_dict(stored_calibration)
+        rebuilt = ConsumerCalibration.from_dict(calibration.to_dict())
         middle = time.process_time()
-        total = histogram_from_fields(stored["total"])
-        x_type = histogram_from_fields(stored["x"])
+        total = histogram_from_fields(histogram_fields(histograms["total"]))
+        x_type = histogram_from_fields(histogram_fields(histograms["x"]))
         end = time.process_time()
         seconds["rebuild_calibration"] += middle - start
         seconds["rebuild_histogram"] += (end - middle) / 2
