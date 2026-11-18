@@ -751,7 +751,7 @@ def test_connected_cluster_searches_get_the_stabilizers_in_their_kernel(
     assert pauli_words == get_rows(pauli_search)
 
     # By CSS weight, the search of each part gets the checks of the other.  The two searches get
-    # different words, so the assertion would fail if each search got its own checks.
+    # different words, so the first assertion would fail if each search got its own checks.
     received.clear()
     CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
     (first, first_words), (second, second_words) = received.values()

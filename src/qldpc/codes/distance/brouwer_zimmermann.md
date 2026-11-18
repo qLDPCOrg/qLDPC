@@ -990,7 +990,8 @@ These tests check the requirements, against exhaustive enumeration where they ca
 - [logical_counts_test.py](logical_counts_test.py) and [_counting/scan_test.py](_counting/scan_test.py): `test_counting_continues_at_an_equal_lower_bound` and `test_skipping_chunks_stop_at_a_lighter_nontrivial_word`, counts that a stop or a skip at equality would get wrong.
 - [core_test.py](core_test.py): `test_brouwer_zimmermann_random_cross_checks`, on binary and general Pauli problems; `test_max_weight`, on BZ and brute force; and `test_max_weight_caps_cutoff`.
 
-Helper tests check current interfaces, and tests of heuristics check that chosen cases take the intended decision, so neither makes a packing order or optimization a requirement: a deliberate change of a heuristic may need new cases.
+Helper tests check current interfaces, and tests of heuristics check that each heuristic decides chosen cases as intended.
+So neither makes a packing order or optimization a requirement, and a deliberate change of a heuristic may need new cases.
 
 ## References
 

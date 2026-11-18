@@ -105,8 +105,8 @@ def test_brouwer_zimmermann_search_state() -> None:
 
 def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
     """Layer work saturates below the largest threshold, which never asks for automorphisms."""
-    # The rows are zero apart from their pivot ones, so each word of layer 35 weighs 35, the cutoff,
-    # and the scan stops at its first support.
+    # Each row is zero apart from a one at its pivot, so each word of layer 35 weighs 35, the
+    # cutoff, and the scan stops at its first support.
     dimension, weight = 70, 35
     assert math.comb(dimension, weight) > MAX_VALUE
     for minimum_layer_work, expected_calls in ((MAX_VALUE, 0), (2**61, 1)):
@@ -195,7 +195,7 @@ def test_brouwer_zimmermann_setup_exits(
     monkeypatch: pytest.MonkeyPatch,
     prepared: list[bz._SectorSearch],
 ) -> None:
-    """Each case settles in setup exactly when it builds an overlapping family.
+    """Each case settles in setup exactly when an overlapping family replaces its disjoint one.
 
     Each case also agrees with a brute-force oracle.
     """
@@ -224,8 +224,8 @@ def test_brouwer_zimmermann_setup_exits(
     assert expected <= distance <= max(cutoff, expected)
 
     # Setup settles a case exactly if an overlapping family replaces the disjoint one.  The cases
-    # with a cutoff end at or below it, and the case without one settles in setup, so by its
-    # certificate.
+    # with a cutoff end at or below it, and the case without one settles in setup, which without a
+    # cutoff only its certificate can do.
     assert bool(prepared) == (not replacements) == (not overlap)
     assert (distance <= cutoff) == (cutoff > 0)
 
@@ -429,8 +429,8 @@ def test_a_search_of_an_mb_code_takes_overlapping_sets(
     than the one information set of a disjoint family.
     """
     # Remove the work gate of overlapping families, so that setup chooses between the families by
-    # their predicted work alone, and keep setup from partitioning, since a partitioned family can
-    # also cover a column more than once.
+    # their predicted work alone.  Keep setup from partitioning, since a partitioned family can also
+    # cover a column more than once.
     tune(overlapping_minimum_work=0, partition_work_ratio=MAX_VALUE)
     code = qldpc.codes.MBCode(
         {x: 4, y: 4, z: 2},

@@ -460,8 +460,8 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
         pair.advance()
     assert _auto._project_states(pair, 8) == pytest.approx(2 * _auto._project_states(clusters, 8))
 
-    # Against the BZ search of rank 16, the search switches to certify the level of its next limit
-    # at a state cost of ``10**6`` but not 1, and to reach the bound 23 at 1.
+    # Against the BZ search of rank 16, the search switches for the level of its next limit at a
+    # state cost of ``10**6`` but not 1, and for the bound 23 at 1.
     assert not _auto._should_switch(clusters, slow, 5, 1)
     assert _auto._should_switch(clusters, slow, 5, 10**6)
     assert _auto._should_switch(clusters, slow, 23, 1)
