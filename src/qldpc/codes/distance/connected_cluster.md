@@ -585,12 +585,16 @@ Changes to the search can use other bounds and orders, but must keep these requi
     `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` in `_connected_cluster/search_test.py` runs threads with every array of their search, such as its tables, read-only, so that numba rejects a write to one in any branch of compiled code.
     `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` does the same for batches of coset queries.
     Both check that the arrays are unchanged.
-    Review checks the writes that these tests miss: those through `.flat`, `np.ascontiguousarray`, or `np.nditer`, which numba compiles anyway; those to the roots and paths of work items, which `_search_on_threads` makes for the threads; those on paths that run outside the threads, such as limits on one thread; and, in plain Python, those that tests do not run.
+    Review checks the writes that these tests miss, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those to the roots and paths of work items, which `_search_on_threads` makes for the threads; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
+  - **Write shared results only in a thread's own entries, or under a lock.**
     The other code that threads run writes only its own entries of shared results, such as the counts of states of its items and the weights of its rows, or writes under a lock, as when it records a witness or a syndrome without an error in reach.
     Review checks this.
+  - **Call no numba-parallel code on threads, and read the tuning there only from the search.**
     Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`), and it reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.
-    `test_no_function_of_qldpc_is_compiled_numba_parallel` of [_thread_rules_test.py](_thread_rules_test.py) keeps such code out of the compiled code of qLDPC.
+    `test_no_function_of_qldpc_is_compiled_numba_parallel` of [_thread_rules_test.py](_thread_rules_test.py) checks that qLDPC compiles none of its own functions numba-parallel.
+    `test_always_compiled_functions_use_nothing_from_outside_qldpc` of `src/qldpc/_compiled_code_rules_test.py` keeps galois's functions out of compiled code.
     The fixture `check_code_on_threads` of [conftest.py](conftest.py) fails each test of this package whose threads call numba-parallel code from Python, or read the tuning through `get_tuning`.
+    Review checks such calls on paths that tests do not run on threads.
   - **Build the tables of the overlap cuts on the calling thread before a limit splits or a batch of coset queries runs**, so that threads and queries only read them, and tabulate them again when symmetries change the ranks ([Section 3.11](#311-threads)).
     `test_limits_cut_with_the_latest_tables_tabulated_before_their_threads` in `_connected_cluster/search_test.py` checks that each limit searches with the latest tables, and `test_connected_cluster_queries_only_read_their_search` in `_connected_cluster/coset_test.py` checks that queries tabulate no cuts.
 - **Return the exact minimum unless a cutoff permits an early exit**: the limits rise one divisor at a time, so that the first witness is a lightest one, and an early exit returns the weight of a known witness, an upper bound.

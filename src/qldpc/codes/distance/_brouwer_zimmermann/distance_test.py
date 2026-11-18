@@ -1758,7 +1758,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     # The threads scan slices of the arrays of the sector search, which it takes before they start.
     checked = check_shared_arrays_on_threads(
         monkeypatch,
-        lambda sector, index, weight, tables: [search, sector, tables],
+        lambda sector_search, index, weight, tables: [search, sector_search, tables],
         bz._SectorSearch,
         "_scan_set_on_threads",
     )

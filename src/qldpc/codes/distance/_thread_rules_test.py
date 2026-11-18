@@ -8,9 +8,9 @@ several threads at once, without Python's global interpreter lock, and so does e
 function that it calls.  A race between them would rarely change a result that tests compare, so
 these tests read the code instead:
 
-- Section 5 of the guide of its method names each such entry point of this package, which, with the
-  docstring of ``_compilation.py``, states its rules; and
-- no function of qLDPC is compiled with numba's ``parallel`` option.  ``always_compiled`` has no
+- Section 5 of the guide of its method names each such entry point of this package.  That section,
+  with the docstring of ``_compilation.py``, states the rules of the entry point.
+- No function of qLDPC is compiled with numba's ``parallel`` option.  ``always_compiled`` has no
   such option, and ``_compiled_code_rules_test.py`` keeps the functions of other packages, such as
   galois's, out of compiled code, so compiled code that threads run calls no numba-parallel code.
 
@@ -79,11 +79,10 @@ def test_workers_that_call_numba_parallel_code_or_read_the_tuning_fail() -> None
     Workers run on the calling thread and on a new one.  The calling thread reads the tuning before
     and after them, and the check of numba's dispatchers is removed once the workers return.
     """
-    namespace: dict[str, object] = {"numba": numba}
-    source = "@numba.njit(parallel=True)\ndef parallel(array):\n    return array\n"
-    exec(compile(source, "<parallel>", "exec"), namespace)  # noqa: S102 - the source of this test
-    parallel = namespace["parallel"]
-    assert callable(parallel)
+    # If the check of dispatchers broke, this test would run numba-parallel code on two threads at
+    # once, which can abort the process.
+    parallel = numba.njit(parallel=True)(lambda array: array)
+    own_call = vars(numba.core.dispatcher.Dispatcher).get("__call__")
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         with pytest.raises(AssertionError, match="get_tuning"):
@@ -100,7 +99,7 @@ def test_workers_that_call_numba_parallel_code_or_read_the_tuning_fail() -> None
     tuning = _tuning.get_tuning()
     _threads.run_work_items(4, 2, start_worker)
     assert _tuning.get_tuning() is tuning
-    assert "__call__" not in vars(numba.core.dispatcher.Dispatcher)
+    assert vars(numba.core.dispatcher.Dispatcher).get("__call__") is own_call
 
 
 ####################################################################################################

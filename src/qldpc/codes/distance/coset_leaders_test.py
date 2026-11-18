@@ -852,16 +852,18 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
     The found index, its bound and error, and the weights are those of one thread, by physical
     weight and by CSS weight.  With chunks of one state, a batch moves to threads once its queries
     have visited a state for each thread.  The queries run with every array of their searches
-    read-only, since threads, and the threads of callers, share them.
+    read-only: the threads of a batch share them, and so do the threads of callers that share a
+    search.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
-    thread_counts = []
+    thread_runs = 0
     run_work_items = _threads.run_work_items
 
-    def run_counted(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
-        thread_counts.append(num_threads)
-        run_work_items(num_items, num_threads, *args, **kwargs)
+    def run_counted(*args: Any, **kwargs: Any) -> None:
+        nonlocal thread_runs
+        thread_runs += 1
+        run_work_items(*args, **kwargs)
 
     monkeypatch.setattr(_threads, "run_work_items", run_counted)
     for matrix, css_weight in cases:
@@ -875,7 +877,9 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
                 oracles.append(
                     CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
                 )
-        with shared_arrays_read_only(*oracles, batch):
+        # The arrays are marked before the queries start, so the slices that they take are
+        # read-only too.
+        with shared_arrays_read_only(*oracles, batch) as arrays:
             for max_weight in range(num_qubits + 1):
                 found = _find_each_not_within_max_weight(oracles[-1], matrix, batch, max_weight)
                 assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
@@ -888,7 +892,9 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
                 weights = [oracle.get_min_weights(batch, max_weight) for oracle in oracles]
                 assert all(np.array_equal(weight, weights[0]) for weight in weights)
                 assert np.array_equal(weights[0], np.minimum(minima[syndromes], max_weight + 1))
-    assert thread_counts
+        for index in range(len(oracles)):
+            assert any(each.path.startswith(f"roots[{index}].") for each in arrays)
+    assert thread_runs
 
 
 # A state whose syndromes 3 and 7 have errors of weight 2 and 3 at least, which connected-cluster

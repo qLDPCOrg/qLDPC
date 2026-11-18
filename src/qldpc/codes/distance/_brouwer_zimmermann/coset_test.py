@@ -1496,8 +1496,11 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
 
     # The batch queries cache stopping steps only in copies of the shared planning buffers, and
     # write no other array of the search or of its batches.
-    with shared_arrays_read_only(search, batches, floors):
+    with shared_arrays_read_only(search, batches, floors) as arrays:
         expected = [query(index, 1) for index in range(len(batches))]
         with concurrent.futures.ThreadPoolExecutor(4) as pool:
             answers = list(pool.map(query, range(len(batches)), [2] * len(batches)))
         assert answers == expected
+    assert any(each.path.startswith("roots[0].") for each in arrays)
+    marked = {id(each.array) for each in arrays}
+    assert all(id(planning) in marked for planning in plannings)

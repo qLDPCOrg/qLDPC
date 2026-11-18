@@ -928,7 +928,7 @@ A change may use other representations, certificates, and search strategies, but
     A call of `_find_min_weights` writes only its own buffer for the lightest word and the weights of its own rows.
     Neither writes the shared planning buffer.
     `test_concurrent_batches_share_a_search` runs its batches with every array of the search read-only, so that numba rejects a write to one in any branch of compiled code, and checks that the arrays are unchanged.
-    Review checks the writes that this misses, which the rule on splitting the scans of a layer below lists.
+    Review checks the writes that this misses, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
   - `CosetRoutes` chooses each route once, under `_ROUTE_LOCK`, and there builds the families other than the disjoint one, once, and each record of tails, and a batch query takes its route before its threads start ([Section 4.5](#45-behavior-spanning-files)).
     A record of tails never changes once a query may read it: a route that needs new completion tables gets a new record of its family, which copies the earlier tables and their layout ([Section 4.1](#41-module-map-and-layering)).
 - **Count only work without the global interpreter lock in the split of coset batches.**
@@ -946,14 +946,16 @@ A change may use other representations, certificates, and search strategies, but
     Review checks this.
   - The compiled scans write only to arrays that their caller gives the thread that runs them, such as `support` and `prefixes`.
     `test_searches_on_threads_advance_as_searches_on_one_thread` runs the threads with every array of the search read-only, so that numba rejects a write to one in any branch of compiled code, and checks that the arrays are unchanged.
-    Review checks the writes that this misses: those through `.flat`, `np.ascontiguousarray`, or `np.nditer`, which numba compiles anyway; those on paths that run outside the threads, such as layers on one thread; and, in plain Python, those that tests do not run.
+    Review checks the writes that this misses, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway; those on paths that the tests do not run with the arrays read-only; and, in plain Python, those that tests do not run.
   - Other code that threads run writes shared state only under a lock or through thread-safe objects, as the shared `U`, the claims of items, and the stop event are written.
     Review checks this.
   - The shared `U` is lowered only as a minimum, under the lock.
     Review checks this.
   - Code that threads run calls no numba-parallel code (`parallel=True` or `prange`, such as some functions of galois; see `run_work_items` in `_threads.py`), and reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.
-    `test_no_function_of_qldpc_is_compiled_numba_parallel` of [_thread_rules_test.py](_thread_rules_test.py) keeps such code out of the compiled code of qLDPC.
+    `test_no_function_of_qldpc_is_compiled_numba_parallel` of [_thread_rules_test.py](_thread_rules_test.py) checks that qLDPC compiles none of its own functions numba-parallel.
+    `test_always_compiled_functions_use_nothing_from_outside_qldpc` of `src/qldpc/_compiled_code_rules_test.py` keeps galois's functions out of compiled code.
     The fixture `check_code_on_threads` of [conftest.py](conftest.py) fails each test of this package whose threads call numba-parallel code from Python, or read the tuning through `get_tuning`.
+    Review checks such calls on paths that tests do not run on threads.
 - **Decide only from what a layer leaves the same on any number of threads** ([Section 4.5](#45-behavior-spanning-files), "Threads").
   After the layer of a set, `U` and the lower bound are those of one thread, and so are the estimates derived from them, such as `get_layer_work` and `estimate_automorphism_family_work`.
   Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [README.md](README.md)), reads nothing else that the layers leave.
