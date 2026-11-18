@@ -53,7 +53,8 @@ LogicalCountMethod = Literal[
   of each weight in several information sets.
 - ``"macwilliams"``, and its alias ``"weight_enumerator"``: the weight distributions of the spaces
   of the checks, through the MacWilliams identities.  It does not support subsystem codes, full
-  Pauli counts of codes that are not self-dual, or checks of rank above 63.
+  Pauli counts of codes that are not self-dual, or checks of rank above 63 in codes that encode
+  qubits.  A code that encodes no qubits gets zero counts from every method.
 - ``"brute_force"``: the enumeration of every word, for small codes and tests.
 """
 
@@ -271,8 +272,8 @@ class CSSLogicalCounter:
                 ``"macwilliams"`` (alias ``"weight_enumerator"``), or ``"brute_force"``.  The
                 MacWilliams method keeps the weight distributions of the checks for later counts of
                 this counter, and does not support subsystem codes, full Pauli counts of codes that
-                are not self-dual, or checks of rank above 63.  Brute force is a reference for small
-                codes.
+                are not self-dual, or checks of rank above 63 in codes that encode qubits.  Brute
+                force is a reference for small codes.
             count_pauli: If True, also count full Pauli operators, including Y and mixed operators.
                 These counts are supported only up to the distance, and are zero below it.  Defaults
                 to False.

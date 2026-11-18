@@ -613,6 +613,12 @@ def test_macwilliams_capabilities() -> None:
         pass
 
     assert no_distance != SubclassCounts(codes.NO_DISTANCE, 0, 0, None)
+
+    # The limit on the rank of checks applies only to codes that encode qubits.
+    rank_64 = lc.CSSLogicalCounter(np.eye(64, dtype=np.uint8), np.zeros((0, 64), dtype=np.uint8))
+    assert rank_64.dimension == 0
+    assert rank_64.count_logical_ops(method="macwilliams") == Counts(codes.NO_DISTANCE, 0, 0, None)
+
     extended_hamming = codes.ExtendedHammingCode(3).matrix
     self_dual = lc.CSSLogicalCounter(extended_hamming, extended_hamming)
     assert self_dual.dimension == 0
