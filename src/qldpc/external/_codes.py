@@ -354,10 +354,10 @@ def get_magma_field(field: type[galois.FieldArray]) -> tuple[str, str, list[str]
 
     MAGMA maps an integer into a finite field through the prime field, so an integer cannot stand
     for an element outside the prime field.  For a prime field, the definition is empty, the name is
-    ``GF(p)``, and the elements are integers.  Otherwise, the definition defines ``F`` as the
-    extension of the prime field by the irreducible polynomial of the galois field, and names a root
-    of that polynomial ``w``.  The element with galois integer ``v`` is then the polynomial in ``w``
-    whose coefficients are the base-``p`` digits of ``v``.
+    ``GF(p)``, and the elements are integers.  Otherwise, the field is the extension ``F`` of the
+    prime field by the irreducible polynomial of the galois field, with root ``w``, and the element
+    with galois integer ``v`` is the polynomial in ``w`` whose coefficients are the base-``p``
+    digits of ``v``.
 
     Returns:
         MAGMA commands that define the field, the name of the field in MAGMA, and a list whose entry

@@ -234,7 +234,7 @@ def test_get_generators_from_magma(
         assert terminal_output.startswith("Run the following command in MAGMA:")
         assert "NOTICE: group found in the local MAGMA group cache" in terminal_output
 
-    # MAGMA lists no generators of a trivial group, whose generator is then the identity
+    # MAGMA lists no generators of a trivial group, for which this function returns the identity
     trivial_group = "PermutationGroup(LinearCode(Matrix(GF(2), 1, 2, [[1, 0]])));"
     inputs = iter(["Permutation group acting on a set of cardinality 2", "Order = 1", ""])
     monkeypatch.setattr("builtins.input", lambda: next(inputs))

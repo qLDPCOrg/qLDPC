@@ -275,7 +275,8 @@ def test_finite_field_elements(field: type[galois.FieldArray]) -> None:
         assert elements == [str(value) for value in range(order)]
         return
     assert field_name == "F"
-    # the coefficients, constant first, are those of a monic polynomial of degree m with root x
+    # the coefficients, constant first, are those of a monic polynomial of the field's degree with
+    # root x
     prefix = f"F<w> := ext<GF({characteristic}) | Polynomial(GF({characteristic}), ["
     assert definition.startswith(prefix) and definition.endswith("])>; ")
     coefficients = [int(c) for c in definition[len(prefix) : -len("])>; ")].split(",")]
@@ -299,11 +300,11 @@ def test_permutation_automorphism_groups_over_extension_fields() -> None:  # pra
     """
     if not external.gap.is_callable():
         pytest.skip("GAP cannot be called")
-    # GUAVA reads an integer i as the element at position i + 1 of GAP's sorted list of the
-    # elements of the field, so writing the galois integers of the checks below, in the reduced row
-    # echelon form that queries write, would give codes with other groups.  So would writing the
-    # galois integers of the last two codes, whose fields have other irreducible polynomials, as
-    # those of the field with the Conway polynomial.
+    # Queries write the checks in reduced row echelon form, as below.  GUAVA reads an integer i as
+    # the element at position i + 1 of GAP's sorted list of the field's elements, so writing galois
+    # integers would give codes with other groups.  So would writing the galois integers of the
+    # last two codes, whose fields have other irreducible polynomials, as those of the field with
+    # the Conway polynomial.
     for code in [
         codes.ClassicalCode(galois.GF(8)([[1, 0, 1, 4, 7], [0, 1, 1, 3, 3]])),
         codes.ClassicalCode(galois.GF(9)([[4, 8, 0, 1, 2]])),
