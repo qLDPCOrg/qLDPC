@@ -5,9 +5,9 @@
 :class:`SearchTuning` collects the values with which a search for an exact distance, a count of
 logical operators, or a ``CosetLeaderSearch`` chooses its route and limits its batches and memory.
 The page :doc:`/exact_search_tuning` renders this docstring after tables that lead from symptoms and
-routes to these values.  Section 4.4 of ``brouwer_zimmermann.md`` and Sections 3.4, 3.5, 3.8, 3.9,
-and 3.11 of ``connected_cluster.md`` explain how searches use the fields, and the section "Choosing
-a method" of ``README.md`` how ``method="auto"`` uses its fields.
+routes to these values.  Section 4.4 of ``brouwer_zimmermann_code.md`` and Sections 3.4, 3.5,
+3.8, 3.9, and 3.11 of ``connected_cluster.md`` explain how searches use the fields, and the section
+"Choosing a method" of ``README.md`` how ``method="auto"`` uses its fields.
 
 This module is private: its names, fields, defaults, and constants can change in any release without
 warning, so code that uses it should pin the exact version of qLDPC.  It is meant for contributors,
@@ -73,8 +73,8 @@ Each default is in one of these classes, or was chosen by hand:
   candidate/set evaluations in BZ searches and states in connected-cluster searches.  The value is
   the cost of the step on a large basis or code, or its cost per unit of the formula, known to an
   order of magnitude and written as 1, 2, or 5 times a power of ten (Section 4.4 of
-  ``brouwer_zimmermann.md``).  On a small search, where the step costs less, a gate can skip a step
-  that would have paid.
+  ``brouwer_zimmermann_code.md``).  On a small search, where the step costs less, a gate can skip a
+  step that would have paid.
 - A limit at equality compares two estimates in one unit.
 - The rough coefficients of the cost model of completion tables (``predict_completion_cost`` in
   ``_information_sets/completion_bounds.py``) are rough estimates, not round values.
@@ -84,7 +84,7 @@ Each default is in one of these classes, or was chosen by hand:
 - A convention is a statistical or numerical setting, and its comment says what it guarantees.
 - A switch turns a step of a search on or off, and defaults to on.
 - Blocks of completion tables default to the widest allowed width, and a budget bounds their memory
-  (Section 4.4 of ``brouwer_zimmermann.md``).
+  (Section 4.4 of ``brouwer_zimmermann_code.md``).
 - A limit for experiments restricts what searches may build, and its default, ``MAX_VALUE``,
   restricts nothing.
 
@@ -160,20 +160,20 @@ class SearchTuning:
     #: coverage two or more that matroid partitioning finds; zero disables both, but not maximum
     #: disjoint families.  More sets can stop a search before costly layers, but setup grows roughly
     #: with the square of this limit, or with its cube when partitioning.  Defaults to 16, a budget
-    #: of setup effort (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: of setup effort (Section 4.4 of ``brouwer_zimmermann_code.md``).
     max_information_sets: int = 16
 
     #: How many random column orders, in a fixed sequence, a search tries when the natural order
     #: packs fewer full disjoint information sets than ``min(N // r, 2**r - 1)``, for ``r`` rows and
     #: ``N`` nonzero columns; the search keeps the best packing, and zero keeps the natural order.
     #: Defaults to 8, a budget of setup effort, since each order costs a packing of the basis
-    #: (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: (Section 4.4 of ``brouwer_zimmermann_code.md``).
     disjoint_random_column_orders: int = 8
 
     #: The estimated work of a distance search or count, in candidate/set evaluations, from which it
     #: tries a family of overlapping information sets; zero removes this gate, and ``MAX_VALUE``
     #: closes it.  Defaults to ``2 * 10**6``, a derived value: the cost of building such a family on
-    #: a large basis, a few million evaluations (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: a large basis, a few million evaluations (Section 4.4 of ``brouwer_zimmermann_code.md``).
     overlapping_minimum_work: int = 2_000_000
 
     #: A query of a ``CosetLeaderSearch`` by the BZ method that predicts at least this many
@@ -184,20 +184,20 @@ class SearchTuning:
     #: field also sets the weight at which the overlapping family is aimed; zero tries to build the
     #: families at the first query, and ``MAX_VALUE`` never.  Defaults to ``2 * 10**4``, chosen by
     #: hand, preferring speed to memory, since the field sets three decisions and no break-even rule
-    #: covers the aim (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: covers the aim (Section 4.4 of ``brouwer_zimmermann_code.md``).
     coset_route_minimum_work: int = 20_000
 
     #: How many column orders the construction of a family of overlapping information sets tries for
     #: each set that it may add, counting orders that give a set already in the family; zero builds
     #: no family.  Defaults to 2, a budget of setup effort (Section 4.4 of
-    #: ``brouwer_zimmermann.md``).
+    #: ``brouwer_zimmermann_code.md``).
     overlapping_attempts_per_set: int = 2
 
     #: A search tries matroid partitioning only if its estimated work, in candidate/set evaluations,
     #: reaches this multiple of the sum of ``b**2 * r**2 * N`` over the coverages ``b`` that it may
     #: try, for ``r`` rows and ``N`` nonzero columns; zero removes this gate, and ``MAX_VALUE``
     #: closes it.  Defaults to 5, a derived value: trying every such coverage costs roughly that sum
-    #: times a few evaluations (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: times a few evaluations (Section 4.4 of ``brouwer_zimmermann_code.md``).
     partition_work_ratio: int = 5
 
     #: The largest coverage of the families that matroid partitioning builds in distance searches
@@ -205,7 +205,7 @@ class SearchTuning:
     #: ``max_information_sets`` does not limit, instead of families of coverage two or more.  It
     #: skips even that family if the family that it would replace is disjoint and has the pruned
     #: disjoint rank bound.  Defaults to ``MAX_VALUE``, a limit for experiments (Section 4.4 of
-    #: ``brouwer_zimmermann.md``).
+    #: ``brouwer_zimmermann_code.md``).
     partition_max_coverage: int = dataclasses.field(default=MAX_VALUE, metadata={"minimum": 1})
 
     #: The estimated work, in candidate/set evaluations, from which a search of overlapping
@@ -215,13 +215,13 @@ class SearchTuning:
     #: ``brouwer_zimmermann.md`` in place of that program, for the family that it has then, disjoint
     #: or overlapping, whatever this value, unless ``automorphism_orbit_bounds`` is off.  Defaults
     #: to ``2 * 10**8``, a derived value: the cost of linear programming, planning included, in a
-    #: search of a large basis, a few hundred million evaluations (Sections 3.1 and 4.4 of
-    #: ``brouwer_zimmermann.md``).
+    #: search of a large basis, a few hundred million evaluations (Section 3.1 of
+    #: ``brouwer_zimmermann.md`` and Section 4.4 of ``brouwer_zimmermann_code.md``).
     lp_minimum_work: int = 200_000_000
 
     #: The largest denominator of the fractions to which the certificate from linear programming
     #: rounds the dual weights of its solver.  Defaults to ``2**20``, a convention: rounding moves
-    #: each dual weight by at most ``2**-21`` (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: each dual weight by at most ``2**-21`` (Section 4.4 of ``brouwer_zimmermann_code.md``).
     lp_dual_max_denominator: int = dataclasses.field(default=1 << 20, metadata={"minimum": 1})
 
     #: A distance search that does not ask for automorphisms before matroid partitioning considers
@@ -231,7 +231,8 @@ class SearchTuning:
     #: upper bound has dropped.  Values above every work estimate, such as ``MAX_VALUE``, turn
     #: automorphisms off in every BZ distance search.  Defaults to ``5 * 10**6``, a derived value:
     #: the cost of finding automorphisms, verifying them, and building their family for a large
-    #: code, several million evaluations (Sections 3.7 and 4.4 of ``brouwer_zimmermann.md``).
+    #: code, several million evaluations (Section 3.7 of ``brouwer_zimmermann.md`` and Section 4.4
+    #: of ``brouwer_zimmermann_code.md``).
     automorphism_minimum_layer_work: int = 5_000_000
 
     #: Whether a BZ distance search, once it has verified automorphisms, bounds the weight of
@@ -342,14 +343,15 @@ class SearchTuning:
     #: sampling supports to predict the cost of the tables, only if the set has at least this many
     #: supports in the layer; zero considers every layer, and ``MAX_VALUE`` none.  Defaults to
     #: ``2 * 10**7``, a derived value: the cost of that prediction on a large basis, tens of
-    #: millions of evaluations (Sections 3.9 and 4.4 of ``brouwer_zimmermann.md``).
+    #: millions of evaluations (Section 3.9 of ``brouwer_zimmermann.md`` and Section 4.4 of
+    #: ``brouwer_zimmermann_code.md``).
     completion_bound_minimum_layer_work: int = 20_000_000
 
     #: A layer of a distance search or count uses the completion tables that it considers only if
     #: their predicted cost, building included unless the search has them, is at most this
     #: percentage of the cost of scanning without them; zero never uses tables, and ``MAX_VALUE``
     #: uses them wherever they are considered.  Defaults to 100, a limit at equality (Section 4.4 of
-    #: ``brouwer_zimmermann.md``).
+    #: ``brouwer_zimmermann_code.md``).
     completion_bound_max_cost_percent: int = 100
 
     #: The most bytes of completion tables kept by a distance search for each sector, and by a count
@@ -363,12 +365,12 @@ class SearchTuning:
     #: The number of tail columns in a block of the completion tables of distance searches and
     #: counts, a power of two up to 16.  The table of a block has ``2**width`` bytes for each row of
     #: the basis, so 1 builds fastest and skips least.  Defaults to 16, the widest allowed (Section
-    #: 4.4 of ``brouwer_zimmermann.md``).
+    #: 4.4 of ``brouwer_zimmermann_code.md``).
     completion_bound_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The number of tail columns in a block of the completion tables that the searches of
     #: ``CosetLeaderSearch`` by Hamming weight build for their costliest queries, a power of two up
-    #: to 16.  Defaults to 16, the widest allowed (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: to 16.  Defaults to 16, the widest allowed (Section 4.4 of ``brouwer_zimmermann_code.md``).
     coset_completion_block_bits: int = dataclasses.field(default=16, metadata=_BLOCK_WIDTHS)
 
     #: The most bytes of completion tables, for each set of a family, that the searches of
@@ -376,7 +378,7 @@ class SearchTuning:
     #: do not fit gets none, and zero disables these tables.  Defaults to 256 MiB, a budget of
     #: memory and of setup effort: these queries get the tables of every set that they scan in
     #: layers of two or more rows, if the tables fit, without predicting whether the tables pay
-    #: (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: (Section 4.4 of ``brouwer_zimmermann_code.md``).
     coset_completion_max_table_bytes: int = 256 * 2**20
 
     #: The number of random supports from which a search estimates the share of a layer that
@@ -410,7 +412,7 @@ class SearchTuning:
 
     #: The cost of one lookup of completion tables for each block of the tables, in scanned
     #: supports, the unit of their cost model: the cost of scanning one support without tables.
-    #: Defaults to 2.0, a rough coefficient (Section 4.4 of ``brouwer_zimmermann.md``).
+    #: Defaults to 2.0, a rough coefficient (Section 4.4 of ``brouwer_zimmermann_code.md``).
     completion_bound_lookup_block_cost: float = 2.0
 
     #: The additional cost of a lookup of completion tables, in scanned supports for each block and
@@ -465,7 +467,7 @@ class SearchTuning:
     #: ``num_threads * 2**information_set_batch_exponent`` supports, a connected-cluster weight
     #: limit unless it is predicted to visit more states than that, and a batch until its queries
     #: have done as many units of work, in the units that ``information_set_batch_exponent``
-    #: defines for each method (Section 4.5 of ``brouwer_zimmermann.md`` and Section 3.11 of
+    #: defines for each method (Section 4.5 of ``brouwer_zimmermann_code.md`` and Section 3.11 of
     #: ``connected_cluster.md``).  Programs that run searches in several processes or threads at
     #: once should cap it, as with ``QLDPC_NUM_THREADS=1`` set before Python starts.
     #: ``use_tuning(num_threads=1)`` caps a worker only if entered in the function that it runs,

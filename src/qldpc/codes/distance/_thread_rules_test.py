@@ -2,7 +2,7 @@
 
 """Check the rules on code that threads run, which tests of results can miss.
 
-Section 5 of ``brouwer_zimmermann.md`` and ``connected_cluster.md``, and the docstring of
+Section 5 of ``brouwer_zimmermann_code.md`` and ``connected_cluster.md``, and the docstring of
 ``qldpc/_compilation.py``, state the rules.  An entry point compiled with ``nogil=True`` runs on
 several threads at once, without Python's global interpreter lock, and so does every compiled
 function that it calls.  A race between them would rarely change a result that tests compare, so
@@ -46,8 +46,11 @@ def test_entry_points_without_the_lock_are_named_in_section_5_of_their_guides() 
     in either guide.
     """
     guides = {
-        name: _get_section_5(Path(__file__).with_name(f"{name}.md"))
-        for name in ("brouwer_zimmermann", "connected_cluster")
+        method: _get_section_5(Path(__file__).with_name(guide))
+        for method, guide in (
+            ("brouwer_zimmermann", "brouwer_zimmermann_code.md"),
+            ("connected_cluster", "connected_cluster.md"),
+        )
     }
     entry_points = list(_get_entry_points())
     assert entry_points

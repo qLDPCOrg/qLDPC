@@ -4,8 +4,8 @@
 
 A sector is a basis whose quotient labels mark its nontrivial words.  ``count_words`` counts the
 nontrivial words of one weight in a sector, and ``transport_basis_family`` moves a basis family of a
-sector through a local gate.  Sections cited in this module are those of ``brouwer_zimmermann.md``,
-whose Section 3.11 explains counts.
+sector through a local gate.  Sections cited in this module are those of
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 3.11 explains counts.
 """
 
 from __future__ import annotations

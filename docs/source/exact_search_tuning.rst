@@ -34,7 +34,7 @@ Start from a symptom
    * - A cheap search spends its time building families of information sets
      - Raise :attr:`~SearchTuning.overlapping_minimum_work` or :attr:`~SearchTuning.partition_work_ratio`, or lower :attr:`~SearchTuning.max_information_sets`.
    * - Queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method at moderate maximum weights are slow, as in its searches for minimum weights in residual-weight estimates
-     - Lower :attr:`~SearchTuning.coset_route_minimum_work`, so that cheaper queries try a maximum disjoint family and an overlapping family (`Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__ of the Brouwer-Zimmermann guide).
+     - Lower :attr:`~SearchTuning.coset_route_minimum_work`, so that cheaper queries try a maximum disjoint family and an overlapping family (`Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models>`__ of the Brouwer-Zimmermann guide).
        In searches by Hamming weight (by physical weight, or of X and Z parts of errors on CSS states), queries that stay costly with the family that they take also skip completions by tables on blocks of :attr:`~SearchTuning.coset_completion_block_bits` columns.
        For larger overlapping families, raise :attr:`~SearchTuning.max_information_sets` or :attr:`~SearchTuning.overlapping_attempts_per_set`.
    * - The costliest queries of :class:`~qldpc.codes.distance.CosetLeaderSearch` by the Brouwer-Zimmermann method spend their time building completion tables
@@ -104,7 +104,7 @@ Routes and the names that control them
    * - Packing the columns into disjoint information sets
      - :attr:`SearchTuning.disjoint_random_column_orders`
      -
-     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
+     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models>`__
    * - Building families of overlapping information sets
      - :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_minimum_work`, :attr:`SearchTuning.overlapping_attempts_per_set`
      -
@@ -112,7 +112,7 @@ Routes and the names that control them
    * - Building families by matroid partitioning
      - :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.partition_work_ratio`, :attr:`SearchTuning.partition_max_coverage`
      -
-     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
+     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models>`__
    * - Ending a search of overlapping sets sooner with a certificate from linear programming
      - :attr:`SearchTuning.lp_minimum_work`, :attr:`SearchTuning.lp_dual_max_denominator`
      -
@@ -164,15 +164,15 @@ Routes and the names that control them
    * - Distance searches by the Brouwer-Zimmermann method: time before a keyboard interrupt takes effect, and the overhead of returning to Python
      - :attr:`SearchTuning.information_set_batch_exponent`
      -
-     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#45-behavior-spanning-files>`__
    * - Distance searches by the Brouwer-Zimmermann method: the threads that scan a costly layer of a set
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
-     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#45-behavior-spanning-files>`__
    * - Batch queries of :class:`~qldpc.codes.distance.CosetLeaderSearch`: when a costly batch moves to threads, and how many
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
-     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#45-behavior-spanning-files>`__ of ``brouwer_zimmermann.md``, and `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__ of ``connected_cluster.md`` ("Syndrome queries")
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#45-behavior-spanning-files>`__ of ``brouwer_zimmermann.md``, and `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__ of ``connected_cluster.md`` ("Syndrome queries")
    * - Distance searches by the connected-cluster method: the threads that search a costly weight limit
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
@@ -188,11 +188,11 @@ Routes and the names that control them
    * - Searches of the lightest Pauli errors by CSS weight on a CSS state, by the Brouwer-Zimmermann method
      - :attr:`SearchTuning.disjoint_random_column_orders`, and for costly queries :attr:`SearchTuning.coset_route_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, :attr:`SearchTuning.coset_completion_block_bits`, and :attr:`SearchTuning.coset_completion_max_table_bytes`
      - :data:`CSS_SEARCH_CACHE_SIZE`
-     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
+     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models>`__
    * - Searches of the lightest Pauli errors by physical weight, or by CSS weight on another stabilizer state, by the Brouwer-Zimmermann method
      - :attr:`SearchTuning.disjoint_random_column_orders`, by CSS weight :attr:`SearchTuning.max_css_single_pairs`, and for costly queries :attr:`SearchTuning.coset_route_minimum_work`, :attr:`SearchTuning.max_information_sets`, :attr:`SearchTuning.overlapping_attempts_per_set`, and by physical weight :attr:`SearchTuning.coset_completion_block_bits` and :attr:`SearchTuning.coset_completion_max_table_bytes`
      - :data:`PAULI_SEARCH_CACHE_SIZE`
-     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann.md#44-heuristics-and-cost-models>`__
+     - `Section 4.4 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#44-heuristics-and-cost-models>`__
    * - Counts of deformed codes
      -
      - :data:`LOCAL_CLIFFORD_CACHE_SIZE`

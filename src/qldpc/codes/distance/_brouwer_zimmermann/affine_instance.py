@@ -5,7 +5,8 @@
 The distance search (``distance.py``) and the coset searches (``coset.py``) scan the words of an
 affine space: an offset plus sums of rows of a set.  Each search packs its problem once for each
 family in an :class:`AffineInstance`.  Sections cited in this module are those of
-``brouwer_zimmermann.md``, whose Section 4.1 says how the searches use instances.
+``brouwer_zimmermann.md`` and ``brouwer_zimmermann_code.md``, whose Section 4.1 says how the
+searches use instances.
 """
 
 from __future__ import annotations

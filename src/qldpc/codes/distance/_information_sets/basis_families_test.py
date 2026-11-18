@@ -428,7 +428,7 @@ def test_partitioned_families_do_at_least_the_work_of_their_coverage_bound(
 
     The bound at a coverage ``b`` is that of ``_estimate_optimistic_work`` over the most sets that
     fit within ``b``.  Partitioning skips ``b`` if the bound is at least the work of the best family
-    so far (Section 4.4 of ``brouwer_zimmermann.md``).
+    so far (Section 4.4 of ``brouwer_zimmermann_code.md``).
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     max_sets = 8
@@ -554,7 +554,7 @@ def test_a_coverage_limit_of_one_skips_coverage_one_at_the_pruned_disjoint_rank_
 
     A given family that is disjoint and has the pruned bound has the ranks of every pruned maximum
     disjoint family, so the skip leaves the result unchanged (Section 4.4 of
-    ``brouwer_zimmermann.md``).
+    ``brouwer_zimmermann_code.md``).
     """
     with_zero = np.hstack([PARTIAL_BASIS, np.zeros((3, 1), dtype=np.uint8)])
     three_rows = np.tile(np.eye(3, dtype=np.uint8), 8)

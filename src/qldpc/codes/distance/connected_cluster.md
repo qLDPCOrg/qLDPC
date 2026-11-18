@@ -497,7 +497,7 @@ The search returns the witness of the first item that has one, or else the witne
 It counts the states above the frontier before that witness in DFS order, the states of the earlier items, and the states of the item of the witness up to the witness, which is the count of one thread; without a witness, it counts every state.
 
 **When to split.**
-A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `num_threads * 2**information_set_batch_exponent` states, as many as the supports of a chunk of a BZ scan for each thread ([Section 4.5 of brouwer_zimmermann.md](brouwer_zimmermann.md#45-behavior-spanning-files)).
+A limit runs on threads only if `num_threads` exceeds one and the search predicts ([Section 3.5](#35-symmetries)) that the limit visits more than `num_threads * 2**information_set_batch_exponent` states, as many as the supports of a chunk of a BZ scan for each thread ([Section 4.5 of brouwer_zimmermann_code.md](brouwer_zimmermann_code.md#45-behavior-spanning-files)).
 A split costs far fewer states than the gate, which reuses the chunk size of BZ scans, so the gate is conservative: lowering `information_set_batch_exponent` lets smaller limits split.
 By the predictions of [Section 3.5](#35-symmetries), a first limit that a `cutoff` sets above the weight divisor runs on threads, and a first limit at the divisor does not.
 

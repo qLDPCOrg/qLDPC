@@ -456,7 +456,7 @@ def get_partition_seconds(traces: dict[str, dict[str, Any]]) -> Constant:
 
     It divides the seconds of each run by ``tried_unit``, the sum of ``b**2 * r**2 * N`` over the
     coverages ``b`` that the run tried, since partitioning skips a coverage at which no family could
-    replace the best so far (Section 4.4 of ``brouwer_zimmermann.md``).  The seconds leave out
+    replace the best so far (Section 4.4 of ``brouwer_zimmermann_code.md``).  The seconds leave out
     building a competing family of automorphism images, which ``get_automorphism_seconds`` counts.
     """
     runs = [

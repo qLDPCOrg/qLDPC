@@ -4,7 +4,8 @@
 
 A certificate bounds the weights of the eligible words that a search of a basis family has not
 visited, and a plan says where a search stops above a limit, and the work of its steps up to there.
-Sections cited in this module are those of ``brouwer_zimmermann.md``.
+Sections cited in this module are those of ``brouwer_zimmermann.md`` and
+``brouwer_zimmermann_code.md``.
 
 Compiled functions here, such as ``find_stopping_step`` and ``is_unused_set``, also run within nogil
 calls of threaded searches, so they must keep the rules for such code in the docstring of

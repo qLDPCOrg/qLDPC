@@ -86,7 +86,7 @@ def get_binary_matrix(rows: Iterable[str]) -> npt.NDArray[np.uint8]:
 
 
 # Codes whose greedy disjoint packings, in natural column order, leave room for the other families
-# that coset searches can take (Section 4.4 of ``brouwer_zimmermann.md``):
+# that coset searches can take (Section 4.4 of ``brouwer_zimmermann_code.md``):
 #
 # - EVEN_ROUTES_CODE has the columns e1, e2, e3, e1 + e2, e1 + e2, and e1 + e2 + e3, so its rows
 #   are even.  Its greedy packing has ranks three and two, but its columns hold two disjoint
@@ -118,7 +118,7 @@ OVERLAPPING_ROUTES_CODE = get_binary_matrix(
 # A [15, 6, 4] code whose last nine columns have even weight on the first four rows.  A greedy
 # packing of its columns in natural order takes the first six, and leaves a partial set of rank
 # five, but the columns hold two disjoint information sets, which matroid partitioning with coverage
-# one finds (Section 4.4 of ``brouwer_zimmermann.md``).
+# one finds (Section 4.4 of ``brouwer_zimmermann_code.md``).
 MISSED_SET_CODE = get_binary_matrix(
     [
         "100000111011011",
@@ -364,8 +364,8 @@ def split_syndromes_into_words(syndromes: Sequence[int], num_bits: int) -> npt.N
 
 
 # Graph states whose costly queries of Pauli errors take a maximum disjoint family that beats the
-# greedy packing (Section 4.4 of ``brouwer_zimmermann.md``).  By physical weight, the family has
-# more information sets on the first of ROUTED_PHYSICAL_STATES, and a larger partial set on the
+# greedy packing (Section 4.4 of ``brouwer_zimmermann_code.md``).  By physical weight, the family
+# has more information sets on the first of ROUTED_PHYSICAL_STATES, and a larger partial set on the
 # second, where it returns other errors than the greedy packing for some classes without an error
 # within the maximum weight.  By CSS weight, it has a larger partial set on ROUTED_CSS_WEIGHT_STATE.
 ROUTED_PHYSICAL_STATES = (
@@ -471,10 +471,11 @@ def assert_exact_answers(
 def check_code_on_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the workers of ``run_work_items`` fail if they break a rule on threads, in every test.
 
-    Section 5 of each method's guide states the rules.  While a worker runs, on a new thread or on
-    the thread that called ``run_work_items``, a call from Python of numba code compiled with
-    ``parallel=True``, such as some of galois's, or of ``_tuning.get_tuning``, raises an
-    ``AssertionError``, which ``run_work_items`` raises again.  Two threads that run numba-parallel
+    Section 5 of each method's guide, ``brouwer_zimmermann_code.md`` or ``connected_cluster.md``,
+    states the rules.  While a worker runs, on a new thread or on the thread that called
+    ``run_work_items``, a call from Python of numba code compiled with ``parallel=True``, such as
+    some of galois's, or of ``_tuning.get_tuning``, raises an ``AssertionError``, which
+    ``run_work_items`` raises again.  Two threads that run numba-parallel
     code at once abort the process under numba's workqueue layer, and a new thread reads the default
     tuning.  The fixture sees only the calls that tests make on workers.  In compiled code, two
     tests of ``qldpc/_compiled_code_rules_test.py`` check the rest:
