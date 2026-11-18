@@ -11,7 +11,7 @@ The code-annealing experiment and the shared code of `state_prep_certification/`
 | [`code_annealing/`](code_annealing/) | Implements and reproduces the code search of [Quantum codes from classical annealing](https://arxiv.org/abs/2607.19574): annealing of CSS and SWEL codes, scored exactly | `python -m experiments.code_annealing.reproduce_paper`; or `write_jobs`, its jobs, `collect_data`, and `make_figures` (see its guide) |
 | [`distance_tuning/`](distance_tuning/) | Timings of the exact distance searches, and checks of the heuristics behind their tuning | `benchmark.py`; `constants.py`, `trace.py`, and `sweep.py` |
 | [`lattice_surgery/`](lattice_surgery/) | Logical error rates of lattice-surgery gadgets versus quantum memory (experimental; see the [warning](#lattice-surgery)) | `collect_ler.py` |
-| [`state_prep_certification/`](state_prep_certification/) | Exact certification of fault-tolerant state preparation circuits, and the exact distance searches that it relies on, run offline on a Linux node | `node.sh` on the node; `bundle.py` on a workstation |
+| [`state_prep_certification/`](state_prep_certification/) | Exact certification of fault-tolerant state preparation circuits, the exact distance searches that it relies on, and a ranking of the certified circuits, run offline on a Linux node | `node.sh` on the node; `bundle.py` on a workstation |
 
 Each script's module docstring summarizes its method and outputs; run it with `--help` to see its options.
 `state_prep_certification/node.sh` describes itself in its header comment, which `--help` prints.
