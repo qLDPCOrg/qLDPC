@@ -55,11 +55,17 @@ costs and errors beside them.  For a group at a rate, the target is sigma* = max
 and Phi_cal splits it: sigma_hist <= sigma* / sqrt(2) for each circuit and sigma_cal <=
 sigma* / sqrt(2) for the worst.  Setup and exactly listed strata are fixed costs.  The sampled
 cost of a component is multiplied by max(s_min, (sigma / target)^2), with s_min = ``MIN_DRAWS``
-over the fewest draws of its sampled strata, rows, or cells.  This projection is made only where
-every sampled stratum, row, or cell that contributes to sigma has at least ``MIN_NONZERO`` draws of
-nonzero value; elsewhere the projected cost is left empty.  Histograms do not store their draws,
-so for their rows the Kish effective number of the draws of nonzero value stands in for their
-count; it is at most that count.
+over the fewest draws of its sampled strata, rows, or cells.
+
+This projection assumes that sigma falls as the inverse square root of the draws, which a sampled
+stratum, row, or cell with fewer than ``MIN_NONZERO`` draws of nonzero value may not.  Such a
+component fails; histograms do not store their draws, so for their rows the Kish effective number
+of the draws of nonzero value, which is at most their count, stands in for it.  A component's
+projection is made only if the failing parts can only matter little: the sum of their bounds, which
+the method's ranges fix before any data, is at most ``EXEMPT_SHARE`` of the summed estimated
+variance of the passing parts.  Elsewhere the projected cost is left empty.  The bounds are those of
+``direct_terms``, ``histogram_terms``, and ``calibration_terms``.  The calibration's baseline
+f(0, 0) is exact (``exact_no_fault_baseline``), and so has no error and no draws to count.
 
 The two methods cost A + k b for k circuits: A_score is the consumer's setup and the projected
 calibration, b_score the mean over the circuits of the preparation's setup, the projected X-type
@@ -83,6 +89,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import hashlib
 import itertools
 import json
@@ -94,6 +101,7 @@ import sys
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import scipy.stats
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -117,6 +125,7 @@ GATE_RIVALS = ("phi_unc", "alpha", "residual")
 ELIGIBLE_PAIRS = 8
 AGREE_ACCURACY = 0.8
 MIN_NONZERO = direct.MIN_NONZERO
+EXEMPT_SHARE = 0.01
 MIN_DRAWS = 1000
 PRECISION_RELATIVE = 0.1
 PRECISION_FLOOR = 0.01
@@ -328,7 +337,9 @@ def evaluate(
                 **{key: value for key, value in fields.items() if key not in ("group", "rate")},
             }
             if "calibration" in fields:
-                calibration = ConsumerCalibration.from_dict(fields["calibration"])
+                calibration = exact_no_fault_baseline(
+                    ConsumerCalibration.from_dict(fields["calibration"])
+                )
                 counts = _x_table(calibration.excess_num_samples)
                 group_row["unsampled_cells"] = [
                     [m, g]
@@ -343,6 +354,21 @@ def evaluate(
                     _candidate(rows, entry, group, rate, entry["id"] in admitted, group_row)
                 )
     return candidates, groups
+
+
+def exact_no_fault_baseline(calibration: ConsumerCalibration) -> ConsumerCalibration:
+    """The calibration with the baseline f(0, 0) exact, if it was estimated as 0.
+
+    With no consumer fault and no block error, the consumer's syndrome is trivial and its decoder
+    predicts no flip, so f(0, 0) = 0 exactly, but ``Consumer.calibrate`` gives it the Jeffreys
+    error of its zero failures.  The value of every score is unchanged.
+    """
+    baseline = np.asarray(calibration.baseline_failure_probabilities)
+    errors = np.array(calibration.baseline_standard_errors, dtype=float)
+    if baseline[0] != 0 or not errors[0]:
+        return calibration
+    errors[0] = 0.0
+    return dataclasses.replace(calibration, baseline_standard_errors=errors)
 
 
 def reachable_cells(entry: dict[str, Any]) -> dict[int, bool]:
@@ -445,6 +471,10 @@ def _candidate(
             "phi_true": result["phi"],
             "sigma_true": result["sigma"],
             "tau": result["tau"],
+            "alpha": result["alpha"],
+            "alpha_exact": result["alpha_exact"],
+            "pi": result["pi"],
+            "eta": result["eta"],
             "inadequate": result["inadequate"],
             "strata": result["strata"],
             "cpu_direct": {
@@ -761,6 +791,172 @@ def nonzero_changes(mean: float, error: float, count: int) -> int:
     return round(plus_minus - 1)
 
 
+def exempted(passing: list[float], failing: list[float]) -> bool:
+    """Whether a projection may be made despite the parts that fail the nonzero-draw test.
+
+    Args:
+        passing: The estimated contributions to sigma^2 of the sampled parts that pass.
+        failing: The bounds on the contributions of those that fail.
+
+    Returns:
+        Whether the failing parts' bounds sum to at most ``EXEMPT_SHARE`` of the passing parts'
+        estimates; with no failing part, True.
+    """
+    return sum(failing) <= EXEMPT_SHARE * sum(passing)
+
+
+def direct_terms(candidate: dict[str, Any]) -> tuple[list[float], list[float]]:
+    """The passing estimates and failing bounds of a reference's sampled strata.
+
+    A stratum (f, g) passes with ``MIN_NONZERO`` nonzero changes, and, for g = 0, which also
+    estimates a_f, as many accepted draws.  Its contribution to sigma^2 is that of
+    ``direct.combine_strata``.  Its bound uses that each draw's weighted change and weighted
+    acceptance lie in [-W, W], for the largest importance weight W that the proposal allows, so
+    that each mean has a variance of at most W^2 / n.  With |Phi| <= 1 and alpha >= alpha_exact,
+    the contribution is at most ((pi_f eta_g + pi_f [g = 0]) W)^2 / (n alpha_exact^2).
+    """
+    pi, eta = candidate["pi"], candidate["eta"]
+    alpha, phi = candidate["alpha"], candidate["phi_true"]
+    passing, failing = [], []
+    for stratum in candidate["strata"]:
+        if stratum["exact"]:
+            continue
+        f, g = stratum["f"], stratum["g"]
+        weight = pi[f] * eta[g]
+        estimate = weight**2 * stratum["variance"]
+        if g == 0:
+            estimate += (
+                -2 * phi * weight * pi[f] * stratum["covariance"]
+                + phi**2 * pi[f] ** 2 * stratum["acceptance_variance"]
+            )
+        passes = stratum["nonzero"] >= MIN_NONZERO and (
+            g or stratum["accepted_draws"] >= MIN_NONZERO
+        )
+        if passes:
+            passing.append(estimate / alpha**2)
+        else:
+            reach = (weight + (pi[f] if g == 0 else 0.0)) * stratum["importance_weight_bound"]
+            failing.append(reach**2 / (stratum["draws"] * candidate["alpha_exact"] ** 2))
+    return passing, failing
+
+
+def histogram_terms(
+    histogram: ResidualWeightHistogram, values: npt.NDArray[np.float64]
+) -> tuple[list[float], list[float]]:
+    """The passing estimates and failing bounds of a score's sampled histogram rows.
+
+    ``values`` are the score's values of the outcomes, in the column order of the histogram's
+    ``weight_sums``.  Each row's estimate is its term in the first-order variance of
+    ``ResidualWeightHistogram._get_conditional_mean``, so that the estimates of all rows sum to
+    that variance.  A row passes if the Kish effective number of its draws of nonzero value
+    (accepted with a residual weight of at least 1) is at least ``MIN_NONZERO``.
+
+    A row's bound uses that each draw's deviation lies within D = (max v - min v) + max |v|, over
+    the values v with 0 for a discarded draw; that within row f, qLDPC's proposal gives importance
+    weights whose ratios are at most R^f, with R the inverse of its ``_FLAGGED_ODDS_FACTOR``, so
+    that sum w^2 / (sum w)^2 <= min(1, R^f / n_f); and that the acceptance is at least that of
+    the exact rows and the truncated mass.  So the row contributes at most
+    pi_f^2 D^2 min(1, R^f / n_f) / alpha_low^2.
+    """
+    values = np.array(values, dtype=float)
+    values[0] = 0.0
+    accepted = np.ones(len(values))
+    accepted[0] = 0.0
+    fractions = histogram._get_outcome_fractions()
+    probabilities = histogram.fault_weight_probabilities
+    truncated = histogram.truncated_probability
+    numerators, acceptances = fractions @ values, fractions @ accepted
+    denominator = probabilities @ acceptances + truncated
+    mean = (probabilities @ numerators + truncated * values[-1]) / denominator
+    deviations = (values[None, :] - numerators[:, None]) - mean * (
+        accepted[None, :] - acceptances[:, None]
+    )
+    totals = histogram.weight_sums.sum(axis=1)
+    acceptance_low = probabilities[histogram.exact] @ acceptances[histogram.exact] + truncated
+    span = values.max() - values.min() + np.abs(values).max()
+    ratio = 1 / residual_weights._FLAGGED_ODDS_FACTOR
+    passing, failing = [], []
+    for row in np.flatnonzero((totals > 0) & ~histogram.exact):
+        squares = histogram.squared_weight_sums[row]
+        estimate = (
+            probabilities[row] ** 2 * float(squares @ deviations[row] ** 2) / totals[row] ** 2
+        )
+        nonzero_weights = histogram.weight_sums[row, 2:].sum()
+        nonzero_squares = squares[2:].sum()
+        if nonzero_weights and nonzero_weights**2 / nonzero_squares >= MIN_NONZERO:
+            passing.append(estimate / denominator**2)
+        else:
+            spread = min(1.0, ratio ** float(row) / histogram.num_samples[row])
+            failing.append(probabilities[row] ** 2 * span**2 * spread / acceptance_low**2)
+    return passing, failing
+
+
+def calibration_terms(
+    calibration: ConsumerCalibration, histogram: ResidualWeightHistogram, num_samples: int
+) -> tuple[list[float], list[float]]:
+    """The passing estimates and failing bounds of a calibration, for one X-type histogram.
+
+    The parts are the reached cells and the baselines with weight in the score of the histogram,
+    and their estimates are their terms in ``calibration_difference_error``, so that they sum to
+    sigma_cal^2.  A cell passes with ``MIN_NONZERO`` increases and decreases (``nonzero_changes``),
+    and a baseline with as many failures; an exact baseline, with no error, is no part.  Weights
+    are at most 1, a cell's Jeffreys variance at most 1 / count, and a baseline's at most
+    1 / shots, so a part at fault weight g contributes at most Pr[g]^2 / count, or Pr[g]^2 / shots.
+    ``num_samples`` is the calibration's draws for each fault weight and physical error weight.
+    """
+    distribution, _ = calibration._get_distribution()
+    table = _x_table(calibration.excess_failure_probabilities)
+    errors = _x_table(calibration.excess_standard_errors)
+    counts = _x_table(calibration.excess_num_samples)
+    baseline = np.asarray(calibration.baseline_failure_probabilities)
+    baseline_errors = np.asarray(calibration.baseline_standard_errors)
+    num_qubits = len(calibration.state_stabilizers or ())
+    shots = num_samples * min(M + 1, num_qubits)
+    probabilities = histogram.get_residual_weight_distribution()
+    rows = probabilities[1 : len(table) + 1]
+    passing, failing = [], []
+    for m, g in zip(*np.nonzero((rows[:, None] * distribution > 0) & (counts > 0))):
+        estimate = float(rows[m] * distribution[g] * errors[m, g]) ** 2
+        if nonzero_changes(table[m, g], errors[m, g], counts[m, g]) >= MIN_NONZERO:
+            passing.append(estimate)
+        else:
+            failing.append(float(distribution[g]) ** 2 / counts[m, g])
+    baseline_weights = probabilities[len(table) + 1 :].sum() + rows @ (counts == 0)
+    for g in np.flatnonzero((baseline_weights * distribution > 0) & (baseline_errors > 0)):
+        estimate = float(baseline_weights[g] * distribution[g] * baseline_errors[g]) ** 2
+        if shots and round(baseline[g] * shots) >= MIN_NONZERO:
+            passing.append(estimate)
+        else:
+            failing.append(float(distribution[g]) ** 2 / shots if shots else math.inf)
+    return passing, failing
+
+
+def phi_cal_values(
+    calibration: ConsumerCalibration, histogram: ResidualWeightHistogram
+) -> npt.NDArray[np.float64]:
+    """The values of Phi_cal's outcomes for an X-type histogram, as qLDPC scores them."""
+    table = _x_table(calibration.excess_failure_probabilities)
+    distribution, truncated = calibration._get_distribution()
+    baseline = np.asarray(calibration.baseline_failure_probabilities)
+    no_block_error = float(baseline @ distribution) + truncated
+    heavier = histogram.max_residual_weight + 1 - len(table)
+    return np.concatenate([[0.0, 0.0], table @ distribution, np.full(heavier, 1 - no_block_error)])
+
+
+def phi_unc_values(
+    calibration: ConsumerCalibration, histogram: ResidualWeightHistogram
+) -> npt.NDArray[np.float64]:
+    """The values of Phi_unc's outcomes for a total-weight histogram, as qLDPC scores them."""
+    profile = experiment.unc_profile(calibration)
+    failures = [
+        profile.get_failure_probability(weight)
+        for weight in range(histogram.max_residual_weight + 2)
+    ]
+    values = np.array([0.0, *failures]) - failures[0]
+    values[0] = 0.0
+    return values
+
+
 def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[str, Any]:
     """The projected and achieved costs of both methods for one group at one rate, and k*."""
     target = max(
@@ -773,12 +969,7 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
     # direct simulation: fixed setup and exact strata, and the scaled sampled strata
     for c in members:
         cpu = c["cpu_direct"]
-        # a sampled stratum (f, 0) also estimates the acceptance, whose nonzero draws are accepted
-        valid = all(
-            s["nonzero"] >= MIN_NONZERO and (s["g"] or s["accepted_draws"] >= MIN_NONZERO)
-            for s in c["strata"]
-            if not s["exact"]
-        )
+        valid = exempted(*direct_terms(c))
         fixed = cpu["cpu_prep_setup_s"] + cpu["cpu_exact_s"]
         c["cost_direct_achieved"] = fixed + cpu["cpu_sampled_s"]
         c["cost_direct_projected"] = project(
@@ -786,8 +977,11 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         )
 
     # Phi_cal: the calibration once per group, against the error of its worst circuit
-    worst_cal = max(c["sigma_cal"] for c in members)
-    cal_valid = _calibration_valid(calibration, members, group["num_samples"])
+    worst = max(members, key=lambda c: c["sigma_cal"])
+    worst_cal = worst["sigma_cal"]
+    cal_valid = exempted(
+        *calibration_terms(calibration, worst["histograms"][1], group["num_samples"])
+    )
     a_score_achieved = group["cpu_consumer_setup_s"] + group["cpu_sampled_s"]
     counts = _x_table(calibration.excess_num_samples)
     a_score = project(
@@ -807,6 +1001,11 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
         ):
             cpu = c["cpu_histogram"][name]
             histogram = c["histograms"][0 if name == "total" else 1]
+            values = (
+                phi_unc_values(calibration, histogram)
+                if name == "total"
+                else phi_cal_values(calibration, histogram)
+            )
             rows = histogram.num_samples[~histogram.exact & (histogram.num_samples > 0)]
             fixed = (
                 cpu["cpu_setup_s"]
@@ -821,7 +1020,7 @@ def _cost_lines(members: list[dict[str, Any]], group: dict[str, Any]) -> dict[st
                 sigma,
                 sigma_target,
                 int(rows.min()) if rows.size else 0,
-                _histogram_valid(histogram),
+                exempted(*histogram_terms(histogram, values)),
             )
 
     # the cost lines, and k* where every component is projected
@@ -868,51 +1067,6 @@ def _k_star_number(outcome: str) -> int | None:
     """The number k* of a break-even outcome, if it has one."""
     first = outcome.split()[0]
     return int(first) if first.isdigit() else None
-
-
-def _histogram_valid(histogram: ResidualWeightHistogram) -> bool:
-    """Whether every sampled row of a histogram has enough draws of nonzero value.
-
-    A draw has a nonzero value if it is accepted with a residual weight of at least 1.  The draws
-    are not stored, so the Kish effective number of these draws, which is at most their number,
-    stands in for it.
-    """
-    for row in np.flatnonzero(~histogram.exact & (histogram.num_samples > 0)):
-        weights = histogram.weight_sums[row, 2:].sum()
-        squares = histogram.squared_weight_sums[row, 2:].sum()
-        if not weights or weights**2 / squares < MIN_NONZERO:
-            return False
-    return True
-
-
-def _calibration_valid(
-    calibration: ConsumerCalibration, members: list[dict[str, Any]], num_samples: int
-) -> bool:
-    """Whether every cell and baseline that contributes to sigma_cal has enough nonzero draws.
-
-    A cell contributes if it was reached and has weight in some circuit's X-type histogram; its
-    nonzero draws are its increases and decreases, which its mean and Jeffreys standard error
-    determine.  A baseline contributes if it has weight through overflow or an unsampled cell; its
-    nonzero draws are its failures.
-    """
-    distribution, _ = calibration._get_distribution()
-    table = _x_table(calibration.excess_failure_probabilities)
-    errors = _x_table(calibration.excess_standard_errors)
-    counts = _x_table(calibration.excess_num_samples)
-    baseline = np.asarray(calibration.baseline_failure_probabilities)
-    num_qubits = len(calibration.state_stabilizers or ())
-    shots = num_samples * min(M + 1, num_qubits)
-    for c in members:
-        probabilities = c["histograms"][1].get_residual_weight_distribution()
-        rows = probabilities[1 : len(table) + 1]
-        for m, g in zip(*np.nonzero((rows[:, None] * distribution > 0) & (counts > 0))):
-            if nonzero_changes(table[m, g], errors[m, g], counts[m, g]) < MIN_NONZERO:
-                return False
-        baseline_weights = probabilities[len(table) + 1 :].sum() + rows @ (counts == 0)
-        for g in np.flatnonzero(baseline_weights * distribution > 0):
-            if round(baseline[g] * shots) < MIN_NONZERO:
-                return False
-    return True
 
 
 ####################################################################################################

@@ -49,6 +49,7 @@ Each test prints PASS or FAIL; the script exits with status 1 if any failed.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import fractions
 import functools
 import io
@@ -630,24 +631,38 @@ def rt10_rules(directory: pathlib.Path) -> None:
             exact=np.array([True, False]),
             pauli="X",
         )
-        calibration = ConsumerCalibration(
-            {"X": [[(i - d) / n] for i, d, n in cells]},
-            [0.0],
-            excess_standard_errors={
-                "X": [[float(consumers._get_jeffreys_deviations(i, d, n))] for i, d, n in cells]
-            },
-            baseline_standard_errors=[0.01],
-            excess_num_samples={"X": [[n] for *_, n in cells]},
+        calibration = analyze.exact_no_fault_baseline(
+            ConsumerCalibration(
+                {"X": [[(i - d) / n] for i, d, n in cells]},
+                [0.0],
+                excess_standard_errors={
+                    "X": [[float(consumers._get_jeffreys_deviations(i, d, n))] for i, d, n in cells]
+                },
+                baseline_standard_errors=[0.01],
+                excess_num_samples={"X": [[n] for *_, n in cells]},
+            )
         )
+        stratum = {
+            "exact": False,
+            "variance": 1e-12,
+            "acceptance_variance": 1e-12,
+            "covariance": 0.0,
+            "draws": 10_000,
+            "importance_weight_bound": 1.0,
+        }
         members = [
             {
                 "phi_true": phi,
                 "sigma_true": 2 * target,
                 "tau": 0.0,
+                "alpha": 0.9,
+                "alpha_exact": 0.8,
+                "pi": [0.5, 0.3, 0.2],
+                "eta": [0.9, 0.1],
                 "num_direct_samples": 10_000,
                 "strata": [
-                    {"exact": False, "g": 1, "nonzero": direct_nonzero, "accepted_draws": 50},
-                    {"exact": False, "g": 0, "nonzero": 10, "accepted_draws": accepted},
+                    stratum | {"f": 1, "g": 1, "nonzero": direct_nonzero, "accepted_draws": 50},
+                    stratum | {"f": 2, "g": 0, "nonzero": 10, "accepted_draws": accepted},
                 ],
                 "cpu_direct": {
                     "cpu_consumer_setup_s": 0.5,
@@ -695,18 +710,108 @@ def rt10_rules(directory: pathlib.Path) -> None:
     delta_b = expected["b_direct"] - expected["b_score"]
     assert lines["k_star"] == analyze.break_even(delta_a, delta_b) == "1", lines["k_star"]
 
-    # one input below its threshold leaves its line unprojected, and k* not computed
+    # one input below its threshold, whose bound is not small, leaves its line unprojected
     for line, broken in (
         ("b_direct", cost_lines(direct_nonzero=9)),
         ("b_direct", cost_lines(accepted=9)),
         ("b_score", cost_lines(row=(100, 1891, 5, 4, 0))),
         ("A_score", cost_lines(cells=((5, 4, 1000), (8, 2, 500)))),
-        # overflow gives weight to the baseline f(0, 0), which has no failures
-        ("A_score", cost_lines(row=(100, 1890, 6, 3, 1))),
     ):
         assert broken[line] is None and broken["k_star"] == "not computed", (line, broken)
         others = {"b_direct", "b_score", "A_score"} - {line}
         assert all(broken[other] is not None for other in others), (line, broken)
+
+    # overflow gives weight to the baseline f(0, 0), which is exact and blocks nothing
+    assert cost_lines(row=(100, 1890, 6, 3, 1))["k_star"] != "not computed"
+
+    # the 1% rule, at its boundary
+    assert analyze.exempted([1.0], [0.0099]) and not analyze.exempted([1.0], [0.0101])
+    assert analyze.exempted([], []) and not analyze.exempted([], [1e-30])
+
+    # a reference's terms: a passing stratum's estimate and a failing stratum's bound
+    base = {"exact": False, "draws": 100, "importance_weight_bound": 2.0}
+    candidate_terms = analyze.direct_terms(
+        {
+            "pi": [0.5, 0.3, 0.2], "eta": [0.9, 0.1], "alpha": 0.8, "alpha_exact": 0.7,
+            "phi_true": 0.01,
+            "strata": [
+                base | {"f": 2, "g": 0, "variance": 0.01, "covariance": 0.002,
+                        "acceptance_variance": 0.004, "nonzero": 20, "accepted_draws": 20},
+                base | {"f": 1, "g": 1, "variance": 0.5, "nonzero": 3, "accepted_draws": 50},
+                base | {"f": 1, "g": 0, "variance": 0.5, "covariance": 0.0,
+                        "acceptance_variance": 0.1, "nonzero": 30, "accepted_draws": 5},
+            ],
+        }
+    )  # fmt: skip
+    estimate = (0.18**2 * 0.01 - 2 * 0.01 * 0.18 * 0.2 * 0.002 + 0.01**2 * 0.2**2 * 0.004) / 0.64
+    assert math.isclose(candidate_terms[0][0], estimate, rel_tol=1e-12), candidate_terms
+    assert math.isclose(candidate_terms[1][0], (0.03 * 2.0) ** 2 / (100 * 0.49), rel_tol=1e-12)
+    # a stratum (1, 0), also estimating a_1, adds pi_1 to its reach
+    assert math.isclose(
+        candidate_terms[1][1], ((0.27 + 0.3) * 2.0) ** 2 / (100 * 0.49), rel_tol=1e-12
+    )
+
+    # a histogram's terms: estimates that sum to qLDPC's variance, and a failing row's bound
+    values = np.array([0.0, 0.0, 0.5, 1.0, 1.0])
+    row_sums = np.zeros((3, M + 3))
+    row_sums[0, 1] = 1.0
+    row_sums[1] = [50, 900, 30, 15, 5]
+    row_sums[2] = [40, 940, 12, 6, 2]
+    squares = row_sums * [[1.0], [1.0], [1.5]]
+    passing_histogram = ResidualWeightHistogram(
+        max_residual_weight=M, css_weight=True,
+        fault_weight_probabilities=np.array([0.8, 0.15, 0.04]), truncated_probability=0.01,
+        weight_sums=row_sums.copy(), squared_weight_sums=squares, num_samples=np.array([0, 1000, 1000]),
+        exact=np.array([True, False, False]), pauli="X",
+    )  # fmt: skip
+    passing, failing = analyze.histogram_terms(passing_histogram, values)
+    variance = passing_histogram._get_conditional_mean(values)[1] ** 2
+    assert not failing and math.isclose(sum(passing), variance, rel_tol=1e-12), (passing, variance)
+    row_sums[2] = [40, 952, 4, 3, 1]
+    failing_histogram = dataclasses.replace(
+        passing_histogram, weight_sums=row_sums, squared_weight_sums=row_sums.copy()
+    )
+    # row 2 fails with 8 draws of nonzero value; D = (1 - 0) + 1, R^2 / n = 400 / 1000, and the
+    # acceptance of the exact row and the truncated mass is 0.8 + 0.01
+    _, failing = analyze.histogram_terms(failing_histogram, values)
+    assert math.isclose(failing[0], 0.04**2 * 2**2 * 0.4 / 0.81**2, rel_tol=1e-12), failing
+
+    # a calibration's terms: estimates that sum to sigma_cal^2, and a failing cell's bound
+    calibration_cells = ((60, 10, 1000), (8, 1, 500))
+    terms_calibration = ConsumerCalibration(
+        {"X": [[(i - d) / n, 0.1] for i, d, n in calibration_cells]},
+        [0.0, 0.1],
+        [0.01],
+        excess_standard_errors={
+            "X": [[float(consumers._get_jeffreys_deviations(i, d, n)), 0.01]
+                  for i, d, n in calibration_cells]
+        },
+        baseline_standard_errors=[0.0, 0.01],
+        excess_num_samples={"X": [[n, 1000] for *_, n in calibration_cells]},
+        state_stabilizers=["+ZI", "+IZ"],
+    )  # fmt: skip
+    passing, failing = analyze.calibration_terms(terms_calibration, passing_histogram, 1000)
+    sigma_cal = analyze.calibration_difference_error(terms_calibration, passing_histogram)
+    pr_0 = float(terms_calibration._get_distribution()[0][0])
+    # cell (2, 0) has 9 increases and decreases; the baseline at g = 1 has 0.1 x 1000 x 2 failures
+    assert len(failing) == 1 and math.isclose(failing[0], pr_0**2 / 500, rel_tol=1e-12), failing
+    assert math.isclose(sum(passing) + failing_estimate(terms_calibration, passing_histogram),
+                        sigma_cal**2, rel_tol=1e-12)  # fmt: skip
+
+    # a baseline at g = 1 with 0.002 x 1000 x 2 = 4 failures fails, with the bound Pr[1]^2 / shots
+    few_failures = dataclasses.replace(
+        terms_calibration, baseline_failure_probabilities=[0.0, 0.002]
+    )
+    _, failing = analyze.calibration_terms(few_failures, passing_histogram, 1000)
+    pr_1 = float(terms_calibration._get_distribution()[0][1])
+    assert len(failing) == 2 and math.isclose(failing[1], pr_1**2 / 2000, rel_tol=1e-12), failing
+
+    # f(0, 0) estimated as 0 is made exact, and any other baseline is left as it is
+    exact = analyze.exact_no_fault_baseline(terms_calibration)
+    assert list(np.asarray(exact.baseline_standard_errors)) == [0.0, 0.01]
+    nonzero_baseline = dataclasses.replace(terms_calibration, baseline_failure_probabilities=[0.1, 0.1],
+                                           baseline_standard_errors=[0.01, 0.01])  # fmt: skip
+    assert analyze.exact_no_fault_baseline(nonzero_baseline) is nonzero_baseline
 
     # the break-even outcomes, at and near their boundaries
     for delta_a, delta_b, outcome in (
@@ -830,6 +935,14 @@ def _variant(
         sums = archive.with_name(archive.name + ".sha256")
         sums.write_text(f"{store.sha256_file(archive)}  {archive.name}\n")
     return archive
+
+
+def failing_estimate(calibration: ConsumerCalibration, histogram: ResidualWeightHistogram) -> float:
+    """The estimated contribution of a calibration's cell (2, 0) to sigma_cal^2, by definition."""
+    distribution, _ = calibration._get_distribution()
+    rows = histogram.get_residual_weight_distribution()
+    errors = analyze._x_table(calibration.excess_standard_errors)
+    return float(rows[2] * distribution[0] * errors[1, 0]) ** 2
 
 
 def _frozen_pairing(
