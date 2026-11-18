@@ -20,10 +20,11 @@ errors are those of qLDPC's ``Consumer``.  The strata are f <= f_max and g <= g_
 histogram's default largest fault weight and g_max the calibration's.  A stratum (f, g) is listed
 exactly if it has at most ``max_exact_faults`` pairs of faults, and otherwise sampled.  A sampled
 stratum draws F from a proposal for weight f (``sample_faults``), with importance weight
-P_f(F) / q_f(F), and T exactly from its conditional law, as ``Consumer.calibrate`` draws it.  The
-experiment's configuration draws F exactly from its own conditional law, so that every weight is 1.
-qLDPC's histograms instead suppress flagged mechanisms in their proposal, which would give the
-accepted faults whose flags cancel weights of 400 and more, and too few effective draws.
+P_f(F) / q_f(F), and T exactly from its conditional law, as ``Consumer.calibrate`` draws it.  With
+``flagged_odds_factor`` = 1 in ``config.json``, the proposal is the noise's conditional law P_f,
+so every weight is 1.  qLDPC's histograms multiply the odds of flagged mechanisms by 0.05, so an
+accepted fault with two flagged mechanisms whose flags cancel would get the weight 0.05^-2 = 400,
+and a stratum too few effective draws.
 
 The estimate is the ratio of the stratified sums.  Preparation faults heavier than f_max, of total
 probability u, count as accepted with no change, and consumer faults heavier than g_max, of total
@@ -230,10 +231,10 @@ class Stratum:
     For a sampled stratum, they are the estimates D-hat and a-hat with their variances and the
     covariance of the two, ``plus`` and ``minus`` count draws, and ``nonzero`` and ``ess`` are the
     draws with a nonzero change and the Kish effective sample size of the importance weights.
-    ``draws``, ``accepted_draws``, and ``max_importance_weight`` are the number of draws, the number
-    accepted, and the largest importance weight, all zero or None for an exact stratum;
-    ``importance_weight_bound`` is the largest weight that any draw could have, which the proposal
-    fixes; and ``cpu_s`` is the CPU time of the stratum.
+    ``draws``, ``accepted_draws``, ``max_importance_weight``, and ``importance_weight_bound`` are
+    the number of draws, the number accepted, the largest importance weight, and an upper bound on
+    any draw's weight, which the proposal fixes, all zero or None for an exact stratum; ``cpu_s``
+    is the CPU time of the stratum.
     """
 
     f: int
@@ -375,9 +376,8 @@ def sample_faults(
     laws coincide, and every weight is exactly 1.
 
     Returns:
-        The faults, one per row, their importance weights, and the largest weight that any fault
-        of weight f can have, which a fault with as many flagged mechanisms as possible attains
-        when the factor is below 1.
+        The faults, one per row, their importance weights, and an upper bound on the weight of any
+        fault of weight f, which is the largest such weight for a factor of at most 1.
     """
     odds = preparation.probabilities / (1 - preparation.probabilities)
     flagged = preparation.flagged
