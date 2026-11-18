@@ -89,7 +89,7 @@ How they approve it depends on the pull request that makes it:
   Commit the change to the branch, and run any review that step 2 calls for.
   Then give the maintainer, in a code block that they can copy and paste, a `cd` command to the branch's worktree.
   Ask them to inspect the branch, and give them what item 1 of [handing off a change](#handing-off-a-change) lists.
-  Hand the pull request off only once they approve it.
+  [Hand the pull request off](#handing-off-a-change) only once they approve it.
   If you revise the branch after that, ask again.
   For a small change or revision, you may show its diff in your message instead of the `cd` command.
 - **A pull request about something else that also changes protected files:** the maintainer approves a patch, which shows those changes apart from the rest.
