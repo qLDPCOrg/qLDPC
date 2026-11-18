@@ -137,7 +137,7 @@ Even when asked to settle decisions, triage leaves open each decision to:
 * change, deprecate, or remove a public name, signature, argument, mode, default, or result, except to fix a reproduced bug without changing a public contract;
 * weaken or relabel a guarantee, such as by loosening a test, tolerance, or check, by skipping a test or marking it as expected to fail, or by changing whether a result is exact, a bound, or an estimate;
 * add :ref:`process <decisions-adding-process>` that the request does not call for, or that guards against a problem that other process caused or left open;
-* approve a change to a protected file in a maintainer's place, such as by applying a patch that they have not approved, or by handing off a branch whose protected-file changes, as they stand, they have not approved;
+* approve a change to a protected file in a maintainer's place, such as by applying a patch that they have not approved, or by handing off a branch whose current protected-file changes they have not approved;
 * change the dependencies or the build;
 * go beyond the request, such as by starting work that it did not ask for or by exceeding the limits that it set;
 * act outside the local repository, such as by pushing or by commenting on an issue or pull request;

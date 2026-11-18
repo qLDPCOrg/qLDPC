@@ -29,7 +29,7 @@ Point out when a change would be easier to review as a sequence of smaller pull 
 ## Decisions and recommendations
 
 Recommend, present decisions, and weigh new process as [decisions and recommendations](docs/source/contributing/decisions.rst) describes, including its rules on [adding process](docs/source/contributing/decisions.rst#adding-process).
-If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#standard-triage) by name, run it as it describes; settle decisions by it only when they ask you to.
+If the person you work for asks for [standard triage](docs/source/contributing/decisions.rst#standard-triage) by name, run it as it describes; settle decisions by it only when they explicitly ask you to.
 
 ## Working on a change
 
@@ -81,14 +81,14 @@ These files state the rules for working on qLDPC, or enforce them:
 - the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compiled_code_rules_test.py`](src/qldpc/_compiled_code_rules_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
 If you work for a person who is not a maintainer, change them only when that person asks or a change elsewhere forces you to.
-Otherwise, a maintainer approves each change to these files before you hand it off, unless they say to apply it directly.
+Otherwise, a maintainer approves each change to these files before you hand off the pull request that makes it, unless they waive that approval.
 This holds even for a change that they asked for, or that a change elsewhere forces, such as renaming a cited path.
 How they approve it depends on the pull request that makes it:
 
 - **A pull request that exists to change protected files:** the maintainer inspects its branch, since that is easier than reading a patch.
-  Commit the change to the branch, and run the review that it calls for.
+  Commit the change to the branch, and run any review that step 2 calls for.
   Then give the maintainer, in a code block that they can copy and paste, a `cd` command to the branch's worktree.
-  Ask them to inspect the branch, and tell them its review status, its unreviewed revisions, each decision that standard triage settled, and its open decisions.
+  Ask them to inspect the branch, and give them what item 1 of [handing off a change](#handing-off-a-change) lists.
   Hand the pull request off only once they approve it.
   If you revise the branch after that, ask again.
   For a small change or revision, you may show its diff in your message instead of the `cd` command.
