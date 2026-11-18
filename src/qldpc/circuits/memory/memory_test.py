@@ -178,17 +178,17 @@ def test_errors() -> None:
         circuits.get_observables(codes.SteaneCode(), basis="y")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="num_rounds"):
         circuits.get_memory_experiment_parts(codes.RepetitionCode(3), Pauli.X, num_rounds=0)
-    with pytest.raises(ValueError, match="one target per data qubit"):
+    with pytest.raises(ValueError, match=r"must contain 7 targets.*but contains 1"):
         circuits.get_observables(codes.SteaneCode(), data_qubits=[0], basis=Pauli.X)
-    with pytest.raises(ValueError, match="one target per data qubit"):
+    with pytest.raises(ValueError, match=r"must contain 7 targets.*but contains 1"):
         circuits.get_observables(
             codes.SteaneCode(), basis=Pauli.X, on_measurements=[stim.target_rec(-1)]
         )
-    with pytest.raises(ValueError, match="observable indices"):
+    with pytest.raises(ValueError, match=r"must contain 1 index.*but contains 2"):
         circuits.get_observables(codes.SteaneCode(), basis=Pauli.X, observable_indices=[0, 1])
-    with pytest.raises(ValueError, match="one target per data qubit"):
+    with pytest.raises(ValueError, match=r"must contain 7 targets.*but contains 1"):
         circuits.get_logical_bell_prep(codes.SteaneCode(), data_qubits=[0])
-    with pytest.raises(ValueError, match="one target per logical qubit"):
+    with pytest.raises(ValueError, match=r"must contain 1 target.*but contains 2"):
         circuits.get_logical_bell_prep(codes.SteaneCode(), reference_qubits=[0, 1])
     toric_code = codes.ToricCode(2)
     with pytest.raises(ValueError, match="either no reference qubits or exactly one reference"):

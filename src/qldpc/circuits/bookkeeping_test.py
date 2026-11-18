@@ -39,8 +39,10 @@ def test_qubit_ids() -> None:
     assert validated == qubit_ids
     validated.shift(1)
     assert qubit_ids.data == original_data
-    with pytest.raises(ValueError, match="invalid for the given code"):
+    with pytest.raises(ValueError, match="0 data qubits and 0 check qubits, but the code has"):
         circuits.QubitIDs.validated(circuits.QubitIDs((), (), ()), code)
+    with pytest.raises(ValueError, match="the code has 4 qudits"):
+        circuits.QubitIDs.validated(circuits.QubitIDs((), (), ()), codes.SurfaceCode(2, field=3))
     with pytest.raises(ValueError, match="distinct"):
         circuits.QubitIDs([0] * len(code), [1] * code.num_checks)
     with pytest.raises(ValueError, match="distinct"):

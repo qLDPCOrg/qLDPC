@@ -21,7 +21,7 @@ from qldpc import math
 
 from .groups import Group, GroupMember
 from .ring_array import RingArray
-from .rings import GroupRing, Ring, RingMember
+from .rings import GroupRing, Ring, RingMember, _ring_difference
 
 if TYPE_CHECKING:
     from .wedderburn_artin import WedderburnArtinComponentTransformer, WedderburnArtinTransformer
@@ -331,5 +331,19 @@ def _get_ring(
             raise ValueError("At least one of the provided matrices must be a RingArray")
         return ring_b
     if ring_b is not None and ring_a != ring_b:
-        raise ValueError("The provided matrices are over different rings")
+        if (
+            isinstance(ring_a, GroupRing)
+            and isinstance(ring_b, GroupRing)
+            and (ring_a.field is ring_b.field)
+        ):
+            advice = (
+                "Embed one matrix into the ring of the other with RingArray.build(matrix, ring),"
+                " which works if that ring's group contains the group members of the matrix."
+            )
+        else:
+            advice = "Build both matrices over one ring."
+        raise ValueError(
+            "The provided matrices are over different rings:"
+            f" {_ring_difference(ring_a, ring_b)}.  {advice}"
+        )
     return ring_a

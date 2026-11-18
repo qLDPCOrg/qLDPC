@@ -43,7 +43,7 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
     with pytest.raises(TypeError, match="only supports CSS codes"):
         strategy = circuits.AlphaSyndrome(circuits.DepolarizingNoiseModel(0.001), "decoder_name")
         strategy.get_circuit(codes.FiveQubitCode())
-    with pytest.raises(ValueError, match="invalid"):
+    with pytest.raises(ValueError, match="the code has 7 qubits and 6 checks"):
         DEFAULT_STRATEGY.get_circuit(
             codes.SteaneCode(),
             circuits.QubitIDs(
