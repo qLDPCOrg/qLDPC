@@ -24,6 +24,7 @@ that fixture, and ``test_read_only_arrays_are_restored_or_reported`` checks how
 from __future__ import annotations
 
 import ast
+import inspect
 import threading
 import warnings
 from collections.abc import Callable
@@ -122,9 +123,13 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
         assert not any(array.flags.writeable for array in arrays)
     assert all(array.flags.writeable for array in arrays)
 
+    with_line = 0
+
     def hide_a_base(error: bool) -> None:
         """Make read-only the base of a marked view within the block, and raise if asked to."""
+        nonlocal with_line
         hidden_base = np.zeros(4)
+        with_line = inspect.currentframe().f_lineno + 1  # type: ignore[union-attr]
         with distance_conftest.shared_arrays_read_only([hidden_base[:2]]):
             hidden_base.flags.writeable = False
             if error:
@@ -132,7 +137,7 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
 
     with pytest.warns(RuntimeWarning, match="left read-only") as record, pytest.raises(KeyError):
         hide_a_base(error=True)
-    assert record[0].filename == __file__
+    assert (record[0].filename, record[0].lineno) == (__file__, with_line)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         with pytest.raises(AssertionError, match="left read-only"):

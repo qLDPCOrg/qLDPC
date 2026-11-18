@@ -471,9 +471,9 @@ def shared_arrays_read_only(*roots: object) -> Iterator["list[_SharedArray]"]:
     stays writeable, so a test starts this before such arrays are taken.  A view taken within the
     block stays read-only after it, if code keeps it.  The flags are restored when the block exits,
     also on an error.  If the block raised, an array that cannot be made writeable again gives a
-    warning, and the error of the block propagates.  Otherwise such an array fails the check, and
-    the arrays are then compared with their copies.  Yields the records of the arrays (see
-    ``_get_shared_arrays``).
+    warning, and the error of the block propagates.  Otherwise such an array fails the check; if
+    none does, the arrays are then compared with their copies.  Yields the records of the arrays
+    (see ``_get_shared_arrays``).
     """
     arrays = _get_shared_arrays(*roots)
     try:
