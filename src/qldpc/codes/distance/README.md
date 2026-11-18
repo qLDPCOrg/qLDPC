@@ -348,5 +348,6 @@ It affects only qLDPC, whereas `NUMBA_DISABLE_JIT=1` also runs other packages th
 - While each test of this package runs, the fixture `check_code_on_threads` of `conftest.py` fails it if its threads read the tuning through `get_tuning()` or call numba-parallel code from Python.
   `_thread_rules_test.py` checks that Section 5 of the guides names each entry point compiled with `nogil=True`.
   It also checks that no function of qLDPC is compiled with numba's `parallel` option.
-  The tests on threads check, with `check_shared_arrays_on_threads` or `get_shared_arrays` of `conftest.py`, that threads leave every array of their search as it was, on the paths that they run; review checks the rest.
+  The tests on threads check that threads leave every array of their search as it was, with `check_shared_arrays_on_threads` or `get_shared_arrays` of `conftest.py`.
+  Review checks the paths that tests do not run.
 - `_readme_test.py` fails if this page omits a module, or names a file that does not exist.

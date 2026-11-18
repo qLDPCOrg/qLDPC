@@ -1775,7 +1775,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     assert histories[0] == histories[1]
     assert histories[0][-1][0][2:] == (8, True)
     assert any(scan.table_bytes for scan in item_scans)
-    assert checked
+    assert checked and min(checked) > 0
 
 
 @pytest.mark.usefixtures("small_batches", "switch_before_any_layer")

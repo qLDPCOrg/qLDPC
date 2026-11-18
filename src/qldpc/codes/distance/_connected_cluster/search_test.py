@@ -1406,7 +1406,7 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
             )
         assert all(result == results[0] for result in results)
     assert set(calls) == {3, 8}
-    assert len(checked) == len(calls)
+    assert len(checked) == len(calls) and min(checked) > 0
 
 
 def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(

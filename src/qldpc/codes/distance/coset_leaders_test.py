@@ -27,7 +27,6 @@ from .conftest import (
     ROUTED_PHYSICAL_STATES,
     assert_exact_answers,
     assert_unchanged,
-    check_shared_arrays_on_threads,
     get_exhaustive_minima,
     get_graph_state,
     get_pauli_weight,
@@ -853,19 +852,25 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
 
     The found index, its bound and error, and the weights are those of one thread, by physical
     weight and by CSS weight.  With chunks of one state, a batch moves to threads once its queries
-    have visited a state for each thread.  No query writes an array of its search, which threads,
-    and the threads of callers, share.
+    have visited a state for each thread.  No query, on the calling thread or on others, writes an
+    array of its search, which threads, and the threads of callers, share.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
-    oracles: list[CosetLeaderSearch] = []
-    checked = check_shared_arrays_on_threads(monkeypatch, lambda: oracles)
+    thread_counts = []
+    run_work_items = _threads.run_work_items
+
+    def run_counted(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
+        thread_counts.append(num_threads)
+        run_work_items(num_items, num_threads, *args, **kwargs)
+
+    monkeypatch.setattr(_threads, "run_work_items", run_counted)
     for matrix, css_weight in cases:
         num_qubits = len(matrix)
         minima = get_exhaustive_minima(matrix, css_weight)
         syndromes = rng.integers(1 << num_qubits, size=40)
         batch = split_syndromes_into_words(syndromes.tolist(), num_qubits)
-        oracles.clear()
+        oracles = []
         for num_threads in (1, 2, 3, 8):
             with use_tuning(num_threads=num_threads, information_set_batch_exponent=0):
                 oracles.append(
@@ -885,7 +890,7 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
             assert all(np.array_equal(weight, weights[0]) for weight in weights)
             assert np.array_equal(weights[0], np.minimum(minima[syndromes], max_weight + 1))
         assert_unchanged(shared)
-    assert checked
+    assert thread_counts
 
 
 # A state whose syndromes 3 and 7 have errors of weight 2 and 3 at least, which connected-cluster

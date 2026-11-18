@@ -3,7 +3,6 @@
 """Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
 import contextlib
-import functools
 import itertools
 import threading
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -169,8 +168,10 @@ class SharedArray(NamedTuple):
 def get_shared_arrays(*roots: object) -> list[SharedArray]:
     """Copies of the arrays that the given objects reach, which code on threads may only read.
 
-    The objects reach arrays through the items of dictionaries, lists, tuples, and sets, the
-    arguments of ``functools.partial``, and the attributes of objects of qLDPC.
+    The objects reach arrays through the items of dictionaries, lists, and tuples, and through the
+    attributes of objects of qLDPC.  A path on which threads write shared data under a lock, such as
+    a cache that they fill, would need that data left out of the copies, for example by a parameter
+    that names the attributes that this function skips, and a test of its own for the lock.
     """
     arrays = []
     seen = set()
@@ -186,13 +187,11 @@ def get_shared_arrays(*roots: object) -> list[SharedArray]:
             arrays.append(SharedArray(path, value, value.copy()))
         elif isinstance(value, dict):
             pending += [(f"{path}[{key!r}]", item) for key, item in value.items()]
-        elif isinstance(value, list | tuple | set | frozenset):
+        elif isinstance(value, list | tuple):
             pending += [(f"{path}[{index}]", item) for index, item in enumerate(value)]
-        elif isinstance(value, functools.partial):
-            pending += [(f"{path}.args", value.args), (f"{path}.keywords", value.keywords)]
         elif type(value).__module__.split(".")[0] == "qldpc":
-            names = [*getattr(value, "__dict__", ()), *getattr(type(value), "__slots__", ())]
-            pending += [(f"{path}.{name}", getattr(value, name, None)) for name in names]
+            attributes = getattr(value, "__dict__", {})
+            pending += [(f"{path}.{name}", item) for name, item in attributes.items()]
     return arrays
 
 

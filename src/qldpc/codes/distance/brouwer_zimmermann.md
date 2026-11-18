@@ -951,9 +951,9 @@ A change may use other representations, certificates, and search strategies, but
     Review checks this.
   - The shared `U` is lowered only as a minimum, under the lock.
     Review checks this.
-  - Code that threads run calls no numba-parallel code (`parallel=True` or `prange`, such as some functions of galois); see `run_work_items` in `_threads.py`.
+  - Code that threads run calls no numba-parallel code (`parallel=True` or `prange`, such as some functions of galois; see `run_work_items` in `_threads.py`), and reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.
     `test_no_function_of_qldpc_is_compiled_numba_parallel` of [_thread_rules_test.py](_thread_rules_test.py) keeps such code out of the compiled code of qLDPC.
-    The fixture `check_code_on_threads` of [conftest.py](conftest.py) fails each test of this package whose threads call such code from Python, or read the tuning through `get_tuning`.
+    The fixture `check_code_on_threads` of [conftest.py](conftest.py) fails each test of this package whose threads call numba-parallel code from Python, or read the tuning through `get_tuning`.
 - **Decide only from what a layer leaves the same on any number of threads** ([Section 4.5](#45-behavior-spanning-files), "Threads").
   After the layer of a set, `U` and the lower bound are those of one thread, and so are the estimates derived from them, such as `get_layer_work` and `estimate_automorphism_family_work`.
   Every later decision, such as the sets that a layer scans, completion tables, the switch to an automorphism family, and the choices of `method="auto"` (section "Choosing a method" of [README.md](README.md)), reads nothing else that the layers leave.

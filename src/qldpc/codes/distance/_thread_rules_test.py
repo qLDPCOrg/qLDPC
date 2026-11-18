@@ -8,7 +8,8 @@ several threads at once, without Python's global interpreter lock, and so does e
 function that it calls.  A race between them would rarely change a result that tests compare, so
 these tests read the code instead:
 
-- Section 5 of the guide of its method names each such entry point; and
+- Section 5 of the guide of its method names each such entry point of this package, which, with the
+  docstring of ``_compilation.py``, states its rules; and
 - no function of qLDPC is compiled with numba's ``parallel`` option.  ``always_compiled`` has no
   such option, and ``_compiled_code_rules_test.py`` keeps the functions of other packages, such as
   galois's, out of compiled code, so compiled code that threads run calls no numba-parallel code.
@@ -37,10 +38,11 @@ from . import _threads, _tuning
 
 
 def test_entry_points_without_the_lock_are_named_in_section_5_of_their_guides() -> None:
-    """Section 5 of the guide of each entry point's method names it, and states its rules.
+    """Section 5 of the guide of each entry point's method names it.
 
-    An entry point of the Brouwer-Zimmermann or connected-cluster method is named in its method's
-    guide, and any other entry point in either guide.
+    The entry points are those of this package, whose guides state the rules on threads.  One of
+    the Brouwer-Zimmermann or connected-cluster method is named in its method's guide, and any other
+    in either guide.
     """
     guides = {
         name: _get_section_5(Path(__file__).with_name(f"{name}.md"))
@@ -60,7 +62,7 @@ def test_no_function_of_qldpc_is_compiled_numba_parallel() -> None:
 
     Two threads that run such code at once abort the process under numba's workqueue layer.
     """
-    for path, tree in _get_source_trees():
+    for path, tree in _get_source_trees(Path(qldpc.__file__).parent):
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and _is_njit(node.func):
                 assert all(keyword.arg != "parallel" for keyword in node.keywords), (
@@ -68,11 +70,14 @@ def test_no_function_of_qldpc_is_compiled_numba_parallel() -> None:
                 )
 
 
+@pytest.mark.skipif(
+    bool(_compilation._numba_config.DISABLE_JIT), reason="NUMBA_DISABLE_JIT makes no dispatchers"
+)
 def test_workers_that_call_numba_parallel_code_or_read_the_tuning_fail() -> None:
     """The check of ``conftest.py`` fails a worker of ``run_work_items`` that breaks these rules.
 
     Workers run on the calling thread and on a new one.  The calling thread reads the tuning before
-    and after them.
+    and after them, and the check of numba's dispatchers is removed once the workers return.
     """
     namespace: dict[str, object] = {"numba": numba}
     source = "@numba.njit(parallel=True)\ndef parallel(array):\n    return array\n"
@@ -95,25 +100,26 @@ def test_workers_that_call_numba_parallel_code_or_read_the_tuning_fail() -> None
     tuning = _tuning.get_tuning()
     _threads.run_work_items(4, 2, start_worker)
     assert _tuning.get_tuning() is tuning
+    assert "__call__" not in vars(numba.core.dispatcher.Dispatcher)
 
 
 ####################################################################################################
 # helpers
 
 
-def _get_source_trees() -> list[tuple[Path, ast.Module]]:
-    """The path and syntax tree of every source file of qLDPC that is not a test."""
+def _get_source_trees(directory: Path) -> list[tuple[Path, ast.Module]]:
+    """The path and syntax tree of every source file in a directory of qLDPC that is not a test."""
     return [
         (path, ast.parse(path.read_text(encoding="utf-8")))
-        for path in _compilation._get_source_paths(Path(qldpc.__file__).parent)
+        for path in _compilation._get_source_paths(directory)
     ]
 
 
 def _get_entry_points() -> list[tuple[str, str]]:
-    """The module and name of each function of qLDPC compiled with ``nogil=True``."""
+    """The module and name of each function of this package compiled with ``nogil=True``."""
     package = Path(qldpc.__file__).parent
     entry_points = []
-    for path, tree in _get_source_trees():
+    for path, tree in _get_source_trees(Path(__file__).parent):
         for function in conftest.get_compiled_functions(tree)["always_compiled"]:
             if any(_releases_the_lock(decorator) for decorator in function.decorator_list):
                 module = ".".join(path.relative_to(package.parent).with_suffix("").parts)
