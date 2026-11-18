@@ -105,11 +105,14 @@ From the top:
 
 A top-level module or subpackage imports only from lower levels, and a module also from its own subpackage.
 `_layering_test.py` checks this.
-Within a subpackage, the modules import each other in the layers below, which the `_layering_test.py` of the subpackage checks.
+Within a subpackage, a module imports only the modules of the subpackage that it builds on, which the lines below give.
+The `_LAYERS` of the subpackage's `_layering_test.py` places its modules in layers consistent with these dependencies, and that test checks the imports against the layers.
 In `_information_sets/`, `basis_families` builds on `certificates` and `matroid_partition`, `automorphism_families` on `basis_families` and `certificates`, and `completion_bounds` on `certificates`.
+`support_stepping` builds on no other module of `_information_sets/`.
 In `_brouwer_zimmermann/`, `distance` and `coset` build on `affine_instance` and `affine_search`, and `coset` also on `coset_routes` and `coset_tables`.
 `coset_routes` builds on `coset_tables`, and both build on `affine_instance`.
-In `_connected_cluster/`, `search` builds on `sparse_checks`, and `coset` on both, and in `_counting/`, `scan` on `local_cliffords`.
+In `_connected_cluster/`, `search` builds on `sparse_checks`, and `coset` on both.
+In `_counting/`, `scan` builds on `local_cliffords`, and `macwilliams` on no other module of `_counting/`.
 Modules of every level may also import `src/qldpc/_binary.py`, the bit-packed linear algebra over GF(2) that other subpackages share.
 `src/qldpc/codes/common.py` imports this package, so `logical_counts.py` imports the code classes of `codes.common` inside the functions that use them.
 Modules elsewhere in qLDPC, such as `src/qldpc/codes/common.py` and the deprecation registry in `src/qldpc/_deprecations/core.py`, use private names of this package, so grep `src/qldpc` for a private name before you move or rename it.

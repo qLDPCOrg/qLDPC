@@ -266,18 +266,6 @@ def test_deprecated_distance_functions() -> None:
             3,
         ),
         (
-            lambda: codes.get_distance_classical(  # type: ignore[attr-defined]
-                generator, method="brute_force"
-            ),
-            3,
-        ),
-        (
-            lambda: codes.distance.get_distance_quantum(  # type: ignore[attr-defined]
-                generator[:1], generator[1:], homogeneous=True
-            ),
-            3,
-        ),
-        (
             lambda: codes.get_distance_quantum(  # type: ignore[attr-defined]
                 [[1, 0, 1, 0]], [[0, 1, 0, 1]]
             ),
@@ -404,6 +392,7 @@ def test_deprecated_get_distance_css_brouwer_zimmermann() -> None:
     assert caught[0].filename == __file__
     for distance_sectors, upper_bound, distance in (
         (sectors, 1, 1),
+        (sectors, 3, 2),
         ([([[1, 1, 0, 0]], [[1, 1, 0, 0]]), sectors[0]], None, 0),
         ([(np.zeros((0, 4), dtype=int), [[1, 1, 0, 0]])], None, 4),
     ):
@@ -411,6 +400,18 @@ def test_deprecated_get_distance_css_brouwer_zimmermann() -> None:
             assert get_distance(distance_sectors, cutoff=0, upper_bound=upper_bound) == distance
     with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="upper bound"):
         get_distance([], cutoff=0)
+
+    # As before, every sector is checked, even after a bound that no sector can beat.
+    with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="stabilizers"):
+        get_distance(
+            [sectors[0], (generator[:1], [[2, 0, 0, 0, 0, 0, 0]])], cutoff=0, upper_bound=0
+        )
+
+    # A block_size argument also warns at the caller.
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        assert get_distance(sectors, cutoff=0, block_size=2) == 2
+    assert len(recorded) == 2 and all(warning.filename == __file__ for warning in recorded)
 
 
 def test_deprecated_get_primitive_central_idempotents() -> None:

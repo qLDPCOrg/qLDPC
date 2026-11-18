@@ -14,8 +14,9 @@ import pytest
 
 from qldpc._binary import get_kernel
 
-from .._tuning import use_tuning
 from ..conftest import (
+    get_binary_minima,
+    get_binary_syndrome,
     get_exhaustive_minima,
     get_graph_state,
     get_pauli_weight,
@@ -23,7 +24,6 @@ from ..conftest import (
     get_random_full_rank_matrix,
     get_syndrome,
 )
-from ..coset_leaders import CosetLeaderSearch
 from . import coset, search, sparse_checks
 
 
@@ -154,74 +154,36 @@ def test_connected_cluster_queries_read_their_restriction(
 
 
 @pytest.mark.parametrize("cuts", [True, False])
-def test_connected_cluster_queries_cut_by_the_stabilizers_of_their_state(
+def test_connected_cluster_queries_cut_by_their_overlap_words_if_switched_on(
     monkeypatch: pytest.MonkeyPatch, cuts: bool
 ) -> None:
-    """Each coset search gets the stabilizers in its kernel, which cut its queries if switched on.
-
-    A Pauli search gets its own sparser stabilizers, and the search of X parts the X parts of the
-    pure-X stabilizers, which the search of Z parts checks with, and vice versa (Section 3.8 of
-    ``connected_cluster.md``).
-    """
-    received: dict[int, set[bytes]] = {}
-    use_words = coset.ConnectedClusterCosetSearch.use_query_overlap_words
-
-    def record_words(self: coset.ConnectedClusterCosetSearch, words: npt.ArrayLike) -> None:
-        rows = np.asarray(words, dtype=np.uint8)
-        received.setdefault(id(self), set()).update(row.tobytes() for row in rows)
-        use_words(self, words)
-
+    """A coset search given overlap words cuts its queries exactly when its switch is on."""
     num_cuts_per_query: list[int] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
 
-    def record_cuts(
+    def record(
         *args: Any, **kwargs: Any
     ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.int64]]:
         num_cuts_per_query.append(len(signature.bind(*args, **kwargs).arguments["cut_capacities"]))
         return search_supports(*args, **kwargs)
 
-    monkeypatch.setattr(coset.ConnectedClusterCosetSearch, "use_query_overlap_words", record_words)
-    monkeypatch.setattr(search, "_search_supports", record_cuts)
-    css_state = get_random_css_state(6, 3, np.random.default_rng(0))
-    with use_tuning(stabilizer_overlap_cuts=cuts):
-        pauli_leaders = CosetLeaderSearch(css_state, method="connected_cluster")
-        css_leaders = CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
-    (pauli_search,) = pauli_leaders._connected_cluster_searches
-    x_part_search, z_part_search = css_leaders._connected_cluster_searches
-    pairs = [
-        (pauli_search, pauli_search),
-        (x_part_search, z_part_search),
-        (z_part_search, x_part_search),
-    ]
-    for searched, checking in pairs:
-        expected = {np.asarray(row, dtype=np.uint8).tobytes() for row in checking.checks}
-        assert received[id(searched)] == expected
+    monkeypatch.setattr(search, "_search_supports", record)
+    coset_search = coset.ConnectedClusterCosetSearch(
+        get_random_css_state(6, 3, np.random.default_rng(0)),
+        symplectic=True,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=cuts,
+    )
+    coset_search.use_query_overlap_words(coset_search.checks)
 
-        # Every syndrome that the table of light words lacks starts a query.
-        num_cuts_per_query.clear()
-        for syndrome in range(1, 2 ** len(searched.checks)):
-            searched.get_min_weight_bound(syndrome, 3)
-        assert num_cuts_per_query
-        assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_query)
-
-
-def get_binary_syndrome(rows: npt.NDArray[np.uint8], word: int) -> int:
-    """The syndrome of a binary vector, whose bit ``i`` is the product of row ``i`` with the vector.
-
-    Bit ``j`` of ``word`` is entry ``j`` of the vector.
-    """
-    bits = np.array([word >> index & 1 for index in range(rows.shape[1])], dtype=np.uint8)
-    return sum(int(bit) << index for index, bit in enumerate(rows @ bits % 2))
-
-
-def get_binary_minima(rows: npt.NDArray[np.uint8]) -> list[int]:
-    """The least weight of a vector with each syndrome of independent binary rows."""
-    minima = [rows.shape[1]] * (1 << len(rows))
-    for word in range(1 << rows.shape[1]):
-        syndrome = get_binary_syndrome(rows, word)
-        minima[syndrome] = min(minima[syndrome], word.bit_count())
-    return minima
+    # Every syndrome that the table of light words lacks starts a query.
+    for syndrome in range(1, 2 ** len(coset_search.checks)):
+        coset_search.get_min_weight_bound(syndrome, 3)
+    assert num_cuts_per_query
+    assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_query)
 
 
 @pytest.mark.parametrize("cuts", [True, False])
@@ -259,9 +221,7 @@ def test_connected_cluster_answers_match_exhaustive_minima(
             if len(words):
                 coset_search.use_query_overlap_words(words)
             minima = (
-                get_exhaustive_minima(checks, False).tolist()
-                if symplectic
-                else get_binary_minima(checks)
+                get_exhaustive_minima(checks, False) if symplectic else get_binary_minima(checks)
             )
             for syndrome, max_weight in itertools.product(
                 range(1 << len(checks)), range(num_qubits + 1)
@@ -280,7 +240,8 @@ def test_connected_cluster_answers_match_exhaustive_minima(
                         assert get_syndrome(checks, word) == syndrome
                     else:
                         weight = word.bit_count()
-                        assert get_binary_syndrome(checks, word) == syndrome
+                        bits = (word >> np.arange(num_qubits)) & 1
+                        assert get_binary_syndrome(checks, bits) == syndrome
                     assert bound.within_max_weight == (minimum <= max_weight)
                     if not bound.within_max_weight:
                         expected_bound = minimum if minimum < 2 else max(2, max_weight + 1)

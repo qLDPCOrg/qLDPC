@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import inspect
 import itertools
 import threading
@@ -34,9 +33,12 @@ from ..conftest import (
     TWO_FAMILIES_CODE,
     assert_exact_answers,
     get_binary_matrix,
+    get_binary_minima,
+    get_binary_syndrome,
     get_exhaustive_minima,
     get_graph_state,
     get_random_full_rank_matrix,
+    get_set_ranks,
     get_stabilizer_matrix,
     get_syndrome,
     scramble,
@@ -46,20 +48,6 @@ from ..conftest import (
 from ..coset_leaders import CosetLeaderSearch
 from ..min_weight_bounds import MinWeightBound
 from . import affine_instance, coset, coset_tables
-
-
-def _classical_syndrome(checks: npt.NDArray[np.uint8], words: npt.NDArray[np.int_]) -> Any:
-    """The packed syndrome of a binary word, or of each row of an array, for binary checks."""
-    return (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
-
-
-def _classical_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
-    """The least Hamming weight of the words with each packed syndrome for binary checks."""
-    num_columns = checks.shape[1]
-    words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
-    minima = np.full(1 << len(checks), num_columns + 1)
-    np.minimum.at(minima, _classical_syndrome(checks, words), words.sum(axis=1))
-    return minima
 
 
 def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_parity() -> None:
@@ -73,7 +61,7 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
     num_qubits = len(matrix)
     checks = (math.symplectic_conjugate(matrix.astype(int)) % 2).astype(np.uint8)
     errors = (np.arange(1 << 2 * num_qubits)[:, None] >> np.arange(2 * num_qubits)) & 1
-    syndromes, parities = _classical_syndrome(checks, errors), errors.sum(axis=1) % 2
+    syndromes, parities = get_binary_syndrome(checks, errors), errors.sum(axis=1) % 2
     class_parities = np.zeros(1 << num_qubits, dtype=int)
     class_parities[syndromes] = parities
     assert np.array_equal(class_parities[syndromes], parities)
@@ -247,32 +235,32 @@ def test_searches_under_other_gates_do_not_share_searches(tune: Tune) -> None:
 def test_routed_states_take_families_that_beat_the_greedy_packing(
     matrix: npt.NDArray[np.uint8], css_weight: bool, more_sets: bool
 ) -> None:
-    """Costly queries of the routed states take families that beat the greedy packing.
+    """Costly queries of the routed states take disjoint families that beat the greedy packing.
 
-    At the threshold zero, some route has more full information sets than the greedy packing, or as
-    many sets and a larger partial set, as ``conftest.py`` says of these states, and the routes are
-    by tails exactly by physical weight.  Tests that need other families rely on these states.
+    At the threshold zero, some route has pairwise disjoint sets, and more full information sets
+    than the greedy packing, or as many sets and a larger partial set, as ``conftest.py`` says of
+    these states.  The routes are by tails exactly when the search counts physical weight.  Tests
+    that need other families rely on these states.
     """
     with use_tuning(coset_route_minimum_work=MAX_VALUE) as tuning:
         greedy, _ = coset.get_pauli_search(matrix, css_weight, tuning)._get_route(2)
     with use_tuning(coset_route_minimum_work=0) as tuning:
         search = coset.get_pauli_search(matrix, css_weight, tuning)
-
-    def get_ranks(tables: coset_tables.CosetSearchTables) -> list[int]:
-        """The ranks of the sets of a family: their numbers of pivots that are not padding."""
-        return np.count_nonzero(tables.pivots >= 0, axis=1).tolist()
-
     dimension = greedy.pivots.shape[1]
-    greedy_ranks = get_ranks(greedy)
+    greedy_ranks = get_set_ranks(greedy)
     beaten = False
     for max_weight in range(2, len(matrix) + 1):
         tables, tails = search._get_route(max_weight)
         assert (tails is not None) == (not css_weight)
-        ranks = get_ranks(tables)
+        ranks = get_set_ranks(tables)
+        pivots = tables.pivots[tables.pivots >= 0]
+        disjoint = len(np.unique(pivots)) == len(pivots)
         if more_sets:
-            beaten |= ranks.count(dimension) > greedy_ranks.count(dimension)
+            beaten |= disjoint and ranks.count(dimension) > greedy_ranks.count(dimension)
         else:
-            beaten |= len(ranks) == len(greedy_ranks) and min(ranks) > min(greedy_ranks)
+            beaten |= (
+                disjoint and len(ranks) == len(greedy_ranks) and min(ranks) > min(greedy_ranks)
+            )
     assert beaten
 
 
@@ -367,7 +355,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
     search = coset._get_classical_search(
         generators, checks, tuning._replace(disjoint_random_column_orders=0)
     )
-    minima = _classical_minima(checks)
+    minima = get_binary_minima(checks)
     even = not np.any(generators.sum(axis=1) % 2)
 
     def get_least_bound(syndrome: int, max_weight: int) -> int:
@@ -383,7 +371,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
             representative = (bound.representative >> np.arange(num_columns)) & 1
             weight = int(representative.sum())
             assert bound.within_max_weight == (minima[syndrome] <= max_weight)
-            assert _classical_syndrome(checks, representative) == syndrome
+            assert get_binary_syndrome(checks, representative) == syndrome
             assert bound.lower_bound <= minima[syndrome] <= weight
             if bound.within_max_weight:
                 assert weight <= max_weight
@@ -405,7 +393,7 @@ def _assert_classical_cosets_match_brute_force(generators: npt.NDArray[np.uint8]
                 break
             syndrome = syndromes[start + index]
             representative = (batch_bound.representative >> np.arange(num_columns)) & 1
-            assert _classical_syndrome(checks, representative) == syndrome
+            assert get_binary_syndrome(checks, representative) == syndrome
             assert not batch_bound.within_max_weight
             assert get_least_bound(syndrome, max_weight) <= batch_bound.lower_bound
             assert batch_bound.lower_bound <= minima[syndrome]
@@ -486,7 +474,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
         )
         inverse = _cosets.get_unit_syndrome_words(checks)
         tables = coset_tables.get_search_tables(instance, inverse, num_columns)
-        minima = _classical_minima(checks)
+        minima = get_binary_minima(checks)
 
         for syndrome, max_weight in itertools.product(
             range(1 << len(checks)), range(num_columns + 1)
@@ -518,7 +506,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                 parity if len(tables.planning) == 2 else -1,
             )
             representative = unpack_bits(best[None], num_columns)[0].astype(int)
-            assert _classical_syndrome(checks, representative) == syndrome
+            assert get_binary_syndrome(checks, representative) == syndrome
             assert (lower_bound <= max_weight) == (minima[syndrome] <= max_weight)
             if lower_bound > max_weight:
                 assert lower_bound <= minima[syndrome]
@@ -773,7 +761,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
                         (num_rows, num_rows - 1),
                         range(-1, code.shape[1] + 2),
                         range(1 << len(checks)),
-                        _classical_minima(checks),
+                        get_binary_minima(checks),
                     ),
                     False,
                 )
@@ -791,7 +779,7 @@ def test_searches_by_tails_answer_as_searches_of_whole_words(
                     (5, 4),
                     range(-1, even.shape[1] + 2),
                     range(1 << len(checks)),
-                    _classical_minima(checks),
+                    get_binary_minima(checks),
                 ),
                 True,
             )
@@ -857,7 +845,7 @@ def test_queries_of_routes_by_tails_weigh_the_tails_of_their_record(
     search = coset._get_classical_search(
         generators, checks, tuning._replace(coset_route_minimum_work=0)
     )
-    syndromes = np.flatnonzero(_classical_minima(checks) > 2).tolist()
+    syndromes = np.flatnonzero(get_binary_minima(checks) > 2).tolist()
     assert syndromes
     for syndrome in syndromes:
         bound = search.get_min_weight_bound(syndrome, 2)
@@ -883,7 +871,7 @@ def test_queries_of_routes_by_tails_skip_completions_by_the_tables_of_their_reco
     search = coset._get_classical_search(
         OVERLAPPING_ROUTES_CODE, checks, tuning._replace(coset_route_minimum_work=0)
     )
-    minima = _classical_minima(checks)
+    minima = get_binary_minima(checks)
     missed = [
         syndrome
         for syndrome in np.flatnonzero(minima <= 3).tolist()
@@ -904,7 +892,7 @@ def _coset_minima(
     code = np.array(list(itertools.product([0, 1], repeat=len(generators)))) @ generators % 2
     bits = (np.array(syndromes)[:, None] >> np.arange(len(checks))) & 1
     words = bits @ _cosets.get_unit_syndrome_words(checks) % 2
-    assert np.array_equal(_classical_syndrome(checks, words), syndromes)
+    assert np.array_equal(get_binary_syndrome(checks, words), syndromes)
     return np.array([((word + code) % 2).sum(axis=1).min() for word in words])
 
 
@@ -1089,7 +1077,7 @@ def _get_searches_with_minima(
     for code in (RANK_DEFICIENT_CODE, even_code.astype(np.uint8)):
         checks = get_kernel(code)
         searches.append(
-            (coset._get_classical_search(code, checks, tuning), _classical_minima(checks))
+            (coset._get_classical_search(code, checks, tuning), get_binary_minima(checks))
         )
     return searches
 
@@ -1119,7 +1107,7 @@ def _get_rank_deficient_search() -> tuple[coset.BrouwerZimmermannCosetSearch, np
     tuning_fields = coset._CosetTuning.from_tuning(get_tuning(), paulis_by_css_weight=False)
     checks = get_kernel(RANK_DEFICIENT_CODE)
     search = coset._get_classical_search(RANK_DEFICIENT_CODE, checks, tuning_fields)
-    return search, _classical_minima(checks)
+    return search, get_binary_minima(checks)
 
 
 def _get_row(syndromes: npt.NDArray[np.uint64], batch: npt.NDArray[np.uint64]) -> int:
@@ -1540,17 +1528,25 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
         return found, weights.tolist()
 
     # The batch queries cache stopping steps only in copies of the shared planning buffers, and
-    # write no other array of the search or of its batches.
+    # write no other array of the search or of its batches.  Daemon threads, joined with a timeout,
+    # let a query that never returns fail the test rather than hang it.
     with shared_arrays_read_only(search, batches, floors) as arrays:
         expected = [query(index, 1) for index in range(len(batches))]
-        # Shut the pool down without waiting, so that a query that never returns fails the test
-        # rather than hangs it.
-        pool = concurrent.futures.ThreadPoolExecutor(4)
-        try:
-            futures = [pool.submit(query, index, 2) for index in range(len(batches))]
-            answers = [future.result(timeout=60) for future in futures]
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+        answers: list[tuple[Any, ...] | None] = [None] * len(batches)
+
+        def answer(first: int) -> None:
+            """Answer every fourth batch from ``first``, with two threads per batch."""
+            for index in range(first, len(batches), 4):
+                answers[index] = query(index, 2)
+
+        threads = [
+            threading.Thread(target=answer, args=(first,), daemon=True) for first in range(4)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=THREAD_TIMEOUT)
+            assert not thread.is_alive()
         assert answers == expected
     assert any(each.path.startswith("roots[0].") for each in arrays)
     marked = {id(each.array) for each in arrays}

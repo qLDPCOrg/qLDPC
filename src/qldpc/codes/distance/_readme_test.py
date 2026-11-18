@@ -9,8 +9,8 @@ from pathlib import Path
 def test_the_readme_names_every_module_and_no_other_file() -> None:
     """The README maps every module, and names no file that is missing.
 
-    Each module has a row in "Where to look", and each top-level module or subpackage an entry in
-    "Layout".  A module that they omit, or a file that the README names and is missing, is stale.
+    "Where to look" names every module, and "Layout" every top-level module or subpackage.  A module
+    that they omit, or a file that the README names and is missing, is stale.
     """
     package = Path(__file__).parent
     files = {path.relative_to(package).as_posix() for path in package.rglob("*.py")}

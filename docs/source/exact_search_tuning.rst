@@ -43,7 +43,7 @@ Start from a symptom
      - For distance searches and counts, lower :attr:`~SearchTuning.completion_bound_max_table_bytes`, which applies to each sector of a search, such as the X-type logical operators of a CSS code, and to each sector of a count, besides the tables that it is building.
        For exhaustive enumeration, lower :attr:`~SearchTuning.enumeration_batch_exponent`.
        For the Brouwer-Zimmermann method of :class:`~qldpc.codes.distance.CosetLeaderSearch` by CSS weight, on a stabilizer state that is not CSS, lower :attr:`~SearchTuning.max_css_single_pairs`.
-       For its completion tables, lower :attr:`~SearchTuning.coset_completion_block_bits`, or :attr:`~SearchTuning.coset_completion_max_table_bytes`, which applies to each set of a family, or raise :attr:`~SearchTuning.coset_route_minimum_work`, so that fewer queries build extra families and tables.
+       For the completion tables of its other searches, by physical weight or on a CSS state, lower :attr:`~SearchTuning.coset_completion_block_bits`, or :attr:`~SearchTuning.coset_completion_max_table_bytes`, which applies to each set of a family, or raise :attr:`~SearchTuning.coset_route_minimum_work`, so that fewer queries build extra families and tables.
        For caches, edit the constants that size them.
        No value limits the memory of a whole process.
    * - A distance search by the Brouwer-Zimmermann or connected-cluster method, or a batch query of :class:`~qldpc.codes.distance.CosetLeaderSearch`, uses too many or too few cores, as when several processes run searches at once

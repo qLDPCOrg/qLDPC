@@ -315,8 +315,13 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         get_competing_work.assert_not_called()
 
 
-def test_partitioning_runs_once_work_reaches_its_unit() -> None:
-    """Matroid partitioning runs only if the work of a search reaches a multiple of its unit."""
+def test_partitioning_runs_only_past_its_gate() -> None:
+    """Matroid partitioning runs only once the work of a search reaches its ratio times its unit.
+
+    It asks for competing work at a work ratio of zero, never at the largest, and at a ratio of one
+    for work far above its unit but not far below.  Its plan tries every coverage from two up to the
+    most that its information sets could reach.
+    """
     # The coverages agree with their definition for largest coverages from zero to eight, on a basis
     # of 4 rows and 10 nonzero columns.
     basis = np.hstack([np.eye(4), np.eye(4), np.eye(4)[:, :2], np.zeros((4, 1))]).astype(np.uint8)
@@ -333,9 +338,20 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
     # Five full sets of 20 rows could fit in the 45 nonzero columns from the coverage
     # ceil(5 * 20 / 45) = 3, so partitioning may try the coverages two and three, or only coverage
     # one at a limit of one.  Either way, it asks for the work of a competing family only if it
-    # passes its gate, which a ratio of zero does, but not a ratio of MAX_VALUE.
+    # passes its gate, which a ratio of zero does, but not a ratio of MAX_VALUE.  At a ratio of one,
+    # the work of the disjoint family passes the gate at the upper bound 45, at least 13 times the
+    # unit of either plan, but not at the upper bound 7, at most a tenth of it.
     for coverage_limit in (MAX_VALUE, 1):
-        for partition_work_ratio in (0, MAX_VALUE):
+        unit = basis_families._get_partition_plan(
+            basis, SearchTuning(max_information_sets=5, partition_max_coverage=coverage_limit)
+        ).unit
+        assert disjoint.certificate.work(7) * 10 <= unit <= disjoint.certificate.work(45) // 13
+        for partition_work_ratio, upper_bound, passes in (
+            (0, 19, True),
+            (MAX_VALUE, 19, False),
+            (1, 7, False),
+            (1, 45, True),
+        ):
             get_competing_work = mock.Mock(return_value=0)
             tuning = SearchTuning(
                 max_information_sets=5,
@@ -343,9 +359,9 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
                 partition_max_coverage=coverage_limit,
             )
             basis_families.get_partitioned_family(
-                basis, labels, disjoint, 19, tuning, get_competing_work=get_competing_work
+                basis, labels, disjoint, upper_bound, tuning, get_competing_work=get_competing_work
             )
-            assert get_competing_work.called == (partition_work_ratio == 0)
+            assert get_competing_work.called == passes
 
 
 def test_partitioning_skips_coverages_at_which_no_family_could_replace_the_best() -> None:

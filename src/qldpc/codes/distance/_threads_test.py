@@ -56,8 +56,8 @@ def test_every_item_runs_once(num_threads: int) -> None:
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         workers.append(threading.get_ident())
-        claims.append([])
-        ranges = claims[-1]
+        ranges: list[tuple[int, int]] = []
+        claims.append(ranges)
         return lambda start, end: ranges.append((start, end))
 
     _threads.run_work_items(num_items, num_threads, start_worker)
@@ -112,12 +112,7 @@ def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
 
 def test_no_items_run_on_the_calling_thread_alone() -> None:
     workers: list[int] = []
-
-    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        workers.append(threading.get_ident())
-        return lambda start, end: None
-
-    _threads.run_work_items(0, 4, start_worker)
+    _threads.run_work_items(0, 4, _get_worker_that_records_starts(workers))
     assert workers == [threading.get_ident()]
 
 
@@ -129,8 +124,8 @@ def test_a_range_can_stop_every_thread() -> None:
     claims: list[list[tuple[int, int]]] = []
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        claims.append([])
-        ranges = claims[-1]
+        ranges: list[tuple[int, int]] = []
+        claims.append(ranges)
 
         def run_range(start: int, end: int) -> None:
             ranges.append((start, end))
@@ -216,7 +211,7 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
     """
     start = threading.Thread.start
     kept: list[threading.Thread] = []
-    worker_starts = itertools.count()
+    workers: list[int] = []
     raised: list[BaseException] = []
 
     def interrupted_start(thread: threading.Thread) -> None:
@@ -228,8 +223,7 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
 
     def search() -> None:
         try:
-            # Each worker would count its start, and then run no range.
-            _threads.run_work_items(10, 2, lambda stop: (next(worker_starts), _run_no_range)[1])
+            _threads.run_work_items(10, 2, _get_worker_that_records_starts(workers))
         except BaseException as error:  # noqa: BLE001 - the test checks which error the search raised
             raised.append(error)
 
@@ -244,36 +238,7 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
     (thread,) = kept
     start(thread)
     thread.join(timeout=THREAD_TIMEOUT)
-    assert not thread.is_alive() and next(worker_starts) == 0
-
-
-def _run_no_range(start: int, end: int) -> None:
-    """Run no range: the worker of a thread that never starts one."""
-
-
-def _get_worker_for_the_other_thread() -> tuple[
-    Callable[[threading.Event], Callable[[int, int], None]], list[bool]
-]:
-    """A worker with which the calling thread runs out of work while the other thread works.
-
-    The other thread works until the stop event is set, and the list records, for each of its
-    ranges, whether the event was set before the timeout.  Call this on the calling thread.
-    """
-    calling_thread = threading.get_ident()
-    working = threading.Event()
-    stopped: list[bool] = []
-
-    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        def run_range(start: int, end: int) -> None:
-            if threading.get_ident() == calling_thread:
-                assert working.wait(timeout=THREAD_TIMEOUT)
-                return
-            working.set()
-            stopped.append(stop.wait(timeout=THREAD_TIMEOUT))
-
-        return run_range
-
-    return start_worker, stopped
+    assert not thread.is_alive() and not workers
 
 
 def test_an_interrupt_as_the_calling_thread_starts_to_wait_stops_the_other_threads(
@@ -411,45 +376,6 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
     assert raised.value is interrupts[-1]
 
 
-class _Rows:
-    """Rows of a batch for ``run_blocks``, each of work one, which record how they run.
-
-    ``calls`` lists each call of a worker as ``(start, end, max_work, thread)``, and ``rows`` each
-    row that runs.  A row in ``ending_rows`` ends the batch, and ``before_row`` runs before a row.
-    """
-
-    def __init__(
-        self, ending_rows: Sequence[int] = (), before_row: Callable[[int], None] | None = None
-    ) -> None:
-        self.ending_rows = set(ending_rows)
-        self.before_row = before_row
-        self.calls: list[tuple[int, int, int, int]] = []
-        self.rows: list[int] = []
-        self.workers: list[int] = []
-        self.lock = threading.Lock()
-
-    def start_worker(self) -> _threads.RunRows:
-        """Record the worker, and return how it runs rows."""
-        self.workers.append(threading.get_ident())
-
-        def run_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
-            with self.lock:
-                self.calls.append((start, end, max_work, threading.get_ident()))
-            for row in range(start, end):
-                if self.before_row is not None:
-                    self.before_row(row)
-                with self.lock:
-                    self.rows.append(row)
-                if row in self.ending_rows:
-                    return row + 1, True
-                # Each row adds one to the work of the call.
-                if row + 1 - start >= max_work:
-                    return row + 1, False
-            return end, False
-
-        return run_rows
-
-
 @pytest.mark.parametrize("num_rows", [0, 1000])
 def test_batches_on_one_thread_run_in_one_call_on_the_calling_thread(num_rows: int) -> None:
     rows = _Rows()
@@ -544,3 +470,87 @@ def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
     (block_of_6,) = [start for start, end, _, _ in rows.calls[1:] if start <= 6 < end]
     after = events[events.index(("end", block_of_6)) + 1 :]
     assert not [start for kind, start in after if kind == "start" and start > 6]
+
+
+####################################################################################################
+# helpers
+
+
+def _get_worker_that_records_starts(
+    workers: list[int],
+) -> Callable[[threading.Event], Callable[[int, int], None]]:
+    """A worker that records the thread on which it starts, and then runs no range."""
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        workers.append(threading.get_ident())
+        return _run_no_range
+
+    return start_worker
+
+
+def _run_no_range(start: int, end: int) -> None:
+    """Run no range: the worker of a thread that never starts one."""
+
+
+def _get_worker_for_the_other_thread() -> tuple[
+    Callable[[threading.Event], Callable[[int, int], None]], list[bool]
+]:
+    """A worker with which the calling thread runs out of work while the other thread works.
+
+    The other thread works until the stop event is set, and the list records, for each of its
+    ranges, whether the event was set before the timeout.  Call this on the calling thread.
+    """
+    calling_thread = threading.get_ident()
+    working = threading.Event()
+    stopped: list[bool] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        def run_range(start: int, end: int) -> None:
+            if threading.get_ident() == calling_thread:
+                assert working.wait(timeout=THREAD_TIMEOUT)
+                return
+            working.set()
+            stopped.append(stop.wait(timeout=THREAD_TIMEOUT))
+
+        return run_range
+
+    return start_worker, stopped
+
+
+class _Rows:
+    """Rows of a batch for ``run_blocks``, each of work one, which record how they run.
+
+    ``calls`` lists each call of a worker as ``(start, end, max_work, thread)``, and ``rows`` each
+    row that runs.  A row in ``ending_rows`` ends the batch, and ``before_row`` runs before a row.
+    """
+
+    def __init__(
+        self, ending_rows: Sequence[int] = (), before_row: Callable[[int], None] | None = None
+    ) -> None:
+        self.ending_rows = set(ending_rows)
+        self.before_row = before_row
+        self.calls: list[tuple[int, int, int, int]] = []
+        self.rows: list[int] = []
+        self.workers: list[int] = []
+        self.lock = threading.Lock()
+
+    def start_worker(self) -> _threads.RunRows:
+        """Record the worker, and return how it runs rows."""
+        self.workers.append(threading.get_ident())
+
+        def run_rows(start: int, end: int, max_work: int) -> tuple[int, bool]:
+            with self.lock:
+                self.calls.append((start, end, max_work, threading.get_ident()))
+            for row in range(start, end):
+                if self.before_row is not None:
+                    self.before_row(row)
+                with self.lock:
+                    self.rows.append(row)
+                if row in self.ending_rows:
+                    return row + 1, True
+                # Each row adds one to the work of the call.
+                if row + 1 - start >= max_work:
+                    return row + 1, False
+            return end, False
+
+        return run_rows

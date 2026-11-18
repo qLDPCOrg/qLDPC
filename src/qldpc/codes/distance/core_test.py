@@ -564,12 +564,10 @@ def test_connected_cluster_searches_take_the_active_tuning(
 
     monkeypatch.setattr(core, "get_distance_connected_cluster", record)
     steane_code = qldpc.codes.SteaneCode()
-    checks_x, checks_z = (
-        steane_code.matrix_x.view(np.ndarray),
-        steane_code.matrix_z.view(np.ndarray),
-    )
     with use_tuning(restrict_viable_symbols=False, pair_sum_checks=False) as tuning:
-        core.get_distance_css(checks_x, checks_z, method="connected_cluster")
+        core.get_distance_css(
+            steane_code.matrix_x, steane_code.matrix_z, method="connected_cluster"
+        )
         core.get_distance_pauli(qldpc.codes.FiveQubitCode().matrix, method="connected_cluster")
     assert {symplectic for symplectic, _ in calls} == {False, True}
     assert all(passed == tuning for _, passed in calls)
@@ -630,7 +628,10 @@ def test_dependent_logical_rows_give_the_distance_of_their_span() -> None:
 
 
 def test_brouwer_zimmermann_searches_never_enumerate_every_word() -> None:
-    """A BZ search scans information sets, even where enumerating every word would cost less."""
+    """A BZ search scans information sets, even where enumerating every word would cost less.
+
+    The generators span only ``2**5`` words, few enough that ``method="auto"`` enumerates them.
+    """
     logicals = [[1, 0, 0, 0, 1, 0, 1, 1, 0]]
     stabilizers = [
         [0, 1, 0, 0, 0, 0, 1, 0, 1],

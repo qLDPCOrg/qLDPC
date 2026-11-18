@@ -23,6 +23,7 @@ from qldpc.objects import PauliXZ
 from . import _threads, _tuning
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
+from ._brouwer_zimmermann import coset_tables
 from ._information_sets import basis_families, certificates
 from .coset_leaders import CosetLeaderSearch
 
@@ -145,9 +146,11 @@ def assert_certificate_bounds_unvisited_words(
 ) -> None:
     """Check that each step's certificate bounds every word that no search basis has visited.
 
-    A search basis visits a word after layer ``t`` if the word combines at most ``t`` of its rows.
-    The check covers the family's certificate, with and without the bounds of linear programming.
-    Also check the weight divisor, and that ``certifies`` agrees with each step's bound.
+    A step is a pair of a layer ``t`` and the number of search bases that have finished it, while
+    the others have finished layer ``t - 1``.  A search basis visits a word after layer ``t`` if the
+    word combines at most ``t`` of its rows.  The check covers the family's certificate, with and
+    without the bounds of linear programming.  Also check the weight divisor, and that
+    ``certifies`` agrees with each step's bound.
     """
 
     def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
@@ -156,8 +159,12 @@ def assert_certificate_bounds_unvisited_words(
             for bits in itertools.product((0, 1), repeat=len(generators))
         }
 
+    # Map each word of the code to the number of rows of each search basis that it combines.
     words = get_coefficient_weights(basis)
     coefficient_weights = [get_coefficient_weights(generators) for generators in family.generators]
+    assert all(set_weights.keys() == words.keys() for set_weights in coefficient_weights)
+
+    # Check the family's certificate both without and with the bounds of linear programming.
     certificate = family.certificate
     pivot_blocks = tuple(
         tuple(int(column) for column in pivots[:rank])
@@ -168,14 +175,18 @@ def assert_certificate_bounds_unvisited_words(
         certificate,
         dataclasses.replace(certificate, pivot_blocks=pivot_blocks, lp_max_denominator=denominator),
     ]
-    assert all(weights.keys() == words.keys() for weights in coefficient_weights)
-    weights = {word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words}
+
+    # Each word's weight is a multiple of the divisor, and, at each step at which no search basis
+    # has visited the word, at least the bound of each certificate.
+    hamming_weights = {
+        word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words
+    }
     steps = [
         (layer, num_completed)
         for layer in range(1, len(basis))
         for num_completed in range(len(family.ranks) + 1)
     ]
-    for word, weight in weights.items():
+    for word, weight in hamming_weights.items():
         assert weight % certificate.weight_divisor == 0
         for layer, num_completed in steps:
             completed = [
@@ -185,6 +196,7 @@ def assert_certificate_bounds_unvisited_words(
                 for each in checked:
                     assert weight >= each.step_lower_bound(layer, num_completed)
 
+    # At each step, ``certifies`` agrees with the bound.
     for each, (layer, num_completed) in itertools.product(checked, steps):
         bound = each.step_lower_bound(layer, num_completed)
         for upper_bound in range(1, basis.shape[1] + 2):
@@ -400,6 +412,25 @@ def get_exhaustive_minima(matrix: npt.NDArray[np.uint8], css_weight: bool) -> np
     minima = np.full(1 << n, 2 * n + 1)
     np.minimum.at(minima, syndromes, weights)
     return minima
+
+
+def get_binary_syndrome(checks: npt.NDArray[np.uint8], words: npt.NDArray[np.int_]) -> Any:
+    """The packed syndrome of a binary word, or of each row of an array, for binary checks."""
+    return (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
+
+
+def get_binary_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
+    """The least Hamming weight of the words with each packed syndrome for binary checks."""
+    num_columns = checks.shape[1]
+    words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
+    minima = np.full(1 << len(checks), num_columns + 1)
+    np.minimum.at(minima, get_binary_syndrome(checks, words), words.sum(axis=1))
+    return minima
+
+
+def get_set_ranks(tables: coset_tables.CosetSearchTables) -> list[int]:
+    """The ranks of the sets of a family: their numbers of pivots that are not padding."""
+    return np.count_nonzero(tables.pivots >= 0, axis=1).tolist()
 
 
 # A code whose disjoint information sets have ranks five and four.

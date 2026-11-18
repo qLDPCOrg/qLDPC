@@ -497,11 +497,12 @@ class SearchTuning:
     #: hand, near where the test and a second walk break even.
     macwilliams_shared_walk_rank: int = 14
 
-    #: A ``CosetLeaderSearch`` of Pauli errors by CSS weight, with the Brouwer-Zimmermann method, on
-    #: a stabilizer state that is not CSS, answers queries of weight one from a table, by syndrome,
-    #: of the products of a single-qubit X error and a single-qubit Z error, each possibly the
-    #: identity, if the distinct syndromes of the two kinds of error make at most this many pairs;
-    #: otherwise it matches syndromes at each query, and zero disables the table.
+    #: Applies to a ``CosetLeaderSearch`` of Pauli errors by CSS weight, with the Brouwer-Zimmermann
+    #: method, on a stabilizer state that is not CSS.  Such a search answers queries of weight one
+    #: from a table, by syndrome, of the products of a single-qubit X error and a single-qubit Z
+    #: error, each possibly the identity.  It builds the table if the distinct syndromes of the two
+    #: kinds of error make at most this many pairs, and otherwise matches syndromes at each query.
+    #: Zero disables the table.
     #: Defaults to ``2**18``, a budget of memory: a table of tens of megabytes, reached at 511
     #: qubits whose single-qubit errors have distinct syndromes.
     max_css_single_pairs: int = 2**18

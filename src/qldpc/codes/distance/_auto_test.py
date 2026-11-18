@@ -148,24 +148,45 @@ def test_a_search_by_cost_can_end_in_its_free_phase(routes: Routes) -> None:
     assert routes.probes == routes.switch_bounds == []
 
 
-def test_the_free_phase_ends_with_the_expected_work(routes: Routes) -> None:
+def test_the_free_phase_ends_with_the_expected_work(
+    monkeypatch: pytest.MonkeyPatch, routes: Routes
+) -> None:
     """The search probes once the expected work of a limit, at a state cost, exceeds the free work.
 
-    The expected work of a limit is the work spent plus the predicted work of that limit.  Counted
-    in states, that of the Golay sector's search stays below ``10**6`` at every limit, and exceeds
-    one state at some limit.  So with a free work of ``10**6``, the search ends in its free phase at
-    a state cost of 1, and probes at a state cost of ``10**6``.
+    The expected work of a limit is the work spent plus the predicted work of that limit, both at
+    the state cost.  The Golay sector's search visits fewer than ``10**4`` states, so with a free
+    work of ``3 * 10**8``, it ends in its free phase at a state cost of 1.  At a state cost of
+    ``10**6``, it probes before a limit whose predicted work exceeds the rest of the free work,
+    while the work spent is still within it.
     """
+    spent: list[int] = []
+    spent_at_probes: list[int] = []
+    predict_states = ConnectedClusterSearch.predict_states
+    probe = _auto._probe
+
+    def record_spent(search: ConnectedClusterSearch, *args: Any) -> float:
+        spent.append(search.num_states)
+        return predict_states(search, *args)
+
+    def record_probe(*args: Any) -> BrouwerZimmermannSearch:
+        spent_at_probes.append(spent[-1])
+        return probe(*args)
+
+    monkeypatch.setattr(ConnectedClusterSearch, "predict_states", record_spent)
+    monkeypatch.setattr(_auto, "_probe", record_probe)
     checks = get_golay_checks()
+    free_work = 3 * 10**8
     for state_cost, num_probes in ((1, 0), (10**6, 1)):
-        routes.probes.clear()
+        spent_at_probes.clear()
         with use_tuning(
             auto_brute_force_max_words=0,
-            auto_free_work=10**6,
+            auto_free_work=free_work,
             connected_cluster_state_evaluations=state_cost,
         ):
             assert core.get_distance_from_checks(checks, checks, method="auto") == 7
-        assert len(routes.probes) == num_probes
+        assert len(spent_at_probes) == len(routes.probes) == num_probes
+        assert all(states * state_cost <= free_work for states in spent_at_probes)
+        routes.probes.clear()
 
 
 def test_a_cutoff_ends_the_free_phase_at_once(routes: Routes) -> None:
@@ -414,13 +435,14 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
 
     It compares the work to certify the level of its next limit, and the work to reach the probe's
     bound.  After its limits 1 to 4, the Golay sector's search grows faster than a BZ search of a
-    basis of rank and width 16, by more than 11 / 6 per unit of weight, and more slowly than one of
-    rank and width 23.  Its states up to its next limit are fewer than the work of that BZ search
-    to certify its level, so a state cost of 1 does not switch at the next limit, but one of
-    ``10**6`` does.  To reach the bound 23, the length of the code, it projects all of the states
-    predicted for its limit 22 and half of those for 23.  From at least one state at its limit 4,
-    they are more than ``(11 / 6)**18 + (11 / 6)**19 / 2``, which exceeds the ``2**16 - 1``
-    supports of all of the layers of that BZ search, so a state cost of 1 switches with that bound.
+    basis of rank and width 16, by a factor of more than 11 / 6 per unit of weight, and more slowly
+    than one of rank and width 23.  Its states up to its next limit are fewer than the work of that
+    BZ search to certify its level, so a state cost of 1 does not switch at the next limit, but one
+    of ``10**6`` does.  To reach the bound 23, the length of the code, its projection includes all
+    of the states predicted for its limit 22 and half of those for 23.  From at least one state at
+    its limit 4, they are more than ``(11 / 6)**18 + (11 / 6)**19 / 2``, which exceeds the
+    ``2**16 - 1`` supports of all of the layers of that BZ search, so a state cost of 1 switches
+    with that bound.
     """
     checks = get_golay_checks()
     clusters = ConnectedClusterSearch([(checks, checks)], cutoff=0)

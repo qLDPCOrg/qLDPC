@@ -42,8 +42,9 @@ def test_layers_resume_from_any_state_and_can_skip_the_other_last_rows(
 ) -> None:
     """Layers resume from any state, and skip the other last rows of a support on request.
 
-    From the rows ``start[:depth]`` and the next row ``start[depth]``, a layer visits the supports
-    whose first ``depth + 1`` rows are not before those of ``start`` in lexicographic order.
+    A layer resumes from a support ``start`` at a depth ``first_depth``: from its rows
+    ``start[:first_depth]`` and the next row ``start[first_depth]``.  It then visits the supports
+    whose first ``first_depth + 1`` rows are not before those of ``start`` in lexicographic order.
     Raising the last row of a support past the last row of the basis skips the supports that differ
     from it only in their last row.
     """
@@ -73,6 +74,7 @@ def test_layers_resume_from_any_state_and_can_skip_the_other_last_rows(
                     support[depth] += 1
                 depth = support_stepping.advance_support(rows, 1, support, prefixes, depth)
 
+            # The supports from ``start`` on, without those that a skip passes over.
             expected = []
             skipped_head: tuple[int, ...] | None = None
             for indices in supports:

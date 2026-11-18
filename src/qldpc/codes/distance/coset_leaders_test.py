@@ -352,9 +352,10 @@ def test_bounds_match_per_block_minima(
     num_blocks = 5
     matrix = get_stabilizer_matrix(_block_generators(block, num_blocks))
     search = CosetLeaderSearch(matrix, css_weight=css_weight)
-    # For the first syndrome, the physical-weight search stops by its certificate while the lightest
-    # error that it has visited, which it returns, is heavier than the minimum.  The phased GHZ
-    # block is slow to search as plain Python, so it gets fewer random syndromes.
+    # For the first syndrome at maximum weight two, the physical-weight search stops by its
+    # certificate while the lightest error that it has visited, which it returns, is heavier than
+    # the minimum.  A search that ran past its certificate would return a minimal one.  The phased
+    # GHZ block is slow to search as plain Python, so it gets fewer random syndromes.
     num_random = 3 if block == _PHASED_GHZ_BLOCK else 7
     syndromes = [443351, *rng.integers(1 << (num_blocks * len(block)), size=num_random).tolist()]
     stops_above_minimum = False
@@ -371,57 +372,31 @@ def test_bounds_match_per_block_minima(
             if not bound.within_max_weight:
                 assert bound.lower_bound > max_weight
                 weight = get_pauli_weight(bound.representative, len(matrix), css_weight)
-                stops_above_minimum |= syndrome == syndromes[0] and weight > minimum
+                first_case = syndrome == syndromes[0] and max_weight == 2
+                stops_above_minimum |= first_case and weight > minimum
     assert stops_above_minimum or css_weight
 
 
-# Queries on three four-qubit blocks: the block, the weight (True for the CSS weight), the syndrome,
-# and the maximum weight.
-_BLOCK_QUERIES = [
-    (_GHZ_BLOCK, False, 742, 2),
-    (_GHZ_BLOCK, False, 742, 3),
-    (_GHZ_BLOCK, False, 350, 4),
-    (_GHZ_BLOCK, False, 734, 2),
-    (_GHZ_BLOCK, False, 734, 4),
-    (_PHASED_GHZ_BLOCK, True, 2635, 2),
-    (_PHASED_GHZ_BLOCK, True, 2635, 4),
-    (_PHASED_GHZ_BLOCK, True, 110, 2),
-    (_PHASED_GHZ_BLOCK, True, 1967, 5),
-    (_GHZ_BLOCK, True, 2635, 2),
-    (_GHZ_BLOCK, True, 350, 3),
-]
+@pytest.mark.parametrize("block", [_PHASED_GHZ_BLOCK, _GHZ_BLOCK], ids=["phased-ghz", "ghz"])
+def test_css_weight_queries_on_blocks_stop_below_their_representatives(
+    block: tuple[str, ...],
+) -> None:
+    """Queries by CSS weight on three blocks stop by certificates below their representatives.
 
-
-def test_single_and_batch_queries_on_blocks_agree_with_block_minima() -> None:
-    """Queries on three blocks agree with block minima, and batches return the bounds of queries."""
-    for block, css_weight, syndrome, max_weight in _BLOCK_QUERIES:
-        num_qubits = 3 * len(block)
-        matrix = get_stabilizer_matrix(_block_generators(block, 3))
-        search = CosetLeaderSearch(matrix, css_weight=css_weight)
-        bound = search.get_min_weight_bound(syndrome, max_weight)
-
-        # The answer is sound for the block minima.
-        local = [
-            [(syndrome >> (len(block) * index + jj)) & 1 for jj in range(len(block))]
-            for index in range(3)
-        ]
-        minimum = _block_minimum(block, local, css_weight)
-        weight = get_pauli_weight(bound.representative, num_qubits, css_weight)
-        assert get_syndrome(matrix, bound.representative) == syndrome
-        assert bound.within_max_weight == (minimum <= max_weight)
-        assert bound.lower_bound <= minimum <= weight
-        assert weight <= max_weight if bound.within_max_weight else bound.lower_bound > max_weight
-
-        # A batch of two syndromes of single-qubit errors, which every query accepts, and then the
-        # syndrome of the case stops at the case, with its bound, if its answer is no.
-        words = split_syndromes_into_words(
-            [get_syndrome(matrix, 1), get_syndrome(matrix, 1 << num_qubits), syndrome], num_qubits
-        )
-        index, batch_bound = search.find_first_not_within_max_weight(words, max_weight)
-        if bound.within_max_weight:
-            assert (index, batch_bound) == (3, None)
-        else:
-            assert (index, batch_bound) == (2, bound)
+    On the GHZ block, whose codes of X and Z parts are even, the bound also rounds up to the parity
+    of the X parts of the syndrome, which are even, and so exceeds ``max_weight + 1``.
+    """
+    syndrome, max_weight = 2635, 2
+    matrix = get_stabilizer_matrix(_block_generators(block, 3))
+    bound = CosetLeaderSearch(matrix, css_weight=True).get_min_weight_bound(syndrome, max_weight)
+    local = [[(syndrome >> (4 * index + jj)) & 1 for jj in range(4)] for index in range(3)]
+    minimum = _block_minimum(block, local, True)
+    weight = get_pauli_weight(bound.representative, len(matrix), True)
+    assert get_syndrome(matrix, bound.representative) == syndrome
+    assert not bound.within_max_weight
+    assert max_weight < bound.lower_bound <= minimum <= weight
+    assert bound.lower_bound < weight
+    assert (bound.lower_bound > max_weight + 1) == (block == _GHZ_BLOCK)
 
 
 def test_css_bounds_match_exhaustive_minima(pytestconfig: pytest.Config) -> None:
@@ -723,6 +698,49 @@ def test_connected_cluster_searches_take_the_fields_of_their_tuning(
     assert [{key: kwargs[key] for key in expected} for kwargs in options] == [expected] * 3
 
 
+def test_connected_cluster_searches_get_the_stabilizers_in_their_kernel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each connected-cluster search gets the stabilizers in its kernel as overlap words.
+
+    A Pauli search gets its own sparser stabilizers, and the search of X parts the X parts of the
+    pure-X stabilizers, which the search of Z parts checks with, and vice versa (Section 3.8 of
+    ``connected_cluster.md``).
+    """
+    received: dict[int, tuple[coset_leaders.ConnectedClusterCosetSearch, set[bytes]]] = {}
+    use_words = coset_leaders.ConnectedClusterCosetSearch.use_query_overlap_words
+
+    def record(self: coset_leaders.ConnectedClusterCosetSearch, words: npt.ArrayLike) -> None:
+        """Record the overlap words that a search gets, and give them to it."""
+        rows = {row.tobytes() for row in np.asarray(words, dtype=np.uint8)}
+        received.setdefault(id(self), (self, set()))[1].update(rows)
+        use_words(self, words)
+
+    def get_rows(search: coset_leaders.ConnectedClusterCosetSearch) -> set[bytes]:
+        """The checks of a search, as they compare with the recorded words."""
+        return {np.asarray(row, dtype=np.uint8).tobytes() for row in search.checks}
+
+    monkeypatch.setattr(
+        coset_leaders.ConnectedClusterCosetSearch, "use_query_overlap_words", record
+    )
+    css_state = get_random_css_state(6, 3, np.random.default_rng(0))
+    CosetLeaderSearch(css_state, method="connected_cluster")
+    ((pauli_search, pauli_words),) = received.values()
+    assert pauli_words == get_rows(pauli_search)
+    received.clear()
+    CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
+    (first, first_words), (second, second_words) = received.values()
+    assert first_words == get_rows(second) and second_words == get_rows(first)
+    assert first_words != second_words
+
+
+def test_connected_cluster_searches_by_css_weight_answer_exactly() -> None:
+    """Connected-cluster queries by CSS weight on a CSS state agree with exhaustive minima."""
+    css_state = get_random_css_state(4, 2, np.random.default_rng(0))
+    search = CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
+    assert_exact_answers(search, css_state, True)
+
+
 def test_connected_cluster_batches_by_css_weight_join_their_parts(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -774,13 +792,26 @@ def test_connected_cluster_batches_read_syndromes_of_several_words(
         assert found == np.flatnonzero(np.array(minima) > max_weight).tolist()
 
 
-def test_batches_on_threads_answer_as_on_one_thread(pytestconfig: pytest.Config) -> None:
+def test_batches_on_threads_answer_as_on_one_thread(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Batch queries on threads answer as on one thread, on a CSS state part by part.
 
     By CSS weight, the batches of Z parts take the weights of the X parts as floors.  With
     ``information_set_batch_exponent=0``, a batch moves to threads once its queries on the calling
     thread have done ``num_threads`` units of work.
     """
+    calls: list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]] = []
+    get_min_weights = BrouwerZimmermannCosetSearch.get_min_weights
+
+    def record(self: Any, *args: Any, **options: Any) -> npt.NDArray[np.int64]:
+        """Record the floors and the weights of a batch query of a BZ search, and run it."""
+        floors = args[2].copy()
+        weights = get_min_weights(self, *args, **options)
+        calls.append((floors, weights.copy()))
+        return weights
+
+    monkeypatch.setattr(BrouwerZimmermannCosetSearch, "get_min_weights", record)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     matrix = get_random_css_state(6, 3, rng)
     num_qubits = len(matrix)
@@ -798,7 +829,10 @@ def test_batches_on_threads_answer_as_on_one_thread(pytestconfig: pytest.Config)
             assert threaded.find_first_not_within_max_weight(
                 batch[start:], max_weight
             ) == serial.find_first_not_within_max_weight(batch[start:], max_weight)
+        calls.clear()
         weights = threaded.get_min_weights(batch, max_weight)
+        (_, x_weights), (z_floors, _) = calls
+        assert np.array_equal(z_floors, x_weights[x_weights <= max_weight])
         assert np.array_equal(weights, serial.get_min_weights(batch, max_weight))
         assert np.array_equal(weights, np.minimum(minima[syndromes], max_weight + 1))
 
@@ -812,6 +846,7 @@ def _record_thread_options(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, i
         def record(
             self: Any, *args: Any, name: str = name, query: Any = query, **options: Any
         ) -> Any:
+            """Record the name and thread options of a batch query, and run it."""
             calls.append((name, options["num_threads"], options["split_work"]))
             return query(self, *args, **options)
 
@@ -887,6 +922,7 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
     run_work_items = _threads.run_work_items
 
     def run_counted(*args: Any, **kwargs: Any) -> None:
+        """Count a run of work items on threads, and run it."""
         nonlocal thread_runs
         thread_runs += 1
         run_work_items(*args, **kwargs)
@@ -943,10 +979,14 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
     assert minima[3] == 2
 
     def gated_run(num_items: int, num_threads: int, start_worker: Any, **kwargs: Any) -> None:
+        """Run work items whose workers run their ranges through ``gated_range``."""
+
         def gated_start(stop: threading.Event) -> Any:
+            """Start a worker whose ranges run through ``gated_range``."""
             run_range = start_worker(stop)
 
             def gated_range(start: int, end: int) -> None:
+                """Run a range, the first after a later range ran or a later block started."""
                 if start == 0:
                     assert (later_ran if later_first else later_started).wait(
                         timeout=THREAD_TIMEOUT
@@ -961,6 +1001,7 @@ def test_connected_cluster_batches_keep_the_least_index_whichever_block_ends_fir
     def gated_bound(
         search: CosetLeaderSearch, syndrome: int, max_weight: int
     ) -> tuple[MinWeightBound, int]:
+        """Get the bound of a query; later ones wait for the first range unless ``later_first``."""
         if not later_first and syndrome not in syndromes[:2]:
             later_started.set()
             assert first_ran.wait(timeout=THREAD_TIMEOUT)

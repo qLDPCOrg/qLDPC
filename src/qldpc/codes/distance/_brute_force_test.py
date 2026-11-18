@@ -235,7 +235,7 @@ def test_early_exit_returns_only_weighed_operators(symplectic: bool) -> None:
 
 
 def test_riffle() -> None:
-    """Riffling interleaves the X and Z bits of each qubit, also of no rows, in even widths."""
+    """Riffling interleaves each qubit's X and Z bits, also of no rows, and rejects odd widths."""
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     expected = np.stack((symplectic[:, :3], symplectic[:, 3:]), axis=2).reshape(-1, 6)
     np.testing.assert_array_equal(_brute_force.riffle(symplectic), expected)

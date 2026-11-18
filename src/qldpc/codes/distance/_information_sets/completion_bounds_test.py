@@ -207,7 +207,8 @@ def test_selection_follows_its_policy() -> None:
         assert cb.select_completion_tables(rows, 6, 6, None, costly) is None, name
     # With free lookups, built tables that skip every one of the 1024 sampled supports predict the
     # share 1 / (1 + 1024 / z**2) of the cost of the layer: under 0.4 % at the usual confidence,
-    # z = 2, but about 9 % at the most cautious, z = 10.
+    # z = 2, but about 9 % at the most cautious, z = 10, so the limit of 2 % accepts the first and
+    # rejects the second.
     free_lookups = dataclasses.replace(
         finite,
         completion_bound_max_cost_percent=2,

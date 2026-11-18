@@ -1078,9 +1078,9 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
     """The version of the search for two-word syndromes and the general version search alike.
 
     They find the same witnesses and vectors with a syndrome, and visit the same states.  The
-    problems have 70 checks, so their syndromes have two words, since the searches add no sums of
-    pairs of checks, which would add words.  With ``_MAX_FIXED_WORDS`` set to one, these syndromes
-    are wider than it, so they take the general version.  The limits at and below the distance run
+    problems have 70 checks, and the searches add no sums of pairs of checks, so the syndromes have
+    two words.  With ``_MAX_FIXED_WORDS`` set to one, these syndromes are wider than it, so they
+    take the general version.  The limits at and below the distance run
     on one thread, and on three, which also run the frontier passes and the items of each version.
     The queries run on one thread.  On one thread, every call of the compiled search returns the
     same with either version.
@@ -1090,8 +1090,9 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
     assert cs._get_fixed_words(4 * cs._MAX_FIXED_WORDS) == ()
 
     # Variables 0 and 1 are in every check of a block, and every other variable in one, so the
-    # nonzero words act on variables 0 and 1 alone, and weigh 2.  The binary problem has a block of
-    # 70 checks, and the symplectic problem a block of 35 X-type checks and one of 35 Z-type checks.
+    # lightest nonzero words act on variables 0 and 1 alone, and weigh 2.  The binary problem has a
+    # block of 70 checks, and the symplectic problem a block of 35 X-type checks and one of 35
+    # Z-type checks.
     def get_block(num_checks: int) -> npt.NDArray[np.uint8]:
         """Checks that each hold variables 0 and 1, and one variable of their own."""
         ones = np.ones((num_checks, 2), dtype=np.uint8)
@@ -1518,6 +1519,8 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     every item.  A limit without a witness records nothing.  The wrappers number the items of each
     range in the order in which ``_search_on_threads`` searches them.
     """
+    # The positions, the items of the current limit whose searches found a witness, and whether a
+    # search above the frontier found one.
     positions: list[str] = []
     found_items: list[int] = []
     above: list[bool] = []
@@ -1532,6 +1535,7 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         start_worker: Callable[[threading.Event], Callable[[int, int], None]],
         **kwargs: Any,
     ) -> None:
+        # Each range numbers its items from its start, on the thread that searches them.
         def start_numbered(stop: threading.Event) -> Callable[[int, int], None]:
             run_range = start_worker(stop)
 
@@ -1544,6 +1548,8 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
             return run_numbered_range
 
+        # Run the limit, and record the position of the first item that found a witness, or else
+        # whether the witness came from above the frontier.
         found_items.clear()
         run_work_items(num_items, num_threads, start_numbered, **kwargs)
         if found_items:
@@ -1555,6 +1561,8 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             positions.append("above")
         above.clear()
 
+    # A search of an item moves on to the next item of its range, and a search above the frontier,
+    # which has no item, records whether it found a witness.
     def search_numbered(*args: Any, **kwargs: Any) -> Any:
         result = search_supports(*args, **kwargs)
         item = getattr(next_item, "index", None)
@@ -1600,16 +1608,19 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
     both on or both off (Section 3.11 of ``connected_cluster.md``).  The threads run with every
     array of the search read-only.  The first witness of some limit is in each of the positions that
-    ``get_threaded_cases`` names.
+    ``get_threaded_cases`` names, in a case with at least as many roots as the 8 threads.  So a
+    witness above the frontier shows that the frontier deepens to more items than one per thread.
     """
     calls = record_thread_counts(monkeypatch)
     positions = record_witness_positions(monkeypatch)
     # The roots and paths of the work items, which _search_on_threads makes for the threads, are not
     # reached from the search, so they stay writeable (Section 5 of connected_cluster.md).
     checked = check_shared_arrays_on_threads(monkeypatch, lambda *_, **__: [search])
+    many_root_positions: set[str] = set()
     for (problem, symplectic, get_automorphisms), switch in itertools.product(
         get_threaded_cases(), [True, False]
     ):
+        num_positions = len(positions)
         results = []
         for num_threads in (1, 3, 8):
             search = get_search(
@@ -1628,9 +1639,13 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
                 ]
             )
         assert all(result == results[0] for result in results)
+        # Without automorphisms, every variable is a root.
+        num_variables = problem[0].shape[1] // 2 if symplectic else problem[0].shape[1]
+        if get_automorphisms is None and num_variables >= 8:
+            many_root_positions.update(positions[num_positions:])
     assert set(calls) == {3, 8}
     assert len(checked) == len(calls) and min(checked) > 0
-    assert set(positions) == {"first", "middle", "last", "above"}
+    assert many_root_positions == {"first", "middle", "last", "above"}
 
 
 def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
@@ -1647,11 +1662,12 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
       its third limit, at which the new tables give the witness of a search that learns it first,
       [0, 5], where the tables of its ranks by index would give [0, 1].
     - The Golay code learns its cyclic shifts once it has visited as many states as a search without
-      them visits through its third limit, so after its first limit.  On four threads, with a split
-      gate that splits every limit and a frontier of one item per thread, its first limit runs on
-      threads under the tables of its ranks by index, since its 23 roots are enough items, and its
-      last limit, which has a witness, runs on threads under the tables that it tabulated again
-      with the shifts.  It finds the witnesses, and visits the states, of one thread.
+      them visits through its third limit, a number of states that its first limit does not reach.
+      On four threads, with a split gate that splits every limit and a frontier of one item per
+      thread, its first limit runs on threads under the tables of its ranks by index, since its 23
+      roots are enough items, and its last limit, which has a witness, runs on threads under the
+      tables that it tabulated again with the shifts.  It finds the witnesses, and visits the
+      states, of one thread.
 
     A limit tabulates its cuts before it calls ``_search_on_threads``, so no tabulation can happen
     while threads run.  The test checks this as well.

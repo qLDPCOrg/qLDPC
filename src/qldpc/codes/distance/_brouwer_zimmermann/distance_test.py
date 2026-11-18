@@ -89,7 +89,8 @@ def test_brouwer_zimmermann_search_state() -> None:
         search.advance()
     assert (search.best, search.lower_bound, search.next_weight) == (3, 0, 1)
 
-    # Reach the cutoff at the first row, which only a restart of the layer weighs again.
+    # Reach the cutoff at the first row, which the search weighs again because it restarts the
+    # interrupted layer.
     assert search.advance() == 1
     assert (search.lower_bound, search.next_weight) == (0, 1)
     assert search.advance() == 1
@@ -644,7 +645,7 @@ def prepared(monkeypatch: pytest.MonkeyPatch) -> list[bz._SectorSearch]:
 
 
 def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
-    monkeypatch: pytest.MonkeyPatch, prepared: list[bz._SectorSearch]
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, prepared: list[bz._SectorSearch]
 ) -> None:
     """Each advance scans one layer of the next unfinished search, in turn, until all finish.
 
@@ -659,9 +660,11 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
         return advance(search)
 
     monkeypatch.setattr(bz._SectorSearch, "advance", recording_advance)
-    # This code has distance 4, as the connected-cluster method finds.  One sector's search finishes
-    # while the other's goes on, so the turns skip it.
-    code = get_random_css_code(np.random.default_rng(4), 60, 20, 25)
+    # This code has distance 5, as the connected-cluster method finds.  Setup builds overlapping
+    # families and does not partition, so that one sector's search finishes while the other's goes
+    # on, and the turns skip it.
+    tune(overlapping_minimum_work=0, partition_work_ratio=MAX_VALUE)
+    code = get_random_css_code(np.random.default_rng(6), 60, 20, 25)
     sectors = [get_sector(code, pauli) for pauli in PAULIS_XZ]
     search = bz.BrouwerZimmermannSearch(sectors, cutoff=0)
     num_searches = len(prepared)
@@ -674,7 +677,7 @@ def test_stepped_searches_advance_one_unfinished_search_at_a_time_in_turn(
         search.advance()
         assert len(visits) == num_visits + 1
         bests.append(search.best)
-    assert bests == sorted(bests, reverse=True) and bests[-1] == 4
+    assert bests == sorted(bests, reverse=True) and bests[-1] == 5
 
     # Each search that advances is the first unfinished one after the last, in cyclic order.
     previous = -1
@@ -719,8 +722,8 @@ def test_a_witness_from_setup_lowers_the_shared_bound_once_its_search_advances(
 ) -> None:
     """A witness that setup finds in the rows of a family lowers ``best`` once its search advances.
 
-    The rows of the basis weigh four or more, and a row of its one information set on the first
-    three columns weighs three, the distance.  The words of layer two of that set weigh more.
+    The rows of the basis weigh four or more, and a row of the family's one information set, on the
+    first three columns, weighs three, the distance.  The words of layer two of that set weigh more.
     """
     basis = np.array(
         [
@@ -742,6 +745,7 @@ def test_a_witness_from_setup_lowers_the_shared_bound_once_its_search_advances(
         tuning=tuning,
     )
     (sector_search,) = prepared
+    # The shared bound may already hold the witness before the search advances.
     assert search.best >= sector_search.best == 3
     search.advance()
     assert (
@@ -778,11 +782,9 @@ def test_automorphism_family_searches_find_exact_distances() -> None:
     ) == code.get_distance(method="brute_force")
 
 
-@pytest.mark.parametrize(
-    "threshold, num_layers, orbit_bounds", [(1_000, 2, True), (20_000, 3, True), (20_000, 3, False)]
-)
+@pytest.mark.parametrize("threshold, num_layers", [(1_000, 2), (20_000, 3)])
 def test_images_of_blocks_bound_a_search_once_it_has_automorphisms(
-    monkeypatch: pytest.MonkeyPatch, tune: Tune, threshold: int, num_layers: int, orbit_bounds: bool
+    monkeypatch: pytest.MonkeyPatch, tune: Tune, threshold: int, num_layers: int
 ) -> None:
     """Once a search has automorphisms, it bounds with the images of the blocks of its family.
 
@@ -791,11 +793,9 @@ def test_images_of_blocks_bound_a_search_once_it_has_automorphisms(
     even, of the linear program over every image of every block (Section 3.7), which this test
     solves over columns, with the group that the translations generate.  After two layers the images
     certify four, so the search goes on and switches to an automorphism family; after three they
-    certify six, so it ends without a switch, before scanning its fourth layer.  Without
-    ``automorphism_orbit_bounds``, the search does not bound with the images, and switches after
-    three layers too.
+    certify six, so it ends without a switch, before scanning its fourth layer.
     """
-    tune(automorphism_minimum_layer_work=threshold, automorphism_orbit_bounds=orbit_bounds)
+    tune(automorphism_minimum_layer_work=threshold)
     code = qldpc.codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     generators = np.asarray(code._get_permutation_automorphisms())
     asks = []
@@ -815,9 +815,6 @@ def test_images_of_blocks_bound_a_search_once_it_has_automorphisms(
     )
     ((instance, next_weight, lower_bound, switched),) = asks
     assert next_weight == num_layers + 1
-    if not orbit_bounds:
-        assert switched
-        return
 
     # Solve the program over every image of every block of the family, after its completed layers.
     group = {tuple(range(len(code)))}
@@ -854,7 +851,7 @@ def test_searches_solve_the_program_over_orbits_as_their_tuning_says(
     """A search with automorphisms solves its program over orbits with the tuning's denominators.
 
     Without ``automorphism_orbit_bounds``, it solves no such program, and still finds the distance
-    of the [[72, 12, 6]] bivariate bicycle code of Bravyi et al., Nature 627, 778 (2024).
+    of the [[72, 12, 6]] bivariate bicycle code of arXiv:2308.07915.
     """
     tune(lp_dual_max_denominator=97, automorphism_orbit_bounds=orbit_bounds)
     denominators: list[int] = []
@@ -999,7 +996,10 @@ def test_automorphism_family_searches_scan_their_new_set_from_layer_two(
 
 
 def test_searches_ask_for_automorphisms_only_before_costly_layers() -> None:
-    """A search asks for automorphisms at most once, only before a costly layer or partitioning."""
+    """The search of a sector asks for automorphisms at most once.
+
+    It asks only before a costly layer or partitioning.
+    """
     code = qldpc.codes.MBCode({x: 12}, x**10 + x**4 + x**2 + x, x**9 + x**8 + x**3 + x)
     sector = get_sector(code, Pauli.X)
     for minimum_layer_work, expected_calls in ((10**9, 0), (0, 1)):
@@ -1208,7 +1208,7 @@ def test_a_switch_at_the_end_of_setup_can_certify_the_distance(
     tune: Tune, prepared: list[bz._SectorSearch], switch_decisions: list[tuple[int, bool]]
 ) -> None:
     """A switch at the end of setup can certify the distance, so that the search ends in setup."""
-    tune(partition_work_ratio=0)
+    tune(overlapping_minimum_work=MAX_VALUE, partition_work_ratio=0)
     code = qldpc.codes.BBCode({x: 6, y: 2}, x**3 * y + x**2 * y + x, x**5 + x**3 * y + x)
     expected = qldpc.codes.distance.get_distance_from_generators(
         code.get_logical_ops(Pauli.X), code.get_stabilizer_ops(Pauli.X), method="brute_force"

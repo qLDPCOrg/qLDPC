@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import pickle
 import threading
 from typing import Any, NamedTuple
@@ -16,14 +15,27 @@ import pytest
 from qldpc._binary import get_kernel
 
 from .. import _cosets
-from .._tuning import DEFAULT_TUNING, MAX_VALUE
+from .._tuning import DEFAULT_TUNING
 from ..conftest import (
     EVEN_ROUTES_CODE,
     OVERLAPPING_ROUTES_CODE,
     THREAD_TIMEOUT,
     TWO_FAMILIES_CODE,
+    get_set_ranks,
 )
 from . import affine_instance, coset_routes, coset_tables
+
+# A threshold of the route gate, and maximum weights at which queries of OVERLAPPING_ROUTES_CODE
+# predict far fewer examinations than the threshold with the greedy packing (light), or far more
+# with the greedy packing and with the family that they take (heavy).  Heavy queries take the
+# overlapping family at the first two heavy weights, and the greedy packing at the last.  At the
+# middle weight, queries predict more examinations than the threshold with the greedy packing, but
+# fewer with the overlapping family, which they take.  The examinations of the families of small
+# codes differ too little for the middle weight to be far from the threshold.
+_THRESHOLD = 8
+_LIGHT_WEIGHT, _MIDDLE_WEIGHT = -1, 1
+_OTHER_FAMILY_WEIGHTS = (3, 4)
+_HEAVY_WEIGHTS = (*_OTHER_FAMILY_WEIGHTS, 5)
 
 # A code of five rows whose greedy packing leaves a partial set of rank two.
 _DEFICIENT_ROUTES_CODE = np.hstack(
@@ -90,24 +102,49 @@ def _spy_on_tails(monkeypatch: pytest.MonkeyPatch) -> list[_TailsBuild]:
     return builds
 
 
-def _get_ranks(tables: coset_tables.CosetSearchTables) -> npt.NDArray[np.int64]:
-    """The ranks of the sets of a family: their numbers of pivots that are not padding."""
-    return np.count_nonzero(tables.pivots >= 0, axis=1)
+def _spy_on_families(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[affine_instance.AffineInstance, coset_tables.CosetSearchTables]]:
+    """Record each family whose tables ``coset_tables.get_search_tables`` builds, and pass it on."""
+    families: list[tuple[affine_instance.AffineInstance, coset_tables.CosetSearchTables]] = []
+    get_search_tables = coset_tables.get_search_tables
+
+    def spy(
+        instance: affine_instance.AffineInstance, *args: Any, **kwargs: Any
+    ) -> coset_tables.CosetSearchTables:
+        tables = get_search_tables(instance, *args, **kwargs)
+        families.append((instance, tables))
+        return tables
+
+    monkeypatch.setattr(coset_tables, "get_search_tables", spy)
+    return families
 
 
-@pytest.mark.parametrize(
-    "code", [EVEN_ROUTES_CODE, OVERLAPPING_ROUTES_CODE], ids=["even", "overlapping"]
-)
+def _get_instance(
+    families: list[tuple[affine_instance.AffineInstance, coset_tables.CosetSearchTables]],
+    tables: coset_tables.CosetSearchTables,
+) -> affine_instance.AffineInstance:
+    """The coset instance of the family of some tables, among the recorded families."""
+    (instance,) = [instance for instance, built in families if built is tables]
+    return instance
+
+
 def test_the_gate_takes_other_families_only_far_above_its_threshold(
-    code: npt.NDArray[np.uint8],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Far above the threshold, costly queries take another family, and far below it, none do."""
-    routes = _build_routes(code, 0)
-    assert len(routes.disjoint_tables.planning) == (2 if code is EVEN_ROUTES_CODE else 1)
-    assert routes.get_route(2)[0] is not routes.disjoint_tables
-    gated_routes = _build_routes(code, MAX_VALUE)
-    for max_weight in range(-1, code.shape[1] + 2):
-        assert gated_routes.get_route(max_weight)[0] is gated_routes.disjoint_tables
+    """Queries far below the threshold take the greedy packing, and build no other family.
+
+    Queries far above it can take another family.
+    """
+    families = _spy_on_families(monkeypatch)
+    routes = _build_routes(OVERLAPPING_ROUTES_CODE, _THRESHOLD)
+    disjoint = (_get_instance(families, routes.disjoint_tables), routes.disjoint_tables)
+    assert 4 * routes._get_examinations(*disjoint, _LIGHT_WEIGHT) <= _THRESHOLD
+    assert routes.get_route(_LIGHT_WEIGHT)[0] is routes.disjoint_tables
+    assert len(families) == 1
+    for max_weight in _OTHER_FAMILY_WEIGHTS:
+        assert routes._get_examinations(*disjoint, max_weight) >= 4 * _THRESHOLD
+        assert routes.get_route(max_weight)[0] is not routes.disjoint_tables
 
 
 @pytest.mark.parametrize(
@@ -133,25 +170,35 @@ def test_queries_take_each_family_at_some_maximum_weight(code: npt.NDArray[np.ui
     assert len(families) == (3 if code is TWO_FAMILIES_CODE else 2)
 
 
-@pytest.mark.parametrize(
-    "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
-)
 def test_routes_by_tails_take_the_latest_record_of_their_own_family(
-    code: npt.NDArray[np.uint8], monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Far above the threshold, every route is by tails, with the latest record of its family.
+    """Queries far above the threshold with the family that they take go by tails.
 
-    Far below the threshold, and in a search without routes by tails, no route is.
+    They take the latest record of that family.  Queries below the threshold with the family that
+    they take, and queries of a search without routes by tails, do not go by tails.
     """
-    max_weights = range(-1, code.shape[1] + 2)
+    families = _spy_on_families(monkeypatch)
     builds = _spy_on_tails(monkeypatch)
-    routes = _build_routes(code, 0, by_tails=True)
-    plain_routes = _build_routes(code, 0)
-    for max_weight in max_weights:
+    routes = _build_routes(OVERLAPPING_ROUTES_CODE, _THRESHOLD, by_tails=True)
+    plain_routes = _build_routes(OVERLAPPING_ROUTES_CODE, _THRESHOLD)
+    disjoint = (_get_instance(families, routes.disjoint_tables), routes.disjoint_tables)
+    assert routes.get_route(_LIGHT_WEIGHT)[1] is None
+
+    # At the middle weight, the greedy packing reaches the threshold, but the family that the query
+    # takes does not.
+    tables, tails = routes.get_route(_MIDDLE_WEIGHT)
+    examinations = routes._get_examinations(_get_instance(families, tables), tables, _MIDDLE_WEIGHT)
+    assert routes._get_examinations(*disjoint, _MIDDLE_WEIGHT) >= _THRESHOLD > examinations
+    assert tails is None
+
+    # Far above the threshold, a route by tails gives a record of the family that it takes.
+    for max_weight in _HEAVY_WEIGHTS:
         tables, tails = routes.get_route(max_weight)
+        instance = _get_instance(families, tables)
+        assert routes._get_examinations(instance, tables, max_weight) >= 4 * _THRESHOLD
         assert tails is not None
-        instance = next(build.instance for build in builds if build.record is tails)
-        assert np.array_equal(instance.pivots, tables.pivots)
+        assert next(build.instance for build in builds if build.record is tails) is instance
         assert plain_routes.get_route(max_weight)[1] is None
 
     # Each build gets the latest record of its family, and every route by tails gives it.
@@ -159,14 +206,10 @@ def test_routes_by_tails_take_the_latest_record_of_their_own_family(
     for build in builds:
         assert build.given is latest.get(id(build.instance))
         latest[id(build.instance)] = build.record
-    for max_weight in max_weights:
+    assert len(latest) == 2
+    for max_weight in _HEAVY_WEIGHTS:
         tables, tails = routes.get_route(max_weight)
-        records = [
-            build.record for build in builds if np.array_equal(build.instance.pivots, tables.pivots)
-        ]
-        assert tails is records[-1]
-    gated_routes = _build_routes(code, MAX_VALUE, by_tails=True)
-    assert all(gated_routes.get_route(max_weight)[1] is None for max_weight in max_weights)
+        assert tails is latest[id(_get_instance(families, tables))]
 
 
 @pytest.mark.parametrize(
@@ -183,7 +226,7 @@ def test_routes_by_tails_ask_for_the_tables_of_the_sets_that_queries_scan_with_t
     routes = _build_routes(code, 0, by_tails=True)
     for max_weight in range(2, code.shape[1] + 2):
         tables, _ = routes.get_route(max_weight)
-        ranks = _get_ranks(tables)
+        ranks = get_set_ranks(tables)
         steps = [(layer, j) for layer in range(num_rows + 1) for j in range(1, len(ranks) + 1)]
         expected = set()
         for table in tables.planning:
@@ -238,22 +281,26 @@ def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) 
     routes = _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True)
     barrier = threading.Barrier(len(max_weights), timeout=THREAD_TIMEOUT)
 
-    def get_route(
-        max_weight: int,
-    ) -> tuple[coset_tables.CosetSearchTables, coset_tables.CosetTails | None]:
+    chosen: list[int] = []
+
+    def get_route(max_weight: int) -> None:
         """Get the route of a maximum weight once every thread is ready to get its own."""
         barrier.wait()
-        return routes.get_route(max_weight)
+        routes.get_route(max_weight)
+        chosen.append(max_weight)
 
-    # Shut the pool down without waiting, so that a thread that never returns fails the test rather
-    # than hangs it.
-    executor = concurrent.futures.ThreadPoolExecutor(len(max_weights))
-    try:
-        futures = [executor.submit(get_route, max_weight) for max_weight in max_weights]
-        for future in futures:
-            future.result(timeout=60)
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
+    # Daemon threads, joined with a timeout, let a thread that never returns fail the test rather
+    # than hang it.
+    threads = [
+        threading.Thread(target=get_route, args=(max_weight,), daemon=True)
+        for max_weight in max_weights
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=THREAD_TIMEOUT)
+        assert not thread.is_alive()
+    assert sorted(chosen) == list(max_weights)
     assert len(overlaps) == len(max_weights) and not any(overlaps)
     assert len(latest) == 2 and all(chained)
     for max_weight in max_weights:

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import ast
 import collections
-import concurrent.futures
 import contextvars
 import dataclasses
 import inspect
@@ -14,6 +13,7 @@ import math
 import pathlib
 import re
 import sys
+import threading
 from fractions import Fraction
 from typing import Any
 
@@ -72,12 +72,15 @@ def test_new_threads_start_with_the_default_tuning() -> None:
     exception that the module docstring states.
     """
     inherits = getattr(sys.flags, "thread_inherit_context", False)
-    with (
-        _tuning.use_tuning(max_information_sets=4),
-        concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor,
-    ):
-        worker_tuning = executor.submit(_tuning.get_tuning).result(timeout=THREAD_TIMEOUT)
-        assert worker_tuning == (_tuning.get_tuning() if inherits else _tuning.DEFAULT_TUNING)
+    worker_tunings: list[_tuning.SearchTuning] = []
+    with _tuning.use_tuning(max_information_sets=4):
+        worker = threading.Thread(
+            target=lambda: worker_tunings.append(_tuning.get_tuning()), daemon=True
+        )
+        worker.start()
+        worker.join(timeout=THREAD_TIMEOUT)
+        assert not worker.is_alive()
+        assert worker_tunings == [_tuning.get_tuning() if inherits else _tuning.DEFAULT_TUNING]
         assert _tuning.get_tuning().max_information_sets == 4
 
 
@@ -164,8 +167,8 @@ def test_tunings_change_routes_but_not_results(costly_stages: CostlyStages) -> N
 
     With every threshold below at zero, matroid partitioning finds overlapping information sets for
     some search, and some search bounds unvisited words by linear programming.  By default, and with
-    every threshold at ``MAX_VALUE``, neither happens.  The tests of
-    ``_brouwer_zimmermann/distance_test.py`` force completion tables.
+    every threshold below at ``MAX_VALUE``, neither happens.  No route here uses completion tables;
+    the tests of ``_brouwer_zimmermann/distance_test.py`` force them.
     """
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
     eager = {
@@ -381,7 +384,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(bz, "_prepare_sector_search", prepare)
 
     code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
+    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
     with _tuning.use_tuning(
+        information_set_batch_exponent=5,
+        num_threads=3,
         disjoint_random_column_orders=5,
         overlapping_minimum_work=0,
         overlapping_attempts_per_set=3,
@@ -412,6 +418,10 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         lc.CSSLogicalCounter(code.matrix_x, code.matrix_z).count_logical_ops(method="macwilliams")
         core.get_distance_from_generators([[1, 1, 0]], [[0, 1, 1]], method="brute_force")
         core.get_distance_css([[1, 1, 0]], [[0, 1, 1], [1, 0, 0]], method="connected_cluster")
+        # A search that scans layers, rather than finish while it prepares, scans with batches of
+        # 2**information_set_batch_exponent supports, on num_threads threads, and passes its tuning
+        # to its certificate and to its choices of completion tables.
+        bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
 
     expected = {
         "random_column_orders": {5},
@@ -431,16 +441,9 @@ def test_every_field_reaches_the_code_that_reads_it(monkeypatch: pytest.MonkeyPa
         "max_rounds": {4},
         "rounds_without_improvement": {2},
         "auto tuning": {tuning},
+        "search": {(1 << 5, 3, tuning)},
     }
     assert {key: set(values) for key, values in seen.items()} == expected
-
-    # A search that scans layers, rather than finish while it prepares, scans with batches of
-    # 2**information_set_batch_exponent supports, on num_threads threads, and passes its tuning to
-    # its choices of completion tables.
-    bb_code = codes.BBCode({x: 6, y: 6}, x**3 + y + y**2, y**3 + x + x**2)
-    with _tuning.use_tuning(information_set_batch_exponent=5, num_threads=3) as tuning:
-        bz.get_distance_brouwer_zimmermann([get_sector(bb_code, Pauli.X)], cutoff=0)
-    assert seen["search"] and all(search == (1 << 5, 3, tuning) for search in seen["search"])
 
     # Under the default tuning, without QLDPC_NUM_THREADS, a search scans on
     # numba.config.NUMBA_NUM_THREADS threads.

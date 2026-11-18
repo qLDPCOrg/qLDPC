@@ -421,10 +421,10 @@ def get_distance_css_brouwer_zimmermann(
 ) -> int:
     """Deprecated: the smallest distance of sectors of a CSS code, given as binary words.
 
-    This function was formerly qldpc.codes.get_distance_css_brouwer_zimmermann.  Each sector is a
-    pair of logical operators and stabilizers, as binary words, whose distance is as for
-    get_distance_quantum with ``homogeneous=True``.  The result is the smallest distance of the
-    sectors, or ``upper_bound``, the weight of a known logical operator, if that is smaller.  A
+    This function was formerly qldpc.codes.get_distance_css_brouwer_zimmermann.  Each sector, a
+    pair of logical operators and stabilizers as binary words, has the distance that
+    get_distance_quantum gives with ``homogeneous=True``.  The result is the smallest distance of
+    the sectors, or ``upper_bound``, the weight of a known logical operator, if that is smaller.  A
     result at most ``cutoff`` can be an upper bound on the distance.
     """
     from qldpc.codes.distance import NO_DISTANCE, get_distance_from_generators
@@ -436,15 +436,17 @@ def get_distance_css_brouwer_zimmermann(
         " sector instead",
         stacklevel=get_external_caller_stacklevel(),
     )
+    # As before, check every sector before searching any.
+    matrices = [
+        as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
+        for logical_ops, stabilizers in sectors
+    ]
     best = upper_bound
     with _use_block_size(block_size):
-        for logical_ops, stabilizers in sectors:
+        for logical_matrix, stabilizer_matrix in matrices:
             # Stop at a bound of at most the cutoff, or of zero, which no sector can beat.
             if best is not None and best <= max(cutoff, 0):
                 break
-            logical_matrix, stabilizer_matrix = as_binary_matrix_pair(
-                logical_ops, stabilizers, ("logical_ops", "stabilizers")
-            )
             # A limit of best - 1 gives min(distance, best), and saves searching heavier words.
             distance = get_distance_from_generators(
                 logical_matrix,
@@ -490,11 +492,15 @@ def get_distance_quantum(
         # Check the rows here, so that errors name the arguments of this function.  This also
         # rejects None as the stabilizers, which get_distance_from_generators would read as no
         # excluded rows.
-        logical_matrix, _ = as_binary_matrix_pair(
+        logical_matrix, stabilizer_matrix = as_binary_matrix_pair(
             logical_ops, stabilizers, ("logical_ops", "stabilizers")
         )
         distance = get_distance_from_generators(
-            logical_ops, stabilizers, symplectic=not homogeneous, cutoff=cutoff, method=method
+            logical_matrix,
+            stabilizer_matrix,
+            symplectic=not homogeneous,
+            cutoff=cutoff,
+            method=method,
         )
     if distance is NO_DISTANCE:
         num_qubits = logical_matrix.shape[1] if homogeneous else logical_matrix.shape[1] // 2
