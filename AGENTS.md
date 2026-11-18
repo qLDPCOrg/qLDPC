@@ -86,7 +86,8 @@ Otherwise, a maintainer approves each change to them before you hand it off, eve
 - **A pull request that exists to change protected files:** the maintainer inspects its branch, since that is easier than reading a patch.
   Make the change on the branch, and run its review.
   Then give the maintainer a command to copy and paste that changes to its worktree, as in `cd <worktree>`, and ask them to inspect the branch, giving its review status and open decisions.
-  Hand the pull request off only once they say that they have reviewed it, and ask again after any later revision.
+  Hand the pull request off only once they say that they have reviewed it.
+  Ask again after any later revision; for a small one, showing its diff in your message may suffice.
 - **A pull request about something else that also changes protected files:** the maintainer approves a patch, which shows those changes apart from the rest.
   Write the patch outside the repository, link it, and say which parts of it no review has seen.
   Once the maintainer approves it, apply exactly that patch with `git apply`, and commit it; if it no longer applies, regenerate it and ask again.
