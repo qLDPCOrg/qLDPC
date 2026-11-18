@@ -22,8 +22,7 @@ from qldpc._binary import get_kernel, pack_bits, row_reduce_binary, unpack_bits
 from ...conftest import Tune
 from .. import _cosets, _threads
 from .._binary import symplectic_to_hamming
-from .._information_sets import basis_families, completion_bounds
-from .._information_sets import certificates as certificates_module
+from .._information_sets import basis_families, certificates, completion_bounds
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, get_tuning, use_tuning
 from ..conftest import (
     EVEN_ROUTES_CODE,
@@ -110,24 +109,24 @@ def test_css_weight_searches_of_even_stabilizers_stop_at_bounds_of_each_class_pa
 def test_cached_searches_answer_only_for_their_stabilizer_group(
     pytestconfig: pytest.Config,
 ) -> None:
-    """Oracles built in turn for |000+++>, another generating set of it, and |+++000> are exact."""
+    """Searches built in turn for |000+++>, another generating set of it, and |+++000> are exact."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     eye, zeros = np.eye(3, dtype=np.uint8), np.zeros((3, 3), dtype=np.uint8)
     zero_plus = np.block([[zeros, eye, zeros, zeros], [zeros, zeros, eye, zeros]])
     plus_zero = np.block([[eye, zeros, zeros, zeros], [zeros, zeros, zeros, eye]])
     matrices = [scramble(matrix, rng) for matrix in (zero_plus, zero_plus, plus_zero)]
     coset._get_css_searches.cache_clear()
-    oracles = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices]
-    for oracle, matrix in zip(oracles, matrices, strict=True):
+    searches = [CosetLeaderSearch(matrix, css_weight=True) for matrix in matrices]
+    for search, matrix in zip(searches, matrices, strict=True):
         minima = get_exhaustive_minima(matrix, css_weight=True)
         for syndrome, max_weight in itertools.product(range(1 << 6), range(4)):
-            bound = oracle.get_min_weight_bound(syndrome, max_weight)
+            bound = search.get_min_weight_bound(syndrome, max_weight)
             assert bound.within_max_weight == (minima[syndrome] <= max_weight)
             assert get_syndrome(matrix, bound.representative) == syndrome
 
 
-def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An oracle builds its searches with the tuning in force when it is built."""
+def test_searches_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A coset-leader search builds its coset searches with the tuning in force when it is built."""
     orders: list[int] = []
     get_disjoint_family = basis_families.get_disjoint_family
 
@@ -149,8 +148,8 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             orders.clear()
             second = CosetLeaderSearch(matrix, css_weight=True)
             assert not orders
-        for oracle in (first, second):
-            assert_exact_answers(oracle, matrix, True)
+        for search in (first, second):
+            assert_exact_answers(search, matrix, True)
     for matrix, css_weight in ((zero_plus, True), (phased, False), (phased, True)):
         CosetLeaderSearch(matrix, css_weight=css_weight)
         paulis_by_css_weight = matrix is phased and css_weight
@@ -170,10 +169,10 @@ def test_oracles_use_the_tuning_with_which_they_are_built(monkeypatch: pytest.Mo
             assert bool(orders) == reads
 
 
-def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
+def test_searches_build_other_families_with_the_tuning_they_are_built_with(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Costly queries build their families and tables with the tuning of the oracle that answers."""
+    """Costly queries build their families and tables with the tuning of the search that answers."""
     calls: list[tuple[int, int]] = []
     table_calls: set[tuple[int, int]] = set()
     get_overlapping_family = basis_families.get_overlapping_family
@@ -200,15 +199,15 @@ def test_oracles_build_other_families_with_the_tuning_they_are_built_with(
         coset_completion_max_table_bytes=12345,
         completion_bound_max_table_bytes=54321,
     ):
-        oracle = CosetLeaderSearch(ROUTED_PHYSICAL_STATES[1])
+        search = CosetLeaderSearch(ROUTED_PHYSICAL_STATES[1])
     for syndrome, max_weight in itertools.product(range(1 << 5), range(2, 5)):
-        oracle.get_min_weight_bound(syndrome, max_weight)
+        search.get_min_weight_bound(syndrome, max_weight)
     assert calls == [(5, 3)]
     assert table_calls == {(4, 12345)}
 
 
-def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
-    """An oracle answers as a fresh oracle with its gate threshold would, whatever is cached."""
+def test_searches_under_other_gates_do_not_share_searches(tune: Tune) -> None:
+    """A search answers as a fresh search with its gate threshold would, whatever is cached."""
     checks = get_kernel(OVERLAPPING_ROUTES_CODE)
     css_state = np.block(
         [
@@ -225,61 +224,101 @@ def test_oracles_under_other_gates_do_not_share_searches(tune: Tune) -> None:
             coset._get_css_searches.cache_clear()
             coset._get_pauli_search.cache_clear()
             with use_tuning(coset_route_minimum_work=minimum_work):
-                oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
-                answers[minimum_work] = [oracle.get_min_weight_bound(*query) for query in queries]
+                search = CosetLeaderSearch(matrix, css_weight=css_weight)
+                answers[minimum_work] = [search.get_min_weight_bound(*query) for query in queries]
         assert answers[0] != answers[MAX_VALUE]
         for minimum_work in (0, MAX_VALUE, 0):
             tune(coset_route_minimum_work=minimum_work)
-            oracle = CosetLeaderSearch(matrix, css_weight=css_weight)
-            answers_now = [oracle.get_min_weight_bound(*query) for query in queries]
+            search = CosetLeaderSearch(matrix, css_weight=css_weight)
+            answers_now = [search.get_min_weight_bound(*query) for query in queries]
             assert answers_now == answers[minimum_work]
 
 
+@pytest.mark.parametrize(
+    ("matrix", "css_weight", "more_sets"),
+    [
+        (ROUTED_PHYSICAL_STATES[0], False, True),
+        (ROUTED_PHYSICAL_STATES[1], False, False),
+        (ROUTED_CSS_WEIGHT_STATE, True, False),
+    ],
+    ids=["physical-0", "physical-1", "css-weight"],
+)
+def test_routed_states_take_families_that_beat_the_greedy_packing(
+    matrix: npt.NDArray[np.uint8], css_weight: bool, more_sets: bool
+) -> None:
+    """Costly queries of the routed states take families that beat the greedy packing.
+
+    At the threshold zero, some route has more sets than the greedy packing, or as many and a larger
+    partial set, as ``conftest.py`` says of these states, and the routes are by tails exactly by
+    physical weight.  Tests that need other families rely on these states.
+    """
+    with use_tuning(coset_route_minimum_work=MAX_VALUE) as tuning:
+        greedy, _ = coset.get_pauli_search(matrix, css_weight, tuning)._get_route(2)
+    with use_tuning(coset_route_minimum_work=0) as tuning:
+        search = coset.get_pauli_search(matrix, css_weight, tuning)
+
+    def get_ranks(tables: coset_tables.CosetSearchTables) -> list[int]:
+        """The ranks of the sets of a family: their numbers of pivots that are not padding."""
+        return np.count_nonzero(tables.pivots >= 0, axis=1).tolist()
+
+    greedy_ranks = get_ranks(greedy)
+    beaten = False
+    for max_weight in range(2, len(matrix) + 1):
+        tables, tails = search._get_route(max_weight)
+        assert (tails is not None) == (not css_weight)
+        ranks = get_ranks(tables)
+        if more_sets:
+            beaten |= len(ranks) > len(greedy_ranks)
+        else:
+            beaten |= len(ranks) == len(greedy_ranks) and min(ranks) > min(greedy_ranks)
+    assert beaten
+
+
 def test_cached_pauli_searches_answer_for_their_own_stabilizers_and_weight() -> None:
-    """Oracles built in turn answer exactly for their own stabilizers and weight."""
+    """Searches built in turn answer exactly for their own stabilizers and weight."""
     states = [
         get_stabilizer_matrix(generators)
         for generators in (("Y__", "_Z_", "__X"), ("Y__", "YZ_", "__X"), ("X__", "_Y_", "__Z"))
     ]
     coset._get_pauli_search.cache_clear()
-    oracles = []
+    searches = []
     for changes in ({}, {"max_css_single_pairs": 0}, {"disjoint_random_column_orders": 3}):
         with use_tuning(**changes):
             for matrix, css_weight in itertools.product(states, (False, True)):
-                oracles.append(
+                searches.append(
                     (matrix, css_weight, CosetLeaderSearch(matrix, css_weight=css_weight))
                 )
-    physical_bound = oracles[0][2].get_min_weight_bound(0b011, 1)
+    physical_bound = searches[0][2].get_min_weight_bound(0b011, 1)
     assert not physical_bound.within_max_weight and physical_bound.lower_bound == 2
-    css_bound = oracles[1][2].get_min_weight_bound(0b011, 1)
+    css_bound = searches[1][2].get_min_weight_bound(0b011, 1)
     assert css_bound.within_max_weight and css_bound.representative == 0b001010
-    for matrix, css_weight, oracle in oracles:
-        assert_exact_answers(oracle, matrix, css_weight)
+    for matrix, css_weight, search in searches:
+        assert_exact_answers(search, matrix, css_weight)
 
 
 def test_cached_pauli_searches_ignore_later_changes_to_the_stabilizer_array(tune: Tune) -> None:
-    """Oracles answer for the stabilizers that they were built from, when an array changes later."""
+    """Searches answer for the stabilizers they were built from, when an array changes later."""
     # At the threshold zero, the searches build their other families at their first queries, after
     # the array changes.
     tune(coset_route_minimum_work=0)
     first, second = ROUTED_CSS_WEIGHT_STATE, ROUTED_PHYSICAL_STATES[1]
     coset._get_pauli_search.cache_clear()
     array = first.copy()
-    oracles = [
+    searches = [
         (first, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
         for css_weight in (False, True)
     ]
     array[:] = second
-    oracles += [
+    searches += [
         (second, css_weight, CosetLeaderSearch(array, css_weight=css_weight))
         for css_weight in (False, True)
     ]
-    oracles += [
+    searches += [
         (first, css_weight, CosetLeaderSearch(first.copy(), css_weight=css_weight))
         for css_weight in (False, True)
     ]
-    for matrix, css_weight, oracle in oracles:
-        assert_exact_answers(oracle, matrix, css_weight)
+    for matrix, css_weight, search in searches:
+        assert_exact_answers(search, matrix, css_weight)
 
 
 # A code whose searches for minimum weights by tails skip completions by tables at the threshold
@@ -441,7 +480,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
             labels=np.zeros((num_sets, num_rows, 0), dtype=np.uint64),
             widths=np.ones(num_sets, dtype=np.int64),
             pivots=np.vstack([family.pivots, np.full(num_rows, -1)]),
-            certificate=certificates_module.Certificate(num_rows, ranks),
+            certificate=certificates.Certificate(num_rows, ranks),
         )
         inverse = _cosets.get_unit_syndrome_words(checks)
         tables = coset_tables.get_search_tables(instance, inverse, num_columns)
@@ -493,8 +532,8 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                     if last_layer >= num_rows - rank
                     for layer in range(last_layer + 1)
                 )
-                binomials = certificates_module.get_capped_binomials(num_rows)
-                plan = certificates_module.plan_steps(
+                binomials = certificates.get_capped_binomials(num_rows)
+                plan = certificates.plan_steps(
                     table[:-1], max_weight, 0, num_rows, instance.ranks, binomials, True
                 )
                 assert plan == (stop_layer, stop_num_completed, weighed)
@@ -539,7 +578,7 @@ def _assert_searches_by_tails_match_searches_of_words(
         labels=np.zeros((len(sets), num_rows, 0), dtype=np.uint64),
         widths=np.ones(len(sets), dtype=np.int64),
         pivots=np.array(pivots, dtype=np.int64),
-        certificate=certificates_module.Certificate(
+        certificate=certificates.Certificate(
             num_rows, tuple(int(np.sum(row >= 0)) for row in pivots)
         ),
         weight_factor=2 if scale == 2 else 1,
@@ -1024,9 +1063,9 @@ def test_tables_of_pairs_of_single_qubit_errors_respect_their_limit() -> None:
     """A table of products of X and Z errors keeps the first product of each syndrome."""
     x_singles = {0: 0, 0b01: 0b0001, 0b11: 0b0010}
     z_singles = {0: 0, 0b10: 0b0100}
-    table = coset._tabulate_css_singles(x_singles, z_singles, 6)
+    table = coset._tabulate_css_singles(x_singles, z_singles, 100)
     assert table == {0: 0, 0b10: 0b0100, 0b01: 0b0001, 0b11: 0b0101}
-    assert coset._tabulate_css_singles(x_singles, z_singles, 5) is None
+    assert coset._tabulate_css_singles(x_singles, z_singles, 1) is None
 
 
 def _get_searches_with_minima(
@@ -1247,9 +1286,11 @@ def test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer(
         """Run the work items, and note when the thread that searched row 2 ends its range."""
 
         def start_worker(stop: threading.Event) -> Any:
+            """Start a worker, and watch the ends of its ranges."""
             run_range = start(stop)
 
             def watched_range(first: int, end: int) -> None:
+                """Run a range, and signal its end if its thread searched row 2."""
                 run_range(first, end)
                 if finders == [threading.get_ident()]:
                     recorded_2.set()
@@ -1350,6 +1391,7 @@ def test_costly_batches_move_to_threads_once_their_work_reaches_the_split_work(
 
 
 def test_copies_of_planning_buffers_share_nothing_and_start_from_the_first_step() -> None:
+    """A copy of a planning buffer has its bounds, shares no memory, and caches the first step."""
     search, _ = _get_rank_deficient_search()
     planning = search._get_route(3)[0].planning.copy()
     planning[:, -1, :2] = (1, 2)
@@ -1438,6 +1480,7 @@ def test_threads_stop_within_their_ranges_after_an_exception(
         """Run the work items, and keep the stop event that the threads share."""
 
         def start_worker(stop: threading.Event) -> Any:
+            """Keep the stop event of the threads, and start a worker."""
             stops.append(stop)
             return start(stop)
 
@@ -1498,8 +1541,14 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     # write no other array of the search or of its batches.
     with shared_arrays_read_only(search, batches, floors) as arrays:
         expected = [query(index, 1) for index in range(len(batches))]
-        with concurrent.futures.ThreadPoolExecutor(4) as pool:
-            answers = list(pool.map(query, range(len(batches)), [2] * len(batches)))
+        # Shut the pool down without waiting, so that a query that never returns fails the test
+        # rather than hangs it.
+        pool = concurrent.futures.ThreadPoolExecutor(4)
+        try:
+            futures = [pool.submit(query, index, 2) for index in range(len(batches))]
+            answers = [future.result(timeout=60) for future in futures]
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         assert answers == expected
     assert any(each.path.startswith("roots[0].") for each in arrays)
     marked = {id(each.array) for each in arrays}

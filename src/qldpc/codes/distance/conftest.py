@@ -399,13 +399,13 @@ RANK_DEFICIENT_CODE = np.array(
 
 
 def assert_exact_answers(
-    oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
+    search: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
 ) -> None:
-    """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
+    """Check every query of a search against exhaustive minima of the state of ``matrix``."""
     num_qubits = len(matrix)
     minima = get_exhaustive_minima(matrix, css_weight)
     for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
-        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        bound = search.get_min_weight_bound(syndrome, max_weight)
         weight = get_pauli_weight(bound.representative, num_qubits, css_weight)
         assert bound.within_max_weight == (minima[syndrome] <= max_weight)
         assert get_syndrome(matrix, bound.representative) == syndrome

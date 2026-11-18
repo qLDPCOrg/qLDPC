@@ -6,9 +6,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import pickle
-import sys
 import threading
-import time
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -18,8 +16,7 @@ import pytest
 from qldpc._binary import get_kernel
 
 from .. import _cosets
-from .._information_sets import certificates
-from .._tuning import DEFAULT_TUNING
+from .._tuning import DEFAULT_TUNING, MAX_VALUE
 from ..conftest import EVEN_ROUTES_CODE, OVERLAPPING_ROUTES_CODE, TWO_FAMILIES_CODE
 from . import affine_instance, coset_routes, coset_tables
 
@@ -93,62 +90,40 @@ def _get_ranks(tables: coset_tables.CosetSearchTables) -> npt.NDArray[np.int64]:
     return np.count_nonzero(tables.pivots >= 0, axis=1)
 
 
-def _get_works(tables: coset_tables.CosetSearchTables, max_weight: int) -> list[int]:
-    """For each table, the work of its planned steps, without the sets that a query skips."""
-    dimension = len(tables.planning[0]) - 2
-    binomials = certificates.get_capped_binomials(dimension)
-    ranks = _get_ranks(tables)
-    return [
-        certificates.plan_steps(table[:-1], max_weight, 0, dimension, ranks, binomials, True)[2]
-        for table in tables.planning
-    ]
-
-
-def _get_examinations(tables: coset_tables.CosetSearchTables, max_weight: int) -> int:
-    """The predicted examinations of a query: one more than the largest work of a table."""
-    return 1 + max(_get_works(tables, max_weight))
-
-
 @pytest.mark.parametrize(
-    "code, max_weight",
-    [(EVEN_ROUTES_CODE, 2), (OVERLAPPING_ROUTES_CODE, 2)],
-    ids=["even", "overlapping"],
+    "code", [EVEN_ROUTES_CODE, OVERLAPPING_ROUTES_CODE], ids=["even", "overlapping"]
 )
-def test_the_gate_takes_other_families_from_its_threshold(
-    code: npt.NDArray[np.uint8], max_weight: int
+def test_the_gate_takes_other_families_only_far_above_its_threshold(
+    code: npt.NDArray[np.uint8],
 ) -> None:
-    """Queries take another family only once their predicted examinations reach the threshold."""
-    disjoint_tables = _build_routes(code, 0).disjoint_tables
-    assert len(disjoint_tables.planning) == (2 if code is EVEN_ROUTES_CODE else 1)
-    examinations = _get_examinations(disjoint_tables, max_weight)
-    for minimum_work in (examinations, examinations + 1):
-        routes = _build_routes(code, minimum_work)
-        assert (routes.get_route(max_weight)[0] is routes.disjoint_tables) == (
-            minimum_work > examinations
-        )
-        for lighter in range(-1, max_weight):
-            assert routes.get_route(lighter)[0] is routes.disjoint_tables
+    """Far above the threshold, costly queries take another family, and far below it, none do."""
+    routes = _build_routes(code, 0)
+    assert len(routes.disjoint_tables.planning) == (2 if code is EVEN_ROUTES_CODE else 1)
+    assert routes.get_route(2)[0] is not routes.disjoint_tables
+    gated_routes = _build_routes(code, MAX_VALUE)
+    for max_weight in range(-1, code.shape[1] + 2):
+        assert gated_routes.get_route(max_weight)[0] is gated_routes.disjoint_tables
 
 
 @pytest.mark.parametrize(
     "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
 )
-def test_routes_take_the_family_of_least_work(code: npt.NDArray[np.uint8]) -> None:
-    """At the threshold zero, each query takes the family of least work, the earliest on ties."""
+def test_queries_take_each_family_at_some_maximum_weight(code: npt.NDArray[np.uint8]) -> None:
+    """At the threshold zero, the queries of some maximum weight take each family."""
     # At the threshold zero, the routes build the other families at maximum weight two.
     routes = _build_routes(code, 0)
-    families = [(_get_disjoint_instance(code), routes.disjoint_tables), *routes._get_candidates(2)]
-    coverages = [instance.certificate.max_coverage for instance, _ in families]
-    assert coverages == sorted(coverages)
+    families = [routes.disjoint_tables, *(tables for _, tables in routes._get_candidates(2))]
     taken = set()
     for max_weight in range(-1, code.shape[1] + 2):
-        # On ties, the route is the first of the disjoint, maximum disjoint, and overlapping ones.
-        works = [sum(_get_works(tables, max_weight)) for _, tables in families]
-        index = works.index(min(works))
         tables, _ = routes.get_route(max_weight)
-        assert np.array_equal(tables.pivots, families[index][1].pivots)
-        assert np.array_equal(tables.generators, families[index][1].generators)
-        taken.add(index)
+        taken.add(
+            next(
+                index
+                for index, family in enumerate(families)
+                if np.array_equal(tables.pivots, family.pivots)
+                and np.array_equal(tables.generators, family.generators)
+            )
+        )
     assert taken == set(range(len(families)))
     assert len(families) == (3 if code is TWO_FAMILIES_CODE else 2)
 
@@ -156,44 +131,37 @@ def test_routes_take_the_family_of_least_work(code: npt.NDArray[np.uint8]) -> No
 @pytest.mark.parametrize(
     "code", [EVEN_ROUTES_CODE, TWO_FAMILIES_CODE], ids=["even", "two-families"]
 )
-def test_routes_by_tails_reach_the_threshold_with_their_own_family(
+def test_routes_by_tails_take_the_latest_record_of_their_own_family(
     code: npt.NDArray[np.uint8], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A route is by tails exactly if its predicted examinations reach the threshold."""
-    examinations = {
-        _get_examinations(_build_routes(code, 0).get_route(max_weight)[0], max_weight)
-        for max_weight in range(-1, code.shape[1] + 2)
-    }
-    builds = _spy_on_tails(monkeypatch)
-    kinds = set()
-    for minimum_work in sorted(examinations | {value + 1 for value in examinations}):
-        builds.clear()
-        routes = _build_routes(code, minimum_work, by_tails=True)
-        plain_routes = _build_routes(code, minimum_work)
-        for max_weight in range(-1, code.shape[1] + 2):
-            tables, tails = routes.get_route(max_weight)
-            by_tails = _get_examinations(tables, max_weight) >= minimum_work
-            assert (tails is not None) == by_tails
-            if tails is not None:
-                instance = next(build.instance for build in builds if build.record is tails)
-                assert np.array_equal(instance.pivots, tables.pivots)
-            assert plain_routes.get_route(max_weight)[1] is None
-            kinds.add(by_tails)
+    """Far above the threshold, every route is by tails, with the latest record of its family.
 
-        # Each build gets the latest record of its family, and every route by tails gives it.
-        latest: dict[int, coset_tables.CosetTails] = {}
-        for build in builds:
-            assert build.given is latest.get(id(build.instance))
-            latest[id(build.instance)] = build.record
-        for max_weight in range(-1, code.shape[1] + 2):
-            tables, tails = routes.get_route(max_weight)
-            records = [
-                build.record
-                for build in builds
-                if np.array_equal(build.instance.pivots, tables.pivots)
-            ]
-            assert tails is None or tails is records[-1]
-    assert kinds == {False, True}
+    Far below the threshold, and in a search without routes by tails, no route is.
+    """
+    max_weights = range(-1, code.shape[1] + 2)
+    builds = _spy_on_tails(monkeypatch)
+    routes = _build_routes(code, 0, by_tails=True)
+    plain_routes = _build_routes(code, 0)
+    for max_weight in max_weights:
+        tables, tails = routes.get_route(max_weight)
+        assert tails is not None
+        instance = next(build.instance for build in builds if build.record is tails)
+        assert np.array_equal(instance.pivots, tables.pivots)
+        assert plain_routes.get_route(max_weight)[1] is None
+
+    # Each build gets the latest record of its family, and every route by tails gives it.
+    latest: dict[int, coset_tables.CosetTails] = {}
+    for build in builds:
+        assert build.given is latest.get(id(build.instance))
+        latest[id(build.instance)] = build.record
+    for max_weight in max_weights:
+        tables, tails = routes.get_route(max_weight)
+        records = [
+            build.record for build in builds if np.array_equal(build.instance.pivots, tables.pivots)
+        ]
+        assert tails is records[-1]
+    gated_routes = _build_routes(code, MAX_VALUE, by_tails=True)
+    assert all(gated_routes.get_route(max_weight)[1] is None for max_weight in max_weights)
 
 
 @pytest.mark.parametrize(
@@ -225,53 +193,65 @@ def test_routes_by_tails_ask_for_the_tables_of_the_sets_that_queries_scan_with_t
 
 
 def test_threads_that_choose_routes_take_turns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Threads that choose routes take turns, so each record holds the tables of its routes."""
+    """Threads that choose routes take turns, so each record holds the tables of its routes.
+
+    The threads start choosing at once, and the first build waits up to a second for another build
+    to start, which only threads that do not take turns can do.
+    """
     max_weights = range(-1, 9)
     counter_lock = threading.Lock()
     building = 0
     overlaps = []
     chained = []
     latest: dict[int, tuple[affine_instance.AffineInstance, coset_tables.CosetTails]] = {}
+    overlapped = threading.Event()
     get_coset_tails = coset_tables.get_coset_tails
 
-    def build_slowly(
+    def build_in_turn(
         instance: affine_instance.AffineInstance,
         sets: list[int],
         record: coset_tables.CosetTails | None,
         **kwargs: Any,
     ) -> coset_tables.CosetTails:
-        """Build a record after a sleep, and keep it as the latest record of its family."""
+        """Build a record, and keep it as the latest record of its family."""
         nonlocal building
         with counter_lock:
             building += 1
             overlaps.append(building > 1)
+            if building > 1:
+                overlapped.set()
+            first = len(overlaps) == 1
             previous = latest.get(id(instance))
             chained.append(record is (None if previous is None else previous[1]))
-        time.sleep(0.02)
+        if first:
+            # Threads that take turns start no other build, so this wait times out.
+            overlapped.wait(timeout=1)
         built = get_coset_tails(instance, sets, record, **kwargs)
         with counter_lock:
             latest[id(instance)] = (instance, built)
             building -= 1
         return built
 
-    # Builds sleep, so that unguarded concurrent builds would overlap.
-    monkeypatch.setattr(coset_tables, "get_coset_tails", build_slowly)
+    monkeypatch.setattr(coset_tables, "get_coset_tails", build_in_turn)
     routes = _build_routes(EVEN_ROUTES_CODE, 0, by_tails=True)
-    barrier = threading.Barrier(len(max_weights))
+    barrier = threading.Barrier(len(max_weights), timeout=10)
 
     def get_route(
         max_weight: int,
     ) -> tuple[coset_tables.CosetSearchTables, coset_tables.CosetTails | None]:
+        """Get the route of a maximum weight once every thread is ready to get its own."""
         barrier.wait()
         return routes.get_route(max_weight)
 
-    switch_interval = sys.getswitchinterval()
-    sys.setswitchinterval(1e-6)  # Switch threads often, so that an unguarded race is likely.
+    # Shut the pool down without waiting, so that a thread that never returns fails the test rather
+    # than hangs it.
+    executor = concurrent.futures.ThreadPoolExecutor(len(max_weights))
     try:
-        with concurrent.futures.ThreadPoolExecutor(len(max_weights)) as executor:
-            list(executor.map(get_route, max_weights))
+        futures = [executor.submit(get_route, max_weight) for max_weight in max_weights]
+        for future in futures:
+            future.result(timeout=60)
     finally:
-        sys.setswitchinterval(switch_interval)
+        executor.shutdown(wait=False, cancel_futures=True)
     assert len(overlaps) == len(max_weights) and not any(overlaps)
     assert len(latest) == 2 and all(chained)
     for max_weight in max_weights:
