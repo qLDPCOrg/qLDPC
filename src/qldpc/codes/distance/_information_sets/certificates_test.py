@@ -374,9 +374,10 @@ def test_linear_programming_can_beat_the_coverage_bound() -> None:
 def test_bounds_of_linear_programming_round_up_to_the_weight_divisor() -> None:
     """Where every eligible word is even, the bound of linear programming rounds up to be even.
 
-    In the example of Section 3.1 of ``brouwer_zimmermann.md``, the program bounds the weight by
-    five after layer one, and the coverage bound by four.  A step of the last layer, after which no
-    word remains, keeps ``NO_WORD_BOUND``.
+    In the seven-column example of Section 3.1 of ``brouwer_zimmermann.md``, under "A certificate
+    from linear programming", the program bounds the weight by five after layer one, and the
+    coverage bound by four.  A step of the last layer, after which no word remains, keeps
+    ``NO_WORD_BOUND``.
     """
     blocks = ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3), (4, 5, 6))
     certificate = certificates.Certificate(

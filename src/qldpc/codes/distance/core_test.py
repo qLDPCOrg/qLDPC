@@ -27,8 +27,9 @@ from qldpc.objects import Pauli
 from ..conftest import Tune
 from . import _brute_force, core
 from ._binary import get_css_stabilizers
+from ._connected_cluster.search import SupportSearch
 from ._tuning import use_tuning
-from .conftest import get_random_full_rank_matrix, get_span
+from .conftest import get_pauli_weight, get_random_full_rank_matrix, get_span
 
 # "auto" enumerates the small codes of the tests that take every method, unless its tuning makes
 # enumeration costly (test_auto_without_enumeration_gives_the_same_distances).
@@ -550,27 +551,29 @@ def test_connected_cluster_searches_sparse_stabilizers(
 def test_connected_cluster_searches_take_the_active_tuning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CSS and Pauli distances pass the active tuning to their connected-cluster searches.
+    """CSS and Pauli distances search by connected clusters with the active tuning.
 
     ``get_distance_css`` searches through ``_search_css``, and ``get_distance_pauli``, whose
-    searches are symplectic, through ``_search_checks``.
+    searches are symplectic, through ``_search_checks``.  The active tuning turns off two switches
+    of the searches that are on by default.
     """
-    calls: list[tuple[bool, Any]] = []
-    search = core.get_distance_connected_cluster
+    switches: list[tuple[bool, bool, bool]] = []
+    initialize = SupportSearch.__init__
 
-    def record(sectors: Any, **kwargs: Any) -> int:
-        calls.append((kwargs.get("symplectic", False), kwargs["tuning"]))
-        return search(sectors, **kwargs)
+    def record(search: SupportSearch, *args: Any, **kwargs: Any) -> None:
+        symplectic = kwargs.get("symplectic", False)
+        switches.append((symplectic, kwargs["restrict_viable_symbols"], kwargs["pair_sum_checks"]))
+        initialize(search, *args, **kwargs)
 
-    monkeypatch.setattr(core, "get_distance_connected_cluster", record)
+    monkeypatch.setattr(SupportSearch, "__init__", record)
     steane_code = qldpc.codes.SteaneCode()
-    with use_tuning(restrict_viable_symbols=False, pair_sum_checks=False) as tuning:
+    with use_tuning(restrict_viable_symbols=False, pair_sum_checks=False):
         core.get_distance_css(
             steane_code.matrix_x, steane_code.matrix_z, method="connected_cluster"
         )
         core.get_distance_pauli(qldpc.codes.FiveQubitCode().matrix, method="connected_cluster")
-    assert {symplectic for symplectic, _ in calls} == {False, True}
-    assert all(passed == tuning for _, passed in calls)
+    assert {symplectic for symplectic, _, _ in switches} == {False, True}
+    assert not any(restrict or pair_sums for _, restrict, pair_sums in switches)
 
 
 def test_connected_cluster_needs_parity_checks() -> None:
@@ -744,14 +747,11 @@ def test_brouwer_zimmermann_random_cross_checks() -> None:
         distance = core.get_distance_from_generators(logical_ops, stabilizers, cutoff=0, method=BZ)
         assert distance == expected
 
-    # A Pauli string on n qubits weighs the number of qubits in the union of its X and Z supports,
-    # which are bits 0 to n - 1 and n to 2n - 1 of its word.
     for num_qubits in range(3, 7):
         basis = get_random_full_rank_matrix(rng, min(6, 2 * num_qubits - 1), 2 * num_qubits)
         stabilizers, logical_ops = basis[:2], basis[2:]
-        qubits = (1 << num_qubits) - 1
         expected = min(
-            ((word | word >> num_qubits) & qubits).bit_count()
+            get_pauli_weight(word, num_qubits, css_weight=False)
             for word in get_span(basis) - get_span(stabilizers)
         )
         distance = core.get_distance_from_generators(

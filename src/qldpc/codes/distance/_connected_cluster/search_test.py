@@ -1080,10 +1080,10 @@ def test_the_versions_for_fixed_and_any_numbers_of_words_search_alike(
     They find the same witnesses and vectors with a syndrome, and visit the same states.  The
     problems have 70 checks, and the searches add no sums of pairs of checks, so the syndromes have
     two words.  With ``_MAX_FIXED_WORDS`` set to one, these syndromes are wider than it, so they
-    take the general version.  The limits at and below the distance run
-    on one thread, and on three, which also run the frontier passes and the items of each version.
-    The queries run on one thread.  On one thread, every call of the compiled search returns the
-    same with either version.
+    take the general version.  The limits at and below the distance run on one thread and on three.
+    On three threads, they also run the frontier passes and the items of each version.  The queries
+    run on one thread.  On one thread, every call of the compiled search returns the same with
+    either version.
     """
     # A small number of words gets a version of its own, and a large one the general version.
     assert cs._get_fixed_words(1) == (0,)
@@ -1663,11 +1663,11 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
       [0, 5], where the tables of its ranks by index would give [0, 1].
     - The Golay code learns its cyclic shifts once it has visited as many states as a search without
       them visits through its third limit, a number of states that its first limit does not reach.
-      On four threads, with a split gate that splits every limit and a frontier of one item per
-      thread, its first limit runs on threads under the tables of its ranks by index, since its 23
-      roots are enough items, and its last limit, which has a witness, runs on threads under the
-      tables that it tabulated again with the shifts.  It finds the witnesses, and visits the
-      states, of one thread.
+      It runs on four threads, with a split gate that splits every limit, and with
+      ``_ITEMS_PER_THREAD`` set to one.  Its first limit then runs on threads under the tables of
+      its ranks by index, since its 23 roots are enough items.  Its last limit, which has a
+      witness, runs on threads under the tables that it tabulated again with the shifts.  It finds
+      the witnesses, and visits the states, of one thread.
 
     A limit tabulates its cuts before it calls ``_search_on_threads``, so no tabulation can happen
     while threads run.  The test checks this as well.

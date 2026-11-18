@@ -111,6 +111,7 @@ def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
 
 
 def test_no_items_run_on_the_calling_thread_alone() -> None:
+    """With no items, only the calling thread starts a worker."""
     workers: list[int] = []
     _threads.run_work_items(0, 4, _get_worker_that_records_starts(workers))
     assert workers == [threading.get_ident()]
@@ -378,6 +379,10 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
 
 @pytest.mark.parametrize("num_rows", [0, 1000])
 def test_batches_on_one_thread_run_in_one_call_on_the_calling_thread(num_rows: int) -> None:
+    """On one thread, a batch, even an empty one, runs in one call on the calling thread.
+
+    The call has no work limit.
+    """
     rows = _Rows()
     _threads.run_blocks(num_rows, 1, 0, rows.start_worker)
     assert rows.calls == [(0, num_rows, _threads.NO_WORK_LIMIT, threading.get_ident())]
@@ -479,7 +484,7 @@ def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
 def _get_worker_that_records_starts(
     workers: list[int],
 ) -> Callable[[threading.Event], Callable[[int, int], None]]:
-    """A worker that records the thread on which it starts, and then runs no range."""
+    """A worker that records the thread on which it starts, and does nothing with its ranges."""
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         workers.append(threading.get_ident())
@@ -489,7 +494,7 @@ def _get_worker_that_records_starts(
 
 
 def _run_no_range(start: int, end: int) -> None:
-    """Run no range: the worker of a thread that never starts one."""
+    """Run a range by doing nothing."""
 
 
 def _get_worker_for_the_other_thread() -> tuple[

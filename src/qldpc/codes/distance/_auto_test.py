@@ -294,11 +294,11 @@ def test_a_switch_takes_the_probe_bound_and_finds_the_distance(routes: Routes) -
     probe_bounds = [best for finished, best in routes.probes if not finished]
     assert len(routes.switch_bounds) == 6 and routes.switch_bounds == probe_bounds
 
-    # The bounds of the Pauli strings are even, at least twice the distance, and twice the limit
-    # max_weight + 1 = 6 with that limit.
-    first, limited, last = routes.switch_bounds[3:]
-    assert limited == 12
-    assert all(bound >= 14 and bound % 2 == 0 for bound in (first, last))
+    # The bounds of the Pauli strings are even and at least twice the distance.  With
+    # ``max_weight=5``, the bound is instead twice ``max_weight + 1``.
+    plain, with_max_weight, with_cutoff = routes.switch_bounds[3:]
+    assert with_max_weight == 12
+    assert all(bound >= 14 and bound % 2 == 0 for bound in (plain, with_cutoff))
     assert all(switch_tuning == tuning for switch_tuning in routes.switch_tunings)
 
 
@@ -439,10 +439,10 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
     than one of rank and width 23.  Its states up to its next limit are fewer than the work of that
     BZ search to certify its level, so a state cost of 1 does not switch at the next limit, but one
     of ``10**6`` does.  To reach the bound 23, the length of the code, its projection includes all
-    of the states predicted for its limit 22 and half of those for 23.  From at least one state at
-    its limit 4, they are more than ``(11 / 6)**18 + (11 / 6)**19 / 2``, which exceeds the
-    ``2**16 - 1`` supports of all of the layers of that BZ search, so a state cost of 1 switches
-    with that bound.
+    of the states predicted for its limit 22 and half of those for 23.  It visits at least one state
+    at its limit 4, so this projection is more than ``(11 / 6)**18 + (11 / 6)**19 / 2``.  That
+    exceeds the ``2**16 - 1`` supports of all of the layers of that BZ search, so a state cost of 1
+    switches with that bound.
     """
     checks = get_golay_checks()
     clusters = ConnectedClusterSearch([(checks, checks)], cutoff=0)
@@ -451,6 +451,8 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
     for _ in range(4):
         clusters.advance()
     assert clusters.next_limit == (0, 5)
+    growth = clusters.get_growth(0)
+    assert growth is not None and growth > 11 / 6
 
     # Two copies of the sector project twice the states.
     pair = ConnectedClusterSearch([(checks, checks), (checks, checks)], cutoff=0)
@@ -458,6 +460,8 @@ def test_a_switch_needs_faster_growth_and_more_work_to_a_level_or_to_the_probe_b
         pair.advance()
     assert _auto._project_states(pair, 8) == pytest.approx(2 * _auto._project_states(clusters, 8))
 
+    # Against the BZ search of rank 16, the level of the next limit alone switches at a state cost
+    # of ``10**6`` but not of 1, and the bound 23 switches at a state cost of 1.
     assert not _auto._should_switch(clusters, slow, 5, 1)
     assert _auto._should_switch(clusters, slow, 5, 10**6)
     assert _auto._should_switch(clusters, slow, 23, 1)

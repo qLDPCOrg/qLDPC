@@ -18,18 +18,6 @@ from ..conftest import Tune
 from . import _brute_force
 
 
-def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
-    """Return per-word bit counts, computed bit by bit as an independent reference for popcounts."""
-    val = np.asarray(val)
-    nbits = 8 * val.itemsize
-    out = np.empty_like(val)
-    for indices in np.ndindex(val.shape):
-        ival = int(val[indices])
-        out[indices] = sum(ival >> i & 1 for i in range(nbits))
-
-    return out
-
-
 @pytest.mark.parametrize("batch_exponent", [1, 3, 13])
 def test_brute_force_visits_every_code_word_once(batch_exponent: int, tune: Tune) -> None:
     """Exhaustive enumeration visits every nontrivial XOR combination of generators exactly once."""
@@ -64,7 +52,7 @@ def test_brute_force_visits_every_code_word_once(batch_exponent: int, tune: Tune
     assert set(observed_bitstrings) == set(expected_bitstrings)
 
     observed_array = np.array(observed_bitstrings, dtype=np.uint64)
-    expected_distance = count_set_bits(observed_array).sum(-1).min()
+    expected_distance = _count_set_bits(observed_array).sum(-1).min()
     assert distance == expected_distance
 
 
@@ -125,7 +113,7 @@ def test_brute_force_visits_every_nontrivial_word_once(
 
     if symplectic:
         expected_bitstrings = (expected_bitstrings | expected_bitstrings >> 1) & 0x5555555555555555
-    expected_distance = count_set_bits(expected_bitstrings).sum(-1).min()
+    expected_distance = _count_set_bits(expected_bitstrings).sum(-1).min()
     assert distance == expected_distance
 
 
@@ -235,7 +223,10 @@ def test_early_exit_returns_only_weighed_operators(symplectic: bool) -> None:
 
 
 def test_riffle() -> None:
-    """Riffling interleaves each qubit's X and Z bits, also of no rows, and rejects odd widths."""
+    """Riffling interleaves each qubit's X and Z bits, including for a matrix with no rows.
+
+    It rejects odd widths.
+    """
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     expected = np.stack((symplectic[:, :3], symplectic[:, 3:]), axis=2).reshape(-1, 6)
     np.testing.assert_array_equal(_brute_force.riffle(symplectic), expected)
@@ -248,7 +239,7 @@ def test_symplectic_weight() -> None:
     """``symplectic_weight`` matches a reference that counts bits, and writes into ``out``."""
     rng = np.random.default_rng(64)
     vals = rng.integers(0, 2**64, size=(7, 11), dtype=np.uint64)
-    expected_weights = count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
+    expected_weights = _count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
     weights = _brute_force.symplectic_weight(vals)
     assert weights.dtype == np.uint64
     np.testing.assert_array_equal(weights, expected_weights)
@@ -267,3 +258,19 @@ def test_inplace_rowsum(width: int) -> None:
     actual = _brute_force.inplace_rowsum(arr)
     np.testing.assert_array_equal(actual, expected)
     np.testing.assert_array_equal(actual, arr[:, 0])
+
+
+####################################################################################################
+# helpers
+
+
+def _count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
+    """Return per-word bit counts, computed bit by bit as an independent reference for popcounts."""
+    val = np.asarray(val)
+    nbits = 8 * val.itemsize
+    out = np.empty_like(val)
+    for indices in np.ndindex(val.shape):
+        ival = int(val[indices])
+        out[indices] = sum(ival >> i & 1 for i in range(nbits))
+
+    return out

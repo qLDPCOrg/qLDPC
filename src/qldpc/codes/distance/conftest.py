@@ -150,7 +150,8 @@ def assert_certificate_bounds_unvisited_words(
     the others have finished layer ``t - 1``.  A search basis visits a word after layer ``t`` if the
     word combines at most ``t`` of its rows.  The check covers the family's certificate, with and
     without the bounds of linear programming.  Also check the weight divisor, and that
-    ``certifies`` agrees with each step's bound.
+    ``certifies`` agrees with each step's bound.  The family's labels must make every nonzero word
+    eligible.
     """
 
     def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
@@ -307,7 +308,8 @@ def enumerate_logical_ops(code: codes.CSSCode) -> tuple[list[int], list[int], in
 HAND_X = get_binary_matrix(["11111", "00101"])
 HAND_Z = get_binary_matrix(["01111", "11000"])
 
-# The matrix by which the SWEL-preserving Clifford acts on X and on Z supports.
+# The matrix by which the Clifford of ``CSSLogicalCounter.deformed_swel`` acts on X and on Z
+# supports.
 SWEL_MATRIX = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
 
 

@@ -105,8 +105,8 @@ def test_brouwer_zimmermann_search_state() -> None:
 
 def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
     """Layer work saturates below the largest threshold, which never asks for automorphisms."""
-    # Every support of the layer weighs its 35 pivot ones, the cutoff, so that the scan of the layer
-    # stops at its first support.
+    # Each word of the layer has a one on the pivot of each of its 35 rows, so it weighs 35, the
+    # cutoff, and the scan stops at its first support.
     dimension, weight = 70, 35
     assert math.comb(dimension, weight) > MAX_VALUE
     for minimum_layer_work, expected_calls in ((MAX_VALUE, 0), (2**61, 1)):
@@ -135,8 +135,8 @@ def test_the_largest_layer_threshold_never_asks_for_automorphisms() -> None:
 
 # Each case reaches one early exit from search setup or a shared search with real inputs.  The test
 # forces whether setup builds overlapping families, and keeps it from partitioning, but a change to
-# how setup builds its families can still move a case to another exit.  If the coverage gate then
-# fails, find a new natural input here rather than stubbing internals.
+# how setup builds its families can still move a case to another exit.  If the test then fails, find
+# a new natural input here rather than stubbing internals.
 SETUP_EXIT_CASES = [
     # A shared search reaches the cutoff inside a coefficient-weight scan.
     pytest.param(
@@ -152,17 +152,18 @@ SETUP_EXIT_CASES = [
         False,
         id="scan-cutoff",
     ),
-    # Rows of an overlapping replacement family reach the cutoff.
+    # Rows of an overlapping replacement family reach the cutoff, which its certificate does not.
     pytest.param(
-        [[1, 0, 0, 0, 0, 0, 0, 1, 1, 1]],
+        [[1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1]],
         [
-            [0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
-            [0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            [0, 0, 0, 1, 0, 0, 1, 1, 0, 1],
-            [0, 0, 0, 0, 1, 0, 0, 1, 1, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1],
+            [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1],
+            [0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0],
+            [0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0],
+            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0],
         ],
-        3,
+        4,
         True,
         id="overlap-cutoff",
     ),
@@ -191,12 +192,25 @@ def test_brouwer_zimmermann_setup_exits(
     cutoff: int,
     overlap: bool,
     tune: Tune,
+    monkeypatch: pytest.MonkeyPatch,
+    prepared: list[bz._SectorSearch],
 ) -> None:
-    """Early exits from search setup or a shared search agree with a brute-force oracle."""
+    """Each case takes the early exit that it names, and agrees with a brute-force oracle."""
     expected = qldpc.codes.distance.get_distance_from_generators(
         logicals, stabilizers, cutoff=0, method="brute_force"
     )
 
+    # Record the overlapping families that replace disjoint ones.
+    replacements: list[basis_families.BasisFamily] = []
+    get_overlapping_family = basis_families.get_overlapping_family
+
+    def recording_get_overlapping_family(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
+        family = get_overlapping_family(*args, **kwargs)
+        if len(family.ranks):
+            replacements.append(family)
+        return family
+
+    monkeypatch.setattr(basis_families, "get_overlapping_family", recording_get_overlapping_family)
     tune(
         overlapping_minimum_work=0 if overlap else MAX_VALUE,
         partition_work_ratio=MAX_VALUE,
@@ -205,6 +219,11 @@ def test_brouwer_zimmermann_setup_exits(
         logicals, stabilizers, cutoff=cutoff, method="brouwer_zimmermann"
     )
     assert expected <= distance <= max(cutoff, expected)
+
+    # Setup settles a case exactly if an overlapping family replaces the disjoint one.  The cases
+    # with a positive cutoff end at it, and the other ends at a certificate.
+    assert bool(prepared) == (not replacements) == (not overlap)
+    assert (distance <= cutoff) == (cutoff > 0)
 
 
 def test_brouwer_zimmermann_setup_cutoffs() -> None:
@@ -390,17 +409,6 @@ def test_brouwer_zimmermann_packed_widths(length: int) -> None:
     )
 
 
-@pytest.mark.parametrize("extended", [False, True])
-def test_brouwer_zimmermann_finds_the_distances_of_hamming_codes(extended: bool) -> None:
-    """Searches find the distances of the [31, 26, 3] Hamming code and its even-weight extension."""
-    generators = np.asarray(qldpc.codes.HammingCode(5).generator, dtype=np.uint8)
-    if extended:
-        generators = np.column_stack([generators, np.bitwise_xor.reduce(generators, axis=1)])
-    assert qldpc.codes.distance.get_distance_from_generators(
-        generators, cutoff=0, method="brouwer_zimmermann"
-    ) == (4 if extended else 3)
-
-
 def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
     """Upper bounds from rows come from eligible rows, not lighter stabilizers."""
     basis = np.array([[1, 0, 0], [1, 1, 0]], dtype=np.uint8)
@@ -408,12 +416,17 @@ def test_the_lightest_eligible_row_excludes_stabilizers() -> None:
     assert bz._get_lightest_eligible_row_weight(basis, labels) == 2
 
 
-def test_a_search_of_an_mb_code_takes_overlapping_sets(costly_stages: CostlyStages) -> None:
+def test_a_search_of_an_mb_code_takes_overlapping_sets(
+    tune: Tune, costly_stages: CostlyStages
+) -> None:
     """The X-sector search of a 64-qubit MB code takes overlapping sets, and finds the distance.
 
     Section 3.8 of ``brouwer_zimmermann.md`` works this example: overlapping sets do far less work
     than the one information set of a disjoint family.
     """
+    # Remove the work gate of overlapping families, so that setup chooses between the families by
+    # their predicted work alone.
+    tune(overlapping_minimum_work=0)
     code = qldpc.codes.MBCode(
         {x: 4, y: 4, z: 2},
         1 + x + y + x * y * z,

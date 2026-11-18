@@ -242,10 +242,13 @@ def test_routed_states_take_families_that_beat_the_greedy_packing(
     these states.  The routes are by tails exactly when the search counts physical weight.  Tests
     that need other families rely on these states.
     """
+    # Get the greedy packing, which a closed gate keeps, and a search whose gate is open.
     with use_tuning(coset_route_minimum_work=MAX_VALUE) as tuning:
         greedy, _ = coset.get_pauli_search(matrix, css_weight, tuning)._get_route(2)
     with use_tuning(coset_route_minimum_work=0) as tuning:
         search = coset.get_pauli_search(matrix, css_weight, tuning)
+
+    # Compare the family of the route of each maximum weight with the greedy packing.
     dimension = greedy.pivots.shape[1]
     greedy_ranks = get_set_ranks(greedy)
     beaten = False

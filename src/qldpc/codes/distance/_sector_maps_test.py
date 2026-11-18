@@ -159,8 +159,9 @@ def test_fixed_candidates_map_the_checks_of_common_codes(monkeypatch: pytest.Mon
 
     They map the checks of a bivariate bicycle code, a generalized bicycle code, a rotated toric
     code, and a rotated surface code of odd distance onto each other, as bliss would.  Each X-type
-    check of the generalized bicycle code weighs 3 + 4 = 7, so it overlaps itself oddly but every
-    Z-type check evenly, and the identity does not map the row spaces onto each other.  In the
+    check of the generalized bicycle code has weight 3 + 4 = 7, which is odd, so it is not
+    orthogonal to itself but is orthogonal to every Z-type check, and so lies outside their span.
+    So the identity does not map the row spaces onto each other.  In the
     last pair, the reversal of the four qubits maps the X-type checks, without their repeats, onto
     the Z-type checks, with matching degrees, but the X-type checks repeat 1100 and the Z-type
     checks 0001 and 0010, so no permutation maps the lists of checks onto each other.  Their

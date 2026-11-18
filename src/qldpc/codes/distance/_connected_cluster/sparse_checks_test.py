@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import itertools
-from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -113,6 +112,8 @@ def test_a_round_on_packed_rows_matches_a_round_on_unpacked_rows(
         assert np.array_equal(kept_weights, expected_weights)
 
 
+# The rounds of the next two tests order the columns at random, from ``_SPARSIFYING_SEED``.  A
+# change of that seed, or of how the rounds order the columns, can need new matrices for them.
 def test_rounds_stop_once_they_leave_the_weight_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     """Rounds stop after ``rounds_without_improvement`` unchanged rounds in a row, or at a limit.
 
@@ -123,10 +124,16 @@ def test_rounds_stop_once_they_leave_the_weight_unchanged(monkeypatch: pytest.Mo
     totals: list[tuple[int, int]] = []
     take_lighter_rows = sparse_checks._take_lighter_rows
 
-    def record_totals(*args: Any) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
-        rows, weights = take_lighter_rows(*args)
-        totals.append((int(args[3].sum()), int(weights.sum())))
-        return rows, weights
+    def record_totals(
+        matrix: npt.NDArray[np.uint64],
+        columns: npt.NDArray[np.int64],
+        rows: npt.NDArray[np.uint64],
+        weights: npt.NDArray[np.int64],
+        symplectic: bool,
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+        kept_rows, kept_weights = take_lighter_rows(matrix, columns, rows, weights, symplectic)
+        totals.append((int(weights.sum()), int(kept_weights.sum())))
+        return kept_rows, kept_weights
 
     monkeypatch.setattr(sparse_checks, "_take_lighter_rows", record_totals)
     matrix = np.array(

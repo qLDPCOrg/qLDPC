@@ -250,7 +250,7 @@ def test_deprecated_get_distance_bound() -> None:
             _deprecations.core.get_distance_bound(subsystem_code)
 
 
-def test_deprecated_distance_functions() -> None:
+def test_deprecated_distance_functions(monkeypatch: pytest.MonkeyPatch) -> None:
     """The deprecated distance functions warn at their caller, and give the distances they gave.
 
     get_distance_quantum read its rows as symplectic unless homogeneous was True: as Pauli strings,
@@ -351,33 +351,20 @@ def test_deprecated_distance_functions() -> None:
             ) == batches
 
     # The functions search with those batches, and warn at their caller about both deprecations.
-    # Rows that record the active batch exponent when the search reads them show the batches, since
-    # nothing else observable does.  The search reads the rows last, after any checks of them.
-    exponents: list[int] = []
-
-    class RecordingRows:
-        def __init__(self, rows: Any) -> None:
-            self.rows = rows
-
-        def __array__(self, dtype: Any = None, copy: Any = None) -> Any:
-            exponents.append(_tuning.get_tuning().enumeration_batch_exponent)
-            return np.asarray(self.rows, dtype=dtype)
-
+    exponents = _record_batch_exponents(monkeypatch)
     for search in (
-        lambda: get_distance_classical(RecordingRows(generator), block_size=2),
-        lambda: get_distance_quantum(
-            RecordingRows(generator[:1]), generator[1:], homogeneous=True, block_size=2
-        ),
+        lambda: get_distance_classical(generator, block_size=2),
+        lambda: get_distance_quantum(generator[:1], generator[1:], homogeneous=True, block_size=2),
     ):
         exponents.clear()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             assert search() == 3
-        assert exponents[-1:] == [2]
+        assert exponents == [2]
         assert len(caught) == 2 and all(warning.filename == __file__ for warning in caught)
 
 
-def test_deprecated_get_distance_css_brouwer_zimmermann() -> None:
+def test_deprecated_get_distance_css_brouwer_zimmermann(monkeypatch: pytest.MonkeyPatch) -> None:
     """The deprecated function warns at its caller, and gives the smallest distance of its sectors.
 
     As before, the result is at most the upper bound, and a sector without nontrivial logical
@@ -407,10 +394,12 @@ def test_deprecated_get_distance_css_brouwer_zimmermann() -> None:
             [sectors[0], (generator[:1], [[2, 0, 0, 0, 0, 0, 0]])], cutoff=0, upper_bound=0
         )
 
-    # A block_size argument also warns at the caller.
+    # A block_size argument gives every search its batches, and also warns at the caller.
+    exponents = _record_batch_exponents(monkeypatch)
     with warnings.catch_warnings(record=True) as recorded:
         warnings.simplefilter("always")
         assert get_distance(sectors, cutoff=0, block_size=2) == 2
+    assert exponents == [2, 2]
     assert len(recorded) == 2 and all(warning.filename == __file__ for warning in recorded)
 
 
@@ -549,3 +538,22 @@ def _get_from_package(module_name: str, name: str) -> object:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         return next(getattr(module, name) for module in modules if hasattr(module, name))
+
+
+def _record_batch_exponents(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Record the active batch exponent of exhaustive enumeration at each distance search.
+
+    The deprecated distance functions look up get_distance_from_generators when called, so they
+    call the recording wrapper, which passes each call through unchanged.
+    """
+    from qldpc.codes.distance import _tuning
+
+    exponents: list[int] = []
+    get_distance = codes.distance.get_distance_from_generators
+
+    def recording_get_distance(*args: Any, **kwargs: Any) -> Any:
+        exponents.append(_tuning.get_tuning().enumeration_batch_exponent)
+        return get_distance(*args, **kwargs)
+
+    monkeypatch.setattr(codes.distance, "get_distance_from_generators", recording_get_distance)
+    return exponents

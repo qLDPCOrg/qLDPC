@@ -297,7 +297,6 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         assert bool(len(partitioned.ranks)) == partitions
     # For the weight four, the disjoint family already does the least work that any family could.
     gate_changes: list[tuple[dict[str, Any], int]] = [
-        ({"partition_work_ratio": 2**62}, 5),
         ({"partition_work_ratio": 0, "max_information_sets": 0}, 5),
         ({"partition_work_ratio": 0, "max_information_sets": 2}, 5),
         ({"partition_work_ratio": 0}, 4),

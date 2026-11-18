@@ -11,9 +11,9 @@ from qldpc.conftest import check_import_layering
 # Add each new module to one.
 _LAYERS = (
     ("affine_instance", "affine_search"),
-    ("coset_tables",),
+    ("coset_tables", "distance"),
     ("coset_routes",),
-    ("coset", "distance"),
+    ("coset",),
 )
 
 

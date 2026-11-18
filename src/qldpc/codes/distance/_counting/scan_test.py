@@ -41,11 +41,11 @@ def test_counts_against_enumeration(tune: Tune, pytestconfig: pytest.Config, max
     tune(overlapping_minimum_work=0, max_information_sets=max_sets)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     counter = lc.CSSLogicalCounter.from_code(get_random_css_code(rng, 12, 4, 4))
-    assert_counts_match_enumeration(counter)
+    _assert_counts_match_enumeration(counter)
 
     # The counts above prepared basis families, which the deformed counters transport.
     for deformed in (counter.deformed_cnot(0, 5), counter.deformed_cnot(2, 7)):
-        assert_counts_match_enumeration(deformed)
+        _assert_counts_match_enumeration(deformed)
 
 
 @pytest.mark.parametrize("method", METHODS)
@@ -56,7 +56,7 @@ def test_scans_resume_after_every_chunk(
     tune(overlapping_minimum_work=0, scan_chunk_size=1, scan_chunks_per_call=1)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     counter = lc.CSSLogicalCounter.from_code(get_random_css_code(rng, 10, 3, 3))
-    assert_counts_match_enumeration(counter, method=method)
+    _assert_counts_match_enumeration(counter, method=method)
 
 
 @pytest.mark.usefixtures("plain_search_setup")
@@ -76,7 +76,7 @@ def test_overlapping_basis_families_count_every_word_once(
     monkeypatch.setattr(basis_families, "get_overlapping_family", record)
     tune(overlapping_minimum_work=0, max_information_sets=max_sets)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
-    assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
+    _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     # With a limit of 16 sets, this code gets families of over four sets.
     assert sizes and (max(sizes) > 4) == (max_sets > 4)
 
@@ -87,7 +87,7 @@ def test_counts_through_the_costly_stages_count_every_word_once(
     """Counts with partitioned families and the certificate of linear programs are exact."""
     tune(overlapping_minimum_work=0, lp_minimum_work=0, partition_work_ratio=0)
     code = get_random_css_code(np.random.default_rng(4), 12, 4, 4)
-    assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
+    _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert any(
         len(family.ranks) and family.max_coverage > 1
         for family in costly_stages.partitioned_families
@@ -123,8 +123,8 @@ def test_a_gate_that_breaks_a_set_of_a_basis_family_leaves_counts_exact(
     counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
     counter.count_logical_ops(count_pauli=True)
     deformed = counter.deformed_cnot(0, 3)
+    _assert_counts_match_enumeration(deformed)
     assert any(family is None for family in moved)
-    assert_counts_match_enumeration(deformed)
 
 
 def test_a_gate_that_makes_words_odd_infers_the_weight_divisor_again(
@@ -152,7 +152,7 @@ def test_a_gate_that_makes_words_odd_infers_the_weight_divisor_again(
     # Every word of the sectors of the [[4, 2, 2]] code is even, so the weight divisor of its basis
     # family is two.
     counter = lc.CSSLogicalCounter([[1, 1, 1, 1]], [[1, 1, 1, 1]])
-    assert_counts_match_enumeration(counter)
+    _assert_counts_match_enumeration(counter)
     assert divisors and set(divisors) == {2}
 
     # The CNOT maps the checks to 1011 and 0111, so each sector gains a word of weight one.  The
@@ -160,8 +160,8 @@ def test_a_gate_that_makes_words_odd_infers_the_weight_divisor_again(
     # sets, so it moves the family into both.
     divisors.clear()
     deformed = counter.deformed_cnot(0, 1)
+    _assert_counts_match_enumeration(deformed)
     assert divisors == [1, 1]
-    assert_counts_match_enumeration(deformed)
 
 
 ####################################################################################################
@@ -193,7 +193,7 @@ def test_counts_with_completion_tables_match_enumeration(
     monkeypatch.setattr(completion_bounds, "select_completion_tables", record)
     tune(overlapping_minimum_work=0, scan_chunk_size=chunk_size, **FORCED_TABLES)
     code = get_random_css_code(np.random.default_rng(seed), 14, 4, 4)
-    assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
+    _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert selected
 
 
@@ -216,7 +216,7 @@ def test_overlapping_families_with_completion_tables_count_every_word_once(
     monkeypatch.setattr(scan._StepTables, "select", record)
     tune(overlapping_minimum_work=0, max_information_sets=max_sets, **FORCED_TABLES)
     code = get_random_css_code(np.random.default_rng(5), 14, 5, 5)
-    assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
+    _assert_counts_match_enumeration(lc.CSSLogicalCounter.from_code(code))
     assert len(sets_with_tables) > 1
 
 
@@ -368,7 +368,7 @@ def test_skipping_chunks_stop_at_a_lighter_nontrivial_word() -> None:
 # helpers
 
 
-def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: Any) -> None:
+def _assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: Any) -> None:
     """Check the counts at every weight, and the Pauli counts at the distance, by enumeration."""
     counts_x, counts_z, distance, full = enumerate_logical_ops(counter.code)
     for weight in range(counter.num_qubits + 1):

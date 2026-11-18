@@ -228,12 +228,12 @@ def test_connected_cluster_answers_match_exhaustive_minima(
             ):
                 minimum = minima[syndrome]
                 single = coset_search.get_min_weight_bound(syndrome, max_weight)
-                ladder = coset_search.get_min_weight_bound(syndrome, max_weight, first_limit=2)
+                from_two = coset_search.get_min_weight_bound(syndrome, max_weight, first_limit=2)
                 late = coset_search.get_min_weight_bound(
                     syndrome, max_weight, first_limit=max_weight + 1
                 )
                 assert late == single
-                for bound, exact in [(single, False), (ladder, True)]:
+                for bound, exact in [(single, False), (from_two, True)]:
                     word = bound.representative
                     if symplectic:
                         weight = get_pauli_weight(word, num_qubits, False)
@@ -247,7 +247,7 @@ def test_connected_cluster_answers_match_exhaustive_minima(
                         expected_bound = minimum if minimum < 2 else max(2, max_weight + 1)
                         assert bound.lower_bound == expected_bound
                     elif exact or minimum < 2:
-                        # The ladder from limit two, and words of weight at most one, are exact
+                        # Queries from limit two, and words of weight at most one, are exact
                         # within max_weight.
                         assert bound.lower_bound == weight == minimum
                     else:

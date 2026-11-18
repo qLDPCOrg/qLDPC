@@ -164,14 +164,13 @@ def test_selection_follows_its_policy() -> None:
     assert cb.select_completion_tables(rows, 1, 12, None, FORCED) is None
     default = DEFAULT_TUNING
     # A layer with fewer supports than the minimum layer work is not considered.
-    minimum_layer_work = math.comb(60, 6) + 1
-    gated = dataclasses.replace(default, completion_bound_minimum_layer_work=minimum_layer_work)
+    gated = dataclasses.replace(default, completion_bound_minimum_layer_work=10**12)
     assert cb.select_completion_tables(rows, 6, 6, None, gated) is None
 
     # With the best weight six, every bound in layer six reaches its limit of zero, so tables skip
     # every support, and repay their lookups and their build.  The tuning sets every setting of the
     # cost model, so that retuning the defaults does not change these cases.
-    finite = dataclasses.replace(
+    pinned = dataclasses.replace(
         FORCED,
         completion_bound_max_cost_percent=100,
         completion_bound_block_bits=16,
@@ -185,14 +184,14 @@ def test_selection_follows_its_policy() -> None:
         completion_bound_table_byte_cost=0.1,
         completion_bound_build_step_cost=0.2,
     )
-    tables = cb.select_completion_tables(rows, 6, 6, None, finite)
+    tables = cb.select_completion_tables(rows, 6, 6, None, pinned)
     assert tables is not None
     # Tables that skip nothing, as for a best weight of 1000, never repay their lookups, even when
     # already built.
-    assert cb.select_completion_tables(rows, 6, 1000, tables, finite) is None
+    assert cb.select_completion_tables(rows, 6, 1000, tables, pinned) is None
     # In layer two, a build costs more than the layer, but lookups in built tables do not.
-    assert cb.select_completion_tables(rows, 2, 2, None, finite) is None
-    assert cb.select_completion_tables(rows, 2, 2, tables, finite) is tables
+    assert cb.select_completion_tables(rows, 2, 2, None, pinned) is None
+    assert cb.select_completion_tables(rows, 2, 2, tables, pinned) is tables
 
     # Each coefficient of the cost model, made large enough, makes the same tables too costly.
     for name in (
@@ -203,14 +202,14 @@ def test_selection_follows_its_policy() -> None:
         "completion_bound_build_step_cost",
     ):
         change: dict[str, Any] = {name: 1e6}
-        costly = dataclasses.replace(finite, **change)
+        costly = dataclasses.replace(pinned, **change)
         assert cb.select_completion_tables(rows, 6, 6, None, costly) is None, name
     # With free lookups, built tables that skip every one of the 1024 sampled supports predict the
     # share 1 / (1 + 1024 / z**2) of the cost of the layer: under 0.4 % at the usual confidence,
     # z = 2, but about 9 % at the most cautious, z = 10, so the limit of 2 % accepts the first and
     # rejects the second.
     free_lookups = dataclasses.replace(
-        finite,
+        pinned,
         completion_bound_max_cost_percent=2,
         completion_bound_lookup_block_cost=0.0,
         completion_bound_lookup_block_cost_per_mib=0.0,
@@ -266,10 +265,9 @@ def test_the_largest_layer_threshold_considers_no_layer() -> None:
 def test_the_cost_of_layers_too_large_for_floating_point_is_predicted() -> None:
     """The cost of layers whose numbers of supports exceed floating point is still predicted."""
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 1100, 8))
-    policy = dataclasses.replace(DEFAULT_TUNING, completion_bound_minimum_layer_work=0)
     for weight in (400, 550):
         assert math.comb(1100, weight) > 10**308
-        cost, _ = cb.predict_completion_cost(rows, weight, weight + 4, reuse=False, tuning=policy)
+        cost, _ = cb.predict_completion_cost(rows, weight, weight + 4, reuse=False, tuning=FORCED)
         assert math.isfinite(cost)
 
 
@@ -300,6 +298,7 @@ def test_estimates_need_enough_affordable_samples(monkeypatch: pytest.MonkeyPatc
         patch.setattr(np.random, "default_rng", record)
         assert cb._estimate_skipped_share(rows, 2, 4, 8, 6, most) == (0.0, 0)
         assert not generators
+        # With a budget, the same call draws random supports.
         assert cb._estimate_skipped_share(rows, 2, 4, 8, 6, fewer) == (1.0, 100)
         assert generators
 

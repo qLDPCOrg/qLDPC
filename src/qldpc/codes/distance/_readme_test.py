@@ -22,7 +22,7 @@ def test_the_readme_names_every_module_and_no_other_file() -> None:
     text = (package / "README.md").read_text(encoding="utf-8")
 
     in_table = _get_named_files(_get_section(text, "Where to look"))
-    assert not modules - in_table, f"'Where to look' has no row for {sorted(modules - in_table)}"
+    assert not modules - in_table, f"'Where to look' does not name {sorted(modules - in_table)}"
     layout = _get_section(text, "Layout")
     units = {name.partition("/")[0] + "/" if "/" in name else name for name in modules}
     missing = sorted(unit for unit in units if f"`{unit}`" not in layout)
