@@ -9,6 +9,7 @@ Making the same call silently behave differently, as when a default changes, is 
 
 * Add a shim only for a name that was public in a released version, at its released path: listed in a package ``__all__``, or used in released examples or docs.
   Names added since the last release may change without one.
+  A release is a final version, such as 0.4.1; development builds, such as 0.4.2.dev20261023, promise no compatibility, even when published.
 * Deprecation code lives in the private package ``qldpc/_deprecations/``, whose module docstrings explain its mechanics: register renamed and moved names in ``ALIASES``, deprecated functions that warn when called in ``SILENT_ALIASES``, and deprecated methods in ``install_deprecated_methods``.
   Code in that package may use other subpackages' underscore names, to reproduce old behavior.
 * Elsewhere, handle deprecated arguments, modes, and calling conventions, and future changes, in small blocks that call ``_deprecations`` helpers such as ``warn_deprecated``, ``warn_future_change``, and ``defunct``, and move any substantial logic into ``qldpc/_deprecations/``.

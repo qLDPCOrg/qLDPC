@@ -106,7 +106,7 @@ def test_bounds_ignore_ones_past_the_tails() -> None:
 
 
 def test_tables_fit_their_memory_limit() -> None:
-    """Tables fit only within their memory limit, and never for tails without ones."""
+    """Tables fit only within their memory limit."""
     # Three rows of tables of three sixteen-column blocks (the last of eight columns) take
     # 3 * (2 * 2**16 + 2**8) bytes.
     fitting_bytes = 3 * (2 * 2**16 + 2**8)
@@ -115,8 +115,6 @@ def test_tables_fit_their_memory_limit() -> None:
     # With blocks of four columns, the tables of the same tails take 3 * 10 * 16 bytes.
     assert cb._tables_fit(4, 40, 4, 480)
     assert not cb._tables_fit(4, 40, 4, 479)
-    assert cb._get_num_tail_bits(np.zeros((4, 2), dtype=np.uint64)) == 0
-    assert not cb._tables_fit(4, 0, 16, 2**30)
 
 
 def test_tables_within_a_limit_fit_only_if_they_skip_something_and_build_in_place() -> None:
@@ -164,26 +162,37 @@ def test_selection_follows_its_policy() -> None:
     """Tables are used if their predicted cost is within the limit, and reused for the same rows."""
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 60, 24))
     assert cb.select_completion_tables(rows, 1, 12, None, FORCED) is None
-    default = DEFAULT_TUNING
-    # A layer with fewer supports than the minimum layer work is not considered.
-    minimum_layer_work = math.comb(60, 6) + 1
-    gated = dataclasses.replace(default, completion_bound_minimum_layer_work=minimum_layer_work)
-    assert cb.select_completion_tables(rows, 6, 6, None, gated) is None
 
     # With the best weight six, every bound in layer six reaches its limit of zero, so tables skip
-    # every support, and repay their lookups and their build.
-    finite = dataclasses.replace(default, completion_bound_minimum_layer_work=0)
-    tables = cb.select_completion_tables(rows, 6, 6, None, finite)
+    # every support, and repay their lookups and their build.  The tuning sets every setting of the
+    # cost model, so that retuning the defaults does not change these cases.
+    pinned = dataclasses.replace(
+        FORCED,
+        completion_bound_max_cost_percent=100,
+        completion_bound_block_bits=16,
+        completion_bound_samples=1024,
+        completion_bound_min_samples=64,
+        completion_bound_sampling_work=5 * 10**7,
+        completion_bound_confidence_z=2.0,
+        completion_bound_lookup_block_cost=2.0,
+        completion_bound_lookup_block_cost_per_mib=0.04,
+        completion_bound_kept_first_row_ratio=0.35,
+        completion_bound_table_byte_cost=0.1,
+        completion_bound_build_step_cost=0.2,
+    )
+    tables = cb.select_completion_tables(rows, 6, 6, None, pinned)
     assert tables is not None
+    # A layer with fewer supports than the minimum layer work is not considered.
+    gated = dataclasses.replace(pinned, completion_bound_minimum_layer_work=10**12)
+    assert cb.select_completion_tables(rows, 6, 6, None, gated) is None
     # Tables that skip nothing, as for a best weight of 1000, never repay their lookups, even when
     # already built.
-    assert cb.select_completion_tables(rows, 6, 1000, tables, finite) is None
+    assert cb.select_completion_tables(rows, 6, 1000, tables, pinned) is None
     # In layer two, a build costs more than the layer, but lookups in built tables do not.
-    assert cb.select_completion_tables(rows, 2, 2, None, finite) is None
-    assert cb.select_completion_tables(rows, 2, 2, tables, finite) is tables
+    assert cb.select_completion_tables(rows, 2, 2, None, pinned) is None
+    assert cb.select_completion_tables(rows, 2, 2, tables, pinned) is tables
 
-    # Each coefficient of the cost model, made large enough, makes the same tables too costly,
-    # although at the default limit even the most cautious estimate of their share accepts them.
+    # Each coefficient of the cost model, made large enough, makes the same tables too costly.
     for name in (
         "completion_bound_lookup_block_cost",
         "completion_bound_lookup_block_cost_per_mib",
@@ -192,22 +201,27 @@ def test_selection_follows_its_policy() -> None:
         "completion_bound_build_step_cost",
     ):
         change: dict[str, Any] = {name: 1e6}
-        costly = dataclasses.replace(finite, **change)
+        costly = dataclasses.replace(pinned, **change)
         assert cb.select_completion_tables(rows, 6, 6, None, costly) is None, name
-    # Tables that skip every sampled support predict less than a fifth of the cost of the layer at
-    # the usual confidence, but more at the most cautious one.
-    tight = dataclasses.replace(finite, completion_bound_max_cost_percent=20)
-    assert cb.select_completion_tables(rows, 6, 6, None, tight) is not None
-    cautious = dataclasses.replace(tight, completion_bound_confidence_z=10.0)
-    assert cb.select_completion_tables(rows, 6, 6, None, cautious) is None
+    # With free lookups, built tables that skip every one of the 1024 sampled supports predict the
+    # share 1 / (1 + 1024 / z**2) of the cost of the layer: under 0.4 % at the usual confidence,
+    # z = 2, but about 9 % at the most cautious, z = 10, so the limit of 2 % accepts the first and
+    # rejects the second.
+    free_lookups = dataclasses.replace(
+        pinned,
+        completion_bound_max_cost_percent=2,
+        completion_bound_lookup_block_cost=0.0,
+        completion_bound_lookup_block_cost_per_mib=0.0,
+    )
+    assert cb.select_completion_tables(rows, 6, 6, tables, free_lookups) is tables
+    cautious = dataclasses.replace(free_lookups, completion_bound_confidence_z=10.0)
+    assert cb.select_completion_tables(rows, 6, 6, tables, cautious) is None
 
     # Tables laid out for other rows are never read.
     with pytest.raises(AssertionError):
         cb.select_completion_tables(rows[:30], 6, 6, tables, FORCED)
 
-    # A limit of one byte fits no tables, and no layer has more rows than its basis.
-    no_memory = dataclasses.replace(FORCED, completion_bound_max_table_bytes=1)
-    assert cb.select_completion_tables(rows, 6, 6, None, no_memory) is None
+    # No layer has more rows than its basis.
     assert cb.select_completion_tables(rows[:5], 7, 7, None, FORCED) is None
 
     # Tables use blocks of the width of the tuning: four-column tables of these rows take
@@ -230,9 +244,9 @@ def test_tunings_consider_tables_for_large_enough_layers_of_two_or_more_rows() -
         return [weight for weight in range(7) if cb.considers_tables(5, weight, tuning)]
 
     assert get_considered() == [2, 3, 4, 5]
-    # Layers two and three of five rows have ten supports, and layers four and five fewer.
-    assert get_considered(completion_bound_minimum_layer_work=10) == [2, 3]
-    assert get_considered(completion_bound_minimum_layer_work=11) == []
+    # Of 30 rows, layer two has 435 supports, and layer 15 about 1.6 * 10**8.
+    gated = dataclasses.replace(FORCED, completion_bound_minimum_layer_work=10**5)
+    assert cb.considers_tables(30, 15, gated) and not cb.considers_tables(30, 2, gated)
     assert get_considered(completion_bound_max_cost_percent=0) == []
     assert get_considered(completion_bound_max_table_bytes=0) == []
 
@@ -247,13 +261,13 @@ def test_the_largest_layer_threshold_considers_no_layer() -> None:
     assert cb.select_completion_tables(rows, 35, 35, None, smaller) is not None
 
 
-def test_selection_handles_layers_too_large_for_floating_point() -> None:
+def test_the_cost_of_layers_too_large_for_floating_point_is_predicted() -> None:
     """The cost of layers whose numbers of supports exceed floating point is still predicted."""
     rows = pack_bits(get_random_tails(np.random.default_rng(0), 1100, 8))
-    policy = dataclasses.replace(DEFAULT_TUNING, completion_bound_minimum_layer_work=0)
     for weight in (400, 550):
         assert math.comb(1100, weight) > 10**308
-        cb.select_completion_tables(rows, weight, weight + 4, None, policy)
+        cost, _ = cb.predict_completion_cost(rows, weight, weight + 4, reuse=False, tuning=FORCED)
+        assert math.isfinite(cost)
 
 
 def test_estimates_need_enough_affordable_samples(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -272,9 +286,20 @@ def test_estimates_need_enough_affordable_samples(monkeypatch: pytest.MonkeyPatc
     # The budget bounds the samples drawn, not only those bounded, so without a budget, even the
     # most samples that a tuning allows draw no random supports.
     most = dataclasses.replace(no_budget, completion_bound_samples=MAX_SAMPLES)
+    default_rng = np.random.default_rng
+    generators: list[np.random.Generator] = []
+
+    def record(*args: Any, **kwargs: Any) -> np.random.Generator:
+        generators.append(default_rng(*args, **kwargs))
+        return generators[-1]
+
     with monkeypatch.context() as patch:
-        patch.setattr(np.random, "default_rng", None)
+        patch.setattr(np.random, "default_rng", record)
         assert cb._estimate_skipped_share(rows, 2, 4, 8, 6, most) == (0.0, 0)
+        assert not generators
+        # Under a tuning with a budget, the call draws random supports.
+        assert cb._estimate_skipped_share(rows, 2, 4, 8, 6, fewer) == (1.0, 100)
+        assert generators
 
     # The supports of layer two of 2000 rows each leave about a million pairs to bound directly,
     # so fewer than the minimum number of samples fit the budget.

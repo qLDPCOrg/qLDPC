@@ -3,13 +3,13 @@
 """Shared fixtures and helpers for tests of exact distances, counts, and coset-leader searches."""
 
 import contextlib
+import dataclasses
 import itertools
 import threading
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any, NamedTuple
 
-import galois
 import numba
 import numpy as np
 import numpy.typing as npt
@@ -18,13 +18,18 @@ import stim
 
 from qldpc import _compilation, codes, math
 from qldpc._binary import get_independent_rows, get_kernel, row_reduce_binary
-from qldpc.objects import Pauli, PauliXZ
+from qldpc.objects import PauliXZ
 
 from . import _threads, _tuning
 from . import logical_counts as lc
 from ._binary import get_nested_code_basis
+from ._brouwer_zimmermann import coset_tables
 from ._information_sets import basis_families, certificates
 from .coset_leaders import CosetLeaderSearch
+
+# How long, in seconds, a test waits for another thread, so that a deadlock fails the test rather
+# than hangs it.
+THREAD_TIMEOUT = 10
 
 
 @pytest.fixture
@@ -136,16 +141,67 @@ def get_random_full_rank_matrix(
             return matrix
 
 
-def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
-    """Return per-word bit counts, computed bit by bit as an independent reference for popcounts."""
-    val = np.asarray(val)
-    nbits = 8 * val.itemsize
-    out = np.empty_like(val)
-    for indices in np.ndindex(val.shape):
-        ival = int(val[indices])
-        out[indices] = sum(ival >> i & 1 for i in range(nbits))
+def assert_certificate_bounds_unvisited_words(
+    basis: npt.NDArray[np.uint8], family: basis_families.BasisFamily
+) -> None:
+    """Check that each step's certificate bounds every word that no search basis has visited.
 
-    return out
+    A step is a pair of a layer ``t`` and the number of search bases that have finished it, while
+    the others have finished layer ``t - 1``.  A search basis visits a word after layer ``t`` if the
+    word combines at most ``t`` of its rows.  The check covers the family's certificate, with and
+    without the bounds of linear programming.  Also check the weight divisor, and that
+    ``certifies`` agrees with each step's bound.  The family's labels must make every nonzero word
+    eligible.
+    """
+
+    def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
+        return {
+            (np.asarray(bits) @ generators % 2).astype(np.uint8).tobytes(): sum(bits)
+            for bits in itertools.product((0, 1), repeat=len(generators))
+        }
+
+    # Map each word of the code to the number of rows of each search basis that it combines.
+    words = get_coefficient_weights(basis)
+    coefficient_weights = [get_coefficient_weights(generators) for generators in family.generators]
+    assert all(set_weights.keys() == words.keys() for set_weights in coefficient_weights)
+
+    # Check the family's certificate both without and with the bounds of linear programming.
+    certificate = family.certificate
+    pivot_blocks = tuple(
+        tuple(int(column) for column in pivots[:rank])
+        for pivots, rank in zip(family.pivots, family.ranks, strict=True)
+    )
+    denominator = _tuning.DEFAULT_TUNING.lp_dual_max_denominator
+    checked = [
+        certificate,
+        dataclasses.replace(certificate, pivot_blocks=pivot_blocks, lp_max_denominator=denominator),
+    ]
+
+    # Each word's weight is a multiple of the divisor, and, at each step at which no search basis
+    # has visited the word, at least the bound of each certificate.
+    hamming_weights = {
+        word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words
+    }
+    steps = [
+        (layer, num_completed)
+        for layer in range(1, len(basis))
+        for num_completed in range(len(family.ranks) + 1)
+    ]
+    for word, weight in hamming_weights.items():
+        assert weight % certificate.weight_divisor == 0
+        for layer, num_completed in steps:
+            completed = [
+                layer if index < num_completed else layer - 1 for index in range(len(family.ranks))
+            ]
+            if all(item[word] > done for item, done in zip(coefficient_weights, completed)):
+                for each in checked:
+                    assert weight >= each.step_lower_bound(layer, num_completed)
+
+    # At each step, ``certifies`` agrees with the bound.
+    for each, (layer, num_completed) in itertools.product(checked, steps):
+        bound = each.step_lower_bound(layer, num_completed)
+        for upper_bound in range(1, basis.shape[1] + 2):
+            assert each.certifies(layer, num_completed, upper_bound) == (bound >= upper_bound)
 
 
 ####################################################################################################
@@ -153,24 +209,6 @@ def count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
 
 Counts = lc.CSSLogicalCounts
 METHODS: tuple[lc.LogicalCountMethod, ...] = ("brouwer_zimmermann", "brute_force")
-
-
-def get_bits(values: list[int], width: int) -> npt.NDArray[np.uint8]:
-    """Binary rows whose bit j is bit j of each integer."""
-    return np.array([[value >> jj & 1 for jj in range(width)] for value in values], dtype=np.uint8)
-
-
-def append_frozen_qubits(
-    checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
-) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
-    """Append qubits fixed in |0> by a Z check each.  No logical of minimum weight touches them."""
-    x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
-    extra = width - x.shape[1]
-    padded_x = np.pad(x, ((0, 0), (0, extra)))
-    padded_z = np.vstack(
-        [np.pad(z, ((0, 0), (0, extra))), np.hstack([np.zeros((extra, z.shape[1])), np.eye(extra)])]
-    ).astype(np.uint8)
-    return padded_x, padded_z
 
 
 def get_random_css_code(
@@ -230,19 +268,23 @@ def get_span(rows: npt.ArrayLike) -> set[int]:
 
 
 def enumerate_logical_ops(code: codes.CSSCode) -> tuple[list[int], list[int], int, int]:
-    """Count logical operators by enumerating the normalizers, using CSSCode's stabilizers.
+    """Count logical operators by enumerating the stabilizers and normalizers by brute force.
 
     Returns the X-only and Z-only counts at every weight, the distance, and the number of nontrivial
     logical operators of any type at the distance.
     """
-    num_qubits = len(code)
-    normalizers = []
-    for stabilizers in (code.get_stabilizer_ops(Pauli.Z), code.get_stabilizer_ops(Pauli.X)):
-        field = galois.GF(2)
-        kernel = field(stabilizers).null_space() if len(stabilizers) else field.Identity(num_qubits)
-        normalizers.append(get_span(kernel))
-    normal_x, normal_z = normalizers
+
+    def commute(word: int, others: set[int]) -> bool:
+        return all(not (word & other).bit_count() & 1 for other in others)
+
+    # The stabilizers are the gauge operators that commute with every gauge operator of the other
+    # type, and a normalizer holds the words that commute with every stabilizer of the other type.
     gauge_x, gauge_z = get_span(code.matrix_x), get_span(code.matrix_z)
+    stabilizers_x = {word for word in gauge_x if commute(word, gauge_z)}
+    stabilizers_z = {word for word in gauge_z if commute(word, gauge_x)}
+    num_qubits = len(code)
+    normal_x = {word for word in range(1 << num_qubits) if commute(word, stabilizers_z)}
+    normal_z = {word for word in range(1 << num_qubits) if commute(word, stabilizers_x)}
     counts_x, counts_z = [0] * (num_qubits + 1), [0] * (num_qubits + 1)
     for word in normal_x - gauge_x:
         counts_x[word.bit_count()] += 1
@@ -259,27 +301,16 @@ def enumerate_logical_ops(code: codes.CSSCode) -> tuple[list[int], list[int], in
     return counts_x, counts_z, distance, full
 
 
-def get_expected_counts(code: codes.CSSCode) -> lc.CSSLogicalCounts:
-    """Counts at the distance, including full Pauli operators, from an independent enumeration."""
-    counts_x, counts_z, distance, full = enumerate_logical_ops(code)
-    return Counts(distance, counts_x[distance], counts_z[distance], full)
-
-
-def assert_counts_match_enumeration(counter: lc.CSSLogicalCounter, **options: Any) -> None:
-    """Check the counts at every weight, and the Pauli counts at the distance, by enumeration."""
-    counts_x, counts_z, distance, full = enumerate_logical_ops(counter.code)
-    for weight in range(counter.num_qubits + 1):
-        result = counter.count_logical_ops(weight, **options)
-        assert (result.count_x, result.count_z) == (counts_x[weight], counts_z[weight])
-    expected = Counts(distance, counts_x[distance], counts_z[distance], full)
-    assert counter.count_logical_ops(count_pauli=True, **options) == expected
-
-
 # X checks {0,1,2,3,4} and {2,4}, and Z checks {1,2,3,4} and {0,1}, on five qubits.  By hand, the
 # distance is two, the X-only logicals of weight two are {2,3} and {3,4}, and the Z-only ones are
 # {2,4}, {0,3} and {1,3}.  The Z word {2,4} also supports the X stabilizer {2,4}, so in total there
 # are 2 + 3 + 1 = 6 logical Pauli operators of weight two.
-HAND_X, HAND_Z = get_bits([31, 20], 5), get_bits([30, 3], 5)
+HAND_X = get_binary_matrix(["11111", "00101"])
+HAND_Z = get_binary_matrix(["01111", "11000"])
+
+# The matrix by which the Clifford of ``CSSLogicalCounter.deformed_swel`` acts on X and on Z
+# supports.
+SWEL_MATRIX = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
 
 
 ####################################################################################################
@@ -385,6 +416,25 @@ def get_exhaustive_minima(matrix: npt.NDArray[np.uint8], css_weight: bool) -> np
     return minima
 
 
+def get_binary_syndrome(checks: npt.NDArray[np.uint8], words: npt.NDArray[np.int_]) -> Any:
+    """The packed syndrome of a binary word, or of each row of an array, for binary checks."""
+    return (words @ checks.T % 2) @ (1 << np.arange(len(checks)))
+
+
+def get_binary_minima(checks: npt.NDArray[np.uint8]) -> npt.NDArray[np.int_]:
+    """The least Hamming weight of the words with each packed syndrome for binary checks."""
+    num_columns = checks.shape[1]
+    words = (np.arange(1 << num_columns)[:, None] >> np.arange(num_columns)) & 1
+    minima = np.full(1 << len(checks), num_columns + 1)
+    np.minimum.at(minima, get_binary_syndrome(checks, words), words.sum(axis=1))
+    return minima
+
+
+def get_set_ranks(tables: coset_tables.CosetSearchTables) -> list[int]:
+    """The ranks of the sets of a family: their numbers of pivots that are not padding."""
+    return np.count_nonzero(tables.pivots >= 0, axis=1).tolist()
+
+
 # A code whose disjoint information sets have ranks five and four.
 RANK_DEFICIENT_CODE = np.array(
     [
@@ -399,13 +449,13 @@ RANK_DEFICIENT_CODE = np.array(
 
 
 def assert_exact_answers(
-    oracle: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
+    search: CosetLeaderSearch, matrix: npt.NDArray[np.uint8], css_weight: bool
 ) -> None:
-    """Check every query of an oracle against exhaustive minima of the state of ``matrix``."""
+    """Check every query of a search against exhaustive minima of the state of ``matrix``."""
     num_qubits = len(matrix)
     minima = get_exhaustive_minima(matrix, css_weight)
     for syndrome, max_weight in itertools.product(range(1 << num_qubits), range(num_qubits + 1)):
-        bound = oracle.get_min_weight_bound(syndrome, max_weight)
+        bound = search.get_min_weight_bound(syndrome, max_weight)
         weight = get_pauli_weight(bound.representative, num_qubits, css_weight)
         assert bound.within_max_weight == (minima[syndrome] <= max_weight)
         assert get_syndrome(matrix, bound.representative) == syndrome
@@ -529,6 +579,9 @@ _RUNNING_WORKERS = threading.local()
 _CHECKED_RUNS = [0]
 _CHECKED_RUNS_LOCK = threading.Lock()
 
+# The ``__call__`` that numba's dispatchers define themselves, or None, while the check replaces it.
+_OWN_CALL: list[Any] = [None]
+
 
 @contextlib.contextmanager
 def _running_worker() -> Iterator[None]:
@@ -575,14 +628,13 @@ def _checking_numba_calls() -> Iterator[None]:
         with _CHECKED_RUNS_LOCK:
             _CHECKED_RUNS[0] -= 1
             if not _CHECKED_RUNS[0]:
+                # Numba's Dispatcher inherits __call__ from a type of numba's C extension, so no
+                # test reaches the branch that restores a __call__ of its own, which a later numba
+                # could define.
                 if _OWN_CALL[0] is None:
                     del dispatcher.__call__
                 else:
                     dispatcher.__call__ = _OWN_CALL[0]  # type: ignore[method-assign]
-
-
-# The ``__call__`` that numba's dispatchers define themselves, or None, while the check replaces it.
-_OWN_CALL: list[Any] = [None]
 
 
 class _CheckedTuning:

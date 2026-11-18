@@ -12,6 +12,7 @@ import pytest
 
 from qldpc._binary import row_reduce_binary
 
+from ..conftest import get_random_full_rank_matrix
 from . import sparse_checks
 
 
@@ -111,15 +112,88 @@ def test_a_round_on_packed_rows_matches_a_round_on_unpacked_rows(
         assert np.array_equal(kept_weights, expected_weights)
 
 
-def test_rounds_stop_once_they_leave_the_weight_unchanged() -> None:
-    """With ``rounds_without_improvement=1``, a round without a lighter total ends the rounds."""
-    # No round makes the rows of an identity lighter, and no rows give no rows.
-    for matrix in (np.eye(3, dtype=np.uint8), np.zeros((0, 3), dtype=np.uint8)):
-        rows, transform = sparse_checks.get_sparser_rows(
-            matrix, symplectic=False, max_rounds=10**12, rounds_without_improvement=1
+# The rounds of the next two tests order the columns at random, from ``_SPARSIFYING_SEED``.  A
+# change of that seed, or of how the rounds order the columns, can need new matrices for them.
+def test_rounds_stop_once_they_leave_the_weight_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rounds stop after ``rounds_without_improvement`` unchanged rounds in a row, or at a limit.
+
+    The limit is ``max_rounds``, and a round is unchanged if it leaves the total weight of the rows
+    unchanged.  The rounds on this matrix leave the total weight unchanged, then lower it, and then
+    leave it unchanged, so that a round that improves resets the count of unchanged rounds.
+    """
+    totals: list[tuple[int, int]] = []
+    take_lighter_rows = sparse_checks._take_lighter_rows
+
+    def record_totals(
+        matrix: npt.NDArray[np.uint64],
+        columns: npt.NDArray[np.int64],
+        rows: npt.NDArray[np.uint64],
+        weights: npt.NDArray[np.int64],
+        symplectic: bool,
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+        kept_rows, kept_weights = take_lighter_rows(matrix, columns, rows, weights, symplectic)
+        totals.append((int(weights.sum()), int(kept_weights.sum())))
+        return kept_rows, kept_weights
+
+    monkeypatch.setattr(sparse_checks, "_take_lighter_rows", record_totals)
+    matrix = np.array(
+        [
+            [0, 0, 1, 1, 1, 1, 1, 0],
+            [1, 0, 0, 0, 1, 1, 0, 1],
+            [1, 1, 0, 0, 1, 0, 0, 0],
+            [0, 1, 0, 1, 0, 0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    improvements = [False, True, False, False]
+    cases = [
+        # The first round leaves the weight unchanged, so the rounds end after it.
+        (10, 1, 1),
+        # The second round improves, so the count starts again, and two more rounds end it.
+        (10, 2, 4),
+        # The rounds stop at max_rounds.
+        (2, 2, 2),
+    ]
+    for max_rounds, rounds_without_improvement, num_rounds in cases:
+        totals.clear()
+        sparse_checks.get_sparser_rows(
+            matrix,
+            symplectic=False,
+            max_rounds=max_rounds,
+            rounds_without_improvement=rounds_without_improvement,
         )
-        assert np.array_equal(rows, matrix)
-        assert np.array_equal(transform, np.eye(len(matrix)))
+        assert [after < before for before, after in totals] == improvements[:num_rounds]
+
+    # No rows give no rows, without rounds.
+    totals.clear()
+    rows, transform = sparse_checks.get_sparser_rows(
+        np.zeros((0, 3), dtype=np.uint8),
+        symplectic=False,
+        max_rounds=10,
+        rounds_without_improvement=1,
+    )
+    assert np.array_equal(rows, np.zeros((0, 3))) and np.array_equal(transform, np.eye(0))
+    assert not totals
+
+
+def test_sparser_rows_are_reproducible(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``get_sparser_rows`` gives the same rows and transform each time, after random rounds.
+
+    The rows of rounds on this matrix, of many more columns than rows, depend on the random orders
+    of the columns, which the fixed seed of the rounds makes the same each time.
+    """
+    matrix = get_random_full_rank_matrix(np.random.default_rng(0), 6, 20)
+
+    def get_results() -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+        return sparse_checks.get_sparser_rows(
+            matrix, symplectic=False, max_rounds=3, rounds_without_improvement=3
+        )
+
+    rows, transform = get_results()
+    again = get_results()
+    assert np.array_equal(again[0], rows) and np.array_equal(again[1], transform)
+    monkeypatch.setattr(sparse_checks, "_SPARSIFYING_SEED", 1)
+    assert not np.array_equal(get_results()[0], rows)
 
 
 def test_light_pair_sums_match_a_direct_choice(pytestconfig: pytest.Config) -> None:

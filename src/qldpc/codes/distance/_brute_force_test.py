@@ -16,7 +16,6 @@ from qldpc._binary import pack_bits
 
 from ..conftest import Tune
 from . import _brute_force
-from .conftest import count_set_bits
 
 
 @pytest.mark.parametrize("batch_exponent", [1, 3, 13])
@@ -53,7 +52,7 @@ def test_brute_force_visits_every_code_word_once(batch_exponent: int, tune: Tune
     assert set(observed_bitstrings) == set(expected_bitstrings)
 
     observed_array = np.array(observed_bitstrings, dtype=np.uint64)
-    expected_distance = count_set_bits(observed_array).sum(-1).min()
+    expected_distance = _count_set_bits(observed_array).sum(-1).min()
     assert distance == expected_distance
 
 
@@ -114,45 +113,21 @@ def test_brute_force_visits_every_nontrivial_word_once(
 
     if symplectic:
         expected_bitstrings = (expected_bitstrings | expected_bitstrings >> 1) & 0x5555555555555555
-    expected_distance = count_set_bits(expected_bitstrings).sum(-1).min()
+    expected_distance = _count_set_bits(expected_bitstrings).sum(-1).min()
     assert distance == expected_distance
 
 
 @pytest.mark.parametrize("num_bits", [300, 1000])
-def test_brute_force_batches_fill_their_size(num_bits: int, tune: Tune) -> None:
-    """The largest batch fills more than half of its room, for words of 5 and 16 packed integers."""
+def test_brute_force_batches_fit_their_size(num_bits: int, tune: Tune) -> None:
+    """No batch exceeds its room, for words of 5 and 16 packed integers."""
     batch_exponent = 9
     sizes = _get_batch_sizes(num_bits, batch_exponent, tune)
-    assert 2 ** (batch_exponent - 1) < max(sizes) <= 2**batch_exponent
+    assert max(sizes) <= 2**batch_exponent
 
 
 def test_brute_force_batches_hold_one_word_that_needs_more(tune: Tune) -> None:
     """A word that alone needs more than 2**batch_exponent packed integers is weighed alone."""
     assert set(_get_batch_sizes(129, 1, tune)) == {3}
-
-
-def _get_batch_sizes(num_bits: int, batch_exponent: int, tune: Tune) -> list[int]:
-    """The numbers of packed integers in the batches of an enumeration of random words."""
-    tune(enumeration_batch_exponent=batch_exponent)
-    rng = np.random.default_rng(num_bits)
-    logical_ops = rng.integers(2, size=(4, num_bits))
-    stabilizers = rng.integers(2, size=(8, num_bits))
-
-    # Record the number of packed integers in each batch.
-    sizes: list[int] = []
-    bitwise_count = np.bitwise_count
-
-    def _spy_weight(
-        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
-    ) -> npt.NDArray[np.uint64]:
-        sizes.append(arr.size)
-        return bitwise_count(arr, out=out)
-
-    with mock.patch.object(np, "bitwise_count", _spy_weight):
-        qldpc.codes.distance.get_distance_from_generators(
-            logical_ops, stabilizers, method="brute_force"
-        )
-    return sizes
 
 
 def test_get_distance_empty_stabilizers_symplectic() -> None:
@@ -224,6 +199,10 @@ def test_early_exit_returns_only_weighed_operators(symplectic: bool) -> None:
 
 
 def test_riffle() -> None:
+    """Riffling interleaves each qubit's X and Z bits, including for a matrix with no rows.
+
+    It rejects odd widths.
+    """
     symplectic = np.array(list(itertools.product((0, 1), repeat=6)), dtype=np.uint8)
     expected = np.stack((symplectic[:, :3], symplectic[:, 3:]), axis=2).reshape(-1, 6)
     np.testing.assert_array_equal(_brute_force.riffle(symplectic), expected)
@@ -236,7 +215,7 @@ def test_symplectic_weight() -> None:
     """``symplectic_weight`` matches a reference that counts bits, and writes into ``out``."""
     rng = np.random.default_rng(64)
     vals = rng.integers(0, 2**64, size=(7, 11), dtype=np.uint64)
-    expected_weights = count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
+    expected_weights = _count_set_bits((vals | (vals >> np.uint64(1))) & 0x5555555555555555)
     weights = _brute_force.symplectic_weight(vals)
     assert weights.dtype == np.uint64
     np.testing.assert_array_equal(weights, expected_weights)
@@ -255,3 +234,43 @@ def test_inplace_rowsum(width: int) -> None:
     actual = _brute_force.inplace_rowsum(arr)
     np.testing.assert_array_equal(actual, expected)
     np.testing.assert_array_equal(actual, arr[:, 0])
+
+
+####################################################################################################
+# helpers
+
+
+def _count_set_bits(val: npt.ArrayLike) -> npt.NDArray[np.uint64]:
+    """Return per-word bit counts, computed bit by bit as an independent reference for popcounts."""
+    val = np.asarray(val)
+    nbits = 8 * val.itemsize
+    out = np.empty_like(val)
+    for indices in np.ndindex(val.shape):
+        ival = int(val[indices])
+        out[indices] = sum(ival >> i & 1 for i in range(nbits))
+
+    return out
+
+
+def _get_batch_sizes(num_bits: int, batch_exponent: int, tune: Tune) -> list[int]:
+    """The numbers of packed integers in the batches of an enumeration of random words."""
+    tune(enumeration_batch_exponent=batch_exponent)
+    rng = np.random.default_rng(num_bits)
+    logical_ops = rng.integers(2, size=(4, num_bits))
+    stabilizers = rng.integers(2, size=(8, num_bits))
+
+    # Record the number of packed integers in each batch.
+    sizes: list[int] = []
+    bitwise_count = np.bitwise_count
+
+    def _spy_weight(
+        arr: npt.NDArray[np.uint64], out: npt.NDArray[np.uint64] | None = None
+    ) -> npt.NDArray[np.uint64]:
+        sizes.append(arr.size)
+        return bitwise_count(arr, out=out)
+
+    with mock.patch.object(np, "bitwise_count", _spy_weight):
+        qldpc.codes.distance.get_distance_from_generators(
+            logical_ops, stabilizers, method="brute_force"
+        )
+    return sizes

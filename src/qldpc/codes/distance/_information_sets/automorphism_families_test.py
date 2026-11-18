@@ -112,6 +112,24 @@ def test_automorphism_family_work_scans_one_set_per_layer() -> None:
     assert automorphism_families.estimate_automorphism_family_work(certificate, 100) == 2**5 - 1
 
 
+def test_orbits_are_numbered_in_the_order_of_their_least_columns(
+    pytestconfig: pytest.Config,
+) -> None:
+    """Each column gets the number of its orbit, and orbits are numbered by their least columns."""
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(20):
+        # Permutations within random blocks of columns, so that the group has several orbits.
+        num_columns = int(rng.integers(1, 13))
+        blocks = rng.integers(4, size=num_columns)
+        automorphisms = np.tile(np.arange(num_columns), (int(rng.integers(3)), 1))
+        for permutation in automorphisms:
+            for block in range(4):
+                members = np.flatnonzero(blocks == block)
+                permutation[members] = rng.permutation(members)
+        expected = _get_orbits_by_union_find(automorphisms, num_columns)
+        assert automorphism_families.get_orbits(automorphisms, num_columns).tolist() == expected
+
+
 def _get_random_mb_codes(rng: np.random.Generator, count: int) -> list[codes.MBCode]:
     """Random binary multivariate bicycle codes over small groups that encode logical qubits."""
     groups = [
@@ -153,6 +171,22 @@ def _get_group_elements(generators: npt.NDArray[np.int_]) -> list[npt.NDArray[np
         frontier = [product for key, product in products.items() if key not in elements]
         elements.update(products)
     return list(elements.values())
+
+
+def _get_orbits_by_union_find(automorphisms: npt.NDArray[np.int_], num_columns: int) -> list[int]:
+    """The orbit of each column, numbered by least columns, by a union-find with its images."""
+    parents = list(range(num_columns))
+
+    def find(column: int) -> int:
+        while parents[column] != column:
+            column = parents[column]
+        return column
+
+    for permutation in automorphisms:
+        for column, image in enumerate(permutation.tolist()):
+            parents[find(column)] = find(image)
+    numbers: dict[int, int] = {}
+    return [numbers.setdefault(find(column), len(numbers)) for column in range(num_columns)]
 
 
 def _get_rank(matrix: npt.NDArray[np.uint8]) -> int:

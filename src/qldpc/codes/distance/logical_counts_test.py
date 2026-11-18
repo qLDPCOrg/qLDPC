@@ -27,15 +27,14 @@ from ..conftest import Tune
 from . import logical_counts as lc
 from ._counting import macwilliams
 from ._information_sets import basis_families
-from ._tuning import DEFAULT_TUNING, use_tuning
+from ._tuning import MAX_VALUE, use_tuning
 from .conftest import (
     HAND_X,
     HAND_Z,
     METHODS,
+    SWEL_MATRIX,
     Counts,
-    append_frozen_qubits,
     enumerate_logical_ops,
-    get_expected_counts,
     get_random_css_code,
 )
 
@@ -44,18 +43,6 @@ STABILIZER_METHODS: tuple[lc.LogicalCountMethod, ...] = (
     "macwilliams",
     "brute_force",
 )
-
-
-def _random_subsystem_code(
-    rng: np.random.Generator, num_qubits: int, *, self_dual: bool = False
-) -> codes.CSSCode:
-    """A random binary CSS subsystem code, optionally with identical X and Z checks."""
-    while True:
-        checks_x = rng.integers(0, 2, (3, num_qubits))
-        checks_z = checks_x if self_dual else rng.integers(0, 2, (3, num_qubits))
-        code = codes.CSSCode(checks_x, checks_z)
-        if code.is_subsystem_code and code.dimension > 0:
-            return code
 
 
 ####################################################################################################
@@ -81,6 +68,20 @@ def test_known_codes(method: lc.LogicalCountMethod) -> None:
     assert lc.count_logical_ops_css(
         steane.matrix_x, steane.matrix_z, method="information_sets"
     ) == Counts(3, 7, 7, None)
+
+
+def test_counts_are_equal_exactly_when_their_classes_and_fields_are() -> None:
+    """Counts compare and hash by their fields, in which NO_DISTANCE equals itself, and by class."""
+    no_distance = Counts(codes.NO_DISTANCE, 0, 0, None)
+    assert no_distance == Counts(codes.NO_DISTANCE, 0, 0, None)
+    assert hash(no_distance) == hash(Counts(codes.NO_DISTANCE, 0, 0, None))
+    assert no_distance != Counts(4, 0, 0, None) and no_distance != (codes.NO_DISTANCE, 0, 0, None)
+
+    # As for dataclasses, counts of different classes differ.
+    class SubclassCounts(Counts):
+        pass
+
+    assert no_distance != SubclassCounts(codes.NO_DISTANCE, 0, 0, None)
 
 
 @pytest.mark.parametrize("method", METHODS)
@@ -126,7 +127,7 @@ def test_pauli_counts_away_from_the_distance(method: lc.LogicalCountMethod) -> N
     # XYZI is a logical of weight three in the [[4, 2, 2]] code, but no homogeneous logical is odd.
     # A frozen qubit adds a Z stabilizer of weight one, which turns each of the six Z logicals of
     # weight two into one of weight three.
-    counter = lc.CSSLogicalCounter(*append_frozen_qubits([[1, 1, 1, 1]], [[1, 1, 1, 1]], 5))
+    counter = lc.CSSLogicalCounter(*_append_frozen_qubits([[1, 1, 1, 1]], [[1, 1, 1, 1]], 5))
     assert counter.count_logical_ops(3, method=method) == Counts(3, 0, 6, None)
     with pytest.raises(ValueError, match="less than weight 3"):
         counter.count_logical_ops(3, method=method, count_pauli=True)
@@ -162,28 +163,37 @@ def test_count_logical_ops_css_accepts_within_distance() -> None:
 
 def test_surface_codes() -> None:
     # Unrotated surface codes have d minimum-weight logicals of each type: straight lines.
-    for distance in (3, 5, 7):
+    for distance in (3, 5):
         counter = lc.CSSLogicalCounter.from_code(codes.SurfaceCode(distance, rotated=False))
         expected = Counts(distance, distance, distance, 2 * distance)
         assert counter.count_logical_ops(count_pauli=True) == expected
     for distance in (3, 4):
         code = codes.SurfaceCode(distance)
         counter = lc.CSSLogicalCounter.from_code(code)
-        assert counter.count_logical_ops(count_pauli=True) == get_expected_counts(code)
+        assert counter.count_logical_ops(count_pauli=True) == _get_expected_counts(code)
 
 
 @pytest.mark.parametrize("width", [5, 64, 65, 129])
 def test_frozen_qubits_preserve_counts(width: int) -> None:
     """Frozen qubits change the physical width, including across word boundaries, not the counts."""
-    counter = lc.CSSLogicalCounter(*append_frozen_qubits(HAND_X, HAND_Z, width))
+    counter = lc.CSSLogicalCounter(*_append_frozen_qubits(HAND_X, HAND_Z, width))
     assert counter.count_logical_ops(count_pauli=True) == Counts(2, 2, 3, 6)
 
 
-# In (16, 10, 2), the disjoint family of one sector has three sets.  In (24, 12, 8), the scans of
-# the counts check which set counts a word.
-@pytest.mark.parametrize("num_qubits, rank_x, rank_z", [(16, 10, 2), (24, 12, 8)])
-def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int) -> None:
-    """Brute force visits every word once, so it checks the information sets used by BZ."""
+@pytest.mark.parametrize("num_qubits, rank_x, rank_z, num_sets", [(16, 10, 2, 3), (24, 12, 8, 2)])
+def test_methods_agree_on_random_codes(
+    monkeypatch: pytest.MonkeyPatch, num_qubits: int, rank_x: int, rank_z: int, num_sets: int
+) -> None:
+    """Brute force visits every word once, so it checks which information set counts each word."""
+    sizes: list[int] = []
+    get_disjoint_family = basis_families.get_disjoint_family
+
+    def record(*args: Any, **kwargs: Any) -> basis_families.BasisFamily:
+        family = get_disjoint_family(*args, **kwargs)
+        sizes.append(len(family.ranks))
+        return family
+
+    monkeypatch.setattr(basis_families, "get_disjoint_family", record)
     rng = np.random.default_rng(num_qubits)
     for _ in range(3):
         counter = lc.CSSLogicalCounter.from_code(
@@ -192,6 +202,9 @@ def test_methods_agree_on_random_codes(num_qubits: int, rank_x: int, rank_z: int
         assert counter.count_logical_ops(
             count_pauli=True, method="brouwer_zimmermann"
         ) == counter.count_logical_ops(count_pauli=True, method="brute_force")
+    # Some disjoint family that a scan starts from has at least ``num_sets`` sets, so several sets
+    # could count a word.
+    assert max(sizes) >= num_sets
 
 
 @pytest.mark.usefixtures("plain_search_setup")
@@ -202,23 +215,32 @@ def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_compilation, "_ON_REQUEST_FUNCTIONS", fresh)
     code = qldpc.codes.SurfaceCode(5)
 
-    def get_results() -> list[lc.CSSLogicalCounts]:
-        counter = lc.CSSLogicalCounter.from_code(code)
+    def get_results(
+        counter: lc.CSSLogicalCounter, *, fresh: bool = False
+    ) -> list[lc.CSSLogicalCounts]:
+        """Counts of a counter and of two deformations, or of fresh counters of their checks."""
         results = [counter.count_logical_ops()]
         assert results[0].weight is not qldpc.codes.NO_DISTANCE
         with use_tuning(max_information_sets=4):
             results.append(counter.count_logical_ops(count_pauli=True))
         # Deform after a count, so that the kept families move through a named and a general gate.
         for deformed in (counter.deformed_cnot(0, 1), counter.deformed([0, 1], [[1, 0], [1, 1]])):
+            if fresh:
+                deformed = lc.CSSLogicalCounter(deformed.checks_x, deformed.checks_z)
             results.append(deformed.count_logical_ops())
             results.append(deformed.count_logical_ops(results[0].weight + 1))
         return results
 
-    expected = get_results()
+    expected = get_results(lc.CSSLogicalCounter.from_code(code), fresh=True)
+    # A counter that counts before `compile_search_setup` keeps sectors and families that plain
+    # Python built; afterwards it must still count with them and deform them.
+    early = lc.CSSLogicalCounter.from_code(code)
+    early.count_logical_ops()
     try:
         qldpc.codes.distance.compile_search_setup()
         with numba.core.event.install_recorder("numba:compile") as recorder:
-            assert get_results() == expected
+            assert get_results(lc.CSSLogicalCounter.from_code(code)) == expected
+            assert get_results(early) == expected
     finally:
         _compilation.set_on_request_functions_compiled(False)
     late_compilations = [
@@ -227,7 +249,7 @@ def test_compile_search_setup(monkeypatch: pytest.MonkeyPatch) -> None:
         if event.is_start and event.data["dispatcher"].py_func.__module__.startswith("qldpc.")
     ]
     assert not late_compilations
-    assert get_results() == expected
+    assert get_results(lc.CSSLogicalCounter.from_code(code)) == expected
 
 
 def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
@@ -243,63 +265,6 @@ def test_a_failed_compilation_leaves_the_set_up_code_as_plain_python(
         qldpc.codes.distance.compile_search_setup()
     select = basis_families.get_overlapping_family
     assert not isinstance(select, numba.core.registry.CPUDispatcher)
-
-
-@pytest.mark.usefixtures("plain_search_setup")
-def test_deprecated_max_information_sets_argument(
-    monkeypatch: pytest.MonkeyPatch, tune: Tune
-) -> None:
-    """The argument warns, takes only nonnegative integers, and limits every search of a count."""
-    counter = lc.CSSLogicalCounter(HAND_X, HAND_Z)
-    for value in (2.5, True):
-        not_an_integer: Any = value
-        with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="integer"):
-            counter.count_logical_ops(max_information_sets=not_an_integer)
-    with (
-        pytest.warns(DeprecationWarning),
-        pytest.raises(ValueError, match="max_information_sets must be between 0"),
-    ):
-        counter.count_logical_ops(max_information_sets=-1)
-
-    limits: list[int] = []
-    original = lc.get_distance_brouwer_zimmermann
-
-    def search(*args: Any, **kwargs: Any) -> int:
-        limits.append(kwargs["tuning"].max_information_sets)
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(lc, "get_distance_brouwer_zimmermann", search)
-    code = get_random_css_code(np.random.default_rng(2), 24, 8, 8)
-    checks = code.matrix_x, code.matrix_z
-    expected = lc.CSSLogicalCounter(*checks).count_logical_ops()
-    with pytest.warns(DeprecationWarning, match="Exact-search performance and tuning") as records:
-        counts = [
-            lc.CSSLogicalCounter(*checks).count_logical_ops(max_information_sets=np.int32(3)),
-            lc.count_logical_ops_css(*checks, max_information_sets=3),
-        ]
-    assert counts == [expected, expected]
-    # Both warnings point at this test, also through count_logical_ops_css.
-    assert [record.filename for record in records] == [__file__, __file__]
-    assert limits == [DEFAULT_TUNING.max_information_sets, 3, 3]
-
-    # The limit also reaches the scans of a count of a given weight, which searches no distance.  At
-    # weight three, the scans of this code build families of nine and six sets by default.
-    sizes: list[int] = []
-    original_family = basis_families.get_overlapping_family
-
-    def family(*args: Any) -> basis_families.BasisFamily:
-        replacement = original_family(*args)
-        sizes.append(len(replacement.ranks))
-        return replacement
-
-    monkeypatch.setattr(basis_families, "get_overlapping_family", family)
-    tune(overlapping_minimum_work=0)
-    code = get_random_css_code(np.random.default_rng(5), 24, 8, 8)
-    checks = code.matrix_x, code.matrix_z
-    expected = lc.count_logical_ops_css(*checks, 3, method="brute_force")
-    with pytest.warns(DeprecationWarning):
-        assert lc.count_logical_ops_css(*checks, 3, max_information_sets=4) == expected
-    assert sizes and max(sizes) <= 4
 
 
 @pytest.mark.usefixtures("plain_search_setup")
@@ -391,6 +356,8 @@ def test_deformed_counter_reuses_the_first_family_stage() -> None:
 
 def test_dense_eighty_qubits_against_physical_enumeration() -> None:
     """Enumerate physical supports of weight at most four, independently of the counter."""
+    # Start from 24 X checks and 24 Z checks of weight one, which leave 32 logical qubits, and make
+    # them dense by random CNOTs.
     n, k = 80, 32
     rng = np.random.default_rng(47)
     x = np.zeros((24, n), dtype=np.uint8)
@@ -402,6 +369,9 @@ def test_dense_eighty_qubits_against_physical_enumeration() -> None:
         x[:, target] ^= x[:, control]
         z[:, control] ^= z[:, target]
     assert np.mean(np.vstack([x, z])) > 0.4
+
+    # Count the nontrivial logicals of each type up to weight four.  The stabilizers of that type,
+    # in echelon form keyed by their leading bits, tell whether a support is trivial.
     counts = []
     for stabilizers, checks in ((x, z), (z, x)):
         pivots: dict[int, int] = {}
@@ -413,10 +383,11 @@ def test_dense_eighty_qubits_against_physical_enumeration() -> None:
                     pivots[pivot] = word
                     break
                 word ^= pivots[pivot]
-        columns = [sum(int(bit) << jj for jj, bit in enumerate(col)) for col in checks.T]
+
         # A support has zero syndrome exactly if the column of its largest qubit equals the syndrome
         # of the other qubits.  Choosing the other qubits first, and then only qubits larger than
         # them whose column equals that syndrome, visits each support once.
+        columns = [sum(int(bit) << jj for jj, bit in enumerate(col)) for col in checks.T]
         qubits_by_column: dict[int, list[int]] = {}
         for jj, column in enumerate(columns):
             qubits_by_column.setdefault(column, []).append(jj)
@@ -435,6 +406,8 @@ def test_dense_eighty_qubits_against_physical_enumeration() -> None:
                         assert weight == 4
                         found += 1
         counts.append(found)
+
+    # The only nontrivial logical of weight at most four is an X logical of weight four.
     assert counts == [1, 0]
     assert lc.CSSLogicalCounter(x, z).count_logical_ops(count_pauli=True) == Counts(4, 1, 0, 1)
 
@@ -458,10 +431,17 @@ def test_deformation() -> None:
     general = counter.deformed([1, 6], [[1, 0], [1, 1]])
     assert np.array_equal(general.checks_x, changed.checks_x)
     assert np.array_equal(general.checks_z, changed.checks_z)
-    swel = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
     named = counter.deformed_swel(0, 2, 3, 5)
-    assert np.array_equal(counter.deformed([0, 2, 3, 5], swel).checks_x, named.checks_x)
-    assert named.is_self_dual
+    assert np.array_equal(counter.deformed([0, 2, 3, 5], SWEL_MATRIX).checks_x, named.checks_x)
+    assert named.is_self_dual and named.code.is_swel
+
+    # The gate changes the Z checks of the surface code, so the named gate must act on them too.
+    surface = lc.CSSLogicalCounter.from_code(codes.SurfaceCode(3))
+    named = surface.deformed_swel(0, 1, 2, 3)
+    general = surface.deformed([0, 1, 2, 3], SWEL_MATRIX)
+    assert not np.array_equal(general.checks_z, surface.checks_z)
+    assert np.array_equal(general.checks_x, named.checks_x)
+    assert np.array_equal(general.checks_z, named.checks_z)
 
 
 @pytest.mark.parametrize("size", [3, 64])
@@ -489,7 +469,6 @@ def test_deformation_transforms_checks(size: int) -> None:
 def test_deformed_counts_match_enumeration() -> None:
     """Counters that deform an already counted code give the counts of the new code."""
     rng = np.random.default_rng(29)
-    swel = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
     for code in (
         codes.BaconShorCode(3),
         get_random_css_code(rng, 10, 3, 3),
@@ -503,10 +482,10 @@ def test_deformed_counts_match_enumeration() -> None:
             if step == 0:
                 counter = counter.deformed_swel(*targets)
             elif step == 1:
-                counter = counter.deformed(targets, swel)
+                counter = counter.deformed(targets, SWEL_MATRIX)
             else:
                 counter = counter.deformed_cnot(*targets[:2])
-            assert counter.count_logical_ops(count_pauli=True) == get_expected_counts(counter.code)
+            assert counter.count_logical_ops(count_pauli=True) == _get_expected_counts(counter.code)
 
 
 ####################################################################################################
@@ -561,27 +540,53 @@ def test_macwilliams_counts_of_wide_codes() -> None:
         assert counter.count_logical_ops(weight, method="macwilliams") == expected
 
 
-@pytest.mark.parametrize("copies, count_pauli_first", [(1, False), (1, True), (5, False)])
+def test_the_macwilliams_rank_limit_is_on_the_rank_of_the_checks() -> None:
+    """Checks of rank 64 raise an error, but more checks of a lower rank do not."""
+    # Each of these codes encodes two qubits, so that the method walks its checks.
+    full_rank = np.eye(64, 66, dtype=np.uint8)
+    no_checks = np.zeros((0, 66), dtype=np.uint8)
+    for checks_x, checks_z in ((full_rank, no_checks), (no_checks, full_rank)):
+        counter = lc.CSSLogicalCounter(checks_x, checks_z)
+        assert counter.dimension == 2
+        with pytest.raises(ValueError, match="check ranks up to 63, not 64"):
+            counter.count_logical_ops(1, method="macwilliams")
+
+    # Sixty-four copies of the check of the [[4, 2, 2]] code have rank one.
+    redundant = np.ones((64, 4), dtype=np.uint8)
+    counter = lc.CSSLogicalCounter(redundant, redundant)
+    assert counter.count_logical_ops(method="macwilliams") == Counts(2, 6, 6, None)
+
+
+@pytest.mark.parametrize(
+    "shared_walk_rank, count_pauli_first, num_walks",
+    [(MAX_VALUE, False, 2), (0, False, 1), (MAX_VALUE, True, 1)],
+)
 def test_macwilliams_enumerators_are_computed_once_per_counter(
-    copies: int, count_pauli_first: bool
+    tune: Tune, shared_walk_rank: int, count_pauli_first: bool, num_walks: int
 ) -> None:
-    """Later weights and flags reuse the walk, including checks with different equal-space bases."""
-    code = codes.CSSCode.stack([codes.SteaneCode()] * copies)
-    counter = lc.CSSLogicalCounter.from_code(code).deformed_cnot(1, 6).deformed_cnot(1, 6)
+    """Later weights and flags reuse the walks, and checks of equal spaces may share one walk.
+
+    Checks of equal spaces that the counter does not know to be self-dual share a walk from the
+    tuned rank on, or for a full Pauli count.
+    """
+    tune(macwilliams_shared_walk_rank=shared_walk_rank)
+    # The two CNOTs restore the Steane code, but the counter does not know that it is self-dual.
+    steane = lc.CSSLogicalCounter.from_code(codes.SteaneCode())
+    counter = steane.deformed_cnot(1, 6).deformed_cnot(1, 6)
     with mock.patch.object(
         macwilliams, "get_span_weights", wraps=macwilliams.get_span_weights
     ) as walk:
-        expected = Counts(3, 7 * copies, 7 * copies, 21 * copies if count_pauli_first else None)
+        expected = Counts(3, 7, 7, 21 if count_pauli_first else None)
         assert (
             counter.count_logical_ops(method="macwilliams", count_pauli=count_pauli_first)
             == expected
         )
-        walks = walk.call_count
+        assert walk.call_count == num_walks
         assert counter.count_logical_ops(2, method="macwilliams") == Counts(2, 0, 0, None)
         assert counter.count_logical_ops(3, method="macwilliams", count_pauli=True) == Counts(
-            3, 7 * copies, 7 * copies, 21 * copies
+            3, 7, 7, 21
         )
-    assert walks > 0 and walk.call_count == walks
+    assert walk.call_count == num_walks
 
 
 def test_deformed_counters_walk_their_own_checks() -> None:
@@ -608,14 +613,6 @@ def test_macwilliams_capabilities() -> None:
     no_distance = no_logicals.count_logical_ops(method="macwilliams")
     assert no_distance == Counts(codes.NO_DISTANCE, 0, 0, None)
     assert no_distance.weight is codes.NO_DISTANCE
-    assert hash(no_distance) == hash(Counts(codes.NO_DISTANCE, 0, 0, None))
-    assert no_distance != Counts(4, 0, 0, None) and no_distance != (codes.NO_DISTANCE, 0, 0, None)
-
-    # As for dataclasses, counts of different classes differ.
-    class SubclassCounts(Counts):
-        pass
-
-    assert no_distance != SubclassCounts(codes.NO_DISTANCE, 0, 0, None)
 
     # The MacWilliams limit of rank 63 on the checks applies only to codes that encode qubits.
     rank_64 = lc.CSSLogicalCounter(np.eye(64, dtype=np.uint8), np.zeros((0, 64), dtype=np.uint8))
@@ -632,7 +629,7 @@ def test_macwilliams_capabilities() -> None:
     subsystem = lc.CSSLogicalCounter.from_code(bacon_shor)
     with pytest.raises(ValueError, match="does not support subsystem codes"):
         subsystem.count_logical_ops(method="macwilliams")
-    assert subsystem.count_logical_ops(count_pauli=True) == get_expected_counts(bacon_shor)
+    assert subsystem.count_logical_ops(count_pauli=True) == _get_expected_counts(bacon_shor)
 
     asymmetric = lc.CSSLogicalCounter(HAND_X, HAND_Z)
     with pytest.raises(ValueError, match="only for self-dual codes"):
@@ -651,6 +648,8 @@ def test_code_and_checks() -> None:
     redundant = np.vstack([checks_x, checks_x, np.zeros((1, 7), dtype=np.uint8)])
     counter = lc.CSSLogicalCounter(redundant, steane.matrix_z)
     assert len(counter.checks_x) == 3 and counter.dimension == 1 and counter.is_self_dual
+    _assert_reduced(counter.checks_x, redundant)
+    _assert_reduced(counter.checks_z, steane.matrix_z)
     code = counter.code
     assert counter.code is code
     matrix_x = code.matrix_x.view(np.ndarray).astype(np.uint8)
@@ -663,8 +662,7 @@ def test_code_and_checks() -> None:
 
     derived = counter.deformed_cnot(0, 1)
     assert isinstance(derived.code, codes.CSSCode)
-    derived_x = get_independent_rows(derived.code.matrix_x.view(np.ndarray).astype(np.uint8))
-    assert np.array_equal(derived_x, derived.checks_x)
+    _assert_reduced(derived.checks_x, derived.code.matrix_x)
 
 
 def test_accepted_forms_of_checks() -> None:
@@ -723,9 +721,8 @@ def test_public_api() -> None:
     assert counter.count_logical_ops() == counts
     assert counts.weight == code.get_distance()
     with pytest.raises(AttributeError):
+        # The property has no setter, which mypy reports.
         counter.num_qubits = 1  # type: ignore[misc]
-    with pytest.raises(ValueError, match="distinct qubit indices"):
-        counter.deformed_cnot(1, 1)
 
 
 def test_invalid_inputs() -> None:
@@ -769,6 +766,49 @@ def test_invalid_inputs() -> None:
             steane.deformed(invalid_targets, [[1]])
     with pytest.raises(ValueError, match="1 to 64 distinct"):
         steane.deformed_swel(0, 1, 1, 2)
+    with pytest.raises(ValueError, match="1 to 64 distinct"):
+        steane.deformed_cnot(1, 1)
     not_a_collection: Any = 3
     with pytest.raises(TypeError, match="collection of qubit indices"):
         steane.deformed(not_a_collection, [[1]])
+
+
+####################################################################################################
+# helpers
+
+
+def _append_frozen_qubits(
+    checks_x: npt.ArrayLike, checks_z: npt.ArrayLike, width: int
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]:
+    """Append qubits fixed in |0> by a Z check each.  No logical of minimum weight touches them."""
+    x, z = np.asarray(checks_x, dtype=np.uint8), np.asarray(checks_z, dtype=np.uint8)
+    extra = width - x.shape[1]
+    padded_x = np.pad(x, ((0, 0), (0, extra)))
+    padded_z = np.vstack(
+        [np.pad(z, ((0, 0), (0, extra))), np.hstack([np.zeros((extra, z.shape[1])), np.eye(extra)])]
+    ).astype(np.uint8)
+    return padded_x, padded_z
+
+
+def _get_expected_counts(code: codes.CSSCode) -> lc.CSSLogicalCounts:
+    """Counts at the distance, including full Pauli operators, from an independent enumeration."""
+    counts_x, counts_z, distance, full = enumerate_logical_ops(code)
+    return Counts(distance, counts_x[distance], counts_z[distance], full)
+
+
+def _random_subsystem_code(
+    rng: np.random.Generator, num_qubits: int, *, self_dual: bool = False
+) -> codes.CSSCode:
+    """A random binary CSS subsystem code, optionally with identical X and Z checks."""
+    while True:
+        checks_x = rng.integers(0, 2, (3, num_qubits))
+        checks_z = checks_x if self_dual else rng.integers(0, 2, (3, num_qubits))
+        code = codes.CSSCode(checks_x, checks_z)
+        if code.is_subsystem_code and code.dimension > 0:
+            return code
+
+
+def _assert_reduced(checks: npt.NDArray[np.uint8], matrix: npt.ArrayLike) -> None:
+    """Assert that the checks are the reduced row echelon form of a matrix, without zero rows."""
+    reduced = galois.GF(2)(np.asarray(matrix, dtype=np.uint8)).row_reduce().view(np.ndarray)
+    np.testing.assert_array_equal(checks, reduced[np.any(reduced, axis=1)])

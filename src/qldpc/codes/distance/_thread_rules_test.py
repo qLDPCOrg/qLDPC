@@ -98,7 +98,8 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
 
     A view cannot be made writeable again once code makes its base, which the block does not reach,
     read-only.  If the block raises, that gives a warning at the with statement, and the error of
-    the block; otherwise it fails the check.
+    the block; otherwise it fails the check.  An object of qLDPC without a ``__dict__`` is an error,
+    since the arrays that it reaches cannot be found.
     """
     base = np.zeros(4)
     arrays = [base[1:], base, base[:2]]
@@ -128,6 +129,10 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
         warnings.simplefilter("error")
         with pytest.raises(AssertionError, match="left read-only"):
             hide_a_base(error=False)
+
+    slotted = type("Slotted", (), {"__slots__": (), "__module__": "qldpc"})()
+    with pytest.raises(TypeError, match=r"roots\[0\] has no __dict__"):
+        distance_conftest.shared_arrays_read_only(slotted).__enter__()
 
 
 ####################################################################################################

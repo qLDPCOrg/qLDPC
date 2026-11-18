@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import functools
 import itertools
 import math
 import threading
@@ -18,9 +17,9 @@ import pytest
 from qldpc import _num_threads
 
 from . import _threads
+from .conftest import THREAD_TIMEOUT
 
-# How long a test waits for an event that a thread should set at once.
-_TIMEOUT = 10
+pytestmark = pytest.mark.usefixtures("no_threads_left")
 
 
 @pytest.fixture
@@ -44,7 +43,6 @@ def test_the_number_of_threads_defaults_to_qldpc_num_threads_or_else_to_numba(
     assert _threads.get_num_threads(2) == 2
 
 
-@pytest.mark.usefixtures("no_threads_left")
 @pytest.mark.parametrize("num_threads", [1, 2, 3, 8])
 def test_every_item_runs_once(num_threads: int) -> None:
     """Each item runs once, in ranges that each worker claims in increasing order.
@@ -58,8 +56,8 @@ def test_every_item_runs_once(num_threads: int) -> None:
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         workers.append(threading.get_ident())
-        claims.append([])
-        ranges = claims[-1]
+        ranges: list[tuple[int, int]] = []
+        claims.append(ranges)
         return lambda start, end: ranges.append((start, end))
 
     _threads.run_work_items(num_items, num_threads, start_worker)
@@ -113,32 +111,33 @@ def test_every_item_runs_when_a_share_of_the_weight_rounds_away() -> None:
 
 
 def test_no_items_run_on_the_calling_thread_alone() -> None:
+    """With no items, only the calling thread starts a worker."""
     workers: list[int] = []
-
-    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        workers.append(threading.get_ident())
-        return print
-
-    _threads.run_work_items(0, 4, start_worker)
+    _threads.run_work_items(0, 4, _get_worker_that_records_starts(workers))
     assert workers == [threading.get_ident()]
 
 
 def test_a_range_can_stop_every_thread() -> None:
-    """Once a range sets the stop event, no thread claims another range."""
-    claimed: list[int] = []
+    """Once a range sets the stop event, no thread claims another range.
+
+    Each range sets the event, so each thread claims at most one.
+    """
+    claims: list[list[tuple[int, int]]] = []
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        ranges: list[tuple[int, int]] = []
+        claims.append(ranges)
+
         def run_range(start: int, end: int) -> None:
-            claimed.extend(range(start, end))
+            ranges.append((start, end))
             stop.set()
 
         return run_range
 
     _threads.run_work_items(100, 3, start_worker)
-    assert 0 < len(claimed) < 100
+    assert any(claims) and all(len(ranges) <= 1 for ranges in claims)
 
 
-@pytest.mark.usefixtures("no_threads_left")
 @pytest.mark.parametrize("raises_on_calling_thread", [False, True])
 def test_an_exception_stops_every_thread_and_is_raised_again(
     raises_on_calling_thread: bool,
@@ -149,7 +148,7 @@ def test_an_exception_stops_every_thread_and_is_raised_again(
     """
     calling_thread = threading.get_ident()
     stopped: list[bool] = []
-    started = threading.Barrier(2, timeout=_TIMEOUT)
+    started = threading.Barrier(2, timeout=THREAD_TIMEOUT)
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         on_calling_thread = threading.get_ident() == calling_thread
@@ -159,7 +158,7 @@ def test_an_exception_stops_every_thread_and_is_raised_again(
             if on_calling_thread == raises_on_calling_thread:
                 raise KeyboardInterrupt if on_calling_thread else ValueError("failed")
             # Wait for the stop event, as a thread that checks it between chunks would.
-            stopped.append(stop.wait(timeout=_TIMEOUT))
+            stopped.append(stop.wait(timeout=THREAD_TIMEOUT))
 
         return run_range
 
@@ -169,7 +168,6 @@ def test_an_exception_stops_every_thread_and_is_raised_again(
     assert stopped == [True]
 
 
-@pytest.mark.usefixtures("no_threads_left")
 def test_an_interrupt_while_a_thread_starts_stops_it(monkeypatch: pytest.MonkeyPatch) -> None:
     """A keyboard interrupt as a new thread starts stops that thread, which claims nothing more.
 
@@ -185,14 +183,14 @@ def test_an_interrupt_while_a_thread_starts_stops_it(monkeypatch: pytest.MonkeyP
     def interrupted_start(thread: threading.Thread) -> None:
         start(thread)
         if thread.name == "qldpc-search":
-            assert claimed.wait(timeout=_TIMEOUT)
+            assert claimed.wait(timeout=THREAD_TIMEOUT)
             raise KeyboardInterrupt
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         def run_range(start: int, end: int) -> None:
             claims.append((start, end))
             claimed.set()
-            stopped.append(stop.wait(timeout=_TIMEOUT))
+            stopped.append(stop.wait(timeout=THREAD_TIMEOUT))
 
         return run_range
 
@@ -214,7 +212,7 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
     """
     start = threading.Thread.start
     kept: list[threading.Thread] = []
-    worker_starts = itertools.count()
+    workers: list[int] = []
     raised: list[BaseException] = []
 
     def interrupted_start(thread: threading.Thread) -> None:
@@ -226,28 +224,24 @@ def test_a_thread_whose_start_is_interrupted_before_it_starts_never_works(
 
     def search() -> None:
         try:
-            # A worker counts its start, and would run no range.
-            _threads.run_work_items(
-                10, 2, lambda stop: functools.partial(print, next(worker_starts))
-            )
+            _threads.run_work_items(10, 2, _get_worker_that_records_starts(workers))
         except BaseException as error:  # noqa: BLE001 - the test checks which error the search raised
             raised.append(error)
 
     monkeypatch.setattr(threading.Thread, "start", interrupted_start)
     helper = threading.Thread(target=search, daemon=True)
     helper.start()
-    helper.join(timeout=_TIMEOUT)
+    helper.join(timeout=THREAD_TIMEOUT)
     assert not helper.is_alive()
     (error,) = raised
     assert isinstance(error, KeyboardInterrupt)
 
     (thread,) = kept
     start(thread)
-    thread.join(timeout=_TIMEOUT)
-    assert not thread.is_alive() and next(worker_starts) == 0
+    thread.join(timeout=THREAD_TIMEOUT)
+    assert not thread.is_alive() and not workers
 
 
-@pytest.mark.usefixtures("no_threads_left")
 def test_an_interrupt_as_the_calling_thread_starts_to_wait_stops_the_other_threads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -264,20 +258,7 @@ def test_an_interrupt_as_the_calling_thread_starts_to_wait_stops_the_other_threa
             raise KeyboardInterrupt
         join(*args)
 
-    calling_thread = threading.get_ident()
-    working = threading.Event()
-    stopped: list[bool] = []
-
-    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        def run_range(start: int, end: int) -> None:
-            # The calling thread runs out of work while the other thread works.
-            if threading.get_ident() == calling_thread:
-                assert working.wait(timeout=_TIMEOUT)
-                return
-            working.set()
-            stopped.append(stop.wait(timeout=_TIMEOUT))
-
-        return run_range
+    start_worker, stopped = _get_worker_for_the_other_thread()
 
     monkeypatch.setattr(_threads, "_join", interrupted_join)
     with pytest.raises(KeyboardInterrupt):
@@ -285,21 +266,20 @@ def test_an_interrupt_as_the_calling_thread_starts_to_wait_stops_the_other_threa
     assert stopped == [True]
 
 
-@pytest.mark.usefixtures("no_threads_left")
 def test_an_exception_of_the_calling_thread_wins_over_those_of_the_others() -> None:
     """The calling thread's exception, as at a keyboard interrupt, is raised, even if it comes last.
 
     The other thread fails first, and the calling thread raises once the stop event is set.
     """
     calling_thread = threading.get_ident()
-    started = threading.Barrier(2, timeout=_TIMEOUT)
+    started = threading.Barrier(2, timeout=THREAD_TIMEOUT)
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         def run_range(start: int, end: int) -> None:
             started.wait()
             if threading.get_ident() != calling_thread:
                 raise ValueError("first")
-            assert stop.wait(timeout=_TIMEOUT)
+            assert stop.wait(timeout=THREAD_TIMEOUT)
             raise KeyboardInterrupt
 
         return run_range
@@ -308,18 +288,17 @@ def test_an_exception_of_the_calling_thread_wins_over_those_of_the_others() -> N
         _threads.run_work_items(2, 2, start_worker)
 
 
-@pytest.mark.usefixtures("no_threads_left")
 def test_the_first_error_of_the_other_threads_is_raised() -> None:
     """When several other threads fail, the error of the first to fail is raised again."""
     calling_thread = threading.get_ident()
-    started = threading.Barrier(3, timeout=_TIMEOUT)
+    started = threading.Barrier(3, timeout=THREAD_TIMEOUT)
     order: list[int] = []
 
     def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
         def run_range(start: int, end: int) -> None:
             started.wait()
             if threading.get_ident() == calling_thread:
-                assert stop.wait(timeout=_TIMEOUT)
+                assert stop.wait(timeout=THREAD_TIMEOUT)
                 return
             # The thread that gets here first fails first, and the other fails after its error is
             # recorded.
@@ -329,7 +308,7 @@ def test_the_first_error_of_the_other_threads_is_raised() -> None:
             if first:
                 raise ValueError("first")
             # The stop event is set once the first error is recorded.
-            assert stop.wait(timeout=_TIMEOUT)
+            assert stop.wait(timeout=THREAD_TIMEOUT)
             raise ValueError("second")
 
         return run_range
@@ -339,7 +318,6 @@ def test_the_first_error_of_the_other_threads_is_raised() -> None:
         _threads.run_work_items(3, 3, start_worker)
 
 
-@pytest.mark.usefixtures("no_threads_left")
 def test_another_error_while_the_calling_thread_waits_stops_the_other_threads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -361,20 +339,7 @@ def test_another_error_while_the_calling_thread_waits_stops_the_other_threads(
             raise errors[-1]
         join(thread, *args, **kwargs)
 
-    calling_thread = threading.get_ident()
-    working = threading.Event()
-    stopped: list[bool] = []
-
-    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        def run_range(start: int, end: int) -> None:
-            # The calling thread runs out of work while the other thread works.
-            if threading.get_ident() == calling_thread:
-                assert working.wait(timeout=_TIMEOUT)
-                return
-            working.set()
-            stopped.append(stop.wait(timeout=_TIMEOUT))
-
-        return run_range
+    start_worker, stopped = _get_worker_for_the_other_thread()
 
     monkeypatch.setattr(threading.Thread, "join", failing_join)
     with pytest.raises(HandlerError) as raised:
@@ -383,7 +348,6 @@ def test_another_error_while_the_calling_thread_waits_stops_the_other_threads(
     assert raised.value is errors[0]
 
 
-@pytest.mark.usefixtures("no_threads_left")
 @pytest.mark.parametrize(("method", "num_interrupts"), [("join", 1), ("join", 2), ("is_alive", 2)])
 def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
     monkeypatch: pytest.MonkeyPatch, method: str, num_interrupts: int
@@ -404,26 +368,158 @@ def test_an_interrupt_while_the_calling_thread_waits_stops_the_other_threads(
             raise interrupts[-1]
         return original(thread, *args, **kwargs)
 
-    calling_thread = threading.get_ident()
-    working = threading.Event()
-    stopped: list[bool] = []
-
-    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
-        def run_range(start: int, end: int) -> None:
-            # The calling thread runs out of work while the other thread works.
-            if threading.get_ident() == calling_thread:
-                assert working.wait(timeout=_TIMEOUT)
-                return
-            working.set()
-            stopped.append(stop.wait(timeout=_TIMEOUT))
-
-        return run_range
+    start_worker, stopped = _get_worker_for_the_other_thread()
 
     monkeypatch.setattr(threading.Thread, method, interrupted)
     with pytest.raises(KeyboardInterrupt) as raised:
         _threads.run_work_items(2, 2, start_worker)
     assert stopped == [True]
     assert raised.value is interrupts[-1]
+
+
+@pytest.mark.parametrize("num_rows", [0, 1000])
+def test_batches_on_one_thread_run_in_one_call_on_the_calling_thread(num_rows: int) -> None:
+    """On one thread, a batch, even an empty one, runs in one call on the calling thread.
+
+    The call has no work limit.
+    """
+    rows = _Rows()
+    _threads.run_blocks(num_rows, 1, 0, rows.start_worker)
+    assert rows.calls == [(0, num_rows, _threads.NO_WORK_LIMIT, threading.get_ident())]
+
+
+@pytest.mark.parametrize("ending_rows", [[], [500]])
+def test_batches_within_the_split_work_run_in_one_call_on_the_calling_thread(
+    ending_rows: list[int],
+) -> None:
+    """A batch that ends, or whose work stays below the split work, starts no thread."""
+    rows = _Rows(ending_rows)
+    _threads.run_blocks(1000, 4, 10**6 if not ending_rows else 900, rows.start_worker)
+    split_work = rows.calls[0][2]
+    assert rows.calls == [(0, 1000, split_work, threading.get_ident())]
+    assert rows.workers == [threading.get_ident()]
+
+
+@pytest.mark.parametrize(
+    ("num_rows", "num_threads", "split_work"), [(100, 2, 50), (1000, 3, 10), (333, 8, 0)]
+)
+def test_costly_batches_move_the_rest_to_threads_in_contiguous_blocks(
+    num_rows: int, num_threads: int, split_work: int
+) -> None:
+    """The calling thread runs rows until their work reaches the split work, and threads the rest.
+
+    The rest of the batch runs in contiguous blocks that partition it, each in one call.
+    """
+    rows = _Rows()
+    _threads.run_blocks(num_rows, num_threads, split_work, rows.start_worker)
+    first = max(1, split_work)
+    assert rows.calls[0] == (0, num_rows, split_work, threading.get_ident())
+    blocks = sorted((start, end) for start, end, _, _ in rows.calls[1:])
+    assert blocks[0][0] == first and blocks[-1][1] == num_rows
+    assert all(end == start for (_, end), (start, _) in itertools.pairwise(blocks))
+    assert all(start < end for start, end in blocks)
+    assert {max_work for _, _, max_work, _ in rows.calls[1:]} == {_threads.NO_WORK_LIMIT}
+    assert sorted(rows.rows) == list(range(num_rows))
+    assert len(rows.workers) == 1 + num_threads
+
+
+@pytest.mark.parametrize("ending_rows", [[1], [6], [6, 21], [32]])
+def test_blocks_after_the_first_that_ends_a_batch_are_skipped_by_its_thread(
+    ending_rows: list[int],
+) -> None:
+    """Every row up to the first that ends the batch runs, and its thread runs no later row."""
+    rows = _Rows(ending_rows)
+    _threads.run_blocks(33, 2, 0, rows.start_worker)
+    first = ending_rows[0]
+    assert set(range(first + 1)) <= set(rows.rows)
+    (finder, start_of_first) = next(
+        (thread, start) for start, end, _, thread in rows.calls[1:] if start <= first < end
+    )
+    assert max(start for start, _, _, thread in rows.calls[1:] if thread == finder) == (
+        start_of_first
+    )
+
+
+def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
+    """A block that ends a batch after a later one did still ends it, and later blocks stop.
+
+    The block of row 6 waits until the block of row 21 has ended the batch.  Then every row up to 6
+    runs, and no block between them starts after that.
+    """
+    later_ended = threading.Event()
+    events: list[tuple[str, int]] = []
+
+    def before_row(row: int) -> None:
+        if row == 6:
+            assert later_ended.wait(THREAD_TIMEOUT)
+
+    class _LoggedRows(_Rows):
+        def start_worker(self) -> _threads.RunRows:
+            run_rows = super().start_worker()
+
+            def logged(start: int, end: int, max_work: int) -> tuple[int, bool]:
+                with self.lock:
+                    events.append(("start", start))
+                answer = run_rows(start, end, max_work)
+                with self.lock:
+                    events.append(("end", start))
+                if start <= 21 < end and start > 0:
+                    later_ended.set()
+                return answer
+
+            return logged
+
+    rows = _LoggedRows([6, 21], before_row)
+    _threads.run_blocks(33, 2, 0, rows.start_worker)
+    assert set(range(7)) <= set(rows.rows)
+    (block_of_6,) = [start for start, end, _, _ in rows.calls[1:] if start <= 6 < end]
+    after = events[events.index(("end", block_of_6)) + 1 :]
+    assert not [start for kind, start in after if kind == "start" and start > 6]
+
+
+####################################################################################################
+# helpers
+
+
+def _get_worker_that_records_starts(
+    workers: list[int],
+) -> Callable[[threading.Event], Callable[[int, int], None]]:
+    """A worker that records the thread on which it starts, and does nothing with its ranges."""
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        workers.append(threading.get_ident())
+        return _run_no_range
+
+    return start_worker
+
+
+def _run_no_range(start: int, end: int) -> None:
+    """Run a range by doing nothing."""
+
+
+def _get_worker_for_the_other_thread() -> tuple[
+    Callable[[threading.Event], Callable[[int, int], None]], list[bool]
+]:
+    """A worker with which the calling thread runs out of work while the other thread works.
+
+    The other thread works until the stop event is set, and the list records, for each of its
+    ranges, whether the event was set before the timeout.  Call this on the calling thread.
+    """
+    calling_thread = threading.get_ident()
+    working = threading.Event()
+    stopped: list[bool] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], None]:
+        def run_range(start: int, end: int) -> None:
+            if threading.get_ident() == calling_thread:
+                assert working.wait(timeout=THREAD_TIMEOUT)
+                return
+            working.set()
+            stopped.append(stop.wait(timeout=THREAD_TIMEOUT))
+
+        return run_range
+
+    return start_worker, stopped
 
 
 class _Rows:
@@ -463,101 +559,3 @@ class _Rows:
             return end, False
 
         return run_rows
-
-
-@pytest.mark.parametrize("num_rows", [0, 1000])
-def test_batches_on_one_thread_run_in_one_call_on_the_calling_thread(num_rows: int) -> None:
-    rows = _Rows()
-    _threads.run_blocks(num_rows, 1, 0, rows.start_worker)
-    assert rows.calls == [(0, num_rows, _threads.NO_WORK_LIMIT, threading.get_ident())]
-
-
-@pytest.mark.parametrize("ending_rows", [[], [500]])
-def test_batches_within_the_split_work_run_in_one_call_on_the_calling_thread(
-    ending_rows: list[int],
-) -> None:
-    """A batch that ends, or whose work stays below the split work, starts no thread."""
-    rows = _Rows(ending_rows)
-    _threads.run_blocks(1000, 4, 10**6 if not ending_rows else 900, rows.start_worker)
-    split_work = rows.calls[0][2]
-    assert rows.calls == [(0, 1000, split_work, threading.get_ident())]
-    assert rows.workers == [threading.get_ident()]
-
-
-@pytest.mark.parametrize(
-    ("num_rows", "num_threads", "split_work"), [(100, 2, 50), (1000, 3, 10), (333, 8, 0)]
-)
-def test_costly_batches_move_the_rest_to_threads_in_contiguous_blocks(
-    num_rows: int, num_threads: int, split_work: int, no_threads_left: None
-) -> None:
-    """The calling thread runs rows until their work reaches the split work, and threads the rest.
-
-    The rest of the batch runs in contiguous blocks that partition it, each in one call.
-    """
-    rows = _Rows()
-    _threads.run_blocks(num_rows, num_threads, split_work, rows.start_worker)
-    first = max(1, split_work)
-    assert rows.calls[0] == (0, num_rows, split_work, threading.get_ident())
-    blocks = sorted((start, end) for start, end, _, _ in rows.calls[1:])
-    assert blocks[0][0] == first and blocks[-1][1] == num_rows
-    assert all(end == start for (_, end), (start, _) in itertools.pairwise(blocks))
-    assert all(start < end for start, end in blocks)
-    assert {max_work for _, _, max_work, _ in rows.calls[1:]} == {_threads.NO_WORK_LIMIT}
-    assert sorted(rows.rows) == list(range(num_rows))
-    assert len(rows.workers) == 1 + num_threads
-
-
-@pytest.mark.parametrize("ending_rows", [[1], [6], [6, 21], [32]])
-def test_blocks_after_the_first_that_ends_a_batch_are_skipped_by_its_thread(
-    ending_rows: list[int], no_threads_left: None
-) -> None:
-    """Every row up to the first that ends the batch runs, and its thread runs no later row."""
-    rows = _Rows(ending_rows)
-    _threads.run_blocks(33, 2, 0, rows.start_worker)
-    first = ending_rows[0]
-    assert set(range(first + 1)) <= set(rows.rows)
-    (finder, start_of_first) = next(
-        (thread, start) for start, end, _, thread in rows.calls[1:] if start <= first < end
-    )
-    assert max(start for start, _, _, thread in rows.calls[1:] if thread == finder) == (
-        start_of_first
-    )
-
-
-def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit(
-    no_threads_left: None,
-) -> None:
-    """A block that ends a batch after a later one did still ends it, and later blocks stop.
-
-    The block of row 6 waits until the block of row 21 has ended the batch.  Then every row up to 6
-    runs, and no block between them starts after that.
-    """
-    later_ended = threading.Event()
-    events: list[tuple[str, int]] = []
-
-    def before_row(row: int) -> None:
-        if row == 6:
-            assert later_ended.wait(_TIMEOUT)
-
-    class _LoggedRows(_Rows):
-        def start_worker(self) -> _threads.RunRows:
-            run_rows = super().start_worker()
-
-            def logged(start: int, end: int, max_work: int) -> tuple[int, bool]:
-                with self.lock:
-                    events.append(("start", start))
-                answer = run_rows(start, end, max_work)
-                with self.lock:
-                    events.append(("end", start))
-                if start <= 21 < end and start > 0:
-                    later_ended.set()
-                return answer
-
-            return logged
-
-    rows = _LoggedRows([6, 21], before_row)
-    _threads.run_blocks(33, 2, 0, rows.start_worker)
-    assert set(range(7)) <= set(rows.rows)
-    (block_of_6,) = [start for start, end, _, _ in rows.calls[1:] if start <= 6 < end]
-    after = events[events.index(("end", block_of_6)) + 1 :]
-    assert not [start for kind, start in after if kind == "start" and start > 6]

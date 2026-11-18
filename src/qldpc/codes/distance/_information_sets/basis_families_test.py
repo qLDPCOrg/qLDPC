@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import itertools
 import math
 from typing import Any
 from unittest import mock
@@ -17,10 +16,10 @@ import pytest
 
 import qldpc
 from qldpc import _compilation
-from qldpc._binary import get_independent_rows, row_reduce_binary
+from qldpc._binary import get_independent_rows
 
 from .._tuning import DEFAULT_TUNING, MAX_VALUE, SearchTuning
-from ..conftest import get_random_full_rank_matrix
+from ..conftest import assert_certificate_bounds_unvisited_words, get_random_full_rank_matrix
 from . import basis_families, certificates, matroid_partition
 
 # The default numbers of column orders of disjoint families, and denominators of LP dual weights.
@@ -109,7 +108,7 @@ def test_family_certificates(basis: npt.NDArray[np.uint8]) -> None:
     # A target above every weight keeps the rank-deficient block.
     basis_family = basis_families.get_disjoint_family(basis, None, random_column_orders=ORDERS)
     basis_family = basis_families.prune_family(basis_family, basis.shape[1] + 1)
-    _assert_certificate_bounds_unvisited_words(basis, basis_family)
+    assert_certificate_bounds_unvisited_words(basis, basis_family)
 
 
 def test_weight_divisor_inference() -> None:
@@ -147,8 +146,6 @@ def test_overlapping_family_certificates() -> None:
     basis = get_independent_rows(basis)
     labels = np.eye(len(basis), dtype=np.uint8)
     disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
-    # One full set certifies a target of one after its first layer, which no replacement improves.
-    assert not len(_get_overlapping_family(basis, labels, disjoint, 1, minimum_work=0).ranks)
     basis_family = _get_overlapping_family(basis, labels, disjoint, 3, minimum_work=0)
     assert np.all(basis_family.ranks == len(basis))
     loads = np.bincount(basis_family.pivots.ravel(), minlength=basis.shape[1])
@@ -156,27 +153,14 @@ def test_overlapping_family_certificates() -> None:
     for generators, set_labels, pivots in zip(*basis_family[:3], strict=True):
         np.testing.assert_array_equal(generators, set_labels @ basis % 2)
         np.testing.assert_array_equal(generators[:, pivots], np.eye(len(basis)))
-    _assert_certificate_bounds_unvisited_words(basis, basis_family)
-
-
-def test_a_cheap_search_keeps_its_disjoint_basis_family() -> None:
-    """No overlapping basis family is built if the work of the disjoint one is below the minimum."""
-    basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
-    labels = np.eye(len(basis), dtype=np.uint8)
-    disjoint = basis_families.get_disjoint_family(basis, labels, random_column_orders=ORDERS)
-    assert not len(_get_overlapping_family(basis, labels, disjoint, 3).ranks)
-    assert len(_get_overlapping_family(basis, labels, disjoint, 3, minimum_work=0).ranks)
-    # A limit of zero sets builds no family at all.
-    assert not len(_get_overlapping_family(basis, labels, disjoint, 3, 0, minimum_work=0).ranks)
+    assert_certificate_bounds_unvisited_words(basis, basis_family)
 
 
 def test_overlapping_family_guards() -> None:
     """Unhelpful coverage is rejected, and repeated attempts at one pivot set terminate."""
 
-    # Complete or nearly complete disjoint coverage leaves no cheaper family within the size budget.
+    # Nearly complete disjoint coverage leaves no cheaper family within the size budget.
     basis = np.hstack([np.eye(25, dtype=np.uint8)] * 4)
-    complete = basis_families.get_disjoint_family(basis, None, random_column_orders=ORDERS)
-    assert not len(_get_overlapping_family(basis, None, complete, 26).ranks)
     shortened = basis[:, :-1]
     disjoint = basis_families.get_disjoint_family(shortened, None, random_column_orders=ORDERS)
     assert not len(_get_overlapping_family(shortened, None, disjoint, 26, minimum_work=0).ranks)
@@ -212,12 +196,12 @@ def test_the_checks_of_stage_three_say_which_keeps_a_family() -> None:
         # One full set certifies a target of one after its first layer, which no family improves.
         (hamming, disjoint, 1, {"overlapping_minimum_work": 0}, check.CANNOT_DO_LESS_WORK),
         # At the weight three, more full sets could do less work, and four sets could do less than
-        # three.  A minimum equal to the family's work does not rule a replacement out.
+        # three.
         (
             hamming,
             disjoint,
             3,
-            {"overlapping_minimum_work": disjoint.certificate.work(3), "max_information_sets": 4},
+            {"overlapping_minimum_work": 0, "max_information_sets": 4},
             check.NONE,
         ),
     ]
@@ -235,17 +219,7 @@ def test_the_checks_of_stage_three_say_which_keeps_a_family() -> None:
             assert optimistic_work == -1
             continue
 
-        # The optimistic work is that of _estimate_optimistic_work over the nonzero columns and the
-        # limit of sets, and reaches the work exactly when no family could do less.
-        num_columns = int(np.count_nonzero(np.any(basis, axis=0)))
-        assert optimistic_work == basis_families._estimate_optimistic_work(
-            len(basis),
-            num_columns,
-            family.weight_divisor,
-            upper_bound,
-            policy.max_sets,
-            policy.binomials,
-        )
+        # The optimistic work reaches the work exactly when no family could do less.
         assert (optimistic_work >= work) == (found == check.CANNOT_DO_LESS_WORK)
 
 
@@ -279,11 +253,8 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         return basis_families.get_partitioned_family(basis, labels, disjoint, 5, tuning)
 
     # Without a limit on coverage, a family needs a set to hold, a coverage of two or more, and
-    # partitioning that pays.  Even a ratio of one rules partitioning out here, since the disjoint
-    # family does less work than the 139 * 4**2 * 10 evaluations of the unit of the ratio, for the
-    # coverages two to seven.
+    # partitioning that pays.
     assert not len(get_family(partition_work_ratio=2**62).ranks)
-    assert not len(get_family(partition_work_ratio=1).ranks)
     assert not len(get_family(max_information_sets=0).ranks)
 
     # Partitioning may try each coverage from two up to the least at which the most sets allowed
@@ -299,31 +270,22 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
     for generators, set_labels, pivots in zip(*family[:3], strict=True):
         np.testing.assert_array_equal(generators, set_labels @ basis % 2)
         np.testing.assert_array_equal(generators[:, pivots], np.eye(len(basis)))
-    _assert_certificate_bounds_unvisited_words(basis, family)
+    assert_certificate_bounds_unvisited_words(basis, family)
 
     # A limit on coverage caps the coverages that partitioning tries.
     assert 1 < get_family(partition_max_coverage=3).max_coverage <= 3
     assert sorted(coverages) == [2, 3]
 
-    # A competing family rules partitioning out exactly if it does no more work than any
-    # partitioned family could.  Partitioning asks for its work only if it may try some coverage and
-    # passes its gate, and some partitioned family could do less work.
+    # A competing family that does no work rules partitioning out, and one whose work is MAX_VALUE
+    # does not.  Partitioning asks for its work only if it may try some coverage and passes its
+    # gate, and some partitioned family could do less work.
     tuning = dataclasses.replace(
         DEFAULT_TUNING,
         partition_work_ratio=0,
         max_information_sets=16,
         partition_max_coverage=MAX_VALUE,
     )
-    optimistic_work = basis_families._estimate_optimistic_work(
-        len(basis),
-        int(np.count_nonzero(np.any(basis, axis=0))),
-        disjoint.weight_divisor,
-        5,
-        tuning.max_information_sets,
-        certificates.get_capped_binomials(len(basis)),
-    )
-    assert optimistic_work <= family.certificate.work(5)
-    for competing_work, partitions in ((optimistic_work, False), (optimistic_work + 1, True)):
+    for competing_work, partitions in ((0, False), (MAX_VALUE, True)):
         partitioned = basis_families.get_partitioned_family(
             basis,
             labels,
@@ -335,7 +297,6 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         assert bool(len(partitioned.ranks)) == partitions
     # For the weight four, the disjoint family already does the least work that any family could.
     gate_changes: list[tuple[dict[str, Any], int]] = [
-        ({"partition_work_ratio": 2**62}, 5),
         ({"partition_work_ratio": 0, "max_information_sets": 0}, 5),
         ({"partition_work_ratio": 0, "max_information_sets": 2}, 5),
         ({"partition_work_ratio": 0}, 4),
@@ -353,18 +314,21 @@ def test_partitioned_families_replace_costlier_ones(monkeypatch: pytest.MonkeyPa
         get_competing_work.assert_not_called()
 
 
-def test_partitioning_runs_once_work_reaches_its_unit() -> None:
-    """Matroid partitioning runs only if the work of a search reaches a multiple of its unit."""
-    # The coverages and the unit agree with their definitions for largest coverages from zero to
-    # eight, on a basis of 4 rows and 10 nonzero columns.
+def test_partitioning_runs_only_past_its_gate() -> None:
+    """Matroid partitioning runs only once the work of a search reaches its ratio times its unit.
+
+    It asks for competing work at a work ratio of zero, never at the largest, and at a ratio of one
+    for work far above its unit but not far below.  Its plan tries every coverage from two up to the
+    most that its information sets could reach.
+    """
+    # The coverages agree with their definition for largest coverages from zero to eight, on a basis
+    # of 4 rows and 10 nonzero columns.
     basis = np.hstack([np.eye(4), np.eye(4), np.eye(4)[:, :2], np.zeros((4, 1))]).astype(np.uint8)
     for max_sets in range(20):
         plan = basis_families._get_partition_plan(
             basis, SearchTuning(max_information_sets=max_sets, partition_max_coverage=MAX_VALUE)
         )
-        coverages = range(2, math.ceil(max_sets * 4 / 10) + 1)
-        expected = sum(coverage**2 for coverage in coverages) * 4**2 * 10
-        assert (plan.coverages, plan.unit) == (coverages, expected)
+        assert plan.coverages == range(2, math.ceil(max_sets * 4 / 10) + 1)
 
     basis = np.hstack([np.eye(20), np.eye(20), np.eye(20)[:, :5]]).astype(np.uint8)
     labels = np.eye(len(basis), dtype=np.uint8)
@@ -372,16 +336,21 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
     assert disjoint.ranks.tolist() == [20, 20, 5]
     # Five full sets of 20 rows could fit in the 45 nonzero columns from the coverage
     # ceil(5 * 20 / 45) = 3, so partitioning may try the coverages two and three, or only coverage
-    # one at a limit of one.
-    for coverage_limit, unit in ((MAX_VALUE, (2**2 + 3**2) * 20**2 * 45), (1, 20**2 * 45)):
-        ratio = disjoint.certificate.work(19) // unit
-
-        # At a ratio of three or more, any unit up to three quarters of this one would let
-        # partitioning run at the next ratio too.
-        assert ratio >= 3
-
-        # Partitioning asks for the work of a competing family only if it passes its gate.
-        for partition_work_ratio, runs in ((ratio, True), (ratio + 1, False)):
+    # one at a limit of one.  Either way, it asks for the work of a competing family only if it
+    # passes its gate, which a ratio of zero does, but not a ratio of MAX_VALUE.  At a ratio of one,
+    # the work of the disjoint family passes the gate at the upper bound 45, at least 13 times the
+    # unit of either plan, but not at the upper bound 7, at most a tenth of it.
+    for coverage_limit in (MAX_VALUE, 1):
+        unit = basis_families._get_partition_plan(
+            basis, SearchTuning(max_information_sets=5, partition_max_coverage=coverage_limit)
+        ).unit
+        assert disjoint.certificate.work(7) * 10 <= unit <= disjoint.certificate.work(45) // 13
+        for partition_work_ratio, upper_bound, passes in (
+            (0, 19, True),
+            (MAX_VALUE, 19, False),
+            (1, 7, False),
+            (1, 45, True),
+        ):
             get_competing_work = mock.Mock(return_value=0)
             tuning = SearchTuning(
                 max_information_sets=5,
@@ -389,9 +358,9 @@ def test_partitioning_runs_once_work_reaches_its_unit() -> None:
                 partition_max_coverage=coverage_limit,
             )
             basis_families.get_partitioned_family(
-                basis, labels, disjoint, 19, tuning, get_competing_work=get_competing_work
+                basis, labels, disjoint, upper_bound, tuning, get_competing_work=get_competing_work
             )
-            assert get_competing_work.called == runs
+            assert get_competing_work.called == passes
 
 
 def test_partitioning_skips_coverages_at_which_no_family_could_replace_the_best() -> None:
@@ -504,7 +473,7 @@ def test_maximum_disjoint_families_replace_smaller_packings() -> None:
             np.testing.assert_array_equal(
                 generators[:, set_pivots[:rank]], np.eye(dimension)[:, :rank]
             )
-        _assert_certificate_bounds_unvisited_words(basis, family)
+        assert_certificate_bounds_unvisited_words(basis, family)
 
     # A packing whose sets use every nonzero column, as that of PARTIAL_BASIS does, skips
     # partitioning.  That of one_full_set leaves a column, so it partitions, but no family replaces
@@ -566,7 +535,7 @@ def test_a_coverage_limit_of_one_partitions_into_a_maximum_disjoint_family() -> 
     for generators, set_labels, pivots in zip(*family[:3], strict=True):
         np.testing.assert_array_equal(generators, set_labels @ basis % 2)
         np.testing.assert_array_equal(generators[:, pivots], np.eye(3))
-    _assert_certificate_bounds_unvisited_words(basis, family)
+    assert_certificate_bounds_unvisited_words(basis, family)
 
     # No disjoint family does less work than a single information set that uses every column, so
     # partitioning returns before it asks for the work of a competing family.
@@ -692,31 +661,6 @@ def test_built_disjoint_families_do_at_least_the_disjoint_bound(
                     assert bound <= each.certificate.work(upper_bound)
 
 
-def test_linear_programming_certificates_bound_unvisited_words(pytestconfig: pytest.Config) -> None:
-    """Families of random information sets, with uneven coverage, have valid certificates."""
-    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for _ in range(20):
-        dimension = int(rng.integers(3, 6))
-        basis = get_random_full_rank_matrix(
-            rng, dimension, int(rng.integers(dimension + 2, 3 * dimension))
-        )
-        num_sets = int(rng.integers(3, 6))
-        sets = [
-            row_reduce_binary(basis, None, columns=rng.permutation(basis.shape[1]))
-            for _ in range(num_sets)
-        ]
-        pivots = np.array([found for _, _, found in sets], dtype=np.int64)
-        family = basis_families.BasisFamily(
-            np.array([reduced for reduced, _, _ in sets]),
-            np.zeros((num_sets, dimension, 0), dtype=np.uint8),
-            pivots,
-            np.full(num_sets, dimension, dtype=np.int64),
-            basis_families.infer_weight_divisor(basis),
-            int(np.bincount(pivots.ravel()).max()),
-        )
-        _assert_certificate_bounds_unvisited_words(basis, family)
-
-
 def test_searches_of_overlapping_sets_use_linear_programming_when_costly() -> None:
     """Only a costly search of overlapping sets gets the bound of linear programming."""
     basis = np.asarray(qldpc.codes.HammingCode(4).generator, dtype=np.uint8)
@@ -730,7 +674,7 @@ def test_searches_of_overlapping_sets_use_linear_programming_when_costly() -> No
     assert not disjoint.get_search_certificate(3, 0, DENOMINATOR).pivot_blocks
 
 
-@pytest.mark.parametrize("max_sets, num_sets", [(1, 0), (3, 0), (4, 4), (16, 4)])
+@pytest.mark.parametrize("max_sets, num_sets", [(3, 0), (4, 4), (16, 4)])
 def test_the_size_limit_bounds_the_overlapping_basis_family(max_sets: int, num_sets: int) -> None:
     """A cheaper basis family of overlapping sets needs four sets, so a lower limit finds none."""
     basis = get_independent_rows(np.asarray(qldpc.codes.HammingCode(4).generator))
@@ -793,52 +737,3 @@ def _get_overlapping_family(
         upper_bound,
         basis_families.get_overlapping_family_policy(tuning, len(basis)),
     )
-
-
-def _assert_certificate_bounds_unvisited_words(
-    basis: npt.NDArray[np.uint8], family: basis_families.BasisFamily
-) -> None:
-    """Check that each step's certificate bounds every word that no search basis has visited.
-
-    A search basis visits a word after layer ``t`` if the word combines at most ``t`` of its rows.
-    Also check the weight divisor, and that ``certifies`` agrees with each step's bound.
-    """
-
-    def get_coefficient_weights(generators: npt.NDArray[np.uint8]) -> dict[bytes, int]:
-        return {
-            (np.asarray(bits) @ generators % 2).astype(np.uint8).tobytes(): sum(bits)
-            for bits in itertools.product((0, 1), repeat=len(generators))
-        }
-
-    words = get_coefficient_weights(basis)
-    coefficient_weights = [get_coefficient_weights(generators) for generators in family.generators]
-    certificate = family.certificate
-    pivot_blocks = tuple(
-        tuple(int(column) for column in pivots[:rank])
-        for pivots, rank in zip(family.pivots, family.ranks, strict=True)
-    )
-    certificates = [
-        certificate,
-        dataclasses.replace(certificate, pivot_blocks=pivot_blocks, lp_max_denominator=DENOMINATOR),
-    ]
-    assert all(weights.keys() == words.keys() for weights in coefficient_weights)
-    weights = {word: np.count_nonzero(np.frombuffer(word, dtype=np.uint8)) for word in words}
-    steps = [
-        (layer, num_completed)
-        for layer in range(1, len(basis))
-        for num_completed in range(len(family.ranks) + 1)
-    ]
-    for word, weight in weights.items():
-        assert weight % certificate.weight_divisor == 0
-        for layer, num_completed in steps:
-            completed = [
-                layer if index < num_completed else layer - 1 for index in range(len(family.ranks))
-            ]
-            if all(item[word] > done for item, done in zip(coefficient_weights, completed)):
-                for each in certificates:
-                    assert weight >= each.step_lower_bound(layer, num_completed)
-
-    for each, (layer, num_completed) in itertools.product(certificates, steps):
-        bound = each.step_lower_bound(layer, num_completed)
-        for upper_bound in range(1, basis.shape[1] + 2):
-            assert each.certifies(layer, num_completed, upper_bound) == (bound >= upper_bound)

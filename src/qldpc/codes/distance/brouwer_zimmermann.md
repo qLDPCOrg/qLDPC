@@ -707,7 +707,7 @@ The disjoint family, its pruning ([Section 4.4](#44-heuristics-and-cost-models))
 | `_SectorSearch.finished` | Marks a search finished if `U ≤ cutoff`, `L ≥ U`, or every layer has been enumerated (`next_weight > dimension`) |
 | `BrouwerZimmermannSearch.finished` | Marks the search finished once the shared `U ≤ cutoff`, or the search of every sector has finished; `get_distance_brouwer_zimmermann` then returns `U` |
 
-The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, and `test_searches_that_setup_settles_are_finished_at_once` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
+The tests `test_brouwer_zimmermann_setup_exits`, `test_brouwer_zimmermann_setup_cutoffs`, `test_rows_of_an_automorphism_family_can_reach_the_cutoff`, `test_a_switch_at_the_end_of_setup_can_certify_the_distance`, and `test_searches_that_setup_settles_are_finished_at_once` in [_brouwer_zimmermann/distance_test.py](_brouwer_zimmermann/distance_test.py) exercise these exits.
 
 ### 4.3 Concept-to-code glossary
 
@@ -987,10 +987,11 @@ These tests check the requirements, against exhaustive enumeration where they ca
 - [_brouwer_zimmermann/coset_test.py](_brouwer_zimmermann/coset_test.py): `test_searches_by_tails_answer_as_searches_of_whole_words`, the words, skips, and bounds `R` of queries with tables; `test_min_weights_of_cosets_match_brute_force`; `test_min_weight_searches_above_max_weight_examine_as_queries`; `test_answers_do_not_depend_on_earlier_queries`; and, for batches on threads, `test_batches_on_threads_answer_as_on_one_thread`, `test_an_earlier_heavy_coset_that_ends_last_is_the_answer`, `test_an_earlier_heavy_coset_recorded_before_a_later_one_is_the_answer`, and `test_the_word_of_an_earlier_heavy_coset_survives_a_later_search`, which find the first heavy coset in every order of the threads; `test_each_worker_searches_with_its_own_copy_of_the_planning_buffer`, `test_copies_of_planning_buffers_share_nothing_and_start_from_the_first_step`, and `test_concurrent_batches_share_a_search`, which check the buffers that workers write; and `test_costly_batches_move_to_threads_once_their_work_reaches_the_split_work` and `test_batches_within_the_split_work_run_on_the_calling_thread`, which check the work that the loops count.
 - [_brouwer_zimmermann/coset_routes_test.py](_brouwer_zimmermann/coset_routes_test.py): the tables that routes by tails ask for and keep, also when threads choose routes at once.
 - [coset_leaders_test.py](coset_leaders_test.py): `test_min_weights_match_exhaustive_minima`.
-- [logical_counts_test.py](logical_counts_test.py) and [_counting/scan_test.py](_counting/scan_test.py): `test_counting_continues_at_an_equal_lower_bound` and `test_counts_with_completion_tables_match_enumeration`, counts that a stop or a skip at equality would get wrong.
+- [logical_counts_test.py](logical_counts_test.py) and [_counting/scan_test.py](_counting/scan_test.py): `test_counting_continues_at_an_equal_lower_bound` and `test_skipping_chunks_stop_at_a_lighter_nontrivial_word`, counts that a stop or a skip at equality would get wrong.
 - [core_test.py](core_test.py): `test_brouwer_zimmermann_random_cross_checks`, on binary and general Pauli problems; `test_max_weight`, on BZ and brute force; and `test_max_weight_caps_cutoff`.
 
-Performance and helper tests check broad work budgets and current interfaces, and do not make a particular family, packing order, or optimization a requirement.
+Helper tests check current interfaces, and tests of heuristics check that each heuristic decides chosen cases as intended.
+So neither makes a packing order or optimization a requirement, and a deliberate change of a heuristic may need new cases.
 
 ## References
 

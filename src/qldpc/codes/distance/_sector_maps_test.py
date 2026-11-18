@@ -157,24 +157,35 @@ def test_candidates_are_verified(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_fixed_candidates_map_the_checks_of_common_codes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reversal, a shift by half, and a quarter turn map the checks of some codes without bliss.
 
-    They map the checks of a bivariate bicycle code, a rotated toric code, and a rotated surface
-    code of odd distance onto each other, as bliss would.  In the last pair, the reversal of the
-    four qubits maps the X-type checks, without their repeats, onto the Z-type checks, with matching
-    degrees, but the X-type checks repeat 1100 and the Z-type checks 0001 and 0010, so no
-    permutation maps the lists of checks onto each other.  Their weights differ, so the lookup
-    rejects them without bliss.
+    They map the checks of a bivariate bicycle code, a generalized bicycle code, a rotated toric
+    code, and a rotated surface code of odd distance onto each other, as bliss would.  Each X-type
+    check of the generalized bicycle code has odd weight 3 + 4 = 7, so it is not orthogonal to
+    itself.  It is orthogonal to every Z-type check, so it lies outside their span, and the identity
+    does not map the row spaces onto each other.  In the last pair, the reversal of the four qubits
+    maps the X-type checks, without their repeats, onto the Z-type checks, with matching degrees,
+    but the X-type checks repeat 1100 and the Z-type checks 0001 and 0010, so no permutation maps
+    the lists of checks onto each other.  Their weights differ, so the lookup rejects them without
+    bliss.
     """
     calls: list[object] = []
     monkeypatch.setattr(_bliss, "is_installed", lambda: True)
     monkeypatch.setattr(_bliss, "get_matrix_isomorphism", lambda *args: calls.append(args))
     x, y = sympy.symbols("x y")
     bivariate_bicycle = codes.BBCode({x: 3, y: 3}, 1 + x + y, 1 + x * y + y**2)
-    for code in [bivariate_bicycle, codes.ToricCode(6, rotated=True), codes.SurfaceCode(3)]:
+    generalized_bicycle = codes.MBCode([7], 1 + x + x**3, 1 + x**2 + x**3 + x**4)
+    for code in [
+        bivariate_bicycle,
+        generalized_bicycle,
+        codes.ToricCode(6, rotated=True),
+        codes.SurfaceCode(3),
+    ]:
         checks_x, checks_z = _get_checks(code)
         permutation = _find(checks_x, checks_z)
         assert permutation is not None
         assert _swaps_row_spaces(checks_x, checks_z, permutation)
     assert not calls
+    generalized_x, generalized_z = _get_checks(generalized_bicycle)
+    assert get_span(generalized_x) != get_span(generalized_z)
     gauge_x = np.array([[1, 0, 0, 0], [1, 1, 0, 0], [1, 1, 0, 0], [0, 1, 0, 0]], dtype=np.uint8)
     gauge_z = np.array(
         [[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 1, 1], [0, 0, 1, 0], [0, 0, 1, 0]], dtype=np.uint8

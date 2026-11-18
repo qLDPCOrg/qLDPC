@@ -9,12 +9,11 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from ..conftest import SWEL_MATRIX
 from . import local_cliffords
 
-# The matrices by which the CNOT, with its control first, and the SWEL-preserving Clifford act on X
-# supports.
+# The matrix by which the CNOT, with its control first, acts on X supports.
 CNOT_MATRIX = [[1, 0], [1, 1]]
-SWEL_MATRIX = [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 1], [0, 1, 1, 1]]
 
 
 def test_the_named_gates_are_the_cnot_and_swel_matrices() -> None:
@@ -60,6 +59,9 @@ def test_invalid_local_matrices_are_rejected() -> None:
             local_cliffords.get_local_matrices(matrix, 2)
     with pytest.raises(ValueError, match="invertible"):
         local_cliffords.get_local_matrices(np.ones((2, 2)), 2)
+    # Cache a GF(2) matrix with the bytes of the GF(3) matrix below, which the key tells apart by
+    # its field.
+    local_cliffords.get_local_matrices(galois.GF(2)(identity), 2)
     for invalid in (
         2 * identity,
         np.full((2, 2), np.nan),
