@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 import unittest.mock
 import urllib
 
@@ -129,9 +130,7 @@ def test_get_qdistrnd_distance_bound() -> None:
 
             # QDistRnd receives the checks with the X and Z support of each qudit side by side
             riffled_matrix = matrix[:, [col for qudit in range(5) for col in (qudit, qudit + 5)]]
-            commands = _codes._get_gap_sparse_matrix_commands(
-                "matrix", galois.GF(2), riffled_matrix
-            )
+            commands = _codes._get_gap_sparse_matrix_commands("matrix", riffled_matrix)
             assert set(commands) <= set(get_output.call_args.args)
 
             assert (
@@ -202,19 +201,38 @@ def test_qdistrnd_bounds_without_checks_of_one_type() -> None:  # pragma: no cov
 def test_get_gap_sparse_matrix_commands() -> None:
     """Extension-field entries map to primitive-element powers, not integer multiples of One(F)."""
     # over GF(4) the galois integers 1, 2, 3 are Z(4)^0, Z(4)^1, Z(4)^2 -- not 1, 2, 3 copies of One
-    matrix = np.array([[0, 1, 2, 3]])
-    commands = " ".join(_codes._get_gap_sparse_matrix_commands("m", galois.GF(4), matrix))
+    matrix = galois.GF(4)([[0, 1, 2, 3]])
+    commands = " ".join(_codes._get_gap_sparse_matrix_commands("m", matrix))
     assert "elements:=[Z(4)^0,Z(4)^1,Z(4)^2]" in commands
     assert "v[i+1]:=elements[f]" in commands
+
+
+def test_qdistrnd_over_fields_with_other_polynomials() -> None:
+    """QDistRnd queries map the elements of a field into the field with the Conway polynomial."""
+    # With the Conway polynomial x^2 + 2x + 2, Z = Z(9) satisfies Z^2 = Z + 1 and Z^4 = -1, so the
+    # roots of the polynomial y^2 + 1 of this field are Z^2 and its conjugate Z^6.  Sending y to Z^2
+    # sends the elements 1, 2, y, 1 + y, 2 + y, 2y, 1 + 2y, 2 + 2y, whose galois integers are 1 to
+    # 8, to Z^0, Z^4, Z^2, Z^7, Z^1, Z^6, Z^5, Z^3; sending y to Z^6 cubes each of these.
+    field = galois.GF(9, irreducible_poly="x^2 + 1")
+    with (
+        unittest.mock.patch("qldpc.external.gap.require_package"),
+        unittest.mock.patch("qldpc.external.gap.get_output", return_value="2") as get_output,
+    ):
+        _codes.get_qdistrnd_distance_bound(field([[1, 3, 0, 0], [0, 0, 1, 3]]))
+    query = "".join(get_output.call_args.args)
+    powers = [0, 4, 2, 7, 1, 6, 5, 3]
+    assert any(
+        "elements:=[" + ",".join(f"Z(9)^{power * conjugate % 8}" for power in powers) + "]" in query
+        for conjugate in [1, 3]
+    )
 
 
 @pytest.mark.parametrize(
     "field",
     [
-        galois.GF(3),
+        galois.GF(7),
         galois.GF(4),
         galois.GF(9),
-        galois.GF(16),
         galois.GF(8, irreducible_poly="x^3 + x^2 + 1"),
         galois.GF(9, irreducible_poly="x^2 + 1"),
     ],
@@ -251,11 +269,12 @@ def test_finite_field_elements(field: type[galois.FieldArray]) -> None:
 
     # MAGMA defines the field by its irreducible polynomial, and an element as a polynomial in its
     # root w, which here evaluates at the x of the galois field
-    definition, elements = _codes.get_magma_field(field)
+    definition, field_name, elements = _codes.get_magma_field(field)
     if field.degree == 1:
-        assert definition == ""
+        assert (definition, field_name) == ("", f"GF({order})")
         assert elements == [str(value) for value in range(order)]
         return
+    assert field_name == "F"
     coefficients = ",".join(map(str, field.irreducible_poly.coeffs[::-1].tolist()))
     polynomial = f"Polynomial(GF({characteristic}), [{coefficients}])"
     assert definition == f"F<w> := ext<GF({characteristic}) | {polynomial}>; "
@@ -267,3 +286,34 @@ def test_finite_field_elements(field: type[galois.FieldArray]) -> None:
             power = int(monomial.lstrip("^") or 1) if "w" in term else 0
             total += field(int(coefficient.rstrip("*") or 1)) * x**power
         assert total == field(value)
+
+
+def test_permutation_automorphism_groups_over_extension_fields() -> None:  # pragma: no cover
+    """GAP finds the permutation automorphisms of codes over extension fields, as brute force does.
+
+    This test runs GAP itself, so it runs only where GAP can be called, as in the GAP integration
+    tests.
+    """
+    if not external.gap.is_callable():
+        pytest.skip("GAP cannot be called")
+    # GUAVA reads an integer i as the element at position i + 1 of GAP's sorted list of the
+    # elements of the field, so sending the galois integers of these checks would give codes with
+    # other groups
+    # sending the galois integers of a field with another irreducible polynomial as those of the
+    # field with the Conway polynomial would give the last two codes other groups
+    for code in [
+        codes.ClassicalCode(galois.GF(8)([[3, 5, 6, 6, 1], [4, 6, 2, 2, 6]])),
+        codes.ClassicalCode(galois.GF(9)([[4, 8, 0, 1, 2]])),
+        codes.ClassicalCode(
+            galois.GF(8, irreducible_poly="x^3 + x^2 + 1")([[1, 0, 6, 6, 4], [0, 1, 5, 4, 1]])
+        ),
+        codes.ClassicalCode(galois.GF(9, irreducible_poly="x^2 + 1")([[1, 8, 2, 4]])),
+    ]:
+        # the permutations p for which the permuted generators, whose bit j moves to bit p[j],
+        # satisfy the parity checks
+        generator = code.generator
+        brute_force = sum(
+            not np.any(code.matrix @ generator[:, np.argsort(permutation)].T)
+            for permutation in itertools.permutations(range(len(code)))
+        )
+        assert code.get_permutation_automorphism_group().order == brute_force

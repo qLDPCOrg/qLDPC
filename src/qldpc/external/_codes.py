@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Loading codes from GAP, QECDB, and the qLDPC Challenge, and QDistRnd distance bounds in GAP."""
+"""Codes from GAP, QECDB, and the qLDPC Challenge, QDistRnd bounds, and field elements for GAP."""
 
 from __future__ import annotations
 
@@ -222,19 +222,20 @@ def get_qdistrnd_distance_bound(
         args = ",".join([f"{one}*matrix_x", f"{one}*matrix_z", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);;',
-            *_get_gap_sparse_matrix_commands("matrix_x", type(matrix), matrix),
-            *_get_gap_sparse_matrix_commands("matrix_z", type(matrix), matrix_z),
+            *_get_gap_sparse_matrix_commands("matrix_x", matrix),
+            *_get_gap_sparse_matrix_commands("matrix_z", matrix_z),
             f"Print(DistRandCSS({args}:{kwargs}));;",
         ]
 
     else:
         # "riffle" the parity check matrix to put X and Z support bits each qudit next to each other
         num_qudits = matrix.shape[1] // 2
-        riffled_matrix = matrix.reshape(-1, 2, num_qudits).transpose(0, 2, 1).reshape(matrix.shape)
+        riffled = matrix.reshape(-1, 2, num_qudits).transpose(0, 2, 1).reshape(matrix.shape)
+        riffled_matrix = type(matrix)(riffled)
         args = ",".join([f"{one}*matrix", f"{num_trials}", f"{cutoff}"])
         commands = [
             'LoadPackage("QDistRnd", false);',
-            *_get_gap_sparse_matrix_commands("matrix", type(matrix), riffled_matrix),
+            *_get_gap_sparse_matrix_commands("matrix", riffled_matrix),
             f"Print(DistRandStab({args}:{kwargs}));",
         ]
 
@@ -254,14 +255,13 @@ def get_qdistrnd_distance_bound(
     return abs(int(bound))
 
 
-def _get_gap_sparse_matrix_commands(
-    matrix_var: str, field: type[galois.FieldArray], matrix: npt.NDArray[np.int_]
-) -> list[str]:
+def _get_gap_sparse_matrix_commands(matrix_var: str, matrix: galois.FieldArray) -> list[str]:
     """Get GAP commands that define a variable as a matrix over a finite field.
 
     The commands transfer the matrix in a sparse representation and assign it to the GAP variable
-    named matrix_var.  Matrix entries are the galois integers of elements of the field.
+    named matrix_var.
     """
+    field = type(matrix)
     field_order = field.order
     _, matrix_width = matrix.shape
     # Turn matrix into sparse representation where `nonzero_entries[i][j]` is a list of integers
@@ -319,12 +319,14 @@ def get_gap_field_elements(field: type[galois.FieldArray]) -> list[str]:
 
     GAP writes the elements of ``GF(q)`` as ``0*Z(q)`` and the powers of ``Z(q)``, a root of the
     Conway polynomial of ``GF(q)``.  GAP reads integers by its own conventions: ``i * One(GF(q))``
-    is in the prime field, and GUAVA's ``CheckMatCode`` reads ``i`` as element ``i`` of GAP's sorted
-    list of the elements of ``GF(q)``.  Neither agrees with the integers of galois for every field,
-    such as ``GF(8)``, so these expressions write elements as GAP does.  galois builds ``GF(q)`` by
-    default with the Conway polynomial, and then ``Z(q)`` is galois's primitive element: ``x``, or
-    for a prime ``q``, the least primitive root modulo ``q``, which is the root of the Conway
-    polynomial ``x - a``.  The element with galois integer ``v`` is then ``Z(q)^log(v)``.
+    is in the prime field, and GUAVA's ``CheckMatCode`` reads ``i`` as the element at position
+    ``i + 1`` of GAP's sorted list of the elements of ``GF(q)``.  For fields such as ``GF(8)``, both
+    differ from the integers of galois, so these expressions write elements as GAP does.
+
+    galois builds ``GF(q)`` by default with the Conway polynomial, and then ``Z(q)`` is galois's
+    primitive element.  For a prime ``q``, it is the least primitive root ``a`` modulo ``q``, the
+    root of the Conway polynomial ``x - a``; otherwise it is ``x``.  The element with galois integer
+    ``v`` is then ``Z(q)^log(v)``.
 
     A field with another irreducible polynomial maps into the field with the Conway polynomial by
     sending its ``x`` to a root of its irreducible polynomial, which is a field isomorphism.  The
@@ -336,7 +338,8 @@ def get_gap_field_elements(field: type[galois.FieldArray]) -> list[str]:
     if field.irreducible_poly == conway_field.irreducible_poly:
         images = conway_field.Range(0, order)
     else:
-        # evaluate the polynomial in x whose coefficients are the digits of each galois integer
+        # evaluate at the root the polynomial in x whose coefficients are the digits of each galois
+        # integer
         polynomial = galois.Poly(field.irreducible_poly.coeffs.view(np.ndarray), field=conway_field)
         root = polynomial.roots()[0]
         powers = root ** np.arange(field.degree)
@@ -346,18 +349,18 @@ def get_gap_field_elements(field: type[galois.FieldArray]) -> list[str]:
     return [f"0*Z({order})"] + [f"Z({order})^{int(power)}" for power in images[1:].log(generator)]
 
 
-def get_magma_field(field: type[galois.FieldArray]) -> tuple[str, list[str]]:
-    """MAGMA commands that define a finite field as ``F``, and its elements by galois integer.
+def get_magma_field(field: type[galois.FieldArray]) -> tuple[str, str, list[str]]:
+    """MAGMA commands that define a finite field, its name, and its elements by galois integer.
 
     MAGMA maps an integer into a finite field through the prime field, so an integer cannot stand
-    for an element outside the prime field.  For a prime field, the commands are empty and the
-    elements are integers.  Otherwise, the commands define ``F`` as the extension of the prime field
-    by the irreducible polynomial of the galois field, whose root is ``w``, and the element with
-    galois integer ``v`` is the polynomial in ``w`` whose coefficients are the base-``p`` digits of
-    ``v``.
+    for an element outside the prime field.  For a prime field, the commands are empty, the name is
+    ``GF(p)``, and the elements are integers.  Otherwise, the commands define ``F`` as the extension
+    of the prime field by the irreducible polynomial of the galois field, whose root is ``w``, and
+    the element with galois integer ``v`` is the polynomial in ``w`` whose coefficients are the
+    base-``p`` digits of ``v``.
     """
     if field.degree == 1:
-        return "", [str(value) for value in range(field.order)]
+        return "", f"GF({field.order})", [str(value) for value in range(field.order)]
     characteristic = field.characteristic
     coefficients = ",".join(map(str, field.irreducible_poly.coeffs[::-1].tolist()))
     definition = (
@@ -372,7 +375,7 @@ def get_magma_field(field: type[galois.FieldArray]) -> tuple[str, list[str]]:
                 monomial = [] if power == 0 else ["w"] if power == 1 else [f"w^{power}"]
                 terms.append("*".join(coefficient + monomial))
         elements.append("+".join(terms))
-    return definition, elements
+    return definition, "F", elements
 
 
 if not TYPE_CHECKING:  # DEPRECATED: see qldpc._deprecations

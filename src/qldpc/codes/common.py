@@ -843,16 +843,15 @@ class ClassicalCode(AbstractCode):
         matrix = self.canonicalized.matrix.view(np.ndarray)
 
         def get_matrix_str(elements: Sequence[str]) -> str:
-            """The parity check matrix, with each entry written as the given element."""
+            """The parity check matrix, with each entry v written as elements[v]."""
             rows = ("[" + ",".join(elements[value] for value in row) + "]" for row in matrix)
             return "[" + ",".join(rows) + "]"
 
         # GAP and MAGMA read integers by conventions that differ from those of galois outside prime
         # fields, so write the elements of other fields as these systems do
         if with_magma:
-            definition, elements = _codes.get_magma_field(self.field)
-            field_str = f"GF({self.field.order})" if self.field.degree == 1 else "F"
-            magma_matrix = f"Matrix({field_str}, {len(matrix)}, {matrix.shape[1]}, "
+            definition, field_name, elements = _codes.get_magma_field(self.field)
+            magma_matrix = f"Matrix({field_name}, {len(matrix)}, {matrix.shape[1]}, "
             magma_matrix += get_matrix_str(elements) + ")"
             # MAGMA's AutomorphismGroup of a nonbinary code is its monomial automorphism group,
             # which acts on n * (q - 1) points, so ask for its PermutationGroup, on n points

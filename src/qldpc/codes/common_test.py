@@ -407,43 +407,17 @@ def test_permutation_automorphism_group(
     assert code.get_permutation_automorphism_group(with_magma=True).equiv(group)
     assert "\nPermutationGroup(LinearCode(Matrix(GF(2),1,2,[[1,1]])));\n" in capsys.readouterr().out
 
-    # MAGMA maps integers into GF(4) through the prime field, so the query defines GF(4) by the
-    # irreducible polynomial of the galois field, and writes its elements as polynomials in a root
+    # MAGMA maps integers into GF(8) through the prime field, so the query defines GF(8) by the
+    # irreducible polynomial x^3 + x^2 + 1 of the galois field, constant coefficient first, and
+    # writes its elements as polynomials in a root
     user_inputs = iter(
-        ["Permutation group acting on a set of cardinality 5", "Order = 2", "    (2, 5)(3, 4)", ""]
+        ["Permutation group acting on a set of cardinality 3", "Order = 2", "    (2, 3)", ""]
     )
-    codes.HammingCode(2, field=4).get_permutation_automorphism_group(with_magma=True)
-    field = "F<w>:=ext<GF(2)|Polynomial(GF(2),[1,1,1])>;"
-    matrix = "Matrix(F,2,5,[[1,0,1,w,1+w],[0,1,1,1,1]])"
+    field_8 = galois.GF(8, irreducible_poly="x^3 + x^2 + 1")
+    codes.ClassicalCode(field_8([[1, 2, 6]])).get_permutation_automorphism_group(with_magma=True)
+    field = "F<w>:=ext<GF(2)|Polynomial(GF(2),[1,0,1,1])>;"
+    matrix = "Matrix(F,1,3,[[1,w,w+w^2]])"
     assert f"\n{field}PermutationGroup(LinearCode({matrix}));\n" in capsys.readouterr().out
-
-
-def test_permutation_automorphism_groups_over_extension_fields() -> None:  # pragma: no cover
-    """GAP finds the permutation automorphisms of codes over extension fields, as brute force does.
-
-    This test runs GAP itself, so it runs only where GAP can be called, as in the GAP integration
-    tests.
-    """
-    if not external.gap.is_callable():
-        pytest.skip("GAP cannot be called")
-    # GUAVA reads an integer i as element i of GAP's sorted list of the elements of the field, so
-    # sending the galois integers of these checks would give codes with other groups
-    checks_8 = [[3, 5, 6, 6, 1], [4, 6, 2, 2, 6]]
-    checks_9 = [[4, 8, 0, 1, 2]]
-    for code in [
-        codes.ClassicalCode(galois.GF(8)(checks_8)),
-        codes.ClassicalCode(galois.GF(9)(checks_9)),
-        codes.ClassicalCode(galois.GF(8, irreducible_poly="x^3 + x^2 + 1")(checks_8)),
-        codes.ClassicalCode(galois.GF(9, irreducible_poly="x^2 + 1")(checks_9)),
-    ]:
-        # the permutations p for which the permuted generators, whose bit j moves to bit p[j],
-        # satisfy the parity checks
-        generator = code.generator
-        brute_force = sum(
-            not np.any(code.matrix @ generator[:, np.argsort(permutation)].T)
-            for permutation in itertools.permutations(range(len(code)))
-        )
-        assert code.get_permutation_automorphism_group().order == brute_force
 
 
 def test_matrix_automorphism_group() -> None:
