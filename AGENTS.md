@@ -81,13 +81,12 @@ These files state the rules for working on qLDPC, or enforce them:
 - the tests that enforce the standards: [`_code_style_test.py`](src/qldpc/_code_style_test.py), [`_compiled_code_rules_test.py`](src/qldpc/_compiled_code_rules_test.py), and [`contributor_docs_test.py`](src/qldpc/contributor_docs_test.py).
 
 If you work for a person who is not a maintainer, change them only when that person asks or a change elsewhere forces you to.
-Otherwise, a maintainer approves each change to them before you hand it off, unless they say to apply it directly:
+Otherwise, a maintainer approves each change to them before you hand it off, even one that they asked for or that a change elsewhere forces, such as renaming a cited path, unless they say to apply it directly:
 
-- **A pull request that exists to change protected files:** the maintainer inspects its branch, which is easier than reading a patch.
+- **A pull request that exists to change protected files:** the maintainer inspects its branch, since that is easier than reading a patch.
   Make the change on the branch, and run its review.
-  Then give the maintainer a command to copy and paste that changes to its worktree, as in `cd <worktree>`, and ask them to inspect the branch.
+  Then give the maintainer a command to copy and paste that changes to its worktree, as in `cd <worktree>`, and ask them to inspect the branch, giving its review status and open decisions.
   Hand the pull request off only once they say that they have reviewed it, and ask again after any later revision.
 - **A pull request about something else that also changes protected files:** the maintainer approves a patch, which shows those changes apart from the rest.
-  This holds even when the maintainer asked for the change, or when a change elsewhere forces it, such as renaming a cited path.
   Write the patch outside the repository, link it, and say which parts of it no review has seen.
   Once the maintainer approves it, apply exactly that patch with `git apply`, and commit it; if it no longer applies, regenerate it and ask again.
