@@ -12,23 +12,25 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from ...conftest import Tune
+from qldpc._binary import get_kernel
+
 from .._tuning import use_tuning
 from ..conftest import (
     get_exhaustive_minima,
     get_graph_state,
     get_pauli_weight,
     get_random_css_state,
+    get_random_full_rank_matrix,
     get_syndrome,
 )
 from ..coset_leaders import CosetLeaderSearch
 from . import coset, search, sparse_checks
 
 
-def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
+def test_connected_cluster_coset_searches_make_checks_sparser_with_their_rounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``CosetLeaderSearch`` passes the sparsifying rounds of its tuning to ``get_sparser_rows``."""
+    """A coset search passes its rounds of sparsifying to ``get_sparser_rows``."""
     calls: list[tuple[int, int]] = []
     get_sparser_rows = coset.get_sparser_rows
     signature = inspect.signature(get_sparser_rows)
@@ -38,10 +40,15 @@ def test_connected_cluster_oracles_make_checks_sparser_with_their_tuning(
         calls.append((arguments["max_rounds"], arguments["rounds_without_improvement"]))
         return get_sparser_rows(*args, **kwargs)
 
-    # Without ``css_weight``, the ``CosetLeaderSearch`` has one coset search.
     monkeypatch.setattr(coset, "get_sparser_rows", record)
-    with use_tuning(max_sparsifying_rounds=5, sparsifying_rounds_without_improvement=2):
-        CosetLeaderSearch(get_graph_state(2, [(0, 1)], phase=True), method="connected_cluster")
+    coset.ConnectedClusterCosetSearch(
+        get_graph_state(2, [(0, 1)], phase=True),
+        symplectic=True,
+        max_rounds=5,
+        rounds_without_improvement=2,
+        restrict_viable_symbols=True,
+        stabilizer_overlap_cuts=True,
+    )
     assert calls == [(5, 2)]
 
 
@@ -73,6 +80,8 @@ def test_connected_cluster_queries_add_no_pair_sums(monkeypatch: pytest.MonkeyPa
         stabilizer_overlap_cuts=True,
     )
     assert len(sparse_checks.get_light_pair_sums(coset_search.checks, symplectic=False)[0])
+    # The checks are a read-only view, since queries on several threads read them.
+    assert not coset_search.checks.flags.writeable
     # The syndrome of the first and last checks has no word of weight one, so the query searches.
     assert coset_search.get_min_weight_bound(0b101, 2).within_max_weight
     assert num_checks == [len(coset_search.checks)]
@@ -111,13 +120,11 @@ def test_connected_cluster_queries_only_read_their_search(monkeypatch: pytest.Mo
         assert len(tabulated) == num_tabulated
 
 
-@pytest.mark.parametrize(
-    ("changes", "expected"), [({}, True), ({"restrict_viable_symbols": False}, False)]
-)
-def test_connected_cluster_queries_read_the_restriction_of_their_tuning(
-    monkeypatch: pytest.MonkeyPatch, changes: dict[str, bool], expected: bool
+@pytest.mark.parametrize("restrict_viable_symbols", [True, False])
+def test_connected_cluster_queries_read_their_restriction(
+    monkeypatch: pytest.MonkeyPatch, restrict_viable_symbols: bool
 ) -> None:
-    """A ``CosetLeaderSearch`` passes ``restrict_viable_symbols`` of its tuning to its queries."""
+    """A coset search passes ``restrict_viable_symbols`` to its queries."""
     settings: list[bool] = []
     search_supports = search._search_supports
     signature = inspect.signature(search_supports)
@@ -134,10 +141,16 @@ def test_connected_cluster_queries_read_the_restriction_of_their_tuning(
     matrix = get_graph_state(4, [(0, 1), (1, 2), (2, 3)])
     syndrome = get_syndrome(matrix, 0b1001)
     assert get_exhaustive_minima(matrix, False)[syndrome] == 2
-    with use_tuning(**changes):
-        oracle = CosetLeaderSearch(matrix, method="connected_cluster")
-    assert oracle.get_min_weight_bound(syndrome, 2).within_max_weight
-    assert settings and set(settings) == {expected}
+    coset_search = coset.ConnectedClusterCosetSearch(
+        matrix,
+        symplectic=True,
+        max_rounds=0,
+        rounds_without_improvement=1,
+        restrict_viable_symbols=restrict_viable_symbols,
+        stabilizer_overlap_cuts=True,
+    )
+    assert coset_search.get_min_weight_bound(syndrome, 2).within_max_weight
+    assert settings and set(settings) == {restrict_viable_symbols}
 
 
 @pytest.mark.parametrize("cuts", [True, False])
@@ -172,10 +185,10 @@ def test_connected_cluster_queries_cut_by_the_stabilizers_of_their_state(
     monkeypatch.setattr(search, "_search_supports", record_cuts)
     css_state = get_random_css_state(6, 3, np.random.default_rng(0))
     with use_tuning(stabilizer_overlap_cuts=cuts):
-        pauli_oracle = CosetLeaderSearch(css_state, method="connected_cluster")
-        css_oracle = CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
-    (pauli_search,) = pauli_oracle._connected_cluster_searches
-    x_part_search, z_part_search = css_oracle._connected_cluster_searches
+        pauli_leaders = CosetLeaderSearch(css_state, method="connected_cluster")
+        css_leaders = CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
+    (pauli_search,) = pauli_leaders._connected_cluster_searches
+    x_part_search, z_part_search = css_leaders._connected_cluster_searches
     pairs = [
         (pauli_search, pauli_search),
         (x_part_search, z_part_search),
@@ -193,48 +206,88 @@ def test_connected_cluster_queries_cut_by_the_stabilizers_of_their_state(
         assert all(bool(num_cuts) == cuts for num_cuts in num_cuts_per_query)
 
 
+def get_binary_syndrome(rows: npt.NDArray[np.uint8], word: int) -> int:
+    """The syndrome of a binary vector, whose bit ``i`` is the product of row ``i`` with the vector.
+
+    Bit ``j`` of ``word`` is entry ``j`` of the vector.
+    """
+    bits = np.array([word >> index & 1 for index in range(rows.shape[1])], dtype=np.uint8)
+    return sum(int(bit) << index for index, bit in enumerate(rows @ bits % 2))
+
+
+def get_binary_minima(rows: npt.NDArray[np.uint8]) -> list[int]:
+    """The least weight of a vector with each syndrome of independent binary rows."""
+    minima = [rows.shape[1]] * (1 << len(rows))
+    for word in range(1 << rows.shape[1]):
+        syndrome = get_binary_syndrome(rows, word)
+        minima[syndrome] = min(minima[syndrome], word.bit_count())
+    return minima
+
+
 @pytest.mark.parametrize("cuts", [True, False])
 @pytest.mark.parametrize("restrict_viable_symbols", [True, False])
 def test_connected_cluster_answers_match_exhaustive_minima(
-    pytestconfig: pytest.Config, restrict_viable_symbols: bool, cuts: bool, tune: Tune
+    pytestconfig: pytest.Config, restrict_viable_symbols: bool, cuts: bool
 ) -> None:
-    """Queries get the bounds that ``ConnectedClusterCosetSearch`` states, with or without cuts."""
-    tune(restrict_viable_symbols=restrict_viable_symbols, stabilizer_overlap_cuts=cuts)
-    # Graph states with phases are not CSS, and the connected-cluster method weighs errors on them
-    # only by physical weight.  CSS states, with no pure-X stabilizer, only pure-X stabilizers, or
-    # both, are weighed by both measures.
+    """Queries get the bounds that ``ConnectedClusterCosetSearch`` states, with or without cuts.
+
+    A single query searches only ``max_weight``, as does a query whose first limit is above it.  A
+    query whose first limit is two finds the weight of the lightest words of each coset that has a
+    word within ``max_weight``.
+    """
+    # The searches of Paulis check with the stabilizers of graph states with phases, which are not
+    # CSS, and of CSS states, with no pure-X stabilizer, only pure-X stabilizers, or both.  The
+    # searches of X or Z parts check with random independent rows.  The stabilizers, and a basis of
+    # the kernel of the rows, are known words for the cuts.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     for num_qubits in range(1, 6):
         edges = [pair for pair in itertools.combinations(range(num_qubits), 2) if rng.integers(2)]
         graph_state = get_graph_state(num_qubits, edges, phase=True)
         num_x_stabilizers = [0, num_qubits, num_qubits // 2][num_qubits % 3]
         css_state = get_random_css_state(num_qubits, num_x_stabilizers, rng)
-        for matrix, css_weight in [(graph_state, False), (css_state, False), (css_state, True)]:
-            oracle = CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
-            minima = get_exhaustive_minima(matrix, css_weight)
+        rows = get_random_full_rank_matrix(rng, int(rng.integers(1, num_qubits + 1)), num_qubits)
+        for checks, symplectic in [(graph_state, True), (css_state, True), (rows, False)]:
+            coset_search = coset.ConnectedClusterCosetSearch(
+                checks,
+                symplectic=symplectic,
+                max_rounds=10,
+                rounds_without_improvement=2,
+                restrict_viable_symbols=restrict_viable_symbols,
+                stabilizer_overlap_cuts=cuts,
+            )
+            words = coset_search.checks if symplectic else get_kernel(checks)
+            if len(words):
+                coset_search.use_query_overlap_words(words)
+            minima = (
+                get_exhaustive_minima(checks, False).tolist()
+                if symplectic
+                else get_binary_minima(checks)
+            )
             for syndrome, max_weight in itertools.product(
-                range(1 << num_qubits), range(num_qubits + 1)
+                range(1 << len(checks)), range(num_qubits + 1)
             ):
-                minimum = int(minima[syndrome])
-                single = oracle.get_min_weight_bound(syndrome, max_weight)
-                batched, _ = oracle._get_batch_cluster_bound(syndrome, max_weight)
-                # A first limit above max_weight answers as a single query does.
-                if not css_weight:
-                    search = oracle._connected_cluster_searches[0]
-                    late = search.get_min_weight_bound(
-                        syndrome, max_weight, first_limit=max_weight + 1
-                    )
-                    assert late == single
-                for bound, exact in [(single, False), (batched, True)]:
-                    weight = get_pauli_weight(bound.representative, num_qubits, css_weight)
-                    assert get_syndrome(matrix, bound.representative) == syndrome
+                minimum = minima[syndrome]
+                single = coset_search.get_min_weight_bound(syndrome, max_weight)
+                ladder = coset_search.get_min_weight_bound(syndrome, max_weight, first_limit=2)
+                late = coset_search.get_min_weight_bound(
+                    syndrome, max_weight, first_limit=max_weight + 1
+                )
+                assert late == single
+                for bound, exact in [(single, False), (ladder, True)]:
+                    word = bound.representative
+                    if symplectic:
+                        weight = get_pauli_weight(word, num_qubits, False)
+                        assert get_syndrome(checks, word) == syndrome
+                    else:
+                        weight = word.bit_count()
+                        assert get_binary_syndrome(checks, word) == syndrome
                     assert bound.within_max_weight == (minimum <= max_weight)
                     if not bound.within_max_weight:
                         expected_bound = minimum if minimum < 2 else max(2, max_weight + 1)
                         assert bound.lower_bound == expected_bound
                     elif exact or minimum < 2:
-                        # Batches, from limit two, and words of weight at most one are exact within
-                        # max_weight.
+                        # The ladder from limit two, and words of weight at most one, are exact
+                        # within max_weight.
                         assert bound.lower_bound == weight == minimum
                     else:
                         assert bound.lower_bound == 2 and weight <= max_weight

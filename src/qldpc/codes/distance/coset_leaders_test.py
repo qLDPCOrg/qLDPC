@@ -19,7 +19,7 @@ import stim
 from qldpc._binary import unpack_bits
 
 from ..conftest import Tune
-from . import _threads
+from . import _threads, coset_leaders
 from ._brouwer_zimmermann.coset import BrouwerZimmermannCosetSearch
 from ._tuning import use_tuning
 from .conftest import (
@@ -687,6 +687,40 @@ def test_batches_are_checked() -> None:
         with pytest.raises(ValueError, match="out of range"):
             query(np.array([[4]], dtype=np.uint64), 1)
     assert search.get_min_weights(np.array([[3]], dtype=np.uint64), 1).tolist() == [2]
+
+
+def test_connected_cluster_searches_take_the_fields_of_their_tuning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connected-cluster coset searches are built with the fields of the tuning that configure them.
+
+    This holds for the search of Pauli errors, and for the searches of the X and Z parts of a CSS
+    state by CSS weight.
+    """
+    options: list[dict[str, Any]] = []
+    build = coset_leaders.ConnectedClusterCosetSearch
+
+    def record(matrix: npt.NDArray[np.uint8], **kwargs: Any) -> Any:
+        options.append(kwargs)
+        return build(matrix, **kwargs)
+
+    monkeypatch.setattr(coset_leaders, "ConnectedClusterCosetSearch", record)
+    css_state = get_random_css_state(4, 2, np.random.default_rng(0))
+    with use_tuning(
+        max_sparsifying_rounds=5,
+        sparsifying_rounds_without_improvement=2,
+        restrict_viable_symbols=False,
+        stabilizer_overlap_cuts=False,
+    ):
+        CosetLeaderSearch(get_graph_state(2, [(0, 1)], phase=True), method="connected_cluster")
+        CosetLeaderSearch(css_state, css_weight=True, method="connected_cluster")
+    expected = {
+        "max_rounds": 5,
+        "rounds_without_improvement": 2,
+        "restrict_viable_symbols": False,
+        "stabilizer_overlap_cuts": False,
+    }
+    assert [{key: kwargs[key] for key in expected} for kwargs in options] == [expected] * 3
 
 
 def test_connected_cluster_batches_by_css_weight_join_their_parts(
