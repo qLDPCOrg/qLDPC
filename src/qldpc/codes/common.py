@@ -570,15 +570,15 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, and no result is remembered.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`), also used for vector distances.
                 Nonbinary calculations use exhaustive enumeration, and reject
                 ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on distance,
+            while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
@@ -1613,7 +1613,9 @@ class QuditCode(AbstractCode):
         get_distance).
 
         The symplectic argument is provided for compatibility with CSSCode.get_logical_ops, and must
-        always be True for a non-CSS code.
+        always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1867,7 +1869,9 @@ class QuditCode(AbstractCode):
         generators of a canonical generating set, and the Pauli.X generators are the remainder.
 
         The symplectic argument is provided for compatibility with CSSCode.get_stabilizer_ops, and
-        must always be True for a non-CSS code.
+        must always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1917,11 +1921,14 @@ class QuditCode(AbstractCode):
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
-        logical Pauli operators computed by QuditCode.get_logical_ops.  If ``recompute is True``,
-        recompute these operators rather than returning cached values.
+        logical Pauli operators computed by QuditCode.get_logical_ops.  If passed a Pauli, return
+        only the operators of that type.  If ``recompute is True``, recompute these operators rather
+        than returning cached values.
 
         The symplectic argument is provided for compatibility with CSSCode.get_gauge_ops, and must
-        always be True for a non-CSS code.
+        always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -1954,7 +1961,9 @@ class QuditCode(AbstractCode):
         stabilizers, and Pauli.Z those dual to the X-type stabilizers.
 
         The symplectic argument is provided for compatibility with CSSCode.get_destabilizer_ops, and
-        must always be True for a non-CSS code.
+        must always be True for a non-CSS code.  CSSCode defaults it to False, which keeps only the
+        columns of the given Pauli type, so callers that may receive a CSSCode should pass
+        ``symplectic=True`` to get symplectic vectors from any code.
         """
         _require_symplectic(symplectic)
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
@@ -2136,14 +2145,14 @@ class QuditCode(AbstractCode):
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, and no result is remembered.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Nonbinary calculations use
                 exhaustive enumeration, and reject ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on distance,
+            while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary
@@ -3712,6 +3721,9 @@ class CSSCode(QuditCode):
 
         If ``canonicalized is True``, guarantee that the stabilizer matrix is canonicalized (i.e.,
         row-reduced) such that its rows are a minimal generating set for the stabilizer group.
+
+        If passed a Pauli (Pauli.X or Pauli.Z), return only the generators of that type, with
+        ``len(self)`` columns by default, or ``2 * len(self)`` if ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         if self._stabilizer_ops is None and self.is_subsystem_code:
@@ -3755,7 +3767,9 @@ class CSSCode(QuditCode):
         """Basis of nontrivial logical Pauli operators for the gauge qudits of this code.
 
         Nontrivial logical Pauli operators for the gauge qudits are organized similarly to the
-        logical Pauli operators computed by CSSCode.get_logical_ops.
+        logical Pauli operators computed by CSSCode.get_logical_ops.  If passed a Pauli, return only
+        the operators of that type, with ``len(self)`` columns by default, or ``2 * len(self)`` if
+        ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         gauge_ops = QuditCode.get_gauge_ops(self, pauli, recompute=recompute)
@@ -3769,6 +3783,8 @@ class CSSCode(QuditCode):
         """The destabilizers of this code.
 
         See help(qldpc.codes.QuditCode.get_destabilizer_ops) for an explanation of destabilizers.
+        If passed a Pauli, return only the destabilizers of that type, with ``len(self)`` columns by
+        default, or ``2 * len(self)`` if ``symplectic=True``.
         """
         pauli = None if pauli is None else Pauli.coerce_xz(pauli)
         destabilizer_ops = QuditCode.get_destabilizer_ops(self, pauli)
@@ -3880,8 +3896,8 @@ class CSSCode(QuditCode):
         For a subsystem code, logical operators are dressed: they may be multiplied by gauge
         operators.  :func:`~qldpc.codes.distance.get_distance_from_checks` says how to find the bare
         distance instead, if the code is binary.  The cost of this computation generally grows
-        exponentially with the size of the code.  Computed distances are remembered for later calls
-        unless cutoff is greater than 1.
+        exponentially with the size of the code.  A distance that a search computes is remembered
+        for later calls unless cutoff is greater than 1.
 
         Args:
             pauli: If passed qldpc.objects.Pauli.X, compute the X-distance (minimum weight of an
@@ -3889,8 +3905,6 @@ class CSSCode(QuditCode):
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                With a cutoff greater than 1, a result at or below the cutoff may therefore be only
-                an upper bound on distance, and no result is remembered.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Closed forms that search classical
                 codes, such as those of hypergraph product codes, search them with the same method.
@@ -3898,7 +3912,9 @@ class CSSCode(QuditCode):
                 ``"connected_cluster"``.
 
         Returns:
-            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.
+            An integer distance if it is defined, or ``NO_DISTANCE`` otherwise.  With a cutoff
+            greater than 1, a result at or below the cutoff may be only an upper bound on distance,
+            while a result above it is exact.
 
         Raises:
             ValueError: If the method is unknown, or is ``"connected_cluster"`` for a nonbinary

@@ -32,6 +32,19 @@ def test_only_always_compiled_asks_numba_for_a_disk_cache() -> None:
                 assert path.name == "_compilation.py", f"{path.name} caches without it"
 
 
+def test_nothing_asks_numba_for_parallel_code() -> None:
+    """Threads run compiled code, and two that run numba-parallel code at once abort the process.
+
+    ``always_compiled`` has no ``parallel`` option, and compiled code uses nothing from outside
+    qLDPC, so this keeps numba-parallel code out of the compiled code that threads run.
+    """
+    for path, tree in _get_source_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_njit(node.func):
+                names = {keyword.arg for keyword in node.keywords}
+                assert "parallel" not in names, f"{path.name} asks numba for parallel code"
+
+
 def test_always_compiled_functions_do_not_call_compiled_on_request_functions() -> None:
     """An always-compiled function is compiled and cached by itself, in every mode."""
     trees = list(_get_source_trees())

@@ -33,6 +33,7 @@ from .._tuning import DEFAULT_TUNING, MAX_VALUE, use_tuning
 from ..conftest import (
     MISSED_SET_CODE,
     CostlyStages,
+    check_shared_arrays_on_threads,
     get_costly_basis,
     get_golay_checks,
     get_random_css_code,
@@ -1743,15 +1744,24 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     completion_tables: CompletionRecord,
     prepared: list[bz._SectorSearch],
     item_scans: list[ItemScan],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """After each layer, a search on threads has the bounds and best weight of one on one thread.
 
     So the decisions that follow, such as the choice of completion tables and the switch to an
-    automorphism family, are those of one thread.  The search uses both.
+    automorphism family, are those of one thread.  The search uses both.  The threads run with
+    every array of the search, such as its completion tables, read-only.
     """
     code = qldpc.codes.BBCode({x: 12, y: 3}, 1 + x + x**4 * y, 1 + y + x**2)
     sector = get_sector(code, Pauli.X)
     histories = []
+    # The threads scan slices of the arrays of the sector search, which it takes before they start.
+    checked = check_shared_arrays_on_threads(
+        monkeypatch,
+        lambda sector_search, index, weight, tables: [search, sector_search, tables],
+        bz._SectorSearch,
+        "_scan_set_on_threads",
+    )
     for num_threads in (1, 3):
         prepared.clear()
         tune(num_threads=num_threads, information_set_batch_exponent=4)
@@ -1771,6 +1781,7 @@ def test_searches_on_threads_advance_as_searches_on_one_thread(
     assert histories[0] == histories[1]
     assert histories[0][-1][0][2:] == (8, True)
     assert any(scan.table_bytes for scan in item_scans)
+    assert checked and min(checked) > 0
 
 
 @pytest.mark.usefixtures("small_batches", "switch_before_any_layer")

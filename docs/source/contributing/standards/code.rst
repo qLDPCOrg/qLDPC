@@ -62,6 +62,10 @@ Simplicity and clarity
   Deliberate exceptions are fine when a clear benefit, such as a performance gain at negligible cost, justifies them; explain the reason in a comment.
 * Choose names that describe what they hold or do.
   Make a name as specific as the thing it names: a general name for a general tool, and a specific name for a special case.
+* Do not let an option choose the type of a result, whether the option is a bool, a mode string, or an optional selector such as ``pauli=None``.
+  Give each type its own entry point, or return one object that holds the results of every choice.
+  For example, a decoder specification builds an error decoder with ``build`` and an observable decoder with ``build_observable_decoder``.
+  A result's type may still follow the type of an input that the result is built from or added to, as ``to_circuit(append_to=circuit)`` returns a circuit of the type passed in.
 * Split a long block of code into paragraphs separated by blank lines.
   Start each paragraph with a comment that says what it does.
   A reader should be able to follow the outline of the code from these comments alone.
