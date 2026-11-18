@@ -599,6 +599,30 @@ def test_quantum_tanner_saved_local_checks(tmp_path: pathlib.Path) -> None:
     assert toric_codes[0] == toric_codes[1]
 
 
+def test_quantum_tanner_save_fields(tmp_path: pathlib.Path) -> None:
+    """QTCodes save only over default representations of fields, since files record only the order.
+
+    Over a field with another irreducible polynomial or primitive element, QTCode.load would read
+    the saved values in the default field, so QTCode.save raises before it writes anything.
+    """
+    shift = abstract.CyclicGroup(4).generators[0]
+    path = tmp_path / "subdirectory" / "code.txt"
+    for field in [
+        galois.GF(8, irreducible_poly="x^3 + x^2 + 1"),
+        galois.GF(8, primitive_element=3),
+        galois.GF(5, primitive_element=3),
+    ]:
+        code = codes.QTCode([shift, ~shift], [shift, ~shift], [[1, 2]], field=field)
+        with pytest.raises(ValueError, match="record only the order of the field"):
+            code.save(str(path))
+        assert not path.parent.exists()
+
+    # the default representation of an extension field saves and loads
+    code = codes.QTCode([shift, ~shift], [shift, ~shift], [[1, 2]], field=4)
+    code.save(str(path))
+    assert codes.QTCode.load(str(path)) == code
+
+
 def test_quantum_tanner_without_checks() -> None:
     """Local check spaces of dimension zero give no checks."""
     shift = abstract.CyclicGroup(3).generators[0]

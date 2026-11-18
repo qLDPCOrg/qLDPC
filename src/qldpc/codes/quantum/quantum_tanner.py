@@ -705,13 +705,28 @@ class QTCode(_SquareComplexCode):
 
         The file records the subsets, the local codes, the order of the field, the complex, the
         choice of local checks, and the generator matrices of the local codes.  From these data,
-        QTCode.load rebuilds an equal code if the field is galois.GF(order), with its default
-        irreducible polynomial and primitive element.  For a field with any other representation,
-        QTCode.load can raise an error or build a different code.  The members of each subset are
-        written in sorted order, so that the file does not depend on the order in which the subsets
-        list their members.  Equal codes can still give different files, if they chose their local
-        checks differently, or if their local codes carry different generator matrices.
+        QTCode.load rebuilds an equal code.  Since the file records only the order of the field,
+        this method saves only codes over galois.GF(order), with its default irreducible polynomial
+        and primitive element.  The members of each subset are written in sorted order, so that the
+        file does not depend on the order in which the subsets list their members.  Equal codes can
+        still give different files, if they chose their local checks differently, or if their local
+        codes carry different generator matrices.
+
+        Raises:
+            ValueError: If the field of this code is not galois.GF(order), with its default
+                irreducible polynomial and primitive element.  This method then writes nothing.
         """
+        # refuse fields other than galois.GF(order), in which QTCode.load reads saved values
+        order = self.field.order
+        if self.field is not galois.GF(order):
+            raise ValueError(
+                "Saved files record only the order of the field, so QTCode.save saves only codes"
+                f" over galois.GF({order}), with its default irreducible polynomial and primitive"
+                " element, not over a field with irreducible polynomial"
+                f" {self.field.irreducible_poly} and primitive element"
+                f" {self.field.primitive_element}"
+            )
+
         # convert subsets to arrays
         subset_a = np.array([gen.array_form for gen in sorted(self.complex.subset_a)])
         subset_b = np.array([gen.array_form for gen in sorted(self.complex.subset_b)])
@@ -746,7 +761,7 @@ class QTCode(_SquareComplexCode):
             file.write(f"# code_b.generator: {self.code_b.generator.tolist()}\n")
 
             # write other data
-            file.write(f"# base field: {self.field.order}\n")
+            file.write(f"# base field: {order}\n")
             file.write(f"# bipartite: {self.complex.bipartite}\n")
 
     @staticmethod
