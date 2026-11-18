@@ -111,7 +111,7 @@ Standard triage
 ---------------
 
 Standard triage gathers and reconciles the recommendations of independent agents on decisions.
-It applies only when that person asks for it by name, and only to the work that they name, until they end it.
+It applies only when the person you work for asks for it by name, and only to the work that they name, until they end it.
 Their absence, or an unanswered question, never starts it.
 
 A request for triage, as in "run standard triage on this decision", asks for steps 1 to 3 below and a report; the person who asked still decides.
@@ -137,7 +137,7 @@ Even when asked to settle decisions, triage leaves open each decision to:
 * change, deprecate, or remove a public name, signature, argument, mode, default, or result, except to fix a reproduced bug without changing a public contract;
 * weaken or relabel a guarantee, such as by loosening a test, tolerance, or check, by skipping a test or marking it as expected to fail, or by changing whether a result is exact, a bound, or an estimate;
 * add :ref:`process <decisions-adding-process>` that the request does not call for, or that guards against a problem that other process caused or left open;
-* approve a change to a protected file in a maintainer's place, such as by applying a patch that they have not approved, or by handing off a branch that they have not inspected since its last revision;
+* approve a change to a protected file in a maintainer's place, such as by applying a patch that they have not approved, or by handing off a branch whose last revision they have not approved;
 * change the dependencies or the build;
 * go beyond the request, such as by starting work that it did not ask for or by exceeding the limits that it set;
 * act outside the local repository, such as by pushing or by commenting on an issue or pull request;
