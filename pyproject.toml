@@ -18,7 +18,7 @@ license-files = [ "COPYRIGHT", "LICENSE" ]
 authors = [ { name = "Michael A. Perlin", email = "mika.perlin@gmail.com" } ]
 requires-python = ">=3.11"
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
   "Natural Language :: English",
   "Programming Language :: Python :: 3 :: Only",
