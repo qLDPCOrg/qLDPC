@@ -26,15 +26,14 @@ from .conftest import (
     ROUTED_CSS_WEIGHT_STATE,
     ROUTED_PHYSICAL_STATES,
     assert_exact_answers,
-    assert_unchanged,
     get_exhaustive_minima,
     get_graph_state,
     get_pauli_weight,
     get_random_css_state,
-    get_shared_arrays,
     get_stabilizer_matrix,
     get_syndrome,
     scramble,
+    shared_arrays_read_only,
     split_syndromes_into_words,
 )
 from .core import DistanceMethod
@@ -852,8 +851,8 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
 
     The found index, its bound and error, and the weights are those of one thread, by physical
     weight and by CSS weight.  With chunks of one state, a batch moves to threads once its queries
-    have visited a state for each thread.  No query, on the calling thread or on others, writes an
-    array of its search, which threads, and the threads of callers, share.
+    have visited a state for each thread.  The queries run with every array of their searches
+    read-only, since threads, and the threads of callers, share them.
     """
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     cases = [(get_random_css_state(6, 3, rng), True), (get_random_css_state(6, 2, rng), False)]
@@ -876,20 +875,19 @@ def test_connected_cluster_batches_on_threads_answer_as_on_one_thread(
                 oracles.append(
                     CosetLeaderSearch(matrix, css_weight=css_weight, method="connected_cluster")
                 )
-        shared = get_shared_arrays(*oracles)
-        for max_weight in range(num_qubits + 1):
-            found = _find_each_not_within_max_weight(oracles[-1], matrix, batch, max_weight)
-            assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
-            for start in [0, *found]:
-                answers = [
-                    oracle.find_first_not_within_max_weight(batch[start:], max_weight)
-                    for oracle in oracles
-                ]
-                assert all(answer == answers[0] for answer in answers)
-            weights = [oracle.get_min_weights(batch, max_weight) for oracle in oracles]
-            assert all(np.array_equal(weight, weights[0]) for weight in weights)
-            assert np.array_equal(weights[0], np.minimum(minima[syndromes], max_weight + 1))
-        assert_unchanged(shared)
+        with shared_arrays_read_only(*oracles, batch):
+            for max_weight in range(num_qubits + 1):
+                found = _find_each_not_within_max_weight(oracles[-1], matrix, batch, max_weight)
+                assert found == np.flatnonzero(minima[syndromes] > max_weight).tolist()
+                for start in [0, *found]:
+                    answers = [
+                        oracle.find_first_not_within_max_weight(batch[start:], max_weight)
+                        for oracle in oracles
+                    ]
+                    assert all(answer == answers[0] for answer in answers)
+                weights = [oracle.get_min_weights(batch, max_weight) for oracle in oracles]
+                assert all(np.array_equal(weight, weights[0]) for weight in weights)
+                assert np.array_equal(weights[0], np.minimum(minima[syndromes], max_weight + 1))
     assert thread_counts
 
 

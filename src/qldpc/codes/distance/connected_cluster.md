@@ -582,9 +582,10 @@ Changes to the search can use other bounds and orders, but must keep these requi
     It must not carry memos, learned constraints, or sets of states already seen from one state or root to another, and must keep the depth-first order of the search.
     A change that breaks this, such as a best-first search ([Section 3.10](#310-techniques-not-used)), needs its own way to split a limit across threads.
   - **Keep `_search_supports` writing only to arrays that it allocates**, and never to the tables of the search, since threads run it without the global interpreter lock.
-    `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` in `_connected_cluster/search_test.py` checks that threads write no array of their search, such as its tables.
-    `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` checks the same of batches of coset queries.
-    Review checks the paths that tests do not run.
+    `test_limits_on_threads_give_the_witnesses_and_states_of_one_thread` in `_connected_cluster/search_test.py` runs threads with every array of their search, such as its tables, read-only, so that numba rejects a write to one in any branch of compiled code.
+    `test_connected_cluster_batches_on_threads_answer_as_on_one_thread` in `coset_leaders_test.py` does the same for batches of coset queries.
+    Both check that the arrays are unchanged.
+    Review checks the writes that these tests miss: those through `.flat`, `np.ascontiguousarray`, or `np.nditer`, which numba compiles anyway; those to the roots and paths of work items, which `_search_on_threads` makes for the threads; those on paths that run outside the threads, such as limits on one thread; and, in plain Python, those that tests do not run.
     The other code that threads run writes only its own entries of shared results, such as the counts of states of its items and the weights of its rows, or writes under a lock, as when it records a witness or a syndrome without an error in reach.
     Review checks this.
     Nothing that threads run calls numba code compiled with `parallel=True` or `prange` (`run_work_items` of `_threads.py`), and it reads the tuning only from its search, never through `get_tuning`, since new threads start with the default tuning.

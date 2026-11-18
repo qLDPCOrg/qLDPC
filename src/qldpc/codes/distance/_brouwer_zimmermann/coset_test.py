@@ -33,15 +33,14 @@ from ..conftest import (
     ROUTED_PHYSICAL_STATES,
     TWO_FAMILIES_CODE,
     assert_exact_answers,
-    assert_unchanged,
     get_binary_matrix,
     get_exhaustive_minima,
     get_graph_state,
     get_random_full_rank_matrix,
-    get_shared_arrays,
     get_stabilizer_matrix,
     get_syndrome,
     scramble,
+    shared_arrays_read_only,
     split_syndromes_into_words,
 )
 from ..coset_leaders import CosetLeaderSearch
@@ -1466,8 +1465,8 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     """Batches that run at once on threads of their own share a search, and answer as alone.
 
     Each batch has its own maximum weight, and so its own stopping steps, which it caches in its
-    own copies of the planning buffer of its route, leaving the shared buffer, and every other array
-    of the search, as it was.
+    own copies of the planning buffer of its route.  The batches run with every array of the
+    search, such as the shared buffer, read-only.
     """
     tune(coset_route_minimum_work=0)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
@@ -1486,7 +1485,6 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
     # would change the buffer when it resets its own step to the first.
     for planning in plannings:
         planning[:, -1, :2] = (len(planning[0]) - 2, planning.shape[2] - 1)
-    shared = get_shared_arrays(search)
 
     def query(index: int, num_threads: int) -> tuple[Any, ...]:
         """Answer both batch queries of a batch."""
@@ -1496,10 +1494,10 @@ def test_concurrent_batches_share_a_search(pytestconfig: pytest.Config, tune: Tu
         weights = search.get_min_weights(batch, max_weight, floors, **options)
         return found, weights.tolist()
 
-    expected = [query(index, 1) for index in range(len(batches))]
-    with concurrent.futures.ThreadPoolExecutor(4) as pool:
-        answers = list(pool.map(query, range(len(batches)), [2] * len(batches)))
-    assert answers == expected
     # The batch queries cache stopping steps only in copies of the shared planning buffers, and
-    # write no other array of the search.
-    assert_unchanged(shared)
+    # write no other array of the search or of its batches.
+    with shared_arrays_read_only(search, batches, floors):
+        expected = [query(index, 1) for index in range(len(batches))]
+        with concurrent.futures.ThreadPoolExecutor(4) as pool:
+            answers = list(pool.map(query, range(len(batches)), [2] * len(batches)))
+        assert answers == expected

@@ -163,6 +163,7 @@ class SharedArray(NamedTuple):
     path: str
     array: npt.NDArray[Any]
     copy: npt.NDArray[Any]
+    writeable: bool
 
 
 def get_shared_arrays(*roots: object) -> list[SharedArray]:
@@ -184,7 +185,7 @@ def get_shared_arrays(*roots: object) -> list[SharedArray]:
             continue
         seen.add(id(value))
         if isinstance(value, np.ndarray):
-            arrays.append(SharedArray(path, value, value.copy()))
+            arrays.append(SharedArray(path, value, value.copy(), bool(value.flags.writeable)))
         elif isinstance(value, dict):
             pending += [(f"{path}[{key!r}]", item) for key, item in value.items()]
         elif isinstance(value, list | tuple):
@@ -205,25 +206,66 @@ def assert_unchanged(arrays: list[SharedArray]) -> None:
     assert not changed, f"Shared arrays changed: {changed}"
 
 
-def check_shared_arrays_on_threads(
-    monkeypatch: pytest.MonkeyPatch, get_roots: Callable[[], Iterable[object]]
-) -> list[int]:
-    """Check that no call of ``run_work_items`` changes the arrays that some objects reach.
+@contextlib.contextmanager
+def shared_arrays_read_only(*roots: object) -> Iterator[list[SharedArray]]:
+    """Make the arrays that some objects reach read-only, and check that they do not change.
 
-    The objects, which ``get_roots`` returns at the start of each call, are those that the threads
-    of the call share, such as a search.  Returns the list of the numbers of arrays that each call
-    left unchanged, so that a test can check that threads ran.
+    Compiled code that numba types with a read-only array fails to compile if it writes that array
+    in any branch, also through views, loops, and the compiled functions that it calls, except
+    through ``.flat``, ``np.ascontiguousarray``, or ``np.nditer``.  Plain Python fails only on the
+    writes that it runs.  An array taken from these arrays before this starts, such as a slice that
+    a local name holds, stays writeable, so a test starts this before such arrays are taken.  The
+    flags are restored when the block exits, also on an error, and the arrays are then compared
+    with their copies, unless the block raised.
     """
-    run_work_items = _threads.run_work_items
+    arrays = get_shared_arrays(*roots)
+    for each in arrays:
+        each.array.flags.writeable = False
+    try:
+        yield arrays
+    finally:
+        _restore_flags(arrays)
+    assert_unchanged(arrays)
+
+
+def _restore_flags(arrays: list[SharedArray]) -> None:
+    """Make writeable again the arrays that were, each base before the views of it."""
+    pending = [each for each in arrays if each.writeable]
+    while pending:
+        failed = []
+        for each in pending:
+            try:
+                each.array.flags.writeable = True
+            except ValueError:  # The base of a view is still read-only.
+                failed.append(each)
+        assert len(failed) < len(pending), [each.path for each in failed]
+        pending = failed
+
+
+def check_shared_arrays_on_threads(
+    monkeypatch: pytest.MonkeyPatch,
+    get_roots: Callable[..., Iterable[object]],
+    owner: object = _threads,
+    name: str = "run_work_items",
+) -> list[int]:
+    """Run each call of a function with the arrays that some objects reach read-only and unchanged.
+
+    The function, ``run_work_items`` by default, runs the threads of a search, or starts them, as
+    a method that takes slices of the arrays of its search before it calls ``run_work_items`` does.
+    ``get_roots``, which takes the arguments of the call, returns the objects whose arrays threads
+    share, such as a search (see ``shared_arrays_read_only``).  Returns the list of the numbers of
+    arrays that each call left unchanged, so that a test can check that threads ran.
+    """
+    function = getattr(owner, name)
     checked = []
 
-    def run_checked(*args: Any, **kwargs: Any) -> None:
-        arrays = get_shared_arrays(*get_roots())
-        run_work_items(*args, **kwargs)
-        assert_unchanged(arrays)
+    def run_checked(*args: Any, **kwargs: Any) -> Any:
+        with shared_arrays_read_only(*get_roots(*args, **kwargs)) as arrays:
+            result = function(*args, **kwargs)
         checked.append(len(arrays))
+        return result
 
-    monkeypatch.setattr(_threads, "run_work_items", run_checked)
+    monkeypatch.setattr(owner, name, run_checked)
     return checked
 
 

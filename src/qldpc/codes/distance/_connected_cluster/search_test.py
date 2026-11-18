@@ -1379,11 +1379,11 @@ def test_limits_on_threads_give_the_witnesses_and_states_of_one_thread(
     """On threads, each weight limit finds the witness and visits the states of one thread.
 
     The limits run past the distance, with the restriction to viable symbols and the overlap cuts
-    both on or both off (Section 3.11 of ``connected_cluster.md``).  The threads write no array of
-    the search.
+    both on or both off (Section 3.11 of ``connected_cluster.md``).  The threads run with every
+    array of the search read-only.
     """
     calls = record_thread_counts(monkeypatch)
-    checked = check_shared_arrays_on_threads(monkeypatch, lambda: [search])
+    checked = check_shared_arrays_on_threads(monkeypatch, lambda *_, **__: [search])
     for (problem, symplectic, get_automorphisms), switch in itertools.product(
         get_threaded_cases(), [True, False]
     ):
