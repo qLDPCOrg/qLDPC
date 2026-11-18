@@ -85,7 +85,7 @@ Otherwise, a maintainer approves each change to them before you hand it off, unl
 
 - **A pull request that exists to change protected files:** the maintainer inspects its branch, which is easier than reading a patch.
   Make the change on the branch, and run its review.
-  Then give the maintainer the path to its worktree, and ask them to inspect the branch.
+  Then give the maintainer a command to copy and paste that changes to its worktree, as in `cd <worktree>`, and ask them to inspect the branch.
   Hand the pull request off only once they say that they have reviewed it, and ask again after any later revision.
 - **A pull request about something else that also changes protected files:** the maintainer approves a patch, which shows those changes apart from the rest.
   This holds even when the maintainer asked for the change, or when a change elsewhere forces it, such as renaming a cited path.
