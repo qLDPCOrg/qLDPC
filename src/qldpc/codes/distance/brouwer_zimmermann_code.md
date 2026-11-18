@@ -1,6 +1,6 @@
 # Brouwer-Zimmermann distance search in qLDPC: the source code and its requirements
 
-This file holds Sections 4 and 5 of the guide to the Brouwer-Zimmermann (BZ) search; [brouwer_zimmermann.md](brouwer_zimmermann.md) holds Sections 1 to 3, which explain the algorithm and its extensions, and the references.
+This file holds Sections 4 and 5 of the guide to the Brouwer-Zimmermann (BZ) search; [brouwer_zimmermann.md](brouwer_zimmermann.md) holds Sections 1 to 3 and the references, and its Sections 2 and 3 explain the algorithm and its extensions.
 
 ## 4. Guide to the source code
 

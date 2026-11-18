@@ -172,7 +172,7 @@ Routes and the names that control them
    * - Batch queries of :class:`~qldpc.codes.distance.CosetLeaderSearch`: when a costly batch moves to threads, and how many
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
-     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#45-behavior-spanning-files>`__ of ``brouwer_zimmermann.md``, and `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__ of ``connected_cluster.md`` ("Syndrome queries")
+     - `Section 4.5 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/brouwer_zimmermann_code.md#45-behavior-spanning-files>`__ of ``brouwer_zimmermann_code.md``, and `Section 3.11 <https://github.com/qLDPCOrg/qLDPC/blob/main/src/qldpc/codes/distance/connected_cluster.md#311-threads>`__ of ``connected_cluster.md`` ("Syndrome queries")
    * - Distance searches by the connected-cluster method: the threads that search a costly weight limit
      - :attr:`SearchTuning.num_threads`, :attr:`SearchTuning.information_set_batch_exponent`
      -
