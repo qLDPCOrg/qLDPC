@@ -426,8 +426,17 @@ def test_syndrome_to_prediction(field: type[galois.FieldArray]) -> None:
     # pack to the bytes of a stored syndrome
     for key in [(1, 0, 0), (np.int64(1), 0, 0), (1.0, 0, 0)]:
         assert key in table
-    absent_keys: list[object] = [(0, 1, 0), (1, 0), (1, 0, 0, 0), (field.order, 0, 0), [1, 0, 0]]
-    for absent_key in absent_keys + [(0.5, 0, 0), ("1", 0, 0), (np.ones(2), 0, 0)]:
+    absent_keys: list[object] = [
+        (0, 1, 0),
+        (1, 0),
+        (1, 0, 0, 0),
+        (field.order, 0, 0),
+        [1, 0, 0],
+        (0.5, 0, 0),
+        ("1", 0, 0),
+        (np.ones(2), 0, 0),
+    ]
+    for absent_key in absent_keys:
         assert absent_key not in table
     with pytest.raises(TypeError):
         table[0, 0, 0] = np.zeros(5, dtype=int)  # type: ignore[index]
