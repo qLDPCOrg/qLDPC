@@ -182,6 +182,20 @@ def test_lookup_batch_validation() -> None:
         nonbinary.decode_shots_bit_packed(np.array([[1]], dtype=np.uint8))
 
 
+def test_lookup_syndrome_validation() -> None:
+    """Lookup decoders reject a syndrome that does not have one entry per detector."""
+    matrix = np.eye(2, dtype=int)
+    lookup_decoders: list[decoders.ErrorDecoder] = [
+        decoders.custom.ErrorLookupDecoder(matrix, max_weight=1),
+        decoders.custom.WeightedErrorLookupDecoder(matrix, max_weight=1),
+    ]
+    for decoder in lookup_decoders:
+        # without validation, an ErrorLookupDecoder would look up each syndrome as [1, 0]
+        for syndrome in [[1], [[1, 0]]]:
+            with pytest.raises(ValueError, match="Expected a syndrome of shape"):
+                decoder.decode_errors(np.array(syndrome, dtype=int))
+
+
 def test_lookup_post_selection_violation() -> None:
     """A syndrome that a lookup decoder post-selects against decodes as one never enumerated."""
     matrix = np.eye(3, dtype=int)  # syndrome bit kk is flipped by error kk alone
