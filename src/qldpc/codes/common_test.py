@@ -2275,7 +2275,11 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
 def test_deprecated_cutoff_of_exact_distances() -> None:
     """A float cutoff of an exact-distance method warns at the caller, and works in a search."""
     surface_code = codes.SurfaceCode(2)
-    for code in (codes.ClassicalCode(surface_code.code_x.matrix), surface_code.forget_distance()):
+    for code in (
+        codes.ClassicalCode([[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]]),
+        codes.QuditCode(surface_code.matrix),
+        surface_code.forget_distance(),
+    ):
         with pytest.warns(DeprecationWarning, match="which is not an integer") as record:
             code.get_distance_exact(cutoff=cast(Any, 2.5))
         assert record[0].filename == __file__

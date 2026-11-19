@@ -323,8 +323,10 @@ def test_deprecated_distance_functions(monkeypatch: pytest.MonkeyPatch) -> None:
         functools.partial(get_distance_quantum, generator[:1], generator[1:], homogeneous=True),
         functools.partial(get_distance_css_bz, [(generator[:1], generator[1:])]),
     ):
-        with pytest.warns(DeprecationWarning, match="which is not an integer"):
+        # Each function also warns that it is deprecated.
+        with pytest.warns(DeprecationWarning) as record:
             assert search(cutoff=2.5) == 3
+        assert any("which is not an integer" in str(warning.message) for warning in record)
 
     # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
     # arguments.
