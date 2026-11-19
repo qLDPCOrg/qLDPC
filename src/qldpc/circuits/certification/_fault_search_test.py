@@ -199,6 +199,57 @@ def test_light_pairs_match_brute_force(
             assert pair == expected
 
 
+def test_heavy_primitive_faults_get_products_of_light_representatives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A heavy primitive fault gets the product of the representatives of its first light pair.
+
+    The pair starts with the first light syndrome, in the order of the primitive faults, whose sum
+    with the heavy syndrome is also light.  A heavy primitive fault without a pair keeps the
+    oracle's representative.
+    """
+    # The stabilizers ZXX, X on qubit 2, and XZX make the syndromes 1, 4, 5, and 7 light.  With the
+    # light syndromes 5, 7, and 4 of these faults, the heavy syndrome 2, which repeats, is 5 + 7,
+    # the heavy syndrome 3 is 7 + 4, and the heavy syndrome 6 is no such sum.  The oracle's
+    # representatives of 2 and 3 differ from these products.
+    stabilizers = np.array([[0, 1, 1, 1, 0, 0], [0, 0, 1, 0, 0, 0], [1, 0, 1, 0, 1, 0]])
+    syndromes = [5, 7, 4, 2, 2, 3, 6]
+    lister = mock.Mock(wraps=_fault_search.FaultLister)
+    monkeypatch.setattr(_fault_search, "FaultLister", lister)
+    flags = [1 << jj for jj in range(len(syndromes))]
+    assert _fault_search.find_smallest_violation(flags, syndromes, stabilizers, None, False) is None
+    _, primitive_syndromes, representatives, *_, num_starts, _ = lister.call_args.args
+
+    def syndrome_of(pauli: int) -> int:
+        x = [(pauli >> qubit) & 1 for qubit in range(3)]
+        z = [(pauli >> (3 + qubit)) & 1 for qubit in range(3)]
+        return sum(
+            int(np.dot(x, row[3:]) + np.dot(z, row[:3])) % 2 << jj
+            for jj, row in enumerate(stabilizers)
+        )
+
+    for syndrome, representative in zip(primitive_syndromes, representatives, strict=True):
+        assert syndrome_of(representative) == syndrome
+
+    oracle = _fault_search.CosetLeaderSearch(stabilizers)
+
+    def oracle_representative(syndrome: int) -> int:
+        return oracle.get_min_weight_bound(syndrome, 1).representative
+
+    light = [5, 7, 4]
+    expected = []
+    for syndrome in primitive_syndromes[:num_starts]:
+        first = next((ss for ss in light if syndrome ^ ss in light), None)
+        expected.append(
+            oracle_representative(syndrome)
+            if first is None
+            else oracle_representative(first) ^ oracle_representative(syndrome ^ first)
+        )
+    assert primitive_syndromes[:num_starts] == [2, 2, 3, 6]
+    assert list(representatives[:num_starts]) == expected
+    assert oracle_representative(2) != expected[0] and oracle_representative(3) != expected[2]
+
+
 @pytest.mark.parametrize("css_weight", [False, True])
 def test_skipped_faults_satisfy_the_bound(css_weight: bool, pytestconfig: pytest.Config) -> None:
     """Calls of rising fault weight check no syndrome twice, skip no violating one, and find one."""
