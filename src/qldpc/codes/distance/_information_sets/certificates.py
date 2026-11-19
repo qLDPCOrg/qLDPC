@@ -127,7 +127,7 @@ class Certificate:
             # show that the program over orbits falls short.
             return self.step_lower_bound(weight, num_completed) >= upper_bound
         # No requirement exceeds its block, since a set that has completed the last layer makes the
-        # coverage bound certify any upper bound, so only a nonempty block has a positive
+        # coverage bound certify any upper bound.  So only a nonempty block has a positive
         # requirement.  Let the share of a block be requirement / len(block) if the requirement is
         # positive, and zero if not.  The feasible point sets each pivot column to the largest share
         # of its blocks, which is the share of the first block that holds the column when the
