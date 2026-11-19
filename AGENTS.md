@@ -69,7 +69,8 @@ For each pull request that you hand off, give in your message, not only in a fil
 4. the description, following the [pull request standard](docs/source/contributing/standards/pull_requests.rst), in a `markdown` code block whose fence is longer than any fence inside it.
 
 A request for a pull request's information, even "in the standard format", asks for this list if the pull request may be handed off.
-If there are several pull requests, say whether they depend on each other and in which order they should merge.
+If there are several pull requests, open each against `main`: hand off one that builds on another only once that one has merged, and fold a small extension or bugfix of an open pull request into it as a commit instead.
+Say in which order they should merge.
 
 ## Protected files
 
