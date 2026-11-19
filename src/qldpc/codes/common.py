@@ -570,7 +570,7 @@ class ClassicalCode(AbstractCode):
             vector: If not None, rather than computing the code distance, compute the minimum
                 Hamming distance between this vector and a code word.  Default: None.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                Deprecated: a float or a bool acts as an integer, such as its floor.
+                Deprecated: a float or a bool warns, and acts as its floor; pass an integer instead.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`), also used for vector distances.
                 Nonbinary calculations use exhaustive enumeration, and reject
@@ -2147,7 +2147,7 @@ class QuditCode(AbstractCode):
 
         Args:
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                Deprecated: a float or a bool acts as an integer, such as its floor.
+                Deprecated: a float or a bool warns, and acts as its floor; pass an integer instead.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Nonbinary calculations use
                 exhaustive enumeration, and reject ``"connected_cluster"``.
@@ -3909,7 +3909,7 @@ class CSSCode(QuditCode):
                 The strings "X" and "Z" (case-insensitive) are also accepted.  If None (the
                 default), minimize over X and Z.
             cutoff: Exit and return once an upper bound on distance falls to or below this cutoff.
-                Deprecated: a float or a bool acts as an integer, such as its floor.
+                Deprecated: a float or a bool warns, and acts as its floor; pass an integer instead.
             method: The exact-distance method for a binary code (see
                 :data:`~qldpc.codes.distance.DistanceMethod`).  Closed forms that search classical
                 codes, such as those of hypergraph product codes, search them with the same method.

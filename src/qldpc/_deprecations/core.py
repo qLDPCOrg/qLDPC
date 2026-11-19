@@ -22,8 +22,8 @@ Registry targets are lazy "module:attribute" strings, and this module imports no
 at import time, so that every module can import it without an import cycle.  Deprecated methods are
 defined at the bottom of this module, and attached to their classes by install_deprecated_methods,
 which qldpc/__init__.py calls once the subpackages that define those classes are imported.
-Deprecated arguments and modes are handled where they are accepted, by calling warn_deprecated or
-raising defunct(...).
+Deprecated arguments and modes are handled where they are accepted, by calling a helper here, such
+as warn_deprecated or as_integer_cutoff, or by raising defunct(...).
 
 A future change, which makes the same call silently behave differently (rather than fail with an
 error, as deprecated usage eventually does), is likewise handled where its keyword is accepted: a
@@ -347,29 +347,25 @@ def warn_future_change(message: str, *, stacklevel: int) -> None:
 def as_integer_cutoff(cutoff: int) -> int:
     """The cutoff of a distance search, warning about a float or a bool and making it an integer.
 
-    Released versions took a float cutoff, and compared it only with integer weights.  So a finite
-    float acts as its floor, infinity as a cutoff that every upper bound meets, and NaN and minus
-    infinity as -1, which never stops early.  A bool acts as its integer.  Any other cutoff passes
+    Released versions took a float cutoff, and compared it only with integer weights.  So a float or
+    a bool acts as its floor, clamped to at least -1, which never stops early, and at most
+    ``MAX_VALUE``, which every upper bound meets.  NaN acts as -1.  Any other cutoff passes
     unchanged, for the distance functions to accept or reject.
     """
     import numpy as np
 
     from qldpc.codes.distance import _tuning
 
-    # Only floats and bools are deprecated, by the maintainer's decision.  Other types that released
-    # versions took, such as Fraction and Decimal, are not plausible cutoffs, and raise at once.
+    # Only floats and bools get a deprecation period.  Other types that released versions took,
+    # such as Fraction and Decimal, are not plausible cutoffs, so the distance functions that search
+    # reject them at once.
     if not isinstance(cutoff, (float, np.floating, bool, np.bool_)):
         return cutoff
-    if math.isnan(cutoff) or cutoff == -math.inf:
-        integer = -1
-    elif cutoff == math.inf:
-        integer = _tuning.MAX_VALUE
-    else:
-        # np.floor floors a NumPy float exactly, even one wider than a Python float.
-        integer = int(np.floor(cutoff))
+    # np.floor floors a NumPy float exactly, even one wider than a Python float.
+    integer = -1 if math.isnan(cutoff) else int(np.clip(np.floor(cutoff), -1, _tuning.MAX_VALUE))
     warn_deprecated(
-        f"A cutoff that is not an integer, such as {cutoff!r}, is deprecated, and will raise an"
-        f" error in a future release; pass an integer, such as {integer}, instead",
+        f"A cutoff of {cutoff!r}, which is not an integer, is deprecated, and will raise an error in"
+        " a future release; pass an integer instead",
         stacklevel=get_external_caller_stacklevel(),
     )
     return integer

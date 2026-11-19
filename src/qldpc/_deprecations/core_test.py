@@ -316,14 +316,14 @@ def test_deprecated_distance_functions(monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.warns(DeprecationWarning):
             assert search() == distance
 
-    # A float cutoff warns, and works as its floor.
-    get_distance_css: Any = codes.get_distance_css_brouwer_zimmermann  # type: ignore[attr-defined]
+    # A float cutoff warns, and acts as an integer.
+    get_distance_css_bz: Any = codes.get_distance_css_brouwer_zimmermann  # type: ignore[attr-defined]
     for search in (
         functools.partial(get_distance_classical, generator),
         functools.partial(get_distance_quantum, generator[:1], generator[1:], homogeneous=True),
-        functools.partial(get_distance_css, [(generator[:1], generator[1:])]),
+        functools.partial(get_distance_css_bz, [(generator[:1], generator[1:])]),
     ):
-        with pytest.warns(DeprecationWarning, match="cutoff that is not an integer"):
+        with pytest.warns(DeprecationWarning, match="which is not an integer"):
             assert search(cutoff=2.5) == 3
 
     # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
@@ -416,7 +416,7 @@ def test_deprecated_get_distance_css_brouwer_zimmermann(monkeypatch: pytest.Monk
 
 
 def test_deprecated_cutoff_that_is_not_an_integer() -> None:
-    """A float or a bool cutoff warns at the caller and becomes an integer, such as its floor.
+    """A float or a bool cutoff warns at the caller, and acts as its floor within [-1, MAX_VALUE].
 
     Any other cutoff passes unchanged, for the distance functions to accept or reject.
     """
@@ -429,12 +429,13 @@ def test_deprecated_cutoff_that_is_not_an_integer() -> None:
         (np.True_, 1),
         (np.float32(2.5), 2),
         (float("inf"), _tuning.MAX_VALUE),
+        (1e300, _tuning.MAX_VALUE),
         (float("nan"), -1),
         (-float("inf"), -1),
-        # Its float may round to 3, but its floor is exactly 2.
+        # As a Python float it may round to 3, but its floor is exactly 2.
         (np.nextafter(np.longdouble(3), np.longdouble(0)), 2),
     ):
-        with pytest.warns(DeprecationWarning, match="cutoff that is not an integer") as record:
+        with pytest.warns(DeprecationWarning, match="which is not an integer") as record:
             assert _deprecations.as_integer_cutoff(cast(Any, cutoff)) == integer
         assert record[0].filename == __file__
     for other_cutoff in (3, fractions.Fraction(5, 2)):

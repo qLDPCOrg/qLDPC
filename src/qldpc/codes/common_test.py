@@ -2273,14 +2273,14 @@ def test_css_decoder_distance_bound_skips_gap_probe() -> None:
 
 
 def test_deprecated_cutoff_of_exact_distances() -> None:
-    """A float cutoff warns at the caller, and acts as its floor."""
+    """A float cutoff warns at the caller, and acts as an integer in a search."""
     matrix = [[1, 1, 0, 0, 0], [0, 1, 1, 0, 0], [0, 0, 0, 1, 1]]
     for code in (
         codes.ClassicalCode(matrix),
-        codes.SurfaceCode(2),
+        codes.SurfaceCode(2).forget_distance(),
         codes.QuditCode(codes.SurfaceCode(2).matrix),
     ):
-        with pytest.warns(DeprecationWarning, match="cutoff that is not an integer") as record:
+        with pytest.warns(DeprecationWarning, match="which is not an integer") as record:
             assert code.get_distance_exact(cutoff=cast(Any, 2.5)) == 2
         assert record[0].filename == __file__
 
