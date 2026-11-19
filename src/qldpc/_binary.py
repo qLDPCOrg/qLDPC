@@ -251,7 +251,7 @@ def get_inverse(matrix: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
 
 
 ####################################################################################################
-# packed rows as Python integers
+# packed rows: word counts and Python integers
 
 
 def get_num_words(num_bits: int) -> int:

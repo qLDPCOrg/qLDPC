@@ -432,8 +432,8 @@ def test_a_running_item_learns_once_an_earlier_item_ends_the_work(raises: bool) 
     """An item that asks between its chunks learns that it is not needed once an earlier one ends.
 
     Item 0 ends the work, or raises an exception, which stops the work, only once item 1 has started
-    on the other thread, and item 1 then asks until it is no longer needed.  Item 1 then ends the
-    work too, which leaves the limit at item 0, since the limit only falls.
+    on the other thread, and item 1 then asks until it is no longer needed.  Without the exception,
+    item 1 then ends the work too, which leaves the limit at item 0, since the limit only falls.
     """
     started = threading.Event()
     stopped: list[int] = []

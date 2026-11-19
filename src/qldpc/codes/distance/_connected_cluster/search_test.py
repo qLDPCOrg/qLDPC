@@ -1475,13 +1475,13 @@ def test_invalid_problems_are_rejected() -> None:
 def record_thread_counts(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     """Record the number of threads of each call of ``run_work_items``, which still runs."""
     calls: list[int] = []
-    run_work_items = cs._threads.run_work_items
+    run_work_items = _threads.run_work_items
 
     def record(num_items: int, num_threads: int, *args: Any, **kwargs: Any) -> None:
         calls.append(num_threads)
         run_work_items(num_items, num_threads, *args, **kwargs)
 
-    monkeypatch.setattr(cs._threads, "run_work_items", record)
+    monkeypatch.setattr(_threads, "run_work_items", record)
     return calls
 
 
@@ -1498,7 +1498,7 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     found_items: list[int] = []
     above: list[bool] = []
     next_item = threading.local()
-    run_work_items = cs._threads.run_work_items
+    run_work_items = _threads.run_work_items
     search_supports = cs._search_supports
     signature = inspect.signature(search_supports)
 
@@ -1546,7 +1546,7 @@ def record_witness_positions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             above.append(True)
         return result
 
-    monkeypatch.setattr(cs._threads, "run_work_items", run_numbered)
+    monkeypatch.setattr(_threads, "run_work_items", run_numbered)
     monkeypatch.setattr(cs, "_search_supports", search_numbered)
     return positions
 
@@ -1656,7 +1656,7 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
     tabulations: list[tuple[npt.NDArray[np.int64], tuple[npt.NDArray[np.int64], ...]]] = []
     get_overlap_cuts = cs._get_overlap_cuts
     search_supports = cs._search_supports
-    run_work_items = cs._threads.run_work_items
+    run_work_items = _threads.run_work_items
 
     def record_cuts(words: Any, ranks: npt.NDArray[np.int64], symplectic: bool) -> Any:
         events.append("cuts")
@@ -1678,7 +1678,7 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
 
     monkeypatch.setattr(cs, "_get_overlap_cuts", record_cuts)
     monkeypatch.setattr(cs, "_search_supports", check_cuts)
-    monkeypatch.setattr(cs._threads, "run_work_items", record_threads)
+    monkeypatch.setattr(_threads, "run_work_items", record_threads)
 
     # The 8-variable problem learns its permutation at its first limit, or at its third.
     checks, excluded, automorphism = get_ranked_cut_problem()
@@ -1783,13 +1783,13 @@ def test_the_frontier_deepens_to_about_a_chunk_of_states_for_each_item(
     """
     calls = record_thread_counts(monkeypatch)
     num_items: list[int] = []
-    run_work_items = cs._threads.run_work_items
+    run_work_items = _threads.run_work_items
 
     def record_items(count: int, *args: Any, **kwargs: Any) -> None:
         num_items.append(count)
         run_work_items(count, *args, **kwargs)
 
-    monkeypatch.setattr(cs._threads, "run_work_items", record_items)
+    monkeypatch.setattr(_threads, "run_work_items", record_items)
     monkeypatch.setattr(_threads, "ITEMS_PER_THREAD", 1)
     monkeypatch.setattr(cs, "_MAX_ITEMS", 40)
     items = []
@@ -1882,7 +1882,7 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
     started searching waits for it.
     """
     later_ran, later_started, first_ran = (threading.Event() for _ in range(3))
-    run_work_items = cs._threads.run_work_items
+    run_work_items = _threads.run_work_items
     search_supports = cs._search_supports
     signature = inspect.signature(search_supports)
 
@@ -1917,7 +1917,7 @@ def test_limits_on_threads_keep_the_first_witness_in_dfs_order(
     problem = (np.zeros((0, 100), dtype=np.uint8), np.zeros((0, 100), dtype=np.uint8))
     serial = get_search(*problem)
     expected = serial.find_witness(1)
-    monkeypatch.setattr(cs._threads, "run_work_items", gated_run)
+    monkeypatch.setattr(_threads, "run_work_items", gated_run)
     monkeypatch.setattr(cs, "_search_supports", gated_search)
     search = get_search(*problem, num_threads=2, split_minimum_states=-1)
     witness = search.find_witness(1)
@@ -1943,7 +1943,7 @@ def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_l
     stops: list[threading.Event] = []
     ranges: list[tuple[int, int]] = []
     later_calls: list[tuple[int, bool]] = []
-    run_work_items = cs._threads.run_work_items
+    run_work_items = _threads.run_work_items
     search_supports = cs._search_supports
 
     def gated_run(
@@ -1986,7 +1986,7 @@ def test_a_range_on_threads_stops_within_a_chunk_once_an_earlier_item_ends_the_l
                 return result
         return search_supports(*args)
 
-    monkeypatch.setattr(cs._threads, "run_work_items", gated_run)
+    monkeypatch.setattr(_threads, "run_work_items", gated_run)
     monkeypatch.setattr(cs, "_search_supports", gated_search)
     monkeypatch.setattr(_threads, "ITEMS_PER_THREAD", 0)
     monkeypatch.setattr(cs, "_MAX_ITEMS", 0)
@@ -2029,7 +2029,7 @@ def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
     assert serial.find_witness(5) is None
     stops: list[threading.Event] = []
     main_started, other_started = threading.Event(), threading.Event()
-    run_work_items = cs._threads.run_work_items
+    run_work_items = _threads.run_work_items
     search_supports = cs._search_supports
     # The states that each call counted, and whether it started after the stop event was set.
     calls: list[tuple[int, bool]] = []
@@ -2067,7 +2067,7 @@ def test_an_interrupt_during_a_long_limit_takes_effect_within_a_chunk(
 
     monkeypatch.setattr(_threads, "ITEMS_PER_THREAD", 0)
     monkeypatch.setattr(cs, "_MAX_ITEMS", 0)
-    monkeypatch.setattr(cs._threads, "run_work_items", record_stops)
+    monkeypatch.setattr(_threads, "run_work_items", record_stops)
     monkeypatch.setattr(cs, "_search_supports", interrupt)
     search = get_search(*problem, num_threads=num_threads, split_minimum_states=-1, chunk_states=1)
     with pytest.raises(KeyboardInterrupt):

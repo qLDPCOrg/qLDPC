@@ -797,9 +797,9 @@ def _get_masked_rank(
     ``pivots`` is scratch space with at least as many rows as ``rows``.
     """
     # Counts compute this rank for every word that they count, so this does not reuse
-    # ``qldpc._binary.get_rank_packed``, which copies its input, so the masked rows would be copied
-    # twice, and tests the columns one at a time for a pivot until the rank reaches the number of
-    # rows.  Here each masked row meets only the pivot bits of the rows before it.
+    # ``qldpc._binary.get_rank_packed``.  That function copies its input, so the masked rows would
+    # be copied twice, and it tests the columns one at a time for a pivot until the rank reaches the
+    # number of rows.  Here each masked row meets only the pivot bits of the rows before it.
     pivot_words = np.empty(len(rows), dtype=np.int64)
     pivot_bits = np.empty(len(rows), dtype=np.uint64)
     rank = 0

@@ -950,10 +950,11 @@ def _search_coset_for_min_weight(
 def _get_rounding_parity(planning: PlanningBuffer, scale: int, parity: int) -> int:
     """The parity of the Hamming weights of a coset if its search rounds to it, and otherwise -1.
 
-    A buffer with a table for each parity marks a search that rounds to parity; only a search of
-    Hamming weights (nonzero ``scale``) uses that parity, for its skip bound, and also for its bound
-    after a skip in ``_search_coset``, or for its slack in ``_search_coset_for_min_weight``.  The
-    arguments are those of ``_search_coset``, and the parity of the coset.
+    A search whose buffer has a table for each parity reads the table of its coset's parity.  Only
+    a search of Hamming weights (nonzero ``scale``) also rounds to that parity: for its skip bound,
+    and for its bound after a skip (``_search_from_syndrome_word``) or its slack
+    (``_search_coset_for_min_weight``).  The arguments are those of ``_search_coset``, and the
+    parity of the coset.
     """
     return parity if scale != 0 and len(planning) == 2 else -1
 
@@ -981,7 +982,7 @@ def _get_set_offsets(
 
 
 # Inlined although it is not small: both coset searches call it for each set of each step, with many
-# arguments, several of them arrays.  It is inlined so that each call does not pass them again.
+# arguments, several of them arrays.
 @always_compiled(inline=True)
 def _scan_step(
     set_index: int,
@@ -992,7 +993,7 @@ def _scan_step(
     width: int,
     support: npt.NDArray[np.int64],
     prefixes: npt.NDArray[np.uint64],
-    best: int,
+    incumbent: int,
     cutoff: int,
     skip_bound: int,
     x_mask: npt.NDArray[np.uint64],
@@ -1004,14 +1005,14 @@ def _scan_step(
     """Weigh the words of a set in a layer, with the scan of ``affine_search`` that fits the route.
 
     ``offsets``, ``width``, and ``ranks`` are those of ``_get_set_offsets``, ``support`` has
-    ``layer`` entries, and the other arguments are those of the scans and of ``_search_coset``.  A
-    scan of whole words writes the lightest word that it finds into ``representative``, and a scan
-    by tails its support into ``best_support``.
+    ``layer`` entries, and the other arguments are those of the scans and of ``_search_coset``.  In
+    a layer above zero, a scan of whole words writes the lightest word that it finds into
+    ``representative``, and a scan by tails its support into ``best_support``.
 
     Returns:
         In the units of the scans, the weight of the offset in layer zero, and in a later layer the
-        weight of the lightest word that the scan found lighter than ``best``, or ``best`` if there
-        is none.  Also the numbers of words weighed and of supports skipped.
+        weight of the lightest word that the scan found lighter than ``incumbent``, or ``incumbent``
+        if there is none.  Also the numbers of words weighed and of supports skipped.
     """
     if layer == 0:
         # The offset is zero on the pivot columns, so its tail has its Hamming weight.
@@ -1025,7 +1026,7 @@ def _scan_step(
                 width,
                 support,
                 prefixes,
-                best,
+                incumbent,
                 cutoff,
                 x_mask,
                 representative,
@@ -1037,7 +1038,7 @@ def _scan_step(
                 width,
                 support,
                 prefixes,
-                best,
+                incumbent,
                 cutoff,
                 representative,
             )
@@ -1057,7 +1058,7 @@ def _scan_step(
             width,
             support,
             prefixes,
-            best,
+            incumbent,
             cutoff,
             skip_bound,
             completion_tables[start:end],
@@ -1072,7 +1073,7 @@ def _scan_step(
         width,
         support,
         prefixes,
-        best,
+        incumbent,
         cutoff,
         best_support,
     )

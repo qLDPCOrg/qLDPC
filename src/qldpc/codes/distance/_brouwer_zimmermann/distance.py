@@ -276,7 +276,8 @@ class _SectorSearch:
     def batch_size(self) -> int:
         """The most supports and lookups that one call of a compiled scan does on one thread.
 
-        When the search scans on threads, each call does ``num_threads`` times as many.
+        When the search scans on threads, each call does ``num_threads`` times as many, up to
+        ``MAX_VALUE``.
         """
         return 1 << self.tuning.search_chunk_exponent
 
@@ -679,9 +680,10 @@ def _prepare_sector_search(
         return best
 
     # Build the automorphism family at most once (Section 3.7).  A threshold above ``WORK_CAP``
-    # turns automorphisms off (see ``_tuning.py``).  Setup asks before partitioning whatever the
-    # threshold, and a layer's work may exceed ``WORK_CAP``, so only this check keeps either from
-    # asking.
+    # turns automorphisms off (see ``_tuning.py``).  Setup asks before partitioning, whatever the
+    # threshold, and ``advance`` asks once a layer's work, which may exceed ``WORK_CAP``, reaches
+    # the threshold.  So only this check keeps a threshold above ``WORK_CAP`` from building the
+    # family.
     get_automorphism_family = (
         None
         if get_automorphisms is None

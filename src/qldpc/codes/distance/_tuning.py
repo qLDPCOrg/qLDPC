@@ -455,11 +455,11 @@ class SearchTuning:
     #: and a connected-cluster weight limit if it is predicted to visit more than ``num_threads``
     #: chunks of states, shifted right by ``connected_cluster_split_shift``.  The calling thread
     #: runs a batch query of ``CosetLeaderSearch`` alone until its queries have done ``num_threads``
-    #: chunks of work, and then moves the rest of the batch to threads; on one thread, it never
-    #: does.  With the BZ method, a query does one unit of work, and one more for each word that it
-    #: weighs after the word of its syndrome; with the connected-cluster method, it does one unit
-    #: for each state that its searches visit.  At most 62.  Defaults to 15, a budget of interrupt
-    #: latency on one thread, which grows with the number of threads for BZ scans.
+    #: chunks of work, and then moves the rest of the batch to threads; on one thread, the batch
+    #: never moves.  With the BZ method, a query does one unit of work, and one more for each word
+    #: that it weighs after the word of its syndrome; with the connected-cluster method, it does one
+    #: unit for each state that its searches visit.  At most 62.  Defaults to 15, a budget of
+    #: interrupt latency on one thread, which grows with the number of threads for BZ scans.
     search_chunk_exponent: int = dataclasses.field(default=15, metadata={"maximum": 62})
 
     #: A connected-cluster distance search splits a weight limit across threads only if it predicts

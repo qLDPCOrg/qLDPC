@@ -289,10 +289,10 @@ def run_blocks(
     would not serve: a long batch of cheap rows that hold the lock takes long, yet runs more slowly
     on threads.  If rows remain after that, ``run_items_until_first`` runs them on ``num_threads``
     threads, in about ``BLOCKS_PER_THREAD`` contiguous blocks for each thread, which they claim in
-    increasing order, and returns the first block that ends the batch.  Every row before that block
-    runs, so the first row that ends the batch is the one that one thread would find.  Exceptions
-    propagate as in ``run_work_items``, and the threads stop within their ranges, except in the
-    narrow windows that its docstring describes.
+    increasing order.  ``run_items_until_first`` returns the first block that ends the batch, and
+    every row before that block runs, so the first row that ends the batch is the one that one
+    thread would find.  Exceptions propagate as in ``run_work_items``, and the threads stop within
+    their ranges, except in the narrow windows that its docstring describes.
 
     Returns:
         The first row that ends the batch, or ``num_rows`` if no row does.

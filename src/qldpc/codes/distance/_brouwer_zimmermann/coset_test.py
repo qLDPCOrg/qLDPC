@@ -506,7 +506,7 @@ def test_searches_visit_only_the_sets_that_add_to_their_bounds(pytestconfig: pyt
                 tables.x_mask,
                 None,
                 1,
-                parity if len(tables.planning) == 2 else -1,
+                coset._get_rounding_parity(tables.planning, 1, parity),
             )
             representative = unpack_bits(best[None], num_columns)[0].astype(int)
             assert get_binary_syndrome(checks, representative) == syndrome
@@ -616,7 +616,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                 tables.x_mask,
                 None,
                 scale,
-                parity if len(tables.planning) == 2 else -1,
+                coset._get_rounding_parity(tables.planning, scale, parity),
             )
             *answer_by_tails, skipped = coset._search_from_syndrome_word(
                 packed_syndrome,
@@ -631,7 +631,7 @@ def _assert_searches_by_tails_match_searches_of_words(
                 tables.x_mask,
                 tails,
                 scale,
-                parity if len(tables.planning) == 2 else -1,
+                coset._get_rounding_parity(tables.planning, scale, parity),
             )
             if minima is not None:
                 assert (answer[0] <= max_weight) == (minima[syndrome] <= max_weight)

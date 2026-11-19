@@ -40,11 +40,14 @@ class ConnectedClusterCosetSearch:
     The words and syndromes are those of a ``BrouwerZimmermannCosetSearch``: packed Paulis, or X or
     Z parts of Paulis.  The coset search makes its checks sparser, with the same span, and searches
     from the syndrome of each query, mapped to them (Section 3.8 of ``connected_cluster.md``).
-    ``get_min_weight_bound`` gives these lower bounds on the weight of the words of a coset:
+    ``get_min_weight_bound``, and the batch queries of this module through
+    ``_get_min_weight_bound_and_states``, give these lower bounds on the weight of the words of a
+    coset:
 
     - The weight of the word, for a coset with a word of weight zero or one, which a table finds.
     - Two, for any other coset whose word the search finds within its first weight limit
-      (``max_weight`` for ``get_min_weight_bound``), since the word can be lighter than that limit.
+      (``max_weight`` for ``get_min_weight_bound``, and two for the batch queries), since the word
+      can be lighter than that limit.
     - The weight limit, for a coset whose word the search finds within a later limit, which is then
       the weight of the lightest words.
     - The larger of two and ``max_weight + 1``, for any other coset without a word within

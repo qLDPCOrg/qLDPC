@@ -29,7 +29,7 @@ from qldpc._compilation import always_compiled
 # Products with at least this many rows and columns use the Method of Four Russians.  Its tables pay
 # off only over many rows, and each of its additions covers only as many columns as the product has.
 # If either dimension is smaller, float32 BLAS can be several times faster, and otherwise the Method
-# of Four Russians usually is.
+# of Four Russians is usually faster.
 _MIN_FOUR_RUSSIANS_SIZE = 512
 
 ####################################################################################################

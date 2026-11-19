@@ -573,7 +573,7 @@ def wrap_advance(function: Callable[..., Any]) -> Callable[..., Any]:
         # programs, which the search would solve in this layer anyway.
         if can_switch:
             num_scanned = search.instance.certificate.get_num_sets_to_certify(weight, search.best)
-            switch_work = min(num_scanned * math.comb(dimension, weight), certificates.WORK_CAP)
+            switch_work = num_scanned * math.comb(dimension, weight)
             CURRENT_LAYER["switch_work"] = switch_work
         try:
             best = function(search)

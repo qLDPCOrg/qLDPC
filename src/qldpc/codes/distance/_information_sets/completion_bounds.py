@@ -440,7 +440,7 @@ def _count_skipped_samples(
 def _get_block_value(words: npt.NDArray[np.uint64], start: int, size: int) -> np.uint64:
     """The value of a packed row on the block of columns from column ``start`` on.
 
-    The block has ``size`` values, a power of two, and lies within the word that holds column
+    The block takes ``size`` values, a power of two, and lies within the word that holds column
     ``start``, as each block of completion tables does.
     """
     return (words[start // 64] >> np.uint64(start % 64)) & np.uint64(size - 1)
