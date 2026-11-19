@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import math
 import threading
@@ -581,6 +582,110 @@ def test_a_block_that_ends_a_batch_after_a_later_one_lowers_the_limit() -> None:
     assert not [start for kind, start in after if kind == "start" and start > 6]
 
 
+@pytest.mark.parametrize("num_threads", [1, 2, 3, 8])
+def test_outputs_come_in_the_order_of_the_items(num_threads: int) -> None:
+    """The calling thread gets the outputs of every item once, in order, on any number of threads.
+
+    The calling thread runs no item unless it runs them all.  With two or more threads, ranges hold
+    the fewest next items whose weight reaches the share of a range: here a 32nd of the weight for
+    each thread that runs items, which a single heavy item can exceed.
+    """
+    weights = np.array([1.0, 50.0] + [1.0] * 198)
+    ranges: list[tuple[int, int, int]] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[tuple[int, int]]]:
+        def run_range(start: int, end: int) -> Iterator[tuple[int, int]]:
+            ranges.append((start, end, threading.get_ident()))
+            for item in range(start, end):
+                yield from ((item, output) for output in range(item % 3))
+
+        return run_range
+
+    outputs = list(
+        _threads.iterate_in_order(
+            len(weights), num_threads, start_worker, cumulative_weights=np.cumsum(weights)
+        )
+    )
+    assert outputs == [(item, output) for item in range(200) for output in range(item % 3)]
+    ranges.sort()
+    assert [item for start, end, _ in ranges for item in range(start, end)] == list(range(200))
+    on_calling_thread = [start for start, _, thread in ranges if thread == threading.get_ident()]
+    if num_threads == 1:
+        assert ranges == [(0, 200, threading.get_ident())]
+    else:
+        share = weights.sum() / (_threads.RANGES_PER_THREAD * (num_threads - 1))
+        assert not on_calling_thread
+        for start, end, _ in ranges:
+            assert weights[start : end - 1].sum() < share <= weights[start:end].sum() or end == 200
+
+
+def test_no_items_give_no_outputs() -> None:
+    """With no items, the calling thread yields nothing, on one thread or on several."""
+    for num_threads in (1, 3):
+        assert not list(_threads.iterate_in_order(0, num_threads, _start_listing({})))
+
+
+@pytest.mark.parametrize("close_early", [False, True])
+def test_outputs_keep_their_order_whichever_range_ends_first(close_early: bool) -> None:
+    """A range that runs before an earlier one holds its outputs, at most the cap, for its turn.
+
+    With one output held for each thread, two threads hold two outputs.  The thread of range 1
+    adds two outputs, and waits with the third until the thread of range 0 adds its first, which
+    it lists only once range 1 has made its third.  So range 1 has not made its fourth output when
+    the calling thread gets the first.  Closing the iterator then stops both threads, the one of
+    range 1 while it waits.
+    """
+    made_third = threading.Event()
+    made: list[tuple[int, int]] = []
+    outputs_by_item = {0: [(0, 0), (0, 1)], 1: [(1, 0), (1, 1), (1, 2), (1, 3)], 2: [(2, 0)]}
+
+    def before_output(item: int, output: int) -> None:
+        if (item, output) == (0, 0):
+            assert made_third.wait(timeout=THREAD_TIMEOUT)
+        if (item, output) == (1, 2):
+            made_third.set()
+        made.append((item, output))
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+        monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 2)
+        iterator = _threads.iterate_in_order(3, 3, _start_listing(outputs_by_item, before_output))
+        with contextlib.closing(iterator):
+            outputs = [next(iterator)]
+            assert (1, 3) not in made
+            if not close_early:
+                outputs += list(iterator)
+    if close_early:
+        assert outputs == [(0, 0)] and (1, 3) not in made
+    else:
+        assert outputs == [output for item in range(3) for output in outputs_by_item[item]]
+
+
+def test_an_exception_of_a_thread_is_raised_with_no_output_after_its_own() -> None:
+    """The calling thread gets outputs in order up to the one before an exception, then the error.
+
+    It may get the exception before some of the outputs before it, but never gets an output after
+    it, whichever range ends first.
+    """
+    outputs_by_item = {item: [(item, 0), (item, 1)] for item in range(6)}
+
+    def before_output(item: int, output: int) -> None:
+        if (item, output) == (3, 1):
+            raise ValueError("failed")
+
+    received: list[tuple[int, int]] = []
+    with (
+        pytest.MonkeyPatch.context() as monkeypatch,
+        pytest.raises(ValueError, match="failed"),
+    ):
+        monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 3)
+        iterator = _threads.iterate_in_order(6, 3, _start_listing(outputs_by_item, before_output))
+        while True:
+            received.append(next(iterator))
+    before = [output for item in range(4) for output in outputs_by_item[item]][:7]
+    assert received == before[: len(received)]
+
+
 ####################################################################################################
 # helpers
 
@@ -599,6 +704,28 @@ def _get_worker_that_records_starts(
 
 def _run_no_range(start: int, end: int) -> None:
     """Run a range by doing nothing."""
+
+
+def _start_listing(
+    outputs_by_item: dict[int, list[tuple[int, int]]],
+    before_output: Callable[[int, int], None] = lambda item, output: None,
+) -> Callable[[threading.Event], Callable[[int, int], Iterator[tuple[int, int]]]]:
+    """A worker of ``iterate_in_order`` that yields the outputs of each item of its ranges.
+
+    ``before_output`` runs before each output, given its item and its index among the outputs of
+    the item.
+    """
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[tuple[int, int]]]:
+        def run_range(start: int, end: int) -> Iterator[tuple[int, int]]:
+            for item in range(start, end):
+                for index, output in enumerate(outputs_by_item[item]):
+                    before_output(item, index)
+                    yield output
+
+        return run_range
+
+    return start_worker
 
 
 def _get_worker_for_the_other_thread() -> tuple[

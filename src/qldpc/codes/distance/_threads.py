@@ -7,17 +7,21 @@ A worker runs compiled code that releases Python's global interpreter lock (see 
 a search, such as its completion tables, rather than copy them, as processes would.  A caller of
 ``run_work_items``, ``run_items_until_first``, or ``run_blocks`` must keep the requirements on
 threads in Section 5 of the guide of its method, ``brouwer_zimmermann_code.md`` or
-``connected_cluster.md``.  Its workers read the tuning only from the search, never through
-``get_tuning``, since new threads start with the default tuning (see the module docstring of
-``_tuning.py``).
+``connected_cluster.md``.  The fault lister of the certifier of bounded fault propagation, which
+calls ``iterate_in_order``, must keep those in "Threads" of
+``qldpc/circuits/certification/fault_propagation.md``.  Workers read the tuning only from their
+search, never through ``get_tuning``, since new threads start with the default tuning (see the
+module docstring of ``_tuning.py``).
 """
 
 from __future__ import annotations
 
+import collections
 import contextlib
+import dataclasses
 import threading
-from collections.abc import Callable
-from typing import Protocol, cast
+from collections.abc import Callable, Generator, Iterator
+from typing import Generic, Protocol, TypeVar, cast
 
 import numba
 import numpy as np
@@ -34,6 +38,9 @@ class _NumbaConfig(Protocol):
 
 # Numba creates the attributes of its settings dynamically, which type checkers cannot see.
 _numba_config = cast(_NumbaConfig, numba.config)
+
+# The type of the outputs of the work items of ``iterate_in_order``.
+_Output = TypeVar("_Output")
 
 
 ####################################################################################################
@@ -326,3 +333,171 @@ def run_blocks(
 
     block = run_items_until_first(num_blocks, num_threads, start_blocks)
     return ending_rows[block] if block < num_blocks else num_rows
+
+
+####################################################################################################
+# outputs in order
+
+
+# The number of ranges for each thread into which ``iterate_in_order`` splits the weight of the
+# items.  More ranges let the calling thread find the next range ready sooner, and balance the
+# threads better at the end, and fewer ranges cost fewer calls; the number changes no output.
+RANGES_PER_THREAD = 32
+
+# The number of outputs for each thread that the threads of ``iterate_in_order`` hold at most.  More
+# let them run further ahead of the calling thread, at the cost of memory; the number changes no
+# output.
+OUTPUTS_PER_THREAD = 64
+
+
+def iterate_in_order(
+    num_items: int,
+    num_threads: int,
+    start_worker: Callable[[threading.Event], Callable[[int, int], Iterator[_Output]]],
+    *,
+    cumulative_weights: npt.NDArray[np.float64] | None = None,
+) -> Generator[_Output, None, None]:
+    """Yield on the calling thread, in item order, the outputs of work items that threads run.
+
+    ``start_worker`` is called once on each thread that runs items, with a stop event, and returns a
+    function that, given a range ``(start, end)`` of items, returns an iterator over the outputs of
+    the items ``start, ..., end - 1``, in order.  With fewer than two threads, the calling thread
+    runs every item itself, as one range.  Otherwise a new thread calls ``run_work_items`` to start
+    ``num_threads - 1`` threads, including itself, while the calling thread yields the outputs of
+    each range as they come, range by range in the order of the items.  So at most ``num_threads``
+    threads are busy at once, and the calling thread can work on each output while the threads run
+    later items.  The functions that the threads run follow the rules of ``run_work_items``.
+
+    The threads claim ranges in increasing order, each with the fewest next items whose weight
+    reaches ``1 / (RANGES_PER_THREAD * (num_threads - 1))`` of the total, so that the next range
+    that the calling thread needs is soon ready.  ``cumulative_weights``, if given, holds for each
+    item the total weight of the items up to it, which estimates their work; without it, items
+    count one each.  The threads hold at most ``OUTPUTS_PER_THREAD * (num_threads - 1)`` outputs.
+    A thread waits before it adds an output if that many are held, unless the calling thread reads
+    its range, so that the calling thread can always go on.
+
+    Closing the iterator, as ``contextlib.closing`` does when its block ends early or raises, stops
+    the threads between outputs, and waits until they have returned, as ``run_work_items`` does at
+    an exception.  An exception of a thread stops the others, and is raised on the calling thread
+    once they have returned.
+    """
+    if num_threads < 2:
+        yield from start_worker(threading.Event())(0, num_items)
+        return
+    if cumulative_weights is None:
+        cumulative_weights = np.arange(1, num_items + 1, dtype=np.float64)
+    share = cumulative_weights[-1] / (RANGES_PER_THREAD * (num_threads - 1)) if num_items else 0.0
+    ready = threading.Condition()
+    halt = threading.Event()
+    ranges: dict[int, _Range[_Output]] = {}
+    errors: list[BaseException] = []
+    max_held = OUTPUTS_PER_THREAD * (num_threads - 1)
+    num_held = 0
+    next_item = 0
+    position = 0
+
+    def claim() -> tuple[int, int, _Range[_Output] | None]:
+        """Claim and record the next range, or none once every item is claimed or the halt is set.
+
+        The caller holds the lock of ``ready``.
+        """
+        nonlocal next_item
+        start = next_item
+        if halt.is_set() or start == num_items:
+            return start, start, None
+        claimed = cumulative_weights[start - 1] if start else 0.0
+        end = int(np.searchsorted(cumulative_weights, claimed + share)) + 1
+        next_item = min(num_items, max(start + 1, end))
+        ranges[start] = _Range(next_item)
+        return start, next_item, ranges[start]
+
+    def start_ranges(stop: threading.Event) -> Callable[[int, int], None]:
+        """Return how a thread claims ranges and adds their outputs to their records."""
+        run_range = start_worker(stop)
+
+        def hold_outputs(_start: int, _end: int) -> None:
+            """Claim ranges, and add their outputs to their records, until none is left."""
+            nonlocal num_held
+            while True:
+                with ready:
+                    start, end, record = claim()
+                if record is None:
+                    return
+                try:
+                    for output in run_range(start, end):
+                        with ready:
+                            while start != position and num_held >= max_held and not halt.is_set():
+                                ready.wait()
+                            if halt.is_set():
+                                stop.set()
+                                return
+                            record.outputs.append(output)
+                            num_held += 1
+                            ready.notify_all()
+                except BaseException:
+                    # A range that raised is never done, so the calling thread yields none of the
+                    # outputs after it, and waits for the exception.
+                    with ready:
+                        halt.set()
+                        ready.notify_all()
+                    raise
+                with ready:
+                    record.done = True
+                    ready.notify_all()
+
+        return hold_outputs
+
+    def run() -> None:
+        """Run the threads, and record an exception for the calling thread."""
+        try:
+            run_work_items(num_threads - 1, num_threads - 1, start_ranges)
+        except BaseException as error:  # noqa: BLE001 - raised again on the calling thread
+            with ready:
+                errors.append(error)
+                ready.notify_all()
+
+    # Yield the outputs of the range at the position, which starts at the first item and moves to
+    # the end of each range once its thread is done and its outputs are taken.
+    helper = threading.Thread(target=run, name="qldpc-search")
+    try:
+        helper.start()
+        while position < num_items:
+            with ready:
+                while not errors and not (
+                    position in ranges and (ranges[position].outputs or ranges[position].done)
+                ):
+                    ready.wait()
+                if errors:
+                    break
+                record = ranges[position]
+                if not record.outputs:
+                    del ranges[position]
+                    position = record.end
+                    ready.notify_all()
+                    continue
+                output = record.outputs.popleft()
+                num_held -= 1
+                ready.notify_all()
+            yield output
+    finally:
+        halt.set()
+        with ready:
+            ready.notify_all()
+        _join([helper], halt)
+    if errors:
+        raise errors[0]
+
+
+@dataclasses.dataclass
+class _Range(Generic[_Output]):
+    """The outputs of a range of items that ``iterate_in_order`` has not yet yielded.
+
+    Attributes:
+        end: The item after the last item of the range.
+        outputs: The outputs that a thread has added and the calling thread has not yet taken.
+        done: Whether the thread has added every output of the range.
+    """
+
+    end: int
+    outputs: collections.deque[_Output] = dataclasses.field(default_factory=collections.deque)
+    done: bool = False
