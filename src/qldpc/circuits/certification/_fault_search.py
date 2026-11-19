@@ -46,6 +46,10 @@ _MAX_CLOSING_SIZE = 4
 # the map takes about as long as that listing at most.
 _LOOKUPS_PER_CLOSING_SET = 1
 
+# The number of choices of members of a class tuple whose syndromes ``_expand_class_tuples``
+# remembers, to skip the faults that complete a later choice with a remembered syndrome.
+_MAX_REMEMBERED_CHOICES = 2**12
+
 # The number of faults in the first batch of a call of ``FaultLister.find_first``.  Each batch
 # doubles in size, so that an early violation is found quickly, and larger later batches spread the
 # overhead of each call of the oracle over more faults.
@@ -390,7 +394,12 @@ class FaultLister:
             (fault_weight + 1, self._primitive_rows.shape[1]), dtype=np.uint64
         )
         chosen_start_counts = np.zeros(fault_weight + 1, dtype=np.int64)
-        expansion_state = np.array([0, -1, 0, self._num_syndromes], dtype=np.int64)
+        choice_rows = np.empty(
+            (_MAX_REMEMBERED_CHOICES, 2 + self._num_syndrome_words), dtype=np.uint64
+        )
+        choice_slots = np.full(2 * _MAX_REMEMBERED_CHOICES, -1, dtype=np.int64)
+        choice_slots_used = np.empty(_MAX_REMEMBERED_CHOICES, dtype=np.int64)
+        expansion_state = np.array([0, -1, 0, self._num_syndromes, 0], dtype=np.int64)
 
         # Expand each batch of class tuples into faults.  Whenever the expansion pauses, grow the
         # table of syndromes if it should grow, and check the batch of faults if it is full.  At the
@@ -415,6 +424,9 @@ class FaultLister:
                     next_member_entries,
                     chosen_row_sums,
                     chosen_start_counts,
+                    choice_rows,
+                    choice_slots,
+                    choice_slots_used,
                     expansion_state,
                 )
                 self._num_syndromes = int(expansion_state[3])
@@ -886,6 +898,9 @@ def _expand_class_tuples(
     next_member_entries: npt.NDArray[np.int64],
     chosen_row_sums: npt.NDArray[np.uint64],
     chosen_start_counts: npt.NDArray[np.int64],
+    choice_rows: npt.NDArray[np.uint64],
+    choice_slots: npt.NDArray[np.int64],
+    choice_slots_used: npt.NDArray[np.int64],
     expansion_state: npt.NDArray[np.int64],
 ) -> None:
     """Expand class tuples into faults, and add each fault to a batch unless it is left out.
@@ -900,17 +915,24 @@ def _expand_class_tuples(
     ``syndrome_rows``, with ``syndrome_slots``, form the table of syndromes (see
     ``_find_syndrome``).  Each fault that is not left out (see ``FaultLister.find_first``) gets the
     next row of the batch arrays: its primitive faults, in the order of its classes, and its
-    syndrome.
+    syndrome.  The expansion skips, without looking them up, the faults that the table would leave
+    out because an earlier choice of members had the same syndrome (see "Skipping faults whose
+    syndromes are listed" in ``fault_propagation.md``).
 
     The level is the index, in a class tuple, of the class whose member is being chosen.  The
     expansion keeps its state between calls in ``expansion_state`` (the index of the class tuple to
-    expand, the level or -1 before the class tuple starts, the number of faults in the batch, and
-    the number of syndromes in the table), ``next_member_entries`` (at each level, the entry of
-    ``class_members`` after that of the chosen member), ``chosen_row_sums`` (row ``i`` is the sum of
-    the primitive rows of the members chosen at the first ``i`` levels), and ``chosen_start_counts``
-    (entry ``i`` is the number of start members among them).  It returns once the batch has
-    ``batch_size`` faults, once the table should grow (see ``_table_should_grow``), or once every
-    class tuple is expanded.  A full table takes no more syndromes.
+    expand, the level or -1 before the class tuple starts, the number of faults in the batch, the
+    number of syndromes in the table, and the number of remembered choices),
+    ``next_member_entries`` (at each level, the entry of ``class_members`` after that of the chosen
+    member), ``chosen_row_sums`` (row ``i`` is the sum of the primitive rows of the members chosen
+    at the first ``i`` levels), ``chosen_start_counts`` (entry ``i`` is the number of start members
+    among them), and ``choice_rows``, ``choice_slots``, and ``choice_slots_used``.  These form a
+    hash map as in ``_find_syndrome_slot`` of the choices of members of the current class tuple
+    whose completions were listed: each row holds a hash, then the level of the choice and whether
+    it has a start member, then its syndrome.  ``choice_slots_used`` lists the slots in use, to
+    clear them for the next class tuple.  The expansion returns once the batch has ``batch_size``
+    faults, once the table should grow (see ``_table_should_grow``), or once every class tuple is
+    expanded.  A full table takes no more syndromes.
     """
     # Column 0 of the primitive rows holds the hash of the syndrome, the next columns hold the
     # syndrome, and the rest hold the X and then the Z part of the representative.
@@ -919,12 +941,20 @@ def _expand_class_tuples(
     x_start = 1 + batch_syndromes.shape[1]
     z_start = x_start + (num_words - x_start) // 2
 
+    # The key of a choice of members in the map of remembered choices: its level and whether it has
+    # a start member, then its syndrome.
+    choice_key = np.empty(choice_rows.shape[1] - 1, dtype=np.uint64)
+
     tuple_index, level = expansion_state[0], expansion_state[1]
     num_batched, num_syndromes = expansion_state[2], expansion_state[3]
+    num_choices = expansion_state[4]
     while tuple_index < len(class_tuples):
         if level < 0:
             level = 0
             next_member_entries[0] = class_offsets[class_tuples[tuple_index, 0]]
+            for choice in range(num_choices):
+                choice_slots[choice_slots_used[choice]] = -1
+            num_choices = 0
         while level >= 0:
             # Choose the next member of the class at this level, or go back a level if there is
             # none.
@@ -958,6 +988,31 @@ def _expand_class_tuples(
                     chosen_row_sums[level, word] ^ primitive_rows[member, word]
                 )
             if not is_last:
+                # Skip every fault that completes this choice if an earlier choice of members of the
+                # same classes of this class tuple had the same syndrome, and a start member if and
+                # only if this one has, since the table then holds the syndromes of all these faults
+                # (see "Skipping faults whose syndromes are listed").  This needs a table that is
+                # not full, and so never was, since it only grows until a violation ends the
+                # listing, and a next class that differs from this one.  Otherwise remember the
+                # choice, if there is room.
+                if (
+                    num_syndromes < len(syndrome_rows)
+                    and class_tuples[tuple_index, level + 1] != current_class
+                ):
+                    choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
+                    choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]
+                    choice_hash = chosen_row_sums[level + 1, 0] ^ (
+                        (choice_key[0] + np.uint64(1)) * _HASH_MULTIPLIER
+                    )
+                    slot = _find_syndrome(choice_hash, choice_key, choice_rows, choice_slots)
+                    if slot < 0:
+                        continue
+                    if num_choices < len(choice_rows):
+                        choice_rows[num_choices, 0] = choice_hash
+                        choice_rows[num_choices, 1:] = choice_key
+                        choice_slots[slot] = num_choices
+                        choice_slots_used[num_choices] = slot
+                        num_choices += 1
                 level += 1
                 next_class = class_tuples[tuple_index, level]
                 next_member_entries[level] = (
@@ -994,11 +1049,13 @@ def _expand_class_tuples(
             ):
                 expansion_state[0], expansion_state[1] = tuple_index, level
                 expansion_state[2], expansion_state[3] = num_batched, num_syndromes
+                expansion_state[4] = num_choices
                 return
         tuple_index += 1
         level = -1
     expansion_state[0], expansion_state[1] = tuple_index, level
     expansion_state[2], expansion_state[3] = num_batched, num_syndromes
+    expansion_state[4] = num_choices
 
 
 @always_compiled

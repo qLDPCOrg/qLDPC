@@ -185,6 +185,19 @@ So the search lists the same class codewords in the same order for every `s`, an
 Many primitive faults can share their flags, which is why the search works with classes.
 Its tests of independence, its lookups of closing sets, and its tables of closing sets work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
 
+### Skipping faults whose syndromes are listed
+
+Many faults of a fault weight share their syndromes, so the table of syndromes leaves out most of the faults that the search lists (see [Checking one fault](#checking-one-fault), case 2).
+The search skips many of them without looking them up.
+It expands each class codeword, or for fault weight two each start class taken twice, by choosing one member of each of its classes in turn, as [above](#listing-each-irreducible-accepted-fault-once) describes.
+Take two choices `U` and `U'` of members of the first `ℓ < m` classes of a class codeword of `m` classes, where the search chooses `U` first, and either both or neither contain a heavy primitive fault.
+Whether the search skips a member depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it, so the search completes `U` and `U'` by the same choices `R` of members of the other classes.
+If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which the search listed earlier, so by case 2 of [Checking one fault](#checking-one-fault), no fault that completes `U'` is the first violation, and the search skips them all.
+Each skipped fault has the syndrome of a fault listed earlier, so the table holds the syndrome of every fault listed so far, skipped or not, as long as it has had room for every syndrome.
+The search skips faults only while the table has had room, so that the table would have left out each fault that it skips.
+Then skipping changes neither the faults that the search checks nor the table.
+It skips no faults of fault weight two, since the member of the second class must come after that of the first, so `U` and `U'` have different completions.
+
 ### Why the first violation has the smallest fault weight
 
 The search checks the kept primitive faults with zero flags first, and then the [listed faults](#listing-each-irreducible-accepted-fault-once) in order of fault weight 2, 3, and so on, up to `min(K, rank(P) + 1)`.
@@ -216,6 +229,7 @@ In a class codeword, the start classes come first, and only they contain heavy p
 So once the search has chosen a primitive fault from each start class of a class codeword, every fault that completes the choice has the same heavy part as the chosen primitive faults, and contains every zero-syndrome light primitive fault among them.
 The search could therefore skip all these faults if it finds a Pauli error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults chosen so far.
 Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
+But their syndromes would not enter the table of syndromes, so the search could check later faults that the table would have left out.
 
 The search does not use this rule, because in trials the time that it saved did not justify the added complexity.
 A trial implementation, in an earlier version of the search that worked with primitive faults rather than classes, applied the rule to each partial choice of primitive faults that contained a light primitive fault.
@@ -223,4 +237,6 @@ It looked for such a Pauli error in the first two layers of the oracle's search 
 It did not look when adding the last primitive fault of a fault, since only one fault then completes the choice.
 The number of faults that complete a choice grows with the fault weight.
 Up to fault weight four, looking for such a Pauli error cost about as much time as it saved.
-In searches that listed every fault, it saved little time at fault weight five but made the search about twice as fast at fault weight six, so the rule may pay off in searches that reach larger fault weights.
+In searches that listed every fault, it saved little time at fault weight five but made the search about twice as fast at fault weight six.
+Later trials reached fault weight ten, where the search skips most faults because [their syndromes are listed](#skipping-faults-whose-syndromes-are-listed).
+There, expanding class codewords into faults took under a fifth of the time of listing them, and the rule, with the smallest Pauli weight of each heavy part from the oracle, would have removed under a third of the choices of members that remain.

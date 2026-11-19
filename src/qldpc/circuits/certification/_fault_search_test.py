@@ -40,6 +40,26 @@ def _irreducible_faults(
     return faults
 
 
+def _listed_faults(
+    flags: Sequence[int], fault_weight: int, num_starts: int
+) -> list[tuple[int, ...]]:
+    """By brute force, the faults that a lister lists at a fault weight, in the order it lists them.
+
+    The lister numbers its classes in the order of their first members, lists its class tuples in
+    lexicographic order, and lists the faults of each class tuple in lexicographic order of their
+    members, in the order of their classes.
+    """
+    class_numbers: dict[int, int] = {}
+    for flag in flags:
+        class_numbers.setdefault(flag, len(class_numbers))
+
+    def position(fault: tuple[int, ...]) -> tuple[list[int], list[int]]:
+        members = sorted(fault, key=lambda jj: (class_numbers[flags[jj]], jj))
+        return [class_numbers[flags[jj]] for jj in members], members
+
+    return sorted(_irreducible_faults(flags, fault_weight, num_starts), key=position)
+
+
 def _xor(values: Sequence[int], indices: Sequence[int]) -> int:
     return functools.reduce(operator.xor, (values[jj] for jj in indices))
 
@@ -343,6 +363,69 @@ def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.Mo
     )
     for _ in range(2):
         assert _check_faults(searcher, 2, {1 ^ 4})[1] == ((0, 2), 1 ^ 4)
+
+
+def test_checked_faults_follow_the_table_of_syndromes(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lister checks, in the order it lists them, the faults that the table does not leave out.
+
+    It leaves out a fault if its syndrome is in the table of syndromes, which takes each new
+    syndrome while it has room, or if its representatives have Pauli weight at most its fault
+    weight.  This holds whether or not the table fills up, though the lister skips many of the
+    faults that the table leaves out without looking them up.
+    """
+    # With no memory, the table of syndromes keeps room for its first two syndromes.
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+
+    def check(
+        flags: list[int],
+        syndromes: list[int],
+        representatives: list[int],
+        num_qubits: int,
+        num_starts: int,
+    ) -> None:
+        """Check the listing against a model of the table, with and without room in it."""
+        for memory_limit, room in ((0, 2), (2**20, None)):
+            lister = _fault_search.FaultLister(
+                flags, syndromes, representatives, num_qubits, False, num_starts, memory_limit
+            )
+            table: set[int] = set()
+            for fault_weight in range(2, 6):
+                expected = []
+                for fault in _listed_faults(flags, fault_weight, num_starts):
+                    syndrome = _xor(syndromes, fault)
+                    if syndrome in table:
+                        continue
+                    if room is None or len(table) < room:
+                        table.add(syndrome)
+                    error = _xor(representatives, fault)
+                    error_weight = (
+                        error & ((1 << num_qubits) - 1) | error >> num_qubits
+                    ).bit_count()
+                    if error_weight > fault_weight:
+                        expected.append(syndrome)
+                assert _check_faults(lister, fault_weight, ()) == (expected, None)
+
+    # Syndromes of two bits repeat often, for faults and for partial choices of their members, and
+    # errors on six qubits leave out some faults but not all.
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for _ in range(20):
+        num_primitives = int(rng.integers(6, 11))
+        flags = [int(flag) for flag in rng.integers(1, 8, size=num_primitives)]
+        syndromes = [int(syndrome) for syndrome in rng.integers(4, size=num_primitives)]
+        representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
+        check(flags, syndromes, representatives, 6, int(rng.integers(1, num_primitives + 1)))
+
+    # The start members 0, 1, and 2 come first in the classes with flags 1, 2, and 4, which, with
+    # the class with flags 7, form a class codeword.  The choice of members 3 and 5 of the first two
+    # classes has no start member, and the later choice of 4 and 1 has one, with the same syndrome.
+    # Only the latter is completed by member 6, which is not a start member, and its fault {1, 4, 6,
+    # 7} has a syndrome of its own.  Each representative has weight three.
+    flags = [1, 2, 4, 1, 1, 2, 4, 7]
+    syndromes = [16, 3, 32, 1, 0, 2, 64, 128]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, syndromes, representatives, 24, 3)
 
 
 @pytest.mark.parametrize("size", [2, 3, 4])
