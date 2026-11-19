@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import math
 import operator
 import tracemalloc
 from collections.abc import Callable, Collection, Sequence
@@ -39,6 +40,26 @@ def _irreducible_faults(
     return faults
 
 
+def _listed_faults(
+    flags: Sequence[int], fault_weight: int, num_starts: int
+) -> list[tuple[int, ...]]:
+    """By brute force, the faults that a lister lists at a fault weight, in the order it lists them.
+
+    The lister numbers its classes in the order of their first members, lists its class tuples in
+    lexicographic order, and lists the faults of each class tuple in lexicographic order of their
+    members, in the order of their classes.
+    """
+    class_numbers: dict[int, int] = {}
+    for flag in flags:
+        class_numbers.setdefault(flag, len(class_numbers))
+
+    def position(fault: tuple[int, ...]) -> tuple[list[int], list[int]]:
+        members = sorted(fault, key=lambda jj: (class_numbers[flags[jj]], jj))
+        return [class_numbers[flags[jj]] for jj in members], members
+
+    return sorted(_irreducible_faults(flags, fault_weight, num_starts), key=position)
+
+
 def _xor(values: Sequence[int], indices: Sequence[int]) -> int:
     return functools.reduce(operator.xor, (values[jj] for jj in indices))
 
@@ -69,7 +90,8 @@ def test_listing_matches_brute_force(
 ) -> None:
     """Each irreducible accepted fault with a start member is listed once, and no other fault is.
 
-    Only listers with memory for the closing map of pairs build it.
+    The faults are listed in the same order with closing maps of any size, and only listers with
+    memory for a closing map of two or more classes build it.
     """
     # With zero hashes, lookups find every entry of a table and must compare flags.  Small batches
     # make a listing pause and resume often.
@@ -80,35 +102,43 @@ def test_listing_matches_brute_force(
     monkeypatch.setattr(_fault_search, "_INITIAL_BATCH_SIZE", 1)
     monkeypatch.setattr(_fault_search, "_BATCH_SIZE", 3)
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
-    # Record the memory limit (from the loop below) of each lister that builds a nonempty closing
-    # map of pairs, to check that some listers with memory for the map build it, and that none
-    # without memory does.
-    limits_with_pairs: set[int] = set()
+    # Build every closing map that fits, whatever the number of lookups.  Record the sizes of the
+    # nonempty closing maps that the listers with each memory limit (from the loop below) build, to
+    # check that some listers with memory for maps of each size build them, and that none without
+    # memory does.
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
+    sizes_built: set[tuple[int, int]] = set()
     get_closing_map = _fault_search._get_closing_map
 
     def record_closing_map(
         hashes: npt.NDArray[np.uint64], size: int
     ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
-        if size == 2 and len(hashes) > 1:
-            limits_with_pairs.add(memory_limit)
+        if size > 1 and len(hashes) >= size:
+            sizes_built.add((memory_limit, size))
         return get_closing_map(hashes, size)
 
     monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
     # The first flags make an accepted fault {0, 1, 2, 3} that contains the accepted fault {0, 2}.
-    # In the second, the classes with flags 1, 2, 4, and 8 have the same sum of flags, 15, as the
-    # pair of classes with flags 3 and 12, but 3 = 1 + 2, so these six classes are not a class
-    # codeword.  In the third, with two start members, 0 and 1, the class with flags 1 has members 0
-    # and 3, and the class with flags 2 is a start class.  So the fault {1, 2, 3} takes member 3,
-    # which is not a start member, before member 1, which is, and must not be skipped.  In the
-    # fourth, the classes with flags 1 and 2 have two closing pairs, with flags 4 and 7 and with
-    # flags 5 and 6, so the order of the pairs that one lookup finds decides the order of the
-    # faults.
+    # In the second, the classes with flags 1, 2, 4, 8, 3, and 12 have flags that sum to zero, but
+    # 3 = 1 + 2, so these six classes are not a class codeword.  After choosing the classes with
+    # flags 1 and 2, a listing must reject the closing set with flags 4, 8, 3, and 12, and after
+    # also choosing 4 and 8, the closing pair with flags 3 and 12.  In the third, with two start
+    # members, 0 and 1, the class with flags 1 has members 0 and 3, and the class with flags 2 is a
+    # start class.  So the fault {1, 2, 3} takes member 3, which is not a start member, before
+    # member 1, which is, and must not be skipped.  In the fourth, the classes with flags 1 and 2
+    # have two closing pairs, with flags 4 and 7 and with flags 5 and 6, so the order of the pairs
+    # that one lookup finds decides the order of the faults.  In the fifth, after choosing the
+    # classes with flags 1 and 2, a listing must reject the closing set with flags 4, 5, 8, and 10.
+    # Unlike in the second, each class of that set is independent of the chosen classes, but the
+    # classes with flags 4 and 5 together are not, since 5 = 1 + 4, nor are those with flags 8 and
+    # 10, since 10 = 2 + 8.
     flag_sets = [
         [1, 2, 1, 2, 3, 3],
         [1, 2, 4, 8, 3, 12, 16, 31],
         [1, 2, 3, 1],
         [1, 2, 3, 4, 5, 6, 7],
+        [1, 2, 4, 5, 8, 10],
     ]
     flag_sets += [list(rng.integers(1, 16, size=rng.integers(1, 10))) for _ in range(10)]
     for small_flags in flag_sets:
@@ -122,11 +152,14 @@ def test_listing_matches_brute_force(
         # leave out no fault.
         syndromes = [1 << (13 * jj) for jj in range(num_primitives)]
         errors = [0b1111111 << (7 * jj) for jj in range(num_primitives)]
-        # Without memory, the lister builds no closing map of pairs, except an empty one when there
-        # are fewer than two classes.  The memory limit must not change the order in which faults
+        # Without memory, the lister closes class codewords with single classes.  With 2**15 bytes,
+        # it has room for the map of pairs, but its table of syndromes, which starts with room for
+        # 1024 syndromes of 40 bytes, leaves no room for larger maps.  With 2**20 bytes, it builds
+        # maps of up to four classes.  The memory limit must not change the order in which faults
         # are listed, since the first violation in that order is the result.
         orders: dict[tuple[int, int], list[int]] = {}
-        for memory_limit, num_starts in itertools.product((0, 2**20), (num_primitives, 2, 1)):
+        memory_limits = (0, 2**15, 2**20)
+        for memory_limit, num_starts in itertools.product(memory_limits, (num_primitives, 2, 1)):
             args = (flags, syndromes, errors, 70, False, num_starts, memory_limit)
             lister = _fault_search.FaultLister(*args)
             for fault_weight in range(2, 7):
@@ -143,14 +176,14 @@ def test_listing_matches_brute_force(
                         _fault_search.FaultLister(*args), fault_weight, {violation[1]}
                     )
                     assert result == violation
-    assert limits_with_pairs == {2**20}
+    assert sizes_built == {(2**15, 2), (2**20, 2), (2**20, 3), (2**20, 4)}
 
 
-@pytest.mark.parametrize("size", [1, 2])
+@pytest.mark.parametrize("size", [1, 2, 3, 4])
 def test_closing_tables_sort_sets_stably_by_hash(size: int, pytestconfig: pytest.Config) -> None:
     """A closing table sorts its sets by hash, keeping lexicographic order among equal hashes."""
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for num_classes in (0, 1, 2, 5, 40):
+    for num_classes in (0, 1, 2, 5, 40 if size <= 2 else 16):
         # Random hashes, hashes from four values so that many sets share one, and small hashes so
         # that different hashes share their high bits.
         for hashes in (
@@ -337,33 +370,147 @@ def test_syndromes_of_listed_faults_are_not_checked_again(monkeypatch: pytest.Mo
         assert _check_faults(searcher, 2, {1 ^ 4})[1] == ((0, 2), 1 ^ 4)
 
 
-def test_pair_table_peak_memory_is_within_its_estimate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A table of pairs and its slots need at most about ``_BYTES_PER_PAIR`` bytes for each pair."""
+def test_checked_faults_follow_the_table_of_syndromes(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lister checks, in the order it lists them, the faults that the table does not leave out.
+
+    It leaves out a fault if its syndrome is in the table of syndromes, which takes each new
+    syndrome while it has room, or if its representatives have Pauli weight at most its fault
+    weight.  This holds whether or not the table fills up, though the lister skips many of the
+    faults that the table leaves out without looking them up.
+    """
+    # With no memory, the table of syndromes keeps room for its first two syndromes.
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    default_remembered = _fault_search._MAX_REMEMBERED_CHOICES
+
+    def check(
+        flags: list[int],
+        syndromes: list[int],
+        representatives: list[int],
+        num_qubits: int,
+        num_starts: int,
+    ) -> None:
+        """Check the listing against a model of the table, with and without room in it.
+
+        Also check it when the lister remembers only one choice of members of each class tuple.
+        """
+        cases = itertools.product(((0, 2), (2**20, None)), (default_remembered, 1))
+        for (memory_limit, room), remembered in cases:
+            monkeypatch.setattr(_fault_search, "_MAX_REMEMBERED_CHOICES", remembered)
+            lister = _fault_search.FaultLister(
+                flags, syndromes, representatives, num_qubits, False, num_starts, memory_limit
+            )
+            table: set[int] = set()
+            for fault_weight in range(2, 6):
+                expected = []
+                for fault in _listed_faults(flags, fault_weight, num_starts):
+                    syndrome = _xor(syndromes, fault)
+                    if syndrome in table:
+                        continue
+                    if room is None or len(table) < room:
+                        table.add(syndrome)
+                    error = _xor(representatives, fault)
+                    error_weight = (
+                        error & ((1 << num_qubits) - 1) | error >> num_qubits
+                    ).bit_count()
+                    if error_weight > fault_weight:
+                        expected.append(syndrome)
+                assert _check_faults(lister, fault_weight, ()) == (expected, None)
+
+    # Syndromes of two bits repeat often, for faults and for partial choices of their members, and
+    # errors on six qubits leave out some faults but not all.  Then the same with zero hashes, so
+    # that every remembered choice shares its hash, and with the two bits of each syndrome in
+    # different words, so that a remembered choice must match every word of its syndrome.
+    rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
+    for shift, num_qubits in ((0, 6), (63, 70)):
+        if shift:
+            monkeypatch.setattr(
+                _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
+            )
+        for _ in range(20):
+            num_primitives = int(rng.integers(6, 11))
+            flags = [int(flag) for flag in rng.integers(1, 8, size=num_primitives)]
+            syndromes = [
+                int(syndrome) << shift for syndrome in rng.integers(4, size=num_primitives)
+            ]
+            representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
+            num_starts = int(rng.integers(1, num_primitives + 1))
+            check(flags, syndromes, representatives, num_qubits, num_starts)
+
+    # The start members 0, 1, and 2 come first in the classes with flags 1, 2, and 4, which, with
+    # the class with flags 7, form a class codeword.  The choice of members 3 and 5 of the first two
+    # classes has no start member, and the later choice of 4 and 1 has one, with the same syndrome.
+    # Only the latter is completed by member 6, which is not a start member, and its fault {1, 4, 6,
+    # 7} has a syndrome of its own.  Each representative has weight three.
+    flags = [1, 2, 4, 1, 1, 2, 4, 7]
+    syndromes = [16, 3, 32, 1, 0, 2, 64, 128]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, syndromes, representatives, 24, 3)
+
+    # Primitive fault 3 has flags but no syndrome, so adding it to a choice keeps the syndrome of
+    # the choice.  In the class codeword of the classes with flags 1, 2, 4, and 7, the choice of
+    # members 0, 2, and 3 of the first three classes has the syndrome of the choice of members 0 and
+    # 2 of the first two, but other completions, so a remembered choice must also match the level.
+    flags = [1, 1, 2, 4, 7]
+    syndromes = [1, 2, 4, 0, 8]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, syndromes, representatives, 15, 1)
+
+    # Members 0 to 3, the start members, come first in the classes with flags 1, 2, 4, and 7, and
+    # members 4 to 8 come after them.  The syndrome of member 6 makes the choice of members 4, 6,
+    # and 7 of the first three classes, which has no start member, share its syndrome with a later
+    # choice that has one.  With the first syndromes below, that is the choice of members 5, 1,
+    # and 7, whose start member was chosen before the last of its levels, so a remembered choice
+    # must record a start member chosen at any level.  With the second, it is the choice of members
+    # 5 and 1 of the first two classes, so it must also record the level, besides whether it has a
+    # start member.  Member 8, which is not a start member, completes only the later choices, so
+    # skipping them after the earlier choice would lose faults.
+    flags = [1, 2, 4, 7, 1, 1, 2, 4, 7]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, [1, 2, 4, 8, 16, 32, 50, 64, 128], representatives, 27, 4)
+    check(flags, [1, 2, 4, 8, 16, 32, 114, 64, 128], representatives, 27, 4)
+
+
+@pytest.mark.parametrize("size", [2, 3, 4])
+def test_closing_map_peak_memory_is_within_its_estimate(
+    size: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A closing map needs at most about ``_BYTES_PER_SET``, and 4 per class, bytes for each set."""
     # tracemalloc traces only allocations by Python, so build the table with the Python versions of
     # the compiled functions.
-    for name in ("_get_closing_table", "_sort_bucket", "_get_key_slots", "_find_syndrome_slot"):
+    for name in (
+        "_get_closing_table",
+        "_place_sets",
+        "_place_set",
+        "_get_num_sets",
+        "_advance_set",
+        "_sort_bucket",
+        "_get_key_slots",
+        "_find_syndrome_slot",
+    ):
         function = getattr(_fault_search, name)
         monkeypatch.setattr(_fault_search, name, getattr(function, "py_func", function))
-    # Distinct random hashes leave no bucket to merge sort, and give the pairs distinct keys, which
-    # need the most slots.
-    num_classes = 200
+    # Distinct random hashes leave no bucket to merge sort, and give the sets distinct keys, which
+    # need the most slots.  Each size has about 20,000 sets.
+    num_classes = {2: 200, 3: 50, 4: 25}[size]
     hashes = np.random.default_rng(0).integers(2**64, size=num_classes, dtype=np.uint64)
     # Build a small table first, so that loading the compiled code that the Python versions call
     # adds no allocations to the measurement.
-    _fault_search._get_closing_map(hashes[:3], 2)
+    _fault_search._get_closing_map(hashes[: size + 1], size)
     was_tracing = tracemalloc.is_tracing()
     tracemalloc.start()
     try:
         tracemalloc.reset_peak()
         before = tracemalloc.get_traced_memory()[0]
-        _fault_search._get_closing_map(hashes, 2)
+        _fault_search._get_closing_map(hashes, size)
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         if not was_tracing:
             tracemalloc.stop()
-    # Allow a few kilobytes that do not grow with the number of pairs.
-    num_pairs = num_classes * (num_classes - 1) // 2
-    assert peak - before <= num_pairs * _fault_search._BYTES_PER_PAIR + 2**14
+    # Allow a few kilobytes that do not grow with the number of sets.
+    num_sets = math.comb(num_classes, size)
+    assert peak - before <= num_sets * (_fault_search._BYTES_PER_SET + 4 * size) + 2**14
 
 
 def test_memory_limit_is_split_within_the_caps() -> None:
@@ -380,11 +527,208 @@ def test_memory_limit_is_split_within_the_caps() -> None:
     # Three classes have three pairs.  A syndrome of two words takes 40 bytes: 8 for its hash, 16
     # for its words, and 16 for its two slots.  The table gets what the map leaves, or the whole
     # limit if the map misses by a byte.
-    pair_bytes = 3 * _fault_search._BYTES_PER_PAIR
+    pair_bytes = 3 * (_fault_search._BYTES_PER_SET + 8)
     syndrome_bytes = 40
     assert split(3, 2, pair_bytes) == (True, 0)
     assert split(3, 2, pair_bytes + 5 * syndrome_bytes) == (True, 5)
     assert split(3, 2, pair_bytes - 1) == (False, (pair_bytes - 1) // syndrome_bytes)
+
+
+def test_closing_maps_take_room_that_the_table_does_not_need(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A closing map takes room from the table of syndromes only if the table can grow as far."""
+    take = _fault_search._take_table_room
+    # Empty tables start with four rows.  A syndrome of one word takes 32 bytes, so 33 bytes take
+    # the room of two.  A table of four rows with room for ten syndromes cannot grow, so it can give
+    # up the room of six, and no more.
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 4)
+    assert take(33, 10, 4, 1) == 8
+    assert take(6 * 32, 10, 4, 1) == 4
+    assert take(6 * 32 + 1, 10, 4, 1) == -1
+    # With room for 100, a table of four rows can grow to 64 rows, since the old and the new table
+    # of the last step take 96.  It can give up the room of four syndromes, but not of five.
+    assert take(4 * 32, 100, 4, 1) == 96
+    assert take(5 * 32, 100, 4, 1) == -1
+    # A table that has grown to 64 rows can still give up only the room of four, since a table
+    # emptied by a violation grows again from four rows.
+    assert take(5 * 32, 100, 64, 1) == -1
+
+
+def _listing_lister(num_classes: int, seed: int, memory_limit: int) -> _fault_search.FaultLister:
+    """A lister of two members in each of ``num_classes`` classes with random flags of six bits.
+
+    The syndromes are random and of 12 bits, so that the faults share some syndromes but fill a
+    table of syndromes, and each representative has weight three, so that each fault with a new
+    syndrome is checked.
+    """
+    rng = np.random.default_rng(seed)
+    class_flags = rng.choice(np.arange(1, 64), size=num_classes, replace=False).tolist()
+    flags = [int(flag) for flag in class_flags for _ in range(2)]
+    syndromes = [int(syndrome) for syndrome in rng.integers(2**12, size=len(flags))]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    lister = _fault_search.FaultLister(
+        flags, syndromes, representatives, 3 * len(flags), False, len(flags), memory_limit
+    )
+    return lister
+
+
+def test_closing_maps_do_not_change_the_checked_faults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Closing maps of three or four classes leave the checked faults as they are without them.
+
+    In particular, a map does not take room that the table of syndromes, which grows from two rows
+    here, would need to take each new syndrome as it does without the map, also after a violation
+    empties the table.
+    """
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
+    # With twelve classes, the map of pairs takes 3168 bytes, and those of three and four classes
+    # take 11,440 and 27,720.  Each syndrome takes 40 bytes, and the listing has 1362 syndromes.
+    # With room for 1536 or 3072 syndromes, the table can just grow to 1024 or 2048 rows, so that
+    # any room that a map took from it would stop it one doubling short.  With 3072, the table
+    # holds every syndrome only if it reaches 2048 rows.  With 1536, it fills up at 1024 rows, and
+    # after a violation at fault weight six empties it, it must grow again to 1024 rows when that
+    # weight is listed again, which a map that took room while the table had 1024 rows would stop.
+    violating = set(range(0, 2**12, 31))
+    for room in (1536, 3072):
+        memory_limit = 3168 + 40 * room
+        checked = []
+        for max_closing_size in (2, 4):
+            monkeypatch.setattr(_fault_search, "_MAX_CLOSING_SIZE", max_closing_size)
+            lister = _listing_lister(12, 5, memory_limit)
+            listings = [_check_faults(lister, weight, ()) for weight in range(2, 7)]
+            listings.append(_check_faults(lister, 6, violating))
+            listings.append(_check_faults(lister, 6, ()))
+            checked.append(listings)
+        assert checked[0] == checked[1], memory_limit
+
+
+def test_one_lookup_can_list_many_class_codewords(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lookup in a closing map of three classes can find more class codewords than classes.
+
+    The faults are then listed as with closing pairs.
+    """
+    # One class for each nonzero flag of five bits.  After the classes with flags 1 and 2, one
+    # lookup finds the 112 triples of later classes that close class codewords of fault weight five,
+    # more than the 31 classes.  Distinct syndromes, and representatives of weight three, check
+    # every listed fault.
+    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
+    get_closing_map = _fault_search._get_closing_map
+    sizes_built: set[int] = set()
+
+    def record_closing_map(
+        hashes: npt.NDArray[np.uint64], size: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
+        sizes_built.add(size)
+        return get_closing_map(hashes, size)
+
+    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
+    flags = list(range(1, 32))
+    syndromes = [1 << jj for jj in range(len(flags))]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    checked = []
+    for max_closing_size in (2, 3):
+        monkeypatch.setattr(_fault_search, "_MAX_CLOSING_SIZE", max_closing_size)
+        lister = _fault_search.FaultLister(
+            flags, syndromes, representatives, 3 * len(flags), False, len(flags), 2**24
+        )
+        checked.append(_check_faults(lister, 5, ())[0])
+    assert checked[0] == checked[1]
+    assert 3 in sizes_built
+
+
+def test_larger_closing_maps_wait_for_listings_with_many_lookups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A closing map of three classes is built only after a listing with as many lookups as sets."""
+    get_closing_map = _fault_search._get_closing_map
+    sizes_built: list[int] = []
+
+    def record_closing_map(
+        hashes: npt.NDArray[np.uint64], size: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
+        sizes_built.append(size)
+        return get_closing_map(hashes, size)
+
+    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
+
+    # Fault weight five may use the map of three of the twelve classes, which has 220 sets, if the
+    # listing at the last fault weight made at least 220 lookups.
+    for num_lookups, expected in ((2, [2]), (22_000, [3])):
+        sizes_built.clear()
+        lister = _listing_lister(12, 5, 2**20)
+        lister._num_lookups = num_lookups
+        _check_faults(lister, 5, ())
+        assert sizes_built == expected, num_lookups
+
+    # With sixteen classes, the map of three has 560 sets.  The listings with pairs look up at most
+    # 120 choices of two classes at fault weight four.  At fault weight five, they look up at most
+    # 560 choices of three, 553 here, since 7 triples are dependent, and at fault weight six 1697
+    # choices of four.  So fault weight seven is the first to build the map of three.  Batches of
+    # one class codeword make each listing pause and resume often, which must keep the count.
+    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
+    sizes_built.clear()
+    lister = _listing_lister(16, 5, 2**20)
+    for weight in range(2, 7):
+        _check_faults(lister, weight, ())
+    assert 3 not in sizes_built
+    _check_faults(lister, 7, ())
+    assert 3 in sizes_built
+
+
+def test_closing_maps_and_the_table_of_syndromes_stay_within_the_memory_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The closing maps and the table of syndromes, also while it grows, fit the memory limit."""
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
+    get_closing_map = _fault_search._get_closing_map
+    grow_syndrome_table = _fault_search._grow_syndrome_table
+
+    # Record the memory of the closing maps of two or more classes as they are built, and the rows
+    # of the table of syndromes, and check the memory in use after each step against the limit.  A
+    # syndrome takes 40 bytes, and while the table grows, its old and new rows are both in use.
+    def record_closing_map(
+        hashes: npt.NDArray[np.uint64], size: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
+        if size > 1:
+            set_bytes = _fault_search._BYTES_PER_SET + 4 * size
+            usage["maps"] += math.comb(len(hashes), size) * set_bytes
+            assert usage["maps"] + 40 * usage["rows"] <= memory_limit
+            sizes_built.add(size)
+        return get_closing_map(hashes, size)
+
+    def record_growth(
+        syndrome_rows: npt.NDArray[np.uint64], num_syndromes: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+        assert usage["maps"] + 40 * 3 * len(syndrome_rows) <= memory_limit
+        usage["rows"] = 2 * len(syndrome_rows)
+        return grow_syndrome_table(syndrome_rows, num_syndromes)
+
+    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
+    monkeypatch.setattr(_fault_search, "_grow_syndrome_table", record_growth)
+
+    # With twelve classes, the maps of two, three, and four classes take 3168, 11,440, and 27,720
+    # bytes, the room of 286 and 693 syndromes of 40 bytes for the last two.  With room for 2480 or
+    # 2515 syndromes beyond the map of pairs, the table grows to 1024 rows if the maps leave room
+    # for 1536, since growing to 1024 rows also holds the old 512.  So the map of three fits in
+    # both, and the map of four only in 2515, where the table, emptied by a violation at fault
+    # weight six, grows again to 1024 rows with every map held, exactly at the limit.  At 2480, a
+    # map of four is built only if the maps under-charge by at least 35 syndromes (1400 bytes) in
+    # all, and the table's growth then exceeds the limit.  Leaving out 4 bytes per set of four
+    # (about 50 syndromes), 4 bytes per set of either map (about 72), all 4 bytes per class (66 and
+    # 198), or all the room (979) does so, and so does forgetting the room that an earlier map took.
+    sizes_built: set[int] = set()
+    for room in (2480, 2515):
+        memory_limit = 3168 + 40 * room
+        usage = {"maps": 0, "rows": 2}
+        lister = _listing_lister(12, 5, memory_limit)
+        for weight in range(2, 7):
+            _check_faults(lister, weight, ())
+        _check_faults(lister, 6, set(range(0, 2**12, 31)))
+        _check_faults(lister, 6, ())
+    assert sizes_built == {2, 3, 4}
 
 
 def test_key_slots_find_the_first_entry_of_each_key(pytestconfig: pytest.Config) -> None:

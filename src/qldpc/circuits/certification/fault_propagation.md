@@ -167,21 +167,46 @@ This lists each irreducible accepted fault that contains a heavy primitive fault
 
 The search looks up the closing class in a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash, where linear means that the hash of a sum of flags is the sum of their hashes.
 Different flags can share a hash, so the search compares the flags of every class that it finds with the sum of the prefix flags.
-Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing `c_{m-1}` and `c_m` together, as a **closing pair**.
-Choosing them together removes about one factor of the number of classes from the search time, at the cost of a table whose size is quadratic in the number of classes.
-The search can keep a table of all pairs of classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its pairs.
-It keeps the table only if there are at most `2^31` pairs and the table fits within the memory limit.
-The table of syndromes gets what is left of the limit.
-For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up the pairs `c_{m-1} < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-2}`, and keeps those that come after `c_{m-2}` and whose flags sum to exactly that sum.
-Of these, it keeps only the pairs whose first class `c_{m-1}` keeps the prefix `c_1, ..., c_{m-1}` independent.
-That `c_1, ..., c_{m-2}` are independent is not enough, since the flags of `c_{m-1}` could be the sum of some of theirs, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
+Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing the last `s` classes `c_{m-s+1} < ... < c_m` together, as a **closing set** of `s` classes, for some `s` from 2 to `m - 2`.
+A closing class is a closing set of one class, and a **closing pair** is a closing set of two.
+Each class of a closing set removes about one factor of the number of classes from the search time, at the cost of a table whose size grows by about that factor.
+The search can keep a table of all sets of `s` classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its sets.
+It keeps a table only if it has at most `2^31` sets and fits within the memory limit, and the table of syndromes gets what is left of the limit; `FaultLister` in `_fault_search.py` says which tables it builds.
+For each choice of independent classes `c_1, ..., c_{m-s}`, the search looks up the sets `c_{m-s+1} < ... < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-s}`, and keeps those that come after `c_{m-s}` and whose flags sum to exactly that sum.
+Of these, it keeps only the sets whose classes other than the last, `c_{m-s+1}, ..., c_{m-1}`, keep the prefix `c_1, ..., c_{m-1}` independent.
+That `c_1, ..., c_{m-s}` are independent is not enough, since the flags of a class of the set could be the sum of the flags of some classes before it, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
 With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class found by a lookup of single classes.
-The classes have distinct flags, so a lookup finds at most one closing class, or at most one closing pair for each first class `c_{m-1}`, and so at most as many class codewords as there are classes.
-Without the table of pairs, the search loops over `c_{m-1}` and looks up the closing class of each prefix instead.
-The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same class codewords in the same order as this loop, and the faults are listed in the same order either way.
+Conversely, the search finds every class codeword that starts with a start class this way, since its first `m - 1` classes are independent, and so are its first `m - s`, and the flags of its last `s` classes sum to those of its first `m - s`.
+The classes have distinct flags, so a lookup finds at most one closing set for each choice of its classes other than the last, and so at most `C(q, s - 1)` class codewords for `q` classes.
+The search with single classes, which loops over `c_{m-s+1}, ..., c_{m-1}` and looks up the closing class of each prefix, lists the class codewords in lexicographic order.
+So does the search with closing sets of `s` classes: it chooses `c_1, ..., c_{m-s}` in lexicographic order, and the table keeps the sets with each hash in lexicographic order.
+So the search lists the same class codewords in the same order for every `s`, and the faults are listed in the same order for every choice of tables.
 
 Many primitive faults can share their flags, which is why the search works with classes.
-Its tests of independence, its lookups of closing classes, and its table of pairs work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
+Its tests of independence, its lookups of closing sets, and its tables of closing sets work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
+
+### Skipping faults whose syndromes are listed
+
+Many faults of a fault weight share their syndromes, so the table of syndromes leaves out most of the faults that the search lists (see [Checking one fault](#checking-one-fault), case 2).
+The search skips many of them without looking them up.
+It expands each class codeword by choosing one member of each of its classes in turn, as [above](#listing-each-irreducible-accepted-fault-once) describes.
+Take two choices `U` and `U'` of members of the first `ℓ < m` classes of a class codeword of `m` classes, where the search chooses `U` first, and either both or neither contain a heavy primitive fault.
+The rule above that skips the rest of a class depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it, so the search completes `U` and `U'` by the same choices `R` of members of the other classes.
+If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which comes earlier in the listing order, and the search can skip all the faults `U' + R` without looking them up.
+It does so when it has remembered the syndrome of `U`, which it does for a limited number of choices of each class codeword.
+At fault weight two, the search chooses two members of one start class, so the only choices to compare are single members of that class.
+These have the same flags, and so distinct syndromes, since kept primitive faults have distinct signatures, so the search skips no faults of fault weight two.
+
+Suppose that the table of syndromes has had room for every syndrome so far.
+Then, when the search reaches a fault, the table holds the syndrome of every fault that comes earlier in the listing order, whether the search looked it up or skipped it.
+This holds by induction on the listing order: a fault that the search looked up had its syndrome added to the table, or found it there, and a skipped fault `U' + R` has the syndrome of the earlier fault `U + R`, which by induction is in the table.
+So the table holds the syndrome of each skipped fault, and it holds only syndromes of faults that the search looked up earlier, so by case 2 of [Checking one fault](#checking-one-fault), no skipped fault is the first violation.
+The table would also have left out each skipped fault, so skipping changes neither the faults that the search checks nor the table.
+The search skips faults only while the table has had room for every syndrome.
+This keeps the faults that it checks the same.
+It is not needed for exactness.
+Even when the table is full, each skipped fault has the syndrome of a fault listed earlier, so the first fault in the listing order with a given syndrome is never skipped, and the table cannot hold its syndrome when the search reaches it.
+The first violation is such a fault, since an earlier fault with its syndrome would violate the bound too, so the search checks it.
 
 ### Why the first violation has the smallest fault weight
 
@@ -214,6 +239,7 @@ In a class codeword, the start classes come first, and only they contain heavy p
 So once the search has chosen a primitive fault from each start class of a class codeword, every fault that completes the choice has the same heavy part as the chosen primitive faults, and contains every zero-syndrome light primitive fault among them.
 The search could therefore skip all these faults if it finds a Pauli error with syndrome `S G` whose Pauli weight is at most `|G|` plus the number of zero-syndrome light primitive faults chosen so far.
 Every skipped fault satisfies the bound, so skipping them would change neither the result nor the reported counterexample.
+But their syndromes would not enter the table of syndromes, so the search could check later faults that the table would have left out.
 
 The search does not use this rule, because in trials the time that it saved did not justify the added complexity.
 A trial implementation, in an earlier version of the search that worked with primitive faults rather than classes, applied the rule to each partial choice of primitive faults that contained a light primitive fault.
@@ -221,4 +247,6 @@ It looked for such a Pauli error in the first two layers of the oracle's search 
 It did not look when adding the last primitive fault of a fault, since only one fault then completes the choice.
 The number of faults that complete a choice grows with the fault weight.
 Up to fault weight four, looking for such a Pauli error cost about as much time as it saved.
-In searches that listed every fault, it saved little time at fault weight five but made the search about twice as fast at fault weight six, so the rule may pay off in searches that reach larger fault weights.
+In searches that listed every fault, it saved little time at fault weight five but made the search about twice as fast at fault weight six.
+Later trials reached fault weight ten, where the search skips most faults because [their syndromes are listed](#skipping-faults-whose-syndromes-are-listed).
+There, expanding class codewords into faults took under a fifth of the listing's time, and the rule, with the smallest Pauli weight of each heavy part from the oracle, would have removed under a third of the choices of members that remain.
