@@ -20,7 +20,6 @@ that fixture, and ``test_read_only_arrays_are_restored_or_reported`` checks how
 
 from __future__ import annotations
 
-import ast
 import inspect
 import threading
 import warnings
@@ -31,7 +30,6 @@ import numba
 import numpy as np
 import pytest
 
-import qldpc
 from qldpc import _compilation, conftest
 
 from . import _threads, _tuning
@@ -52,7 +50,7 @@ def test_entry_points_without_the_lock_are_named_in_section_5_of_their_guides() 
             ("connected_cluster", "connected_cluster.md"),
         )
     }
-    entry_points = list(_get_entry_points())
+    entry_points = conftest.get_entry_points_without_the_lock(Path(__file__).parent)
     assert entry_points
     for module, name in entry_points:
         methods = [method for method in guides if f"._{method}." in module] or list(guides)
@@ -140,27 +138,6 @@ def test_read_only_arrays_are_restored_or_reported() -> None:
 
 ####################################################################################################
 # helpers
-
-
-def _get_entry_points() -> list[tuple[str, str]]:
-    """The module and name of each function of this package compiled with ``nogil=True``."""
-    package = Path(qldpc.__file__).parent
-    entry_points = []
-    for path in _compilation._get_source_paths(Path(__file__).parent):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for function in conftest.get_compiled_functions(tree)["always_compiled"]:
-            if any(_releases_the_lock(decorator) for decorator in function.decorator_list):
-                module = ".".join(path.relative_to(package.parent).with_suffix("").parts)
-                entry_points.append((module, function.name))
-    return entry_points
-
-
-def _releases_the_lock(decorator: ast.expr) -> bool:
-    """Whether a decorator compiles its function with ``nogil=True``."""
-    return isinstance(decorator, ast.Call) and any(
-        keyword.arg == "nogil" and getattr(keyword.value, "value", False) is True
-        for keyword in decorator.keywords
-    )
 
 
 def _get_section_5(guide: Path) -> str:

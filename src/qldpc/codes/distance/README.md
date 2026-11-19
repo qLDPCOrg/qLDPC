@@ -50,7 +50,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 - `_cosets.py` holds the parts that the coset searches of both methods share.
 - `_sector_maps.py` finds the qubit permutations that let a distance search of a CSS code search one sector (see "Searching one sector of a CSS code").
 - `_tuning.py` holds the settings of the searches.
-- `_threads.py` runs the work items of a search, or the blocks of a batch of queries, on several threads.
+- `_threads.py` runs the work items of a search, or the blocks of a batch of queries, on several threads, and yields the outputs of work items in order on the calling thread, for the fault lister of `src/qldpc/circuits/certification/`.
 - `_binary.py` holds the binary input checks, binary products, nested bases, the stabilizers of subsystem codes, and the symplectic-to-Hamming map.
   The code constructors in `src/qldpc/codes/common.py` also use its `infer_field`, which finds the field of rows given in lists or tuples.
 
@@ -85,7 +85,7 @@ The documentation cites the other names at `qldpc.codes.distance`.
 | Completion tables, which let a BZ scan skip the supports whose completions by two more rows are too heavy, and the choice of whether to build them | `_information_sets/completion_bounds.py` |
 | Information sets with bounded column coverage, by matroid partitioning | `_information_sets/matroid_partition.py` |
 | The settings that a search reads when it starts (`SearchTuning` and `use_tuning`), and the constants that size caches when qLDPC is imported | `_tuning.py` |
-| How a search runs its work items on threads (`run_work_items`), or until the first item that ends its work (`run_items_until_first`); how a batch of queries splits into blocks on threads (`run_blocks`); and the default number of threads | `_threads.py`; how the BZ distance search splits a layer into work items is in `_brouwer_zimmermann/distance.py`, how the connected-cluster distance search splits a weight limit, in `_connected_cluster/search.py`, how BZ coset queries search their blocks, in `_brouwer_zimmermann/coset.py`, and how connected-cluster coset queries do, in `_connected_cluster/coset.py` |
+| How a search runs its work items on threads (`run_work_items`), or until the first item that ends its work (`run_items_until_first`); how a batch of queries splits into blocks on threads (`run_blocks`); how the outputs of work items come back in order (`iterate_in_order`); and the default number of threads | `_threads.py`; how the BZ distance search splits a layer into work items is in `_brouwer_zimmermann/distance.py`, how the connected-cluster distance search splits a weight limit, in `_connected_cluster/search.py`, how BZ coset queries search their blocks, in `_brouwer_zimmermann/coset.py`, and how connected-cluster coset queries do, in `_connected_cluster/coset.py` |
 | Binary input checks, binary products, nested bases, the stabilizers that `get_css_stabilizers` and `get_pauli_stabilizers` derive from gauge generators, or the map of symplectic vectors to binary vectors of twice their weight | `_binary.py` |
 | Bit packing, bit counts, row reduction, or products of packed rows over GF(2), which other subpackages share | `src/qldpc/_binary.py` |
 | How numba code is compiled or cached | `src/qldpc/_compilation.py` |

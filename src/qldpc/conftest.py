@@ -329,6 +329,22 @@ def get_compiled_functions(tree: ast.Module) -> dict[str, list[ast.FunctionDef]]
     return functions
 
 
+def get_entry_points_without_the_lock(directory: pathlib.Path) -> list[tuple[str, str]]:
+    """The module and name of each function under a directory compiled with ``nogil=True``.
+
+    The directory is one of qLDPC's packages, and its modules other than tests are searched.
+    """
+    package = pathlib.Path(_compilation.__file__).parent
+    entry_points = []
+    for path in _compilation._get_source_paths(directory):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for function in get_compiled_functions(tree)["always_compiled"]:
+            if any(_releases_the_lock(decorator) for decorator in function.decorator_list):
+                module = ".".join(path.relative_to(package.parent).with_suffix("").parts)
+                entry_points.append((module, function.name))
+    return entry_points
+
+
 def _defines_compiled_functions(path: pathlib.Path) -> bool:
     """Whether a module exists and has a function with a decorator of compiled code.
 
@@ -337,6 +353,14 @@ def _defines_compiled_functions(path: pathlib.Path) -> bool:
     if not path.is_file():
         return False
     return any(get_compiled_functions(ast.parse(path.read_text(encoding="utf-8"))).values())
+
+
+def _releases_the_lock(decorator: ast.expr) -> bool:
+    """Whether a decorator compiles its function with ``nogil=True``."""
+    return isinstance(decorator, ast.Call) and any(
+        keyword.arg == "nogil" and getattr(keyword.value, "value", False) is True
+        for keyword in decorator.keywords
+    )
 
 
 @pytest.hookimpl(tryfirst=True)

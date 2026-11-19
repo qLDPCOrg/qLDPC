@@ -64,11 +64,13 @@ writes while it runs, and call no numba code compiled with ``parallel=True`` or 
 ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  For a distance search, Section 5 of
 its guide, ``qldpc/codes/distance/brouwer_zimmermann_code.md`` or
 ``qldpc/codes/distance/connected_cluster.md``, states the requirements on threads in full, and says
-which tests check them.  ``qldpc/codes/distance/_thread_rules_test.py`` checks that Section 5 names
-each such entry point of that package.  ``qldpc/_compiled_code_rules_test.py`` checks that no
-function of qLDPC asks numba for parallel code.  A compiled function without ``nogil=True`` keeps
-the lock when Python calls it while it is compiled, so threads that call it at once from Python take
-turns.
+which tests check them, and for the certifier's fault lister, "Threads" in
+``qldpc/circuits/certification/fault_propagation.md`` does.
+``qldpc/codes/distance/_thread_rules_test.py`` checks that Section 5 names each such entry point of
+that package, and ``qldpc/circuits/certification/_fault_search_test.py`` that the certifier's guide
+names those of the certifier.  ``qldpc/_compiled_code_rules_test.py`` checks that no function of
+qLDPC asks numba for parallel code.  A compiled function without ``nogil=True`` keeps the lock when
+Python calls it while it is compiled, so threads that call it at once from Python take turns.
 
 If the environment variable ``QLDPC_DISABLE_COMPILATION`` is ``1`` when qLDPC is imported, every
 function of both kinds runs as plain Python, much more slowly.  :func:`always_compiled` then returns
