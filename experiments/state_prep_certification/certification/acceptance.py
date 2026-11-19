@@ -18,15 +18,15 @@
   fault search makes.  On E-chen, the shadow oracle answers each query that the counters count,
   with one threshold-1 query per reduced mechanism, and an oracle whose answers are shifted raises
   ``ShadowDisagreement``.
-* **AT4:** ``cert_bz`` with a limit in the middle of the last fault weight of its full run, on the
-  first of the B-cat circuits of largest K and size that completes a weight in that time, ends as a
-  timeout with T at least the limit, reports its completed weights as consecutive weights from 2
-  without a violation, and is not rerun when its task is run again.  A ``cert_bz`` run on the
-  weakened C-goto, which violates, gets a post-processing allowance of 1 s, and its description is
-  delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and its verdict, and its
-  ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets exactly ``repeats.count``
-  repeats (``repeat_tasks``), each with a limit of 600 s and no ``post_s``, and a repeat ends
-  without post-processing or certificate text.
+* **AT4:** ``cert_bz`` with a limit a tenth of the way into the last fault weight of its full run,
+  on the first of the B-cat circuits of largest K and size that completes a weight, but not that
+  last weight, in that time, ends as a timeout with T at least the limit, reports its completed
+  weights as consecutive weights from 2 without a violation, and is not rerun when its task is run
+  again.  A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance
+  of 1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
+  its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
+  exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
+  ``post_s``, and a repeat ends without post-processing or certificate text.
 * **AT5:** every input matches its SHA-256, its recomputed DEM parameters equal those of
   ``circuits.json``, and each code file passes ``code_files.check_code`` (``circuits.py --check``).
   Every noisy input has only the expected noise, with every measurement noisy.
@@ -373,8 +373,9 @@ def at3_instrumentation(directory: pathlib.Path, node: bool) -> None:
 def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     """Limits, the post-processing allowance, repeats, worst cases, and resume."""
     # the first of the five cat circuits of largest K and size that completes a weight but not the
-    # search when stopped in the middle of the last weight of its full run, which takes about a
-    # second
+    # last weight of its full run, which takes about a second, when stopped a tenth of the way into
+    # that weight.  A run that ends after its limit is a timeout even if it completed the weight,
+    # so a run that does is no use, and the next circuit is tried.
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     candidates = [e for e in entries if e["family"] == "B-cat" and e["status"] == "ok"]
     candidates.sort(key=lambda e: (e["options"]["max_weight"], e["num_mechanisms"]), reverse=True)
@@ -386,17 +387,17 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
         assert None not in ends, full["partial"]
         if len(ends) < 2:
             continue
-        limit = (ends[-2] + ends[-1]) / 2
+        limit = ends[-2] + (ends[-1] - ends[-2]) / 10
         task = experiment._task("cert_bz", circuit, 0, limit)
         row = local_runs.run_locally(directory / circuit["id"], [task])[task["key"]]
-        if row["status"] == "timeout" and row["partial"]:
+        weights = [record["m"] for record in row["partial"]]
+        if row["status"] == "timeout" and weights and weights[-1] < full["partial"][-1]["m"]:
             break
     else:
         raise AssertionError("no cat circuit completes a weight but not the search in its limit")
     assert row["T"] >= limit, row
 
     # the partial results are the completed weights, in order from 2, each without a violation
-    weights = [record["m"] for record in row["partial"]]
     assert weights == list(range(2, 2 + len(weights))), weights
     assert all(not record["violation"] for record in row["partial"]), row["partial"]
     assert all(record["T_cumulative"] <= row["T"] for record in row["partial"]), row["partial"]
