@@ -378,7 +378,9 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     # that weight.  A run that ends after its limit is a timeout even if it completed the weight,
     # so a run that does is no use, and the next circuit is tried.  The runner checks the limit
     # every 0.2 s or so, and so can kill a run up to about 0.25 s after it, so a circuit whose last
-    # weight takes under 0.4 s is not tried.
+    # weight takes under 0.4 s is not tried.  Only bcat.w19.t9 and bcat.w18.t9, whose last weights
+    # take about 0.9 s and 0.6 s on a recent laptop, qualify, so AT4 fails on a machine more than
+    # about twice as fast.
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     candidates = [e for e in entries if e["family"] == "B-cat" and e["status"] == "ok"]
     candidates.sort(key=lambda e: (e["options"]["max_weight"], e["num_mechanisms"]), reverse=True)
