@@ -55,15 +55,16 @@
   unchecked for an input that is not the label's, exclude a disagreement from the table but list
   its task, and list an uncertified parent and a timeout.
 * **AT9:** the deletion orders and gate counts of a small circuit equal those written by hand.  An
-  acceptance estimate is within five standard errors of the exact probability from the DEM.  A
-  candidate circuit whose prepared state changed, and one with an added random measurement, are
-  rejected for those reasons.  ``prune`` runs twice through the task runner on C-goto, steane, and
-  ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial results.  Each
-  step and each final circuit, rebuilt, has its recorded outcome: by Stim's simulator, by
-  certification, and, where small enough, by the enumeration of the ground truth.  The final m*
-  agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final circuit
-  agree with the exact probabilities from their DEMs.  The enumeration also checks every step on
-  the d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are
+  acceptance estimate is within five standard errors of the exact probability from the DEM.
+  Candidate circuits whose prepared state changed, whether a detector breaks or the certifier
+  accepts their detectors (a flipped sign, a rotated qubit), and one with an added random
+  measurement, are rejected for those reasons.  ``prune`` runs twice through the task runner on
+  C-goto, steane, and ``cc_4_8_8.heuristic_opt``, with the same steps, in its order, sent as partial
+  results.  Each step and each final circuit, rebuilt, has its recorded outcome: by Stim's
+  simulator, by certification, and, where small enough, by the enumeration of the ground truth.  The
+  final m* agrees with ``cert_bz`` at K = t + 1, and the acceptance estimates of parent and final
+  circuit agree with the exact probabilities from their DEMs.  The enumeration also checks every
+  step on the d = 3 A-ft circuits that pass at K = t.  C-goto keeps its flag.  A run whose steps are
   delayed past its 5 s limit (``step_delay_s``) is a timeout that keeps its steps.
 * **AT10:** the margin gives "all" on C-goto and steane, 3 on E-chen, and 1 on W(C-goto).  On these
   and every ground-truth circuit with r > t, it agrees with ``cert_bz``, with the enumeration up to
@@ -680,6 +681,15 @@ def at9_prune(directory: pathlib.Path, node: bool) -> None:
         applications._check_deletion(changed, goto, noise, options)["outcome"] == "target changed"
     )
     assert not _prepares(changed, goto)
+    # two changes of the prepared state, a flipped sign and a rotated qubit, whose detectors the
+    # certifier accepts, so that its stabilizers show the change.  The rotated child violates the
+    # bound, so it guards that the state is checked before the bound, and the flipped child
+    # certifies, so it guards the check of the state itself.
+    for appended in ("X 0\n", "H 0\n"):
+        moved = stim.Circuit(text + appended)
+        applications._certify(moved, noise, options, "brouwer_zimmermann")
+        outcome = applications._check_deletion(moved, goto, noise, options)["outcome"]
+        assert outcome == "target changed" and not _prepares(moved, goto), (appended, outcome)
     outcome = applications._check_deletion(random, goto, noise, options)["outcome"]
     assert outcome == "detectors rejected" and _prepares(random, goto), outcome
 
