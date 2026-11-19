@@ -1017,8 +1017,11 @@ def _expand_class_tuples(
     num_batched, num_syndromes = expansion_state[2], expansion_state[3]
     num_choices, first_branching_level = expansion_state[4], expansion_state[5]
     while tuple_index < len(class_tuples):
-        # Start a class tuple with no remembered choices.  Before the first level whose class has
-        # more than one member, there is only one choice at each level, so none is remembered.
+        # Start a class tuple with no remembered choices.  Up to the first level whose class has
+        # more than one member, no two choices have the same syndrome, so none is remembered:
+        # before that level there is only one choice at each level, and at that level the choices
+        # differ only in one member of one class, whose members have distinct syndromes, since
+        # they have the same flags and distinct signatures.
         if level < 0:
             level = 0
             next_member_entries[0] = class_offsets[class_tuples[tuple_index, 0]]
@@ -1068,10 +1071,11 @@ def _expand_class_tuples(
                 # same classes of this class tuple had the same syndrome, and a start member if and
                 # only if this one has, since the table then holds the syndromes of all these faults
                 # (see "Skipping faults whose syndromes are listed").  This needs a table that has
-                # not been full since this call began, which holds if it is not full now, since the
-                # table only grows until a violation ends the call.  Otherwise remember the choice,
-                # if there is room.
-                if num_syndromes < len(syndrome_rows) and level >= first_branching_level:
+                # had room for every syndrome since the earlier choice was remembered.  A table that
+                # is not full now has: a full table never grows, since a table grows when half full
+                # whenever it can, and it is cleared only when a violation ends the listing.
+                # Otherwise remember the choice, if there is room.
+                if num_syndromes < len(syndrome_rows) and level > first_branching_level:
                     choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
                     choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]
                     choice_hash = chosen_row_sums[level + 1, 0] ^ (

@@ -189,11 +189,12 @@ Its tests of independence, its lookups of closing sets, and its tables of closin
 
 Many faults of a fault weight share their syndromes, so the table of syndromes leaves out most of the faults that the search lists (see [Checking one fault](#checking-one-fault), case 2).
 The search skips many of them without looking them up.
-It expands each class codeword, or for fault weight two each start class taken twice, by choosing one member of each of its classes in turn, as [above](#listing-each-irreducible-accepted-fault-once) describes.
+It expands each class codeword by choosing one member of each of its classes in turn, as [above](#listing-each-irreducible-accepted-fault-once) describes.
 Take two choices `U` and `U'` of members of the first `ℓ < m` classes of a class codeword of `m` classes, where the search chooses `U` first, and either both or neither contain a heavy primitive fault.
-The rule above that skips the rest of a class depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it.
-So each choice `R` of members of the other classes that completes `U'` under that rule also completes `U`; for fault weight two, whose class repeats, `R` comes after the member of `U'`, and so after that of `U`.
-If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which comes earlier in the listing order, and the search skips all the faults `U' + R` without looking them up.
+The rule above that skips the rest of a class depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it, so the search completes `U` and `U'` by the same choices `R` of members of the other classes.
+If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which comes earlier in the listing order, and the search can skip all the faults `U' + R` without looking them up.
+It does so when it has remembered the syndrome of `U`, which it does for a limited number of choices of each class codeword.
+At fault weight two, the search chooses two members of one start class, so the only choices to compare are single members of that class, which have the same flags and so distinct syndromes, since kept primitive faults have distinct signatures; it skips no faults of fault weight two.
 
 Suppose that the table of syndromes has had room for every syndrome so far.
 Then, when the search reaches a fault, the table holds the syndrome of every fault that comes earlier in the listing order, whether the search looked it up or skipped it.
@@ -201,6 +202,7 @@ This holds by induction on the listing order: a fault that the search looked up 
 So the table holds the syndrome of each skipped fault, and it holds only syndromes of faults that the search looked up earlier, so by case 2 of [Checking one fault](#checking-one-fault), no skipped fault is the first violation.
 The table would also have left out each skipped fault, so skipping changes neither the faults that the search checks nor the table.
 The search skips faults only while the table has had room for every syndrome.
+This keeps the faults that it checks the same; it is not needed for exactness, since each skipped fault has the syndrome of a fault listed earlier even when the table is full.
 
 ### Why the first violation has the smallest fault weight
 
