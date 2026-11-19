@@ -1640,7 +1640,8 @@ def test_limits_cut_with_the_latest_tables_tabulated_before_their_threads(
 
     - The problem of ``test_overlap_cuts_follow_the_ranks_of_symmetries`` learns its permutation at
       its third limit, at which the new tables give the witness of a search that learns it first,
-      [0, 5], where the tables of its ranks by index would give [0, 1].
+      [0, 5], where the tables of its ranks by index would give [0, 1].  With a threshold of one
+      state, this relies on the search predicting no states for its first two limits.
     - The Golay code learns its cyclic shifts once it has visited as many states as a search without
       them visits through its third limit, a number of states that its first limit does not reach.
       It runs on four threads, with a split gate that splits every limit, and with

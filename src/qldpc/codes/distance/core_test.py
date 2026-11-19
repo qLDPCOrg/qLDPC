@@ -209,16 +209,6 @@ def test_auto_takes_the_method_of_its_rule(monkeypatch: pytest.MonkeyPatch) -> N
         assert taken[:1] == [method]
 
 
-def _record_call(taken: list[str], name: str, function: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap a function to record its name in ``taken`` whenever it is called."""
-
-    def recording(*args: Any, **kwargs: Any) -> Any:
-        taken.append(name)
-        return function(*args, **kwargs)
-
-    return recording
-
-
 def test_pauli_checks_of_css_codes_are_searched_as_css_codes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -852,3 +842,13 @@ def test_no_distance_behaves_as_nan_and_survives_copies() -> None:
     assert core.NoDistance(math.nan) is no_distance
     with pytest.raises(ValueError, match="not a valid NoDistance"):
         core.NoDistance(1.0)
+
+
+def _record_call(taken: list[str], name: str, function: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a function to record its name in ``taken`` whenever it is called."""
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        taken.append(name)
+        return function(*args, **kwargs)
+
+    return recording

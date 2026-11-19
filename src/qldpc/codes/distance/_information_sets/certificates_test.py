@@ -273,11 +273,13 @@ def test_certificates_with_overlapping_blocks_of_different_sizes_follow_their_de
     """``certifies`` agrees with ``step_lower_bound`` when blocks overlap and differ in size.
 
     In the second certificate, a set of rank one in dimension three that has not completed layer
-    one requires at least ``-1`` ones in its block, which asks for nothing.
+    one requires at least ``-1`` ones in its block, which asks for nothing.  In the third, a set of
+    rank zero has an empty block.
     """
     for dimension, ranks, blocks in [
         (2, (1, 1, 2), ((2,), (2,), (1, 3))),
         (3, (1, 3, 1), ((0,), (0, 1, 2), (3,))),
+        (2, (2, 0, 2), ((0, 1), (), (1, 2))),
     ]:
         certificate = certificates.Certificate(
             dimension,
