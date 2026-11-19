@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import collections
 import itertools
+import pickle
 
 import galois
 import numpy as np
@@ -421,10 +422,13 @@ def test_syndrome_to_prediction(field: type[galois.FieldArray]) -> None:
         assert tuple((matrix @ field(error[:-1])).tolist()) == syndrome
         assert error[-1] == 0 and not error.flags.writeable
 
-    # other keys are absent, even those that would pack to the bytes of a stored syndrome
-    assert (1, 0, 0) in table
-    for key in [(0, 1, 0), (1, 0), (1, 0, 0, 0), (field.order, 0, 0), [1, 0, 0]]:
-        assert key not in table
+    # keys equal to a stored syndrome are present, and other keys are absent, even those that would
+    # pack to the bytes of a stored syndrome
+    for key in [(1, 0, 0), (np.int64(1), 0, 0), (1.0, 0, 0)]:
+        assert key in table
+    absent_keys: list[object] = [(0, 1, 0), (1, 0), (1, 0, 0, 0), (field.order, 0, 0), [1, 0, 0]]
+    for absent_key in absent_keys + [(0.5, 0, 0), ("1", 0, 0), (np.ones(2), 0, 0)]:
+        assert absent_key not in table
     with pytest.raises(TypeError):
         table[0, 0, 0] = np.zeros(5, dtype=int)  # type: ignore[index]
 
@@ -455,6 +459,7 @@ def test_syndrome_to_candidates() -> None:
 
     # each syndrome has all of its errors, in order of decreasing weight, with their outputs
     for syndrome, candidates in table.items():
+        assert isinstance(candidates, tuple)
         assert sorted(tuple(error) for error, _ in candidates) == sorted(
             tuple(error) for error in errors if tuple(matrix @ error % 2) == syndrome
         )
@@ -464,12 +469,20 @@ def test_syndrome_to_candidates() -> None:
             assert np.array_equal(output, [*error, 0])
             assert not error.flags.writeable and not output.flags.writeable
 
-    # the table is read-only, and looking up an absent syndrome does not add it
+    # the table is read-only, and looking up an absent key raises a KeyError without adding the key
     with pytest.raises(TypeError):
         table[0, 0] = ()  # type: ignore[index]
     with pytest.raises(KeyError):
         table[1, 1, 1]
     assert len(decoder) == len(table) == 4
+
+    # a pickled decoder restores its table, which stays read-only
+    restored = pickle.loads(pickle.dumps(decoder))  # noqa: S301 - trusted in-memory round trip
+    for syndrome, candidates in restored.syndrome_to_candidates.items():
+        assert [tuple(error) for error, _ in candidates] == [
+            tuple(error) for error, _ in table[syndrome]
+        ]
+        assert all(not array.flags.writeable for candidate in candidates for array in candidate)
 
     # an observable table's outputs are the observable flips of its errors
     observable_decoder = decoders.custom.WeightedObservableLookupDecoder(
@@ -483,19 +496,24 @@ def test_syndrome_to_candidates() -> None:
 def test_lookup_tables_with_post_selection() -> None:
     """Under post-selection, lookup tables omit post-selected bits from their syndromes."""
     matrix = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=int)
-    decoder = decoders.custom.ErrorLookupDecoder(matrix, max_weight=1, post_select=[1])
+    decoder = decoders.custom.ErrorLookupDecoder(matrix, max_weight=1, post_select=[2])
     weighted_decoder = decoders.custom.WeightedErrorLookupDecoder(
-        matrix, max_weight=1, post_select=[1]
+        matrix, max_weight=1, post_select=[2]
     )
-    # the errors of weight <= 1 that are trivial on bit 1 have syndromes 000, 100, and 001
-    syndromes = {(0, 0), (1, 0), (0, 1)}
+    assert decoder.syndrome_mask is not None
+
+    # the errors of weight <= 1 whose syndromes are trivial on detector 2 have syndromes 000, 100,
+    # and 110, and each table maps their retained bits, in row order, to those errors
+    syndromes = {(0, 0), (1, 0), (1, 1)}
     assert set(decoder.syndrome_to_prediction) == syndromes
     assert set(weighted_decoder.syndrome_to_candidates) == syndromes
-
-    # a full syndrome has zeros on the post-selected bits
-    for syndrome, error in decoder.syndrome_to_prediction.items():
+    syndromes_and_errors = list(decoder.syndrome_to_prediction.items()) + [
+        (syndrome, error)
+        for syndrome, candidates in weighted_decoder.syndrome_to_candidates.items()
+        for error, _ in candidates
+    ]
+    for syndrome, error in syndromes_and_errors:
         full_syndrome = np.zeros(decoder.num_detectors, dtype=int)
-        assert decoder.syndrome_mask is not None
         full_syndrome[decoder.syndrome_mask] = syndrome
         assert np.array_equal(matrix @ error % 2, full_syndrome)
 

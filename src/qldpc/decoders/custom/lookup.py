@@ -493,18 +493,19 @@ class ErrorLookupDecoder(_PackedLookupDecoder, ErrorDecoder):
     def syndrome_to_prediction(self) -> Mapping[tuple[int, ...], npt.NDArray[np.int_]]:
         """The entries of this lookup table, as a read-only map from syndromes to errors.
 
-        Maps each syndrome that the table stores to the error that ``.decode`` returns for it,
-        including the erasure bit if this decoder has one, which is 0 for every stored syndrome.
-        Other syndromes, such as those that a positive ``confidence_ratio`` leaves ambiguous, are
-        absent, and ``.decode`` returns ``default_correction`` for them.
+        Maps each syndrome that the table stores to the error that ``.decode`` returns for it.  If
+        this decoder has an erasure bit, each error ends with it, and it is 0.  Other syndromes,
+        such as those that a positive ``confidence_ratio`` leaves ambiguous, are absent, and
+        ``.decode`` returns ``default_correction`` for them.
 
         Each syndrome is a tuple of integers, one per detector (a row of the parity check matrix),
-        in order.  With ``post_select``, syndromes omit the post-selected bits.  The full syndrome
-        of a stored ``syndrome`` is then ``full_syndrome = np.zeros(self.num_detectors, dtype=int)``
-        with ``full_syndrome[self.syndrome_mask] = syndrome``.
+        in row order.  With ``post_select``, syndromes omit the post-selected bits, and
+        ``self.syndrome_mask`` marks the bits that they keep.  To recover a full syndrome, set
+        ``full_syndrome = np.zeros(self.num_detectors, dtype=int)`` and
+        ``full_syndrome[self.syndrome_mask] = syndrome``.
 
-        The map is a view of the table, rather than a copy: it unpacks syndromes and errors when
-        they are accessed.  Errors are read-only arrays.
+        The map is a view of the table rather than a copy, and it builds each syndrome and error
+        when they are accessed.  Errors are read-only arrays.
         """
         return _SyndromeToPredictionView(self)
 
@@ -647,8 +648,9 @@ class ObservableLookupDecoder(_PackedLookupDecoder):
         """The entries of this lookup table, as a read-only map from syndromes to observable flips.
 
         Maps each syndrome that the table stores to the observable flips that
-        ``.decode_observables`` returns for it.  Syndromes, absent syndromes, and the erasure bit
-        follow the conventions of ErrorLookupDecoder.syndrome_to_prediction; see its docstring.
+        ``.decode_observables`` returns for it, as read-only arrays.  Otherwise, this map follows
+        ErrorLookupDecoder.syndrome_to_prediction, whose docstring describes its syndromes, its
+        absent syndromes, the erasure bit, and how it views the table.
         """
         return _SyndromeToPredictionView(self)
 
@@ -662,11 +664,16 @@ class _SyndromeToPredictionView(Mapping[tuple[int, ...], npt.NDArray[np.int_]]):
     def __getitem__(self, syndrome: tuple[int, ...]) -> npt.NDArray[np.int_]:
         decoder = self._decoder
         # reject keys that are not syndromes, some of which would pack to the bytes of a syndrome
-        if (
-            not isinstance(syndrome, tuple)
-            or len(syndrome) != decoder._syndrome_packer.vector_length
-            or not all(entry in range(decoder.field.order) for entry in syndrome)
-        ):
+        order = decoder.field.order
+        try:
+            is_syndrome = (
+                isinstance(syndrome, tuple)
+                and len(syndrome) == decoder._syndrome_packer.vector_length
+                and all(0 <= entry < order and entry == int(entry) for entry in syndrome)
+            )
+        except (TypeError, ValueError):  # raised by entries that are not numbers
+            is_syndrome = False
+        if not is_syndrome:
             raise KeyError(syndrome)
         packed_prediction = decoder._packed_syndrome_to_prediction.get(
             decoder._syndrome_packer.pack(np.array(syndrome, dtype=int))
@@ -796,8 +803,7 @@ class _CandidateLookupDecoder(WeightedLookupDecoder):
         # Record all errors consistent with each syndrome, together with the output to return if
         # that error is selected: an observable-flip prediction if requested (else the error
         # itself), with a trivial erasure bit appended.  The output is precomputed here so that
-        # decode() only has to select the minimum-penalty candidate error.  The arrays are made
-        # read-only, since the syndrome_to_candidates property exposes them without copying.
+        # decode() only has to select the minimum-penalty candidate error.
         syndrome_to_candidates: dict[
             tuple[int, ...], list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]
         ] = collections.defaultdict(list)
@@ -810,20 +816,33 @@ class _CandidateLookupDecoder(WeightedLookupDecoder):
         for error, syndrome in iter_errors_and_syndromes(
             pcm, max_weight, syndrome_mask, symplectic
         ):
-            output = self._maybe_add_erasure_bit(
+            output = (
                 error
                 if get_observable_flip is None
                 else get_observable_flip(error).astype(pcm.dtype)
             )
-            error.flags.writeable = output.flags.writeable = False
-            syndrome_to_candidates[tuple(syndrome.tolist())].append((error, output))
+            syndrome_to_candidates[tuple(syndrome.tolist())].append(
+                (error, self._maybe_add_erasure_bit(output))
+            )
         self._syndrome_to_candidates: dict[tuple[int, ...], _Candidates] = {
             syndrome: tuple(candidates) for syndrome, candidates in syndrome_to_candidates.items()
         }
+        self._make_candidates_read_only()
 
     def __len__(self) -> int:
         """The number of entries in this lookup table."""
         return len(self._syndrome_to_candidates)
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        """Restore a pickled decoder, whose candidate arrays pickling makes writeable."""
+        self.__dict__.update(state)
+        self._make_candidates_read_only()
+
+    def _make_candidates_read_only(self) -> None:
+        """Make the candidate arrays read-only, since syndrome_to_candidates exposes them."""
+        for candidates in self._syndrome_to_candidates.values():
+            for error, output in candidates:
+                error.flags.writeable = output.flags.writeable = False
 
     def _decode_weighted(
         self,
@@ -905,14 +924,17 @@ class WeightedErrorLookupDecoder(_CandidateLookupDecoder, ErrorDecoder):
         return self.decode_errors(syndrome, penalty_func)
 
     @property
-    def syndrome_to_candidates(self) -> Mapping[tuple[int, ...], _Candidates]:
+    def syndrome_to_candidates(
+        self,
+    ) -> Mapping[tuple[int, ...], tuple[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]], ...]]:
         """The entries of this lookup table, as a read-only map from syndromes to candidate errors.
 
         Maps each syndrome that the table stores to a tuple of ``(error, output)`` pairs, one for
         each enumerated error with that syndrome, in order of decreasing weight.  The output is what
-        ``.decode`` returns if it selects that error: the error, followed by the erasure bit if this
-        decoder has one, which is 0.  Syndromes follow the conventions of
-        ErrorLookupDecoder.syndrome_to_prediction; see its docstring.  Arrays are read-only.
+        ``.decode`` returns if it selects that error.  It is the error, with the erasure bit
+        appended if this decoder has one, and that bit is 0.  Syndromes follow the conventions of
+        ErrorLookupDecoder.syndrome_to_prediction; see its docstring.  The map and its arrays are
+        read-only.
         """
         return types.MappingProxyType(self._syndrome_to_candidates)
 
@@ -990,15 +1012,15 @@ class WeightedObservableLookupDecoder(_CandidateLookupDecoder):
         )
 
     @property
-    def syndrome_to_candidates(self) -> Mapping[tuple[int, ...], _Candidates]:
+    def syndrome_to_candidates(
+        self,
+    ) -> Mapping[tuple[int, ...], tuple[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]], ...]]:
         """The entries of this lookup table, as a read-only map from syndromes to candidate errors.
 
-        Maps each syndrome that the table stores to a tuple of ``(error, output)`` pairs, one for
-        each enumerated error with that syndrome, in order of decreasing weight.  The output is what
-        ``.decode_observables`` returns if it selects that error: the observable flips that the
-        error induces, followed by the erasure bit if this decoder has one, which is 0.  Syndromes
-        follow the conventions of ErrorLookupDecoder.syndrome_to_prediction; see its docstring.
-        Arrays are read-only.
+        Each output is what ``.decode_observables`` returns if it selects its error: the observable
+        flips that the error induces, with the erasure bit appended if this decoder has one.
+        Otherwise, this map follows WeightedErrorLookupDecoder.syndrome_to_candidates; see its
+        docstring.
         """
         return types.MappingProxyType(self._syndrome_to_candidates)
 
