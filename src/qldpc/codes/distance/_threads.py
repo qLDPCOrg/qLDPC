@@ -339,8 +339,8 @@ def run_blocks(
 # outputs in order
 
 
-# The number of ranges for each thread into which ``iterate_in_order`` splits the weight of the
-# items.  More ranges let the calling thread find the next range ready sooner, and balance the
+# The number of ranges for each of its threads into which ``iterate_in_order`` splits the weight of
+# the items.  More ranges let the calling thread find the next range ready sooner, and balance the
 # threads better at the end, and fewer ranges cost fewer calls; the number changes no output.
 RANGES_PER_THREAD = 32
 
@@ -363,47 +363,58 @@ def iterate_in_order(
     function that, given a range ``(start, end)`` of items, returns an iterator over the outputs of
     the items ``start, ..., end - 1``, in order.  With fewer than two threads, the calling thread
     runs every item itself, as one range.  Otherwise a new thread calls ``run_work_items`` to start
-    ``num_threads - 1`` threads, including itself, while the calling thread yields the outputs of
-    each range as they come, range by range in the order of the items.  So at most ``num_threads``
-    threads are busy at once, and the calling thread can work on each output while the threads run
-    later items.  The functions that the threads run follow the rules of ``run_work_items``.
+    ``min(num_threads - 1, num_items)`` threads, including itself, while the calling thread yields
+    the outputs of each range as they come, range by range in the order of the items.  So these
+    threads and the calling thread are at most ``num_threads``, and the calling thread can work on
+    each output while the threads run later items; work of its own that starts more threads, such
+    as a batch of queries, adds to them.  The functions that the threads run follow the rules of
+    ``run_work_items``.
 
     The threads claim ranges in increasing order, each with the fewest next items whose weight
-    reaches ``1 / (RANGES_PER_THREAD * (num_threads - 1))`` of the total, so that the next range
-    that the calling thread needs is soon ready.  ``cumulative_weights``, if given, holds for each
-    item the total weight of the items up to it, which estimates their work; without it, items
-    count one each.  The threads hold at most ``OUTPUTS_PER_THREAD * (num_threads - 1)`` outputs.
-    A thread waits before it adds an output if that many are held, unless the calling thread reads
-    its range, so that the calling thread can always go on.
+    reaches ``1 / (RANGES_PER_THREAD * t)`` of the total, for ``t`` threads, so that the next range
+    that the calling thread needs is soon ready.  ``run_work_items`` only starts the threads: with
+    ``t`` items of weight one on ``t`` threads, each of its shares is at most half an item, so it
+    gives each thread one item (see its docstring), whose function claims ranges until none is
+    left.  ``cumulative_weights``, if given, holds for each item the total weight of the items up
+    to it, which estimates their work; without it, items count one each.  The threads hold at most
+    ``OUTPUTS_PER_THREAD * t`` outputs.  A thread waits before it adds an output if that many are
+    held, unless the calling thread reads its range, so that the calling thread can always go on.
 
     Closing the iterator, as ``contextlib.closing`` does when its block ends early or raises, stops
     the threads between outputs, and waits until they have returned, as ``run_work_items`` does at
-    an exception.  An exception of a thread stops the others, and is raised on the calling thread
-    once they have returned.
+    an exception.  A further interrupt while it waits can leave threads running, in the narrow
+    windows that the comment in ``run_work_items`` describes; they stop before their next output,
+    since the halt event is set first.  An exception of a thread stops the others, and is raised on
+    the calling thread once they have returned.  It can be raised before outputs that come before
+    it in item order, so before the calling thread reaches what one thread would have reached
+    first, such as an output that would have ended the iteration.
     """
     if num_threads < 2:
         yield from start_worker(threading.Event())(0, num_items)
         return
+    num_workers = min(num_threads - 1, num_items)
+    if not num_workers:
+        return
     if cumulative_weights is None:
         cumulative_weights = np.arange(1, num_items + 1, dtype=np.float64)
-    share = cumulative_weights[-1] / (RANGES_PER_THREAD * (num_threads - 1)) if num_items else 0.0
+    share = cumulative_weights[-1] / (RANGES_PER_THREAD * num_workers)
     ready = threading.Condition()
     halt = threading.Event()
     ranges: dict[int, _Range[_Output]] = {}
     errors: list[BaseException] = []
-    max_held = OUTPUTS_PER_THREAD * (num_threads - 1)
+    max_held = OUTPUTS_PER_THREAD * num_workers
     num_held = 0
     next_item = 0
     position = 0
 
     def claim() -> tuple[int, int, _Range[_Output] | None]:
-        """Claim and record the next range, or none once every item is claimed or the halt is set.
+        """Claim and record the next range, or none once every item is claimed.
 
         The caller holds the lock of ``ready``.
         """
         nonlocal next_item
         start = next_item
-        if halt.is_set() or start == num_items:
+        if start == num_items:
             return start, start, None
         claimed = cumulative_weights[start - 1] if start else 0.0
         end = int(np.searchsorted(cumulative_weights, claimed + share)) + 1
@@ -411,14 +422,27 @@ def iterate_in_order(
         ranges[start] = _Range(next_item)
         return start, next_item, ranges[start]
 
+    def stop_all() -> None:
+        """Set the halt event, so that every thread stops and the calling thread waits for them."""
+        with ready:
+            halt.set()
+            ready.notify_all()
+
     def start_ranges(stop: threading.Event) -> Callable[[int, int], None]:
         """Return how a thread claims ranges and adds their outputs to their records."""
-        run_range = start_worker(stop)
+        try:
+            run_range = start_worker(stop)
+        except BaseException:
+            stop_all()
+            raise
 
         def hold_outputs(_start: int, _end: int) -> None:
-            """Claim ranges, and add their outputs to their records, until none is left."""
+            """Claim ranges, and add their outputs to their records, until none is left.
+
+            The thread stops once the halt event or the stop event of ``run_work_items`` is set.
+            """
             nonlocal num_held
-            while True:
+            while not (halt.is_set() or stop.is_set()):
                 with ready:
                     start, end, record = claim()
                 if record is None:
@@ -428,7 +452,7 @@ def iterate_in_order(
                         with ready:
                             while start != position and num_held >= max_held and not halt.is_set():
                                 ready.wait()
-                            if halt.is_set():
+                            if halt.is_set() or stop.is_set():
                                 stop.set()
                                 return
                             record.outputs.append(output)
@@ -437,9 +461,7 @@ def iterate_in_order(
                 except BaseException:
                     # A range that raised is never done, so the calling thread yields none of the
                     # outputs after it, and waits for the exception.
-                    with ready:
-                        halt.set()
-                        ready.notify_all()
+                    stop_all()
                     raise
                 with ready:
                     record.done = True
@@ -450,7 +472,7 @@ def iterate_in_order(
     def run() -> None:
         """Run the threads, and record an exception for the calling thread."""
         try:
-            run_work_items(num_threads - 1, num_threads - 1, start_ranges)
+            run_work_items(num_workers, num_workers, start_ranges)
         except BaseException as error:  # noqa: BLE001 - raised again on the calling thread
             with ready:
                 errors.append(error)
@@ -480,9 +502,7 @@ def iterate_in_order(
                 ready.notify_all()
             yield output
     finally:
-        halt.set()
-        with ready:
-            ready.notify_all()
+        stop_all()
         _join([helper], halt)
     if errors:
         raise errors[0]

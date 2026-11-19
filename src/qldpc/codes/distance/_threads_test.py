@@ -19,7 +19,7 @@ import pytest
 from qldpc import _num_threads
 
 from . import _threads
-from .conftest import THREAD_TIMEOUT
+from .conftest import THREAD_TIMEOUT, run_on_a_thread
 
 pytestmark = pytest.mark.usefixtures("no_threads_left")
 
@@ -601,17 +601,21 @@ def test_outputs_come_in_the_order_of_the_items(num_threads: int) -> None:
 
         return run_range
 
-    outputs = list(
-        _threads.iterate_in_order(
-            len(weights), num_threads, start_worker, cumulative_weights=np.cumsum(weights)
+    def iterate() -> tuple[list[tuple[int, int]], int]:
+        outputs = list(
+            _threads.iterate_in_order(
+                len(weights), num_threads, start_worker, cumulative_weights=np.cumsum(weights)
+            )
         )
-    )
+        return outputs, threading.get_ident()
+
+    outputs, calling_thread = run_on_a_thread(iterate)
     assert outputs == [(item, output) for item in range(200) for output in range(item % 3)]
     ranges.sort()
     assert [item for start, end, _ in ranges for item in range(start, end)] == list(range(200))
-    on_calling_thread = [start for start, _, thread in ranges if thread == threading.get_ident()]
+    on_calling_thread = [start for start, _, thread in ranges if thread == calling_thread]
     if num_threads == 1:
-        assert ranges == [(0, 200, threading.get_ident())]
+        assert ranges == [(0, 200, calling_thread)]
     else:
         share = weights.sum() / (_threads.RANGES_PER_THREAD * (num_threads - 1))
         assert not on_calling_thread
@@ -619,10 +623,20 @@ def test_outputs_come_in_the_order_of_the_items(num_threads: int) -> None:
             assert weights[start : end - 1].sum() < share <= weights[start:end].sum() or end == 200
 
 
-def test_no_items_give_no_outputs() -> None:
-    """With no items, the calling thread yields nothing, on one thread or on several."""
+def test_threads_are_no_more_than_the_items() -> None:
+    """With no items, no thread starts, and with fewer items than threads, one for each item."""
+    workers: list[int] = []
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
+        workers.append(threading.get_ident())
+        return lambda start, end: iter(range(start, end))
+
     for num_threads in (1, 3):
-        assert not list(_threads.iterate_in_order(0, num_threads, _start_listing({})))
+        assert not list(_threads.iterate_in_order(0, num_threads, start_worker))
+    assert workers == [threading.get_ident()]
+    workers.clear()
+    assert list(_threads.iterate_in_order(2, 8, start_worker)) == [0, 1]
+    assert len(set(workers)) == 2 and threading.get_ident() not in workers
 
 
 @pytest.mark.parametrize("close_early", [False, True])
@@ -646,15 +660,20 @@ def test_outputs_keep_their_order_whichever_range_ends_first(close_early: bool) 
             made_third.set()
         made.append((item, output))
 
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
-        monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 2)
-        iterator = _threads.iterate_in_order(3, 3, _start_listing(outputs_by_item, before_output))
-        with contextlib.closing(iterator):
-            outputs = [next(iterator)]
-            assert (1, 3) not in made
-            if not close_early:
-                outputs += list(iterator)
+    def iterate() -> list[tuple[int, int]]:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+            monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 2)
+            listing = _start_listing(outputs_by_item, before_output)
+            iterator = _threads.iterate_in_order(3, 3, listing)
+            with contextlib.closing(iterator):
+                outputs = [next(iterator)]
+                assert (1, 3) not in made
+                if not close_early:
+                    outputs += list(iterator)
+        return outputs
+
+    outputs = run_on_a_thread(iterate)
     if close_early:
         assert outputs == [(0, 0)] and (1, 3) not in made
     else:
@@ -674,16 +693,94 @@ def test_an_exception_of_a_thread_is_raised_with_no_output_after_its_own() -> No
             raise ValueError("failed")
 
     received: list[tuple[int, int]] = []
-    with (
-        pytest.MonkeyPatch.context() as monkeypatch,
-        pytest.raises(ValueError, match="failed"),
-    ):
-        monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 3)
-        iterator = _threads.iterate_in_order(6, 3, _start_listing(outputs_by_item, before_output))
-        while True:
-            received.append(next(iterator))
+
+    def iterate() -> None:
+        with (
+            pytest.MonkeyPatch.context() as monkeypatch,
+            pytest.raises(ValueError, match="failed"),
+        ):
+            monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 3)
+            listing = _start_listing(outputs_by_item, before_output)
+            iterator = _threads.iterate_in_order(6, 3, listing)
+            while True:
+                received.append(next(iterator))
+
+    run_on_a_thread(iterate)
     before = [output for item in range(4) for output in outputs_by_item[item]][:7]
     assert received == before[: len(received)]
+
+
+def test_an_exception_of_a_thread_stops_a_thread_that_waits() -> None:
+    """A thread that waits to add an output stops when another raises, so the exception comes.
+
+    With one output held for each thread, the thread of range 1 adds two outputs and waits with the
+    third, and then the thread of range 0 raises before its first output.
+    """
+    made_third = threading.Event()
+    outputs_by_item = {0: [(0, 0)], 1: [(1, 0), (1, 1), (1, 2)], 2: [(2, 0)]}
+
+    def before_output(item: int, output: int) -> None:
+        if (item, output) == (0, 0):
+            assert made_third.wait(timeout=THREAD_TIMEOUT)
+            raise ValueError("failed")
+        if (item, output) == (1, 2):
+            made_third.set()
+
+    def iterate() -> None:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+            monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 2)
+            listing = _start_listing(outputs_by_item, before_output)
+            with pytest.raises(ValueError, match="failed"):
+                list(_threads.iterate_in_order(3, 3, listing))
+
+    run_on_a_thread(iterate)
+
+
+def test_a_thread_that_fails_to_start_stops_the_others() -> None:
+    """If a thread raises as it starts, the others stop, also one that waits to add an output.
+
+    Of three threads, the first claims range 0 and waits to list it, and the second, with one
+    output held for each thread, adds three outputs of range 1 and waits with its fourth.  Then the
+    third raises as it starts, which lets the first list.
+    """
+    starts: list[int] = []
+    lock = threading.Lock()
+    claimed, waiting, released = (threading.Event() for _ in range(3))
+
+    def list_first(start: int, end: int) -> Iterator[int]:
+        claimed.set()
+        assert released.wait(timeout=THREAD_TIMEOUT)
+        yield start
+
+    def list_second(start: int, end: int) -> Iterator[int]:
+        for output in range(10):
+            if output == 3:
+                waiting.set()
+            yield output
+
+    def start_worker(stop: threading.Event) -> Callable[[int, int], Iterator[int]]:
+        with lock:
+            starts.append(threading.get_ident())
+            index = len(starts) - 1
+        if index == 0:
+            return list_first
+        assert claimed.wait(timeout=THREAD_TIMEOUT)
+        if index == 1:
+            return list_second
+        assert waiting.wait(timeout=THREAD_TIMEOUT)
+        released.set()
+        raise MemoryError("no room")
+
+    def iterate() -> None:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(_threads, "OUTPUTS_PER_THREAD", 1)
+            monkeypatch.setattr(_threads, "RANGES_PER_THREAD", 1)
+            with pytest.raises(MemoryError, match="no room"):
+                list(_threads.iterate_in_order(6, 4, start_worker))
+
+    run_on_a_thread(iterate)
+    assert len(starts) == 3
 
 
 ####################################################################################################
