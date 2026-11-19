@@ -4,11 +4,13 @@
 
 from __future__ import annotations
 
+import fractions
+import functools
 import importlib
 import inspect
 import unittest.mock
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import galois
 import networkx as nx
@@ -314,6 +316,16 @@ def test_deprecated_distance_functions(monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.warns(DeprecationWarning):
             assert search() == distance
 
+    # A float cutoff warns, and works as its floor.
+    get_distance_css: Any = codes.get_distance_css_brouwer_zimmermann  # type: ignore[attr-defined]
+    for search in (
+        functools.partial(get_distance_classical, generator),
+        functools.partial(get_distance_quantum, generator[:1], generator[1:], homogeneous=True),
+        functools.partial(get_distance_css, [(generator[:1], generator[1:])]),
+    ):
+        with pytest.warns(DeprecationWarning, match="cutoff that is not an integer"):
+            assert search(cutoff=2.5) == 3
+
     # get_distance_quantum required its stabilizers, so it rejects None, and its errors name its own
     # arguments.
     with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="stabilizers"):
@@ -401,6 +413,32 @@ def test_deprecated_get_distance_css_brouwer_zimmermann(monkeypatch: pytest.Monk
         assert get_distance(sectors, cutoff=0, block_size=2) == 2
     assert exponents == [(2, 2), (2, 2)]
     assert len(recorded) == 2 and all(warning.filename == __file__ for warning in recorded)
+
+
+def test_deprecated_cutoff_that_is_not_an_integer() -> None:
+    """A float or a bool cutoff warns at the caller and becomes an integer, such as its floor.
+
+    Any other cutoff passes unchanged, for the distance functions to accept or reject.
+    """
+    from qldpc.codes.distance import _tuning
+
+    for cutoff, integer in (
+        (2.5, 2),
+        (-0.5, -1),
+        (True, 1),
+        (np.True_, 1),
+        (np.float32(2.5), 2),
+        (float("inf"), _tuning.MAX_VALUE),
+        (float("nan"), -1),
+        (-float("inf"), -1),
+        # Its float may round to 3, but its floor is exactly 2.
+        (np.nextafter(np.longdouble(3), np.longdouble(0)), 2),
+    ):
+        with pytest.warns(DeprecationWarning, match="cutoff that is not an integer") as record:
+            assert _deprecations.as_integer_cutoff(cast(Any, cutoff)) == integer
+        assert record[0].filename == __file__
+    for other_cutoff in (3, fractions.Fraction(5, 2)):
+        assert _deprecations.as_integer_cutoff(cast(Any, other_cutoff)) is other_cutoff
 
 
 def test_deprecated_get_primitive_central_idempotents() -> None:

@@ -821,6 +821,21 @@ def test_max_weight_conventions_and_validation() -> None:
     assert distance == 2 and type(distance) is int
 
 
+def test_cutoff_must_be_an_integer() -> None:
+    """Each distance function rejects a cutoff that is not an integer, or is a bool."""
+    searches: list[Callable[..., object]] = [
+        functools.partial(core.get_distance_from_generators, [[1, 1]]),
+        functools.partial(core.get_distance_from_checks, [[1, 1]]),
+        functools.partial(core.get_distance_css, [[1, 1]], [[1, 1]]),
+        functools.partial(core.get_distance_pauli, [[1, 1, 0, 0], [0, 0, 1, 1]]),
+    ]
+    for search in searches:
+        for not_an_integer in (2.5, True):
+            with pytest.raises(TypeError, match="cutoff must be an integer"):
+                search(cutoff=not_an_integer)
+    assert core.get_distance_from_generators([[1, 1]], cutoff=cast(int, np.int64(0))) == 2
+
+
 def test_distance_method_validation() -> None:
     """Each method name resolves to its canonical name, and the types list every accepted name."""
     for method in METHODS:

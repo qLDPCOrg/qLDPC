@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import math
 import operator
 import re
 import sys
@@ -343,6 +344,37 @@ def warn_future_change(message: str, *, stacklevel: int) -> None:
     warnings.warn(message, FutureWarning, stacklevel=stacklevel + 1)
 
 
+def as_integer_cutoff(cutoff: int) -> int:
+    """The cutoff of a distance search, warning about a float or a bool and making it an integer.
+
+    Released versions took a float cutoff, and compared it only with integer weights.  So a finite
+    float acts as its floor, infinity as a cutoff that every upper bound meets, and NaN and minus
+    infinity as -1, which never stops early.  A bool acts as its integer.  Any other cutoff passes
+    unchanged, for the distance functions to accept or reject.
+    """
+    import numpy as np
+
+    from qldpc.codes.distance import _tuning
+
+    # Only floats and bools are deprecated, by the maintainer's decision.  Other types that released
+    # versions took, such as Fraction and Decimal, are not plausible cutoffs, and raise at once.
+    if not isinstance(cutoff, (float, np.floating, bool, np.bool_)):
+        return cutoff
+    if math.isnan(cutoff) or cutoff == -math.inf:
+        integer = -1
+    elif cutoff == math.inf:
+        integer = _tuning.MAX_VALUE
+    else:
+        # np.floor floors a NumPy float exactly, even one wider than a Python float.
+        integer = int(np.floor(cutoff))
+    warn_deprecated(
+        f"A cutoff that is not an integer, such as {cutoff!r}, is deprecated, and will raise an"
+        f" error in a future release; pass an integer, such as {integer}, instead",
+        stacklevel=get_external_caller_stacklevel(),
+    )
+    return integer
+
+
 def defunct(message: str) -> ValueError:
     """Return the error that a defunct method or argument raises when it is used."""
     return ValueError(message)
@@ -406,7 +438,9 @@ def get_distance_classical(
         stacklevel=get_external_caller_stacklevel(),
     )
     with _use_block_size(block_size):
-        distance = get_distance_from_generators(generators, cutoff=cutoff, method=method)
+        distance = get_distance_from_generators(
+            generators, cutoff=as_integer_cutoff(cutoff), method=method
+        )
     if distance is NO_DISTANCE:
         return as_binary_matrix(generators, "generators").shape[1]
     return distance
@@ -441,6 +475,7 @@ def get_distance_css_brouwer_zimmermann(
         as_binary_matrix_pair(logical_ops, stabilizers, ("logical_ops", "stabilizers"))
         for logical_ops, stabilizers in sectors
     ]
+    cutoff = as_integer_cutoff(cutoff)
     best = upper_bound
     with _use_block_size(block_size):
         for logical_matrix, stabilizer_matrix in matrices:
@@ -499,7 +534,7 @@ def get_distance_quantum(
             logical_matrix,
             stabilizer_matrix,
             symplectic=not homogeneous,
-            cutoff=cutoff,
+            cutoff=as_integer_cutoff(cutoff),
             method=method,
         )
     if distance is NO_DISTANCE:
