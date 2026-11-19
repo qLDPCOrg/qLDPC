@@ -167,21 +167,23 @@ This lists each irreducible accepted fault that contains a heavy primitive fault
 
 The search looks up the closing class in a hash map from a 64-bit linear hash of the flags of each class to the classes with that hash, where linear means that the hash of a sum of flags is the sum of their hashes.
 Different flags can share a hash, so the search compares the flags of every class that it finds with the sum of the prefix flags.
-Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing `c_{m-1}` and `c_m` together, as a **closing pair**.
-Choosing them together removes about one factor of the number of classes from the search time, at the cost of a table whose size is quadratic in the number of classes.
-The search can keep a table of all pairs of classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its pairs.
-It keeps the table only if there are at most `2^31` pairs and the table fits within the memory limit.
-The table of syndromes gets what is left of the limit.
-For each choice of independent classes `c_1, ..., c_{m-2}`, the search looks up the pairs `c_{m-1} < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-2}`, and keeps those that come after `c_{m-2}` and whose flags sum to exactly that sum.
-Of these, it keeps only the pairs whose first class `c_{m-1}` keeps the prefix `c_1, ..., c_{m-1}` independent.
-That `c_1, ..., c_{m-2}` are independent is not enough, since the flags of `c_{m-1}` could be the sum of some of theirs, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
+Most choices of `c_{m-1}` have no closing class, so for fault weight `m ≥ 4` the search saves time by choosing the last `s` classes `c_{m-s+1} < ... < c_m` together, as a **closing set** of `s` classes, for some `s` from 2 to `m - 2`.
+A closing class is a closing set of one class, and a **closing pair** is a closing set of two.
+Each class of a closing set removes about one factor of the number of classes from the search time, at the cost of a table whose size grows by about that factor.
+The search can keep a table of all sets of `s` classes, sorted by the hash of the sum of their flags, with a hash map from each hash to its sets.
+It keeps a table only if it has at most `2^31` sets and fits within the memory limit, and the table of syndromes gets what is left of the limit; `FaultLister` in `_fault_search.py` says which tables it builds.
+For each choice of independent classes `c_1, ..., c_{m-s}`, the search looks up the sets `c_{m-s+1} < ... < c_m` with the hash of the sum of the flags of `c_1, ..., c_{m-s}`, and keeps those that come after `c_{m-s}` and whose flags sum to exactly that sum.
+Of these, it keeps only the sets whose classes other than the last, `c_{m-s+1}, ..., c_{m-1}`, keep the prefix `c_1, ..., c_{m-1}` independent.
+That `c_1, ..., c_{m-s}` are independent is not enough, since the flags of a class of the set could be the sum of the flags of some classes before it, and then the `m` classes would contain a smaller set of classes whose flags sum to zero.
 With this condition, `c_m` has flags equal to the sum of the independent prefix `c_1, ..., c_{m-1}`, so the `m` classes form a class codeword, as for a closing class found by a lookup of single classes.
-The classes have distinct flags, so a lookup finds at most one closing class, or at most one closing pair for each first class `c_{m-1}`, and so at most as many class codewords as there are classes.
-Without the table of pairs, the search loops over `c_{m-1}` and looks up the closing class of each prefix instead.
-The table keeps the pairs with each hash in lexicographic order, so the table lookup lists the same class codewords in the same order as this loop, and the faults are listed in the same order either way.
+Conversely, the search finds every class codeword that starts with a start class this way, since its first `m - 1` classes are independent, and so are its first `m - s`, and the flags of its last `s` classes sum to those of its first `m - s`.
+The classes have distinct flags, so a lookup finds at most one closing set for each choice of its classes other than the last, and so at most `C(q, s - 1)` class codewords for `q` classes.
+The search with single classes, which loops over `c_{m-s+1}, ..., c_{m-1}` and looks up the closing class of each prefix, lists the class codewords in lexicographic order.
+So does the search with closing sets of `s` classes: it chooses `c_1, ..., c_{m-s}` in lexicographic order, and the table keeps the sets with each hash in lexicographic order.
+So the search lists the same class codewords in the same order for every `s`, and the faults are listed in the same order for every choice of tables.
 
 Many primitive faults can share their flags, which is why the search works with classes.
-Its tests of independence, its lookups of closing classes, and its table of pairs work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
+Its tests of independence, its lookups of closing sets, and its tables of closing sets work with classes, of which there can be far fewer than primitive faults, and it handles individual primitive faults only when it expands each class codeword into faults.
 
 ### Why the first violation has the smallest fault weight
 
