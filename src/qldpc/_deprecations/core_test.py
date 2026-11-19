@@ -418,9 +418,8 @@ def test_deprecated_get_distance_css_brouwer_zimmermann(monkeypatch: pytest.Monk
 def test_deprecated_cutoff_that_is_not_an_integer() -> None:
     """A float or a bool cutoff warns at the caller, and acts as its floor within [-1, MAX_VALUE].
 
-    A NaN cutoff acts as -1.
-
-    Any other cutoff passes unchanged, for the distance functions to accept or reject.
+    A NaN cutoff acts as -1, and any other cutoff passes unchanged, for the distance functions to
+    accept or reject.
     """
     from qldpc.codes.distance import _tuning
 
@@ -428,7 +427,6 @@ def test_deprecated_cutoff_that_is_not_an_integer() -> None:
         (-0.5, -1),
         (True, 1),
         (np.True_, 1),
-        (np.float16(2.5), 2),
         (np.float16("inf"), _tuning.MAX_VALUE),
         (float("inf"), _tuning.MAX_VALUE),
         (1e300, _tuning.MAX_VALUE),

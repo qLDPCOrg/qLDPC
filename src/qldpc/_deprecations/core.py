@@ -347,7 +347,7 @@ def as_integer_cutoff(cutoff: int) -> int:
     """The cutoff of a distance search, warning about a float or a bool and making it an integer.
 
     Released versions took a float cutoff, and compared it only with integer weights.  So a float
-    acts as its floor, and a bool as its integer, clamped to [-1, ``_tuning.MAX_VALUE``].  A cutoff
+    acts as its floor, clamped to [-1, ``_tuning.MAX_VALUE``], and a bool as its integer.  A cutoff
     of -1 never stops a search early, and every upper bound meets ``MAX_VALUE``.  NaN acts as -1.
     Any other cutoff passes unchanged, for the distance functions to accept or reject.
     """
@@ -360,7 +360,8 @@ def as_integer_cutoff(cutoff: int) -> int:
     # qldpc.codes.distance reject them at once.
     if not isinstance(cutoff, (float, np.floating, bool, np.bool_)):
         return cutoff
-    # A long double holds every NumPy float exactly, and MAX_VALUE, so its floor and clip are exact.
+    # Floor and clip in a long double, which holds every NumPy float and MAX_VALUE exactly.  A
+    # narrower type, such as float16, would overflow at MAX_VALUE.
     value = np.longdouble(cutoff)
     integer = -1 if np.isnan(value) else int(np.clip(np.floor(value), -1, _tuning.MAX_VALUE))
     warn_deprecated(
