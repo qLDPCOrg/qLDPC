@@ -85,8 +85,17 @@ class LookupDecoder:
     def _remove_post_selected_bits(
         self, syndrome: npt.NDArray[np.int_]
     ) -> npt.NDArray[np.int_] | None:
-        """Drop post-selected bits from a syndrome, or return None if any of them is nonzero."""
+        """Drop post-selected bits from a syndrome, or return None if any of them is nonzero.
+
+        Raises:
+            ValueError: If the syndrome does not have one entry per detector.
+        """
         syndrome = syndrome.view(np.ndarray)
+        # a syndrome of another shape could otherwise decode silently as a stored or absent one
+        if syndrome.shape != (self.num_detectors,):
+            raise ValueError(
+                f"Expected a syndrome of shape ({self.num_detectors},), but got {syndrome.shape}"
+            )
         if self.syndrome_mask is None:
             return syndrome
         retained_syndrome = syndrome[self.syndrome_mask]
