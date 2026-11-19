@@ -54,15 +54,17 @@ is neither runs as plain Python.  A small always-compiled helper that hot loops 
 always-compiled and compiled-on-request functions.  An always-compiled function may call only
 always-compiled functions, since it is compiled and cached by itself.
 
-Pass ``nogil=True`` to :func:`always_compiled` only for an entry point that several threads run at
-once, such as the scan of a work item of a distance search.  Its compiled code then runs without
-Python's global interpreter lock, so that threads run it in parallel, and so does every compiled
-function that it calls.  Such an entry point, and every compiled function that it calls, may write
-only to arrays that it allocates, or to arrays or entries that nothing else reads or writes while it
-runs, such as buffers that its caller gives to one thread.  It must read nothing that anything else
-writes while it runs, and call no numba code compiled with ``parallel=True`` or ``prange`` (see
-``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  For a distance search, Section 5 of
-its guide, ``qldpc/codes/distance/brouwer_zimmermann_code.md`` or
+Pass ``nogil=True`` to :func:`always_compiled` only for an entry point that runs while other threads
+run compiled code: one that several threads run at once, such as the scan of a work item of a
+distance search, or one that a thread runs while others run another entry point, such as the
+expansion of the certifier's class codewords while threads list them.  Its compiled code then runs
+without Python's global interpreter lock, so that the threads run in parallel, and so does every
+compiled function that it calls.  Such an entry point, and every compiled function that it calls,
+may write only to arrays that it allocates, or to arrays or entries that nothing else reads or
+writes while it runs, such as buffers that its caller gives to one thread.  It must read nothing
+that anything else writes while it runs, and call no numba code compiled with ``parallel=True`` or
+``prange`` (see ``run_work_items`` in ``qldpc/codes/distance/_threads.py``).  For a distance search,
+Section 5 of its guide, ``qldpc/codes/distance/brouwer_zimmermann_code.md`` or
 ``qldpc/codes/distance/connected_cluster.md``, states the requirements on threads in full, and says
 which tests check them, and for the certifier's fault lister, "Threads" in
 ``qldpc/circuits/certification/fault_propagation.md`` does.
