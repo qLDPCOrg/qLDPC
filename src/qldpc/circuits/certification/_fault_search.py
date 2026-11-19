@@ -46,7 +46,7 @@ _MAX_CLOSING_SIZE = 4
 # A closing map of sets of more than two classes is built only once the listing of class codewords
 # at the last fault weight made at least this many lookups for each set of the map, so that building
 # the map takes time of the order of that listing.  A map is wasted if the next fault weight finds a
-# violation at once, which costs about one such listing.
+# violation at once, which costs about one or two such listings.
 _LOOKUPS_PER_CLOSING_SET = 1
 
 # The number of choices of members of a class tuple whose syndromes ``_expand_class_tuples``
@@ -551,12 +551,12 @@ def _take_table_room(
     """Take room for a number of bytes from a table of syndromes, if it still reaches the same size.
 
     The table has room for ``max_syndromes`` syndromes of ``num_syndrome_words`` words, and has
-    ``num_rows`` rows.  Return how many syndromes it has room for after giving up the bytes, or -1
-    if it would then have room for fewer than its rows, or if an empty table, which starts with
-    ``_INITIAL_SYNDROME_TABLE_SIZE`` rows, could not grow to as many rows as before (see
-    ``_get_largest_table_size``), so that it would take fewer syndromes.  The table grew from that
-    size by the same doublings, so it also still grows as far as before, and so does each table
-    after a violation empties it.
+    ``num_rows`` rows.  Return how many syndromes it has room for after giving up the bytes.  Return
+    -1 instead if it would then have room for fewer than its rows.  Also return -1 if an empty
+    table, which starts with ``_INITIAL_SYNDROME_TABLE_SIZE`` rows, could then not grow to as many
+    rows as before (see ``_get_largest_table_size``), since it would take fewer syndromes.  The
+    table grew from that size by the same doublings, so it also still grows as far as before, and
+    so does each table after a violation empties it.
     """
     num_syndromes = -(-num_bytes // _get_syndrome_bytes(num_syndrome_words))
     rest = max_syndromes - num_syndromes
@@ -1080,11 +1080,11 @@ def _expand_class_tuples(
                 # only if this one has, since the table then holds the syndromes of all these faults
                 # (see "Skipping faults whose syndromes are listed").  This needs a table that has
                 # had room for every syndrome so far in this call of ``FaultLister.find_first``, as
-                # that section says.  A table that is not full now has, since a full table never
-                # grows, as a table grows when half full whenever it can, and it is cleared only
-                # when a violation ends the listing.  This applies only past the first level whose
-                # class has more than one member (see above).  Otherwise remember the choice, if
-                # there is room.
+                # that section says.  A table that is not full now has had that room.  A table grows
+                # when half full whenever it can, so a full table never grows.  A table is cleared
+                # only when a violation ends the listing.  This applies only past the first level
+                # whose class has more than one member (see above).  Otherwise remember the choice,
+                # if there is room.
                 if num_syndromes < len(syndrome_rows) and level > first_branching_level:
                     choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
                     choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]

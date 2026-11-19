@@ -414,14 +414,24 @@ def test_checked_faults_follow_the_table_of_syndromes(
                 assert _check_faults(lister, fault_weight, ()) == (expected, None)
 
     # Syndromes of two bits repeat often, for faults and for partial choices of their members, and
-    # errors on six qubits leave out some faults but not all.
+    # errors on six qubits leave out some faults but not all.  Then the same with zero hashes, so
+    # that every remembered choice shares its hash, and with the two bits of each syndrome in
+    # different words, so that a remembered choice must match every word of its syndrome.
     rng = np.random.default_rng(pytestconfig.getoption("randomly_seed"))
-    for _ in range(20):
-        num_primitives = int(rng.integers(6, 11))
-        flags = [int(flag) for flag in rng.integers(1, 8, size=num_primitives)]
-        syndromes = [int(syndrome) for syndrome in rng.integers(4, size=num_primitives)]
-        representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
-        check(flags, syndromes, representatives, 6, int(rng.integers(1, num_primitives + 1)))
+    for shift, num_qubits in ((0, 6), (63, 70)):
+        if shift:
+            monkeypatch.setattr(
+                _fault_search, "_hash_words", lambda words: np.zeros(len(words), np.uint64)
+            )
+        for _ in range(20):
+            num_primitives = int(rng.integers(6, 11))
+            flags = [int(flag) for flag in rng.integers(1, 8, size=num_primitives)]
+            syndromes = [
+                int(syndrome) << shift for syndrome in rng.integers(4, size=num_primitives)
+            ]
+            representatives = [int(error) for error in rng.integers(2**12, size=num_primitives)]
+            num_starts = int(rng.integers(1, num_primitives + 1))
+            check(flags, syndromes, representatives, num_qubits, num_starts)
 
     # The start members 0, 1, and 2 come first in the classes with flags 1, 2, and 4, which, with
     # the class with flags 7, form a class codeword.  The choice of members 3 and 5 of the first two
@@ -555,12 +565,13 @@ def test_closing_maps_do_not_change_the_checked_faults(monkeypatch: pytest.Monke
     monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
     # With twelve classes, the map of pairs takes 3168 bytes, and those of three and four classes
     # take 11,440 and 27,720.  Each syndrome takes 40 bytes, and the listing has 1362 syndromes.
-    # With room for 1536, 3072, or 6144 syndromes, the table can just grow to 1024, 2048, or 4096
-    # rows, so that any room that a map took would stop it one step short.
-    # Then a violation at fault weight six empties the table, which must grow again as without
-    # the maps when fault weight six is listed again.
+    # With room for 1536 or 3072 syndromes, the table can just grow to 1024 or 2048 rows, so that
+    # any room that a map took from it would stop it one doubling short.  With 3072, the table
+    # holds every syndrome only if it reaches 2048 rows.  With 1536, it fills up at 1024 rows, and
+    # after a violation at fault weight six empties it, it must grow again to 1024 rows when that
+    # weight is listed again, which a map that took room while the table had 1024 rows would stop.
     violating = set(range(0, 2**12, 31))
-    for room in (1500, 1536, 3072, 6144):
+    for room in (1536, 3072):
         memory_limit = 3168 + 40 * room
         checked = []
         for max_closing_size in (2, 4):
@@ -680,15 +691,19 @@ def test_closing_maps_and_the_table_of_syndromes_stay_within_the_memory_limit(
     monkeypatch.setattr(_fault_search, "_grow_syndrome_table", record_growth)
 
     # With twelve classes, the maps of two, three, and four classes take 3168, 11,440, and 27,720
-    # bytes.  With room for 1000 to 3200 syndromes beyond the map of pairs, maps of three and four
-    # classes fit in some cases, some just, while the table fills up.
+    # bytes, and room for 1500 or 2300 syndromes beyond the map of pairs lets the table stop at
+    # 512 or 1024 rows.  The map of three, and with 2300 the map of four, fit in the rest, but a
+    # larger map, or one that took no room from the table, would not once a violation empties the
+    # table and it grows again.  With room for 2600, the maps of three and four fit.
     sizes_built: set[int] = set()
-    for room in range(1000, 3200, 50):
+    for room in (1500, 2300, 2600):
         memory_limit = 3168 + 40 * room
         usage = {"maps": 0, "rows": 2}
         lister = _listing_lister(12, 5, memory_limit)
         for weight in range(2, 7):
             _check_faults(lister, weight, ())
+        _check_faults(lister, 6, set(range(0, 2**12, 31)))
+        _check_faults(lister, 6, ())
     assert sizes_built == {2, 3, 4}
 
 
