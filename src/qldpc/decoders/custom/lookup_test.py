@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import collections
+import itertools
 
 import galois
 import numpy as np
@@ -398,6 +399,105 @@ def test_lookup_decoder_types() -> None:
     ]:
         assert issubclass(weighted_class, custom.WeightedLookupDecoder)
     assert issubclass(custom.WeightedLookupDecoder, custom.LookupDecoder)
+
+
+@pytest.mark.parametrize("field", [galois.GF(2), galois.GF(3)])
+def test_syndrome_to_prediction(field: type[galois.FieldArray]) -> None:
+    """An error lookup table maps the syndrome of each enumerated error to its decoded error."""
+    matrix = field([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]])
+    decoder = decoders.custom.ErrorLookupDecoder(matrix, max_weight=1, add_erasure_bit=True)
+    table = decoder.syndrome_to_prediction
+
+    # the table holds the syndromes of all errors of weight <= 1, and no others
+    errors = [np.zeros(4, dtype=int)] + [
+        value * np.eye(4, dtype=int)[index] for index in range(4) for value in range(1, field.order)
+    ]
+    syndromes = {tuple((matrix @ field(error)).tolist()) for error in errors}
+    assert set(table) == syndromes and len(table) == len(syndromes)
+
+    # each value is the decoded error, with a trivial erasure bit
+    for syndrome, error in table.items():
+        assert np.array_equal(error, decoder.decode(np.array(syndrome, dtype=int)))
+        assert tuple((matrix @ field(error[:-1])).tolist()) == syndrome
+        assert error[-1] == 0 and not error.flags.writeable
+
+    # other keys are absent, even those that would pack to the bytes of a stored syndrome
+    assert (1, 0, 0) in table
+    for key in [(0, 1, 0), (1, 0), (1, 0, 0, 0), (field.order, 0, 0), [1, 0, 0]]:
+        assert key not in table
+    with pytest.raises(TypeError):
+        table[0, 0, 0] = np.zeros(5, dtype=int)  # type: ignore[index]
+
+
+def test_observable_syndrome_to_prediction() -> None:
+    """An observable lookup table omits the syndromes that a confidence_ratio leaves ambiguous."""
+    # the two weight-1 errors are equally likely and share a syndrome, but not an observable flip
+    decoder = decoders.custom.ObservableLookupDecoder(
+        np.array([[1, 1]], dtype=int),
+        max_weight=1,
+        observable_flip_matrix=np.array([[1, 0]], dtype=int),
+        error_channel=[0.1, 0.1],
+        confidence_ratio=2,
+    )
+    table = decoder.syndrome_to_prediction
+    assert list(table) == [(0,)]
+    assert np.array_equal(table[0,], [0, 0])  # no observable flip, and a trivial erasure bit
+    assert np.array_equal(decoder.decode_observables(np.array([1], dtype=int)), [0, 1])
+
+
+def test_syndrome_to_candidates() -> None:
+    """A weighted lookup table maps each syndrome to every enumerated error with that syndrome."""
+    matrix = np.array([[1, 1, 0], [0, 1, 1]], dtype=int)
+    errors = [np.array(error) for error in itertools.product([0, 1], repeat=3) if sum(error) <= 2]
+    decoder = decoders.custom.WeightedErrorLookupDecoder(matrix, max_weight=2, add_erasure_bit=True)
+    table = decoder.syndrome_to_candidates
+    assert set(table) == {tuple(matrix @ error % 2) for error in errors}
+
+    # each syndrome has all of its errors, in order of decreasing weight, with their outputs
+    for syndrome, candidates in table.items():
+        assert sorted(tuple(error) for error, _ in candidates) == sorted(
+            tuple(error) for error in errors if tuple(matrix @ error % 2) == syndrome
+        )
+        weights = [np.count_nonzero(error) for error, _ in candidates]
+        assert weights == sorted(weights, reverse=True)
+        for error, output in candidates:
+            assert np.array_equal(output, [*error, 0])
+            assert not error.flags.writeable and not output.flags.writeable
+
+    # the table is read-only, and looking up an absent syndrome does not add it
+    with pytest.raises(TypeError):
+        table[0, 0] = ()  # type: ignore[index]
+    with pytest.raises(KeyError):
+        table[1, 1, 1]
+    assert len(decoder) == len(table) == 4
+
+    # an observable table's outputs are the observable flips of its errors
+    observable_decoder = decoders.custom.WeightedObservableLookupDecoder(
+        matrix, max_weight=2, observable_flip_matrix=np.array([[1, 0, 0]], dtype=int)
+    )
+    for candidates in observable_decoder.syndrome_to_candidates.values():
+        for error, output in candidates:
+            assert np.array_equal(output, [error[0]])
+
+
+def test_lookup_tables_with_post_selection() -> None:
+    """Under post-selection, lookup tables omit post-selected bits from their syndromes."""
+    matrix = np.array([[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]], dtype=int)
+    decoder = decoders.custom.ErrorLookupDecoder(matrix, max_weight=1, post_select=[1])
+    weighted_decoder = decoders.custom.WeightedErrorLookupDecoder(
+        matrix, max_weight=1, post_select=[1]
+    )
+    # the errors of weight <= 1 that are trivial on bit 1 have syndromes 000, 100, and 001
+    syndromes = {(0, 0), (1, 0), (0, 1)}
+    assert set(decoder.syndrome_to_prediction) == syndromes
+    assert set(weighted_decoder.syndrome_to_candidates) == syndromes
+
+    # a full syndrome has zeros on the post-selected bits
+    for syndrome, error in decoder.syndrome_to_prediction.items():
+        full_syndrome = np.zeros(decoder.num_detectors, dtype=int)
+        assert decoder.syndrome_mask is not None
+        full_syndrome[decoder.syndrome_mask] = syndrome
+        assert np.array_equal(matrix @ error % 2, full_syndrome)
 
 
 def test_deprecated_direct_construction() -> None:
