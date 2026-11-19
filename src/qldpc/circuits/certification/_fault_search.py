@@ -43,8 +43,8 @@ _BYTES_PER_SET = 40
 # codewords, at the cost of another factor in the size of its closing map.
 _MAX_CLOSING_SIZE = 4
 
-# A closing map of sets of more than two classes is built only once the listing of class codewords
-# at the last fault weight made at least this many lookups for each set of the map, so that building
+# A closing map of sets of more than two classes is built only once the last listing of class
+# codewords that finished made at least this many lookups for each set of the map, so that building
 # the map takes time of the order of that listing.  A map is wasted if the next fault weight finds a
 # violation at once, which costs about one or two such listings.
 _LOOKUPS_PER_CLOSING_SET = 1
@@ -261,9 +261,9 @@ class FaultLister:
     ``find_first``) grows within the rest of the memory limit, up to 2**31 syndromes.  With the map
     of pairs, a fault weight ``m`` may use a closing map of up to ``min(m - 2, _MAX_CLOSING_SIZE)``
     classes instead: one that was built for an earlier fault weight, or one that is built now
-    because the listing of class codewords at the last fault weight made enough lookups (see
-    ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can give up the room for it and still
-    grow to the same largest size (see ``_take_table_room``).
+    because the last listing of class codewords to finish, which a listing that finds a violation
+    does not, made enough lookups (see ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can
+    give up the room for it and still grow to the same largest size (see ``_take_table_room``).
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -710,7 +710,7 @@ def _place_set(
 @always_compiled
 def _get_num_sets(num_classes: int, size: int) -> int:
     """The number of sets of ``size`` classes out of ``num_classes``, the binomial coefficient."""
-    if size < 0 or size > num_classes:
+    if size > num_classes:
         return 0
     num_sets = 1
     for index in range(size):

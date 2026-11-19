@@ -128,12 +128,16 @@ def test_listing_matches_brute_force(
     # start class.  So the fault {1, 2, 3} takes member 3, which is not a start member, before
     # member 1, which is, and must not be skipped.  In the fourth, the classes with flags 1 and 2
     # have two closing pairs, with flags 4 and 7 and with flags 5 and 6, so the order of the pairs
-    # that one lookup finds decides the order of the faults.
+    # that one lookup finds decides the order of the faults.  In the fifth, after choosing the
+    # classes with flags 1 and 2, a listing must reject the closing set with flags 4, 5, 8, and 10,
+    # whose classes with flags 4 and 5 are independent of the chosen classes alone but not
+    # together with them, since 5 = 1 + 4.
     flag_sets = [
         [1, 2, 1, 2, 3, 3],
         [1, 2, 4, 8, 3, 12, 16, 31],
         [1, 2, 3, 1],
         [1, 2, 3, 4, 5, 6, 7],
+        [1, 2, 4, 5, 8, 10],
     ]
     flag_sets += [list(rng.integers(1, 16, size=rng.integers(1, 10))) for _ in range(10)]
     for small_flags in flag_sets:
@@ -452,6 +456,19 @@ def test_checked_faults_follow_the_table_of_syndromes(
     representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
     check(flags, syndromes, representatives, 15, 1)
 
+    # Members 0 to 3, the start members, come first in the classes with flags 1, 2, 4, and 7, and
+    # members 4 to 8 come after them.  The syndrome of member 6 makes the choice of members 4, 6,
+    # and 7 of the first three classes, which has no start member, share its syndrome with a later
+    # choice that has one.  In the first case, that is the choice of members 5, 1, and 7, whose
+    # start member was chosen before the last of its levels, so a remembered choice must record a
+    # start member chosen at any level.  In the second, it is the choice of members 5 and 1 of the
+    # first two classes, so it must also record the level, apart from whether there is a start
+    # member.  Only the later choices are completed by member 8, which is not a start member.
+    flags = [1, 2, 4, 7, 1, 1, 2, 4, 7]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    check(flags, [1, 2, 4, 8, 16, 32, 50, 64, 128], representatives, 27, 4)
+    check(flags, [1, 2, 4, 8, 16, 32, 114, 64, 128], representatives, 27, 4)
+
 
 @pytest.mark.parametrize("size", [2, 3, 4])
 def test_closing_map_peak_memory_is_within_its_estimate(
@@ -645,8 +662,8 @@ def test_larger_closing_maps_wait_for_listings_with_many_lookups(
 
     # With sixteen classes, the map of three has 560 sets.  The listings with pairs look up at most
     # 120 choices of two classes at fault weight four, and at most 560 choices of three at fault
-    # weight five, fewer here, since some triples are dependent, but well over 560 choices of four
-    # at fault weight six.  So fault weight seven is the first to build the map of three.  Batches
+    # weight five, 553 here, since 7 triples are dependent, but 1697 choices of four at fault
+    # weight six.  So fault weight seven is the first to build the map of three.  Batches
     # of one class codeword make each listing pause and resume often, which must keep the count.
     monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
     sizes_built.clear()
@@ -691,12 +708,14 @@ def test_closing_maps_and_the_table_of_syndromes_stay_within_the_memory_limit(
     monkeypatch.setattr(_fault_search, "_grow_syndrome_table", record_growth)
 
     # With twelve classes, the maps of two, three, and four classes take 3168, 11,440, and 27,720
-    # bytes, and room for 1500 or 2300 syndromes beyond the map of pairs lets the table stop at
-    # 512 or 1024 rows.  The map of three, and with 2300 the map of four, fit in the rest, but a
-    # larger map, or one that took no room from the table, would not once a violation empties the
-    # table and it grows again.  With room for 2600, the maps of three and four fit.
+    # bytes, the room of 286 and 693 syndromes of 40 bytes for the last two.  With room for 2480 or
+    # 2515 syndromes beyond the map of pairs, the table grows to 1024 rows, if the maps leave room
+    # for 1536.  So the map of three fits in both, and the map of four only in 2515, where the
+    # table, emptied by the violation, grows again to 1024 rows with every map held, exactly at
+    # the limit.  At 2480, a map of four whose room left out some of its bytes, or a map that took
+    # no room from the table, would be built, and the table's growth would then exceed the limit.
     sizes_built: set[int] = set()
-    for room in (1500, 2300, 2600):
+    for room in (2480, 2515):
         memory_limit = 3168 + 40 * room
         usage = {"maps": 0, "rows": 2}
         lister = _listing_lister(12, 5, memory_limit)
