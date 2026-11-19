@@ -94,7 +94,8 @@ def find_smallest_violation(
 
     # Check faults only up to fault weight rank(P) + 1, for the matrix P of the flags (see
     # "Irreducible accepted faults have fault weight at most rank(P) + 1").
-    distinct_flags = [flag for flag, _ in signatures]
+    # Repeated flags do not change the rank, so each value enters the matrix once.
+    distinct_flags = list(dict.fromkeys(flag for flag, _ in signatures))
     flag_rank = get_rank_packed(_to_words(distinct_flags, _get_num_words(distinct_flags)))
     max_fault_weight = flag_rank + 1 if max_weight is None else min(max_weight, flag_rank + 1)
 
@@ -140,22 +141,26 @@ def _search_irreducible_faults(
     # Give each primitive fault a representative of low Pauli weight, so that ``FaultLister`` skips
     # more faults (see "Checking one fault").  A light primitive fault's representative has Pauli
     # weight at most one.  A heavy primitive fault whose syndrome is the sum of the syndromes of two
-    # light ones gets the product of their representatives.  Compiled code finds such pairs, since
-    # their search takes time proportional to the number of heavy primitive faults times the number
-    # of light ones.  Any other heavy primitive fault keeps the error that the oracle returned for
-    # it.
+    # light ones gets the product of their representatives.  The pair depends only on the syndrome,
+    # so the search runs once for each distinct heavy syndrome.  Compiled code does it, since its
+    # time is proportional to the number of distinct heavy syndromes times the number of light
+    # ones.  Any other heavy primitive fault keeps the error that the oracle returned for it.
     light_errors = {syndrome: error for _, syndrome, _, error in light}
     light_syndromes = list(light_errors)
-    num_words = _get_num_words(light_syndromes + [syndrome for _, syndrome, _, _ in heavy])
+    heavy_syndromes = list(dict.fromkeys(syndrome for _, syndrome, _, _ in heavy))
+    num_words = _get_num_words(light_syndromes + heavy_syndromes)
     pairs = _get_light_pairs(
-        _hashed_rows([syndrome for _, syndrome, _, _ in heavy], num_words),
-        _hashed_rows(light_syndromes, num_words),
+        _hashed_rows(heavy_syndromes, num_words), _hashed_rows(light_syndromes, num_words)
     )
-    for jj, (first, second) in enumerate(pairs.tolist()):
-        if first >= 0:
-            flag, syndrome, index, _ = heavy[jj]
-            error = light_errors[light_syndromes[first]] ^ light_errors[light_syndromes[second]]
-            heavy[jj] = (flag, syndrome, index, error)
+    pair_errors = {
+        syndrome: light_errors[light_syndromes[first]] ^ light_errors[light_syndromes[second]]
+        for syndrome, (first, second) in zip(heavy_syndromes, pairs.tolist())
+        if first >= 0
+    }
+    heavy = [
+        (flag, syndrome, index, pair_errors.get(syndrome, error))
+        for flag, syndrome, index, error in heavy
+    ]
 
     # Order the primitive faults with the heavy ones first, and each group in DEM order, so that the
     # faults to check are the ones that contain one of the first ``len(heavy)`` primitive faults.
@@ -550,12 +555,16 @@ def _hash_words(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
 
     The hash of a sum of rows is the sum of their hashes.  Rows that differ can share a hash.
     """
+    # Bit ``b`` of word ``c`` adds ``images[c, b]`` to the hash.  Tabulate the hash of each value of
+    # each byte of each word, so that a row takes one lookup per byte rather than steps per bit.
     images = np.random.default_rng(0).integers(2**64, size=(words.shape[1], 64), dtype=np.uint64)
-    hashes = np.zeros(len(words), dtype=np.uint64)
-    for column, column_images in enumerate(images):
-        bits = (words[:, column, None] >> np.arange(64, dtype=np.uint64)) & np.uint64(1)
-        hashes ^= np.bitwise_xor.reduce(bits * column_images, axis=1)
-    return hashes
+    byte_images = images.reshape(words.shape[1], 8, 8)
+    byte_values = np.arange(256)
+    tables = np.zeros((words.shape[1], 8, 256), dtype=np.uint64)
+    for bit in range(8):
+        has_bit = ((byte_values >> bit) & 1).astype(np.uint64)
+        tables ^= byte_images[:, :, bit, None] * has_bit
+    return _hash_bytes(np.ascontiguousarray(words), tables)
 
 
 def _get_num_words(values: Collection[int]) -> int:
@@ -574,6 +583,28 @@ def _hashed_rows(values: Sequence[int], num_words: int) -> npt.NDArray[np.uint64
     """For each integer, a row of its linear hash and then its words, as in a table of syndromes."""
     words = _to_words(values, num_words)
     return np.hstack([_hash_words(words)[:, None], words])
+
+
+@always_compiled
+def _hash_bytes(
+    words: npt.NDArray[np.uint64], tables: npt.NDArray[np.uint64]
+) -> npt.NDArray[np.uint64]:
+    """Hash each row of words with tables of the hashes of bytes.
+
+    A row hashes to the XOR, over each byte ``k`` of each word ``c``, of ``tables[c, k, v]`` for the
+    value ``v`` of that byte.
+    """
+    hashes = np.zeros(len(words), dtype=np.uint64)
+    byte_mask = np.uint64(0xFF)
+    for row in range(len(words)):
+        hashed = np.uint64(0)
+        for column in range(words.shape[1]):
+            word = words[row, column]
+            for byte in range(8):
+                value = np.int64((word >> np.uint64(8 * byte)) & byte_mask)
+                hashed ^= tables[column, byte, value]
+        hashes[row] = hashed
+    return hashes
 
 
 @always_compiled
@@ -921,11 +952,7 @@ def _find_syndrome_slot(
     refers to the syndrome.  The number of slots must be a power of two, at most 2**32, and at least
     one slot must be empty, so that the lookup ends.
     """
-    # The product of the hash's low 32 bits and ``_HASH_MULTIPLIER`` fits in 64 bits, and the slot
-    # is the top bits of its low 32 bits.
-    low_bits = np.uint64(0xFFFFFFFF)
-    shift = np.uint64(32 - trailing_zeros_word(np.uint64(len(syndrome_slots))))
-    slot = np.int64((((hashed & low_bits) * _HASH_MULTIPLIER) & low_bits) >> shift)
+    slot = _get_first_slot(hashed, len(syndrome_slots))
     while syndrome_slots[slot] >= 0:
         row = syndrome_slots[slot]
         equal = syndrome_rows[row, 0] == hashed
@@ -935,6 +962,19 @@ def _find_syndrome_slot(
             break
         slot = (slot + 1) % len(syndrome_slots)
     return int(slot)
+
+
+@always_compiled(inline=True)
+def _get_first_slot(hashed: np.uint64, num_slots: int) -> np.int64:
+    """The slot at which a lookup of a hash starts, in a hash map of ``num_slots`` slots.
+
+    The number of slots must be a power of two, at most 2**32.
+    """
+    # The product of the hash's low 32 bits and ``_HASH_MULTIPLIER`` fits in 64 bits, and the slot
+    # is the top bits of its low 32 bits.
+    low_bits = np.uint64(0xFFFFFFFF)
+    shift = np.uint64(32 - trailing_zeros_word(np.uint64(num_slots)))
+    return np.int64((((hashed & low_bits) * _HASH_MULTIPLIER) & low_bits) >> shift)
 
 
 @always_compiled
@@ -974,21 +1014,41 @@ def _get_light_pairs(
     sum of heavy syndrome ``h`` and light syndrome ``i`` is a light syndrome ``j``, and then ``j``,
     or -1 twice if there is none.
     """
+    # Put the light syndromes in a hash map as in ``_find_syndrome_slot``, with at least eight times
+    # as many slots, so that most lookups of a sum that is not light end at once at an empty slot.
+    # This makes the search about five times faster than with half-full slots.
     num_slots = 2
-    while num_slots < 2 * len(light_rows):
+    while num_slots < 8 * len(light_rows):
         num_slots *= 2
     slots = np.full(num_slots, -1, dtype=np.int64)
     for row in range(len(light_rows)):
-        slot = _find_syndrome_slot(light_rows[row, 0], light_rows[row, 1:], light_rows, slots)
-        slots[slot] = row
+        slots[_find_syndrome_slot(light_rows[row, 0], light_rows[row, 1:], light_rows, slots)] = row
+
+    # Most sums are not light, so look each sum up by its hash first, as ``_find_syndrome_slot``
+    # does, and compare its words only with those of a light syndrome with the same hash.  The
+    # hashes are copied out of the rows, which are long for many qubits, so that the loop reads them
+    # in order.
+    light_hashes = light_rows[:, 0].copy()
+    num_words = heavy_rows.shape[1] - 1
     pairs = np.full((len(heavy_rows), 2), -1, dtype=np.int64)
-    target = np.empty(heavy_rows.shape[1] - 1, dtype=np.uint64)
     for heavy in range(len(heavy_rows)):
+        heavy_hash = heavy_rows[heavy, 0]
         for first in range(len(light_rows)):
-            for word in range(len(target)):
-                target[word] = heavy_rows[heavy, 1 + word] ^ light_rows[first, 1 + word]
-            hashed = heavy_rows[heavy, 0] ^ light_rows[first, 0]
-            second = slots[_find_syndrome_slot(hashed, target, light_rows, slots)]
+            hashed = heavy_hash ^ light_hashes[first]
+            slot = _get_first_slot(hashed, num_slots)
+            second = slots[slot]
+            while second >= 0:
+                if light_hashes[second] == hashed:
+                    equal = True
+                    for word in range(1, num_words + 1):
+                        sum_word = heavy_rows[heavy, word] ^ light_rows[first, word]
+                        if sum_word != light_rows[second, word]:
+                            equal = False
+                            break
+                    if equal:
+                        break
+                slot = (slot + 1) & (num_slots - 1)
+                second = slots[slot]
             if second >= 0:
                 pairs[heavy, 0] = first
                 pairs[heavy, 1] = second
