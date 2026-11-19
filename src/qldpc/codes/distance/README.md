@@ -297,6 +297,7 @@ They are not arguments of public functions, whose arguments say what to compute 
 
 A BZ distance search scans each costly layer of a set on `num_threads` threads, which share one copy of the set's completion tables (Section 4.5 of `brouwer_zimmermann_code.md`).
 A connected-cluster distance search searches each costly weight limit on `num_threads` threads, which give the same witness and count of states as a search on one thread (Section 3.11 of `connected_cluster.md`).
+On any number of threads, it searches in chunks of `2**information_set_batch_exponent` states, between which it takes keyboard interrupts, and a thread stops a work item after its current chunk once an earlier item has a witness.
 With either method, the batch queries of `CosetLeaderSearch`, `find_first_not_within_max_weight` and `get_min_weights`, move the rest of a costly batch to `num_threads` threads ([The coset-leader search](#the-coset-leader-search)).
 A `CosetLeaderSearch` fixes its number of threads when it is built.
 By default, `num_threads` is `None`, which takes the value of the environment variable `QLDPC_NUM_THREADS` when qLDPC was imported, if it was set, and otherwise `numba.config.NUMBA_NUM_THREADS`.
