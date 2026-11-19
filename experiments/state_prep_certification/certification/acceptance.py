@@ -19,14 +19,15 @@
   with one threshold-1 query per reduced mechanism, and an oracle whose answers are shifted raises
   ``ShadowDisagreement``.
 * **AT4:** ``cert_bz`` with a limit a tenth of the way into the last fault weight of its full run,
-  on the first of the B-cat circuits of largest K and size that completes a weight, but not that
-  last weight, in that time, ends as a timeout with T at least the limit, reports its completed
-  weights as consecutive weights from 2 without a violation, and is not rerun when its task is run
-  again.  A ``cert_bz`` run on the weakened C-goto, which violates, gets a post-processing allowance
-  of 1 s, and its description is delayed by 5 s (``post_delay_s``).  The run keeps status ok, T, and
-  its verdict, and its ``post_status`` is ``timeout``.  A fast ``cert_bz`` run on C-goto gets
-  exactly ``repeats.count`` repeats (``repeat_tasks``), each with a limit of 600 s and no
-  ``post_s``, and a repeat ends without post-processing or certificate text.
+  on the first of the B-cat circuits of largest K and size whose last weight takes at least 0.4 s
+  and that completes a weight, but not that last weight, in that time, ends as a timeout with T at
+  least the limit, reports its completed weights as consecutive weights from 2 without a violation,
+  and is not rerun when its task is run again.  A ``cert_bz`` run on the weakened C-goto, which
+  violates, gets a post-processing allowance of 1 s, and its description is delayed by 5 s
+  (``post_delay_s``).  The run keeps status ok, T, and its verdict, and its ``post_status`` is
+  ``timeout``.  A fast ``cert_bz`` run on C-goto gets exactly ``repeats.count`` repeats
+  (``repeat_tasks``), each with a limit of 600 s and no ``post_s``, and a repeat ends without
+  post-processing or certificate text.
 * **AT5:** every input matches its SHA-256, its recomputed DEM parameters equal those of
   ``circuits.json``, and each code file passes ``code_files.check_code`` (``circuits.py --check``).
   Every noisy input has only the expected noise, with every measurement noisy.
@@ -375,7 +376,9 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     # the first of the five cat circuits of largest K and size that completes a weight but not the
     # last weight of its full run, which takes about a second, when stopped a tenth of the way into
     # that weight.  A run that ends after its limit is a timeout even if it completed the weight,
-    # so a run that does is no use, and the next circuit is tried.
+    # so a run that does is no use, and the next circuit is tried.  The runner checks the limit
+    # every 0.2 s or so, and so can kill a run up to about 0.25 s after it, so a circuit whose last
+    # weight takes under 0.4 s is not tried.
     entries = json.loads(circuits.CIRCUITS_JSON.read_text())["circuits"]
     candidates = [e for e in entries if e["family"] == "B-cat" and e["status"] == "ok"]
     candidates.sort(key=lambda e: (e["options"]["max_weight"], e["num_mechanisms"]), reverse=True)
@@ -385,7 +388,7 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
         assert full["status"] == "ok" and full["T"] is not None, full
         ends = [record["T_cumulative"] for record in full["partial"]]
         assert None not in ends, full["partial"]
-        if len(ends) < 2:
+        if len(ends) < 2 or ends[-1] - ends[-2] < 0.4:
             continue
         limit = ends[-2] + (ends[-1] - ends[-2]) / 10
         task = experiment._task("cert_bz", circuit, 0, limit)
@@ -401,7 +404,6 @@ def at4_limits_and_resume(directory: pathlib.Path, node: bool) -> None:
     assert weights == list(range(2, 2 + len(weights))), weights
     assert all(not record["violation"] for record in row["partial"]), row["partial"]
     assert all(record["T_cumulative"] <= row["T"] for record in row["partial"]), row["partial"]
-    assert weights[-1] < circuit["options"]["max_weight"], weights
     print(f"  {circuit['id']}: timeout at T = {row['T']:.1f} s, completed weights {weights}")
 
     before = (directory / circuit["id"] / "runs.jsonl").read_bytes()

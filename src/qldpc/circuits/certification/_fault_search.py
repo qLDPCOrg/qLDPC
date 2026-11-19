@@ -1018,10 +1018,11 @@ def _expand_class_tuples(
     num_choices, first_branching_level = expansion_state[4], expansion_state[5]
     while tuple_index < len(class_tuples):
         # Start a class tuple with no remembered choices.  Up to the first level whose class has
-        # more than one member, no two choices have the same syndrome, so none is remembered:
-        # before that level there is only one choice at each level, and at that level the choices
-        # differ only in one member of one class, whose members have distinct syndromes, since
-        # they have the same flags and distinct signatures.
+        # more than one member, no two choices have the same syndrome, so none is remembered.
+        # Before that level, there is only one choice at each level.  At that level, the choices
+        # differ only in one member of one class.  The members of a class have the same flags, and
+        # the search passes primitive faults of distinct signatures, so they have distinct
+        # syndromes.  Primitive faults of repeated signatures would only miss some skips.
         if level < 0:
             level = 0
             next_member_entries[0] = class_offsets[class_tuples[tuple_index, 0]]
@@ -1072,9 +1073,10 @@ def _expand_class_tuples(
                 # only if this one has, since the table then holds the syndromes of all these faults
                 # (see "Skipping faults whose syndromes are listed").  This needs a table that has
                 # had room for every syndrome since the earlier choice was remembered.  A table that
-                # is not full now has: a full table never grows, since a table grows when half full
-                # whenever it can, and it is cleared only when a violation ends the listing.
-                # Otherwise remember the choice, if there is room.
+                # is not full now has had that room, since a full table never grows, as a table
+                # grows when half full whenever it can, and it is cleared only when a violation ends
+                # the listing.  This applies only past the first level whose class has more than
+                # one member (see above).  Otherwise remember the choice, if there is room.
                 if num_syndromes < len(syndrome_rows) and level > first_branching_level:
                     choice_key[0] = np.uint64(2 * level + (1 if num_chosen_starts > 0 else 0))
                     choice_key[1:] = chosen_row_sums[level + 1, 1:x_start]

@@ -612,7 +612,9 @@ def test_larger_closing_maps_wait_for_listings_with_many_lookups(
     # With sixteen classes, the map of three has 560 sets.  The listings with pairs look up at most
     # 120 choices of two classes at fault weight four, and at most 560 choices of three at fault
     # weight five, fewer here, since some triples are dependent, but well over 560 choices of four
-    # at fault weight six.  So fault weight seven is the first to build the map of three.
+    # at fault weight six.  So fault weight seven is the first to build the map of three.  Batches
+    # of one class codeword make each listing pause and resume often, which must keep the count.
+    monkeypatch.setattr(_fault_search, "_CODEWORD_BATCH_SIZE", 1)
     sizes_built.clear()
     lister = _listing_lister(16, 5, 2**20)
     for weight in range(2, 7):

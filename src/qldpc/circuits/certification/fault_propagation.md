@@ -194,7 +194,8 @@ Take two choices `U` and `U'` of members of the first `ℓ < m` classes of a cla
 The rule above that skips the rest of a class depends only on the member, the later classes, and whether a heavy primitive fault was chosen before it, so the search completes `U` and `U'` by the same choices `R` of members of the other classes.
 If `S U = S U'`, each fault `U' + R` has the syndrome of `U + R`, which comes earlier in the listing order, and the search can skip all the faults `U' + R` without looking them up.
 It does so when it has remembered the syndrome of `U`, which it does for a limited number of choices of each class codeword.
-At fault weight two, the search chooses two members of one start class, so the only choices to compare are single members of that class, which have the same flags and so distinct syndromes, since kept primitive faults have distinct signatures; it skips no faults of fault weight two.
+At fault weight two, the search chooses two members of one start class, so the only choices to compare are single members of that class.
+These have the same flags, and so distinct syndromes, since kept primitive faults have distinct signatures, so the search skips no faults of fault weight two.
 
 Suppose that the table of syndromes has had room for every syndrome so far.
 Then, when the search reaches a fault, the table holds the syndrome of every fault that comes earlier in the listing order, whether the search looked it up or skipped it.
@@ -202,7 +203,10 @@ This holds by induction on the listing order: a fault that the search looked up 
 So the table holds the syndrome of each skipped fault, and it holds only syndromes of faults that the search looked up earlier, so by case 2 of [Checking one fault](#checking-one-fault), no skipped fault is the first violation.
 The table would also have left out each skipped fault, so skipping changes neither the faults that the search checks nor the table.
 The search skips faults only while the table has had room for every syndrome.
-This keeps the faults that it checks the same; it is not needed for exactness, since each skipped fault has the syndrome of a fault listed earlier even when the table is full.
+This keeps the faults that it checks the same.
+It is not needed for exactness.
+Even when the table is full, each skipped fault has the syndrome of a fault listed earlier, so the first fault in the listing order with a given syndrome is never skipped, and the table cannot hold its syndrome when the search reaches it.
+The first violation is such a fault, since an earlier fault with its syndrome would violate the bound too, so the search checks it.
 
 ### Why the first violation has the smallest fault weight
 
