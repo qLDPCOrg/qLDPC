@@ -74,14 +74,14 @@ _CODEWORD_BATCH_SIZE = 2**10
 _LOOKUPS_PER_CALL = 2**16
 
 # A listing of class codewords moves to threads once the calling thread, listing alone, has made
-# this many lookups for each thread, so that small listings never start threads.  Starting the
-# threads costs far less than this many lookups.
+# this many lookups for each thread, and the lookups left are estimated to be as many.  So small
+# listings never start threads, which costs about as much as half this many lookups, from starting
+# the threads to taking the last class codewords from them.
 _SPLIT_LOOKUPS_PER_THREAD = 2**14
 
-# The work items of a listing on threads are its start classes if there are at least this many for
-# each thread, and otherwise its pairs of a start class and a later class, so that the threads share
-# the work evenly.
-_ITEMS_PER_THREAD = 16
+# The number of work items into which a listing on threads splits its walk for each thread, about
+# eight for each range of ``iterate_in_order``, so that the ranges hold about equal work.
+_ITEMS_PER_THREAD = 256
 
 # A walk end (see ``_list_class_codewords``) after every class codeword.
 _NO_WALK_END = (1 << 62, 0)
@@ -505,7 +505,8 @@ class FaultLister:
 
         # On several threads, split the walk into work items, and list the first items alone, in
         # ranges of 1, 2, 4, and more items, until the lookups show that the listing is costly (see
-        # "Threads" in ``fault_propagation.md``).
+        # "Threads" in ``fault_propagation.md``).  If the lookups left, estimated from the weights
+        # of the items, are fewer, list the rest alone too.
         firsts, seconds, cumulative_weights = _get_walk_items(
             len(self._class_rows), self._num_start_classes, num_chosen, self._num_threads
         )
@@ -521,6 +522,14 @@ class FaultLister:
             end = min(num_items, num_listed + num_next)
             yield from walk.list_range(get_prefix(num_listed), get_prefix(end))
             num_listed, num_next = end, 2 * num_next
+        listed_weight = cumulative_weights[num_listed - 1] if num_listed else 0.0
+        weight_left = cumulative_weights[-1] - listed_weight if num_items else 0.0
+        if (
+            num_listed < num_items
+            and walk.num_lookups * weight_left < split_lookups * listed_weight
+        ):
+            yield from walk.list_range(get_prefix(num_listed), _NO_WALK_END)
+            num_listed = num_items
 
         # List the other items on threads, each with its own walk, and yield their class codewords
         # in the order of the items, while the threads list later items.
@@ -544,7 +553,6 @@ class FaultLister:
             return list_range
 
         if num_listed < num_items:
-            listed_weight = cumulative_weights[num_listed - 1] if num_listed else 0.0
             yield from iterate_in_order(
                 num_items - num_listed,
                 self._num_threads,
@@ -675,29 +683,52 @@ def _get_walk_items(
 ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.float64]]:
     """Split the walk of ``_list_class_codewords`` into work items for threads.
 
-    The walk chooses ``num_chosen`` classes, at least two, before each lookup.  An item holds the
-    class codewords whose first chosen class is a start class ``c1``, if there are at least
-    ``_ITEMS_PER_THREAD`` start classes for each thread, and otherwise those whose first two chosen
-    classes are ``c1`` and a later class ``c2``.  Any two classes are independent, so the walk
-    chooses each such pair.  Return the first two classes of each item, in the order of the walk,
-    with ``c2 = c1 + 1`` for an item of one class, and the total weight of the items up to each.
-    The weight of an item estimates its lookups: the number of ways to choose the other chosen
-    classes after its last class.
+    The walk chooses ``k = num_chosen`` classes, at least two, before each lookup, the first a start
+    class ``c1``.  Any two classes are independent, so the walk chooses each pair of ``c1`` and a
+    later class ``c2``.  An item holds the class codewords whose first chosen class is ``c1`` and
+    whose second is in a range ``[b, e)`` of later classes.  Its weight estimates its lookups: the
+    number of ways to choose the other ``k - 2`` classes after the second, summed over the range,
+    which is ``C(q - b, k - 1) - C(q - e, k - 1)`` for ``q`` classes.  The classes after each start
+    class are split into the fewest ranges whose weights are about ``1 / (_ITEMS_PER_THREAD *
+    num_threads)`` of the total or less, so that the number of items grows with the number of start
+    classes and of threads, not of classes.  Return the first two classes of each item, in the
+    order of the walk, and the total weight of the items up to each.
     """
-    if num_start_classes >= _ITEMS_PER_THREAD * num_threads:
-        firsts = np.arange(num_start_classes, dtype=np.int64)
-        seconds = firsts + 1
-        last_classes, num_others = firsts, num_chosen - 1
-    else:
-        counts = num_classes - 1 - np.arange(num_start_classes, dtype=np.int64)
-        firsts = np.repeat(np.arange(num_start_classes, dtype=np.int64), counts)
-        item_starts = np.repeat(np.cumsum(counts) - counts, counts)
-        seconds = np.arange(len(firsts), dtype=np.int64) - item_starts + firsts + 1
-        last_classes, num_others = seconds, num_chosen - 2
-    weights = np.array(
-        [float(math.comb(num_classes - 1 - last, num_others)) for last in range(num_classes)]
+    # ``suffix[c]`` is the weight of the pairs of a start class before ``c`` and a class from ``c``
+    # on, ``C(q - c, k - 1)``, as a float, which is zero once ``q - c < k - 1``.
+    remaining = num_classes - np.arange(num_classes + 1, dtype=np.float64)
+    factors = (remaining[:, None] - np.arange(num_chosen - 1)) / (
+        num_chosen - 1 - np.arange(num_chosen - 1)
     )
-    return firsts, seconds, np.cumsum(weights[last_classes])
+    suffix = np.prod(np.maximum(factors, 0.0), axis=1)
+
+    # Split the later classes of each start class ``c1`` into ``G`` ranges of about equal weight,
+    # at most one for each later class.  Range ``j`` starts at the first class from which the weight
+    # left is at most ``1 - j / G`` of that of ``c1``.
+    firsts = np.arange(num_start_classes, dtype=np.int64)
+    first_weights = suffix[firsts + 1]
+    target = first_weights.sum() / (_ITEMS_PER_THREAD * num_threads) if num_start_classes else 0.0
+    num_ranges = np.ones(num_start_classes, dtype=np.int64)
+    if target > 0:
+        num_ranges = np.clip(np.ceil(first_weights / target), 1, num_classes - 1 - firsts)
+        num_ranges = np.maximum(num_ranges, 1).astype(np.int64)
+    item_firsts = np.repeat(firsts, num_ranges)
+    starts = np.repeat(np.cumsum(num_ranges) - num_ranges, num_ranges)
+    indices = np.arange(len(item_firsts)) - starts
+    totals = np.repeat(num_ranges, num_ranges)
+    weights_left = suffix[item_firsts + 1] * (1 - indices / totals)
+    seconds = np.searchsorted(-suffix, -weights_left).astype(np.int64)
+    seconds = np.where(indices == 0, item_firsts + 1, np.maximum(seconds, item_firsts + 1))
+
+    # Drop ranges that start where the one before starts, and weigh each by the weight from its
+    # start to the start of the next range of its start class, or to the end.
+    keep = np.ones(len(seconds), dtype=bool)
+    keep[1:] = (seconds[1:] != seconds[:-1]) | (item_firsts[1:] != item_firsts[:-1])
+    item_firsts, seconds = item_firsts[keep], seconds[keep]
+    ends = np.full(len(seconds), num_classes, dtype=np.int64)
+    same_first = item_firsts[1:] == item_firsts[:-1]
+    ends[:-1][same_first] = seconds[1:][same_first]
+    return item_firsts, seconds, np.cumsum(suffix[seconds] - suffix[ends])
 
 
 def _split_memory_limit(

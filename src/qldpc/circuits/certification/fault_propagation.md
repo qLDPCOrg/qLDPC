@@ -236,13 +236,16 @@ So the search looks up and skips the same faults, keeps the same table of syndro
 
 The [listing](#listing-each-irreducible-accepted-fault-once) chooses independent classes `c_1 < ... < c_{m-s}` for a closing set of `s` classes, at least two of them since `s ≤ m - 2`, with `c_1` a start class.
 It walks these choices depth first in lexicographic order, and its state at a choice, the reduced flags and the summed rows of the chosen classes, depends only on the chosen classes.
-The threads split the walk into **work items**: the choices whose first class is a given start class, if there are at least 16 start classes for each thread, and otherwise the choices whose first two classes are a given start class and a given later class, since any two classes are independent.
+The threads split the walk into **work items**: the choices whose first class is a given start class and whose second is in a given range of later classes, since any two classes are independent.
+The ranges of the later classes of each start class hold about equal numbers of estimated lookups, each about `1 / (256 n)` of the total on `n` threads or less, so that there are at most about `256 n` items more than start classes.
+The estimate of an item is the number of ways to choose its other classes after its second class, summed over its range.
 The walk of a range of items starts in the state in which the walk of one thread reaches the first item, and stops where that walk reaches the item after the range.
 So the walks of consecutive ranges list the class codewords of one thread in its order, and the lookups of all the ranges add up to those of one thread.
 
-The calling thread first lists the first items alone, in ranges of 1, 2, 4, and more items, until it has made `2^14` lookups for each thread, so that small listings never start threads.
-On `n` threads, it splits the rest of the items into ranges, each of the fewest items whose estimated lookups reach `1 / (32 (n - 1))` of the total.
-The estimate of an item is the number of ways to choose its other classes after its last class.
+The calling thread first lists the first items alone, in ranges of 1, 2, 4, and more items, until it has made `2^14` lookups for each thread.
+If the lookups left, estimated as its lookups times the ratio of the estimated lookups of the other items to those of its own, are fewer, it lists the other items alone too.
+So small listings never start threads, which costs, from starting them to taking the last class codewords from them, about as much as `2^13` lookups for each thread.
+On `n` threads, it splits the rest of the items into ranges, each of the fewest items whose estimated lookups reach `1 / (32 t)` of the total, for `t = min(n - 1, number of items)` threads.
 The threads claim the ranges in order, and the calling thread takes the class codewords of each range in turn, as its thread lists them (`iterate_in_order` in `qldpc/codes/distance/_threads.py`).
 
 The expansion is that of one thread, since it gets the same class codewords in the same order, and how they are split into batches does not change it.
@@ -250,6 +253,11 @@ A batch ends after a class codeword.
 The expansion starts each class codeword with no remembered choices, keeps its table of syndromes and its batch of faults from one class codeword to the next, within a batch or across batches, and pauses at the same faults, where its batch of faults is full or its table of syndromes should grow.
 The search counts the lookups of the threads with its own, and so builds the [closing maps](#listing-each-irreducible-accepted-fault-once) of one thread, which wait for listings with enough lookups.
 The threads can list class codewords after the first violation, which the calling thread never expands.
+An exception on a thread, such as a `MemoryError`, can be raised before the calling thread reaches a violation that one thread would have found first.
+
+While the threads list, the calling thread can run a costly batch of the oracle, which moves to threads of its own, so that up to `2 n - 1` threads can be busy for a time.
+Listing on threads also takes more CPU time than on one thread, in trials about 40 to 80% more on 4 to 8 threads, since each thread lists more slowly when more threads list.
+Programs that run certifications in several processes at once, such as drivers of searches, should keep each on one thread with `QLDPC_NUM_THREADS=1`, as the README of the distance package says for pools.
 
 ### Requirements on threads
 
@@ -258,17 +266,19 @@ Changes to the listing must keep these requirements.
 - **Expand class codewords only on the calling thread, in the order of one thread.**
   The table of syndromes, the remembered choices of `_expand_class_tuples`, and the batches of faults depend on the order of the faults, and [skipping faults](#skipping-faults-whose-syndromes-are-listed) relies on the table holding the syndrome of each earlier fault.
   Expanding class codewords on threads would need a table of syndromes for each thread, and its own argument that the search still checks the faults of one thread.
-  In `_fault_search_test.py`, `test_listing_on_threads_checks_the_faults_of_one_thread` compares listings on 2, 3, and 8 threads with one thread, also with tables of syndromes that fill up and with violations that stop a listing, and `test_listing_on_threads_keeps_the_order_whichever_range_ends_first` lists a later range before the first.
+  In `_fault_search_test.py`, `test_listing_on_threads_checks_the_faults_of_one_thread` compares listings on 2, 3, and 8 threads with one thread, also with tables of syndromes that fill up, with violations that stop a listing, and with listings that the calling thread starts alone, and `test_listing_on_threads_keeps_the_order_whichever_range_ends_first` lists a later range before the first, after the calling thread has listed items alone.
 - **Split the walk only between choices of its first classes, start each range in the state of one thread, and count the lookups of every thread.**
   The state of the walk at a choice must stay a function of the chosen classes.
-  `test_listing_on_threads_counts_the_lookups_of_one_thread` checks that a closing map that waits for a count of lookups is built as on one thread.
+  `test_listing_on_threads_counts_the_lookups_of_one_thread` checks the count of lookups, and that a closing map that waits for it is built as on one thread, and `test_only_costly_listings_move_to_threads` checks when a listing starts threads.
 - **Keep `_list_class_codewords` writing only to the arrays of its walk, and `_expand_class_tuples` only to the arrays of the calling thread**, since both run without the global interpreter lock while threads list.
   The threads read the rows of the classes and a closing map, which the calling thread builds before the listing starts, and changes only after every thread has returned.
   `test_listing_on_threads_checks_the_faults_of_one_thread` runs the threads with the rows of the classes and of the primitive faults, the members of the classes, and the closing maps read-only, so that numba rejects a write to them in any branch of compiled code, and checks that they do not change.
   Review checks the writes that it misses, such as those through `.flat`, `np.ascontiguousarray`, `np.asfortranarray`, `np.nditer`, or `np.fill_diagonal`, which numba compiles anyway, and those on paths that the tests do not run.
+- **Stop the threads whenever a listing ends, also by an exception.**
+  `find_first` closes the batches of class tuples that it takes, and `iterate_in_order` then stops the threads and waits for them; `test_listing_on_threads_stops_its_threads_when_an_exception_is_raised` checks this, and the tests of `iterate_in_order` in `qldpc/codes/distance/_threads_test.py` check its order, its cap on held class codewords, and how it stops.
 - **Call no numba-parallel code on threads, and read the tuning only on the calling thread.**
   The search reads its number of threads before it lists.
-  The fixture `check_code_on_threads` of `qldpc/codes/distance/conftest.py`, which `conftest.py` here imports, fails each test of this package whose threads call numba-parallel code from Python or read the tuning through `get_tuning`.
+  The fixture `check_code_on_threads` of `qldpc/codes/distance/conftest.py`, which `conftest.py` here imports, fails each test of this package whose threads call numba-parallel code from Python or read the tuning through `get_tuning`, as `test_threads_of_a_listing_run_with_the_checks_of_the_rules_on_threads` checks.
   `test_nothing_asks_numba_for_parallel_code` of `qldpc/_compiled_code_rules_test.py` checks that qLDPC compiles none of its functions numba-parallel.
   `test_entry_points_without_the_lock_are_named_in_the_requirements_on_threads` in `_fault_search_test.py` checks that this section names each function of this package compiled with `nogil=True`.
 
