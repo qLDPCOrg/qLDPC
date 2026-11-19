@@ -33,7 +33,9 @@ from qldpc.codes.distance import CosetLeaderSearch, DistanceMethod, MinWeightBou
 # closing table is built, before the slots, each set takes at most 8 more for a bucket count, so the
 # peak is 40 bytes plus 4 for each class: 48 for a pair.  This leaves out the extra memory of merge
 # sorting a bucket (a range of the table whose keys share their top bits) of more than 32 sets that
-# is out of order (see ``_sort_bucket``).
+# is out of order (see ``_sort_bucket``), and the array into which ``_list_class_codewords`` lists
+# class codewords, whose rows have room for all the class codewords of one lookup (see
+# ``FaultLister._iter_class_tuples``).
 _BYTES_PER_SET = 40
 
 # The largest number of classes in a closing set (see ``FaultLister``).  Each class that a closing
@@ -43,7 +45,7 @@ _MAX_CLOSING_SIZE = 4
 
 # A closing map of sets of more than two classes is built only once the listing of class codewords
 # at the last fault weight made at least this many lookups for each set of the map, so that building
-# the map takes about as long as that listing at most.
+# the map takes time of the order of that listing.
 _LOOKUPS_PER_CLOSING_SET = 1
 
 # The number of choices of members of a class tuple whose syndromes ``_expand_class_tuples``
@@ -259,8 +261,8 @@ class FaultLister:
     of pairs, a fault weight ``m`` may use a closing map of up to ``min(m - 2, _MAX_CLOSING_SIZE)``
     classes instead: one that was built for an earlier fault weight, or one that is built now
     because the listing of class codewords at the last fault weight made enough lookups (see
-    ``_LOOKUPS_PER_CLOSING_SET``), if it fits in the room that the table of syndromes has not used.
-    The map then takes that room from the table.
+    ``_LOOKUPS_PER_CLOSING_SET``), if the table of syndromes can give up the room for it and still
+    grow to the same largest size (see ``_take_table_room``).
 
     Args:
         flags: The flags of each primitive fault, packed into an integer.
@@ -497,8 +499,8 @@ class FaultLister:
         hashes = self._class_rows[:, 0]
         size = 1 if fault_weight == 3 or not self._should_build_closing_pairs else 2
         while 2 <= size < min(fault_weight - 2, _MAX_CLOSING_SIZE):
-            # Build the next map if the last listing made enough lookups, and if it fits in the
-            # room that the table of syndromes has not used.
+            # Build the next map if the last listing made enough lookups, and if the table of
+            # syndromes can give up the room for it without changing the largest size it can reach.
             if size + 1 not in self._closing_maps:
                 num_sets = math.comb(len(hashes), size + 1)
                 max_syndromes = _take_table_room(
@@ -545,14 +547,29 @@ def _split_memory_limit(
 def _take_table_room(
     num_bytes: int, max_syndromes: int, num_rows: int, num_syndrome_words: int
 ) -> int:
-    """Take room for a number of bytes from a table of syndromes that it has not used.
+    """Take room for a number of bytes from a table of syndromes, if it still reaches the same size.
 
     The table has room for ``max_syndromes`` syndromes of ``num_syndrome_words`` words, and has
     ``num_rows`` rows.  Return how many syndromes it has room for after giving up the bytes, or -1
-    if the room that it has not used is too small.
+    if it would then have room for fewer than its rows, or could not grow to as many rows as before
+    (see ``_get_largest_table_size``), so that it would take fewer syndromes.
     """
     num_syndromes = -(-num_bytes // _get_syndrome_bytes(num_syndrome_words))
-    return max_syndromes - num_syndromes if num_rows + num_syndromes <= max_syndromes else -1
+    rest = max_syndromes - num_syndromes
+    largest_size = _get_largest_table_size(num_rows, max_syndromes)
+    if rest < num_rows or _get_largest_table_size(num_rows, rest) < largest_size:
+        return -1
+    return rest
+
+
+def _get_largest_table_size(num_rows: int, max_syndromes: int) -> int:
+    """The number of rows to which a table of syndromes with this many rows can grow.
+
+    It doubles as long as ``_table_should_grow`` allows, with as many syndromes as rows.
+    """
+    while _table_should_grow(num_rows, num_rows, max_syndromes):
+        num_rows *= 2
+    return num_rows
 
 
 def _get_syndrome_bytes(num_syndrome_words: int) -> int:
@@ -596,34 +613,18 @@ def _get_closing_table(
         bucket_bits += 1
     shift = np.uint64(64 - bucket_bits)
 
-    # Count the sets in each bucket, and turn the counts into the start of each bucket.  The key of
-    # a set is the sum of the hashes of its classes.
+    # Count the sets in each bucket, and turn the counts into the start of each bucket.
     bucket_starts = np.zeros((1 << bucket_bits) + 1, dtype=np.int64)
-    classes = np.arange(size)
-    for _ in range(num_sets):
-        key = np.uint64(0)
-        for index in range(size):
-            key ^= hashes[classes[index]]
-        bucket_starts[np.int64(key >> shift) + 1] += 1
-        _advance_set(classes, num_classes)
+    keys = np.empty(0, dtype=np.uint64)
+    sets = np.empty((0, size), dtype=np.int32)
+    _place_sets(hashes, size, shift, bucket_starts, keys, sets, False)
     for bucket in range(1 << bucket_bits):
         bucket_starts[bucket + 1] += bucket_starts[bucket]
 
     # Fill the buckets in the order of the sets, which moves each start to the end of its bucket.
     keys = np.empty(num_sets, dtype=np.uint64)
     sets = np.empty((num_sets, size), dtype=np.int32)
-    classes = np.arange(size)
-    for _ in range(num_sets):
-        key = np.uint64(0)
-        for index in range(size):
-            key ^= hashes[classes[index]]
-        set_bucket = np.int64(key >> shift)
-        entry = bucket_starts[set_bucket]
-        bucket_starts[set_bucket] = entry + 1
-        keys[entry] = key
-        for index in range(size):
-            sets[entry, index] = classes[index]
-        _advance_set(classes, num_classes)
+    _place_sets(hashes, size, shift, bucket_starts, keys, sets, True)
 
     # Sort each bucket stably (see ``_sort_bucket``).
     for bucket in range(1 << bucket_bits):
@@ -631,6 +632,72 @@ def _get_closing_table(
         if bucket_starts[bucket] - start > 1:
             _sort_bucket(keys, sets, start, bucket_starts[bucket])
     return keys, sets
+
+
+@always_compiled
+def _place_sets(
+    hashes: npt.NDArray[np.uint64],
+    size: int,
+    shift: np.uint64,
+    bucket_starts: npt.NDArray[np.int64],
+    keys: npt.NDArray[np.uint64],
+    sets: npt.NDArray[np.int32],
+    fill: bool,
+) -> None:
+    """Count, or place, the sets of ``size`` classes in the buckets of a closing table.
+
+    The sets are visited in lexicographic order, and the key of a set is the sum of the hashes of
+    its classes, whose top bits pick its bucket.  Without ``fill``, add one to
+    ``bucket_starts[b + 1]`` for each set in bucket ``b``.  With ``fill``, ``bucket_starts[b]`` is
+    the next free entry of bucket ``b``: place the set there, and move the entry on.
+    """
+    num_classes = len(hashes)
+
+    # Single classes and pairs, the sizes that most listings use, take a faster loop of their own.
+    # For single classes, the inner loop runs only for ``second == first``.
+    if size <= 2:
+        for first in range(num_classes):
+            for second in range(first + size - 1, num_classes if size == 2 else first + 1):
+                key = hashes[first] ^ hashes[second] if size == 2 else hashes[first]
+                entry = _place_set(key, shift, bucket_starts, keys, fill)
+                if fill:
+                    sets[entry, 0] = first
+                    sets[entry, size - 1] = second
+        return
+
+    # Larger sets step through the sets of classes in lexicographic order.
+    classes = np.arange(size)
+    for _ in range(_get_num_sets(num_classes, size)):
+        key = np.uint64(0)
+        for index in range(size):
+            key ^= hashes[classes[index]]
+        entry = _place_set(key, shift, bucket_starts, keys, fill)
+        if fill:
+            for index in range(size):
+                sets[entry, index] = classes[index]
+        _advance_set(classes, num_classes)
+
+
+@always_compiled(inline=True)
+def _place_set(
+    key: np.uint64,
+    shift: np.uint64,
+    bucket_starts: npt.NDArray[np.int64],
+    keys: npt.NDArray[np.uint64],
+    fill: bool,
+) -> np.int64:
+    """Count, or place, the key of one set as ``_place_sets`` describes, and return its entry.
+
+    The entry is -1 when counting.
+    """
+    bucket = np.int64(key >> shift)
+    if not fill:
+        bucket_starts[bucket + 1] += 1
+        return np.int64(-1)
+    entry = bucket_starts[bucket]
+    bucket_starts[bucket] = entry + 1
+    keys[entry] = key
+    return entry
 
 
 @always_compiled

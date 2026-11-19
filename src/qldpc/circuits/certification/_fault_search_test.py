@@ -437,6 +437,8 @@ def test_closing_map_peak_memory_is_within_its_estimate(
     # the compiled functions.
     for name in (
         "_get_closing_table",
+        "_place_sets",
+        "_place_set",
         "_get_num_sets",
         "_advance_set",
         "_sort_bucket",
@@ -488,14 +490,128 @@ def test_memory_limit_is_split_within_the_caps() -> None:
     assert split(3, 2, pair_bytes - 1) == (False, (pair_bytes - 1) // syndrome_bytes)
 
 
-def test_closing_maps_take_room_that_the_table_has_not_used() -> None:
-    """A closing map takes its room from the room of the table of syndromes beyond its rows."""
+def test_closing_maps_take_room_that_the_table_does_not_need() -> None:
+    """A closing map takes room from the table of syndromes only if the table can grow as far."""
     take = _fault_search._take_table_room
-    # A syndrome of one word takes 32 bytes, so 33 bytes take the room of two.  A table with room
-    # for ten syndromes in four rows can give up the room of six, and no more.
+    # A syndrome of one word takes 32 bytes, so 33 bytes take the room of two.  A table of four rows
+    # with room for ten syndromes cannot grow, so it can give up the room of six, and no more.
     assert take(33, 10, 4, 1) == 8
     assert take(6 * 32, 10, 4, 1) == 4
     assert take(6 * 32 + 1, 10, 4, 1) == -1
+    # With room for 100, a table of four rows can grow to 64 rows, since the old and the new table
+    # of the last step take 96.  It can give up the room of four syndromes, but not of five.
+    assert take(4 * 32, 100, 4, 1) == 96
+    assert take(5 * 32, 100, 4, 1) == -1
+
+
+def _listing_lister(num_classes: int, seed: int, memory_limit: int) -> _fault_search.FaultLister:
+    """A lister of two members in each of ``num_classes`` classes with random flags of six bits.
+
+    The syndromes are random and of 12 bits, so that the faults share some syndromes but fill a
+    table of syndromes, and each representative has weight three, so that each fault with a new
+    syndrome is checked.
+    """
+    rng = np.random.default_rng(seed)
+    class_flags = rng.choice(np.arange(1, 64), size=num_classes, replace=False).tolist()
+    flags = [int(flag) for flag in class_flags for _ in range(2)]
+    syndromes = [int(syndrome) for syndrome in rng.integers(2**12, size=len(flags))]
+    representatives = [0b111 << (3 * jj) for jj in range(len(flags))]
+    lister = _fault_search.FaultLister(
+        flags, syndromes, representatives, 3 * len(flags), False, len(flags), memory_limit
+    )
+    return lister
+
+
+def test_closing_maps_do_not_change_the_checked_faults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Closing maps of three or four classes leave the checked faults as they are without them.
+
+    In particular, a map does not take room that the table of syndromes, which grows from two rows
+    here, would need to take each new syndrome as it does without the map.
+    """
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
+    # With twelve classes, the map of pairs takes 3168 bytes, and those of three and four classes
+    # take 11,440 and 27,720.  Each syndrome takes 40 bytes, and the listing has 1362 syndromes.
+    # With room for 1536, 3072, or 6144 syndromes, the table can just grow to 1024, 2048, or 4096
+    # rows, so that any room that a map took would stop it one step short.
+    for room in (1536, 3072, 6144):
+        memory_limit = 3168 + 40 * room
+        checked = []
+        for max_closing_size in (2, 4):
+            monkeypatch.setattr(_fault_search, "_MAX_CLOSING_SIZE", max_closing_size)
+            lister = _listing_lister(12, 5, memory_limit)
+            checked.append([_check_faults(lister, weight, ())[0] for weight in range(2, 7)])
+        assert checked[0] == checked[1], memory_limit
+
+
+def test_larger_closing_maps_wait_for_listings_with_many_lookups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A closing map of three classes is built only after a listing with as many lookups as sets."""
+    get_closing_map = _fault_search._get_closing_map
+    sizes_built: list[int] = []
+
+    def record_closing_map(
+        hashes: npt.NDArray[np.uint64], size: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
+        sizes_built.append(size)
+        return get_closing_map(hashes, size)
+
+    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
+
+    # Fault weight five may use the map of three of the twelve classes, which has 220 sets, if the
+    # listing at the last fault weight made at least 220 lookups.
+    for num_lookups, expected in ((2, [2]), (22_000, [3])):
+        sizes_built.clear()
+        lister = _listing_lister(12, 5, 2**20)
+        lister._num_lookups = num_lookups
+        _check_faults(lister, 5, ())
+        assert sizes_built == expected, num_lookups
+
+
+def test_closing_maps_and_the_table_of_syndromes_stay_within_the_memory_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The closing maps and the table of syndromes, also while it grows, fit the memory limit."""
+    monkeypatch.setattr(_fault_search, "_INITIAL_SYNDROME_TABLE_SIZE", 2)
+    monkeypatch.setattr(_fault_search, "_LOOKUPS_PER_CLOSING_SET", 0)
+    get_closing_map = _fault_search._get_closing_map
+    grow_syndrome_table = _fault_search._grow_syndrome_table
+
+    # Record the memory of the closing maps of two or more classes as they are built, and the rows
+    # of the table of syndromes, and check the memory in use after each step against the limit.  A
+    # syndrome takes 40 bytes, and while the table grows, its old and new rows are both in use.
+    def record_closing_map(
+        hashes: npt.NDArray[np.uint64], size: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int32], npt.NDArray[np.int64]]:
+        if size > 1:
+            set_bytes = _fault_search._BYTES_PER_SET + 4 * size
+            usage["maps"] += math.comb(len(hashes), size) * set_bytes
+            assert usage["maps"] + 40 * usage["rows"] <= memory_limit
+            sizes_built.add(size)
+        return get_closing_map(hashes, size)
+
+    def record_growth(
+        syndrome_rows: npt.NDArray[np.uint64], num_syndromes: int
+    ) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.int64]]:
+        assert usage["maps"] + 40 * 3 * len(syndrome_rows) <= memory_limit
+        usage["rows"] = 2 * len(syndrome_rows)
+        return grow_syndrome_table(syndrome_rows, num_syndromes)
+
+    monkeypatch.setattr(_fault_search, "_get_closing_map", record_closing_map)
+    monkeypatch.setattr(_fault_search, "_grow_syndrome_table", record_growth)
+
+    # With twelve classes, the maps of two, three, and four classes take 3168, 11,440, and 27,720
+    # bytes.  With room for 1000 to 3200 syndromes beyond the map of pairs, maps of three and four
+    # classes fit in some cases, some just, while the table fills up.
+    sizes_built: set[int] = set()
+    for room in range(1000, 3200, 50):
+        memory_limit = 3168 + 40 * room
+        usage = {"maps": 0, "rows": 2}
+        lister = _listing_lister(12, 5, memory_limit)
+        for weight in range(2, 7):
+            _check_faults(lister, weight, ())
+    assert sizes_built == {2, 3, 4}
 
 
 def test_key_slots_find_the_first_entry_of_each_key(pytestconfig: pytest.Config) -> None:
